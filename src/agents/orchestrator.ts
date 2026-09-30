@@ -180,9 +180,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       this.recordMessage("user", userText, "orchestrator");
     }
 
-    // Run Judge intent classification
+    // Run Judge intent classification with recent conversation history
+    const recentTurns = (this.messages || []).slice(-6).map((m: any) => ({
+      role: m?.role,
+      content: this.extractMessageText(m),
+    }));
+
     const judge = new LLMJudge(this.env);
-    const route = await judge.route(userText);
+    const route = await judge.route(userText, recentTurns);
     this.audit("route.decided", "judge", {
       route: route.agent,
       confidence: route.confidence,
@@ -199,8 +204,16 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
 
+    // Fetch active session facts directly from SQLite to ground every turn
+    const activeMemories = Array.from(
+      sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
+    ) as Array<{ key: string; value: string }>;
+    const memoryContext = activeMemories.length > 0
+      ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map(m => `- ${m.key}: "${m.value}"`).join("\n")
+      : "";
+
     const model = getWorkersAIModel(this.env);
-    const maxSteps = Math.max(1, Math.min(10, Number(this.env.MAS_MAX_STEPS || 4)));
+    const maxSteps = Math.max(1, Math.min(10, Number(this.env.MAS_MAX_STEPS || 6)));
 
     // Safely normalize messages to prevent AI SDK convertToModelMessages crashes
     let modelMessages: any[];
@@ -218,18 +231,20 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const result = streamText({
         model,
         system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
-Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.
+Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}
 
 Sub-agent capabilities available to you:
-- 'searchKnowledge': Retrieve facts from Cloudflare AI Search knowledge base. Always cite relevant facts.
-- 'draftPayment': Prepare payment authorization drafts (charges, refunds, invoices). NEVER execute or claim money was transferred.
+- 'searchKnowledge': Retrieve facts from Cloudflare AI Search knowledge base.
+- 'draftPayment': Prepare payment authorization drafts (charges, refunds, invoices). NEVER execute unverified money movement.
 - 'createTaskDraft': Draft actionable tasks with priorities and deadlines.
+- 'confirmDraft': Formally approve, authorize, or cancel a pending payment or task draft upon explicit user confirmation.
 - 'rememberFact' / 'recallFacts': Read and write persistent memory facts stored in SQLite for this session.
 
-Guidelines:
-1. Be helpful, concise, transparent, and accurate.
-2. If tool results say 'awaiting_confirmation' or 'draft', make it clearly visible that human approval is required.
-3. If search yields no relevant results, clearly acknowledge this without fabricating data.`,
+Agentic Best Practices & Workflow Rules:
+1. RAG & Knowledge Retrieval: If 'searchKnowledge' returns matching documents, cite them accurately. If 'searchKnowledge' returns 0 documents (or empty chunks), explicitly state that no internal documents were found in the custom knowledge base, and then synthesize a comprehensive, helpful answer from verified domain knowledge so the user's question is thoroughly answered.
+2. Human-in-the-Loop (HITL) Execution: For financial drafts or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirmDraft' with decision: 'approved'.
+3. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'rememberFact'.
+4. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
         messages: modelMessages,
         tools,
         stopWhen: stepCountIs(maxSteps),

@@ -106,50 +106,61 @@ function renderInlineFormatted(text: string) {
   });
 }
 
-function ToolResultView({ toolType, data }: { toolType: string; data: any }) {
+function ReasoningView({ reasoning }: { reasoning: string }) {
   const [open, setOpen] = useState(false);
+  if (!reasoning || !reasoning.trim()) return null;
 
-  // Search Knowledge tool
-  if (toolType.includes("search") || data?.source?.includes("Search")) {
-    const query = data?.query || data?.input?.query;
-    return (
-      <div className="tool-card search-card">
-        <div className="tool-card-header" onClick={() => setOpen(!open)}>
-          <span className="tool-icon">🔍</span>
-          <div className="tool-summary">
-            <strong>Knowledge Search:</strong> <em>"{query || "query"}"</em>
-          </div>
-          <span className="tool-status-pill success">RAG Retrieved</span>
-          <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
-        </div>
-        {open && (
-          <div className="tool-card-body">
-            <pre>{JSON.stringify(data.results || data, null, 2)}</pre>
-          </div>
-        )}
+  return (
+    <div className="reasoning-trace">
+      <div className="reasoning-header" onClick={() => setOpen(!open)}>
+        <span className="reasoning-icon">💭</span>
+        <span className="reasoning-title">Thought Process</span>
+        <span className="reasoning-preview">
+          {open ? "" : `— ${reasoning.slice(0, 70).replace(/\n/g, " ")}...`}
+        </span>
+        <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
       </div>
-    );
-  }
+      {open && (
+        <div className="reasoning-body">
+          <div className="reasoning-text">{reasoning}</div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-  // Payment Draft tool
-  if (toolType.includes("Payment") || data?.status === "awaiting_confirmation" || data?.action) {
-    const amount = data?.amount || data?.input?.amount;
-    const currency = data?.currency || data?.input?.currency || "USD";
-    const customer = data?.customer || data?.input?.customer;
-    const action = data?.action || data?.input?.action || "transaction";
+function ToolResultView({
+  toolType,
+  data,
+  onAction,
+  isBusy,
+}: {
+  toolType: string;
+  data: any;
+  onAction?: (prompt: string) => void;
+  isBusy?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const normalizedType = (toolType || "").toLowerCase();
 
+  // 1. Human-In-The-Loop Confirmation Execution
+  if (normalizedType.includes("confirm") || data?.auditNotice || (data?.draftId && (data?.status === "authorized" || data?.status === "scheduled" || data?.status === "rejected"))) {
+    const isApproved = data?.decision === "approved" || data?.status === "authorized" || data?.status === "scheduled";
+    const draftId = data?.draftId || "draft";
     return (
-      <div className="tool-card payment-card">
+      <div className="tool-card confirm-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
-          <span className="tool-icon">💳</span>
+          <span className="tool-icon">{isApproved ? "🛡️" : "🚫"}</span>
           <div className="tool-summary">
-            <strong>Payment Intent ({action.toUpperCase()}):</strong> {amount ? `$${amount} ${currency}` : ""} for {customer || "customer"}
+            <strong>Human Authorization:</strong> <code>{draftId}</code> ({isApproved ? "APPROVED" : "REJECTED"})
           </div>
-          <span className="tool-status-pill warning">Awaiting Confirmation</span>
+          <span className={`tool-status-pill ${isApproved ? "success" : "priority-urgent"}`}>
+            {isApproved ? "EXECUTED" : "CANCELLED"}
+          </span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
-        <div className="payment-notice">
-          🛡️ <strong>Safety Guarantee:</strong> No money has been moved. An explicit human authorization is required before execution.
+        <div className="confirm-details">
+          {data?.auditNotice || data?.note || "Draft confirmed by human reviewer."}
         </div>
         {open && (
           <div className="tool-card-body">
@@ -160,11 +171,94 @@ function ToolResultView({ toolType, data }: { toolType: string; data: any }) {
     );
   }
 
-  // Task Draft tool
-  if (toolType.includes("Task") || data?.taskId || data?.status === "draft") {
+  // 2. Knowledge Base Search
+  if (normalizedType.includes("search") || data?.source?.includes("Search")) {
+    const query = data?.query || data?.input?.query || "knowledge base";
+    const resultsFound = data?.resultsFound !== false && (data?.count > 0 || (Array.isArray(data?.chunks) && data.chunks.length > 0));
+    const count = data?.count ?? (Array.isArray(data?.chunks) ? data.chunks.length : 0);
+
+    return (
+      <div className="tool-card search-card">
+        <div className="tool-card-header" onClick={() => setOpen(!open)}>
+          <span className="tool-icon">🔍</span>
+          <div className="tool-summary">
+            <strong>Knowledge Search:</strong> <em>"{query}"</em>
+          </div>
+          <span className={`tool-status-pill ${resultsFound ? "success" : "warning"}`}>
+            {resultsFound ? `RAG (${count} docs)` : "0 Docs (Fallback)"}
+          </span>
+          <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+        </div>
+        {!resultsFound && (
+          <div className="task-deadline">
+            💡 No custom index documents matched. Orchestrator synthesized answer using domain knowledge.
+          </div>
+        )}
+        {open && (
+          <div className="tool-card-body">
+            <pre>{JSON.stringify(data.chunks || data.results || data, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Payment Draft Tool
+  if (normalizedType.includes("payment") || data?.status === "awaiting_confirmation" || data?.action) {
+    const amount = data?.amount || data?.input?.amount;
+    const currency = data?.currency || data?.input?.currency || "USD";
+    const customer = data?.customer || data?.input?.customer;
+    const action = data?.action || data?.input?.action || "transaction";
+    const draftId = data?.draftId;
+
+    return (
+      <div className="tool-card payment-card">
+        <div className="tool-card-header" onClick={() => setOpen(!open)}>
+          <span className="tool-icon">💳</span>
+          <div className="tool-summary">
+            <strong>Payment Intent ({String(action).toUpperCase()}):</strong> {amount ? `$${amount} ${currency}` : ""} for {customer || "customer"}
+          </div>
+          <span className="tool-status-pill warning">Awaiting Approval</span>
+          <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+        </div>
+        <div className="payment-notice">
+          🛡️ <strong>Safety Guarantee:</strong> No money has been moved. An explicit human authorization is required before execution.
+        </div>
+        {draftId && data?.status === "awaiting_confirmation" && (
+          <div className="hitl-actions">
+            <button
+              type="button"
+              className="hitl-btn approve"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Approve payment draft ${draftId}`)}
+            >
+              ✅ Approve Draft
+            </button>
+            <button
+              type="button"
+              className="hitl-btn reject"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Cancel payment draft ${draftId}`)}
+            >
+              ❌ Cancel
+            </button>
+          </div>
+        )}
+        {open && (
+          <div className="tool-card-body">
+            <pre>{JSON.stringify(data, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 4. Task Draft Tool
+  if (normalizedType.includes("task") || data?.taskId || data?.status === "draft") {
     const title = data?.title || data?.input?.title;
     const priority = data?.priority || data?.input?.priority || "medium";
     const dueDate = data?.dueDate || data?.input?.dueDate;
+    const taskId = data?.taskId;
 
     return (
       <div className="tool-card task-card">
@@ -173,10 +267,22 @@ function ToolResultView({ toolType, data }: { toolType: string; data: any }) {
           <div className="tool-summary">
             <strong>Task Proposal:</strong> {title}
           </div>
-          <span className={`tool-status-pill priority-${priority}`}>{priority.toUpperCase()}</span>
+          <span className={`tool-status-pill priority-${priority}`}>{String(priority).toUpperCase()}</span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         {dueDate && <div className="task-deadline">📅 Target: {dueDate}</div>}
+        {taskId && data?.status === "draft" && (
+          <div className="hitl-actions">
+            <button
+              type="button"
+              className="hitl-btn approve"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Confirm task ${taskId}`)}
+            >
+              ✅ Confirm Task
+            </button>
+          </div>
+        )}
         {open && (
           <div className="tool-card-body">
             <pre>{JSON.stringify(data, null, 2)}</pre>
@@ -186,14 +292,19 @@ function ToolResultView({ toolType, data }: { toolType: string; data: any }) {
     );
   }
 
-  // Memory Fact tool
-  if (toolType.includes("remember") || toolType.includes("recall") || data?.key) {
+  // 5. Memory Fact Tool
+  if (normalizedType.includes("remember") || normalizedType.includes("recall") || data?.key || data?.facts) {
+    const isRecall = normalizedType.includes("recall") || Array.isArray(data?.facts);
     return (
       <div className="tool-card memory-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">🧠</span>
           <div className="tool-summary">
-            <strong>Session Memory:</strong> <code>{data.key}</code> = "{data.value}"
+            {isRecall ? (
+              <span><strong>Session Memory:</strong> Recalled {data?.count ?? data?.facts?.length ?? 0} facts</span>
+            ) : (
+              <span><strong>Session Memory:</strong> <code>{data.key}</code> = "{data.value}"</span>
+            )}
           </div>
           <span className="tool-status-pill info">SQLite Stored</span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
@@ -207,7 +318,7 @@ function ToolResultView({ toolType, data }: { toolType: string; data: any }) {
     );
   }
 
-  // Generic tool fallback
+  // 6. Generic Fallback Tool (only for unrecognized custom tools)
   return (
     <details className="tool-call generic-tool">
       <summary>🔧 Tool Call: {toolType}</summary>
@@ -431,13 +542,29 @@ export function Chat({ user }: { user: User }) {
                   const isUser = msg.role === "user";
                   const text = extractText(msg);
 
-                  // Extract non-text parts (tool calls/results)
+                  // Extract reasoning stream parts
+                  const reasoningParts = !isUser && Array.isArray(msg.parts)
+                    ? msg.parts.filter((p: any) => p && p.type === "reasoning")
+                    : [];
+                  const reasoningText = reasoningParts
+                    .map((p: any) => p.text || p.reasoning || "")
+                    .filter(Boolean)
+                    .join("\n\n");
+
+                  // Extract legitimate tool parts (strictly excluding stream lifecycle events and reasoning)
                   const toolParts = !isUser && Array.isArray(msg.parts)
-                    ? msg.parts.filter((p: any) => p && p.type !== "text")
+                    ? msg.parts.filter((p: any) => {
+                        if (!p || typeof p !== "object") return false;
+                        const t = p.type;
+                        if (t === "text" || t === "reasoning" || t === "step-start" || t === "step-end" || t === "finish") {
+                          return false;
+                        }
+                        return true;
+                      })
                     : [];
 
                   // Ignore empty assistant messages from interrupted or failed streams
-                  if (!isUser && !text && toolParts.length === 0) {
+                  if (!isUser && !text && toolParts.length === 0 && !reasoningText) {
                     return null;
                   }
 
@@ -456,19 +583,27 @@ export function Chat({ user }: { user: User }) {
                           {isUser ? null : <span className="agent-tag">Workers AI</span>}
                         </div>
 
-                        {text && <MarkdownContent text={text} />}
+                        {reasoningText && <ReasoningView reasoning={reasoningText} />}
 
                         {toolParts.length > 0 && (
                           <div className="tool-results-list">
-                            {toolParts.map((part: any, pIdx: number) => (
-                              <ToolResultView
-                                key={pIdx}
-                                toolType={part.type || part.toolName || "tool"}
-                                data={part.output ?? part.result ?? part.input ?? {}}
-                              />
-                            ))}
+                            {toolParts.map((part: any, pIdx: number) => {
+                              const toolName = part.toolInvocation?.toolName || part.toolName || part.name || part.type || "tool";
+                              const toolData = part.toolInvocation?.result ?? part.output ?? part.result ?? part.toolInvocation?.args ?? part.input ?? {};
+                              return (
+                                <ToolResultView
+                                  key={pIdx}
+                                  toolType={toolName}
+                                  data={toolData}
+                                  onAction={(actionPrompt) => handleChipClick(actionPrompt)}
+                                  isBusy={isBusy}
+                                />
+                              );
+                            })}
                           </div>
                         )}
+
+                        {text && <MarkdownContent text={text} />}
                       </div>
                     </div>
                   );

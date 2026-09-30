@@ -19,7 +19,10 @@ export class LLMJudge {
     this.model = getWorkersAIModel(env);
   }
 
-  async route(text: string): Promise<RouteDecision> {
+  async route(
+    text: string,
+    recentMessages: Array<{ role?: string; content?: string }> = []
+  ): Promise<RouteDecision> {
     const trimmed = text.trim();
     if (!trimmed) {
       return {
@@ -32,8 +35,31 @@ export class LLMJudge {
 
     const lower = trimmed.toLowerCase();
 
+    // Multi-turn context analysis: inspect previous assistant turn for pending drafts
+    const lastAssistantMsg = [...recentMessages].reverse().find((m) => m?.role === "assistant");
+    const lastAssistantText = typeof lastAssistantMsg?.content === "string" ? lastAssistantMsg.content : "";
+
+    // Check for explicit draft ID references (e.g. "Approve pay_3f91a2b1")
+    if (/pay_[a-f0-9]{8}/i.test(text)) {
+      return { agent: "payments", confidence: 0.99, reason: "Referenced payment draft ID", needsConfirmation: false };
+    }
+    if (/task_[a-f0-9]{8}/i.test(text)) {
+      return { agent: "tasks", confidence: 0.99, reason: "Referenced task draft ID", needsConfirmation: false };
+    }
+
+    // Check for pending draft confirmation in multi-turn follow-ups
+    const hasPendingPayment = /pay_[a-f0-9]{8}|awaiting_confirmation|payment.*draft/i.test(lastAssistantText);
+    const hasPendingTask = /task_[a-f0-9]{8}|task.*proposal|task.*draft/i.test(lastAssistantText);
+
+    if (hasPendingPayment && /\b(confirm|approve|proceed|yes|authorize|pay|cancel|reject|decline)\b/i.test(lower)) {
+      return { agent: "payments", confidence: 0.98, reason: "Multi-turn human confirmation of pending payment draft", needsConfirmation: false };
+    }
+    if (hasPendingTask && /\b(confirm|approve|proceed|yes|create|schedule|cancel|reject)\b/i.test(lower)) {
+      return { agent: "tasks", confidence: 0.98, reason: "Multi-turn human confirmation of pending task proposal", needsConfirmation: false };
+    }
+
     // Fast-path heuristics for sub-agents (0ms latency, 100% reliable)
-    if (/\b(search|find|lookup|docs|documentation|knowledge|what is|how to|features)\b/i.test(lower)) {
+    if (/\b(search|find|lookup|docs|documentation|knowledge|what is|how to|features|pricing|capabilities)\b/i.test(lower)) {
       return { agent: "search", confidence: 0.95, reason: "Knowledge search query", needsConfirmation: false };
     }
     if (/\b(pay|payment|charge|refund|invoice|payout|billing|dollar|\$|usd|transfer)\b/i.test(lower)) {
@@ -45,7 +71,7 @@ export class LLMJudge {
     if (/\b(remember|save|store|preference|recall|forgot|memory|prefer)\b/i.test(lower)) {
       return { agent: "memory", confidence: 0.95, reason: "Session memory persistence", needsConfirmation: false };
     }
-    if (/^(hi|hello|hey|greetings|help|who are you|what can you do|openaimp|test)\b/i.test(lower) || trimmed.length < 30) {
+    if (/^(hi|hello|hey|greetings|help|who are you|what can you do|openaimp|test)\b/i.test(lower)) {
       return { agent: "general", confidence: 0.95, reason: "Conversational greeting or general query", needsConfirmation: false };
     }
 
