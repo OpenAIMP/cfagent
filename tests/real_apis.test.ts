@@ -439,8 +439,16 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
     });
 
     it("refuses to execute live order without OAuth keys (no fake mockups)", async () => {
-      // Set APP_ENV=PROD (isLive=true) with no ET_API_KEY/ET_API_SECRET.
-      // resolveEnvironmentConfig sees PROD + no keys → returns the live-mode rejection.
+      // In CI, process.env has real ET_API_KEY/ET_API_SECRET from the GitHub Environment.
+      // Stub them out so resolveEnvironmentConfig cannot fall back to process.env credentials.
+      // vi.stubEnv is automatically restored after each test by Vitest.
+      vi.stubEnv("ET_API_KEY", "");
+      vi.stubEnv("ET_API_SECRET", "");
+      vi.stubEnv("ET_BASE_URL", "");
+      vi.stubEnv("ETRADE_CONSUMER_KEY", "");
+      vi.stubEnv("ETRADE_CONSUMER_SECRET", "");
+
+      // APP_ENV=PROD → resolveEnvironmentConfig resolves isLive=true, no API keys
       const liveNoKeysEnv: Env = {
         APP_ENV: "PROD",
       } as Env;
@@ -456,10 +464,13 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
 
       expect(result.success).toBe(false);
       expect(result.status).toBe("failed");
-      // Updated message uses ET_API_KEY/ET_API_SECRET and mentions the active environment name
+      // Live-mode rejection message references ET_API_KEY/ET_API_SECRET and the env name
       expect(result.message).toContain("ET_API_KEY and ET_API_SECRET must be configured");
       expect(result.message).toContain("PROD");
+
+      vi.unstubAllEnvs();
     });
+
   });
 
   // =========================================================================
