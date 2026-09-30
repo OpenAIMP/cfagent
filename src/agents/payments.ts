@@ -1,12 +1,12 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
-import { createWorkersAI } from "workers-ai-provider";
+import { getWorkersAIModel } from "./model";
 import type { Env } from "../types";
 
 export class PaymentsAgent extends AIChatAgent<Env> {
   async onChatMessage() {
-    const model = createWorkersAI({ binding: this.env.AI })("@cf/meta/llama-3.1-8b-instruct");
+    const model = getWorkersAIModel(this.env);
 
     const result = streamText({
       model,

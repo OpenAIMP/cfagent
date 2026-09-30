@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
+import { getWorkersAIModel } from "./model";
 import { z } from "zod";
 import type { Env } from "../types";
 
@@ -28,7 +28,7 @@ export interface NLQQueryResult {
 }
 
 export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
-  const model = createWorkersAI({ binding: env.AI })("@cf/meta/llama-3.1-8b-instruct");
+  const model = getWorkersAIModel(env);
   try {
     const { text } = await generateText({
       model,

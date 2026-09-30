@@ -22,7 +22,7 @@ Browser (React 19 + Vite)
     │
     ├─ WebSocket ──► OrchestratorAgent (Durable Object)
     │                  ├─ LLM Judge (Intent Routing & Evaluation)
-    │                  ├─ Workers AI (llama-3.1-8b-instruct)
+    │                  ├─ Workers AI (glm-4.7-flash)
     │                  ├─ Cloudflare AI Search (RAG Tool)
     │                  └─ DO SQLite Tables (mas_messages, mas_events, mas_memory)
     │

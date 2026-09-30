@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
+import { getWorkersAIModel } from "./model";
 import type { AgentName, Env, RouteDecision, QualityDecision } from "../types";
 
 export { type RouteDecision, type QualityDecision };
@@ -16,7 +16,7 @@ export class LLMJudge {
   private model;
 
   constructor(private env: Env) {
-    this.model = createWorkersAI({ binding: env.AI })("@cf/meta/llama-3.1-8b-instruct");
+    this.model = getWorkersAIModel(env);
   }
 
   async route(text: string): Promise<RouteDecision> {

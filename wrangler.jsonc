@@ -11,5 +11,5 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SearchAgent"] }],
   "kv_namespaces": [{ "binding": "SESSIONS", "id": "<YOUR_KV_NAMESPACE_ID>" }],
   "observability": { "enabled": true },
-  "vars": { "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com", "APP_NAME": "AI Search Agent", "MAS_MAX_STEPS": "4" }
+  "vars": { "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com", "APP_NAME": "AI Search Agent", "MAS_MAX_STEPS": "4", "AI_MODEL": "@cf/zai-org/glm-4.7-flash" }
 }

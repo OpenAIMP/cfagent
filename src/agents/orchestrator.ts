@@ -1,6 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
+import { getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { createMAS } from "./mas";
 import { planNLQ, queryConversation } from "./nlq";
@@ -199,7 +199,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
 
-    const model = createWorkersAI({ binding: this.env.AI })("@cf/meta/llama-3.1-8b-instruct");
+    const model = getWorkersAIModel(this.env);
     const maxSteps = Math.max(1, Math.min(10, Number(this.env.MAS_MAX_STEPS || 4)));
 
     // Safely normalize messages to prevent AI SDK convertToModelMessages crashes
@@ -245,6 +245,10 @@ Guidelines:
               issues: quality.issues,
             });
           }
+        },
+        onError: ({ error }) => {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          this.audit("stream.error", "orchestrator", { error: errMsg });
         },
       });
 

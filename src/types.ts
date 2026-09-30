@@ -10,6 +10,7 @@ export interface Env {
   APP_BASE_URL: string;
   SESSION_SECRET: string;
   MAS_MAX_STEPS?: string;
+  AI_MODEL?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
