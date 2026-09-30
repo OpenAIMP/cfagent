@@ -4,8 +4,12 @@
  * Implements:
  * - Strategy Pattern (GoF): IPaymentGatewayStrategy encapsulates gateway-specific checkout/refund logic.
  * - Factory Pattern (GoF): PaymentStrategyFactory instantiates and resolves concrete strategies.
- * - Single Responsibility Principle (SRP): Each strategy handles one provider API.
- * - Open/Closed Principle (OCP): New gateways (e.g. Coinbase, Square) register without modifying existing strategies.
+ * - Dual Protocol Support: Can communicate with external payment services via:
+ *   1. Remote Model Context Protocol (MCP) JSON-RPC 2.0 servers (e.g. Stripe MCP Server, PayPal MCP Server)
+ *   2. Direct REST/HTTP APIs (e.g. api.stripe.com, api-m.paypal.com, api.lemonsqueezy.com)
+ *   3. High-fidelity Sandbox / Simulated engine with Agent DIDs
+ * - Single Responsibility Principle (SRP): Each strategy handles one provider interface.
+ * - Open/Closed Principle (OCP): New gateways or MCP endpoints register without modifying existing strategies.
  * - Liskov Substitution Principle (LSP): Any IPaymentGatewayStrategy can be substituted interchangeably.
  */
 
@@ -20,31 +24,77 @@ import type {
   GatewayStatus,
 } from "../services/payments";
 import type { IPaymentGatewayStrategy } from "./interfaces";
+import { RemoteMcpClient } from "../services/mcpClient";
 
 /**
- * Concrete Strategy: Stripe Payments Engine
+ * Concrete Strategy: Stripe Payments Engine (Dual MCP Server / REST API)
  */
 export class StripePaymentStrategy implements IPaymentGatewayStrategy {
   readonly gatewayId: SupportedGateway = "stripe";
   readonly name = "Stripe Payment Gateway";
 
   isConfigured(env: Env): boolean {
-    return Boolean(env.STRIPE_SECRET_KEY);
+    return Boolean(env.STRIPE_SECRET_KEY || env.STRIPE_MCP_SERVER_URL);
   }
 
   getStatus(env: Env): GatewayStatus {
-    const configured = this.isConfigured(env);
+    const isMcp = Boolean(env.STRIPE_MCP_SERVER_URL);
+    const hasKey = Boolean(env.STRIPE_SECRET_KEY);
+    const configured = isMcp || hasKey;
+    const mode = isMcp ? "mcp_remote" : hasKey ? (env.STRIPE_SECRET_KEY?.startsWith("sk_test") ? "sandbox" : "live") : "simulated";
+    const protocol = isMcp ? "mcp_json_rpc" : hasKey ? "rest_api" : "sandbox_simulated";
+
     return {
       id: "stripe",
       name: this.name,
       configured,
-      mode: configured ? (env.STRIPE_SECRET_KEY?.startsWith("sk_test") ? "sandbox" : "live") : "simulated",
-      capabilities: ["Card Checkout", "PaymentIntents", "Refunds", "Invoices", "Webhooks"],
+      mode,
+      capabilities: isMcp
+        ? ["Stripe Remote Model Context Protocol Server (JSON-RPC 2.0)", "Agentic Checkout", "PaymentIntents", "Refunds"]
+        : ["Card Checkout", "PaymentIntents", "Refunds", "Invoices", "Webhooks"],
+      mcpServerUrl: env.STRIPE_MCP_SERVER_URL,
+      protocol,
     };
   }
 
   async createCheckout(env: Env, params: CreateCheckoutParams, attestation: DidAttestationProof): Promise<CheckoutResult> {
-    if (this.isConfigured(env)) {
+    // 1. External Service MCP Execution (if Stripe MCP Server URL is configured)
+    if (env.STRIPE_MCP_SERVER_URL) {
+      try {
+        const mcpData = await RemoteMcpClient.callTool({
+          serverUrl: env.STRIPE_MCP_SERVER_URL,
+          toolName: "create_checkout_session",
+          arguments: {
+            amount: params.amount,
+            currency: params.currency,
+            customer: params.customer,
+            description: params.description,
+            draftId: params.draftId,
+            returnUrl: params.returnUrl,
+          },
+          apiKey: env.STRIPE_SECRET_KEY,
+        });
+
+        const checkoutUrl = mcpData?.url || mcpData?.checkoutUrl;
+        if (checkoutUrl) {
+          return {
+            success: true,
+            draftId: params.draftId,
+            gateway: "stripe",
+            checkoutUrl,
+            gatewayRef: mcpData.id || mcpData.gatewayRef || `mcp_cs_${params.draftId}`,
+            status: "pending_checkout",
+            didAttestation: attestation,
+            message: `Stripe checkout session initialized via Stripe Remote MCP Server for ${params.customer}`,
+          };
+        }
+      } catch (err) {
+        console.warn("Stripe Remote MCP invocation failed, falling back to direct REST:", err);
+      }
+    }
+
+    // 2. Direct Stripe REST API Execution
+    if (env.STRIPE_SECRET_KEY) {
       try {
         const returnUrl = params.returnUrl || `${env.APP_BASE_URL || "https://agent.openaimp.com"}/?payment=success&draft=${params.draftId}`;
         const cancelUrl = `${env.APP_BASE_URL || "https://agent.openaimp.com"}/?payment=cancelled`;
@@ -84,16 +134,47 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
           };
         }
       } catch (err) {
-        console.error("Stripe Checkout API error:", err);
+        console.error("Stripe Checkout REST API error:", err);
       }
     }
 
-    // High-fidelity fallback simulated checkout
+    // 3. High-fidelity fallback simulated checkout
     return SandboxPaymentStrategy.buildSimulatedCheckout(env, params, attestation, "stripe");
   }
 
   async executeRefund(env: Env, params: RefundParams, attestation: DidAttestationProof): Promise<RefundResult> {
-    if (this.isConfigured(env) && params.gatewayRef) {
+    // 1. External Service MCP Execution
+    if (env.STRIPE_MCP_SERVER_URL) {
+      try {
+        const mcpData = await RemoteMcpClient.callTool({
+          serverUrl: env.STRIPE_MCP_SERVER_URL,
+          toolName: "create_refund",
+          arguments: {
+            paymentIntent: params.gatewayRef,
+            amount: params.amount,
+            reason: params.reason,
+          },
+          apiKey: env.STRIPE_SECRET_KEY,
+        });
+
+        if (mcpData?.id || mcpData?.refundId) {
+          return {
+            success: true,
+            gateway: "stripe",
+            refundId: mcpData.id || mcpData.refundId,
+            amountRefunded: params.amount || 0,
+            status: "refunded",
+            didAttestation: attestation,
+            message: "Stripe refund settled via Stripe Remote MCP Server",
+          };
+        }
+      } catch (err) {
+        console.warn("Stripe Remote MCP refund failed, falling back to REST:", err);
+      }
+    }
+
+    // 2. Direct Stripe REST API
+    if (env.STRIPE_SECRET_KEY && params.gatewayRef) {
       try {
         const res = await fetch("https://api.stripe.com/v1/refunds", {
           method: "POST",
@@ -128,24 +209,33 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
 }
 
 /**
- * Concrete Strategy: PayPal Commerce Platform
+ * Concrete Strategy: PayPal Commerce Platform (Dual MCP Server / REST API)
  */
 export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
   readonly gatewayId: SupportedGateway = "paypal";
   readonly name = "PayPal Commerce Platform";
 
   isConfigured(env: Env): boolean {
-    return Boolean(env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET);
+    return Boolean((env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET) || env.PAYPAL_MCP_SERVER_URL);
   }
 
   getStatus(env: Env): GatewayStatus {
-    const configured = this.isConfigured(env);
+    const isMcp = Boolean(env.PAYPAL_MCP_SERVER_URL);
+    const hasKeys = Boolean(env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET);
+    const configured = isMcp || hasKeys;
+    const mode = isMcp ? "mcp_remote" : hasKeys ? (env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox") : "simulated";
+    const protocol = isMcp ? "mcp_json_rpc" : hasKeys ? "rest_api" : "sandbox_simulated";
+
     return {
       id: "paypal",
       name: this.name,
       configured,
-      mode: configured ? (env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox") : "simulated",
-      capabilities: ["PayPal Checkout", "Capture Orders", "Disputes", "Refunds"],
+      mode,
+      capabilities: isMcp
+        ? ["PayPal Remote Model Context Protocol Server (JSON-RPC 2.0)", "PayPal Orders", "Capture", "Refunds"]
+        : ["PayPal Checkout", "Capture Orders", "Disputes", "Refunds"],
+      mcpServerUrl: env.PAYPAL_MCP_SERVER_URL,
+      protocol,
     };
   }
 
@@ -165,7 +255,41 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
   }
 
   async createCheckout(env: Env, params: CreateCheckoutParams, attestation: DidAttestationProof): Promise<CheckoutResult> {
-    if (this.isConfigured(env)) {
+    // 1. External Service MCP Execution
+    if (env.PAYPAL_MCP_SERVER_URL) {
+      try {
+        const mcpData = await RemoteMcpClient.callTool({
+          serverUrl: env.PAYPAL_MCP_SERVER_URL,
+          toolName: "create_order",
+          arguments: {
+            amount: params.amount,
+            currency: params.currency,
+            customer: params.customer,
+            description: params.description,
+            draftId: params.draftId,
+          },
+        });
+
+        const approveUrl = mcpData?.approveUrl || mcpData?.checkoutUrl || mcpData?.links?.find((l: any) => l.rel === "approve")?.href;
+        if (approveUrl) {
+          return {
+            success: true,
+            draftId: params.draftId,
+            gateway: "paypal",
+            checkoutUrl: approveUrl,
+            gatewayRef: mcpData.id || mcpData.orderId || `mcp_pp_${params.draftId}`,
+            status: "pending_checkout",
+            didAttestation: attestation,
+            message: `PayPal checkout order created via PayPal Remote MCP Server for ${params.customer}`,
+          };
+        }
+      } catch (err) {
+        console.warn("PayPal Remote MCP invocation failed, falling back to direct REST:", err);
+      }
+    }
+
+    // 2. Direct PayPal REST API Execution
+    if (env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET) {
       try {
         const token = await this.getAccessToken(env);
         const base = env.PAYPAL_ENVIRONMENT === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
@@ -219,7 +343,7 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
   }
 
   async executeRefund(env: Env, params: RefundParams, attestation: DidAttestationProof): Promise<RefundResult> {
-    if (this.isConfigured(env) && params.gatewayRef) {
+    if (env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET && params.gatewayRef) {
       try {
         const token = await this.getAccessToken(env);
         const base = env.PAYPAL_ENVIRONMENT === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
@@ -253,29 +377,73 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
 }
 
 /**
- * Concrete Strategy: Lemon Squeezy Merchant Platform
+ * Concrete Strategy: Lemon Squeezy Merchant Platform (Dual MCP Server / REST API)
  */
 export class LemonSqueezyPaymentStrategy implements IPaymentGatewayStrategy {
   readonly gatewayId: SupportedGateway = "lemonsqueezy";
   readonly name = "Lemon Squeezy Merchant";
 
   isConfigured(env: Env): boolean {
-    return Boolean(env.LEMONSQUEEZY_API_KEY && env.LEMONSQUEEZY_STORE_ID);
+    return Boolean((env.LEMONSQUEEZY_API_KEY && env.LEMONSQUEEZY_STORE_ID) || env.LEMONSQUEEZY_MCP_SERVER_URL);
   }
 
   getStatus(env: Env): GatewayStatus {
-    const configured = this.isConfigured(env);
+    const isMcp = Boolean(env.LEMONSQUEEZY_MCP_SERVER_URL);
+    const hasKey = Boolean(env.LEMONSQUEEZY_API_KEY && env.LEMONSQUEEZY_STORE_ID);
+    const configured = isMcp || hasKey;
+    const mode = isMcp ? "mcp_remote" : hasKey ? "live" : "simulated";
+    const protocol = isMcp ? "mcp_json_rpc" : hasKey ? "rest_api" : "sandbox_simulated";
+
     return {
       id: "lemonsqueezy",
       name: this.name,
       configured,
-      mode: configured ? "live" : "simulated",
-      capabilities: ["Hosted Checkouts", "Usage Billing", "SaaS Subscriptions", "Refunds"],
+      mode,
+      capabilities: isMcp
+        ? ["Lemon Squeezy Model Context Protocol Server (JSON-RPC 2.0)", "Hosted Checkouts", "Refunds"]
+        : ["Hosted Checkouts", "Usage Billing", "SaaS Subscriptions", "Refunds"],
+      mcpServerUrl: env.LEMONSQUEEZY_MCP_SERVER_URL,
+      protocol,
     };
   }
 
   async createCheckout(env: Env, params: CreateCheckoutParams, attestation: DidAttestationProof): Promise<CheckoutResult> {
-    if (this.isConfigured(env)) {
+    // 1. External Service MCP Execution
+    if (env.LEMONSQUEEZY_MCP_SERVER_URL) {
+      try {
+        const mcpData = await RemoteMcpClient.callTool({
+          serverUrl: env.LEMONSQUEEZY_MCP_SERVER_URL,
+          toolName: "create_checkout",
+          arguments: {
+            amount: params.amount,
+            currency: params.currency,
+            customer: params.customer,
+            description: params.description,
+            draftId: params.draftId,
+          },
+          apiKey: env.LEMONSQUEEZY_API_KEY,
+        });
+
+        const url = mcpData?.url || mcpData?.checkoutUrl;
+        if (url) {
+          return {
+            success: true,
+            draftId: params.draftId,
+            gateway: "lemonsqueezy",
+            checkoutUrl: url,
+            gatewayRef: mcpData.id || mcpData.gatewayRef || `mcp_ls_${params.draftId}`,
+            status: "pending_checkout",
+            didAttestation: attestation,
+            message: `Lemon Squeezy checkout created via Remote MCP Server for ${params.customer}`,
+          };
+        }
+      } catch (err) {
+        console.warn("Lemon Squeezy Remote MCP invocation failed, falling back to REST:", err);
+      }
+    }
+
+    // 2. Direct Lemon Squeezy REST API Execution
+    if (env.LEMONSQUEEZY_API_KEY && env.LEMONSQUEEZY_STORE_ID) {
       try {
         const storeId = env.LEMONSQUEEZY_STORE_ID;
         const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
@@ -336,7 +504,7 @@ export class LemonSqueezyPaymentStrategy implements IPaymentGatewayStrategy {
   }
 
   async executeRefund(env: Env, params: RefundParams, attestation: DidAttestationProof): Promise<RefundResult> {
-    if (this.isConfigured(env) && params.gatewayRef) {
+    if (env.LEMONSQUEEZY_API_KEY && params.gatewayRef) {
       try {
         const res = await fetch("https://api.lemonsqueezy.com/v1/refunds", {
           method: "POST",
@@ -391,6 +559,7 @@ export class SandboxPaymentStrategy implements IPaymentGatewayStrategy {
       configured: true,
       mode: "sandbox",
       capabilities: ["Instant Settlement Simulation", "DID Cryptographic Verification", "Multi-Currency Testbed"],
+      protocol: "sandbox_simulated",
     };
   }
 

@@ -20,6 +20,11 @@ export interface Env {
   LEMONSQUEEZY_API_KEY?: string;
   LEMONSQUEEZY_STORE_ID?: string;
   LEMONSQUEEZY_WEBHOOK_SECRET?: string;
+  // External Payment Service MCP Server Endpoints (Remote MCP over JSON-RPC 2.0 / SSE)
+  STRIPE_MCP_SERVER_URL?: string;
+  PAYPAL_MCP_SERVER_URL?: string;
+  LEMONSQUEEZY_MCP_SERVER_URL?: string;
+  EXTERNAL_PAYMENTS_MCP_URL?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;

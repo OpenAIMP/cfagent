@@ -60,8 +60,10 @@ export interface GatewayStatus {
   id: SupportedGateway;
   name: string;
   configured: boolean;
-  mode: "live" | "sandbox" | "simulated";
+  mode: "live" | "sandbox" | "simulated" | "mcp_remote";
   capabilities: string[];
+  mcpServerUrl?: string;
+  protocol: "mcp_json_rpc" | "rest_api" | "sandbox_simulated";
 }
 
 export class PaymentGatewayService {

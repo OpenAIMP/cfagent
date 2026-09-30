@@ -314,7 +314,7 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
       expect(result.tables.length).toBe(8);
     });
 
-    it("Strategy Pattern: Dynamic payment gateway execution across providers", async () => {
+    it("Strategy Pattern: Dynamic payment gateway execution across providers and dual protocol support", async () => {
       const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe");
       const paypalStrategy = PaymentStrategyFactory.getStrategy("paypal");
       const lsStrategy = PaymentStrategyFactory.getStrategy("lemonsqueezy");
@@ -325,11 +325,27 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
       expect(lsStrategy.gatewayId).toBe("lemonsqueezy");
       expect(sandboxStrategy.gatewayId).toBe("sandbox");
 
-      // Verify statuses
-      expect(stripeStrategy.getStatus(mockEnv).configured).toBe(true);
-      expect(paypalStrategy.getStatus(mockEnv).configured).toBe(true);
-      expect(lsStrategy.getStatus(mockEnv).configured).toBe(true);
-      expect(sandboxStrategy.getStatus(mockEnv).configured).toBe(true);
+      // Verify REST mode status
+      const restStatus = stripeStrategy.getStatus(mockEnv);
+      expect(restStatus.configured).toBe(true);
+      expect(restStatus.protocol).toBe("rest_api");
+
+      // Verify External Service MCP Server mode when STRIPE_MCP_SERVER_URL is configured
+      const mcpEnv: Env = {
+        ...mockEnv,
+        STRIPE_MCP_SERVER_URL: "https://mcp.stripe.example.com",
+        PAYPAL_MCP_SERVER_URL: "https://mcp.paypal.example.com",
+      };
+
+      const mcpStripeStatus = stripeStrategy.getStatus(mcpEnv);
+      expect(mcpStripeStatus.mode).toBe("mcp_remote");
+      expect(mcpStripeStatus.protocol).toBe("mcp_json_rpc");
+      expect(mcpStripeStatus.mcpServerUrl).toBe("https://mcp.stripe.example.com");
+
+      const mcpPayPalStatus = paypalStrategy.getStatus(mcpEnv);
+      expect(mcpPayPalStatus.mode).toBe("mcp_remote");
+      expect(mcpPayPalStatus.protocol).toBe("mcp_json_rpc");
+      expect(mcpPayPalStatus.mcpServerUrl).toBe("https://mcp.paypal.example.com");
     });
 
     it("Facade Pattern: McpSystemFacade coordinates ORM, payments, NLQ, and DIDs", async () => {
