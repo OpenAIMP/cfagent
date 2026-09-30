@@ -11,8 +11,17 @@ import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from 
 export class SearchAgent extends AIChatAgent<Env> {
   async onChatMessage() {
     const model = createWorkersAI({ binding: this.env.AI })(
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      "@cf/meta/llama-3.1-8b-instruct"
     );
+
+    // Get the user's latest message as a fallback query
+    const lastUserMessage = this.messages
+      .filter((m: any) => m.role === "user")
+      .pop();
+    const fallbackQuery = lastUserMessage?.parts
+      ?.filter((p: any) => p.type === "text")
+      ?.map((p: any) => p.text)
+      ?.join("") || "";
 
     const result = streamText({
       model,
@@ -30,14 +39,16 @@ Be concise and helpful. Base your answers on the search results.`,
             query: z.string().min(1).describe("The search query - must not be empty"),
           }),
           execute: async ({ query }) => {
-            if (!query || !query.trim()) {
-              return { error: "Search query cannot be empty" };
+            // Fallback: if model sends empty query, use the user's message
+            const searchQuery = (query && query.trim()) ? query : fallbackQuery;
+            if (!searchQuery) {
+              return { error: "No search query available" };
             }
             const resp = await fetch(`${this.env.AI_SEARCH_ENDPOINT}/search`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                messages: [{ role: "user", content: query }],
+                messages: [{ role: "user", content: searchQuery }],
               }),
             });
             if (!resp.ok) {
@@ -52,7 +63,6 @@ Be concise and helpful. Base your answers on the search results.`,
 
     return result.toUIMessageStreamResponse();
   }
-}
 
 // --- Worker entry point ---
 
