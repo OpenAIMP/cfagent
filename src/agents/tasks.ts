@@ -1,5 +1,5 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import { convertToModelMessages, streamText, tool } from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { createWorkersAI } from "workers-ai-provider";
 import type { Env } from "../types";
@@ -12,11 +12,11 @@ export class TasksAgent extends AIChatAgent<Env> {
       model,
       system: `You are a task drafting agent. Create actionable tasks but do not persist them until the user confirms them.`,
       messages: await convertToModelMessages(this.messages),
-      maxSteps: 2,
+      stopWhen: stepCountIs(2),
       tools: {
         createTaskDraft: tool({
           description: "Draft a task with a title, deadline, and priority.",
-          parameters: z.object({
+          inputSchema: z.object({
             title: z.string().min(1).max(300),
             dueDate: z.string().optional(),
             priority: z.enum(["low", "medium", "high"]).default("medium"),

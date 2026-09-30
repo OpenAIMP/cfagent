@@ -1,5 +1,5 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import { convertToModelMessages, streamText, tool } from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { createWorkersAI } from "workers-ai-provider";
 import type { Env } from "../types";
@@ -12,11 +12,11 @@ export class SearchAgent extends AIChatAgent<Env> {
       model,
       system: `You are a search specialist for a knowledge base. Use the search tool when the user asks for factual information that may be present in the knowledge base. Do not search for greetings or small chat. When there are no results, say so clearly and suggest adding documents.`,
       messages: await convertToModelMessages(this.messages),
-      maxSteps: 3,
+      stopWhen: stepCountIs(3),
       tools: {
         search: tool({
           description: "Search the knowledge base for relevant content.",
-          parameters: z.object({
+          inputSchema: z.object({
             query: z.string().min(1).max(500),
           }),
           execute: async ({ query }) => {
