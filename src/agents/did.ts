@@ -42,6 +42,7 @@ export const AGENT_DIDS = {
   SEARCH: "did:agent:openaimp:search",
   TASKS: "did:agent:openaimp:tasks",
   MEMORY: "did:agent:openaimp:memory",
+  NLQ: "did:agent:openaimp:nlq",
 } as const;
 
 export type KnownAgentDid = typeof AGENT_DIDS[keyof typeof AGENT_DIDS];
@@ -116,6 +117,12 @@ function getAgentCapabilities(role: string): string[] {
       return [
         "memory:persist",
         "fact:recall"
+      ];
+    case "nlq":
+      return [
+        "nlq:plan:generate",
+        "sqlite:readonly:query",
+        "schema:introspect"
       ];
     default:
       return ["agent:general:execute"];

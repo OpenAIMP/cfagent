@@ -26,3 +26,9 @@ jobs:
 
       - name: TypeScript type check
         run: npx tsc --noEmit
+
+      - name: Run unit & integration tests
+        run: npm test
+
+      - name: Build frontend verification
+        run: npm run build

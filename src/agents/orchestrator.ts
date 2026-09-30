@@ -7,6 +7,7 @@ import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
+import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import type {
   Env,
   AgentName,
@@ -483,6 +484,42 @@ Agentic Best Practices & Workflow Rules:
     const path = url.pathname;
     const sql = this.ensureTables();
     const sessionId = this.sessionKey();
+
+    // Model Context Protocol (MCP) Server Endpoint (JSON-RPC 2.0 & Discovery)
+    if (path.endsWith("/mcp")) {
+      const orm = this.getOrm();
+
+      if (request.method === "GET") {
+        return Response.json({
+          server: MCP_SERVER_INFO,
+          tools: MCP_TOOLS,
+          resources: MCP_RESOURCES,
+          prompts: MCP_PROMPTS,
+          endpoints: {
+            jsonrpc: "/api/mcp",
+            protocol: "MCP JSON-RPC 2.0",
+          },
+        });
+      }
+
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const response = await handleMCPRequest(body, {
+            env: this.env,
+            orm,
+            sessionId,
+            audit: (type, agent, payload) => this.audit(type, agent, payload),
+          });
+          return Response.json(response);
+        } catch (err: any) {
+          return Response.json(
+            { jsonrpc: "2.0", id: null, error: { code: -32603, message: err.message || "Internal error" } },
+            { status: 500 }
+          );
+        }
+      }
+    }
 
     // Natural Language Query (NLQ) endpoint
     if (path.endsWith("/nlq") && request.method === "POST") {

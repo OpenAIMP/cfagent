@@ -41,22 +41,10 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   const model = getWorkersAIModel(env);
   const qLower = question.toLowerCase();
 
-  // Fast-path intent detection for database tables & categories
-  if (/\b(tables?|schema|databases?|columns?|catalog)\b/i.test(question) && !/\b(messages?|chats?)\b/i.test(question)) {
-    return {
-      domain: "tables",
-      operation: "list",
-      terms: "",
-      role: "any",
-      since: null,
-      limit: 25,
-    };
-  }
-
-  // Fast-path for Category addition or update
+  // 1. Fast-path for Category addition or update (check before generic tables)
   const addCatMatch = question.match(/\b(?:add|create|insert|new)\s+category\s+["']?([^"']+)["']?/i);
   if (addCatMatch) {
-    const rawName = addCatMatch[1].trim();
+    const rawName = addCatMatch[1].replace(/\bto\s+categories\s+tables?\b/i, "").trim();
     return {
       domain: "category_mutation",
       operation: "create",
@@ -73,15 +61,36 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
-  // Fast-path for Table data queries
+  // 2. Fast-path intent detection for database tables & schema
+  if (/\b(tables?|schema|databases?|columns?|catalog)\b/i.test(question) && !/\b(messages?|chats?|categories)\b/i.test(question)) {
+    return {
+      domain: "tables",
+      operation: "list",
+      terms: "",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 3. Fast-path for Table data queries
   if (/\b(categories|referrals|ads|external ads|transactions|ledger|events|memory)\b/i.test(question)) {
     let target = "mas_categories";
-    if (/\b(referrals?|links?)\b/i.test(question)) target = "mas_referrals";
-    else if (/\b(external\s*ads?)\b/i.test(question)) target = "mas_external_ads";
-    else if (/\b(ads?|marketplace)\b/i.test(question)) target = "mas_ads";
-    else if (/\b(transactions?|payments?|charges?|refunds?)\b/i.test(question)) target = "mas_transactions";
-    else if (/\b(events?|audit)\b/i.test(question)) target = "mas_events";
-    else if (/\b(memory|facts?)\b/i.test(question)) target = "mas_memory";
+    if (/\b(categories)\b/i.test(question)) {
+      target = "mas_categories";
+    } else if (/\b(referrals?|links?)\b/i.test(question)) {
+      target = "mas_referrals";
+    } else if (/\b(external\s*ads?)\b/i.test(question)) {
+      target = "mas_external_ads";
+    } else if (/\b(ads?|marketplace)\b/i.test(question)) {
+      target = "mas_ads";
+    } else if (/\b(transactions?|payments?|charges?|refunds?)\b/i.test(question)) {
+      target = "mas_transactions";
+    } else if (/\b(events?|audit)\b/i.test(question)) {
+      target = "mas_events";
+    } else if (/\b(memory|facts?)\b/i.test(question)) {
+      target = "mas_memory";
+    }
 
     return {
       domain: "table_data",

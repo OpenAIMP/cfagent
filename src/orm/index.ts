@@ -530,6 +530,43 @@ export class DatabaseORM {
         this.externalAds.create(extAd);
       }
     }
+
+    // Seed Sponsored Marketplace Ads if table is empty
+    if (this.ads.count() === 0) {
+      const now = new Date().toISOString();
+      const seedAds: AdRecord[] = [
+        {
+          id: "ad_workers_ai",
+          title: "Workers AI Edge GPUs",
+          tagline: "Run DeepSeek R1 & Llama 3.3 serverless models globally at the edge.",
+          sponsor: "Cloudflare",
+          badge: "Featured Partner",
+          url: "https://developers.cloudflare.com/workers-ai/",
+          ctaText: "Build Free",
+          accentColor: "#f38020",
+          impressions: 420,
+          clicks: 34,
+          createdAt: now,
+        },
+        {
+          id: "ad_stripe_payments",
+          title: "Autonomous Agent Checkout",
+          tagline: "Accept payments with Stripe, PayPal, and DID signature verification.",
+          sponsor: "Stripe Connect",
+          badge: "Verified Gateway",
+          url: "https://stripe.com",
+          ctaText: "Integrate Now",
+          accentColor: "#635bff",
+          impressions: 215,
+          clicks: 18,
+          createdAt: now,
+        },
+      ];
+
+      for (const ad of seedAds) {
+        this.ads.create(ad);
+      }
+    }
   }
 
   /**

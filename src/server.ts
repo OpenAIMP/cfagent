@@ -71,6 +71,31 @@ export default {
       });
     }
 
+    // --- Model Context Protocol (MCP) JSON-RPC 2.0 & Discovery Endpoint ---
+    if (path === "/mcp" || path === "/api/mcp") {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
+          },
+        });
+      }
+
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || request.headers.get("x-user-id") || "mcp_client";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/mcp" + url.search, "https://agent.internal");
+
+      const resp = await env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
+      const headers = new Headers(resp.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-id");
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);

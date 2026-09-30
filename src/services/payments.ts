@@ -21,6 +21,7 @@ export interface CreateCheckoutParams {
 
 export interface CheckoutResult {
   success: boolean;
+  draftId?: string;
   gateway: SupportedGateway;
   checkoutUrl: string;
   gatewayRef: string;
@@ -118,6 +119,7 @@ export class PaymentGatewayService {
         if (stripeRes.url) {
           return {
             success: true,
+            draftId: params.draftId,
             gateway: "stripe",
             checkoutUrl: stripeRes.url,
             gatewayRef: stripeRes.id,
@@ -138,6 +140,7 @@ export class PaymentGatewayService {
         if (payPalRes.approveUrl) {
           return {
             success: true,
+            draftId: params.draftId,
             gateway: "paypal",
             checkoutUrl: payPalRes.approveUrl,
             gatewayRef: payPalRes.orderId,
@@ -158,6 +161,7 @@ export class PaymentGatewayService {
         if (lsRes.url) {
           return {
             success: true,
+            draftId: params.draftId,
             gateway: "lemonsqueezy",
             checkoutUrl: lsRes.url,
             gatewayRef: lsRes.id,
@@ -177,6 +181,7 @@ export class PaymentGatewayService {
 
     return {
       success: true,
+      draftId: params.draftId,
       gateway,
       checkoutUrl: sandboxUrl,
       gatewayRef: `sandbox_${params.draftId}`,
