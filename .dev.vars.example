@@ -1,0 +1,44 @@
+# ==============================================================================
+# Cloudflare Worker Local Environment Configuration (.dev.vars)
+# Copy this file to .dev.vars and populate your API credentials to activate live services.
+# ==============================================================================
+
+# --- AI & GitHub Session Authentication ---
+SESSION_SECRET="your-32-character-session-secret-key-here"
+GITHUB_CLIENT_ID="your-github-oauth-client-id"
+GITHUB_CLIENT_SECRET="your-github-oauth-client-secret"
+APP_BASE_URL="http://localhost:8787"
+
+# --- FOSS Market Research & Trading (Alpaca) ---
+# Free paper trading keys available instantly at https://alpaca.markets
+ALPACA_API_KEY="your-alpaca-api-key-id"
+ALPACA_SECRET_KEY="your-alpaca-api-secret-key"
+# Optional: Set to true to route to live trading instead of paper trading
+# ALPACA_LIVE_TRADING="false"
+
+# --- Broker Trading (E*TRADE) ---
+# Developer keys from https://developer.etrade.com
+ETRADE_CONSUMER_KEY="your-etrade-consumer-key"
+ETRADE_CONSUMER_SECRET="your-etrade-consumer-secret"
+ETRADE_ACCESS_TOKEN="your-etrade-oauth-access-token"
+ETRADE_TOKEN_SECRET="your-etrade-oauth-token-secret"
+ETRADE_ACCOUNT_ID_KEY="your-etrade-account-id-key"
+# Set to "live" for production trading or "sandbox" for sandbox testing
+ETRADE_ENV="sandbox"
+
+# --- Payment Gateways ---
+# Stripe: https://dashboard.stripe.com/apikeys (use sk_test_... or sk_live_...)
+STRIPE_SECRET_KEY="sk_test_your_stripe_secret_key"
+STRIPE_WEBHOOK_SECRET="whsec_your_stripe_webhook_signing_secret"
+
+# PayPal: https://developer.paypal.com/dashboard/applications
+PAYPAL_CLIENT_ID="your-paypal-client-id"
+PAYPAL_CLIENT_SECRET="your-paypal-client-secret"
+PAYPAL_WEBHOOK_ID="your-paypal-webhook-id"
+# Set to "live" for production or "sandbox" for sandbox testing
+PAYPAL_ENV="sandbox"
+
+# Lemon Squeezy: https://app.lemonsqueezy.com/settings/api
+LEMON_SQUEEZY_API_KEY="your-lemon-squeezy-api-key"
+LEMON_SQUEEZY_STORE_ID="your-lemon-squeezy-store-id"
+LEMON_SQUEEZY_WEBHOOK_SECRET="your-lemon-squeezy-signing-secret"
