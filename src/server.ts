@@ -31,7 +31,7 @@ For greetings or simple messages, respond directly without searching.
 If the search returns no results, let the user know and suggest they add documents to the knowledge base.
 Be concise and helpful. Base your answers on the search results.`,
       messages: await convertToModelMessages(this.messages),
-      maxSteps: 5,
+      maxSteps: 3,
       tools: {
         search: tool({
           description: "Search the AI Search knowledge base for relevant information. Only use this tool when the user asks a specific question about content that might be in the knowledge base. Do not use it for greetings, simple messages, or conversational responses.",
@@ -39,23 +39,40 @@ Be concise and helpful. Base your answers on the search results.`,
             query: z.string().min(1).describe("The search query - must not be empty"),
           }),
           execute: async ({ query }) => {
-            // Fallback: if model sends empty query, use the user's message
-            const searchQuery = (query && query.trim()) ? query : fallbackQuery;
+            // Normalize and validate
+            const normalizedQuery = (query || "").trim();
+            const searchQuery = normalizedQuery || fallbackQuery.trim();
             if (!searchQuery) {
-              return { error: "No search query available" };
+              return { error: "Search query cannot be empty" };
             }
-            const resp = await fetch(`${this.env.AI_SEARCH_ENDPOINT}/search`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messages: [{ role: "user", content: searchQuery }],
-              }),
-            });
-            if (!resp.ok) {
-              return { error: `Search failed: ${resp.status}` };
+
+            // Fetch with timeout
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10_000);
+
+            try {
+              const resp = await fetch(`${this.env.AI_SEARCH_ENDPOINT}/search`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  messages: [{ role: "user", content: searchQuery }],
+                }),
+                signal: controller.signal,
+              });
+
+              if (!resp.ok) {
+                return { error: `Search failed: ${resp.status}` };
+              }
+
+              const data = await resp.json();
+              return { query: searchQuery, results: data };
+            } catch (error) {
+              return {
+                error: error instanceof Error ? error.message : "Search request failed",
+              };
+            } finally {
+              clearTimeout(timeout);
             }
-            const data = await resp.json();
-            return data;
           },
         }),
       },
@@ -63,6 +80,7 @@ Be concise and helpful. Base your answers on the search results.`,
 
     return result.toUIMessageStreamResponse();
   }
+}
 
 // --- Worker entry point ---
 
@@ -71,14 +89,18 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // --- WebSocket upgrade: route to Agent Durable Object ---
-    if (request.headers.get("Upgrade") === "websocket") {
-      // Use the authenticated user's session ID as the agent name
-      // so each user gets their own agent instance
-      const sessionId = getSessionId(request) || "anonymous";
+    // --- WebSocket upgrade: authenticate before routing to Agent ---
+    if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+      const sessionId = getSessionId(request);
+      if (!sessionId) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const session = await getSession(env, sessionId);
+      if (!session) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = env.SEARCH_AGENT.idFromName(sessionId);
-      const stub = env.SEARCH_AGENT.get(id);
-      return stub.fetch(request);
+      return env.SEARCH_AGENT.get(id).fetch(request);
     }
 
     // --- Auth routes ---
