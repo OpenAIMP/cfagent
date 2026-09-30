@@ -2,7 +2,11 @@ export interface Env {
   ASSETS: Fetcher;
   AI: Ai;
   SESSIONS: KVNamespace;
+  KV: KVNamespace;
   SEARCH_AGENT: DurableObjectNamespace;
+  PAYMENTS_AGENT: DurableObjectNamespace;
+  TASKS_AGENT: DurableObjectNamespace;
+  MEMORY_AGENT: DurableObjectNamespace;
   AI_SEARCH_ENDPOINT: string;
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
