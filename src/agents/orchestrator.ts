@@ -7,6 +7,8 @@ import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
+import { createAgentMcpTools } from "./mcpAdapter";
+import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import type {
   Env,
@@ -385,13 +387,18 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       needsConfirmation: route.needsConfirmation,
     });
 
-    // Provide unified toolset
-    const tools = createMAS({
+    // Instantiate GoF Facade & GRASP Controller
+    const orm = this.getOrm();
+    const facade = new McpSystemFacade(this.env, orm, sessionId);
+
+    // Provide unified toolset adapting all 14 MCP commands directly into the AI SDK agent (GoF Adapter Pattern)
+    const tools = createAgentMcpTools({
       env: this.env,
+      orm,
       sessionId,
       requestId,
-      sql,
-      audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) =>
+      facade,
+      audit: (type: string, agent: any, payload: Record<string, unknown>) =>
         this.audit(type, agent, payload),
     });
 
@@ -424,18 +431,29 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
 Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}
 
-Sub-agent capabilities available to you:
-- 'searchKnowledge': Retrieve facts from Cloudflare AI Search knowledge base.
-- 'draftPayment': Prepare payment authorization drafts (charges, refunds, invoices). NEVER execute unverified money movement.
+Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Architecture):
+- 'knowledge_search' / 'searchKnowledge': Retrieve facts from Cloudflare AI Search knowledge base.
+- 'draft_payment' / 'draftPayment': Prepare payment authorization drafts with Agent DIDs (charges, refunds, invoices) across Stripe, PayPal, Lemon Squeezy, Sandbox. NEVER execute unverified money movement.
+- 'confirm_payment_draft' / 'confirmDraft': Formally approve, authorize, or cancel a pending payment or task draft upon explicit user confirmation.
+- 'get_payment_gateways': Inspect processor health status and registered agent DIDs.
+- 'get_transactions': Query transaction ledger and cryptographic proof signatures.
+- 'execute_nlq': Execute natural language queries over database tables, schemas, or conversations.
+- 'list_database_tables': Inspect database tables, schema columns, and row counts via DatabaseORM.
+- 'query_table_data': Query rows from any table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_events) with filters and pagination.
+- 'manage_categories': Full CRUD for referral categories taxonomy in SQLite.
+- 'manage_referrals': Manage developer referral links and track click attribution.
+- 'manage_external_ads': Manage external ad placements (EthicalAds, Carbon, AdSense, Direct) and track CPM/CPC impressions.
+- 'get_revenue_summary': Compute platform financial analytics across ad networks, transaction fees, and net profit.
+- 'manage_session_memory' / 'rememberFact': Read, persist, or clear session facts in SQLite.
+- 'get_audit_events': Stream real-time routing decisions, judge evaluations, and security logs.
 - 'createTaskDraft': Draft actionable tasks with priorities and deadlines.
-- 'confirmDraft': Formally approve, authorize, or cancel a pending payment or task draft upon explicit user confirmation.
-- 'rememberFact' / 'recallFacts': Read and write persistent memory facts stored in SQLite for this session.
 
 Agentic Best Practices & Workflow Rules:
-1. RAG & Knowledge Retrieval: If 'searchKnowledge' returns matching documents, cite them accurately. If 'searchKnowledge' returns 0 documents (or empty chunks), explicitly state that no internal documents were found in the custom knowledge base, and then synthesize a comprehensive, helpful answer from verified domain knowledge so the user's question is thoroughly answered.
-2. Human-in-the-Loop (HITL) Execution: For financial drafts or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirmDraft' with decision: 'approved'.
-3. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'rememberFact'.
-4. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
+1. Direct MCP Tool Self-Consumption: You have direct access to database tables, revenue analytics, categories, ads, and transactions. Always invoke these tools when answering user questions about data, finances, or system state.
+2. RAG & Knowledge Retrieval: If 'knowledge_search' returns matching documents, cite them accurately. If it returns 0 documents, explicitly state that no internal documents were found in the custom knowledge base, then synthesize a comprehensive, helpful answer from verified domain knowledge so the user's question is thoroughly answered.
+3. Human-in-the-Loop (HITL) Execution: For financial operations or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirm_payment_draft' with decision: 'approved'.
+4. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'manage_session_memory' with action: 'remember'.
+5. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
         messages: modelMessages,
         tools,
         stopWhen: stepCountIs(maxSteps),
