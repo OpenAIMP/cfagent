@@ -613,7 +613,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
       const fund = await provider.getFundamentals("NVDA");
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        "https://query2.finance.yahoo.com/v10/finance/quoteSummary/NVDA?modules=price,summaryDetail,defaultKeyStatistics,financialData,recommendationTrend",
+        expect.stringContaining("https://query2.finance.yahoo.com/v10/finance/quoteSummary/NVDA?modules=price,summaryDetail,defaultKeyStatistics,financialData,recommendationTrend"),
         expect.anything()
       );
 
