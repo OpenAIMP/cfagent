@@ -64,3 +64,30 @@ export interface QualityDecision {
   safe: boolean;
   issues: string[];
 }
+
+export interface ReferralRecord {
+  id: string;
+  userLogin: string;
+  title: string;
+  url: string;
+  category: string;
+  rewardText: string;
+  clicks: number;
+  signups: number;
+  createdAt: string;
+}
+
+export interface AdRecord {
+  id: string;
+  title: string;
+  tagline: string;
+  sponsor: string;
+  badge: string;
+  url: string;
+  ctaText: string;
+  accentColor: string;
+  impressions: number;
+  clicks: number;
+  createdAt: string;
+}
+

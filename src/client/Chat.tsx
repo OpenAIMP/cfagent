@@ -22,6 +22,32 @@ interface MemoryItem {
   updatedAt: string;
 }
 
+interface ReferralItem {
+  id: string;
+  userLogin: string;
+  title: string;
+  url: string;
+  category: string;
+  rewardText: string;
+  clicks: number;
+  signups: number;
+  createdAt: string;
+}
+
+interface AdItem {
+  id: string;
+  title: string;
+  tagline: string;
+  sponsor: string;
+  badge: string;
+  url: string;
+  ctaText: string;
+  accentColor: string;
+  impressions: number;
+  clicks: number;
+  createdAt: string;
+}
+
 function extractText(message: any): string {
   if (typeof message.content === "string") return message.content;
   if (Array.isArray(message.parts)) {
@@ -328,7 +354,7 @@ function ToolResultView({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit">("chat");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "referrals" | "ads">("chat");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -350,6 +376,42 @@ export function Chat({ user }: { user: User }) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
+  // Referrals state
+  const [referrals, setReferrals] = useState<ReferralItem[]>([]);
+  const [referralsLoading, setReferralsLoading] = useState(false);
+  const [copiedReferral, setCopiedReferral] = useState(false);
+  const [newRefTitle, setNewRefTitle] = useState("");
+  const [newRefUrl, setNewRefUrl] = useState("");
+  const [newRefCategory, setNewRefCategory] = useState("AI & Dev Tools");
+  const [newRefReward, setNewRefReward] = useState("");
+  const [savingRef, setSavingRef] = useState(false);
+  const [refFormSuccess, setRefFormSuccess] = useState("");
+  const [refFormError, setRefFormError] = useState("");
+
+  // Sponsored Ads state
+  const [ads, setAds] = useState<AdItem[]>([]);
+  const [adsLoading, setAdsLoading] = useState(false);
+  const [newAdTitle, setNewAdTitle] = useState("");
+  const [newAdTagline, setNewAdTagline] = useState("");
+  const [newAdSponsor, setNewAdSponsor] = useState("");
+  const [newAdBadge, setNewAdBadge] = useState("PROMOTED");
+  const [newAdUrl, setNewAdUrl] = useState("");
+  const [newAdCta, setNewAdCta] = useState("Claim Deal →");
+  const [newAdColor, setNewAdColor] = useState("#6366f1");
+  const [savingAd, setSavingAd] = useState(false);
+  const [adFormSuccess, setAdFormSuccess] = useState("");
+  const [adFormError, setAdFormError] = useState("");
+
+  const personalReferralUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/?ref=${encodeURIComponent(user.login)}`
+    : `https://agent.openaimp.com/?ref=${encodeURIComponent(user.login)}`;
+
+  const handleCopyPersonalRef = () => {
+    navigator.clipboard.writeText(personalReferralUrl);
+    setCopiedReferral(true);
+    setTimeout(() => setCopiedReferral(false), 2500);
+  };
+
   // Auto-scroll on new messages
   useEffect(() => {
     if (tab === "chat") {
@@ -357,10 +419,19 @@ export function Chat({ user }: { user: User }) {
     }
   }, [messages, status, tab]);
 
-  // Load audit and memory data when Audit tab is opened
+  // Initial load of partner ads for top banner & deals
+  useEffect(() => {
+    fetchAds();
+  }, []);
+
+  // Load tab-specific data when tab changes
   useEffect(() => {
     if (tab === "audit") {
       fetchAuditData();
+    } else if (tab === "referrals") {
+      fetchReferrals();
+    } else if (tab === "ads") {
+      fetchAds();
     }
   }, [tab]);
 
@@ -375,6 +446,153 @@ export function Chat({ user }: { user: User }) {
       setMemories(memResp.memories || []);
     } finally {
       setAuditLoading(false);
+    }
+  };
+
+  const fetchReferrals = async () => {
+    setReferralsLoading(true);
+    try {
+      const resp = await fetch("/api/referrals");
+      const data = await resp.json() as { referrals?: ReferralItem[] };
+      setReferrals(data.referrals || []);
+    } catch {
+      // Ignore
+    } finally {
+      setReferralsLoading(false);
+    }
+  };
+
+  const fetchAds = async () => {
+    setAdsLoading(true);
+    try {
+      const resp = await fetch("/api/ads");
+      const data = await resp.json() as { ads?: AdItem[] };
+      setAds(data.ads || []);
+    } catch {
+      // Ignore
+    } finally {
+      setAdsLoading(false);
+    }
+  };
+
+  const handleAdClick = (ad: AdItem) => {
+    try {
+      fetch("/api/ads/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ad.id }),
+      });
+      setAds((prev) =>
+        prev.map((a) => (a.id === ad.id ? { ...a, clicks: a.clicks + 1 } : a))
+      );
+    } catch {
+      // Ignore
+    }
+    window.open(ad.url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleReferralClick = (ref: ReferralItem) => {
+    try {
+      fetch("/api/referrals/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ref.id }),
+      });
+      setReferrals((prev) =>
+        prev.map((r) => (r.id === ref.id ? { ...r, clicks: r.clicks + 1 } : r))
+      );
+    } catch {
+      // Ignore
+    }
+    window.open(ref.url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleDeleteReferral = async (id: string) => {
+    try {
+      await fetch(`/api/referrals?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      setReferrals((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleCreateReferral = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRefFormError("");
+    setRefFormSuccess("");
+    if (!newRefTitle.trim() || !newRefUrl.trim()) {
+      setRefFormError("Please enter both title and target referral URL");
+      return;
+    }
+    setSavingRef(true);
+    try {
+      const res = await fetch("/api/referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newRefTitle.trim(),
+          url: newRefUrl.trim(),
+          category: newRefCategory,
+          rewardText: newRefReward.trim() || "Exclusive community referral bonus",
+        }),
+      });
+      const data = await res.json() as { referral?: ReferralItem; error?: string };
+      if (data.referral) {
+        setReferrals((prev) => [data.referral!, ...prev]);
+        setNewRefTitle("");
+        setNewRefUrl("");
+        setNewRefReward("");
+        setRefFormSuccess("🎉 Referral link published successfully!");
+        setTimeout(() => setRefFormSuccess(""), 4000);
+      } else {
+        setRefFormError(data.error || "Failed to create referral link");
+      }
+    } catch (err: any) {
+      setRefFormError(err.message || "Failed to save referral");
+    } finally {
+      setSavingRef(false);
+    }
+  };
+
+  const handleCreateAd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdFormError("");
+    setAdFormSuccess("");
+    if (!newAdTitle.trim() || !newAdUrl.trim()) {
+      setAdFormError("Please enter campaign title and target URL");
+      return;
+    }
+    setSavingAd(true);
+    try {
+      const res = await fetch("/api/ads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newAdTitle.trim(),
+          tagline: newAdTagline.trim() || "Special offer for autonomous agent builders.",
+          sponsor: newAdSponsor.trim() || user.name || "Community Partner",
+          badge: newAdBadge.trim() || "PROMOTED",
+          url: newAdUrl.trim(),
+          ctaText: newAdCta.trim() || "Claim Deal →",
+          accentColor: newAdColor,
+        }),
+      });
+      const data = await res.json() as { ad?: AdItem; error?: string };
+      if (data.ad) {
+        setAds((prev) => [data.ad!, ...prev]);
+        setNewAdTitle("");
+        setNewAdTagline("");
+        setNewAdSponsor("");
+        setNewAdUrl("");
+        setAdFormSuccess("🚀 Sponsored ad launched successfully!");
+        setTimeout(() => setAdFormSuccess(""), 4000);
+      } else {
+        setAdFormError(data.error || "Failed to submit ad");
+      }
+    } catch (err: any) {
+      setAdFormError(err.message || "Failed to submit ad");
+    } finally {
+      setSavingAd(false);
     }
   };
 
@@ -466,6 +684,18 @@ export function Chat({ user }: { user: User }) {
           >
             🛡️ Inspector & Memory
           </button>
+          <button
+            className={`tab-btn ${tab === "referrals" ? "active" : ""}`}
+            onClick={() => setTab("referrals")}
+          >
+            🎁 Referrals & Earn
+          </button>
+          <button
+            className={`tab-btn ${tab === "ads" ? "active" : ""}`}
+            onClick={() => setTab("ads")}
+          >
+            🚀 Sponsored Deals
+          </button>
         </nav>
 
         {/* User Badge */}
@@ -485,6 +715,45 @@ export function Chat({ user }: { user: User }) {
       <main className="tab-viewport">
         {tab === "chat" && (
           <div className="chat-view">
+            {/* Top Sponsor Spotlight Bar */}
+            {ads.length > 0 && (
+              <div
+                className="sponsor-spotlight-bar"
+                style={{ borderColor: `${ads[0].accentColor}55` }}
+              >
+                <div className="sponsor-tag-group">
+                  <span
+                    className="sponsor-pill"
+                    style={{ background: `${ads[0].accentColor}25`, color: ads[0].accentColor }}
+                  >
+                    {ads[0].badge || "SPONSOR"}
+                  </span>
+                  <span className="sponsor-name">{ads[0].sponsor}</span>
+                </div>
+                <div className="sponsor-message">
+                  <strong>{ads[0].title}</strong> — {ads[0].tagline}
+                </div>
+                <div className="sponsor-actions">
+                  <button
+                    type="button"
+                    className="sponsor-cta-btn"
+                    style={{ background: ads[0].accentColor }}
+                    onClick={() => handleAdClick(ads[0])}
+                  >
+                    {ads[0].ctaText}
+                  </button>
+                  <button
+                    type="button"
+                    className="sponsor-more-btn"
+                    onClick={() => setTab("ads")}
+                    title="View all partner offers"
+                  >
+                    All Deals ↗
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="chat-action-bar">
               <span className="chat-subtitle">Stateful Durable Object SQLite Session</span>
               {messages.length > 0 && (
@@ -814,6 +1083,405 @@ export function Chat({ user }: { user: User }) {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "referrals" && (
+          <div className="referrals-view">
+            {/* Header */}
+            <div className="tab-hero-header">
+              <div className="hero-text-block">
+                <h3>🎁 Referrals & Partner Hub</h3>
+                <p>
+                  Invite colleagues to Multi-Agent Studio to unlock GPU compute credits, and place your own developer referral links to earn community rewards.
+                </p>
+              </div>
+              <button
+                className="refresh-btn"
+                onClick={fetchReferrals}
+                disabled={referralsLoading}
+              >
+                {referralsLoading ? "Refreshing…" : "🔄 Refresh"}
+              </button>
+            </div>
+
+            {/* Top Share Box */}
+            <div className="referral-share-card">
+              <div className="referral-share-left">
+                <span className="share-tag">YOUR EXCLUSIVE INVITE LINK</span>
+                <h4>Share Multi-Agent Studio & Earn $10 Compute Credits</h4>
+                <p>
+                  When friends or coworkers sign up using your link, both of you unlock 50,000 free inference tokens and premium agent execution limits.
+                </p>
+                <div className="referral-link-input-group">
+                  <input
+                    type="text"
+                    readOnly
+                    value={personalReferralUrl}
+                    className="referral-url-field"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    type="button"
+                    className={`copy-link-btn ${copiedReferral ? "copied" : ""}`}
+                    onClick={handleCopyPersonalRef}
+                  >
+                    {copiedReferral ? "✓ Copied!" : "📋 Copy Link"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="referral-share-right">
+                <span className="social-label">Quick Share:</span>
+                <div className="social-buttons">
+                  <a
+                    href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                      `Build autonomous AI agents with Cloudflare Workers AI & SQLite on Multi-Agent Studio: ${personalReferralUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn x-twitter"
+                  >
+                    𝕏 Share on X
+                  </a>
+                  <a
+                    href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
+                      personalReferralUrl
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn linkedin"
+                  >
+                    💼 LinkedIn
+                  </a>
+                  <a
+                    href={`https://t.me/share/url?url=${encodeURIComponent(
+                      personalReferralUrl
+                    )}&text=${encodeURIComponent("Check out Multi-Agent Studio for edge AI agents")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn telegram"
+                  >
+                    ✈️ Telegram
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Metrics Ribbon */}
+            <div className="referral-stats-ribbon">
+              <div className="stat-card">
+                <span className="stat-icon">🔗</span>
+                <div className="stat-meta">
+                  <span className="stat-num">{referrals.length}</span>
+                  <span className="stat-label">Referrals Placed</span>
+                </div>
+              </div>
+              <div className="stat-card">
+                <span className="stat-icon">🖱️</span>
+                <div className="stat-meta">
+                  <span className="stat-num">{referrals.reduce((sum, r) => sum + r.clicks, 0)}</span>
+                  <span className="stat-label">Total Link Clicks</span>
+                </div>
+              </div>
+              <div className="stat-card">
+                <span className="stat-icon">👥</span>
+                <div className="stat-meta">
+                  <span className="stat-num">
+                    {referrals.reduce((sum, r) => sum + r.signups, 0) + (user.login ? 1 : 0)}
+                  </span>
+                  <span className="stat-label">Referred Sign-ups</span>
+                </div>
+              </div>
+              <div className="stat-card highlight">
+                <span className="stat-icon">💎</span>
+                <div className="stat-meta">
+                  <span className="stat-num">
+                    ${((referrals.reduce((sum, r) => sum + r.signups, 0) + (user.login ? 1 : 0)) * 10).toFixed(0)}.00
+                  </span>
+                  <span className="stat-label">Earned Compute</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Main 2-column Grid: Place Referral Link Form + Placed Links List */}
+            <div className="referral-columns-grid">
+              {/* Placement Form */}
+              <div className="referral-form-card">
+                <div className="card-header">
+                  <h4>➕ Place a New Referral Link</h4>
+                  <p>Publish your affiliate or referral link to your account to share with teammates and fellow developers.</p>
+                </div>
+                <form onSubmit={handleCreateReferral} className="referral-form">
+                  {refFormSuccess && <div className="form-alert success">{refFormSuccess}</div>}
+                  {refFormError && <div className="form-alert error">{refFormError}</div>}
+
+                  <div className="form-group">
+                    <label>Link Title / Service *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cloudflare Workers AI Pro, Cursor AI, Supabase"
+                      value={newRefTitle}
+                      onChange={(e) => setNewRefTitle(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Destination Referral URL *</label>
+                    <input
+                      type="url"
+                      placeholder="https://service.com/?ref=yourname"
+                      value={newRefUrl}
+                      onChange={(e) => setNewRefUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label>Category</label>
+                      <select
+                        value={newRefCategory}
+                        onChange={(e) => setNewRefCategory(e.target.value)}
+                      >
+                        <option value="AI & Dev Tools">AI & Dev Tools</option>
+                        <option value="Cloud & Hosting">Cloud & Hosting</option>
+                        <option value="Database & Storage">Database & Storage</option>
+                        <option value="Security & Auth">Security & Auth</option>
+                        <option value="SaaS & Productivity">SaaS & Productivity</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Bonus / Reward Offer</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Get $10 in free API credits"
+                        value={newRefReward}
+                        onChange={(e) => setNewRefReward(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="submit-action-btn"
+                    disabled={savingRef || !newRefTitle.trim() || !newRefUrl.trim()}
+                  >
+                    {savingRef ? "Publishing…" : "🚀 Publish Referral Link"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Placed Links List */}
+              <div className="referral-list-card">
+                <div className="card-header">
+                  <h4>📋 Your Placed Referral Links ({referrals.length})</h4>
+                  <p>Track clicks and manage your active promotional URLs.</p>
+                </div>
+
+                <div className="referral-items-list">
+                  {referrals.length === 0 ? (
+                    <div className="empty-referrals-box">
+                      <span className="empty-icon">🔗</span>
+                      <p>No referral links placed yet.</p>
+                      <span className="empty-sub">
+                        Use the form on the left to add your first affiliate or tool referral link.
+                      </span>
+                    </div>
+                  ) : (
+                    referrals.map((ref) => (
+                      <div key={ref.id} className="referral-card-item">
+                        <div className="ref-top">
+                          <span className="ref-cat-pill">{ref.category}</span>
+                          <span className="ref-clicks-pill">🖱️ {ref.clicks} clicks</span>
+                        </div>
+                        <h5 className="ref-title">{ref.title}</h5>
+                        <p className="ref-reward">🎁 {ref.rewardText}</p>
+                        <div className="ref-url-preview">
+                          <code>{ref.url}</code>
+                        </div>
+                        <div className="ref-footer">
+                          <button
+                            type="button"
+                            className="visit-ref-btn"
+                            onClick={() => handleReferralClick(ref)}
+                          >
+                            Test Link ↗
+                          </button>
+                          <button
+                            type="button"
+                            className="delete-ref-btn"
+                            onClick={() => handleDeleteReferral(ref.id)}
+                            title="Delete this referral"
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "ads" && (
+          <div className="ads-view">
+            {/* Header */}
+            <div className="tab-hero-header">
+              <div className="hero-text-block">
+                <h3>🚀 Sponsored Offers & Partner Marketplace</h3>
+                <p>
+                  Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking.
+                </p>
+              </div>
+              <button
+                className="refresh-btn"
+                onClick={fetchAds}
+                disabled={adsLoading}
+              >
+                {adsLoading ? "Refreshing…" : "🔄 Refresh"}
+              </button>
+            </div>
+
+            {/* Sponsored Offers Grid */}
+            <div className="ads-grid">
+              {ads.map((ad) => (
+                <div
+                  key={ad.id}
+                  className="ad-spotlight-card"
+                  style={{
+                    borderColor: `${ad.accentColor}50`,
+                    boxShadow: `0 8px 32px ${ad.accentColor}15`,
+                  }}
+                >
+                  <div className="ad-card-top">
+                    <span
+                      className="ad-badge-tag"
+                      style={{ background: `${ad.accentColor}25`, color: ad.accentColor }}
+                    >
+                      {ad.badge}
+                    </span>
+                    <span className="ad-sponsor-label">Sponsored by {ad.sponsor}</span>
+                  </div>
+
+                  <h4 className="ad-card-title">{ad.title}</h4>
+                  <p className="ad-card-tagline">{ad.tagline}</p>
+
+                  <div className="ad-stats-row">
+                    <span className="ad-stat-pill">👁️ {ad.impressions} impressions</span>
+                    <span className="ad-stat-pill">🖱️ {ad.clicks} clicks</span>
+                  </div>
+
+                  <div className="ad-card-action">
+                    <button
+                      type="button"
+                      className="ad-cta-button"
+                      style={{ background: ad.accentColor }}
+                      onClick={() => handleAdClick(ad)}
+                    >
+                      {ad.ctaText}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Self-serve Ad Submission Form */}
+            <div className="sponsor-submission-card">
+              <div className="card-header">
+                <h4>📢 Submit a Sponsored Placement</h4>
+                <p>Feature your tool, API, or infrastructure platform to autonomous agent developers across the network.</p>
+              </div>
+
+              <form onSubmit={handleCreateAd} className="ad-submission-form">
+                {adFormSuccess && <div className="form-alert success">{adFormSuccess}</div>}
+                {adFormError && <div className="form-alert error">{adFormError}</div>}
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Campaign / Product Title *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Workers AI Vectorize Bundle"
+                      value={newAdTitle}
+                      onChange={(e) => setNewAdTitle(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Sponsor / Brand Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cloudflare Platform or Acme Corp"
+                      value={newAdSponsor}
+                      onChange={(e) => setNewAdSponsor(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Tagline / Offer Description *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Accelerate multi-turn LLM reasoning with sub-millisecond vector lookups."
+                    value={newAdTagline}
+                    onChange={(e) => setNewAdTagline(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-row-3">
+                  <div className="form-group">
+                    <label>Destination Landing URL *</label>
+                    <input
+                      type="url"
+                      placeholder="https://..."
+                      value={newAdUrl}
+                      onChange={(e) => setNewAdUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>CTA Button Label</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Claim $50 Credit →"
+                      value={newAdCta}
+                      onChange={(e) => setNewAdCta(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Accent Color</label>
+                    <select
+                      value={newAdColor}
+                      onChange={(e) => setNewAdColor(e.target.value)}
+                    >
+                      <option value="#6366f1">Indigo (#6366f1)</option>
+                      <option value="#f38020">Cloudflare Orange (#f38020)</option>
+                      <option value="#06b6d4">Cyan (#06b6d4)</option>
+                      <option value="#10b981">Emerald Green (#10b981)</option>
+                      <option value="#a855f7">Purple (#a855f7)</option>
+                      <option value="#f43f5e">Rose (#f43f5e)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="submit-action-btn ad-btn"
+                  disabled={savingAd || !newAdTitle.trim() || !newAdUrl.trim()}
+                >
+                  {savingAd ? "Submitting Placement…" : "🚀 Launch Sponsored Placement"}
+                </button>
+              </form>
             </div>
           </div>
         )}

@@ -71,8 +71,8 @@ export default {
       });
     }
 
-    // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear) ---
-    if (path.startsWith("/api/nlq") || path.startsWith("/api/audit") || path.startsWith("/api/memory") || path.startsWith("/api/clear")) {
+    // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads) ---
+    if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
 

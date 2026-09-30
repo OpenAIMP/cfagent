@@ -90,6 +90,102 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         updated_at TEXT NOT NULL
       )
     `);
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_referrals (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        category TEXT NOT NULL,
+        reward_text TEXT NOT NULL,
+        clicks INTEGER DEFAULT 0,
+        signups INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    `);
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_ads (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        tagline TEXT NOT NULL,
+        sponsor TEXT NOT NULL,
+        badge TEXT NOT NULL,
+        url TEXT NOT NULL,
+        cta_text TEXT NOT NULL,
+        accent_color TEXT NOT NULL,
+        impressions INTEGER DEFAULT 0,
+        clicks INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    `);
+
+    // Seed default sponsor offers if ads table is empty
+    try {
+      const adCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_ads")) as Array<{ count: number }>;
+      if ((adCount[0]?.count ?? 0) === 0) {
+        const now = new Date().toISOString();
+        const seedAds = [
+          {
+            id: "ad_workers_ai",
+            title: "Cloudflare Workers AI",
+            tagline: "Run state-of-the-art models (GLM-4.7, Llama 3.3) on serverless GPUs with zero cold starts.",
+            sponsor: "Cloudflare",
+            badge: "FLAGSHIP PARTNER",
+            url: "https://developers.cloudflare.com/workers-ai/",
+            cta_text: "Deploy in 60s →",
+            accent_color: "#f38020",
+          },
+          {
+            id: "ad_ai_search",
+            title: "Cloudflare AI Search",
+            tagline: "Build enterprise RAG pipelines with native auto-chunking, Vectorize indexes, and real-time semantic retrieval.",
+            sponsor: "Cloudflare AI",
+            badge: "FEATURED TOOL",
+            url: "https://developers.cloudflare.com/ai-search/",
+            cta_text: "Explore Docs →",
+            accent_color: "#38bdf8",
+          },
+          {
+            id: "ad_durable_objects",
+            title: "Durable Objects SQLite",
+            tagline: "Strongly consistent transactional databases running natively at the edge for stateful AI agents.",
+            sponsor: "Cloudflare Platform",
+            badge: "INFRASTRUCTURE",
+            url: "https://developers.cloudflare.com/durable-objects/",
+            cta_text: "Learn More →",
+            accent_color: "#a855f7",
+          },
+          {
+            id: "ad_openaimp",
+            title: "OpenAIMP Agent Studio",
+            tagline: "Scale autonomous multi-agent workflows with real-time LLM Judge routing and persistent memory.",
+            sponsor: "OpenAIMP",
+            badge: "SPONSOR",
+            url: "https://agent.openaimp.com",
+            cta_text: "Join Program →",
+            accent_color: "#10b981",
+          },
+        ];
+
+        for (const ad of seedAds) {
+          sql.exec(
+            "INSERT OR IGNORE INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
+            ad.id,
+            ad.title,
+            ad.tagline,
+            ad.sponsor,
+            ad.badge,
+            ad.url,
+            ad.cta_text,
+            ad.accent_color,
+            now
+          );
+        }
+      }
+    } catch {
+      // Ignore if seeding fails
+    }
+
     return sql;
   }
 
@@ -395,6 +491,184 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to clear history" }, { status: 500 });
+      }
+    }
+
+    // Referrals & Affiliate Links endpoint
+    if (path.endsWith("/referrals")) {
+      if (request.method === "GET") {
+        try {
+          const raw = Array.from(
+            sql.exec("SELECT id, session_id, title, url, category, reward_text, clicks, signups, created_at FROM mas_referrals ORDER BY created_at DESC LIMIT 100")
+          ) as any[];
+          const referrals = raw.map((r) => ({
+            id: String(r.id),
+            userLogin: String(r.session_id),
+            title: String(r.title),
+            url: String(r.url),
+            category: String(r.category),
+            rewardText: String(r.reward_text),
+            clicks: Number(r.clicks || 0),
+            signups: Number(r.signups || 0),
+            createdAt: String(r.created_at),
+          }));
+          return Response.json({ count: referrals.length, referrals });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch referrals" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as {
+            title?: string;
+            url?: string;
+            category?: string;
+            rewardText?: string;
+          };
+          const title = (body.title || "").trim();
+          const targetUrl = (body.url || "").trim();
+          const category = (body.category || "AI & Dev Tools").trim();
+          const rewardText = (body.rewardText || "Community referral reward").trim();
+
+          if (!title || !targetUrl) {
+            return Response.json({ error: "Title and Target URL are required" }, { status: 400 });
+          }
+
+          const id = `ref_${crypto.randomUUID().slice(0, 8)}`;
+          const now = new Date().toISOString();
+          sql.exec(
+            "INSERT INTO mas_referrals (id, session_id, title, url, category, reward_text, clicks, signups, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)",
+            id,
+            sessionId,
+            title,
+            targetUrl,
+            category,
+            rewardText,
+            now
+          );
+          this.audit("referral.created", "orchestrator", { id, title, targetUrl });
+          return Response.json({
+            success: true,
+            referral: { id, userLogin: sessionId, title, url: targetUrl, category, rewardText, clicks: 0, signups: 0, createdAt: now },
+          });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to save referral link" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "DELETE") {
+        try {
+          const id = url.searchParams.get("id");
+          if (id) {
+            sql.exec("DELETE FROM mas_referrals WHERE id = ?", id);
+            this.audit("referral.deleted", "orchestrator", { id });
+          }
+          return Response.json({ success: true });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to delete referral" }, { status: 500 });
+        }
+      }
+    }
+
+    if (path.endsWith("/referrals/click") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { id?: string };
+        if (body.id) {
+          sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
+        }
+        return Response.json({ success: true });
+      } catch {
+        return Response.json({ success: false });
+      }
+    }
+
+    // Sponsored Ads & Marketplace endpoint
+    if (path.endsWith("/ads")) {
+      if (request.method === "GET") {
+        try {
+          // Increment impressions on fetch
+          sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
+          const raw = Array.from(
+            sql.exec("SELECT id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at FROM mas_ads ORDER BY clicks DESC, impressions ASC LIMIT 20")
+          ) as any[];
+          const ads = raw.map((a) => ({
+            id: String(a.id),
+            title: String(a.title),
+            tagline: String(a.tagline),
+            sponsor: String(a.sponsor),
+            badge: String(a.badge),
+            url: String(a.url),
+            ctaText: String(a.cta_text),
+            accentColor: String(a.accent_color || "#6366f1"),
+            impressions: Number(a.impressions || 0),
+            clicks: Number(a.clicks || 0),
+            createdAt: String(a.created_at),
+          }));
+          return Response.json({ count: ads.length, ads });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch ads" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as {
+            title?: string;
+            tagline?: string;
+            sponsor?: string;
+            badge?: string;
+            url?: string;
+            ctaText?: string;
+            accentColor?: string;
+          };
+          const title = (body.title || "").trim();
+          const tagline = (body.tagline || "").trim();
+          const sponsor = (body.sponsor || "Community Partner").trim();
+          const badge = (body.badge || "PROMOTED").trim();
+          const targetUrl = (body.url || "").trim();
+          const ctaText = (body.ctaText || "Claim Deal →").trim();
+          const accentColor = (body.accentColor || "#38bdf8").trim();
+
+          if (!title || !targetUrl) {
+            return Response.json({ error: "Title and Target URL are required" }, { status: 400 });
+          }
+
+          const id = `ad_${crypto.randomUUID().slice(0, 8)}`;
+          const now = new Date().toISOString();
+          sql.exec(
+            "INSERT INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)",
+            id,
+            title,
+            tagline,
+            sponsor,
+            badge,
+            targetUrl,
+            ctaText,
+            accentColor,
+            now
+          );
+          this.audit("ad.submitted", "orchestrator", { id, title, sponsor });
+          return Response.json({
+            success: true,
+            ad: { id, title, tagline, sponsor, badge, url: targetUrl, ctaText, accentColor, impressions: 1, clicks: 0, createdAt: now },
+          });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to submit ad" }, { status: 500 });
+        }
+      }
+    }
+
+    if (path.endsWith("/ads/click") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { id?: string };
+        if (body.id) {
+          sql.exec("UPDATE mas_ads SET clicks = clicks + 1 WHERE id = ?", body.id);
+          this.audit("ad.clicked", "orchestrator", { id: body.id });
+        }
+        return Response.json({ success: true });
+      } catch {
+        return Response.json({ success: false });
       }
     }
 
