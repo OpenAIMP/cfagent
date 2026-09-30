@@ -645,7 +645,7 @@ Agentic Best Practices & Workflow Rules:
             orm.memory.delete(key);
             this.audit("memory.deleted", "memory", { key });
           } else {
-            (orm.memory as any).sql.exec("DELETE FROM mas_memory");
+            orm.memory.deleteAll();
             this.audit("memory.cleared", "memory", {});
           }
           return Response.json({ success: true });
@@ -662,7 +662,7 @@ Agentic Best Practices & Workflow Rules:
         this.resetTurnState();
         const purge = url.searchParams.get("purge") === "true";
         if (purge) {
-          (orm.messages as any).sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
+          orm.messages.deleteAll({ sessionId });
           this.audit("history.purged", "orchestrator", {});
         } else {
           this.audit("history.cleared", "orchestrator", {});
@@ -761,7 +761,7 @@ Agentic Best Practices & Workflow Rules:
       if (request.method === "GET") {
         try {
           // Increment impressions on fetch
-          (orm.ads as any).sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
+          orm.ads.incrementAll("impressions");
           const ads = orm.ads.findMany({ orderBy: "clicks DESC", limit: 20 });
           return Response.json({ count: ads.length, ads });
         } catch (err) {

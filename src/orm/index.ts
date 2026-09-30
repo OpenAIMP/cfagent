@@ -141,6 +141,39 @@ export class Repository<T extends Record<string, any>> {
     return true;
   }
 
+  deleteAll(where?: Record<string, unknown>): boolean {
+    const clauses: string[] = [];
+    const args: unknown[] = [];
+
+    if (where) {
+      for (const [key, val] of Object.entries(where)) {
+        if (val !== undefined && val !== null) {
+          clauses.push(`${this.toDbCol(key)} = ?`);
+          args.push(typeof val === "boolean" ? (val ? 1 : 0) : val);
+        }
+      }
+    }
+
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const query = `DELETE FROM ${this.tableName} ${whereClause}`.trim();
+    this.sql.exec(query, ...args);
+    return true;
+  }
+
+  increment(id: string, field: keyof T & string, amount: number = 1): boolean {
+    const col = this.toDbCol(field);
+    const query = `UPDATE ${this.tableName} SET ${col} = ${col} + ? WHERE ${this.idField} = ?`;
+    this.sql.exec(query, amount, id);
+    return true;
+  }
+
+  incrementAll(field: keyof T & string, amount: number = 1): boolean {
+    const col = this.toDbCol(field);
+    const query = `UPDATE ${this.tableName} SET ${col} = ${col} + ?`;
+    this.sql.exec(query, amount);
+    return true;
+  }
+
   count(where?: Record<string, unknown>): number {
     const clauses: string[] = [];
     const args: unknown[] = [];
