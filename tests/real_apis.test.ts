@@ -391,7 +391,8 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
 
       expect(quote.symbol).toBe("NVDA");
       expect(quote.lastPrice).toBe(142.5);
-      expect(quote.source).toContain("E*TRADE Live REST API");
+      // Source string now reflects active environment name & label from resolveEnvironmentConfig
+      expect(quote.source).toContain("E*TRADE REST API");
     });
 
     it("calls real E*TRADE order placement REST endpoint with PlaceOrderRequest", async () => {
@@ -438,8 +439,10 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
     });
 
     it("refuses to execute live order without OAuth keys (no fake mockups)", async () => {
+      // Set APP_ENV=PROD (isLive=true) with no ET_API_KEY/ET_API_SECRET.
+      // resolveEnvironmentConfig sees PROD + no keys → returns the live-mode rejection.
       const liveNoKeysEnv: Env = {
-        ETRADE_ENVIRONMENT: "live",
+        APP_ENV: "PROD",
       } as Env;
 
       const etrade = new ETradeService(liveNoKeysEnv);
@@ -453,8 +456,9 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
 
       expect(result.success).toBe(false);
       expect(result.status).toBe("failed");
-      expect(result.message).toContain("ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET must be configured");
-      expect(result.message).toContain("Simulation is disabled");
+      // Updated message uses ET_API_KEY/ET_API_SECRET and mentions the active environment name
+      expect(result.message).toContain("ET_API_KEY and ET_API_SECRET must be configured");
+      expect(result.message).toContain("PROD");
     });
   });
 
