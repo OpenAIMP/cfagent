@@ -6,18 +6,21 @@ import type { Env, SessionData } from "./types";
 import { getSessionId, getSession, setSessionCookie } from "./session";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 
-// --- The Agent ---
+// --- The Agent (Durable Object) ---
 
 export class SearchAgent extends AIChatAgent<Env> {
   async onChatMessage() {
-    const model = createWorkersAI({ binding: this.env.AI })("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    const model = createWorkersAI({ binding: this.env.AI })(
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+    );
 
     const result = streamText({
       model,
       messages: await convertToModelMessages(this.messages),
       tools: {
         search: tool({
-          description: "Search the AI Search knowledge base for relevant information. Use this tool when the user asks a question that requires searching indexed documents.",
+          description:
+            "Search the AI Search knowledge base for relevant information. Use this tool when the user asks a question that requires searching indexed documents.",
           parameters: z.object({
             query: z.string().describe("The search query"),
           }),
@@ -49,6 +52,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // --- WebSocket upgrade: route to Agent Durable Object ---
+    if (request.headers.get("Upgrade") === "websocket") {
+      // Use the authenticated user's session ID as the agent name
+      // so each user gets their own agent instance
+      const sessionId = getSessionId(request) || "anonymous";
+      const id = env.SEARCH_AGENT.idFromName(sessionId);
+      const stub = env.SEARCH_AGENT.get(id);
+      return stub.fetch(request);
+    }
 
     // --- Auth routes ---
     if (path === "/auth/login") return handleLogin(env);
@@ -105,7 +118,10 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
+async function requireAuth(
+  request: Request,
+  env: Env
+): Promise<SessionData | null> {
   const sessionId = getSessionId(request);
   if (!sessionId) return null;
   return await getSession(env, sessionId);
