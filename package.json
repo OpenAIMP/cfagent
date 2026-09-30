@@ -9,7 +9,9 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "tsc --noEmit && vitest run && vite build"
+    "test:ci": "vitest run --reporter=verbose",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test:ci && npm run build"
   },
   "dependencies": {
     "@ai-sdk/react": "latest",
