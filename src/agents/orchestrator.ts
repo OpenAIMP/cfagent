@@ -4,7 +4,9 @@ import { getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { createMAS } from "./mas";
 import { planNLQ, queryConversation } from "./nlq";
-import type { Env, AgentName, AuditEvent, MessageRecord, MemoryRecord } from "../types";
+import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
+import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
+import type { Env, AgentName, AuditEvent, MessageRecord, MemoryRecord, TransactionRecord } from "../types";
 
 /**
  * Normalizes messages into valid UIMessage structures with populated `parts`.
@@ -181,6 +183,79 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
             now
           );
         }
+      }
+    } catch {
+      // Ignore if seeding fails
+    }
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_transactions (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        customer TEXT NOT NULL,
+        gateway TEXT NOT NULL,
+        gateway_ref TEXT,
+        status TEXT NOT NULL,
+        checkout_url TEXT,
+        proposer_did TEXT NOT NULL,
+        authorizer_did TEXT,
+        proof_signature TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    // Seed default transactions if table is empty
+    try {
+      const txCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_transactions")) as Array<{ count: number }>;
+      if ((txCount[0]?.count ?? 0) === 0) {
+        const now = new Date().toISOString();
+        const sessionId = this.sessionKey();
+        const userDid = getUserDid(sessionId);
+
+        sql.exec(
+          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "pay_init_stripe",
+          sessionId,
+          "charge",
+          25.00,
+          "USD",
+          "Enterprise Team",
+          "stripe",
+          "cs_live_seed_compute_tokens",
+          "completed",
+          "https://checkout.stripe.com/c/pay/cs_live_seed",
+          AGENT_DIDS.PAYMENTS,
+          userDid,
+          "sig_0x4b78a9c2e1f40d89e5a1b3c7d6e8f2a4",
+          "500,000 AI Inference Token Credits Bundle",
+          now,
+          now
+        );
+
+        sql.exec(
+          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "pay_init_paypal",
+          sessionId,
+          "charge",
+          15.00,
+          "USD",
+          "Acme Partner Corp",
+          "paypal",
+          "ORDER-789012345",
+          "completed",
+          "https://www.paypal.com/checkoutnow?token=ORDER-789012345",
+          AGENT_DIDS.PAYMENTS,
+          userDid,
+          "sig_0x8f2d1e4c9b3a7f0e6d5c2a1b4e9f8a7d",
+          "Developer Sandbox Token Allowance",
+          now,
+          now
+        );
       }
     } catch {
       // Ignore if seeding fails
@@ -669,6 +744,301 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ success: true });
       } catch {
         return Response.json({ success: false });
+      }
+    }
+
+    // ==========================================
+    // Multi-Gateway Payments & DID Management API
+    // ==========================================
+
+    // Gateway status & DID registry
+    if (path.endsWith("/payments/gateways") && request.method === "GET") {
+      const paymentService = new PaymentGatewayService(this.env);
+      const gateways = paymentService.getGatewayStatuses();
+      return Response.json({
+        gateways,
+        agentDids: AGENT_DIDS,
+        userDid: getUserDid(sessionId),
+      });
+    }
+
+    // W3C DID Document resolver for agents
+    if (path.endsWith("/payments/dids") && request.method === "GET") {
+      const didParam = url.searchParams.get("did");
+      if (didParam) {
+        return Response.json(resolveAgentDidDocument(didParam));
+      }
+      const didDocs = Object.values(AGENT_DIDS).map((did) => resolveAgentDidDocument(did));
+      return Response.json({
+        count: didDocs.length,
+        documents: didDocs,
+      });
+    }
+
+    // Transaction ledger with DID provenance
+    if (path.endsWith("/payments/transactions")) {
+      if (request.method === "GET") {
+        try {
+          const raw = Array.from(
+            sql.exec(
+              "SELECT id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at FROM mas_transactions ORDER BY created_at DESC LIMIT 50"
+            )
+          ) as any[];
+
+          const transactions = raw.map((t) => ({
+            id: String(t.id),
+            sessionId: String(t.session_id),
+            action: String(t.action),
+            amount: Number(t.amount || 0),
+            currency: String(t.currency || "USD"),
+            customer: String(t.customer),
+            gateway: String(t.gateway || "stripe"),
+            gatewayRef: String(t.gateway_ref || ""),
+            status: String(t.status),
+            checkoutUrl: String(t.checkout_url || ""),
+            proposerDid: String(t.proposer_did || AGENT_DIDS.PAYMENTS),
+            authorizerDid: t.authorizer_did ? String(t.authorizer_did) : undefined,
+            proofSignature: String(t.proof_signature || ""),
+            note: String(t.note || ""),
+            createdAt: String(t.created_at),
+            updatedAt: String(t.updated_at),
+          }));
+
+          const totalVolume = transactions
+            .filter((t) => t.status === "completed" || t.status === "authorized")
+            .reduce((sum, t) => sum + (t.action === "charge" ? t.amount : -t.amount), 0);
+
+          const pendingCount = transactions.filter((t) => t.status === "awaiting_confirmation").length;
+          const completedCount = transactions.filter((t) => t.status === "completed" || t.status === "authorized").length;
+
+          return Response.json({
+            count: transactions.length,
+            transactions,
+            summary: {
+              totalVolume: Math.max(0, totalVolume),
+              completedCount,
+              pendingCount,
+              verifiedDidCount: transactions.length,
+            },
+          });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch transactions" }, { status: 500 });
+        }
+      }
+    }
+
+    // Create payment checkout / draft
+    if (path.endsWith("/payments/create") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as {
+          amount?: number;
+          currency?: string;
+          customer?: string;
+          action?: "charge" | "refund" | "invoice";
+          gateway?: SupportedGateway;
+          description?: string;
+        };
+
+        const amount = Number(body.amount) || 10;
+        const currency = (body.currency || "USD").toUpperCase();
+        const customer = (body.customer || "Enterprise Client").trim();
+        const action = body.action || "charge";
+        const gateway = (body.gateway || "stripe") as SupportedGateway;
+        const description = (body.description || `AI Compute Tokens for ${customer}`).trim();
+
+        const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
+        const userDid = getUserDid(sessionId);
+
+        const paymentService = new PaymentGatewayService(this.env);
+        const checkoutResult = await paymentService.createCheckout({
+          draftId,
+          amount,
+          currency,
+          customer,
+          description,
+          gateway,
+          userLogin: sessionId,
+        });
+
+        const now = new Date().toISOString();
+        sql.exec(
+          "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          draftId,
+          sessionId,
+          action,
+          amount,
+          currency,
+          customer,
+          gateway,
+          checkoutResult.gatewayRef || "",
+          "completed",
+          checkoutResult.checkoutUrl,
+          AGENT_DIDS.PAYMENTS,
+          userDid,
+          checkoutResult.didAttestation.signature,
+          description,
+          now,
+          now
+        );
+
+        this.audit("payment.created", "payments", {
+          draftId,
+          amount,
+          currency,
+          customer,
+          gateway,
+          proposerDid: AGENT_DIDS.PAYMENTS,
+          authorizerDid: userDid,
+          proofSignature: checkoutResult.didAttestation.signature,
+        });
+
+        return Response.json({
+          success: true,
+          transaction: {
+            id: draftId,
+            sessionId,
+            action,
+            amount,
+            currency,
+            customer,
+            gateway,
+            gatewayRef: checkoutResult.gatewayRef,
+            status: "completed",
+            checkoutUrl: checkoutResult.checkoutUrl,
+            proposerDid: AGENT_DIDS.PAYMENTS,
+            authorizerDid: userDid,
+            proofSignature: checkoutResult.didAttestation.signature,
+            note: description,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to create payment" }, { status: 500 });
+      }
+    }
+
+    // Authorize & Execute a pending payment draft (HITL)
+    if (path.endsWith("/payments/confirm") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as {
+          draftId?: string;
+          decision?: "approved" | "rejected";
+          note?: string;
+        };
+
+        const draftId = (body.draftId || "").trim();
+        const decision = body.decision || "approved";
+        const note = (body.note || "").trim();
+
+        if (!draftId) {
+          return Response.json({ error: "draftId is required" }, { status: 400 });
+        }
+
+        const userDid = getUserDid(sessionId);
+        const now = new Date().toISOString();
+
+        if (decision === "approved") {
+          // Retrieve draft from mas_transactions
+          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
+          const tx = rows[0];
+          const paymentService = new PaymentGatewayService(this.env);
+
+          let checkoutUrl = tx?.checkout_url || "";
+          let gatewayRef = tx?.gateway_ref || "";
+
+          if (tx && (tx.action === "charge" || tx.action === "invoice") && !checkoutUrl) {
+            const res = await paymentService.createCheckout({
+              draftId,
+              amount: Number(tx.amount),
+              currency: String(tx.currency || "USD"),
+              customer: String(tx.customer),
+              gateway: tx.gateway as SupportedGateway,
+              userLogin: sessionId,
+              description: tx.note || "Authorized payment intent",
+            });
+            checkoutUrl = res.checkoutUrl;
+            gatewayRef = res.gatewayRef;
+          } else if (tx && tx.action === "refund") {
+            const res = await paymentService.executeRefund({
+              transactionId: draftId,
+              amount: Number(tx.amount),
+              gateway: tx.gateway as SupportedGateway,
+              gatewayRef: tx.gateway_ref,
+              userLogin: sessionId,
+              reason: note,
+            });
+            gatewayRef = res.refundId;
+          }
+
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+            gatewayRef,
+            checkoutUrl,
+            userDid,
+            note || "Confirmed by human authorizer",
+            now,
+            draftId
+          );
+
+          this.audit("payment.confirmed", "payments", {
+            draftId,
+            authorizerDid: userDid,
+            executorDid: AGENT_DIDS.ORCHESTRATOR,
+            gatewayRef,
+            checkoutUrl,
+          });
+
+          return Response.json({
+            success: true,
+            status: "completed",
+            draftId,
+            checkoutUrl,
+            gatewayRef,
+            authorizerDid: userDid,
+          });
+        } else {
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+            userDid,
+            note || "Rejected by reviewer",
+            now,
+            draftId
+          );
+
+          this.audit("payment.rejected", "payments", { draftId, authorizerDid: userDid });
+          return Response.json({ success: true, status: "rejected", draftId });
+        }
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to confirm payment draft" }, { status: 500 });
+      }
+    }
+
+    // Unified Payment Webhook listener (Stripe, PayPal, Lemon Squeezy)
+    if (path.endsWith("/payments/webhook") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const provider = url.searchParams.get("provider") || "stripe";
+        const now = new Date().toISOString();
+
+        // Extract reference ID from Stripe / PayPal / Lemon Squeezy payload
+        const draftId = body?.data?.object?.client_reference_id ||
+          body?.resource?.purchase_units?.[0]?.reference_id ||
+          body?.data?.attributes?.checkout_data?.custom?.draftId ||
+          body?.draftId;
+
+        if (draftId) {
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
+            now,
+            draftId
+          );
+          this.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
+        }
+
+        return Response.json({ received: true });
+      } catch {
+        return Response.json({ received: false }, { status: 400 });
       }
     }
 

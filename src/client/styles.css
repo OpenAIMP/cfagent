@@ -1983,3 +1983,369 @@ body {
   filter: brightness(1.15);
   transform: translateY(-1px);
 }
+
+/* ==========================================================================
+   Payments & Decentralized Identifiers (DID) Module
+   ========================================================================== */
+.payments-view {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem 2rem 3rem 2rem;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Agent DIDs Ribbon */
+.agent-dids-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.did-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 0.3rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+
+.did-pill code {
+  color: #38bdf8;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.did-role-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.did-role-tag.authorizer {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+/* Gateway Status Cards */
+.gateway-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 860px) {
+  .gateway-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gateway-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.gateway-card.stripe { border-top: 3px solid #6366f1; }
+.gateway-card.paypal { border-top: 3px solid #06b6d4; }
+.gateway-card.lemonsqueezy { border-top: 3px solid #f59e0b; }
+
+.gateway-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.gw-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gw-name-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gw-name-group h5 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.gw-mode-badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+
+.gw-mode-badge.live { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.gw-mode-badge.sandbox { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+.gw-mode-badge.simulated { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+
+.gw-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gw-cap-tag {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.gw-webhook-info {
+  margin-top: auto;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Transaction Card Details */
+.transaction-card {
+  position: relative;
+}
+
+.gateway-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.gateway-pill.stripe { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+.gateway-pill.paypal { background: rgba(6, 182, 212, 0.2); color: #67e8f9; }
+.gateway-pill.lemonsqueezy { background: rgba(245, 158, 11, 0.2); color: #fde047; }
+.gateway-pill.sandbox { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+
+.tx-status-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.tx-status-pill.completed { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.tx-status-pill.authorized { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+.tx-status-pill.awaiting_confirmation { background: rgba(245, 158, 11, 0.25); color: #fbbf24; animation: pulseGlow 1.5s infinite alternate; }
+.tx-status-pill.rejected { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+
+@keyframes pulseGlow {
+  from { opacity: 0.7; }
+  to { opacity: 1; box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+}
+
+.tx-main-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.tx-customer {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.tx-did-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  margin: 0.5rem 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.did-proof-tag {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.tx-did-bar code {
+  color: #94a3b8;
+  font-family: var(--font-mono);
+}
+
+.tx-hitl-box {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  margin: 0.75rem 0;
+}
+
+.tx-hitl-notice {
+  font-size: 0.78rem;
+  color: #fde047;
+  margin-bottom: 0.5rem;
+}
+
+.tx-hitl-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.proof-inspect-btn {
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #a5b4fc;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.proof-inspect-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: #ffffff;
+}
+
+.tx-date {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* Cryptographic DID Proof Modal */
+.did-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.did-modal-card {
+  background: #0c1222;
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  border-radius: 18px;
+  max-width: 600px;
+  width: 90%;
+  padding: 1.75rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  animation: scaleIn 0.2s ease-out;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-header h4 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.close-modal-btn:hover {
+  color: #ffffff;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.proof-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.proof-field label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.proof-field code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+  color: #38bdf8;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.proof-field pre.sig-code {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 0.65rem;
+  border-radius: 8px;
+  color: #a5b4fc;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+

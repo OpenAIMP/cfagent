@@ -71,7 +71,7 @@ export default {
       });
     }
 
-    // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads) ---
+    // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
@@ -81,6 +81,63 @@ export default {
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
 
       return env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
+    }
+
+    // --- Simulated Sandbox Terminal for Payment Gateways ---
+    if (path === "/checkout/sandbox") {
+      const provider = (url.searchParams.get("provider") || "stripe").toUpperCase();
+      const draftId = url.searchParams.get("id") || "pay_demo";
+      const amount = url.searchParams.get("amt") || "25.00";
+      const currency = url.searchParams.get("curr") || "USD";
+      const customer = decodeURIComponent(url.searchParams.get("cust") || "Enterprise Customer");
+      const sig = url.searchParams.get("sig") || "0x_demo_signature";
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${provider} Payment Terminal — Multi-Agent Studio</title>
+  <style>
+    body {
+      margin: 0; padding: 0; background: #060913; color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    }
+    .card {
+      background: rgba(18, 26, 47, 0.9); border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: 20px; padding: 2.5rem; max-width: 440px; width: 90%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6); backdrop-filter: blur(20px);
+    }
+    .badge { display: inline-block; background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 0.25rem 0.65rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; margin-bottom: 1rem; }
+    h2 { margin: 0 0 0.5rem 0; font-size: 1.5rem; color: #ffffff; }
+    .amount { font-size: 2.4rem; font-weight: 800; color: #38bdf8; margin: 1rem 0; }
+    .did-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem; font-family: monospace; font-size: 0.75rem; color: #94a3b8; word-break: break-all; margin-bottom: 1.5rem; }
+    .btn { display: block; width: 100%; padding: 0.85rem; border-radius: 10px; font-size: 0.95rem; font-weight: 700; cursor: pointer; text-align: center; text-decoration: none; border: 0; margin-bottom: 0.75rem; box-sizing: border-box; }
+    .btn-pay { background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%); color: #ffffff; }
+    .btn-pay:hover { filter: brightness(1.15); }
+    .btn-cancel { background: transparent; color: #64748b; }
+    .btn-cancel:hover { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">${provider} Sandbox Terminal</span>
+    <h2>Secure Payment Authorization</h2>
+    <p style="color: #94a3b8; font-size: 0.88rem; margin: 0;">Recipient: Multi-Agent Studio (${customer})</p>
+    <div class="amount">$${amount} <span style="font-size: 1rem; color: #94a3b8;">${currency}</span></div>
+    <div class="did-box">
+      <div><strong>Proposer:</strong> did:agent:openaimp:payments</div>
+      <div><strong>Intent Hash:</strong> ${sig}...</div>
+    </div>
+    <a href="/?payment=success&draft=${encodeURIComponent(draftId)}&provider=${encodeURIComponent(provider)}" class="btn btn-pay">
+      ✓ Authorize & Complete Payment
+    </a>
+    <a href="/?payment=cancel" class="btn btn-cancel">Cancel Transaction</a>
+  </div>
+</body>
+</html>`;
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
     // --- Serve App or Login Page ---

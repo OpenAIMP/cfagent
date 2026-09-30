@@ -1,6 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { AgentName, Env } from "../types";
+import { AGENT_DIDS, createDidAttestation, getUserDid } from "./did";
+import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 
 export interface MASOptions {
   env: Env;
@@ -59,24 +61,70 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
     },
   });
 
+  const paymentGateway = new PaymentGatewayService(env);
+  const userDid = getUserDid(sessionId);
+
   const draftPayment = tool({
-    description: "Draft a payment operation (charge, refund, invoice, or payout). Safety guarantee: This tool NEVER executes actual monetary transactions; it only creates an authorization draft pending human approval.",
+    description: "Draft a payment operation (charge, refund, invoice, or payout) across Stripe, PayPal, Lemon Squeezy, or Sandbox. Safety guarantee: Creates a cryptographically signed authorization draft with Agent DIDs pending human approval.",
     inputSchema: z.object({
       action: z.enum(["charge", "refund", "invoice", "payout"]).describe("The financial operation to draft"),
       amount: z.number().positive().max(100000).describe("Monetary amount"),
       currency: z.string().length(3).default("USD").describe("Three-letter ISO currency code, e.g. USD, EUR, GBP"),
       customer: z.string().min(1).max(200).describe("Customer name or account identifier"),
+      gateway: z.enum(["stripe", "paypal", "lemonsqueezy", "sandbox"]).default("stripe").describe("Target payment gateway provider"),
       note: z.string().optional().describe("Optional note or reference for the payment"),
     }),
     execute: async (input) => {
       const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
+      const now = new Date().toISOString();
+      const gateway = (input.gateway || "stripe") as SupportedGateway;
+
+      const didProof = await createDidAttestation({
+        draftId,
+        action: input.action,
+        amount: input.amount,
+        currency: input.currency,
+        customer: input.customer,
+        gateway,
+        proposerDid: AGENT_DIDS.PAYMENTS,
+        authorizerDid: userDid,
+      });
+
+      try {
+        sql.exec(
+          "INSERT OR REPLACE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          draftId,
+          sessionId,
+          input.action,
+          input.amount,
+          input.currency,
+          input.customer,
+          gateway,
+          "",
+          "awaiting_confirmation",
+          "",
+          didProof.proposerDid,
+          userDid,
+          didProof.signature,
+          input.note || "Draft created by payments subagent",
+          now,
+          now
+        );
+      } catch (err) {
+        console.error("Failed to insert transaction draft into SQLite:", err);
+      }
+
       const payload = {
         draftId,
         requestId,
         status: "awaiting_confirmation",
         requiresConfirmation: true,
         ...input,
-        securityNotice: "NO FUNDS HAVE BEEN MOVED. Explicit human approval via 'confirmDraft' is required before any execution occurs.",
+        gateway,
+        proposerDid: didProof.proposerDid,
+        authorizerDid: userDid,
+        proofSignature: didProof.signature,
+        securityNotice: `NO FUNDS HAVE BEEN MOVED. Stamped with Agent DID ${didProof.proposerDid}. Explicit human approval via 'confirmDraft' is required before gateway execution.`,
       };
       audit("payment.awaiting_confirmation", "payments", payload);
       return payload;
@@ -114,16 +162,112 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
     }),
     execute: async ({ draftId, decision, note }) => {
       const isPayment = draftId.startsWith("pay_");
-      const status = decision === "approved" ? (isPayment ? "authorized" : "scheduled") : "rejected";
+      const now = new Date().toISOString();
+
+      if (isPayment) {
+        let existingTx: any = null;
+        try {
+          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
+          if (rows.length > 0) existingTx = rows[0];
+        } catch {}
+
+        const action = existingTx?.action || "charge";
+        const amount = existingTx ? Number(existingTx.amount) : 0;
+        const currency = existingTx?.currency || "USD";
+        const customer = existingTx?.customer || "user";
+        const gateway = (existingTx?.gateway || "stripe") as SupportedGateway;
+
+        if (decision === "approved") {
+          let gatewayResult: any = null;
+          let checkoutUrl = existingTx?.checkout_url || "";
+          let gatewayRef = existingTx?.gateway_ref || "";
+
+          if (action === "charge" || action === "invoice") {
+            gatewayResult = await paymentGateway.createCheckout({
+              draftId,
+              amount,
+              currency,
+              customer,
+              gateway,
+              userLogin: sessionId,
+              description: note || existingTx?.note || `Payment of ${amount} ${currency} for ${customer}`,
+            });
+            checkoutUrl = gatewayResult.checkoutUrl;
+            gatewayRef = gatewayResult.gatewayRef;
+          } else if (action === "refund") {
+            gatewayResult = await paymentGateway.executeRefund({
+              transactionId: draftId,
+              amount,
+              gateway,
+              gatewayRef: existingTx?.gateway_ref || "",
+              userLogin: sessionId,
+              reason: note,
+            });
+            gatewayRef = gatewayResult.refundId;
+          }
+
+          try {
+            sql.exec(
+              "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+              gatewayRef,
+              checkoutUrl,
+              userDid,
+              note || "Approved by human authorizer",
+              now,
+              draftId
+            );
+          } catch {}
+
+          const payload = {
+            draftId,
+            status: "completed",
+            decision: "approved",
+            gateway,
+            gatewayRef,
+            checkoutUrl,
+            proposerDid: AGENT_DIDS.PAYMENTS,
+            authorizerDid: userDid,
+            executorDid: AGENT_DIDS.ORCHESTRATOR,
+            executedAt: now,
+            note: note || "Human confirmed operation",
+            auditNotice: `Payment draft cryptographically verified with Agent DID ${AGENT_DIDS.PAYMENTS} and authorized by ${userDid}. Gateway ref: ${gatewayRef || "pending"}`,
+          };
+          audit("payment.confirmed", "payments", payload);
+          return payload;
+        } else {
+          try {
+            sql.exec(
+              "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+              userDid,
+              note || "Rejected by human reviewer",
+              now,
+              draftId
+            );
+          } catch {}
+
+          const payload = {
+            draftId,
+            status: "rejected",
+            decision: "rejected",
+            authorizerDid: userDid,
+            executedAt: now,
+            note: note || "Operation rejected by user",
+            auditNotice: "Payment draft rejected by human reviewer.",
+          };
+          audit("payment.rejected", "payments", payload);
+          return payload;
+        }
+      }
+
+      // Tasks confirmation
+      const status = decision === "approved" ? "scheduled" : "rejected";
       const payload = {
         draftId,
         status,
         decision,
-        executedAt: new Date().toISOString(),
+        executedAt: now,
         note: note || (decision === "approved" ? "Human confirmed operation" : "Operation rejected by user"),
-        auditNotice: isPayment
-          ? "Payment draft cryptographically verified and authorized for settlement queue."
-          : "Task confirmed and added to scheduled execution queue.",
+        auditNotice: "Task confirmed and added to scheduled execution queue.",
       };
       audit(isPayment ? "payment.confirmed" : "task.confirmed", isPayment ? "payments" : "tasks", payload);
       return payload;

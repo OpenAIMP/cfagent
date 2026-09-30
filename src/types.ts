@@ -11,11 +11,39 @@ export interface Env {
   SESSION_SECRET: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
+  // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_ENVIRONMENT?: "sandbox" | "live";
+  LEMONSQUEEZY_API_KEY?: string;
+  LEMONSQUEEZY_STORE_ID?: string;
+  LEMONSQUEEZY_WEBHOOK_SECRET?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
+}
+
+export interface TransactionRecord {
+  id: string;
+  sessionId: string;
+  action: "charge" | "refund" | "invoice" | "payout";
+  amount: number;
+  currency: string;
+  customer: string;
+  gateway: "stripe" | "paypal" | "lemonsqueezy" | "sandbox";
+  gatewayRef?: string;
+  status: "draft" | "awaiting_confirmation" | "authorized" | "completed" | "failed" | "rejected";
+  checkoutUrl?: string;
+  proposerDid: string;
+  authorizerDid?: string;
+  proofSignature: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SessionData {
