@@ -23,8 +23,7 @@ header h1 { font-size: 1.1rem; }
 .welcome { text-align: center; padding: 3rem 1rem; color: var(--muted); }
 .welcome h2 { font-size: 1.3rem; margin-bottom: 0.5rem; color: var(--text); }
 .typing { align-self: flex-start; color: var(--muted); font-style: italic; padding: 0.5rem 1rem; }
-.input-area { padding: 1rem 1.5rem; background: var(--surface); border-top: 1px solid var(--border); }
-.input-area form { display: flex; gap: 0.75rem; max-width: 800px; margin: 0 auto; }
+.input-area { display: flex; gap: 0.75rem; max-width: 800px; margin: 0 auto; padding: 1rem 1.5rem; background: var(--surface); border-top: 1px solid var(--border); }
 .input-area input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text); font-size: 1rem; outline: none; }
 .input-area input:focus { border-color: var(--accent); }
 .input-area button { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 600; cursor: pointer; }
