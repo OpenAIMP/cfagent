@@ -22,9 +22,10 @@ For greetings or simple messages, respond directly without searching.
 If the search returns no results, let the user know and suggest they add documents to the knowledge base.
 Be concise and helpful. Base your answers on the search results.`,
       messages: await convertToModelMessages(this.messages),
+      maxSteps: 5,
       tools: {
         search: tool({
-          description: "Search the AI Search knowledge base for relevant information. Use this tool when the user asks a question that requires searching indexed documents.",
+          description: "Search the AI Search knowledge base for relevant information. Only use this tool when the user asks a specific question about content that might be in the knowledge base. Do not use it for greetings, simple messages, or conversational responses.",
           parameters: z.object({
             query: z.string().min(1).describe("The search query - must not be empty"),
           }),
