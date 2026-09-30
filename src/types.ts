@@ -25,7 +25,13 @@ export interface Env {
   PAYPAL_MCP_SERVER_URL?: string;
   LEMONSQUEEZY_MCP_SERVER_URL?: string;
   EXTERNAL_PAYMENTS_MCP_URL?: string;
+  // Externalized Environment Configuration (TEST / PROD)
+  APP_ENV?: string;
+  ENVIRONMENT?: string;
   // E*TRADE Trading API & Remote MCP Configuration
+  ET_API_KEY?: string;
+  ET_API_SECRET?: string;
+  ET_URL?: string;
   ETRADE_CONSUMER_KEY?: string;
   ETRADE_CONSUMER_SECRET?: string;
   ETRADE_OAUTH_TOKEN?: string;
@@ -348,6 +354,9 @@ export interface ETradeBrokerStatus {
   protocol: "mcp_json_rpc" | "etrade_oauth_rest" | "sandbox_simulated";
   mcpServerUrl?: string;
   environment: "sandbox" | "live";
+  activeEnvironment?: "TEST" | "PROD" | string;
+  apiUrl?: string;
+  hasApiKey?: boolean;
   capabilities: string[];
 }
 

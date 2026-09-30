@@ -1,0 +1,26 @@
+{
+  "environment": "TEST",
+  "_comment": "Change 'environment' to 'TEST' or 'PROD' to switch the active GitHub environment. GitHub Actions will pull ET_API_KEY, ET_API_SECRET, and ET_URL from the matching environment's secrets.",
+  "environments": {
+    "TEST": {
+      "name": "TEST",
+      "label": "Sandbox",
+      "description": "E*TRADE Sandbox (apisb.etrade.com) — safe testing, no real money",
+      "isLive": false,
+      "etrade": {
+        "baseUrl": "https://apisb.etrade.com/v1",
+        "type": "sandbox"
+      }
+    },
+    "PROD": {
+      "name": "PROD",
+      "label": "Live",
+      "description": "E*TRADE Live (api.etrade.com) — real brokerage account, real money",
+      "isLive": true,
+      "etrade": {
+        "baseUrl": "https://api.etrade.com/v1",
+        "type": "live"
+      }
+    }
+  }
+}

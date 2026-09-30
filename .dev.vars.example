@@ -16,15 +16,29 @@ ALPACA_SECRET_KEY="your-alpaca-api-secret-key"
 # Optional: Set to true to route to live trading instead of paper trading
 # ALPACA_LIVE_TRADING="false"
 
+# --- Environment Selector ---
+# Matches the GitHub Environment name (TEST or PROD).
+# This controls which E*TRADE endpoint (sandbox vs live) is used.
+APP_ENV="TEST"
+
 # --- Broker Trading (E*TRADE) ---
 # Developer keys from https://developer.etrade.com
-ETRADE_CONSUMER_KEY="your-etrade-consumer-key"
-ETRADE_CONSUMER_SECRET="your-etrade-consumer-secret"
-ETRADE_ACCESS_TOKEN="your-etrade-oauth-access-token"
-ETRADE_TOKEN_SECRET="your-etrade-oauth-token-secret"
-ETRADE_ACCOUNT_ID_KEY="your-etrade-account-id-key"
-# Set to "live" for production trading or "sandbox" for sandbox testing
-ETRADE_ENV="sandbox"
+# ET_API_KEY  = your OAuth 1.0a Consumer Key
+# ET_API_SECRET = your OAuth 1.0a Consumer Secret
+# ET_URL      = base URL for the environment (no path, no trailing slash)
+#   TEST (Sandbox): https://apisb.etrade.com
+#   PROD (Live):    https://api.etrade.com
+ET_API_KEY="your-etrade-consumer-key"
+ET_API_SECRET="your-etrade-consumer-secret"
+ET_URL="https://apisb.etrade.com"
+# OAuth 1.0a Access Token pair — obtained after user completes E*TRADE OAuth flow.
+# Tokens expire at midnight US Eastern; use the Renew Access Token API to reactivate.
+# See: https://apisb.etrade.com/docs/api/authorization/renew_access_token.html
+ETRADE_OAUTH_TOKEN="your-etrade-oauth-access-token"
+ETRADE_OAUTH_TOKEN_SECRET="your-etrade-oauth-token-secret"
+# accountIdKey from GET /v1/accounts/list (NOT the numeric accountId).
+# Leave blank to let the service auto-discover it at runtime.
+ETRADE_ACCOUNT_ID_KEY=""
 
 # --- Payment Gateways ---
 # Stripe: https://dashboard.stripe.com/apikeys (use sk_test_... or sk_live_...)

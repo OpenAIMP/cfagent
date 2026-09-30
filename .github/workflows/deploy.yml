@@ -7,11 +7,38 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Step 1: read environment.config.json to determine target environment ──
+  load-environment:
+    name: Load Active Environment
+    runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ steps.read-env.outputs.target_env }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Active Environment from Config
+        id: read-env
+        run: |
+          TARGET_ENV=$(jq -r '.environment' environment.config.json)
+          echo "Active environment: $TARGET_ENV"
+          echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
+
+  # ── Step 2: build & deploy using secrets from the GitHub Environment ──
   deploy:
     runs-on: ubuntu-latest
-    name: Build & Deploy
+    name: Build & Deploy [${{ needs.load-environment.outputs.target_env }}]
+    needs: load-environment
+    # Links this job to the GitHub Environment (TEST or PROD), pulling its secrets
+    environment: ${{ needs.load-environment.outputs.target_env }}
     permissions:
       contents: read
+
+    env:
+      APP_ENV: ${{ needs.load-environment.outputs.target_env }}
+      ET_API_KEY: ${{ secrets.ET_API_KEY }}
+      ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
+      ET_URL: ${{ secrets.ET_URL }}
 
     steps:
       - name: Checkout
@@ -71,7 +98,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: npx wrangler deploy
 
-      - name: Set secrets
+      - name: Set core secrets on Cloudflare Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -80,3 +107,15 @@ jobs:
           echo "${{ secrets.GH_CLIENT_SECRET }}" | npx wrangler secret put GITHUB_CLIENT_SECRET
           echo "${{ secrets.APP_BASE_URL }}" | npx wrangler secret put APP_BASE_URL
           echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+
+      - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          # Push E*TRADE credentials from the active GitHub Environment into the Worker
+          echo "${{ secrets.ET_API_KEY }}" | npx wrangler secret put ET_API_KEY
+          echo "${{ secrets.ET_API_SECRET }}" | npx wrangler secret put ET_API_SECRET
+          echo "${{ secrets.ET_URL }}" | npx wrangler secret put ET_URL
+          # Push the active environment name so the Worker knows its context
+          echo "${{ needs.load-environment.outputs.target_env }}" | npx wrangler secret put APP_ENV

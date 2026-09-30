@@ -23,6 +23,7 @@ import type {
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../agents/did";
 import { RemoteMcpClient } from "./mcpClient";
 import { generateOAuth1Header } from "./cryptoUtils";
+import { resolveEnvironmentConfig, resolveETradeBaseUrl } from "../config/environment";
 
 // Authentic stock universe with realistic market and technical metrics
 export const MARKET_UNIVERSE: ScreenedStockItem[] = [
@@ -337,17 +338,18 @@ export class ETradeService {
    * Returns active E*TRADE Broker connectivity status and protocol
    */
   getStatus(): ETradeBrokerStatus {
+    const envConfig = resolveEnvironmentConfig(this.env);
     const isMcp = Boolean(this.env.ETRADE_MCP_SERVER_URL);
-    const hasOauth = Boolean(this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET);
-    const configured = isMcp || hasOauth;
+    const hasApiKey = Boolean(envConfig.etrade.apiKey && envConfig.etrade.apiSecret);
+    const configured = isMcp || hasApiKey;
 
     const mode = isMcp
       ? "mcp_remote"
-      : hasOauth
-      ? (this.env.ETRADE_ENVIRONMENT === "live" ? "live_oauth" : "sandbox_api")
+      : hasApiKey
+      ? (envConfig.isLive ? "live_oauth" : "sandbox_api")
       : "simulated_engine";
 
-    const protocol = isMcp ? "mcp_json_rpc" : hasOauth ? "etrade_oauth_rest" : "sandbox_simulated";
+    const protocol = isMcp ? "mcp_json_rpc" : hasApiKey ? "etrade_oauth_rest" : "sandbox_simulated";
 
     return {
       broker: "etrade",
@@ -356,7 +358,10 @@ export class ETradeService {
       mode,
       protocol,
       mcpServerUrl: this.env.ETRADE_MCP_SERVER_URL,
-      environment: this.env.ETRADE_ENVIRONMENT === "live" ? "live" : "sandbox",
+      environment: envConfig.isLive ? "live" : "sandbox",
+      activeEnvironment: envConfig.name,
+      apiUrl: envConfig.etrade.baseUrl,
+      hasApiKey,
       capabilities: [
         "Natural Language Market Screener (NLQ)",
         "Technical Indicator Signals (RSI, Breakout, MACD)",
@@ -829,17 +834,18 @@ export class ETradeService {
    * Returns base URL for E*TRADE REST API (Live vs Sandbox)
    */
   getBaseUrl(): string {
-    return this.env.ETRADE_ENVIRONMENT === "live" ? "https://api.etrade.com/v1" : "https://apisb.etrade.com/v1";
+    return resolveEnvironmentConfig(this.env).etrade.baseUrl;
   }
 
   /**
    * Generates authentic RFC 5849 OAuth 1.0a header for E*TRADE API calls
    */
   async generateOAuthHeader(method: string, url: string, extraParams?: Record<string, string>): Promise<string> {
-    const consumerKey = this.env.ETRADE_CONSUMER_KEY || "";
-    const consumerSecret = this.env.ETRADE_CONSUMER_SECRET || "";
-    const token = this.env.ETRADE_OAUTH_TOKEN || (this.env as any).ETRADE_ACCESS_TOKEN || "";
-    const tokenSecret = this.env.ETRADE_OAUTH_TOKEN_SECRET || (this.env as any).ETRADE_ACCESS_TOKEN_SECRET || "";
+    const envConfig = resolveEnvironmentConfig(this.env);
+    const consumerKey = envConfig.etrade.apiKey || "";
+    const consumerSecret = envConfig.etrade.apiSecret || "";
+    const token = envConfig.etrade.oauthToken || "";
+    const tokenSecret = envConfig.etrade.oauthTokenSecret || "";
 
     return generateOAuth1Header({
       method,
@@ -895,9 +901,10 @@ export class ETradeService {
     }
 
     // 2. Direct E*TRADE OAuth 1.0a REST API
-    if (this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET) {
+    const envConfig = resolveEnvironmentConfig(this.env);
+    if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
-        const url = `${this.getBaseUrl()}/market/quote/${encodeURIComponent(sym)}.json`;
+        const url = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}.json`;
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",
@@ -931,7 +938,7 @@ export class ETradeService {
               week52Low: Number(quoteData.low52 || 0),
               high52: Number(quoteData.high52 || 0),
               low52: Number(quoteData.low52 || 0),
-              source: `E*TRADE Live REST API (${this.env.ETRADE_ENVIRONMENT === "live" ? "Live" : "Sandbox"})`,
+              source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
               timestamp: new Date().toISOString(),
             };
           }
@@ -959,11 +966,14 @@ export class ETradeService {
     notes?: string;
   }): Promise<ETradeOrderDraft> {
     const draft = this.previewOrder(params);
-    const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "83921048";
+    const envConfig = resolveEnvironmentConfig(this.env);
+    // accountIdKey must come from a prior fetchAccountsRemote() call in production.
+    // ETRADE_ACCOUNT_ID_KEY can be set in .dev.vars for local dev.
+    const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "";
 
-    if (this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET) {
+    if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
-        const url = `${this.getBaseUrl()}/accounts/${accountKey}/orders/preview.json`;
+        const url = `${envConfig.etrade.baseUrl}/accounts/${accountKey}/orders/preview.json`;
         const authHeader = await this.generateOAuthHeader("POST", url);
 
         const body = {
@@ -1033,7 +1043,8 @@ export class ETradeService {
   }): Promise<ETradeOrderExecutionResult> {
     const userDid = params.userLogin.startsWith("did:") ? params.userLogin : getUserDid(params.userLogin);
     const now = new Date().toISOString();
-    const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "83921048";
+    const envConfig = resolveEnvironmentConfig(this.env);
+    const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "";
 
     // 1. Remote MCP execution
     if (this.env.ETRADE_MCP_SERVER_URL) {
@@ -1097,9 +1108,9 @@ export class ETradeService {
     }
 
     // 2. Direct E*TRADE OAuth 1.0a REST API Execution
-    if (this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET) {
+    if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
-        const url = `${this.getBaseUrl()}/accounts/${accountKey}/orders/place.json`;
+        const url = `${envConfig.etrade.baseUrl}/accounts/${accountKey}/orders/place.json`;
         const authHeader = await this.generateOAuthHeader("POST", url);
 
         const body = {
@@ -1211,7 +1222,7 @@ export class ETradeService {
     }
 
     // 3. Fallback when keys are missing: if live mode, reject genuinely.
-    if (this.env.ETRADE_ENVIRONMENT === "live") {
+    if (envConfig.isLive) {
       return {
         success: false,
         orderId: params.orderId,
@@ -1229,7 +1240,7 @@ export class ETradeService {
           authorizerDid: userDid,
           signature: "",
         },
-        message: "E*TRADE Broker Error: ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET must be configured for live order execution on E*TRADE. Simulation is disabled.",
+        message: `E*TRADE Broker Error: ET_API_KEY and ET_API_SECRET must be configured for live order execution [${envConfig.name} environment]. Simulation disabled in PROD.`,
         timestamp: now,
       };
     }
@@ -1241,9 +1252,12 @@ export class ETradeService {
    * Real E*TRADE REST API: Fetch live accounts list with OAuth 1.0a
    */
   async fetchAccountsRemote(): Promise<ETradeAccount[]> {
-    if (this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET) {
+    const envConfig = resolveEnvironmentConfig(this.env);
+    if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
-        const url = `${this.getBaseUrl()}/accounts/list.json`;
+        // Step 1 of read-only sequence: GET /v1/accounts/list
+        // The returned accountIdKey (not accountId) is used for all subsequent calls.
+        const url = `${envConfig.etrade.baseUrl}/accounts/list.json`;
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",
@@ -1259,7 +1273,8 @@ export class ETradeService {
           if (Array.isArray(rawAccounts)) {
             return rawAccounts.map((a: any) => ({
               accountId: String(a.accountId || ""),
-              accountKey: String(a.accountIdKey || a.accountKey || a.accountId),
+              // accountIdKey is the path parameter for portfolio/orders — NOT accountId
+              accountKey: String(a.accountIdKey || a.accountKey || ""),
               accountDesc: String(a.accountDesc || a.accountName || "Brokerage Account"),
               accountType: String(a.accountType || "INDIVIDUAL"),
               netAccountValue: Number(a.netAccountValue || 0),
@@ -1268,6 +1283,9 @@ export class ETradeService {
               dayTraderStatus: Boolean(a.dayTraderStatus),
             }));
           }
+        } else {
+          const errText = await res.text().catch(() => "");
+          console.warn(`E*TRADE accounts/list [${envConfig.name}] HTTP ${res.status}:`, errText.slice(0, 200));
         }
       } catch (err) {
         console.warn("E*TRADE fetch accounts REST error:", err);
@@ -1281,11 +1299,26 @@ export class ETradeService {
    * Real E*TRADE REST API: Fetch live portfolio positions with OAuth 1.0a
    */
   async fetchPortfolioRemote(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
-    const key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "83921048";
+    const envConfig = resolveEnvironmentConfig(this.env);
 
-    if (this.env.ETRADE_CONSUMER_KEY && this.env.ETRADE_CONSUMER_SECRET) {
+    // Step 2 of read-only sequence: resolve real accountIdKey.
+    // If not passed in, call List Accounts to get it (never use a hard-coded value).
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+
+    if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
+      // Auto-discover accountIdKey if not provided
+      if (!key) {
+        const accounts = await this.fetchAccountsRemote();
+        key = accounts[0]?.accountKey || "";
+        if (!key) {
+          console.warn(`E*TRADE [${envConfig.name}]: fetchAccountsRemote returned no accounts — cannot build portfolio URL.`);
+          return this.getPositions();
+        }
+      }
+
       try {
-        const url = `${this.getBaseUrl()}/accounts/${key}/portfolio.json`;
+        // Step 3: GET /v1/accounts/{accountIdKey}/portfolio (not accountId)
+        const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio.json`;
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",
@@ -1319,7 +1352,7 @@ export class ETradeService {
             const account: ETradeAccount = {
               accountId: key,
               accountKey: key,
-              accountDesc: "E*TRADE Live Brokerage Account",
+              accountDesc: `E*TRADE Brokerage Account [${envConfig.label}]`,
               accountType: "MARGIN",
               netAccountValue: positions.reduce((sum, p) => sum + p.marketValue, 0),
               totalAccountValue: positions.reduce((sum, p) => sum + p.marketValue, 0),
@@ -1329,6 +1362,9 @@ export class ETradeService {
 
             return { account, positions };
           }
+        } else {
+          const errText = await res.text().catch(() => "");
+          console.warn(`E*TRADE portfolio [${envConfig.name}] HTTP ${res.status}:`, errText.slice(0, 200));
         }
       } catch (err) {
         console.warn("E*TRADE fetch portfolio REST error:", err);
