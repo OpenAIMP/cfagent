@@ -6,6 +6,38 @@ import { createMAS } from "./mas";
 import { planNLQ, queryConversation } from "./nlq";
 import type { Env, AgentName, AuditEvent, MessageRecord, MemoryRecord } from "../types";
 
+/**
+ * Normalizes messages into valid UIMessage structures with populated `parts`.
+ * Prevents AI SDK's convertToModelMessages from crashing on undefined `parts`.
+ */
+function normalizeMessagesForSDK(messages: unknown[]): any[] {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map((m: any) => {
+      if (!m || typeof m !== "object") return null;
+      const role = m.role === "assistant" ? "assistant" : m.role === "system" ? "system" : "user";
+      const text = typeof m.content === "string" ? m.content.trim() : "";
+
+      let parts = Array.isArray(m.parts) ? [...m.parts] : [];
+      if (parts.length === 0 && text) {
+        parts = [{ type: "text", text }];
+      } else if (parts.length === 0) {
+        // Discard completely empty messages to protect model context
+        return null;
+      } else {
+        parts = parts.filter(Boolean);
+      }
+
+      return {
+        id: m.id || crypto.randomUUID(),
+        role,
+        content: text,
+        parts,
+      };
+    })
+    .filter(Boolean);
+}
+
 export class OrchestratorAgent extends AIChatAgent<Env> {
   private ensureTables() {
     const storage = this.ctx.storage;
@@ -136,9 +168,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const model = createWorkersAI({ binding: this.env.AI })("@cf/meta/llama-3.1-8b-instruct");
     const maxSteps = Math.max(1, Math.min(10, Number(this.env.MAS_MAX_STEPS || 4)));
 
-    const result = streamText({
-      model,
-      system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
+    // Safely normalize messages to prevent AI SDK convertToModelMessages crashes
+    let modelMessages: any[];
+    try {
+      const cleanMessages = normalizeMessagesForSDK(this.messages);
+      modelMessages = await convertToModelMessages(cleanMessages);
+      if (!modelMessages || modelMessages.length === 0) {
+        modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
+      }
+    } catch {
+      modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
+    }
+
+    try {
+      const result = streamText({
+        model,
+        system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
 Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.
 
 Sub-agent capabilities available to you:
@@ -151,25 +196,34 @@ Guidelines:
 1. Be helpful, concise, transparent, and accurate.
 2. If tool results say 'awaiting_confirmation' or 'draft', make it clearly visible that human approval is required.
 3. If search yields no relevant results, clearly acknowledge this without fabricating data.`,
-      messages: await convertToModelMessages(this.messages),
-      tools,
-      stopWhen: stepCountIs(maxSteps),
-      onFinish: async ({ text }) => {
-        if (text) {
-          this.recordMessage("assistant", text, route.agent);
-          // Run background quality evaluation
-          const quality = await judge.evaluate({ question: userText, answer: text, agent: route.agent });
-          this.audit("response.evaluated", "judge", {
-            score: quality.score,
-            grounded: quality.grounded,
-            safe: quality.safe,
-            issues: quality.issues,
-          });
-        }
-      },
-    });
+        messages: modelMessages,
+        tools,
+        stopWhen: stepCountIs(maxSteps),
+        onFinish: async ({ text }) => {
+          if (text) {
+            this.recordMessage("assistant", text, route.agent);
+            // Run background quality evaluation
+            const quality = await judge.evaluate({ question: userText, answer: text, agent: route.agent });
+            this.audit("response.evaluated", "judge", {
+              score: quality.score,
+              grounded: quality.grounded,
+              safe: quality.safe,
+              issues: quality.issues,
+            });
+          }
+        },
+      });
 
-    return result.toUIMessageStreamResponse();
+      return result.toUIMessageStreamResponse();
+    } catch (streamErr) {
+      const errorMsg = streamErr instanceof Error ? streamErr.message : "Error initializing agent stream";
+      this.audit("stream.error", "orchestrator", { error: errorMsg });
+
+      // Return a clean fallback response if streamText initialization failed
+      return new Response(`event: message\ndata: ${JSON.stringify({ type: "text-delta", text: "I experienced a temporary error connecting to Workers AI. Please try again." })}\n\n`, {
+        headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+      });
+    }
   }
 
   async onRequest(request: Request): Promise<Response> {

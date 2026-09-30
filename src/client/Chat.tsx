@@ -423,6 +423,30 @@ export function Chat({ user }: { user: User }) {
                     ? msg.parts.filter((p: any) => p && p.type !== "text")
                     : [];
 
+                  // Handle empty assistant message from failed stream
+                  if (!isUser && !text && toolParts.length === 0) {
+                    return (
+                      <div key={msg.id || Math.random()} className="message-row assistant error-row">
+                        <div className="message-avatar">
+                          <span className="bot-avatar error">⚠️</span>
+                        </div>
+                        <div className="message-bubble error-bubble">
+                          <div className="message-header">
+                            <span className="author-name">Multi-Agent Orchestrator</span>
+                            <span className="agent-tag error-tag">Turn Interrupted</span>
+                          </div>
+                          <p className="error-text">
+                            A previous turn was interrupted before completing. Click{" "}
+                            <button type="button" className="inline-clear-btn" onClick={handleClearChat}>
+                              Clear chat
+                            </button>{" "}
+                            to reset the session state.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id || Math.random()} className={`message-row ${msg.role}`}>
                       <div className="message-avatar">
@@ -473,6 +497,16 @@ export function Chat({ user }: { user: User }) {
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {status === "error" && (
+              <div className="chat-error-banner">
+                <span className="error-banner-icon">⚠️</span>
+                <span className="error-banner-text">Agent connection or stream error. Reset session to restore full connectivity:</span>
+                <button type="button" className="error-banner-btn" onClick={handleClearChat}>
+                  Reset & Clear History
+                </button>
+              </div>
+            )}
 
             {/* Chat Input Bar */}
             <form className="chat-input-bar" onSubmit={handleSendChat}>
