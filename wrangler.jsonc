@@ -4,6 +4,12 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-09-29",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "agent.openaimp.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./dist/",
     "binding": "ASSETS",
