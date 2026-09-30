@@ -377,14 +377,22 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Clear conversation transcript
+    // Clear active conversation transcript for LLM, preserving historical SQLite analytics
     if (path.endsWith("/clear") && request.method === "POST") {
       try {
         await this.persistMessages([]);
         this.resetTurnState();
-        sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
-        this.audit("history.cleared", "orchestrator", {});
-        return Response.json({ success: true, message: "Conversation history cleared" });
+        const purge = url.searchParams.get("purge") === "true";
+        if (purge) {
+          sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
+          this.audit("history.purged", "orchestrator", {});
+        } else {
+          this.audit("history.cleared", "orchestrator", {});
+        }
+        return Response.json({
+          success: true,
+          message: purge ? "All historical transcripts purged from SQLite" : "Active chat cleared; historical analytics vault preserved in SQLite",
+        });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to clear history" }, { status: 500 });
       }

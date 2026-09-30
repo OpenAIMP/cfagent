@@ -27,6 +27,8 @@ export interface NLQQueryResult {
   executedAt: string;
 }
 
+const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
+
 export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   const model = getWorkersAIModel(env);
   try {
@@ -40,8 +42,8 @@ Valid operations:
 - 'search': if looking for specific topics, words, or domain subjects (e.g. 'pricing', 'payment', 'SOC2').
 
 Crucial Rules for 'terms':
-- 'terms' must ONLY contain specific topical search keywords (e.g. 'pricing', 'refund', 'workers', 'dark mode').
-- If the user asks for 'all questions', 'user questions', 'messages', 'chat history', or 'prompts', 'terms' MUST BE empty string ""! (DO NOT put 'questions', 'messages', or 'asked' in terms).
+- 'terms' must ONLY contain specific topical search keywords (e.g. 'pricing', 'refund', 'workers', 'dark mode', 'search', 'acme').
+- If the user asks for 'all questions', 'user questions', 'messages', 'chat history', 'prompts', or 'search results', strip meta words like 'results', 'messages', 'questions', 'containing'.
 - If asking about user questions or prompts, set role: 'user' and terms: "".
 - If asking about assistant responses or answers, set role: 'assistant' and terms: "".
 - If asking about all messages or transcript, set role: 'any' and terms: "".
@@ -56,11 +58,8 @@ Return JSON only:
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      // Strip generic conversational stop-words from terms
       if (typeof parsed.terms === "string") {
-        parsed.terms = parsed.terms
-          .replace(/\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all)\b/gi, "")
-          .trim();
+        parsed.terms = parsed.terms.replace(STOP_WORDS_REGEX, " ").trim();
       }
       return nlqPlanSchema.parse(parsed);
     }
@@ -69,15 +68,14 @@ Return JSON only:
   }
 
   const isCount = /\b(how many|count|total)\b/i.test(question);
-  const isUserQuestions = /\b(questions?|user.*questions?|prompts?)\b/i.test(question);
-  const cleanTerms = question
-    .replace(/\b(list|show|get|all|user|questions?|messages?|chats?|history|transcript|conversations?|asked|how many|count|total)\b/gi, "")
-    .trim();
+  const isAssistant = /\b(assistant|bot|responses?|answers?)\b/i.test(question);
+  const isUser = /\b(user|questions?|prompts?|i asked|i said)\b/i.test(question);
+  const cleanTerms = question.replace(STOP_WORDS_REGEX, " ").trim();
 
   return {
     operation: isCount ? "count" : "list",
     terms: cleanTerms.slice(0, 100),
-    role: isUserQuestions ? "user" : "any",
+    role: isAssistant ? "assistant" : isUser ? "user" : "any",
     since: null,
     limit: 25,
   };
@@ -93,13 +91,19 @@ export function queryConversation(sql: { exec: (query: string, ...args: unknown[
   }
 
   // Defensively strip conversational stop words so meta-terms don't block SQL matching
-  const cleanTerms = (plan.terms || "")
-    .replace(/\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all)\b/gi, "")
-    .trim();
+  const cleanTerms = (plan.terms || "").replace(STOP_WORDS_REGEX, " ").trim();
 
-  if (cleanTerms) {
-    clauses.push("lower(content) LIKE ?");
-    args.push(`%${cleanTerms.toLowerCase()}%`);
+  // Split into keyword tokens to allow matching across words and agent column
+  const keywords = cleanTerms
+    .split(/\s+/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length > 1);
+
+  if (keywords.length > 0) {
+    for (const kw of keywords) {
+      clauses.push("(lower(content) LIKE ? OR lower(agent) LIKE ?)");
+      args.push(`%${kw}%`, `%${kw}%`);
+    }
   }
 
   if (plan.since) {
