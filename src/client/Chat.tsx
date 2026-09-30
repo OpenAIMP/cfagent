@@ -8,6 +8,16 @@ interface User {
   avatar: string;
 }
 
+import { useAgent } from "agents/react";
+import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { useState } from "react";
+
+interface User {
+  login: string;
+  name: string;
+  avatar: string;
+}
+
 export function Chat({ user }: { user: User }) {
   const [input, setInput] = useState("");
   const agent = useAgent({
@@ -46,25 +56,30 @@ export function Chat({ user }: { user: User }) {
         )}
         {messages.map((msg: any) => (
           <div key={msg.id} className={`message ${msg.role}`}>
-            {msg.role === "user" && <div className="msg-content">{msg.parts?.map((p: any) => p.type === "text" ? p.text : "").join("")}</div>}
+            {msg.role === "user" && (
+              <div className="msg-content">
+                {typeof msg.content === "string" 
+                  ? msg.content 
+                  : msg.parts?.filter((p: any) => p.type === "text").map((p: any) => p.text).join("") || ""}
+              </div>
+            )}
             {msg.role === "assistant" && (
               <div className="msg-content">
-                {msg.parts?.map((p: any, i: number) => {
-                  if (p.type === "text") return <span key={i}>{p.text}</span>;
-                  if (p.type === "tool-search") return (
-                    <details key={i} className="tool-call">
-                      <summary>🔍 Searched: "{p.input?.query || p.args?.query}"</summary>
-                      <pre>{JSON.stringify(p.output || p.result, null, 2)}</pre>
-                    </details>
-                  );
-                  if (p.type === "tool-call") return (
-                    <details key={i} className="tool-call">
-                      <summary>🔍 Searched: "{p.input?.query || p.args?.query}"</summary>
-                      <pre>{JSON.stringify(p.output || p.result, null, 2)}</pre>
-                    </details>
-                  );
-                  return null;
-                })}
+                {typeof msg.content === "string" 
+                  ? msg.content
+                  : msg.parts?.map((p: any, i: number) => {
+                      if (p.type === "text") return <span key={i}>{p.text}</span>;
+                      if (p.type === "tool-search" || p.type === "tool-call") {
+                        const query = p.input?.query || p.args?.query || "";
+                        return (
+                          <details key={i} className="tool-call">
+                            <summary>🔍 Searched: "{query}"</summary>
+                            <pre>{JSON.stringify(p.output || p.result, null, 2)}</pre>
+                          </details>
+                        );
+                      }
+                      return null;
+                    })}
               </div>
             )}
           </div>
