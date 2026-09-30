@@ -9,33 +9,54 @@ import type { Env, AgentName, AuditEvent, MessageRecord, MemoryRecord } from "..
 /**
  * Normalizes messages into valid UIMessage structures with populated `parts`.
  * Prevents AI SDK's convertToModelMessages from crashing on undefined `parts`.
+ * Discards empty assistant messages from interrupted turns and merges consecutive user turns.
  */
 function normalizeMessagesForSDK(messages: unknown[]): any[] {
   if (!Array.isArray(messages)) return [];
-  return messages
-    .map((m: any) => {
-      if (!m || typeof m !== "object") return null;
-      const role = m.role === "assistant" ? "assistant" : m.role === "system" ? "system" : "user";
-      const text = typeof m.content === "string" ? m.content.trim() : "";
+  const valid: any[] = [];
 
-      let parts = Array.isArray(m.parts) ? [...m.parts] : [];
-      if (parts.length === 0 && text) {
-        parts = [{ type: "text", text }];
-      } else if (parts.length === 0) {
-        // Discard completely empty messages to protect model context
-        return null;
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const item = m as any;
+    const role = item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user";
+    const text = typeof item.content === "string" ? item.content.trim() : "";
+
+    let parts = Array.isArray(item.parts) ? [...item.parts].filter(Boolean) : [];
+    if (parts.length === 0 && text) {
+      parts = [{ type: "text", text }];
+    }
+
+    // Skip empty assistant messages from aborted/interrupted turns
+    if (role === "assistant" && !text && parts.every((p: any) => p.type === "text" && !p.text?.trim())) {
+      continue;
+    }
+
+    if (parts.length === 0) {
+      if (role === "user") {
+        parts = [{ type: "text", text: text || "Hello" }];
       } else {
-        parts = parts.filter(Boolean);
+        continue;
       }
+    }
 
-      return {
-        id: m.id || crypto.randomUUID(),
-        role,
-        content: text,
-        parts,
-      };
-    })
-    .filter(Boolean);
+    // Merge consecutive user messages to maintain strictly alternating conversation flow
+    if (valid.length > 0 && valid[valid.length - 1].role === "user" && role === "user") {
+      const prev = valid[valid.length - 1];
+      const mergedText = `${prev.content}\n${text}`.trim();
+      prev.content = mergedText;
+      prev.parts = [{ type: "text", text: mergedText }];
+      continue;
+    }
+
+    valid.push({
+      id: item.id || crypto.randomUUID(),
+      role,
+      content: text,
+      parts,
+    });
+  }
+
+  return valid;
 }
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
@@ -138,6 +159,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const sql = this.ensureTables();
     const sessionId = this.sessionKey();
 
+    // Purge any empty assistant messages from prior failed turns in session memory
+    this.messages = this.messages.filter((m: any) => {
+      if (!m || typeof m !== "object") return false;
+      if (m.role === "assistant") {
+        const text = typeof m.content === "string" ? m.content.trim() : "";
+        const parts = Array.isArray(m.parts) ? m.parts : [];
+        const hasText = parts.some((p: any) => p && p.type === "text" && typeof p.text === "string" && p.text.trim());
+        const hasTool = parts.some((p: any) => p && p.type !== "text");
+        return Boolean(text || hasText || hasTool);
+      }
+      return true;
+    });
+
     // Safely retrieve last user question
     const lastUserMsg = [...this.messages].reverse().find((m: unknown) => (m as { role?: string })?.role === "user");
     const userText = this.extractMessageText(lastUserMsg);
@@ -219,8 +253,17 @@ Guidelines:
       const errorMsg = streamErr instanceof Error ? streamErr.message : "Error initializing agent stream";
       this.audit("stream.error", "orchestrator", { error: errorMsg });
 
-      // Return a clean fallback response if streamText initialization failed
-      return new Response(`event: message\ndata: ${JSON.stringify({ type: "text-delta", text: "I experienced a temporary error connecting to Workers AI. Please try again." })}\n\n`, {
+      // Return a compliant AI SDK v5 text stream response
+      const fallbackText = "I encountered a temporary issue connecting to Workers AI. Please try sending your message again.";
+      const payload = [
+        `data: ${JSON.stringify({ type: "text-start", id: "text-1" })}`,
+        `data: ${JSON.stringify({ type: "text-delta", delta: fallbackText })}`,
+        `data: ${JSON.stringify({ type: "text-end" })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n\n");
+
+      return new Response(payload, {
         headers: { "Content-Type": "text/event-stream; charset=utf-8" },
       });
     }
@@ -318,6 +361,8 @@ Guidelines:
     // Clear conversation transcript
     if (path.endsWith("/clear") && request.method === "POST") {
       try {
+        await this.persistMessages([]);
+        this.resetTurnState();
         sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
         this.audit("history.cleared", "orchestrator", {});
         return Response.json({ success: true, message: "Conversation history cleared" });

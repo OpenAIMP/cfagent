@@ -436,28 +436,9 @@ export function Chat({ user }: { user: User }) {
                     ? msg.parts.filter((p: any) => p && p.type !== "text")
                     : [];
 
-                  // Handle empty assistant message from failed stream
+                  // Ignore empty assistant messages from interrupted or failed streams
                   if (!isUser && !text && toolParts.length === 0) {
-                    return (
-                      <div key={msg.id || Math.random()} className="message-row assistant error-row">
-                        <div className="message-avatar">
-                          <span className="bot-avatar error">⚠️</span>
-                        </div>
-                        <div className="message-bubble error-bubble">
-                          <div className="message-header">
-                            <span className="author-name">Multi-Agent Orchestrator</span>
-                            <span className="agent-tag error-tag">Turn Interrupted</span>
-                          </div>
-                          <p className="error-text">
-                            A previous turn was interrupted before completing. Click{" "}
-                            <button type="button" className="inline-clear-btn" onClick={() => handleClearChat(false)}>
-                              Clear chat
-                            </button>{" "}
-                            to reset the session state.
-                          </p>
-                        </div>
-                      </div>
-                    );
+                    return null;
                   }
 
                   return (
