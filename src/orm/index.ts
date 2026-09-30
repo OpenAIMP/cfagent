@@ -598,28 +598,54 @@ export class DatabaseORM {
       const seedAds: AdRecord[] = [
         {
           id: "ad_workers_ai",
-          title: "Workers AI Edge GPUs",
-          tagline: "Run DeepSeek R1 & Llama 3.3 serverless models globally at the edge.",
+          title: "Cloudflare Workers AI",
+          tagline: "Run state-of-the-art models (GLM-4.7, Llama 3.3) on serverless GPUs with zero cold starts.",
           sponsor: "Cloudflare",
-          badge: "Featured Partner",
+          badge: "FLAGSHIP PARTNER",
           url: "https://developers.cloudflare.com/workers-ai/",
-          ctaText: "Build Free",
+          ctaText: "Deploy in 60s →",
           accentColor: "#f38020",
-          impressions: 420,
-          clicks: 34,
+          impressions: 0,
+          clicks: 0,
           createdAt: now,
         },
         {
-          id: "ad_stripe_payments",
-          title: "Autonomous Agent Checkout",
-          tagline: "Accept payments with Stripe, PayPal, and DID signature verification.",
-          sponsor: "Stripe Connect",
-          badge: "Verified Gateway",
-          url: "https://stripe.com",
-          ctaText: "Integrate Now",
-          accentColor: "#635bff",
-          impressions: 215,
-          clicks: 18,
+          id: "ad_ai_search",
+          title: "Cloudflare AI Search",
+          tagline: "Build enterprise RAG pipelines with native auto-chunking, Vectorize indexes, and real-time semantic retrieval.",
+          sponsor: "Cloudflare AI",
+          badge: "FEATURED TOOL",
+          url: "https://developers.cloudflare.com/ai-search/",
+          ctaText: "Explore Docs →",
+          accentColor: "#38bdf8",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
+        },
+        {
+          id: "ad_durable_objects",
+          title: "Durable Objects SQLite",
+          tagline: "Strongly consistent transactional databases running natively at the edge for stateful AI agents.",
+          sponsor: "Cloudflare Platform",
+          badge: "INFRASTRUCTURE",
+          url: "https://developers.cloudflare.com/durable-objects/",
+          ctaText: "Learn More →",
+          accentColor: "#a855f7",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
+        },
+        {
+          id: "ad_openaimp",
+          title: "OpenAIMP Agent Studio",
+          tagline: "Scale autonomous multi-agent workflows with real-time LLM Judge routing and persistent memory.",
+          sponsor: "OpenAIMP",
+          badge: "SPONSOR",
+          url: "https://agent.openaimp.com",
+          ctaText: "Join Program →",
+          accentColor: "#10b981",
+          impressions: 0,
+          clicks: 0,
           createdAt: now,
         },
       ];
@@ -627,6 +653,50 @@ export class DatabaseORM {
       for (const ad of seedAds) {
         this.ads.create(ad);
       }
+    }
+
+    // Seed Transactions if table is empty
+    if (this.transactions.count() === 0) {
+      const now = new Date().toISOString();
+      const userDid = `did:user:github:${sessionId || "anonymous"}`;
+
+      this.transactions.create({
+        id: "pay_init_stripe",
+        sessionId,
+        action: "charge",
+        amount: 25.0,
+        currency: "USD",
+        customer: "Enterprise Team",
+        gateway: "stripe",
+        gatewayRef: "cs_live_seed_compute_tokens",
+        status: "completed",
+        checkoutUrl: "https://checkout.stripe.com/c/pay/cs_live_seed",
+        proposerDid: "did:agent:openaimp:payments",
+        authorizerDid: userDid,
+        proofSignature: "sig_0x4b78a9c2e1f40d89e5a1b3c7d6e8f2a4",
+        note: "500,000 AI Inference Token Credits Bundle",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      this.transactions.create({
+        id: "pay_init_paypal",
+        sessionId,
+        action: "charge",
+        amount: 15.0,
+        currency: "USD",
+        customer: "Acme Partner Corp",
+        gateway: "paypal",
+        gatewayRef: "ORDER-789012345",
+        status: "completed",
+        checkoutUrl: "https://www.paypal.com/checkoutnow?token=ORDER-789012345",
+        proposerDid: "did:agent:openaimp:payments",
+        authorizerDid: userDid,
+        proofSignature: "sig_0x8f2d1e4c9b3a7f0e6d5c2a1b4e9f8a7d",
+        note: "Developer Sandbox Token Allowance",
+        createdAt: now,
+        updatedAt: now,
+      });
     }
   }
 

@@ -826,6 +826,51 @@ export class GetAuditEventsCommand implements IMcpToolCommand<{ limit?: number }
 }
 
 /**
+ * 15. Create Task Draft Command
+ */
+export class CreateTaskDraftCommand implements IMcpToolCommand<{
+  title: string;
+  dueDate?: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  assignee?: string;
+}> {
+  readonly name = "create_task_draft";
+  readonly description = "Draft an actionable task proposal or reminder with priority and deadline. Returns a structured proposal for human confirmation.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      title: { type: "string", description: "Task title or summary" },
+      dueDate: { type: "string", description: "Optional target deadline or ISO date" },
+      priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Urgency priority level" },
+      assignee: { type: "string", description: "Assignee name or role" },
+    },
+    required: ["title"],
+  };
+  readonly zodSchema = z.object({
+    title: z.string().min(1).max(300).describe("Task title or summary"),
+    dueDate: z.string().optional().describe("Optional target deadline or ISO date"),
+    priority: z.enum(["low", "medium", "high", "urgent"]).default("medium").describe("Urgency level"),
+    assignee: z.string().optional().describe("Assignee name or role"),
+  });
+
+  async execute(input: { title: string; dueDate?: string; priority?: "low" | "medium" | "high" | "urgent"; assignee?: string }, context: McpToolContext) {
+    const taskId = `task_${crypto.randomUUID().slice(0, 8)}`;
+    const payload = {
+      taskId,
+      status: "draft",
+      requiresConfirmation: true,
+      title: input.title,
+      dueDate: input.dueDate,
+      priority: input.priority || "medium",
+      assignee: input.assignee,
+      message: "Task draft created. Awaiting human confirmation via confirm_payment_draft.",
+    };
+    context.audit("task.drafted", "tasks", payload);
+    return payload;
+  }
+}
+
+/**
  * GoF Factory Pattern & GRASP Creator: McpToolFactory
  * Central registry and instantiation factory for all platform MCP commands.
  */
@@ -848,6 +893,7 @@ export class McpToolFactory {
     this.registerTool(new GetRevenueSummaryCommand());
     this.registerTool(new ManageSessionMemoryCommand());
     this.registerTool(new GetAuditEventsCommand());
+    this.registerTool(new CreateTaskDraftCommand());
 
     // E*TRADE Trading & Screening Commands
     this.registerTool(new ETradeMarketScanCommand());

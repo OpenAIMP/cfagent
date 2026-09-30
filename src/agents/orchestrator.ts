@@ -8,7 +8,6 @@ import { PaymentGatewayService, type SupportedGateway } from "../services/paymen
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
-import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
@@ -78,214 +77,11 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
 }
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
-  private ensureTables() {
-    const storage = this.ctx.storage;
-    const sql = storage.sql;
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_events (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_memory (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_referrals (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        url TEXT NOT NULL,
-        category TEXT NOT NULL,
-        reward_text TEXT NOT NULL,
-        clicks INTEGER DEFAULT 0,
-        signups INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_ads (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        tagline TEXT NOT NULL,
-        sponsor TEXT NOT NULL,
-        badge TEXT NOT NULL,
-        url TEXT NOT NULL,
-        cta_text TEXT NOT NULL,
-        accent_color TEXT NOT NULL,
-        impressions INTEGER DEFAULT 0,
-        clicks INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
-
-    // Seed default sponsor offers if ads table is empty
-    try {
-      const adCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_ads")) as Array<{ count: number }>;
-      if ((adCount[0]?.count ?? 0) === 0) {
-        const now = new Date().toISOString();
-        const seedAds = [
-          {
-            id: "ad_workers_ai",
-            title: "Cloudflare Workers AI",
-            tagline: "Run state-of-the-art models (GLM-4.7, Llama 3.3) on serverless GPUs with zero cold starts.",
-            sponsor: "Cloudflare",
-            badge: "FLAGSHIP PARTNER",
-            url: "https://developers.cloudflare.com/workers-ai/",
-            cta_text: "Deploy in 60s →",
-            accent_color: "#f38020",
-          },
-          {
-            id: "ad_ai_search",
-            title: "Cloudflare AI Search",
-            tagline: "Build enterprise RAG pipelines with native auto-chunking, Vectorize indexes, and real-time semantic retrieval.",
-            sponsor: "Cloudflare AI",
-            badge: "FEATURED TOOL",
-            url: "https://developers.cloudflare.com/ai-search/",
-            cta_text: "Explore Docs →",
-            accent_color: "#38bdf8",
-          },
-          {
-            id: "ad_durable_objects",
-            title: "Durable Objects SQLite",
-            tagline: "Strongly consistent transactional databases running natively at the edge for stateful AI agents.",
-            sponsor: "Cloudflare Platform",
-            badge: "INFRASTRUCTURE",
-            url: "https://developers.cloudflare.com/durable-objects/",
-            cta_text: "Learn More →",
-            accent_color: "#a855f7",
-          },
-          {
-            id: "ad_openaimp",
-            title: "OpenAIMP Agent Studio",
-            tagline: "Scale autonomous multi-agent workflows with real-time LLM Judge routing and persistent memory.",
-            sponsor: "OpenAIMP",
-            badge: "SPONSOR",
-            url: "https://agent.openaimp.com",
-            cta_text: "Join Program →",
-            accent_color: "#10b981",
-          },
-        ];
-
-        for (const ad of seedAds) {
-          sql.exec(
-            "INSERT OR IGNORE INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
-            ad.id,
-            ad.title,
-            ad.tagline,
-            ad.sponsor,
-            ad.badge,
-            ad.url,
-            ad.cta_text,
-            ad.accent_color,
-            now
-          );
-        }
-      }
-    } catch {
-      // Ignore if seeding fails
-    }
-
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_transactions (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        amount REAL NOT NULL,
-        currency TEXT NOT NULL,
-        customer TEXT NOT NULL,
-        gateway TEXT NOT NULL,
-        gateway_ref TEXT,
-        status TEXT NOT NULL,
-        checkout_url TEXT,
-        proposer_did TEXT NOT NULL,
-        authorizer_did TEXT,
-        proof_signature TEXT,
-        note TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-
-    // Seed default transactions if table is empty
-    try {
-      const txCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_transactions")) as Array<{ count: number }>;
-      if ((txCount[0]?.count ?? 0) === 0) {
-        const now = new Date().toISOString();
-        const sessionId = this.sessionKey();
-        const userDid = getUserDid(sessionId);
-
-        sql.exec(
-          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          "pay_init_stripe",
-          sessionId,
-          "charge",
-          25.00,
-          "USD",
-          "Enterprise Team",
-          "stripe",
-          "cs_live_seed_compute_tokens",
-          "completed",
-          "https://checkout.stripe.com/c/pay/cs_live_seed",
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          "sig_0x4b78a9c2e1f40d89e5a1b3c7d6e8f2a4",
-          "500,000 AI Inference Token Credits Bundle",
-          now,
-          now
-        );
-
-        sql.exec(
-          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          "pay_init_paypal",
-          sessionId,
-          "charge",
-          15.00,
-          "USD",
-          "Acme Partner Corp",
-          "paypal",
-          "ORDER-789012345",
-          "completed",
-          "https://www.paypal.com/checkoutnow?token=ORDER-789012345",
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          "sig_0x8f2d1e4c9b3a7f0e6d5c2a1b4e9f8a7d",
-          "Developer Sandbox Token Allowance",
-          now,
-          now
-        );
-      }
-    } catch {
-      // Ignore if seeding fails
-    }
-
-    return sql;
-  }
-
   private sessionKey(): string {
     return this.ctx.id.toString();
   }
 
   private getOrm(): DatabaseORM {
-    this.ensureTables();
     const orm = new DatabaseORM(this.ctx.storage.sql);
     orm.initializeSchema(this.sessionKey());
     return orm;
@@ -293,18 +89,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
 
   private audit(type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) {
     try {
-      const sql = this.ensureTables();
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      sql.exec(
-        "INSERT INTO mas_events (id, session_id, type, agent, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        id,
-        this.sessionKey(),
+      const orm = this.getOrm();
+      orm.events.create({
+        id: crypto.randomUUID(),
+        sessionId: this.sessionKey(),
         type,
-        agent,
-        JSON.stringify(payload),
-        now
-      );
+        agent: agent as any,
+        payload: JSON.stringify(payload) as any,
+        createdAt: new Date().toISOString(),
+      });
     } catch {
       // Don't fail execution if audit insertion fails
     }
@@ -312,18 +105,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
 
   private recordMessage(role: "user" | "assistant" | "system", content: string, agent: AgentName | "orchestrator") {
     try {
-      const sql = this.ensureTables();
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      sql.exec(
-        "INSERT INTO mas_messages (id, session_id, role, content, agent, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        id,
-        this.sessionKey(),
+      const orm = this.getOrm();
+      orm.messages.create({
+        id: crypto.randomUUID(),
+        sessionId: this.sessionKey(),
         role,
-        content.slice(0, 30000),
+        content: content.slice(0, 30000),
         agent,
-        now
-      );
+        createdAt: new Date().toISOString(),
+      });
     } catch {
       // Don't fail execution if record insertion fails
     }
@@ -350,7 +140,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
 
   async onChatMessage() {
     const requestId = crypto.randomUUID();
-    const sql = this.ensureTables();
+    const orm = this.getOrm();
     const sessionId = this.sessionKey();
 
     // Purge any empty assistant messages from prior failed turns in session memory
@@ -390,7 +180,6 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     });
 
     // Instantiate GoF Facade & GRASP Controller
-    const orm = this.getOrm();
     const facade = new McpSystemFacade(this.env, orm, sessionId);
 
     // Provide unified toolset adapting all 14 MCP commands directly into the AI SDK agent (GoF Adapter Pattern)
@@ -405,9 +194,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     });
 
     // Fetch active session facts directly from SQLite to ground every turn
-    const activeMemories = Array.from(
-      sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
-    ) as Array<{ key: string; value: string }>;
+    const activeMemories = orm.memory.findMany({ orderBy: "updated_at DESC", limit: 8 });
     const memoryContext = activeMemories.length > 0
       ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map(m => `- ${m.key}: "${m.value}"`).join("\n")
       : "";
@@ -508,7 +295,7 @@ Agentic Best Practices & Workflow Rules:
   async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    const sql = this.ensureTables();
+    const orm = this.getOrm();
     const sessionId = this.sessionKey();
 
     // Model Context Protocol (MCP) Server Endpoint (JSON-RPC 2.0 & Discovery)
@@ -822,18 +609,12 @@ Agentic Best Practices & Workflow Rules:
       try {
         const limitParam = Number(url.searchParams.get("limit") || 50);
         const limit = Math.max(1, Math.min(100, limitParam));
-        const events = Array.from(
-          sql.exec(
-            "SELECT id, type, agent, payload, created_at FROM mas_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-            sessionId,
-            limit
-          )
-        ) as Array<{ id: string; type: string; agent: string; payload: string; created_at: string }>;
+        const events = orm.events.findMany({ where: { sessionId }, orderBy: "created_at DESC", limit });
 
         const parsed = events.map((e) => {
           let payload: Record<string, unknown> = {};
           try {
-            payload = JSON.parse(e.payload);
+            payload = typeof e.payload === "string" ? JSON.parse(e.payload) : (e.payload as any);
           } catch {
             payload = { raw: e.payload };
           }
@@ -850,14 +631,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/memory")) {
       if (request.method === "GET") {
         try {
-          const rawMemories = Array.from(
-            sql.exec("SELECT key, value, updated_at FROM mas_memory ORDER BY updated_at DESC LIMIT 100")
-          ) as Array<{ key: string; value: string; updated_at: string }>;
-          const memories: MemoryRecord[] = rawMemories.map((m) => ({
-            key: String(m.key),
-            value: String(m.value),
-            updatedAt: String(m.updated_at),
-          }));
+          const memories = orm.memory.findMany({ orderBy: "updated_at DESC", limit: 100 });
           return Response.json({ count: memories.length, memories });
         } catch (err) {
           return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch memories" }, { status: 500 });
@@ -868,10 +642,10 @@ Agentic Best Practices & Workflow Rules:
         try {
           const key = url.searchParams.get("key");
           if (key) {
-            sql.exec("DELETE FROM mas_memory WHERE key = ?", key);
+            orm.memory.delete(key);
             this.audit("memory.deleted", "memory", { key });
           } else {
-            sql.exec("DELETE FROM mas_memory");
+            (orm.memory as any).sql.exec("DELETE FROM mas_memory");
             this.audit("memory.cleared", "memory", {});
           }
           return Response.json({ success: true });
@@ -888,7 +662,7 @@ Agentic Best Practices & Workflow Rules:
         this.resetTurnState();
         const purge = url.searchParams.get("purge") === "true";
         if (purge) {
-          sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
+          (orm.messages as any).sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
           this.audit("history.purged", "orchestrator", {});
         } else {
           this.audit("history.cleared", "orchestrator", {});
@@ -906,20 +680,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/referrals")) {
       if (request.method === "GET") {
         try {
-          const raw = Array.from(
-            sql.exec("SELECT id, session_id, title, url, category, reward_text, clicks, signups, created_at FROM mas_referrals ORDER BY created_at DESC LIMIT 100")
-          ) as any[];
-          const referrals = raw.map((r) => ({
-            id: String(r.id),
-            userLogin: String(r.session_id),
-            title: String(r.title),
-            url: String(r.url),
-            category: String(r.category),
-            rewardText: String(r.reward_text),
-            clicks: Number(r.clicks || 0),
-            signups: Number(r.signups || 0),
-            createdAt: String(r.created_at),
-          }));
+          const referrals = orm.referrals.findMany({ orderBy: "created_at DESC", limit: 100 });
           return Response.json({ count: referrals.length, referrals });
         } catch (err) {
           return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch referrals" }, { status: 500 });
@@ -945,20 +706,21 @@ Agentic Best Practices & Workflow Rules:
 
           const id = `ref_${crypto.randomUUID().slice(0, 8)}`;
           const now = new Date().toISOString();
-          sql.exec(
-            "INSERT INTO mas_referrals (id, session_id, title, url, category, reward_text, clicks, signups, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)",
+          const referral = orm.referrals.create({
             id,
-            sessionId,
+            userLogin: sessionId,
             title,
-            targetUrl,
+            url: targetUrl,
             category,
             rewardText,
-            now
-          );
+            clicks: 0,
+            signups: 0,
+            createdAt: now,
+          });
           this.audit("referral.created", "orchestrator", { id, title, targetUrl });
           return Response.json({
             success: true,
-            referral: { id, userLogin: sessionId, title, url: targetUrl, category, rewardText, clicks: 0, signups: 0, createdAt: now },
+            referral,
           });
         } catch (err) {
           return Response.json({ error: err instanceof Error ? err.message : "Failed to save referral link" }, { status: 500 });
@@ -969,7 +731,7 @@ Agentic Best Practices & Workflow Rules:
         try {
           const id = url.searchParams.get("id");
           if (id) {
-            sql.exec("DELETE FROM mas_referrals WHERE id = ?", id);
+            orm.referrals.delete(id);
             this.audit("referral.deleted", "orchestrator", { id });
           }
           return Response.json({ success: true });
@@ -983,7 +745,10 @@ Agentic Best Practices & Workflow Rules:
       try {
         const body = (await request.json().catch(() => ({}))) as { id?: string };
         if (body.id) {
-          sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
+          const ref = orm.referrals.findById(body.id);
+          if (ref) {
+            orm.referrals.update(body.id, { clicks: (ref.clicks || 0) + 1 });
+          }
         }
         return Response.json({ success: true });
       } catch {
@@ -996,23 +761,8 @@ Agentic Best Practices & Workflow Rules:
       if (request.method === "GET") {
         try {
           // Increment impressions on fetch
-          sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
-          const raw = Array.from(
-            sql.exec("SELECT id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at FROM mas_ads ORDER BY clicks DESC, impressions ASC LIMIT 20")
-          ) as any[];
-          const ads = raw.map((a) => ({
-            id: String(a.id),
-            title: String(a.title),
-            tagline: String(a.tagline),
-            sponsor: String(a.sponsor),
-            badge: String(a.badge),
-            url: String(a.url),
-            ctaText: String(a.cta_text),
-            accentColor: String(a.accent_color || "#6366f1"),
-            impressions: Number(a.impressions || 0),
-            clicks: Number(a.clicks || 0),
-            createdAt: String(a.created_at),
-          }));
+          (orm.ads as any).sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
+          const ads = orm.ads.findMany({ orderBy: "clicks DESC", limit: 20 });
           return Response.json({ count: ads.length, ads });
         } catch (err) {
           return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch ads" }, { status: 500 });
@@ -1044,22 +794,23 @@ Agentic Best Practices & Workflow Rules:
 
           const id = `ad_${crypto.randomUUID().slice(0, 8)}`;
           const now = new Date().toISOString();
-          sql.exec(
-            "INSERT INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)",
+          const ad = orm.ads.create({
             id,
             title,
             tagline,
             sponsor,
             badge,
-            targetUrl,
+            url: targetUrl,
             ctaText,
             accentColor,
-            now
-          );
+            impressions: 1,
+            clicks: 0,
+            createdAt: now,
+          });
           this.audit("ad.submitted", "orchestrator", { id, title, sponsor });
           return Response.json({
             success: true,
-            ad: { id, title, tagline, sponsor, badge, url: targetUrl, ctaText, accentColor, impressions: 1, clicks: 0, createdAt: now },
+            ad,
           });
         } catch (err) {
           return Response.json({ error: err instanceof Error ? err.message : "Failed to submit ad" }, { status: 500 });
@@ -1071,8 +822,11 @@ Agentic Best Practices & Workflow Rules:
       try {
         const body = (await request.json().catch(() => ({}))) as { id?: string };
         if (body.id) {
-          sql.exec("UPDATE mas_ads SET clicks = clicks + 1 WHERE id = ?", body.id);
-          this.audit("ad.clicked", "orchestrator", { id: body.id });
+          const ad = orm.ads.findById(body.id);
+          if (ad) {
+            orm.ads.update(body.id, { clicks: (ad.clicks || 0) + 1 });
+            this.audit("ad.clicked", "orchestrator", { id: body.id });
+          }
         }
         return Response.json({ success: true });
       } catch {
@@ -1112,30 +866,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/payments/transactions")) {
       if (request.method === "GET") {
         try {
-          const raw = Array.from(
-            sql.exec(
-              "SELECT id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at FROM mas_transactions ORDER BY created_at DESC LIMIT 50"
-            )
-          ) as any[];
-
-          const transactions = raw.map((t) => ({
-            id: String(t.id),
-            sessionId: String(t.session_id),
-            action: String(t.action),
-            amount: Number(t.amount || 0),
-            currency: String(t.currency || "USD"),
-            customer: String(t.customer),
-            gateway: String(t.gateway || "stripe"),
-            gatewayRef: String(t.gateway_ref || ""),
-            status: String(t.status),
-            checkoutUrl: String(t.checkout_url || ""),
-            proposerDid: String(t.proposer_did || AGENT_DIDS.PAYMENTS),
-            authorizerDid: t.authorizer_did ? String(t.authorizer_did) : undefined,
-            proofSignature: String(t.proof_signature || ""),
-            note: String(t.note || ""),
-            createdAt: String(t.created_at),
-            updatedAt: String(t.updated_at),
-          }));
+          const transactions = orm.transactions.findMany({ orderBy: "created_at DESC", limit: 50 });
 
           const totalVolume = transactions
             .filter((t) => t.status === "completed" || t.status === "authorized")
@@ -1194,25 +925,24 @@ Agentic Best Practices & Workflow Rules:
         });
 
         const now = new Date().toISOString();
-        sql.exec(
-          "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          draftId,
+        const transaction = orm.transactions.create({
+          id: draftId,
           sessionId,
           action,
           amount,
           currency,
           customer,
           gateway,
-          checkoutResult.gatewayRef || "",
-          "completed",
-          checkoutResult.checkoutUrl,
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          checkoutResult.didAttestation.signature,
-          description,
-          now,
-          now
-        );
+          gatewayRef: checkoutResult.gatewayRef || "",
+          status: "completed",
+          checkoutUrl: checkoutResult.checkoutUrl,
+          proposerDid: AGENT_DIDS.PAYMENTS,
+          authorizerDid: userDid,
+          proofSignature: checkoutResult.didAttestation.signature,
+          note: description,
+          createdAt: now,
+          updatedAt: now,
+        });
 
         this.audit("payment.created", "payments", {
           draftId,
@@ -1227,24 +957,7 @@ Agentic Best Practices & Workflow Rules:
 
         return Response.json({
           success: true,
-          transaction: {
-            id: draftId,
-            sessionId,
-            action,
-            amount,
-            currency,
-            customer,
-            gateway,
-            gatewayRef: checkoutResult.gatewayRef,
-            status: "completed",
-            checkoutUrl: checkoutResult.checkoutUrl,
-            proposerDid: AGENT_DIDS.PAYMENTS,
-            authorizerDid: userDid,
-            proofSignature: checkoutResult.didAttestation.signature,
-            note: description,
-            createdAt: now,
-            updatedAt: now,
-          },
+          transaction,
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to create payment" }, { status: 500 });
@@ -1272,13 +985,11 @@ Agentic Best Practices & Workflow Rules:
         const now = new Date().toISOString();
 
         if (decision === "approved") {
-          // Retrieve draft from mas_transactions
-          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
-          const tx = rows[0];
+          const tx = orm.transactions.findById(draftId);
           const paymentService = new PaymentGatewayService(this.env);
 
-          let checkoutUrl = tx?.checkout_url || "";
-          let gatewayRef = tx?.gateway_ref || "";
+          let checkoutUrl = tx?.checkoutUrl || "";
+          let gatewayRef = tx?.gatewayRef || "";
 
           if (tx && (tx.action === "charge" || tx.action === "invoice") && !checkoutUrl) {
             const res = await paymentService.createCheckout({
@@ -1297,22 +1008,21 @@ Agentic Best Practices & Workflow Rules:
               transactionId: draftId,
               amount: Number(tx.amount),
               gateway: tx.gateway as SupportedGateway,
-              gatewayRef: tx.gateway_ref,
+              gatewayRef: tx.gatewayRef,
               userLogin: sessionId,
               reason: note,
             });
             gatewayRef = res.refundId;
           }
 
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+          orm.transactions.update(draftId, {
+            status: "completed",
             gatewayRef,
             checkoutUrl,
-            userDid,
-            note || "Confirmed by human authorizer",
-            now,
-            draftId
-          );
+            authorizerDid: userDid,
+            note: note || "Confirmed by human authorizer",
+            updatedAt: now,
+          });
 
           this.audit("payment.confirmed", "payments", {
             draftId,
@@ -1331,13 +1041,12 @@ Agentic Best Practices & Workflow Rules:
             authorizerDid: userDid,
           });
         } else {
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
-            userDid,
-            note || "Rejected by reviewer",
-            now,
-            draftId
-          );
+          orm.transactions.update(draftId, {
+            status: "rejected",
+            authorizerDid: userDid,
+            note: note || "Rejected by reviewer",
+            updatedAt: now,
+          });
 
           this.audit("payment.rejected", "payments", { draftId, authorizerDid: userDid });
           return Response.json({ success: true, status: "rejected", draftId });
@@ -1361,11 +1070,10 @@ Agentic Best Practices & Workflow Rules:
           body?.draftId;
 
         if (draftId) {
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
-            now,
-            draftId
-          );
+          orm.transactions.update(draftId, {
+            status: "completed",
+            updatedAt: now,
+          });
           this.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
         }
 

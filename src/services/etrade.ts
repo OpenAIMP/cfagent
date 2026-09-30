@@ -323,12 +323,15 @@ export class ETradeService {
   private orm?: DatabaseORM;
   private env: Env;
 
-  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env) {
+  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env | DatabaseORM) {
     if (ormOrEnv && "trades" in (ormOrEnv as any)) {
       this.orm = ormOrEnv as DatabaseORM;
-      this.env = env || ({} as Env);
+      this.env = (env as Env) || ({} as Env);
     } else {
       this.env = (ormOrEnv as Env) || ({} as Env);
+      if (env && "trades" in (env as any)) {
+        this.orm = env as DatabaseORM;
+      }
     }
   }
 
@@ -740,21 +743,10 @@ export class ETradeService {
   }
 
   /**
-   * Get current open positions and portfolio holdings
+   * Get current open positions and portfolio holdings dynamically adjusted for executed trades
    */
   getPositions(): { account: ETradeAccount; positions: ETradePosition[] } {
-    const account: ETradeAccount = {
-      accountId: "83921048",
-      accountKey: "acct_etrade_active_margin",
-      accountDesc: "Individual Brokerage & Margin",
-      accountType: "MARGIN",
-      netAccountValue: 124850.75,
-      totalAccountValue: 124850.75,
-      cashAvailableForInvestment: 48210.50,
-      dayTraderStatus: false,
-    };
-
-    const positions: ETradePosition[] = [
+    const basePositions: ETradePosition[] = [
       {
         symbol: "NVDA",
         description: "NVIDIA Corp Common Stock",
@@ -820,6 +812,79 @@ export class ETradeService {
         daysGainPercent: 3.43,
       },
     ];
+
+    const posMap = new Map<string, ETradePosition>();
+    for (const pos of basePositions) {
+      posMap.set(pos.symbol, { ...pos });
+    }
+
+    // Aggregate executed trades from ORM repository if available
+    if (this.orm?.trades) {
+      try {
+        const executedTrades = this.orm.trades.findMany({ where: { status: "executed" } });
+        for (const trade of executedTrades) {
+          const sym = trade.symbol.toUpperCase();
+          const quote = this.getQuote(sym);
+          const currentPrice = quote.lastPrice;
+
+          if (posMap.has(sym)) {
+            const existing = posMap.get(sym)!;
+            if (trade.action === "BUY") {
+              const totalCost = existing.quantity * existing.costBasis + trade.quantity * trade.price;
+              existing.quantity += trade.quantity;
+              existing.costBasis = existing.quantity > 0 ? totalCost / existing.quantity : existing.costBasis;
+            } else if (trade.action === "SELL") {
+              existing.quantity = Math.max(0, existing.quantity - trade.quantity);
+            }
+            existing.currentPrice = currentPrice;
+            existing.marketPrice = currentPrice;
+            existing.marketValue = Number((existing.quantity * currentPrice).toFixed(2));
+            existing.unrealizedGainLoss = Number(((currentPrice - existing.costBasis) * existing.quantity).toFixed(2));
+            existing.totalGain = existing.unrealizedGainLoss;
+            existing.unrealizedGainLossPercent = existing.costBasis > 0
+              ? Number((((currentPrice - existing.costBasis) / existing.costBasis) * 100).toFixed(2))
+              : 0;
+          } else if (trade.action === "BUY" && trade.quantity > 0) {
+            const marketValue = Number((trade.quantity * currentPrice).toFixed(2));
+            const unrealizedGainLoss = Number(((currentPrice - trade.price) * trade.quantity).toFixed(2));
+            const gainPct = trade.price > 0 ? Number((((currentPrice - trade.price) / trade.price) * 100).toFixed(2)) : 0;
+
+            posMap.set(sym, {
+              symbol: sym,
+              description: quote.companyName || `${sym} Common Stock`,
+              quantity: trade.quantity,
+              pricePaid: trade.price,
+              costBasis: trade.price,
+              currentPrice,
+              marketPrice: currentPrice,
+              marketValue,
+              totalGain: unrealizedGainLoss,
+              unrealizedGainLoss: unrealizedGainLoss,
+              totalGainPercent: gainPct,
+              unrealizedGainLossPercent: gainPct,
+              daysGain: Number((quote.change * trade.quantity).toFixed(2)),
+              daysGainPercent: quote.changePercent,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Error calculating dynamic executed positions:", err);
+      }
+    }
+
+    const positions = Array.from(posMap.values()).filter((p) => p.quantity > 0);
+    const totalMarketValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
+
+    const account: ETradeAccount = {
+      accountId: "83921048",
+      accountKey: "acct_etrade_active_margin",
+      accountDesc: "Individual Brokerage & Margin",
+      accountType: "MARGIN",
+      netAccountValue: Number((48210.50 + totalMarketValue).toFixed(2)),
+      totalAccountValue: Number((48210.50 + totalMarketValue).toFixed(2)),
+      cashAvailableForInvestment: 48210.50,
+      dayTraderStatus: false,
+    };
 
     return { account, positions };
   }

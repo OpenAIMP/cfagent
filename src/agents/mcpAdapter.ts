@@ -56,28 +56,10 @@ export function createAgentMcpTools(context: McpToolContext) {
     tools["confirmDraft"] = tools["confirm_payment_draft"];
   }
 
-  // 3. Task management tool for agent task proposals
-  tools["createTaskDraft"] = tool({
-    description: "Draft a task or reminder for the user or organization. Returns a structured task proposal for user confirmation.",
-    inputSchema: z.object({
-      title: z.string().min(1).max(300).describe("Task title or summary"),
-      dueDate: z.string().optional().describe("Optional target deadline or ISO date"),
-      priority: z.enum(["low", "medium", "high", "urgent"]).default("medium").describe("Urgency level"),
-      assignee: z.string().optional().describe("Assignee name or role"),
-    }),
-    execute: async (input) => {
-      const taskId = `task_${crypto.randomUUID().slice(0, 8)}`;
-      const payload = {
-        taskId,
-        status: "draft",
-        requiresConfirmation: true,
-        ...input,
-        message: "Task draft created. Awaiting human confirmation via 'confirm_payment_draft' or 'confirmDraft'.",
-      };
-      context.audit("task.drafted", "tasks", payload);
-      return payload;
-    },
-  });
+  // 3. Task management tool alias for agent task proposals
+  if (tools["create_task_draft"]) {
+    tools["createTaskDraft"] = tools["create_task_draft"];
+  }
 
   // 4. Memory helper aliases mapping to manage_session_memory
   tools["rememberFact"] = tool({

@@ -37,6 +37,14 @@ export class RemoteMcpClient {
    */
   static async callTool(params: RemoteMcpToolCallParams): Promise<any> {
     const { serverUrl, toolName, arguments: toolArgs, apiKey, timeoutMs = 10_000 } = params;
+
+    if (!serverUrl || typeof serverUrl !== "string") {
+      throw new Error("Invalid remote MCP serverUrl");
+    }
+    if (!toolName || typeof toolName !== "string") {
+      throw new Error("Invalid remote MCP toolName");
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -55,7 +63,7 @@ export class RemoteMcpClient {
       method: "tools/call",
       params: {
         name: toolName,
-        arguments: toolArgs,
+        arguments: toolArgs || {},
       },
     };
 
@@ -89,6 +97,11 @@ export class RemoteMcpClient {
       }
 
       return json.result || {};
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        throw new Error(`Remote MCP request to '${serverUrl}' timed out after ${timeoutMs}ms`);
+      }
+      throw err;
     } finally {
       clearTimeout(timeout);
     }
