@@ -5,9 +5,6 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "dist",
-    rollupOptions: {
-      input: "src/client/main.tsx",
-    },
   },
   resolve: {
     alias: {
