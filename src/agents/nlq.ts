@@ -4,9 +4,10 @@ import { z } from "zod";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import { FossResearchService } from "../services/fossResearch";
 
 export const nlqPlanSchema = z.object({
-  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "custom_query"]).default("conversation"),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "custom_query"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
   targetTable: z.string().optional(),
   categoryData: z
@@ -27,6 +28,14 @@ export const nlqPlanSchema = z.object({
       orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
       limitPrice: z.number().optional(),
       filters: z.record(z.string(), z.any()).optional(),
+    })
+    .optional(),
+  researchData: z
+    .object({
+      action: z.enum(["quote", "fundamentals", "bars", "report", "snapshot", "compare"]).optional(),
+      symbol: z.string().optional(),
+      symbols: z.array(z.string()).optional(),
+      provider: z.enum(["yfinance", "alpaca", "hybrid"]).optional(),
     })
     .optional(),
   terms: z.string().max(200).default(""),
@@ -147,7 +156,72 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
-  // 5. Fast-path for E*TRADE Stock Quote
+  // 5. Fast-path for FOSS Market Research & Quoting (Yahoo Finance / Alpaca)
+  if (/\b(yfinance|yahoo\s*finance|alpaca|foss|fundamentals?|valuation|research|compare|snapshot|pe\s*ratio|p\/e|peg)\b/i.test(question)) {
+    const excludeWords = new Set(["FOSS", "USD", "FOR", "ON", "AND", "THE", "GET", "LIVE", "PE", "PEG", "API", "APIS", "NBBO", "DEEP", "RUN", "STOCK", "SHARE", "PRICE", "QUOTE", "WITH", "USING"]);
+    const allUpperMatches = Array.from(question.matchAll(/\b([A-Za-z0-9\/\.\-]{1,8})\b/g)).map(m => m[1]);
+    const validTickers = allUpperMatches.filter(w => /^[A-Z0-9\/\.\-]+$/.test(w) && !excludeWords.has(w.toUpperCase()));
+    
+    let sym = validTickers.length > 0 ? validTickers[0].toUpperCase() : "NVDA";
+    if (validTickers.length === 0) {
+      const explicitMatch = question.match(/\b(?:ticker|symbol|stock|asset|shares?\s+of|on|for)\s+([A-Za-z0-9\/\.\-]+)\b/i);
+      if (explicitMatch && !excludeWords.has(explicitMatch[1].toUpperCase())) {
+        sym = explicitMatch[1].toUpperCase();
+      }
+    }
+
+    if (/\b(compare|comparison|versus|vs)\b/i.test(question)) {
+      const symMatches = Array.from(question.matchAll(/\b([A-Z]{1,5})\b/g)).map(m => m[1]);
+      const uniqueSyms = Array.from(new Set(symMatches.filter(s => !excludeWords.has(s.toUpperCase()))));
+      const symbols = uniqueSyms.length >= 2 ? uniqueSyms.slice(0, 4) : [sym, "AMD"];
+      return {
+        domain: "research",
+        operation: "search",
+        researchData: {
+          action: "compare",
+          symbols,
+          provider: "hybrid",
+        },
+        terms: symbols.join(" "),
+        role: "any",
+        since: null,
+        limit: 10,
+      };
+    }
+
+    let action: "quote" | "fundamentals" | "bars" | "report" | "snapshot" | "compare" = "report";
+    let provider: "yfinance" | "alpaca" | "hybrid" = "hybrid";
+
+    if (/\b(snapshot|order\s*book|depth)\b/i.test(question)) {
+      action = "snapshot";
+      provider = "alpaca";
+    } else if (/\b(quote|price|spread)\b/i.test(question) && !/\b(research|analysis|report)\b/i.test(question)) {
+      action = "quote";
+      provider = /\balpaca\b/i.test(question) ? "alpaca" : /\b(yahoo|yfinance)\b/i.test(question) ? "yfinance" : "hybrid";
+    } else if (/\b(fundamentals?|p\/e|peg|market\s*cap|balance\s*sheet)\b/i.test(question) && !/\b(research|analysis|report)\b/i.test(question)) {
+      action = "fundamentals";
+      provider = "yfinance";
+    } else {
+      action = "report";
+      provider = "hybrid";
+    }
+
+    return {
+      domain: "research",
+      operation: "search",
+      researchData: {
+        action,
+        symbol: sym,
+        provider,
+      },
+      terms: sym,
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 6. Fast-path for E*TRADE Stock Quote
   const quoteMatch =
     question.match(/(?:quote|price|ticker|trading at)\s+([A-Za-z]{1,5})/i) ||
     question.match(/\b([A-Za-z]{1,5})\s+(?:quote|price|ticker)\b/i);
@@ -167,7 +241,7 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
-  // 6. Fast-path for E*TRADE Order Proposal / Preview
+  // 7. Fast-path for E*TRADE Order Proposal / Preview
   const orderMatch = question.match(/\b(buy|sell|short|purchase)\s+(\d+)?\s*(?:shares?\s*(?:of\s*)?)?([A-Za-z]{1,5})\b/i);
   if (orderMatch && !/\b(messages?|categories|tables?)\b/i.test(question)) {
     const rawAction = orderMatch[1].toLowerCase();
@@ -196,7 +270,7 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
-  // 7. Fast-path for E*TRADE Portfolio & Positions
+  // 8. Fast-path for E*TRADE Portfolio & Positions
   if (/\b(positions?|portfolio|holdings?|balance|brokerage account|shares i own)\b/i.test(question) && !/\b(messages?|categories)\b/i.test(question)) {
     return {
       domain: "trading",
@@ -265,7 +339,13 @@ Return JSON only:
   };
 }
 
-export function executeNLQQuery(orm: DatabaseORM, sessionId: string, plan: NLQPlan): NLQQueryResult {
+export function executeNLQQuery(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userDid?: string
+): NLQQueryResult {
   const executedAt = new Date().toISOString();
 
   // 1. List Tables & Schema
@@ -458,6 +538,133 @@ export function executeNLQQuery(orm: DatabaseORM, sessionId: string, plan: NLQPl
         executedAt,
       };
     }
+  }
+
+  // Handle FOSS Market Research & Quoting Domain (Yahoo Finance & Alpaca)
+  if (plan.domain === "research") {
+    const foss = new FossResearchService(env);
+    const sym = plan.researchData?.symbol || plan.terms || "NVDA";
+    const action = plan.researchData?.action || "report";
+    const provider = plan.researchData?.provider || "hybrid";
+
+    if (action === "fundamentals") {
+      const f = foss.getFundamentalsSync(sym);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "yfinance_fundamentals",
+        count: 1,
+        summary: `FOSS Fundamental Analysis for ${f.companyName} (${f.symbol}) via Yahoo Finance: Market Cap $${(f.marketCap / 1e9).toFixed(1)}B, Trailing P/E ${f.peTrailing || "N/A"}, Forward P/E ${f.peForward || "N/A"}, PEG ${f.pegRatio || "N/A"}. Consensus Target: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}).`,
+        rows: [
+          {
+            symbol: f.symbol,
+            company: f.companyName,
+            sector: f.sector,
+            marketCap: `$${(f.marketCap / 1e9).toFixed(1)}B`,
+            peTrailing: f.peTrailing || "N/A",
+            peForward: f.peForward || "N/A",
+            pegRatio: f.pegRatio || "N/A",
+            beta: f.beta || "N/A",
+            range52Week: `$${f.fiftyTwoWeekLow.toFixed(2)} - $${f.fiftyTwoWeekHigh.toFixed(2)}`,
+            targetPrice: `$${f.targetMeanPrice?.toFixed(2) || "N/A"}`,
+            analystRating: f.recommendationKey?.toUpperCase() || "BUY",
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "snapshot") {
+      const s = foss.getAlpacaSnapshotSync(sym);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "alpaca_snapshot",
+        count: 1,
+        summary: `Alpaca Real-time Market Snapshot for ${s.symbol}: Latest Trade $${s.latestTrade.price.toFixed(2)} (${s.latestTrade.size} shs). Best Bid $${s.latestQuote.bidPrice.toFixed(2)} / Ask $${s.latestQuote.askPrice.toFixed(2)}. Daily High $${s.dailyBar.high.toFixed(2)} / Low $${s.dailyBar.low.toFixed(2)}.`,
+        rows: [
+          {
+            symbol: s.symbol,
+            assetClass: s.assetClass,
+            lastPrice: `$${s.latestTrade.price.toFixed(2)}`,
+            bidAskSpread: `$${s.latestQuote.bidPrice.toFixed(2)} / $${s.latestQuote.askPrice.toFixed(2)}`,
+            dayRange: `$${s.dailyBar.low.toFixed(2)} - $${s.dailyBar.high.toFixed(2)}`,
+            volume: s.dailyBar.volume.toLocaleString(),
+            vwap: s.dailyBar.vwap ? `$${s.dailyBar.vwap.toFixed(2)}` : "N/A",
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const q = foss.getQuoteSync(sym, provider);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "foss_quote",
+        count: 1,
+        summary: `Real-time quote for ${q.symbol} (${q.companyName || sym}) via ${q.provider}: $${q.price.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        rows: [
+          {
+            symbol: q.symbol,
+            provider: q.provider,
+            price: `$${q.price.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            volume: q.volume.toLocaleString(),
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "compare") {
+      const syms = plan.researchData?.symbols || [sym, "AMD"];
+      const comp = foss.compareStocksSync(syms);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "foss_stock_comparison",
+        count: comp.length,
+        summary: `FOSS Multi-Stock Valuation Comparison across ${comp.map((c) => c.symbol).join(", ")}.`,
+        rows: comp.map((c) => ({
+          symbol: c.symbol,
+          company: c.fundamentals.companyName,
+          price: `$${c.quote.price.toFixed(2)}`,
+          peTrailing: c.fundamentals.peTrailing || "N/A",
+          marketCap: `$${(c.fundamentals.marketCap / 1e9).toFixed(1)}B`,
+          analystRating: c.fundamentals.recommendationKey?.toUpperCase() || "BUY",
+          targetPrice: `$${c.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
+        })),
+        executedAt,
+      };
+    }
+
+    // Default: full research report
+    const rep = foss.generateResearchReportSync(sym);
+    return {
+      plan,
+      domain: "research",
+      targetTable: "foss_research_report",
+      count: 1,
+      summary: `Autonomous Research Synthesis for ${rep.fundamentals.companyName} (${rep.symbol}): Target: $${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}, Consensus: ${rep.analystRating}. ${rep.aiAnalysis}`,
+      rows: [
+        {
+          symbol: rep.symbol,
+          company: rep.fundamentals.companyName,
+          price: `$${rep.quote.price.toFixed(2)}`,
+          peRatio: rep.fundamentals.peTrailing || "N/A",
+          marketCap: `$${(rep.fundamentals.marketCap / 1e9).toFixed(1)}B`,
+          analystRating: rep.analystRating,
+          targetPrice: `$${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
+          rsi14: rep.technicalSummary.rsi14,
+          technicalTrend: rep.technicalSummary.trend50vs200SMA,
+          agentAttestationDid: rep.agentAttestation.did,
+        },
+      ],
+      executedAt,
+    };
   }
 
   // 5. Default: Query Conversation History

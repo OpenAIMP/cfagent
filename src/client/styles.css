@@ -5301,3 +5301,706 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ========================================================
+   FOSS Market Research & Quoting Hub (Yahoo Finance & Alpaca)
+   ======================================================== */
+.foss-research-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.foss-hub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.hub-title-block h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.hub-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+  color: #ffffff;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hub-subtitle {
+  color: #94a3b8;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 0 0 0.75rem 0;
+}
+
+.hub-did-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.76rem;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.hub-did-badge code {
+  color: #38bdf8;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.provider-status-strip {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.provider-status-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.78rem;
+  color: #e2e8f0;
+}
+
+.provider-status-tag .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+
+.provider-status-tag .status-dot.inactive {
+  background: #94a3b8;
+  box-shadow: none;
+}
+
+.provider-latency {
+  font-size: 0.7rem;
+  color: #64748b;
+  margin-left: 0.25rem;
+}
+
+/* Symbol Picker & Universal Search */
+.symbol-picker-bar {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.symbol-search-group {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.symbol-input {
+  flex: 1;
+  max-width: 420px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.symbol-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
+.symbol-input::placeholder {
+  text-transform: none;
+  font-weight: normal;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.btn-search {
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.65rem 1.5rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-search:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+}
+
+.quick-universe {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.quick-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.25rem;
+}
+
+.universe-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  padding: 0.3rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.universe-chip:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.universe-chip.active {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.3) 100%);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* Hub Navigation Tabs */
+.foss-nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.5rem;
+  overflow-x: auto;
+}
+
+.foss-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  padding: 0.6rem 1.15rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.foss-tab-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.foss-tab-btn.active {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* Tab Content */
+.foss-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Research Report View */
+.report-meta-card {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.report-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.report-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.report-symbol {
+  font-size: 2rem;
+  font-weight: 900;
+  color: #38bdf8;
+}
+
+.report-company {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.report-sector {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+}
+
+.report-price-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.report-price {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.report-change {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.report-change.positive { color: #34d399; }
+.report-change.negative { color: #f87171; }
+
+.consensus-banner {
+  margin-top: 1.25rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.consensus-badge {
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.consensus-STRONG_BUY {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid #10b981;
+}
+
+.consensus-BUY {
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  border: 1px solid #38bdf8;
+}
+
+.consensus-HOLD {
+  background: rgba(251, 191, 36, 0.25);
+  color: #fbbf24;
+  border: 1px solid #fbbf24;
+}
+
+.consensus-UNDERPERFORM, .consensus-SELL {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+.consensus-detail {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.target-price {
+  font-weight: 700;
+  color: #34d399;
+}
+
+.report-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.5rem;
+}
+
+.report-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.executive-text {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.insights-list, .risks-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.insights-list li {
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.risks-list li {
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.valuation-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.valuation-table tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.valuation-table td {
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+.valuation-table td:first-child {
+  color: #94a3b8;
+}
+
+.valuation-table td:last-child {
+  text-align: right;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Quote Side-by-Side Comparison */
+.quote-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.provider-quote-card {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.provider-quote-card.yf-card {
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
+.provider-quote-card.alpaca-card {
+  border-color: rgba(234, 179, 8, 0.35);
+}
+
+.provider-quote-card.hybrid-card {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.provider-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.yf-badge {
+  background: rgba(147, 51, 234, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(147, 51, 234, 0.4);
+}
+
+.alpaca-badge {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.hybrid-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.quote-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.quote-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.85rem;
+  border-radius: 10px;
+}
+
+.quote-meta-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+
+.quote-meta-item .label {
+  color: #94a3b8;
+}
+
+.quote-meta-item .val {
+  font-weight: 700;
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Fundamentals Grid */
+.fund-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.fund-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1.25rem;
+}
+
+/* Tables (Historical & Comparison) */
+.history-table-wrap, .compare-table-wrap {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  overflow-x: auto;
+}
+
+.history-table, .comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.history-table th, .comparison-table th {
+  background: rgba(30, 41, 59, 0.75);
+  color: #94a3b8;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.history-table td, .comparison-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.history-table tr:hover, .comparison-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Actions Footer */
+.foss-actions-footer {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  align-items: center;
+}
+
+.btn-trade-etrade {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-trade-etrade:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-nlq-prompt {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
+  color: #cbd5e1;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-nlq-prompt:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+/* Tool Result Cards in Chat */
+.tool-card.foss-card {
+  border-left: 4px solid #38bdf8;
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.tool-status-pill.foss-badge {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+
+.foss-report-preview, .foss-snapshot-preview {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.foss-metrics-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.metric-tag {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.metric-tag strong {
+  color: #ffffff;
+}
+
+.foss-summary-text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+.foss-attestation-tag {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.foss-attestation-tag code {
+  color: #38bdf8;
+}
+
+.change-up {
+  color: #34d399;
+}
+
+.change-down {
+  color: #f87171;
+}
+

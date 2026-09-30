@@ -4,6 +4,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
+import { FossResearchHub } from "./FossResearchHub";
 
 interface User {
   login: string;
@@ -309,6 +310,128 @@ function ToolResultView({
     );
   }
 
+  // FOSS Market Data & Research Tool (Yahoo Finance & Alpaca)
+  if (
+    normalizedType.includes("foss") ||
+    data?.provider === "Yahoo Finance" ||
+    data?.provider === "Alpaca Market Data v2" ||
+    data?.provider === "Hybrid (Alpaca + Yahoo Finance)" ||
+    data?.analystConsensus ||
+    data?.valuationMultiples ||
+    data?.executiveSummary ||
+    (data?.symbol && (data?.trailingPE !== undefined || data?.nbboSpread !== undefined))
+  ) {
+    const symbol = data?.symbol || data?.input?.symbol || "TICKER";
+    const provider = data?.provider || (data?.analystConsensus ? "Yahoo Finance" : "FOSS Hybrid");
+    const isReport = Boolean(data?.analystConsensus || data?.executiveSummary || data?.keyInsights);
+    const isSnapshot = Boolean(data?.latestTrade && data?.latestQuote);
+    const price = data?.currentPrice || data?.price || data?.lastPrice || data?.latestTrade?.price || 0;
+    const change = data?.change || data?.change24h || 0;
+    const changePercent = data?.changePercent || data?.changePercent24h || 0;
+    const recommendation = data?.analystConsensus?.recommendation || data?.recommendation || "BUY";
+    const targetPrice = data?.analystConsensus?.targetPrice || data?.targetPrice;
+
+    return (
+      <div className="tool-card foss-card research-card">
+        <div className="tool-card-header" onClick={() => setOpen(!open)}>
+          <span className="tool-icon">{isReport ? "🔬" : "📈"}</span>
+          <div className="tool-summary">
+            <strong>{isReport ? "FOSS Equity Research:" : "FOSS Quote:"}</strong> {symbol} — ${Number(price).toFixed(2)}{" "}
+            <span className={change >= 0 ? "change-up" : "change-down"}>
+              ({change >= 0 ? "+" : ""}{Number(change).toFixed(2)} / {changePercent >= 0 ? "+" : ""}{Number(changePercent).toFixed(2)}%)
+            </span>
+          </div>
+          <span className="tool-status-pill foss-badge">{provider}</span>
+          <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+        </div>
+
+        {isReport && (
+          <div className="foss-report-preview">
+            <div className="foss-metrics-row">
+              <span className="metric-tag">
+                🎯 <strong>Consensus:</strong> {recommendation.replace("_", " ")}
+              </span>
+              {targetPrice && (
+                <span className="metric-tag">
+                  🎯 <strong>Target:</strong> ${Number(targetPrice).toFixed(2)}
+                </span>
+              )}
+              {data?.valuationMultiples?.trailingPE && (
+                <span className="metric-tag">
+                  📊 <strong>P/E:</strong> {Number(data.valuationMultiples.trailingPE).toFixed(1)}x
+                </span>
+              )}
+              {data?.valuationMultiples?.pegRatio && (
+                <span className="metric-tag">
+                  ⚡ <strong>PEG:</strong> {Number(data.valuationMultiples.pegRatio).toFixed(2)}
+                </span>
+              )}
+            </div>
+            {data?.executiveSummary && (
+              <div className="foss-summary-text">{data.executiveSummary}</div>
+            )}
+            {data?.agentAttestation && (
+              <div className="foss-attestation-tag">
+                🔏 Signed by: <code>{data.agentAttestation.agentDid}</code> (Alg: {data.agentAttestation.algorithm})
+              </div>
+            )}
+          </div>
+        )}
+
+        {isSnapshot && (
+          <div className="foss-snapshot-preview">
+            <div className="foss-metrics-row">
+              <span className="metric-tag">
+                🟢 <strong>Bid:</strong> ${Number(data.latestQuote?.bidPrice || 0).toFixed(2)} ({data.latestQuote?.bidSize || 0})
+              </span>
+              <span className="metric-tag">
+                🔴 <strong>Ask:</strong> ${Number(data.latestQuote?.askPrice || 0).toFixed(2)} ({data.latestQuote?.askSize || 0})
+              </span>
+              <span className="metric-tag">
+                📏 <strong>Spread:</strong> ${Number(data.nbboSpread || 0).toFixed(3)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="hitl-actions">
+          <button
+            type="button"
+            className="hitl-btn approve"
+            disabled={isBusy}
+            onClick={() => onAction?.(`Preview buy 10 shares of ${symbol} on ETrade`)}
+          >
+            ⚡ Preview Buy 10 {symbol} (E*TRADE)
+          </button>
+          {!isReport && (
+            <button
+              type="button"
+              className="hitl-btn secondary"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Run full FOSS market research on ${symbol}`)}
+            >
+              🔬 Full FOSS Research
+            </button>
+          )}
+          <button
+            type="button"
+            className="hitl-btn secondary"
+            disabled={isBusy}
+            onClick={() => onAction?.(`Compare valuation of ${symbol} against peers`)}
+          >
+            📊 Compare Valuation
+          </button>
+        </div>
+
+        {open && (
+          <div className="tool-card-body">
+            <pre>{JSON.stringify(data, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // 3. E*TRADE Trading Tool (Preview, Execution, Quote)
   if (
     normalizedType.includes("trade") ||
@@ -552,7 +675,7 @@ function ToolResultView({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading">("chat");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("chat");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -1312,6 +1435,12 @@ export function Chat({ user }: { user: User }) {
           >
             📈 E*TRADE Trading
           </button>
+          <button
+            className={`tab-btn ${tab === "research" ? "active" : ""}`}
+            onClick={() => setTab("research")}
+          >
+            🔬 FOSS Research
+          </button>
         </nav>
 
         {/* User Badge */}
@@ -1469,6 +1598,22 @@ export function Chat({ user }: { user: User }) {
                       onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs")}
                     >
                       🧠 Store Session Fact
+                    </button>
+                    <button
+                      type="button"
+                      className="chip-btn highlight-chip"
+                      disabled={isBusy}
+                      onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca")}
+                    >
+                      🔬 Research NVDA (FOSS)
+                    </button>
+                    <button
+                      type="button"
+                      className="chip-btn"
+                      disabled={isBusy}
+                      onClick={() => handleChipClick("Get live Alpaca quote and NBBO spread for BTC/USD")}
+                    >
+                      📊 Quote BTC/USD (Alpaca)
                     </button>
                   </div>
                 </div>
@@ -3486,6 +3631,22 @@ export function Chat({ user }: { user: User }) {
               onSendPrompt={(prompt) => {
                 setTab("chat");
                 handleChipClick(prompt);
+              }}
+            />
+          </div>
+        )}
+
+        {/* FOSS Market Research & Quoting Hub (Yahoo Finance & Alpaca) */}
+        {tab === "research" && (
+          <div className="research-view">
+            <FossResearchHub
+              user={user}
+              onSendPrompt={(prompt) => {
+                setTab("chat");
+                handleChipClick(prompt);
+              }}
+              onTradeSymbol={(symbol) => {
+                setTab("trading");
               }}
             />
           </div>

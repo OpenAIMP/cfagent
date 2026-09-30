@@ -23,6 +23,13 @@ import {
   ETradeExecuteOrderCommand,
   ETradeGetPositionsCommand,
 } from "./etradeCommands";
+import {
+  FossGetQuoteCommand,
+  FossFundamentalsCommand,
+  FossHistoricalBarsCommand,
+  FossMarketResearchCommand,
+  FossAlpacaSnapshotCommand,
+} from "./fossCommands";
 
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
@@ -848,6 +855,13 @@ export class McpToolFactory {
     this.registerTool(new ETradePreviewOrderCommand());
     this.registerTool(new ETradeExecuteOrderCommand());
     this.registerTool(new ETradeGetPositionsCommand());
+
+    // FOSS Market Research & Quoting Commands (yfinance & Alpaca)
+    this.registerTool(new FossGetQuoteCommand());
+    this.registerTool(new FossFundamentalsCommand());
+    this.registerTool(new FossHistoricalBarsCommand());
+    this.registerTool(new FossMarketResearchCommand());
+    this.registerTool(new FossAlpacaSnapshotCommand());
   }
 
   /**

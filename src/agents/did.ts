@@ -44,6 +44,7 @@ export const AGENT_DIDS = {
   MEMORY: "did:agent:openaimp:memory",
   NLQ: "did:agent:openaimp:nlq",
   TRADING: "did:agent:openaimp:trading",
+  RESEARCH: "did:agent:openaimp:research",
 } as const;
 
 export type KnownAgentDid = typeof AGENT_DIDS[keyof typeof AGENT_DIDS];

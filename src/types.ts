@@ -33,11 +33,19 @@ export interface Env {
   ETRADE_ACCOUNT_ID_KEY?: string;
   ETRADE_ENVIRONMENT?: "sandbox" | "live";
   ETRADE_MCP_SERVER_URL?: string;
+  // FOSS Market Data & Research Configuration (yfinance & Alpaca)
+  ALPACA_API_KEY_ID?: string;
+  ALPACA_API_SECRET_KEY?: string;
+  ALPACA_BASE_URL?: string;
+  ALPACA_DATA_URL?: string;
+  YFINANCE_API_ENDPOINT?: string;
+  FOSS_MARKET_DATA_PROVIDER?: "alpaca" | "yfinance" | "hybrid";
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
+  RESEARCH_AGENT?: DurableObjectNamespace;
 }
 
 export interface TransactionRecord {
@@ -66,7 +74,7 @@ export interface SessionData {
   createdAt: number;
 }
 
-export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading";
+export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading" | "research";
 
 export interface AuditEvent {
   id: string;
@@ -340,6 +348,123 @@ export interface ETradeBrokerStatus {
   protocol: "mcp_json_rpc" | "etrade_oauth_rest" | "sandbox_simulated";
   mcpServerUrl?: string;
   environment: "sandbox" | "live";
+  capabilities: string[];
+}
+
+export interface FossQuote {
+  symbol: string;
+  provider: "yfinance" | "alpaca" | "hybrid";
+  companyName?: string;
+  price: number;
+  lastPrice?: number;
+  change: number;
+  changePercent: number;
+  bid: number;
+  ask: number;
+  bidSize?: number;
+  askSize?: number;
+  volume: number;
+  open: number;
+  high: number;
+  low: number;
+  previousClose: number;
+  vwap?: number;
+  trailingPE?: number;
+  marketCap?: number;
+  timestamp: string;
+  currency?: string;
+}
+
+export interface FossHistoricalBar {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  vwap?: number;
+  tradeCount?: number;
+}
+
+export interface FossCompanyFundamentals {
+  symbol: string;
+  companyName: string;
+  sector: string;
+  industry: string;
+  description: string;
+  marketCap: number;
+  enterpriseValue?: number;
+  peTrailing?: number;
+  peForward?: number;
+  pegRatio?: number;
+  priceToBook?: number;
+  beta?: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  targetMeanPrice?: number;
+  targetHighPrice?: number;
+  targetLowPrice?: number;
+  recommendationKey?: "strong_buy" | "buy" | "hold" | "underperform" | "sell";
+  recommendationMean?: number;
+  numberOfAnalystOpinions?: number;
+  dividendYield?: number;
+  profitMargins?: number;
+  operatingMargins?: number;
+  returnOnEquity?: number;
+  revenue?: number;
+  grossProfits?: number;
+  ebitda?: number;
+  freeCashflow?: number;
+}
+
+export interface AlpacaMarketSnapshot {
+  symbol: string;
+  assetClass: "us_equity" | "crypto";
+  latestTrade: {
+    price: number;
+    size: number;
+    timestamp: string;
+  };
+  latestQuote: {
+    bidPrice: number;
+    bidSize: number;
+    askPrice: number;
+    askSize: number;
+    timestamp: string;
+  };
+  nbboSpread?: number;
+  dailyBar: FossHistoricalBar;
+  prevDailyBar: FossHistoricalBar;
+  minuteBar?: FossHistoricalBar;
+}
+
+export interface FossResearchReport {
+  symbol: string;
+  provider: "yfinance" | "alpaca" | "hybrid";
+  quote: FossQuote;
+  fundamentals: FossCompanyFundamentals;
+  bars: FossHistoricalBar[];
+  technicalSummary: {
+    rsi14: number;
+    macd: string;
+    trend50vs200SMA: string;
+    support: number;
+    resistance: number;
+  };
+  aiAnalysis: string;
+  analystRating: string;
+  agentAttestation: {
+    did: string;
+    signature: string;
+    timestamp: string;
+  };
+}
+
+export interface FossProviderStatus {
+  provider: "yfinance" | "alpaca" | "hybrid";
+  name: string;
+  configured: boolean;
+  mode: "live_api" | "foss_open_data" | "simulated_engine";
   capabilities: string[];
 }
 

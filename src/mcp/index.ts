@@ -125,6 +125,24 @@ export const MCP_RESOURCES: MCPResourceDefinition[] = [
     description: "Active equity portfolio holdings, cost basis, and unrealized market gains/losses.",
     mimeType: "application/json",
   },
+  {
+    uri: "foss://market/quote/NVDA",
+    name: "FOSS Market Quote (Yahoo Finance & Alpaca)",
+    description: "Real-time Level 1 quote and NBBO bid/ask spread for active ticker.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "foss://research/fundamentals/NVDA",
+    name: "FOSS Company Fundamentals & Valuations",
+    description: "Institutional P/E, PEG, price targets, and balance sheet metrics from Yahoo Finance.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "foss://providers/status",
+    name: "FOSS Market Data Providers Health",
+    description: "Connection status, rate limits, and capabilities of Yahoo Finance and Alpaca integrations.",
+    mimeType: "application/json",
+  },
 ];
 
 /**
@@ -147,6 +165,13 @@ export const MCP_PROMPTS: MCPPromptDefinition[] = [
     name: "nlq_schema_exploration",
     description: "Formulate optimal natural language queries to explore data and relationships across SQLite tables.",
     arguments: [],
+  },
+  {
+    name: "foss_equity_research_report",
+    description: "Generate comprehensive equity research report synthesizing fundamentals, technical indicators, and analyst price targets via Yahoo Finance and Alpaca.",
+    arguments: [
+      { name: "symbol", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT)", required: true },
+    ],
   },
 ];
 
@@ -246,8 +271,41 @@ export async function readMCPResource(
         text: JSON.stringify(holdings, null, 2),
       };
     }
-    default:
+    case "foss://providers/status": {
+      const { FossResearchService } = await import("../services/fossResearch");
+      const foss = new FossResearchService();
+      const statuses = foss.getProviderStatuses();
+      return {
+        uri,
+        mimeType: "application/json",
+        text: JSON.stringify(statuses, null, 2),
+      };
+    }
+    default: {
+      if (uri.startsWith("foss://market/quote/")) {
+        const sym = uri.replace("foss://market/quote/", "");
+        const { FossResearchService } = await import("../services/fossResearch");
+        const foss = new FossResearchService();
+        const quote = await foss.getQuote(sym);
+        return {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(quote, null, 2),
+        };
+      }
+      if (uri.startsWith("foss://research/fundamentals/")) {
+        const sym = uri.replace("foss://research/fundamentals/", "");
+        const { FossResearchService } = await import("../services/fossResearch");
+        const foss = new FossResearchService();
+        const fundamentals = await foss.getFundamentals(sym);
+        return {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(fundamentals, null, 2),
+        };
+      }
       throw new Error(`MCP Resource not found: ${uri}`);
+    }
   }
 }
 

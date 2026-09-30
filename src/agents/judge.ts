@@ -66,6 +66,9 @@ export class LLMJudge {
     }
 
     // Fast-path heuristics for sub-agents (0ms latency, 100% reliable)
+    if (/\b(yfinance|yahoo\s*finance|alpaca|fundamentals|valuation|p\/e\b|peg\s*ratio|price\s*to\s*book|beta|analyst\s*ratings?|price\s*targets?|historical\s*bars|ohlcv|foss|research\s+[a-z]{1,5}|snapshot\s+[a-z]{1,5})\b/i.test(lower)) {
+      return { agent: "research", confidence: 0.96, reason: "FOSS market research and quoting intent (Yahoo Finance / Alpaca)", needsConfirmation: false };
+    }
     if (/\b(etrade|stock|stocks|equities|equity|shares|screener|screening|scan\s+stocks|market\s+scan|ticker|rsi|macd|buy\s+\d+|sell\s+\d+|portfolio|positions|brokerage)\b/i.test(lower)) {
       return { agent: "trading", confidence: 0.95, reason: "Stock screening and E*TRADE trading intent detected", needsConfirmation: true };
     }
@@ -99,6 +102,7 @@ Available agents:
 - 'tasks': reminders, todo items, deadlines, task drafting.
 - 'memory': remembering user facts, storing preferences, context recall.
 - 'trading': stock screening, technical market scanning (RSI/MACD), quotes, trade order previews, E*TRADE broker executions, portfolio positions.
+- 'research': FOSS market research, Yahoo Finance fundamentals, valuation ratios (P/E, PEG), Alpaca real-time market data v2, historical bars, analyst targets.
 - 'general': greetings, general conversation, clarification, or ambiguous intent.
 
 ${ROUTE_SCHEMA}`,
@@ -107,7 +111,7 @@ ${ROUTE_SCHEMA}`,
       }).finally(() => clearTimeout(timeout));
 
       const parsed = this.parseJson(output);
-      const validAgents: AgentName[] = ["search", "payments", "tasks", "memory", "general", "trading"];
+      const validAgents: AgentName[] = ["search", "payments", "tasks", "memory", "general", "trading", "research"];
       const agent: AgentName = validAgents.includes(parsed.agent as AgentName)
         ? (parsed.agent as AgentName)
         : "general";

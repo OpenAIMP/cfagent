@@ -11,7 +11,7 @@
  */
 
 import type { z } from "zod";
-import type { Env } from "../types";
+import type { Env, FossQuote, FossCompanyFundamentals, FossHistoricalBar, AlpacaMarketSnapshot } from "../types";
 import type { DatabaseORM } from "../orm";
 import type { SupportedGateway, CreateCheckoutParams, CheckoutResult, RefundParams, RefundResult, GatewayStatus } from "../services/payments";
 import type { DidAttestationProof } from "../agents/did";
@@ -111,4 +111,18 @@ export interface IMcpSystemFacade {
     proposerDid?: string;
   }): Promise<DidAttestationProof>;
   publishAudit(type: string, agent: any, payload: Record<string, unknown>): void;
+}
+
+/**
+ * GoF Strategy Pattern: Market Data Provider Strategy contract for FOSS research & quoting
+ * Implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridFossProvider.
+ */
+export interface IFossMarketDataProvider {
+  readonly providerId: "yfinance" | "alpaca" | "hybrid";
+  readonly name: string;
+  isConfigured(env?: Env): boolean;
+  getQuote(symbol: string): Promise<FossQuote>;
+  getFundamentals(symbol: string): Promise<FossCompanyFundamentals>;
+  getHistoricalBars(symbol: string, timeframe?: string, limit?: number): Promise<FossHistoricalBar[]>;
+  getMarketSnapshot?(symbol: string): Promise<AlpacaMarketSnapshot>;
 }

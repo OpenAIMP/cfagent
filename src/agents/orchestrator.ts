@@ -6,6 +6,7 @@ import { planNLQ, executeNLQQuery } from "./nlq";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
+import { FossResearchService } from "../services/fossResearch";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -1510,6 +1511,106 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ count: trades.length, trades });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch order history" }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // FOSS Market Research & Quoting APIs (yfinance & Alpaca)
+    // ==========================================
+
+    // Real-time quote (Yahoo Finance, Alpaca, or Hybrid)
+    if (path.endsWith("/foss/quote") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const provider = (url.searchParams.get("provider") || "hybrid") as any;
+        const foss = new FossResearchService(this.env);
+        const quote = await foss.getQuote(symbol, provider);
+        return Response.json(quote);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS quote" }, { status: 500 });
+      }
+    }
+
+    // Company fundamentals & valuation metrics (yfinance)
+    if (path.endsWith("/foss/fundamentals") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const foss = new FossResearchService(this.env);
+        const fundamentals = await foss.getFundamentals(symbol);
+        return Response.json(fundamentals);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch fundamentals" }, { status: 500 });
+      }
+    }
+
+    // Historical OHLCV bars (yfinance / Alpaca)
+    if (path.endsWith("/foss/bars") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const timeframe = url.searchParams.get("timeframe") || "1D";
+        const limit = Number(url.searchParams.get("limit") || "30");
+        const foss = new FossResearchService(this.env);
+        const bars = await foss.getHistoricalBars(symbol, timeframe, limit);
+        return Response.json({ symbol: symbol.toUpperCase(), count: bars.length, bars });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch historical bars" }, { status: 500 });
+      }
+    }
+
+    // Comprehensive equity research report with Agent DID stamp
+    if (path.endsWith("/foss/research") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const foss = new FossResearchService(this.env);
+        const report = await foss.generateResearchReport(symbol);
+        this.audit("foss.research_generated", "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did });
+        return Response.json(report);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to generate research report" }, { status: 500 });
+      }
+    }
+
+    // Alpaca real-time market snapshot & NBBO spread
+    if (path.endsWith("/foss/snapshot") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const foss = new FossResearchService(this.env);
+        const snapshot = await foss.getAlpacaSnapshot(symbol);
+        return Response.json(snapshot);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch Alpaca market snapshot" }, { status: 500 });
+      }
+    }
+
+    // Multi-ticker valuation comparison
+    if (path.endsWith("/foss/compare") && (request.method === "POST" || request.method === "GET")) {
+      try {
+        let symbols = ["NVDA", "AAPL", "MSFT"];
+        if (request.method === "POST") {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (Array.isArray(body.symbols) && body.symbols.length > 0) {
+            symbols = body.symbols;
+          }
+        } else {
+          const symParam = url.searchParams.get("symbols");
+          if (symParam) symbols = symParam.split(",").map(s => s.trim());
+        }
+        const foss = new FossResearchService(this.env);
+        const comparison = await foss.compareStocks(symbols);
+        return Response.json({ count: comparison.length, comparison });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to compare stocks" }, { status: 500 });
+      }
+    }
+
+    // FOSS provider statuses (Yahoo Finance + Alpaca)
+    if (path.endsWith("/foss/providers") && request.method === "GET") {
+      try {
+        const foss = new FossResearchService(this.env);
+        const statuses = foss.getProviderStatuses();
+        return Response.json({ providers: statuses });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS providers" }, { status: 500 });
       }
     }
 
