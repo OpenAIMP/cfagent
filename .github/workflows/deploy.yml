@@ -38,7 +38,7 @@ jobs:
       APP_ENV: ${{ needs.load-environment.outputs.target_env }}
       ET_API_KEY: ${{ secrets.ET_API_KEY }}
       ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
-      ET_URL: ${{ secrets.ET_URL }}
+      ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
 
     steps:
       - name: Checkout
@@ -116,6 +116,6 @@ jobs:
           # Push E*TRADE credentials from the active GitHub Environment into the Worker
           echo "${{ secrets.ET_API_KEY }}" | npx wrangler secret put ET_API_KEY
           echo "${{ secrets.ET_API_SECRET }}" | npx wrangler secret put ET_API_SECRET
-          echo "${{ secrets.ET_URL }}" | npx wrangler secret put ET_URL
+          echo "${{ secrets.ET_BASE_URL }}" | npx wrangler secret put ET_BASE_URL
           # Push the active environment name so the Worker knows its context
           echo "${{ needs.load-environment.outputs.target_env }}" | npx wrangler secret put APP_ENV

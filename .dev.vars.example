@@ -25,12 +25,12 @@ APP_ENV="TEST"
 # Developer keys from https://developer.etrade.com
 # ET_API_KEY  = your OAuth 1.0a Consumer Key
 # ET_API_SECRET = your OAuth 1.0a Consumer Secret
-# ET_URL      = base URL for the environment (no path, no trailing slash)
+# ET_BASE_URL = base URL for the environment (no path, no trailing slash)
 #   TEST (Sandbox): https://apisb.etrade.com
 #   PROD (Live):    https://api.etrade.com
 ET_API_KEY="your-etrade-consumer-key"
 ET_API_SECRET="your-etrade-consumer-secret"
-ET_URL="https://apisb.etrade.com"
+ET_BASE_URL="https://apisb.etrade.com"
 # OAuth 1.0a Access Token pair — obtained after user completes E*TRADE OAuth flow.
 # Tokens expire at midnight US Eastern; use the Renew Access Token API to reactivate.
 # See: https://apisb.etrade.com/docs/api/authorization/renew_access_token.html

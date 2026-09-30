@@ -36,7 +36,7 @@ jobs:
     name: Test & Build (Node ${{ matrix.node-version }}) [${{ needs.load-environment.outputs.target_env }}]
     runs-on: ubuntu-latest
     needs: load-environment
-    # Links this job to the GitHub Environment, pulling ET_API_KEY / ET_API_SECRET / ET_URL
+    # Links this job to the GitHub Environment, pulling ET_API_KEY / ET_API_SECRET / ET_BASE_URL
     environment: ${{ needs.load-environment.outputs.target_env }}
     strategy:
       matrix:
@@ -50,7 +50,7 @@ jobs:
       APP_ENV: ${{ needs.load-environment.outputs.target_env }}
       ET_API_KEY: ${{ secrets.ET_API_KEY }}
       ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
-      ET_URL: ${{ secrets.ET_URL }}
+      ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
 
     steps:
       - name: 📥 Checkout Repository

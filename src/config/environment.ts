@@ -40,11 +40,11 @@ export function resolveETradeBaseUrl(rawUrl: string): string {
  * Resolves the active environment and E*TRADE credentials.
  *
  * Priority cascade:
- *   1. Cloudflare Worker env bindings (runtime secrets: ET_API_KEY, ET_API_SECRET, ET_URL)
+ *   1. Cloudflare Worker env bindings (runtime secrets: ET_API_KEY, ET_API_SECRET, ET_BASE_URL)
  *   2. process.env (Node / local .dev.vars)
  *   3. environment.config.json default
  *
- * ET_URL is expected to be a base URL ("https://apisb.etrade.com") — NOT a path template.
+ * ET_BASE_URL is expected to be a base URL ("https://apisb.etrade.com") — NOT a path template.
  * accountIdKey must be resolved at runtime via GET /v1/accounts/list (see ETradeService.fetchAccountsRemote).
  */
 export function resolveEnvironmentConfig(env?: Partial<Env>): ResolvedEnvironment {
@@ -63,10 +63,10 @@ export function resolveEnvironmentConfig(env?: Partial<Env>): ResolvedEnvironmen
   const envsMap = defaultConfig.environments as Record<string, any>;
   const baseDef = envsMap[activeName] || envsMap["TEST"];
 
-  // ET_URL from secret takes priority; fall back to config-defined baseUrl
+  // ET_BASE_URL from secret takes priority; fall back to config-defined baseUrl
   const rawUrl =
-    env?.ET_URL ||
-    processEnv.ET_URL ||
+    env?.ET_BASE_URL ||
+    processEnv.ET_BASE_URL ||
     baseDef.etrade.baseUrl;
 
   const baseUrl = resolveETradeBaseUrl(rawUrl);

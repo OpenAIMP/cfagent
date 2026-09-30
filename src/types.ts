@@ -31,7 +31,7 @@ export interface Env {
   // E*TRADE Trading API & Remote MCP Configuration
   ET_API_KEY?: string;
   ET_API_SECRET?: string;
-  ET_URL?: string;
+  ET_BASE_URL?: string;
   ETRADE_CONSUMER_KEY?: string;
   ETRADE_CONSUMER_SECRET?: string;
   ETRADE_OAUTH_TOKEN?: string;
