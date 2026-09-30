@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { McpApiExplorer } from "./McpApiExplorer";
+import { GoogleAdUnit } from "./GoogleAdUnit";
 
 interface User {
   login: string;
@@ -90,7 +92,7 @@ interface CategoryItem {
 interface ExternalAdItem {
   id: string;
   name: string;
-  network: "direct" | "ethicalads" | "carbon" | "adsense";
+  network: "direct" | "ethicalads" | "carbon" | "adsense" | "google";
   placement: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
   title: string;
   tagline: string;
@@ -431,7 +433,7 @@ function ToolResultView({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue">("chat");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints">("chat");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -440,16 +442,27 @@ export function Chat({ user }: { user: User }) {
   const [externalAdsLoading, setExternalAdsLoading] = useState(false);
   const [activeExtAdIndex, setActiveExtAdIndex] = useState(0);
   const [newExtTitle, setNewExtTitle] = useState("");
-  const [newExtNetwork, setNewExtNetwork] = useState<"direct" | "ethicalads" | "carbon" | "adsense">("ethicalads");
+  const [newExtNetwork, setNewExtNetwork] = useState<"direct" | "ethicalads" | "carbon" | "adsense" | "google">("google");
   const [newExtPlacement, setNewExtPlacement] = useState<"header_leaderboard" | "in_stream" | "footer_deck" | "sidebar">("header_leaderboard");
   const [newExtTagline, setNewExtTagline] = useState("");
   const [newExtUrl, setNewExtUrl] = useState("");
   const [newExtCta, setNewExtCta] = useState("Learn More →");
-  const [newExtCpm, setNewExtCpm] = useState("18.50");
-  const [newExtCpc, setNewExtCpc] = useState("1.50");
+  const [newExtCpm, setNewExtCpm] = useState("24.50");
+  const [newExtCpc, setNewExtCpc] = useState("2.10");
   const [savingExtAd, setSavingExtAd] = useState(false);
   const [extAdSuccessMsg, setExtAdSuccessMsg] = useState("");
   const [extAdErrorMsg, setExtAdErrorMsg] = useState("");
+
+  // Google Ads & AdSense state
+  const [googleAdsEnabled, setGoogleAdsEnabled] = useState(true);
+  const [googlePublisherId, setGooglePublisherId] = useState("ca-pub-9842109842109842");
+  const [googleSlotId, setGoogleSlotId] = useState("7812903456");
+  const [googleAdFormat, setGoogleAdFormat] = useState<"responsive" | "leaderboard" | "rectangle">("responsive");
+
+  // Social sharing state
+  const [discordCopied, setDiscordCopied] = useState(false);
+  const [activeShareRefId, setActiveShareRefId] = useState<string | null>(null);
+  const [copiedShareRefId, setCopiedShareRefId] = useState<string | null>(null);
 
   // Categories ORM state
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -548,6 +561,20 @@ export function Chat({ user }: { user: User }) {
     navigator.clipboard.writeText(personalReferralUrl);
     setCopiedReferral(true);
     setTimeout(() => setCopiedReferral(false), 2500);
+  };
+
+  const handleCopyDiscordEmbed = () => {
+    const text = `**Join Multi-Agent Studio:** [Autonomous AI Agents with Workers AI & SQLite](${personalReferralUrl})`;
+    navigator.clipboard.writeText(text);
+    setDiscordCopied(true);
+    setTimeout(() => setDiscordCopied(false), 2500);
+  };
+
+  const handleCopyRefDiscordEmbed = (refUrl: string, refTitle: string, refId: string) => {
+    const text = `**${refTitle}**: [${refUrl}](${refUrl})`;
+    navigator.clipboard.writeText(text);
+    setCopiedShareRefId(refId);
+    setTimeout(() => setCopiedShareRefId(null), 2500);
   };
 
   // Auto-scroll on new messages
@@ -1154,6 +1181,12 @@ export function Chat({ user }: { user: User }) {
           >
             💰 Revenue & Ads
           </button>
+          <button
+            className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
+            onClick={() => setTab("endpoints")}
+          >
+            🔌 API & MCP Endpoints
+          </button>
         </nav>
 
         {/* User Badge */}
@@ -1174,12 +1207,12 @@ export function Chat({ user }: { user: User }) {
         <div className="external-ad-banner-strip">
           <div className="ext-ad-badge-group">
             <span className="ext-network-badge">
-              {externalAds[activeExtAdIndex].network === "ethicalads"
-                ? "🛡️ EthicalAds Network"
+              {externalAds[activeExtAdIndex].network === "google" || externalAds[activeExtAdIndex].network === "adsense"
+                ? "🌐 Google Ads"
+                : externalAds[activeExtAdIndex].network === "ethicalads"
+                ? "🛡️ EthicalAds"
                 : externalAds[activeExtAdIndex].network === "carbon"
                 ? "⚡ Carbon Ads"
-                : externalAds[activeExtAdIndex].network === "adsense"
-                ? "🌐 Google AdSense"
                 : "⭐ Direct Partner"}
             </span>
             <span className="ext-placement-badge">
@@ -2164,8 +2197,8 @@ export function Chat({ user }: { user: User }) {
               </div>
 
               <div className="referral-share-right">
-                <span className="social-label">Quick Share:</span>
-                <div className="social-buttons">
+                <span className="social-label">Share to All Social Media Platforms:</span>
+                <div className="social-buttons-grid">
                   <a
                     href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
                       `Build autonomous AI agents with Cloudflare Workers AI & SQLite on Multi-Agent Studio: ${personalReferralUrl}`
@@ -2173,8 +2206,9 @@ export function Chat({ user }: { user: User }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn x-twitter"
+                    title="Share on X (Twitter)"
                   >
-                    𝕏 Share on X
+                    𝕏 X (Twitter)
                   </a>
                   <a
                     href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
@@ -2183,8 +2217,40 @@ export function Chat({ user }: { user: User }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn linkedin"
+                    title="Share on LinkedIn"
                   >
                     💼 LinkedIn
+                  </a>
+                  <a
+                    href={`https://reddit.com/submit?url=${encodeURIComponent(
+                      personalReferralUrl
+                    )}&title=${encodeURIComponent("Multi-Agent Studio: Autonomous AI Agents with Workers AI & SQLite")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn reddit"
+                    title="Share on Reddit"
+                  >
+                    👽 Reddit
+                  </a>
+                  <a
+                    href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(personalReferralUrl)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn facebook"
+                    title="Share on Facebook"
+                  >
+                    📘 Facebook
+                  </a>
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      `Build autonomous AI agents on Multi-Agent Studio: ${personalReferralUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn whatsapp"
+                    title="Share on WhatsApp"
+                  >
+                    💬 WhatsApp
                   </a>
                   <a
                     href={`https://t.me/share/url?url=${encodeURIComponent(
@@ -2193,9 +2259,62 @@ export function Chat({ user }: { user: User }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn telegram"
+                    title="Share on Telegram"
                   >
                     ✈️ Telegram
                   </a>
+                  <a
+                    href={`https://www.threads.net/intent/post?text=${encodeURIComponent(
+                      `Autonomous AI Agents on Cloudflare Workers AI: ${personalReferralUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn threads"
+                    title="Share on Threads"
+                  >
+                    🧵 Threads
+                  </a>
+                  <a
+                    href={`https://bsky.app/intent/compose?text=${encodeURIComponent(
+                      `Check out Multi-Agent Studio for edge AI agents: ${personalReferralUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn bluesky"
+                    title="Share on Bluesky"
+                  >
+                    🦋 Bluesky
+                  </a>
+                  <a
+                    href={`https://news.ycombinator.com/submitlink?u=${encodeURIComponent(
+                      personalReferralUrl
+                    )}&t=${encodeURIComponent("Multi-Agent Studio: Edge AI agents on Cloudflare Workers")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn hackernews"
+                    title="Share on Hacker News"
+                  >
+                    🟧 Hacker News
+                  </a>
+                  <a
+                    href={`https://pinterest.com/pin/create/button/?url=${encodeURIComponent(
+                      personalReferralUrl
+                    )}&description=${encodeURIComponent("Autonomous AI Agents on Cloudflare Workers")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="social-btn pinterest"
+                    title="Pin on Pinterest"
+                  >
+                    📌 Pinterest
+                  </a>
+                  <button
+                    type="button"
+                    className={`social-btn discord ${discordCopied ? "copied" : ""}`}
+                    onClick={handleCopyDiscordEmbed}
+                    title="Copy Discord rich markdown format"
+                  >
+                    👾 {discordCopied ? "✓ Discord Link Copied!" : "Discord Embed"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2354,6 +2473,14 @@ export function Chat({ user }: { user: User }) {
                           </button>
                           <button
                             type="button"
+                            className={`share-toggle-btn ${activeShareRefId === ref.id ? "active" : ""}`}
+                            onClick={() => setActiveShareRefId(activeShareRefId === ref.id ? null : ref.id)}
+                            title="Share on social media"
+                          >
+                            📢 Share Link
+                          </button>
+                          <button
+                            type="button"
                             className="delete-ref-btn"
                             onClick={() => handleDeleteReferral(ref.id)}
                             title="Delete this referral"
@@ -2361,10 +2488,208 @@ export function Chat({ user }: { user: User }) {
                             🗑️ Delete
                           </button>
                         </div>
+                        {activeShareRefId === ref.id && (
+                          <div className="card-social-share-row">
+                            <span className="card-share-lbl">Share:</span>
+                            <a
+                              href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`${ref.title}: ${ref.url}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn x-twitter"
+                              title="Share on X"
+                            >
+                              𝕏
+                            </a>
+                            <a
+                              href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(ref.url)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn linkedin"
+                              title="Share on LinkedIn"
+                            >
+                              💼
+                            </a>
+                            <a
+                              href={`https://reddit.com/submit?url=${encodeURIComponent(ref.url)}&title=${encodeURIComponent(ref.title)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn reddit"
+                              title="Share on Reddit"
+                            >
+                              👽
+                            </a>
+                            <a
+                              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`${ref.title}: ${ref.url}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn whatsapp"
+                              title="Share on WhatsApp"
+                            >
+                              💬
+                            </a>
+                            <a
+                              href={`https://t.me/share/url?url=${encodeURIComponent(ref.url)}&text=${encodeURIComponent(ref.title)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn telegram"
+                              title="Share on Telegram"
+                            >
+                              ✈️
+                            </a>
+                            <a
+                              href={`https://threads.net/intent/post?text=${encodeURIComponent(`${ref.title}: ${ref.url}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn threads"
+                              title="Share on Threads"
+                            >
+                              🧵
+                            </a>
+                            <a
+                              href={`https://bsky.app/intent/compose?text=${encodeURIComponent(`${ref.title}: ${ref.url}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mini-social-btn bluesky"
+                              title="Share on Bluesky"
+                            >
+                              🦋
+                            </a>
+                            <button
+                              type="button"
+                              className="mini-social-btn discord"
+                              onClick={() => handleCopyRefDiscordEmbed(ref.url, ref.title, ref.id)}
+                              title="Copy Discord embed"
+                            >
+                              {copiedShareRefId === ref.id ? "✓" : "👾"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Google Ads Display Banner on Referrals Page */}
+            {googleAdsEnabled && (
+              <div className="referral-ad-slot">
+                <GoogleAdUnit
+                  format="responsive"
+                  publisherId={googlePublisherId}
+                  slot={googleSlotId}
+                  ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
+                  onTrackClick={handleExternalAdClick}
+                />
+              </div>
+            )}
+
+            {/* Official Social Media Platforms & Developer Community Hub */}
+            <div className="referral-social-hub-card">
+              <div className="card-header">
+                <h4>🌐 Official Developer Social Platforms & Communities</h4>
+                <p>
+                  Connect with the OpenAIMP ecosystem, join real-time agent engineering discussions, and stay updated across all social media networks.
+                </p>
+              </div>
+
+              <div className="social-platform-grid">
+                <a href="https://github.com/OpenAIMP/cfagent" target="_blank" rel="noopener noreferrer" className="platform-card github">
+                  <span className="platform-icon">🐙</span>
+                  <div className="platform-info">
+                    <strong>GitHub</strong>
+                    <span>Source code, PRs, and issues</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://discord.com" target="_blank" rel="noopener noreferrer" className="platform-card discord">
+                  <span className="platform-icon">👾</span>
+                  <div className="platform-info">
+                    <strong>Discord Server</strong>
+                    <span>Real-time agent developer chat</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://x.com/OpenAIMP" target="_blank" rel="noopener noreferrer" className="platform-card twitter">
+                  <span className="platform-icon">𝕏</span>
+                  <div className="platform-info">
+                    <strong>X (Twitter)</strong>
+                    <span>Announcements & product updates</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://youtube.com/@OpenAIMP" target="_blank" rel="noopener noreferrer" className="platform-card youtube">
+                  <span className="platform-icon">▶️</span>
+                  <div className="platform-info">
+                    <strong>YouTube</strong>
+                    <span>Video tutorials & agent architecture demos</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://t.me/OpenAIMP" target="_blank" rel="noopener noreferrer" className="platform-card telegram">
+                  <span className="platform-icon">✈️</span>
+                  <div className="platform-info">
+                    <strong>Telegram Community</strong>
+                    <span>VIP channel & developer group</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://linkedin.com/company/openaimp" target="_blank" rel="noopener noreferrer" className="platform-card linkedin">
+                  <span className="platform-icon">💼</span>
+                  <div className="platform-info">
+                    <strong>LinkedIn</strong>
+                    <span>Enterprise agent solutions & news</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://reddit.com/r/Cloudflare" target="_blank" rel="noopener noreferrer" className="platform-card reddit">
+                  <span className="platform-icon">👽</span>
+                  <div className="platform-info">
+                    <strong>Reddit</strong>
+                    <span>r/Cloudflare & r/LocalLLaMA discussions</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://bsky.app/profile/openaimp.bsky.social" target="_blank" rel="noopener noreferrer" className="platform-card bluesky">
+                  <span className="platform-icon">🦋</span>
+                  <div className="platform-info">
+                    <strong>Bluesky</strong>
+                    <span>Open decentralized social updates</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://threads.net/@openaimp" target="_blank" rel="noopener noreferrer" className="platform-card threads">
+                  <span className="platform-icon">🧵</span>
+                  <div className="platform-info">
+                    <strong>Threads</strong>
+                    <span>Bite-sized AI developer discussions</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://instagram.com/openaimp" target="_blank" rel="noopener noreferrer" className="platform-card instagram">
+                  <span className="platform-icon">📷</span>
+                  <div className="platform-info">
+                    <strong>Instagram</strong>
+                    <span>Developer behind-the-scenes & clips</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://tiktok.com/@openaimp" target="_blank" rel="noopener noreferrer" className="platform-card tiktok">
+                  <span className="platform-icon">🎵</span>
+                  <div className="platform-info">
+                    <strong>TikTok</strong>
+                    <span>Quick tips & AI agent shorts</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
+                <a href="https://whatsapp.com" target="_blank" rel="noopener noreferrer" className="platform-card whatsapp">
+                  <span className="platform-icon">💬</span>
+                  <div className="platform-info">
+                    <strong>WhatsApp Community</strong>
+                    <span>Direct alerts & release announcements</span>
+                  </div>
+                  <span className="join-arrow">↗</span>
+                </a>
               </div>
             </div>
           </div>
@@ -2946,6 +3271,85 @@ export function Chat({ user }: { user: User }) {
                 ))}
               </div>
             </div>
+
+            {/* Google Ads & Multi-Network Monetization Control Center */}
+            <div className="revenue-section-card">
+              <div className="card-header">
+                <h4>🌐 Google Ads & Multi-Network Display Engine</h4>
+                <p>
+                  Configure official Google AdSense and network display banners, test live formats, and track impressions/clicks across the platform.
+                </p>
+              </div>
+
+              <div className="google-ads-config-grid">
+                <div className="config-form-card">
+                  <h5>⚙️ Google Ads Configuration</h5>
+                  <div className="form-group">
+                    <label>Google Ads Display Status</label>
+                    <div className="toggle-switch-row">
+                      <button
+                        type="button"
+                        className={`toggle-btn ${googleAdsEnabled ? "active" : ""}`}
+                        onClick={() => setGoogleAdsEnabled(!googleAdsEnabled)}
+                      >
+                        {googleAdsEnabled ? "🟢 Google Ads Active" : "⚪ Google Ads Paused"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Google AdSense Publisher Client ID</label>
+                    <input
+                      type="text"
+                      placeholder="ca-pub-9842109842109842"
+                      value={googlePublisherId}
+                      onChange={(e) => setGooglePublisherId(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label>Default Ad Slot ID</label>
+                      <input
+                        type="text"
+                        placeholder="7812903456"
+                        value={googleSlotId}
+                        onChange={(e) => setGoogleSlotId(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Display Format</label>
+                      <select
+                        value={googleAdFormat}
+                        onChange={(e) => setGoogleAdFormat(e.target.value as any)}
+                      >
+                        <option value="responsive">Responsive Banner</option>
+                        <option value="leaderboard">728x90 Leaderboard</option>
+                        <option value="rectangle">300x250 Medium Rectangle</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="live-ad-preview-card">
+                  <h5>Live Google Ads Preview</h5>
+                  <GoogleAdUnit
+                    format={googleAdFormat}
+                    publisherId={googlePublisherId}
+                    slot={googleSlotId}
+                    ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
+                    onTrackClick={handleExternalAdClick}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* API & Model Context Protocol (MCP) Endpoints Explorer */}
+        {tab === "endpoints" && (
+          <div className="endpoints-view">
+            <McpApiExplorer />
           </div>
         )}
       </main>

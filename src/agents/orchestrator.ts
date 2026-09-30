@@ -1059,7 +1059,7 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // Gateway status & DID registry
-    if (path.endsWith("/payments/gateways") && request.method === "GET") {
+    if ((path.endsWith("/payments/gateways") || path.endsWith("/payments/status")) && request.method === "GET") {
       const paymentService = new PaymentGatewayService(this.env);
       const gateways = paymentService.getGatewayStatuses();
       return Response.json({

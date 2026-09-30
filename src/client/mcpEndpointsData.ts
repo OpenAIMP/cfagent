@@ -1,0 +1,470 @@
+/**
+ * API & Model Context Protocol (MCP) Endpoints Metadata & Sample Payloads
+ */
+
+export interface McpToolMeta {
+  name: string;
+  category: string;
+  description: string;
+  schema: Record<string, any>;
+  sampleArgs: Record<string, any>;
+}
+
+export interface McpResourceMeta {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+}
+
+export interface McpPromptMeta {
+  name: string;
+  description: string;
+  args: Array<{ name: string; description: string; required?: boolean }>;
+}
+
+export interface RestEndpointMeta {
+  id: string;
+  category: "Agents & NLQ" | "Payments & DIDs" | "Database & ORM" | "Monetization & Ads" | "Referrals & Community" | "System & Audit";
+  method: "GET" | "POST" | "DELETE";
+  path: string;
+  title: string;
+  description: string;
+  authRequired: boolean;
+  sampleBody?: Record<string, any>;
+  sampleCurl: string;
+}
+
+export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
+  {
+    name: "knowledge_search",
+    category: "Knowledge & RAG",
+    description: "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval.",
+    schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Search query or natural language inquiry" } },
+      required: ["query"],
+    },
+    sampleArgs: { query: "What features are available in Cloudflare Workers AI?" },
+  },
+  {
+    name: "draft_payment",
+    category: "Financial Ledger",
+    description: "Prepare an explicit human-authorized payment intent draft with Agent DID attestation across Stripe, PayPal, or Lemon Squeezy.",
+    schema: {
+      type: "object",
+      properties: {
+        amount: { type: "number", description: "Amount in USD (e.g. 35.00)" },
+        currency: { type: "string", description: "Currency code (default: USD)" },
+        customer: { type: "string", description: "Customer name or organization" },
+        gateway: { type: "string", enum: ["stripe", "paypal", "lemonsqueezy"], description: "Payment gateway processor" },
+        action: { type: "string", enum: ["charge", "refund", "invoice"], description: "Payment action type" },
+        description: { type: "string", description: "Order description or note" },
+      },
+      required: ["amount", "customer"],
+    },
+    sampleArgs: { amount: 35.0, currency: "USD", customer: "Acme Logistics", gateway: "stripe", action: "charge", description: "Pro Token Compute Subscription" },
+  },
+  {
+    name: "confirm_payment_draft",
+    category: "HITL & Security",
+    description: "Authorize or reject a pending payment draft using Human-in-the-Loop (HITL) approval with cryptographic verification.",
+    schema: {
+      type: "object",
+      properties: {
+        draftId: { type: "string", description: "Payment draft ID to execute or reject" },
+        decision: { type: "string", enum: ["approved", "rejected"], description: "Reviewer decision" },
+        note: { type: "string", description: "Optional compliance audit note" },
+      },
+      required: ["draftId", "decision"],
+    },
+    sampleArgs: { draftId: "pay_init_stripe", decision: "approved", note: "Approved by finance manager via MCP" },
+  },
+  {
+    name: "get_payment_gateways",
+    category: "Financial Ledger",
+    description: "Introspect active configuration and connectivity for Stripe, PayPal, and Lemon Squeezy processors with Agent DIDs.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
+  {
+    name: "get_transactions",
+    category: "Financial Ledger",
+    description: "Retrieve verified transaction ledger with cryptographic Agent DID signatures and gateway settlement references.",
+    schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Maximum transactions to return (default: 20)" },
+        status: { type: "string", description: "Filter by status (completed, awaiting_confirmation, etc.)" },
+      },
+    },
+    sampleArgs: { limit: 10 },
+  },
+  {
+    name: "execute_nlq",
+    category: "Natural Language SQL",
+    description: "Convert natural language queries into secure read-only SQL plans and execute them over SQLite tables and message history.",
+    schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Natural language query against database or message history" } },
+      required: ["query"],
+    },
+    sampleArgs: { query: "List all database tables and schema" },
+  },
+  {
+    name: "list_database_tables",
+    category: "Database & ORM",
+    description: "Introspect SQLite relational tables, schema columns, primary keys, and live row counts managed by the DatabaseORM.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
+  {
+    name: "query_table_data",
+    category: "Database & ORM",
+    description: "Query rows from any SQLite table with pagination, column inspection, and full-text keyword filtering.",
+    schema: {
+      type: "object",
+      properties: {
+        tableName: { type: "string", description: "Target SQLite table (mas_categories, mas_external_ads, etc.)" },
+        search: { type: "string", description: "Optional keyword search filter" },
+        limit: { type: "number", description: "Maximum rows to return" },
+        offset: { type: "number", description: "Row offset" },
+      },
+      required: ["tableName"],
+    },
+    sampleArgs: { tableName: "mas_categories", limit: 5 },
+  },
+  {
+    name: "manage_categories",
+    category: "Taxonomy & Partners",
+    description: "CRUD operations on referral and partnership categories taxonomy in SQLite mas_categories table.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "create", "delete"], description: "Category operation" },
+        id: { type: "string", description: "Category ID (required for delete)" },
+        name: { type: "string", description: "Category display name" },
+        description: { type: "string", description: "Category summary" },
+        icon: { type: "string", description: "Category emoji icon" },
+      },
+      required: ["action"],
+    },
+    sampleArgs: { action: "list" },
+  },
+  {
+    name: "manage_referrals",
+    category: "Taxonomy & Partners",
+    description: "Manage community and partner referral links, tracking clicks, sign-ups, and developer earnings.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "create", "record_click"], description: "Referral operation" },
+        id: { type: "string", description: "Referral ID" },
+        title: { type: "string", description: "Link title or service name" },
+        url: { type: "string", description: "Target URL" },
+        category: { type: "string", description: "Category" },
+        rewardText: { type: "string", description: "Reward text" },
+      },
+      required: ["action"],
+    },
+    sampleArgs: { action: "list" },
+  },
+  {
+    name: "manage_external_ads",
+    category: "Monetization & Ads",
+    description: "Manage external ad network inventory (Google AdSense, EthicalAds, Carbon Ads, Direct) with live CPM/CPC impression tracking.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "create", "track_impression", "track_click"], description: "Ad operation" },
+        id: { type: "string", description: "Ad placement ID" },
+        network: { type: "string", enum: ["google", "adsense", "ethicalads", "carbon", "direct"] },
+        placement: { type: "string", enum: ["header_leaderboard", "in_stream", "footer_deck", "sidebar"] },
+        title: { type: "string", description: "Ad title" },
+        tagline: { type: "string", description: "Tagline" },
+        targetUrl: { type: "string", description: "Destination URL" },
+      },
+      required: ["action"],
+    },
+    sampleArgs: { action: "list" },
+  },
+  {
+    name: "get_revenue_summary",
+    category: "Monetization & Ads",
+    description: "Retrieve comprehensive platform revenue breakdown across ad network CPM/CPC earnings, marketplace listings, and processing fees.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
+  {
+    name: "manage_session_memory",
+    category: "Agent Memory",
+    description: "Read, write, or clear persistent memory facts and user preferences stored in SQLite across sessions.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "set", "delete", "clear"], description: "Memory action" },
+        key: { type: "string", description: "Fact key" },
+        value: { type: "string", description: "Fact value" },
+      },
+      required: ["action"],
+    },
+    sampleArgs: { action: "list" },
+  },
+  {
+    name: "get_audit_events",
+    category: "Observability",
+    description: "Query real-time audit event stream for router decisions, LLM Judge evaluations, HITL approvals, and agent executions.",
+    schema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Number of recent events (default: 25)" } },
+    },
+    sampleArgs: { limit: 15 },
+  },
+];
+
+export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
+  {
+    uri: "sqlite://schema/tables",
+    name: "SQLite Database Schema & Table Metadata",
+    description: "Complete database introspection of all 8 relational tables with columns, types, and primary keys.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://revenue/summary",
+    name: "Platform Financials & Revenue Analytics",
+    description: "Multi-stream gross revenue, ad network RPM, marketplace fees, and net profit margins.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://categories/list",
+    name: "Referral & Tool Categories Taxonomy",
+    description: "Active taxonomy of partner categories, sort priorities, and metadata.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://external-ads/inventory",
+    name: "Ad Network Placements Inventory",
+    description: "Live external ad placements (Google Ads, EthicalAds, Carbon, Direct) with views, clicks, and earnings.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://memory/facts",
+    name: "Persistent Session Memory Vault",
+    description: "Long-term key-value user facts and preferences stored in SQLite.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://audit/recent",
+    name: "Recent System Audit & Observability Stream",
+    description: "Recent 20 router decisions, judge guardrail evaluations, and agent execution events.",
+    mimeType: "application/json",
+  },
+];
+
+export const MCP_PROMPTS_CATALOG: McpPromptMeta[] = [
+  {
+    name: "audit_security_review",
+    description: "Audit agent decisions, guardrail safety scores, and financial authorizations for compliance risks.",
+    args: [{ name: "timeframe", description: "Audit period (e.g. 'recent', 'today', '24h')" }],
+  },
+  {
+    name: "revenue_performance_analysis",
+    description: "Synthesize platform ad network performance, RPM trends, and recommend monetization strategies.",
+    args: [{ name: "focus", description: "Analysis focus ('overall', 'ads', 'referrals', 'processing_fees')" }],
+  },
+  {
+    name: "nlq_schema_exploration",
+    description: "Explore SQLite schema and generate optimized analytical query plans for business metrics.",
+    args: [{ name: "goal", description: "Analytical goal or question to answer from the database" }],
+  },
+];
+
+export const REST_APIS_CATALOG: RestEndpointMeta[] = [
+  {
+    id: "api_chat",
+    category: "Agents & NLQ",
+    method: "POST",
+    path: "/api/chat",
+    title: "Multi-Agent Conversation Stream",
+    description: "Interactive multi-turn streaming LLM conversation with dynamic routing across search, payments, tasks, and memory sub-agents.",
+    authRequired: true,
+    sampleBody: { messages: [{ role: "user", content: "What are the latest Cloudflare Workers AI features?" }] },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"messages":[{"role":"user","content":"Hello AI Assistant"}]}'`,
+  },
+  {
+    id: "api_nlq",
+    category: "Agents & NLQ",
+    method: "POST",
+    path: "/api/nlq",
+    title: "Natural Language Query Engine",
+    description: "Translates natural language questions into deterministic read-only SQLite queries executed safely via ORM.",
+    authRequired: true,
+    sampleBody: { query: "List all database tables and schema" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/nlq \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"List all database tables and schema"}'`,
+  },
+  {
+    id: "api_schema_tables",
+    category: "Database & ORM",
+    method: "GET",
+    path: "/api/schema/tables",
+    title: "List Database Tables & Schema",
+    description: "Returns schema metadata, column types, primary keys, and row counts for all 8 relational tables.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/schema/tables`,
+  },
+  {
+    id: "api_schema_query",
+    category: "Database & ORM",
+    method: "POST",
+    path: "/api/schema/query",
+    title: "Execute Table Data Query",
+    description: "Queries rows from any database table with limit, offset, and keyword filtering.",
+    authRequired: true,
+    sampleBody: { table: "mas_categories", limit: 10 },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/schema/query \\
+  -H "Content-Type: application/json" \\
+  -d '{"table":"mas_categories","limit":10}'`,
+  },
+  {
+    id: "api_categories_get",
+    category: "Referrals & Community",
+    method: "GET",
+    path: "/api/categories",
+    title: "List Referral Categories",
+    description: "Retrieves active partner categories sorted by priority order from SQLite mas_categories.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/categories`,
+  },
+  {
+    id: "api_categories_post",
+    category: "Referrals & Community",
+    method: "POST",
+    path: "/api/categories",
+    title: "Create Referral Category",
+    description: "Creates a new category in the SQLite taxonomy using the DatabaseORM Repository.",
+    authRequired: true,
+    sampleBody: { name: "Web3 & Zero Knowledge", icon: "⚡", description: "Decentralized and ZK infrastructure", sortOrder: 6 },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/categories \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"Web3 & Zero Knowledge","icon":"⚡","description":"ZK tooling","sortOrder":6}'`,
+  },
+  {
+    id: "api_referrals_get",
+    category: "Referrals & Community",
+    method: "GET",
+    path: "/api/referrals",
+    title: "List Referral Links",
+    description: "Retrieves placed affiliate and referral links with click counters and referred signups.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/referrals`,
+  },
+  {
+    id: "api_referrals_post",
+    category: "Referrals & Community",
+    method: "POST",
+    path: "/api/referrals",
+    title: "Publish Referral Link",
+    description: "Publishes a new tool or platform referral link for user account with category attribution.",
+    authRequired: true,
+    sampleBody: { title: "Cloudflare Workers AI Pro", url: "https://workers.cloudflare.com/?ref=team", category: "AI & Dev Tools", rewardText: "Get $10 in free API credits" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/referrals \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Workers AI","url":"https://workers.cloudflare.com/?ref=demo","category":"AI & Dev Tools","rewardText":"$10 credits"}'`,
+  },
+  {
+    id: "api_revenue_get",
+    category: "Monetization & Ads",
+    method: "GET",
+    path: "/api/revenue",
+    title: "Platform Revenue Summary",
+    description: "Computes multi-stream platform financials: ad network CPM/CPC, marketplace fees, payment transaction processing fees, net profit, and RPM.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/revenue`,
+  },
+  {
+    id: "api_external_ads_get",
+    category: "Monetization & Ads",
+    method: "GET",
+    path: "/api/external-ads",
+    title: "List External Ad Network Units",
+    description: "Queries active Google Ads, EthicalAds, Carbon Ads, and Direct sponsor placements with CPM/CPC rates and live earnings.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/external-ads`,
+  },
+  {
+    id: "api_external_ads_post",
+    category: "Monetization & Ads",
+    method: "POST",
+    path: "/api/external-ads",
+    title: "Register Ad Network Unit",
+    description: "Registers or updates a placement unit across Google Ads, EthicalAds, Carbon, or Direct sponsors.",
+    authRequired: true,
+    sampleBody: { title: "Google Cloud Vertex AI GPUs", network: "google", placement: "header_leaderboard", tagline: "Deploy high-throughput inference", targetUrl: "https://cloud.google.com/vertex-ai", cpmRate: 24.5, cpcRate: 2.1 },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/external-ads \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Google Cloud Vertex AI","network":"google","placement":"header_leaderboard","tagline":"Fast GPUs","targetUrl":"https://cloud.google.com","cpmRate":24.5,"cpcRate":2.1}'`,
+  },
+  {
+    id: "api_payments_status",
+    category: "Payments & DIDs",
+    method: "GET",
+    path: "/api/payments/status",
+    title: "Payment Gateways & DID Registry",
+    description: "Returns connection status for Stripe, PayPal, and Lemon Squeezy with known Agent DIDs and User DID.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/payments/status`,
+  },
+  {
+    id: "api_payments_tx",
+    category: "Payments & DIDs",
+    method: "GET",
+    path: "/api/payments/transactions",
+    title: "Transaction Ledger with DIDs",
+    description: "Returns financial audit log with cryptographic DID attestation signatures, gateway references, and amounts.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/payments/transactions`,
+  },
+  {
+    id: "api_payments_create",
+    category: "Payments & DIDs",
+    method: "POST",
+    path: "/api/payments/create",
+    title: "Draft Payment Intent",
+    description: "Creates a payment intent across Stripe, PayPal, or Lemon Squeezy with verifiable Agent DID attestation.",
+    authRequired: true,
+    sampleBody: { amount: 50.0, currency: "USD", customer: "Acme Logistics", gateway: "stripe", action: "charge", description: "1M Token Allowance" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/payments/create \\
+  -H "Content-Type: application/json" \\
+  -d '{"amount":50.0,"currency":"USD","customer":"Acme Logistics","gateway":"stripe","action":"charge"}'`,
+  },
+  {
+    id: "api_payments_confirm",
+    category: "Payments & DIDs",
+    method: "POST",
+    path: "/api/payments/confirm",
+    title: "HITL Payment Confirmation",
+    description: "Authorizes and executes a pending payment draft, updating SQLite ledger and gateway status.",
+    authRequired: true,
+    sampleBody: { draftId: "pay_init_stripe", decision: "approved", note: "Approved via REST API" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/payments/confirm \\
+  -H "Content-Type: application/json" \\
+  -d '{"draftId":"pay_init_stripe","decision":"approved","note":"Approved"}'`,
+  },
+  {
+    id: "api_mcp_jsonrpc",
+    category: "System & Audit",
+    method: "POST",
+    path: "/api/mcp",
+    title: "MCP JSON-RPC 2.0 Endpoint",
+    description: "Unified Model Context Protocol handler supporting initialize, ping, tools/list, tools/call, resources/list, resources/read, prompts/list, prompts/get.",
+    authRequired: false,
+    sampleBody: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_revenue_summary", arguments: {} } },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/mcp \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
+  },
+];

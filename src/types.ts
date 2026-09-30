@@ -134,7 +134,7 @@ export interface CategoryRecord {
 export interface ExternalAdRecord {
   id: string;
   name: string;
-  network: "direct" | "ethicalads" | "carbon" | "adsense";
+  network: "direct" | "ethicalads" | "carbon" | "adsense" | "google";
   placement: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
   title: string;
   tagline: string;

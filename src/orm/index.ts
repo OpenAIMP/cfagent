@@ -524,6 +524,24 @@ export class DatabaseORM {
           isActive: true,
           createdAt: now,
         },
+        {
+          id: "ext_google_cloud_ai",
+          name: "Google Cloud Vertex AI & TPUs",
+          network: "google",
+          placement: "header_leaderboard",
+          title: "Google Cloud Vertex AI & TPU v5e Accelerators",
+          tagline: "Build, deploy, and scale enterprise AI models globally with ultra-low latency.",
+          ctaText: "Start with $300 Credits →",
+          targetUrl: "https://cloud.google.com/vertex-ai",
+          bannerImageUrl: "",
+          cpmRate: 24.5,
+          cpcRate: 2.1,
+          impressions: 142,
+          clicks: 11,
+          earnings: 26.58,
+          isActive: true,
+          createdAt: now,
+        },
       ];
 
       for (const extAd of seedExternalAds) {
