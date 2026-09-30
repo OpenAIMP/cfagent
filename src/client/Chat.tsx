@@ -225,6 +225,10 @@ export function Chat({ user }: { user: User }) {
   const agent = useAgent({ agent: "SearchAgent", name: user.login });
   const { messages, sendMessage, status, clearHistory } = useAgentChat({ agent });
 
+  const isBusy = status === "streaming" || status === "submitted";
+  const statusLabel = isBusy ? "Thinking…" : status === "error" ? "Error" : "Ready";
+  const statusDotClass = isBusy ? "streaming" : status === "error" ? "error" : "ready";
+
   // NLQ state
   const [nlqInput, setNlqInput] = useState("");
   const [nlqLoading, setNlqLoading] = useState(false);
@@ -265,13 +269,13 @@ export function Chat({ user }: { user: User }) {
 
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || status !== "ready") return;
+    if (!input.trim() || isBusy) return;
     sendMessage({ text: input.trim() });
     setInput("");
   };
 
   const handleChipClick = (prompt: string) => {
-    if (status !== "ready") return;
+    if (isBusy) return;
     sendMessage({ text: prompt });
   };
 
@@ -294,8 +298,9 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
-  const handleClearChat = async () => {
-    if (!confirm("Are you sure you want to clear this conversation history?")) return;
+  const handleClearChat = async (skipConfirm?: boolean | React.MouseEvent) => {
+    const shouldSkip = skipConfirm === true;
+    if (!shouldSkip && !confirm("Are you sure you want to clear this conversation history?")) return;
     try {
       await fetch("/api/clear", { method: "POST" });
       if (typeof clearHistory === "function") {
@@ -324,8 +329,8 @@ export function Chat({ user }: { user: User }) {
           <div className="brand-text">
             <h2>Multi-Agent Assistant</h2>
             <div className="agent-status-badge">
-              <span className={`status-dot ${status}`} />
-              <span>{status === "streaming" ? "Thinking…" : status === "ready" ? "Connected" : status}</span>
+              <span className={`status-dot ${statusDotClass}`} />
+              <span>{statusLabel}</span>
             </div>
           </div>
         </div>
@@ -388,25 +393,33 @@ export function Chat({ user }: { user: User }) {
                   </p>
                   <div className="quick-chips">
                     <button
+                      type="button"
                       className="chip-btn"
+                      disabled={isBusy}
                       onClick={() => handleChipClick("Search the knowledge base: What features are available in Cloudflare Workers AI?")}
                     >
                       🔍 Search Knowledge Base
                     </button>
                     <button
+                      type="button"
                       className="chip-btn"
+                      disabled={isBusy}
                       onClick={() => handleChipClick("Draft a payment refund of $120.00 USD for customer Acme Logistics")}
                     >
                       💳 Prepare Payment Draft
                     </button>
                     <button
+                      type="button"
                       className="chip-btn"
+                      disabled={isBusy}
                       onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday")}
                     >
                       📋 Draft High-Priority Task
                     </button>
                     <button
+                      type="button"
                       className="chip-btn"
+                      disabled={isBusy}
                       onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs")}
                     >
                       🧠 Store Session Fact
@@ -437,7 +450,7 @@ export function Chat({ user }: { user: User }) {
                           </div>
                           <p className="error-text">
                             A previous turn was interrupted before completing. Click{" "}
-                            <button type="button" className="inline-clear-btn" onClick={handleClearChat}>
+                            <button type="button" className="inline-clear-btn" onClick={() => handleClearChat(false)}>
                               Clear chat
                             </button>{" "}
                             to reset the session state.
@@ -501,8 +514,8 @@ export function Chat({ user }: { user: User }) {
             {status === "error" && (
               <div className="chat-error-banner">
                 <span className="error-banner-icon">⚠️</span>
-                <span className="error-banner-text">Agent connection or stream error. Reset session to restore full connectivity:</span>
-                <button type="button" className="error-banner-btn" onClick={handleClearChat}>
+                <span className="error-banner-text">Agent connection or stream error. Try sending a message or reset session:</span>
+                <button type="button" className="error-banner-btn" onClick={() => handleClearChat(true)}>
                   Reset & Clear History
                 </button>
               </div>
@@ -514,16 +527,16 @@ export function Chat({ user }: { user: User }) {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask a question, query knowledge base, draft a task, or save a memory…"
-                disabled={status !== "ready"}
+                placeholder={isBusy ? "Agent is processing response…" : "Ask a question, query knowledge base, draft a task, or save a memory…"}
+                disabled={isBusy}
                 autoFocus
               />
               <button
                 type="submit"
                 className="send-button"
-                disabled={!input.trim() || status !== "ready"}
+                disabled={!input.trim() || isBusy}
               >
-                Send ➔
+                {isBusy ? "Thinking…" : "Send ➔"}
               </button>
             </form>
           </div>

@@ -1,6 +1,7 @@
 import type { Env, SessionData } from "./types";
 import { getSessionId, getSession, setSessionCookie } from "./session";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
+import { routeAgentRequest } from "agents";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -16,6 +17,8 @@ function isAllowedOrigin(request: Request, env: Env): boolean {
       const allowedHost = new URL(env.APP_BASE_URL).host;
       if (originHost === allowedHost) return true;
     }
+    if (originHost === "agent.openaimp.com" || originHost.endsWith(".openaimp.com")) return true;
+    if (originHost === "localhost" || originHost.startsWith("localhost:")) return true;
   } catch {
     return false;
   }
@@ -27,22 +30,27 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // --- WebSocket upgrade handling ---
-    if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
-      // Cross-Site WebSocket Hijacking (CSWSH) check
-      if (!isAllowedOrigin(request, env)) {
-        return new Response("Forbidden: Invalid Origin", { status: 403 });
-      }
-
-      const sessionId = getSessionId(request);
-      if (!sessionId) return new Response("Unauthorized", { status: 401 });
-
-      const session = await getSession(env, sessionId);
-      if (!session) return new Response("Unauthorized", { status: 401 });
-
-      const id = env.SEARCH_AGENT.idFromName(sessionId);
-      return env.SEARCH_AGENT.get(id).fetch(request);
-    }
+    // --- Agents Routing (WebSockets and agent HTTP calls) ---
+    const agentResponse = await routeAgentRequest(request, env, {
+      cors: true,
+      onBeforeConnect: async (req) => {
+        // Cross-Site WebSocket Hijacking (CSWSH) check
+        if (!isAllowedOrigin(req, env)) {
+          return new Response("Forbidden: Invalid Origin", { status: 403 });
+        }
+        const session = await requireAuth(req, env);
+        if (!session) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+      },
+      onBeforeRequest: async (req) => {
+        const session = await requireAuth(req, env);
+        if (!session) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+      },
+    });
+    if (agentResponse) return agentResponse;
 
     // --- Authentication endpoints ---
     if (path === "/auth/login") return handleLogin(env);
@@ -68,8 +76,7 @@ export default {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
 
-      const sessionId = getSessionId(request)!;
-      const id = env.SEARCH_AGENT.idFromName(sessionId);
+      const id = env.SEARCH_AGENT.idFromName(session.githubLogin);
       const subPath = path.replace(/^\/api/, "");
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
 

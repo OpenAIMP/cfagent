@@ -102,15 +102,22 @@ body {
   background: var(--text-dim);
 }
 
+.status-dot.idle,
 .status-dot.ready {
   background: var(--accent-emerald);
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
 }
 
-.status-dot.streaming {
+.status-dot.streaming,
+.status-dot.submitted {
   background: var(--accent-cyan);
   box-shadow: 0 0 8px rgba(6, 182, 212, 0.8);
   animation: pulseDot 1s infinite alternate;
+}
+
+.status-dot.error {
+  background: var(--accent-rose);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.7);
 }
 
 @keyframes pulseDot {
@@ -304,10 +311,16 @@ body {
   transition: all 0.2s ease;
 }
 
-.chip-btn:hover {
+.chip-btn:hover:not(:disabled) {
   background: rgba(99, 102, 241, 0.15);
   border-color: rgba(99, 102, 241, 0.4);
   transform: translateY(-1px);
+}
+
+.chip-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* Message Rows */
@@ -661,6 +674,12 @@ body {
   border-color: var(--border-focus);
   box-shadow: 0 0 16px rgba(99, 102, 241, 0.25);
   background: rgba(0, 0, 0, 0.5);
+}
+
+.chat-input-bar input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .send-button {
