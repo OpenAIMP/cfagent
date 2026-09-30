@@ -16,19 +16,22 @@ export class SearchAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model,
-      system: `You are an AI assistant with access to a search tool that queries a knowledge base. 
-When a user asks a question or asks for information, ALWAYS use the search tool to find relevant information before answering. 
+      system: `You are an AI assistant with access to a search tool that queries a knowledge base.
+Use the search tool when the user asks a question that requires finding information from documents.
+For greetings or simple messages, respond directly without searching.
 If the search returns no results, let the user know and suggest they add documents to the knowledge base.
 Be concise and helpful. Base your answers on the search results.`,
-      messages: await convertToModelMessages(this.messages),    
+      messages: await convertToModelMessages(this.messages),
       tools: {
         search: tool({
-          description:
-            "Search the AI Search knowledge base for relevant information. Use this tool when the user asks a question that requires searching indexed documents.",
+          description: "Search the AI Search knowledge base for relevant information. Use this tool when the user asks a question that requires searching indexed documents.",
           parameters: z.object({
-            query: z.string().describe("The search query"),
+            query: z.string().min(1).describe("The search query - must not be empty"),
           }),
           execute: async ({ query }) => {
+            if (!query || !query.trim()) {
+              return { error: "Search query cannot be empty" };
+            }
             const resp = await fetch(`${this.env.AI_SEARCH_ENDPOINT}/search`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
