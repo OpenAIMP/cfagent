@@ -2,11 +2,22 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
 import { getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
-import { createMAS } from "./mas";
-import { planNLQ, queryConversation } from "./nlq";
+import { planNLQ, executeNLQQuery } from "./nlq";
+import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
-import type { Env, AgentName, AuditEvent, MessageRecord, MemoryRecord, TransactionRecord } from "../types";
+import { createMAS } from "./mas";
+import type {
+  Env,
+  AgentName,
+  AuditEvent,
+  MessageRecord,
+  MemoryRecord,
+  TransactionRecord,
+  CategoryRecord,
+  ExternalAdRecord,
+  RevenueSummary,
+} from "../types";
 
 /**
  * Normalizes messages into valid UIMessage structures with populated `parts`.
@@ -268,6 +279,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return this.ctx.id.toString();
   }
 
+  private getOrm(): DatabaseORM {
+    this.ensureTables();
+    const orm = new DatabaseORM(this.ctx.storage.sql);
+    orm.initializeSchema(this.sessionKey());
+    return orm;
+  }
+
   private audit(type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) {
     try {
       const sql = this.ensureTables();
@@ -372,7 +390,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       sessionId,
       requestId,
       sql,
-      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) =>
+        this.audit(type, agent, payload),
     });
 
     // Fetch active session facts directly from SQLite to ground every turn
@@ -419,7 +438,7 @@ Agentic Best Practices & Workflow Rules:
         messages: modelMessages,
         tools,
         stopWhen: stepCountIs(maxSteps),
-        onFinish: async ({ text }) => {
+        onFinish: async ({ text }: { text?: string }) => {
           if (text) {
             this.recordMessage("assistant", text, route.agent);
             // Run background quality evaluation
@@ -432,7 +451,7 @@ Agentic Best Practices & Workflow Rules:
             });
           }
         },
-        onError: ({ error }) => {
+        onError: ({ error }: { error: unknown }) => {
           const errMsg = error instanceof Error ? error.message : String(error);
           this.audit("stream.error", "orchestrator", { error: errMsg });
         },
@@ -474,13 +493,264 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: "Query parameter is required" }, { status: 400 });
         }
 
+        const orm = this.getOrm();
         const plan = await planNLQ(this.env, query);
-        const result = queryConversation(sql, sessionId, plan);
-        this.audit("nlq.executed", "nlq", { query, operation: plan.operation, count: result.count });
+        const result = executeNLQQuery(orm, sessionId, plan);
+        this.audit("nlq.executed", "nlq", {
+          query,
+          domain: result.domain,
+          operation: plan.operation,
+          count: result.count,
+        });
 
         return Response.json(result);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "NLQ query processing failed" }, { status: 500 });
+      }
+    }
+
+    // Schema Introspection & Database Tables via ORM
+    if (path.endsWith("/schema/tables") && request.method === "GET") {
+      try {
+        const orm = this.getOrm();
+        const tables = orm.listTables();
+        return Response.json({ count: tables.length, tables });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to inspect database tables" }, { status: 500 });
+      }
+    }
+
+    // Direct Table Query Execution via ORM
+    if (path.endsWith("/schema/query") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as {
+          table?: string;
+          search?: string;
+          limit?: number;
+          offset?: number;
+        };
+        const table = body.table || "mas_categories";
+        const orm = this.getOrm();
+        const data = orm.getTableData(table, {
+          search: body.search,
+          limit: body.limit,
+          offset: body.offset,
+        });
+        return Response.json(data);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to query table data" }, { status: 500 });
+      }
+    }
+
+    // Referral Categories ORM Management API
+    if (path.endsWith("/categories")) {
+      const orm = this.getOrm();
+
+      if (request.method === "GET") {
+        try {
+          const categories = orm.categories.findMany({ orderBy: "sort_order ASC" });
+          return Response.json({ count: categories.length, categories });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch categories" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as Partial<CategoryRecord> & { id?: string };
+          const name = (body.name || "").trim();
+          if (!name) {
+            return Response.json({ error: "Category name is required" }, { status: 400 });
+          }
+
+          const now = new Date().toISOString();
+          let category: CategoryRecord;
+
+          if (body.id) {
+            const existing = orm.categories.findById(body.id);
+            if (!existing) {
+              return Response.json({ error: "Category not found" }, { status: 404 });
+            }
+            const updated = orm.categories.update(body.id, {
+              name: body.name || existing.name,
+              slug: body.slug || (body.name ? body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : existing.slug),
+              description: body.description ?? existing.description,
+              icon: body.icon || existing.icon,
+              isActive: body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive,
+              sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder,
+              updatedAt: now,
+            });
+            category = updated || existing;
+            this.audit("category.updated", "orchestrator", { id: category.id, name: category.name });
+          } else {
+            const slug = (body.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).slice(0, 32);
+            const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
+            category = orm.categories.create({
+              id,
+              name,
+              slug,
+              description: body.description || `Category for ${name} partner links`,
+              icon: body.icon || "🏷️",
+              isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
+              sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : (orm.categories.count() || 0) + 1,
+              createdAt: now,
+              updatedAt: now,
+            });
+            this.audit("category.created", "orchestrator", { id, name });
+          }
+
+          return Response.json({ success: true, category });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to save category" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "DELETE") {
+        try {
+          const id = url.searchParams.get("id");
+          if (!id) {
+            return Response.json({ error: "Category id is required" }, { status: 400 });
+          }
+          orm.categories.delete(id);
+          this.audit("category.deleted", "orchestrator", { id });
+          return Response.json({ success: true });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to delete category" }, { status: 500 });
+        }
+      }
+    }
+
+    // Revenue Management Summary API
+    if (path.endsWith("/revenue") && request.method === "GET") {
+      try {
+        const orm = this.getOrm();
+        const summary = orm.getRevenueSummary();
+        return Response.json(summary);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to calculate revenue" }, { status: 500 });
+      }
+    }
+
+    // External Ad Network Placements & Monetization API
+    if (path.endsWith("/external-ads")) {
+      const orm = this.getOrm();
+
+      if (request.method === "GET") {
+        try {
+          const ads = orm.externalAds.findMany({ orderBy: "earnings DESC" });
+          return Response.json({ count: ads.length, ads });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch external ads" }, { status: 500 });
+        }
+      }
+
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as Partial<ExternalAdRecord> & { id?: string };
+          const title = (body.title || "").trim();
+          const targetUrl = (body.targetUrl || "").trim();
+          if (!title || !targetUrl) {
+            return Response.json({ error: "Title and targetUrl are required" }, { status: 400 });
+          }
+
+          const now = new Date().toISOString();
+          let ad: ExternalAdRecord;
+
+          if (body.id) {
+            const existing = orm.externalAds.findById(body.id);
+            if (!existing) {
+              return Response.json({ error: "Ad not found" }, { status: 404 });
+            }
+            const updated = orm.externalAds.update(body.id, {
+              title: body.title || existing.title,
+              name: body.name || existing.name,
+              network: body.network || existing.network,
+              placement: body.placement || existing.placement,
+              tagline: body.tagline || existing.tagline,
+              ctaText: body.ctaText || existing.ctaText,
+              targetUrl: body.targetUrl || existing.targetUrl,
+              cpmRate: body.cpmRate !== undefined ? Number(body.cpmRate) : existing.cpmRate,
+              cpcRate: body.cpcRate !== undefined ? Number(body.cpcRate) : existing.cpcRate,
+              isActive: body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive,
+            });
+            ad = updated || existing;
+            this.audit("external_ad.updated", "orchestrator", { id: ad.id, title: ad.title });
+          } else {
+            const id = `ext_${body.network || "net"}_${crypto.randomUUID().slice(0, 6)}`;
+            ad = orm.externalAds.create({
+              id,
+              name: body.name || title,
+              network: body.network || "direct",
+              placement: body.placement || "header_leaderboard",
+              title,
+              tagline: body.tagline || "",
+              ctaText: body.ctaText || "Learn More →",
+              targetUrl,
+              bannerImageUrl: body.bannerImageUrl || "",
+              cpmRate: Number(body.cpmRate) || 15.0,
+              cpcRate: Number(body.cpcRate) || 1.25,
+              impressions: 1,
+              clicks: 0,
+              earnings: (Number(body.cpmRate) || 15.0) / 1000,
+              isActive: true,
+              createdAt: now,
+            });
+            this.audit("external_ad.created", "orchestrator", { id, title });
+          }
+
+          return Response.json({ success: true, ad });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to save external ad" }, { status: 500 });
+        }
+      }
+    }
+
+    if (path.endsWith("/external-ads/impression") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { id?: string };
+        const id = body.id;
+        if (id) {
+          const orm = this.getOrm();
+          const ad = orm.externalAds.findById(id);
+          if (ad) {
+            const newImpressions = ad.impressions + 1;
+            const incremental = (ad.cpmRate || 15.0) / 1000;
+            const newEarnings = Math.round((ad.earnings + incremental) * 1000) / 1000;
+            orm.externalAds.update(id, {
+              impressions: newImpressions,
+              earnings: newEarnings,
+            });
+            return Response.json({ success: true, impressions: newImpressions, earnings: newEarnings });
+          }
+        }
+        return Response.json({ success: false });
+      } catch {
+        return Response.json({ success: false });
+      }
+    }
+
+    if (path.endsWith("/external-ads/click") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { id?: string };
+        const id = body.id;
+        if (id) {
+          const orm = this.getOrm();
+          const ad = orm.externalAds.findById(id);
+          if (ad) {
+            const newClicks = ad.clicks + 1;
+            const incremental = ad.cpcRate || 1.25;
+            const newEarnings = Math.round((ad.earnings + incremental) * 100) / 100;
+            orm.externalAds.update(id, {
+              clicks: newClicks,
+              earnings: newEarnings,
+            });
+            this.audit("external_ad.clicked", "orchestrator", { id, clicks: newClicks, earnings: newEarnings });
+            return Response.json({ success: true, clicks: newClicks, earnings: newEarnings });
+          }
+        }
+        return Response.json({ success: false });
+      } catch {
+        return Response.json({ success: false });
       }
     }
 

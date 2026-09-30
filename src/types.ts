@@ -119,3 +119,46 @@ export interface AdRecord {
   createdAt: string;
 }
 
+export interface CategoryRecord {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalAdRecord {
+  id: string;
+  name: string;
+  network: "direct" | "ethicalads" | "carbon" | "adsense";
+  placement: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
+  title: string;
+  tagline: string;
+  ctaText: string;
+  targetUrl: string;
+  bannerImageUrl?: string;
+  cpmRate: number;
+  cpcRate: number;
+  impressions: number;
+  clicks: number;
+  earnings: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface RevenueSummary {
+  grossRevenue: number;
+  adNetworkRevenue: number;
+  marketplaceRevenue: number;
+  paymentPlatformFees: number;
+  referralPayouts: number;
+  netRevenue: number;
+  totalImpressions: number;
+  totalAdClicks: number;
+  averageRPM: number;
+}
+

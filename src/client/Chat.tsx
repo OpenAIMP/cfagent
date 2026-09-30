@@ -75,6 +75,56 @@ interface GatewayInfo {
   capabilities: string[];
 }
 
+interface CategoryItem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ExternalAdItem {
+  id: string;
+  name: string;
+  network: "direct" | "ethicalads" | "carbon" | "adsense";
+  placement: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
+  title: string;
+  tagline: string;
+  ctaText: string;
+  targetUrl: string;
+  bannerImageUrl?: string;
+  cpmRate: number;
+  cpcRate: number;
+  impressions: number;
+  clicks: number;
+  earnings: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+interface RevenueSummaryData {
+  grossRevenue: number;
+  adNetworkRevenue: number;
+  marketplaceRevenue: number;
+  paymentPlatformFees: number;
+  referralPayouts: number;
+  netRevenue: number;
+  totalImpressions: number;
+  totalAdClicks: number;
+  averageRPM: number;
+}
+
+interface TableMetadataItem {
+  name: string;
+  description: string;
+  rowCount: number;
+  columns: Array<{ name: string; type: string; isPrimary: boolean }>;
+}
+
 function extractText(message: any): string {
   if (typeof message.content === "string") return message.content;
   if (Array.isArray(message.parts)) {
@@ -381,9 +431,48 @@ function ToolResultView({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads">("chat");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue">("chat");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // External Ads & Monetization state
+  const [externalAds, setExternalAds] = useState<ExternalAdItem[]>([]);
+  const [externalAdsLoading, setExternalAdsLoading] = useState(false);
+  const [activeExtAdIndex, setActiveExtAdIndex] = useState(0);
+  const [newExtTitle, setNewExtTitle] = useState("");
+  const [newExtNetwork, setNewExtNetwork] = useState<"direct" | "ethicalads" | "carbon" | "adsense">("ethicalads");
+  const [newExtPlacement, setNewExtPlacement] = useState<"header_leaderboard" | "in_stream" | "footer_deck" | "sidebar">("header_leaderboard");
+  const [newExtTagline, setNewExtTagline] = useState("");
+  const [newExtUrl, setNewExtUrl] = useState("");
+  const [newExtCta, setNewExtCta] = useState("Learn More →");
+  const [newExtCpm, setNewExtCpm] = useState("18.50");
+  const [newExtCpc, setNewExtCpc] = useState("1.50");
+  const [savingExtAd, setSavingExtAd] = useState(false);
+  const [extAdSuccessMsg, setExtAdSuccessMsg] = useState("");
+  const [extAdErrorMsg, setExtAdErrorMsg] = useState("");
+
+  // Categories ORM state
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState("🏷️");
+  const [newCatDesc, setNewCatDesc] = useState("");
+  const [newCatOrder, setNewCatOrder] = useState("10");
+  const [savingCat, setSavingCat] = useState(false);
+  const [catSuccessMsg, setCatSuccessMsg] = useState("");
+  const [catErrorMsg, setCatErrorMsg] = useState("");
+
+  // Revenue Analytics state
+  const [revenueSummary, setRevenueSummary] = useState<RevenueSummaryData | null>(null);
+  const [revenueLoading, setRevenueLoading] = useState(false);
+
+  // Schema & Tables Explorer state
+  const [tables, setTables] = useState<TableMetadataItem[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [selectedBrowseTable, setSelectedBrowseTable] = useState("mas_categories");
+  const [browseSearch, setBrowseSearch] = useState("");
+  const [browsedData, setBrowsedData] = useState<{ tableName: string; total: number; rows: any[] } | null>(null);
+  const [browsingLoading, setBrowsingLoading] = useState(false);
 
   // Agent connection
   const agent = useAgent({ agent: "SearchAgent", name: user.login });
@@ -468,10 +557,20 @@ export function Chat({ user }: { user: User }) {
     }
   }, [messages, status, tab]);
 
-  // Initial load of partner ads for top banner & deals
+  // Initial load of partner ads, categories, external ads, and revenue
   useEffect(() => {
     fetchAds();
+    fetchCategories();
+    fetchExternalAds();
+    fetchRevenueSummary();
   }, []);
+
+  // Record impression whenever active external ad changes
+  useEffect(() => {
+    if (externalAds.length > 0 && externalAds[activeExtAdIndex]) {
+      recordExternalAdImpression(externalAds[activeExtAdIndex]);
+    }
+  }, [activeExtAdIndex, externalAds.length]);
 
   // Load tab-specific data when tab changes
   useEffect(() => {
@@ -481,8 +580,16 @@ export function Chat({ user }: { user: User }) {
       fetchPaymentsData();
     } else if (tab === "referrals") {
       fetchReferrals();
+      fetchCategories();
     } else if (tab === "ads") {
       fetchAds();
+    } else if (tab === "revenue") {
+      fetchRevenueSummary();
+      fetchExternalAds();
+      fetchCategories();
+      fetchTables();
+    } else if (tab === "nlq") {
+      fetchTables();
     }
   }, [tab]);
 
@@ -731,6 +838,210 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
+  const fetchCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      const resp = await fetch("/api/categories");
+      const data = (await resp.json()) as { categories?: CategoryItem[] };
+      if (data.categories) {
+        setCategories(data.categories);
+        if (data.categories.length > 0 && !newRefCategory) {
+          setNewRefCategory(data.categories[0].name);
+        }
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  const fetchExternalAds = async () => {
+    setExternalAdsLoading(true);
+    try {
+      const resp = await fetch("/api/external-ads");
+      const data = (await resp.json()) as { ads?: ExternalAdItem[] };
+      if (data.ads) {
+        setExternalAds(data.ads);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setExternalAdsLoading(false);
+    }
+  };
+
+  const fetchRevenueSummary = async () => {
+    setRevenueLoading(true);
+    try {
+      const resp = await fetch("/api/revenue");
+      const data = (await resp.json()) as RevenueSummaryData;
+      setRevenueSummary(data);
+    } catch {
+      // Ignore
+    } finally {
+      setRevenueLoading(false);
+    }
+  };
+
+  const fetchTables = async () => {
+    setTablesLoading(true);
+    try {
+      const resp = await fetch("/api/schema/tables");
+      const data = (await resp.json()) as { tables?: TableMetadataItem[] };
+      if (data.tables) {
+        setTables(data.tables);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setTablesLoading(false);
+    }
+  };
+
+  const browseTable = async (tableName: string, search?: string) => {
+    setBrowsingLoading(true);
+    try {
+      const resp = await fetch("/api/schema/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ table: tableName, search: search || "" }),
+      });
+      const data = (await resp.json()) as { tableName: string; total: number; rows: any[] };
+      setBrowsedData(data);
+    } catch {
+      setBrowsedData(null);
+    } finally {
+      setBrowsingLoading(false);
+    }
+  };
+
+  const recordExternalAdImpression = (ad: ExternalAdItem) => {
+    try {
+      fetch("/api/external-ads/impression", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ad.id }),
+      });
+      setExternalAds((prev) =>
+        prev.map((a) => (a.id === ad.id ? { ...a, impressions: a.impressions + 1, earnings: a.earnings + (a.cpmRate || 15) / 1000 } : a))
+      );
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleExternalAdClick = (ad: ExternalAdItem) => {
+    try {
+      fetch("/api/external-ads/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ad.id }),
+      });
+      setExternalAds((prev) =>
+        prev.map((a) => (a.id === ad.id ? { ...a, clicks: a.clicks + 1, earnings: a.earnings + (a.cpcRate || 1.25) } : a))
+      );
+      if (revenueSummary) {
+        setRevenueSummary((prev) =>
+          prev ? { ...prev, totalAdClicks: prev.totalAdClicks + 1, adNetworkRevenue: prev.adNetworkRevenue + (ad.cpcRate || 1.25) } : null
+        );
+      }
+    } catch {
+      // Ignore
+    }
+    window.open(ad.targetUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCatErrorMsg("");
+    setCatSuccessMsg("");
+    if (!newCatName.trim()) {
+      setCatErrorMsg("Category name is required");
+      return;
+    }
+    setSavingCat(true);
+    try {
+      const resp = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newCatName.trim(),
+          icon: newCatIcon.trim() || "🏷️",
+          description: newCatDesc.trim() || `Referrals in ${newCatName.trim()}`,
+          sortOrder: Number(newCatOrder) || 10,
+        }),
+      });
+      const data = (await resp.json()) as { success?: boolean; category?: CategoryItem; error?: string };
+      if (data.category) {
+        setCategories((prev) => [...prev, data.category!].sort((a, b) => a.sortOrder - b.sortOrder));
+        setNewCatName("");
+        setNewCatDesc("");
+        setCatSuccessMsg(`✅ Category "${data.category.name}" created in ORM mas_categories!`);
+        setTimeout(() => setCatSuccessMsg(""), 4000);
+      } else {
+        setCatErrorMsg(data.error || "Failed to create category");
+      }
+    } catch (err: any) {
+      setCatErrorMsg(err.message || "Failed to create category");
+    } finally {
+      setSavingCat(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this category?")) return;
+    try {
+      await fetch(`/api/categories?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleCreateExternalAd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setExtAdErrorMsg("");
+    setExtAdSuccessMsg("");
+    if (!newExtTitle.trim() || !newExtUrl.trim()) {
+      setExtAdErrorMsg("Title and Target URL are required");
+      return;
+    }
+    setSavingExtAd(true);
+    try {
+      const resp = await fetch("/api/external-ads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newExtTitle.trim(),
+          network: newExtNetwork,
+          placement: newExtPlacement,
+          tagline: newExtTagline.trim(),
+          targetUrl: newExtUrl.trim(),
+          ctaText: newExtCta.trim() || "Learn More →",
+          cpmRate: parseFloat(newExtCpm) || 18.5,
+          cpcRate: parseFloat(newExtCpc) || 1.5,
+        }),
+      });
+      const data = (await resp.json()) as { success?: boolean; ad?: ExternalAdItem; error?: string };
+      if (data.ad) {
+        setExternalAds((prev) => [data.ad!, ...prev]);
+        setNewExtTitle("");
+        setNewExtTagline("");
+        setNewExtUrl("");
+        setExtAdSuccessMsg(`🎉 External Ad Placement "${data.ad.title}" activated on ${data.ad.network.toUpperCase()}!`);
+        setTimeout(() => setExtAdSuccessMsg(""), 4000);
+        fetchRevenueSummary();
+      } else {
+        setExtAdErrorMsg(data.error || "Failed to create external ad");
+      }
+    } catch (err: any) {
+      setExtAdErrorMsg(err.message || "Failed to create external ad");
+    } finally {
+      setSavingExtAd(false);
+    }
+  };
+
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isBusy) return;
@@ -837,6 +1148,12 @@ export function Chat({ user }: { user: User }) {
           >
             🚀 Sponsored Deals
           </button>
+          <button
+            className={`tab-btn ${tab === "revenue" ? "active" : ""}`}
+            onClick={() => setTab("revenue")}
+          >
+            💰 Revenue & Ads
+          </button>
         </nav>
 
         {/* User Badge */}
@@ -851,6 +1168,56 @@ export function Chat({ user }: { user: User }) {
           </a>
         </div>
       </header>
+
+      {/* External Ad Network Monetization Strip */}
+      {externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+        <div className="external-ad-banner-strip">
+          <div className="ext-ad-badge-group">
+            <span className="ext-network-badge">
+              {externalAds[activeExtAdIndex].network === "ethicalads"
+                ? "🛡️ EthicalAds Network"
+                : externalAds[activeExtAdIndex].network === "carbon"
+                ? "⚡ Carbon Ads"
+                : externalAds[activeExtAdIndex].network === "adsense"
+                ? "🌐 Google AdSense"
+                : "⭐ Direct Partner"}
+            </span>
+            <span className="ext-placement-badge">
+              {externalAds[activeExtAdIndex].placement.replace("_", " ").toUpperCase()}
+            </span>
+          </div>
+
+          <div className="ext-ad-content">
+            <span className="ext-ad-title">{externalAds[activeExtAdIndex].title}</span>
+            <span className="ext-ad-divider">—</span>
+            <span className="ext-ad-tagline">{externalAds[activeExtAdIndex].tagline}</span>
+          </div>
+
+          <div className="ext-ad-earnings-pill" title="Live platform revenue generated by this placement">
+            💰 CPM: ${externalAds[activeExtAdIndex].cpmRate.toFixed(2)} | CPC: ${externalAds[activeExtAdIndex].cpcRate.toFixed(2)} | Earned: ${externalAds[activeExtAdIndex].earnings.toFixed(2)}
+          </div>
+
+          <div className="ext-ad-actions">
+            <button
+              type="button"
+              className="ext-ad-cta-btn"
+              onClick={() => handleExternalAdClick(externalAds[activeExtAdIndex])}
+            >
+              {externalAds[activeExtAdIndex].ctaText}
+            </button>
+            {externalAds.length > 1 && (
+              <button
+                type="button"
+                className="ext-ad-next-btn"
+                title="View next ad in rotation"
+                onClick={() => setActiveExtAdIndex((prev) => (prev + 1) % externalAds.length)}
+              >
+                ↻ Next ({activeExtAdIndex + 1}/{externalAds.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Tab Content */}
       <main className="tab-viewport">
@@ -1071,25 +1438,43 @@ export function Chat({ user }: { user: User }) {
         {tab === "nlq" && (
           <div className="nlq-view">
             <div className="nlq-header">
-              <h3>📊 Natural Language Message Analytics</h3>
+              <h3>📊 Natural Language Database Query Engine (SQLite ORM)</h3>
               <p>
-                Query your conversation transcript directly with natural language. The system converts your query into a read-only query plan executed securely over SQLite.
+                Query relational SQLite tables, introspect database schema, retrieve table records, or add referral categories using natural language or direct ORM browsing.
               </p>
             </div>
 
             <div className="nlq-presets">
-              <span className="preset-label">Try asking:</span>
+              <span className="preset-label">Natural Language Queries:</span>
               <button
                 className="chip-btn"
-                onClick={() => setNlqInput("How many total messages are in this conversation?")}
+                onClick={() => setNlqInput("List all database tables and schema")}
               >
-                🔢 Count all messages
+                🗄️ List tables & schema
               </button>
               <button
                 className="chip-btn"
-                onClick={() => setNlqInput("Find all assistant messages containing search results")}
+                onClick={() => setNlqInput("Show referral categories in categories table")}
               >
-                🔍 Search for knowledge references
+                🏷️ Show categories table data
+              </button>
+              <button
+                className="chip-btn"
+                onClick={() => setNlqInput("Add category 'Web3 & Crypto' to categories table")}
+              >
+                ➕ Add category 'Web3 & Crypto'
+              </button>
+              <button
+                className="chip-btn"
+                onClick={() => setNlqInput("Show external ads inventory and earnings")}
+              >
+                📢 Show external ads & earnings
+              </button>
+              <button
+                className="chip-btn"
+                onClick={() => setNlqInput("Show transactions and payment records")}
+              >
+                💳 Show transaction ledger
               </button>
               <button
                 className="chip-btn"
@@ -1104,7 +1489,7 @@ export function Chat({ user }: { user: User }) {
                 type="text"
                 value={nlqInput}
                 onChange={(e) => setNlqInput(e.target.value)}
-                placeholder="e.g. Count messages or search topics discussed…"
+                placeholder="Ask e.g. 'List tables', 'Show categories data', or 'Add category AI Agents'…"
                 disabled={nlqLoading}
               />
               <button
@@ -1116,18 +1501,205 @@ export function Chat({ user }: { user: User }) {
               </button>
             </form>
 
+            {/* Direct ORM Table Explorer Toolbar */}
+            <div className="nlq-orm-toolbar">
+              <span className="orm-tag">⚡ DIRECT ORM EXPLORER:</span>
+              <select
+                value={selectedBrowseTable}
+                onChange={(e) => setSelectedBrowseTable(e.target.value)}
+                className="orm-table-select"
+              >
+                <option value="mas_categories">🏷️ mas_categories (Referral Categories)</option>
+                <option value="mas_referrals">🔗 mas_referrals (Referral Links)</option>
+                <option value="mas_external_ads">📡 mas_external_ads (Ad Networks)</option>
+                <option value="mas_ads">🚀 mas_ads (Sponsored Deals)</option>
+                <option value="mas_transactions">💳 mas_transactions (Payments & DIDs)</option>
+                <option value="mas_messages">💬 mas_messages (Conversation History)</option>
+                <option value="mas_memory">🧠 mas_memory (Session Facts)</option>
+                <option value="mas_events">🛡️ mas_events (Audit Log)</option>
+              </select>
+
+              <input
+                type="text"
+                value={browseSearch}
+                onChange={(e) => setBrowseSearch(e.target.value)}
+                placeholder="Search table text…"
+                className="orm-search-input"
+              />
+
+              <button
+                type="button"
+                className="orm-browse-btn"
+                onClick={() => browseTable(selectedBrowseTable, browseSearch)}
+                disabled={browsingLoading}
+              >
+                {browsingLoading ? "Querying ORM…" : "🔍 Browse Records"}
+              </button>
+            </div>
+
+            {/* Direct Table Browsing Results (if opened) */}
+            {browsedData && (
+              <div className="nlq-results-card orm-browsed-card">
+                <div className="browsed-card-header">
+                  <div className="browsed-title">
+                    <span>🗄️ Table Data: <strong>{browsedData.tableName}</strong></span>
+                    <span className="row-count-badge">{browsedData.total} Total Rows in SQLite ORM</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="close-sm-btn"
+                    onClick={() => setBrowsedData(null)}
+                    title="Close browsed table"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+
+                {browsedData.rows && browsedData.rows.length > 0 ? (
+                  <div className="results-table-container">
+                    <table className="results-table">
+                      <thead>
+                        <tr>
+                          {Object.keys(browsedData.rows[0]).map((col) => (
+                            <th key={col}>{col}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {browsedData.rows.map((row: any, i: number) => (
+                          <tr key={i}>
+                            {Object.keys(browsedData.rows[0]).map((col) => (
+                              <td key={col} className="table-data-cell">
+                                {typeof row[col] === "object" && row[col] !== null
+                                  ? JSON.stringify(row[col])
+                                  : String(row[col] ?? "—")}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-results">No records found in table {browsedData.tableName}.</div>
+                )}
+              </div>
+            )}
+
+            {/* Natural Language Query Planner & Execution Results */}
             {nlqResult && (
               <div className="nlq-results-card">
                 {nlqResult.plan && (
                   <div className="plan-badge-group">
+                    <span className="plan-badge">Domain: <strong>{nlqResult.domain || nlqResult.plan.domain}</strong></span>
                     <span className="plan-badge">Operation: <strong>{nlqResult.plan.operation}</strong></span>
                     {nlqResult.plan.terms && <span className="plan-badge">Terms: <strong>"{nlqResult.plan.terms}"</strong></span>}
-                    <span className="plan-badge">Role: <strong>{nlqResult.plan.role}</strong></span>
                     <span className="plan-badge count-badge">Matched: <strong>{nlqResult.count}</strong></span>
                   </div>
                 )}
 
-                {nlqResult.rows && nlqResult.rows.length > 0 ? (
+                {nlqResult.summary && (
+                  <div className="nlq-summary-alert">
+                    ℹ️ {nlqResult.summary}
+                  </div>
+                )}
+
+                {/* Domain: Tables & Schemas Rendering */}
+                {nlqResult.domain === "tables" && nlqResult.rows && nlqResult.rows.length > 0 && (
+                  <div className="tables-schema-grid">
+                    {nlqResult.rows.map((tbl: any, idx: number) => (
+                      <div key={idx} className="table-schema-card">
+                        <div className="schema-card-top">
+                          <span className="schema-table-icon">🗄️</span>
+                          <h5><code>{tbl.tableName}</code></h5>
+                          <span className="row-count-badge">{tbl.rowCount} rows</span>
+                        </div>
+                        <p className="schema-desc">{tbl.description}</p>
+                        <div className="schema-cols-preview">
+                          <span className="cols-count-label">{tbl.columnCount} columns:</span>
+                          <span className="cols-string">{tbl.columns}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="browse-data-btn"
+                          onClick={() => {
+                            setSelectedBrowseTable(tbl.tableName);
+                            browseTable(tbl.tableName);
+                          }}
+                        >
+                          🔍 Browse Records (ORM) →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Domain: Category Mutation Rendering */}
+                {nlqResult.domain === "category_mutation" && nlqResult.rows && (
+                  <div className="category-mutation-result">
+                    <div className="results-table-container">
+                      <table className="results-table">
+                        <thead>
+                          <tr>
+                            <th>Icon</th>
+                            <th>Category</th>
+                            <th>Slug</th>
+                            <th>Description</th>
+                            <th>Order</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nlqResult.rows.map((cat: any, i: number) => (
+                            <tr key={i}>
+                              <td style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</td>
+                              <td><strong>{cat.name}</strong></td>
+                              <td><code>{cat.slug}</code></td>
+                              <td>{cat.description}</td>
+                              <td>{cat.sortOrder}</td>
+                              <td>
+                                <span className={`status-pill ${cat.status === "ACTIVE" ? "active" : "inactive"}`}>
+                                  {cat.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Domain: Table Data Dynamic Rendering */}
+                {nlqResult.domain === "table_data" && nlqResult.rows && nlqResult.rows.length > 0 && (
+                  <div className="results-table-container">
+                    <table className="results-table">
+                      <thead>
+                        <tr>
+                          {Object.keys(nlqResult.rows[0]).map((col) => (
+                            <th key={col}>{col}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {nlqResult.rows.map((row: any, i: number) => (
+                          <tr key={i}>
+                            {Object.keys(nlqResult.rows[0]).map((col) => (
+                              <td key={col} className="table-data-cell">
+                                {typeof row[col] === "object" && row[col] !== null
+                                  ? JSON.stringify(row[col])
+                                  : String(row[col] ?? "—")}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Domain: Conversation History Rendering */}
+                {nlqResult.domain === "conversation" && nlqResult.rows && nlqResult.rows.length > 0 && (
                   <div className="results-table-container">
                     <table className="results-table">
                       <thead>
@@ -1150,8 +1722,10 @@ export function Chat({ user }: { user: User }) {
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  <div className="empty-results">No conversation records matched the query criteria.</div>
+                )}
+
+                {(!nlqResult.rows || nlqResult.rows.length === 0) && (
+                  <div className="empty-results">No records matched the natural language query criteria.</div>
                 )}
               </div>
             )}
@@ -1703,11 +2277,21 @@ export function Chat({ user }: { user: User }) {
                         value={newRefCategory}
                         onChange={(e) => setNewRefCategory(e.target.value)}
                       >
-                        <option value="AI & Dev Tools">AI & Dev Tools</option>
-                        <option value="Cloud & Hosting">Cloud & Hosting</option>
-                        <option value="Database & Storage">Database & Storage</option>
-                        <option value="Security & Auth">Security & Auth</option>
-                        <option value="SaaS & Productivity">SaaS & Productivity</option>
+                        {categories.length > 0 ? (
+                          categories.map((cat) => (
+                            <option key={cat.id} value={cat.name}>
+                              {cat.icon} {cat.name}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="AI & Dev Tools">🤖 AI & Dev Tools</option>
+                            <option value="Cloud & Hosting">☁️ Cloud & Hosting</option>
+                            <option value="Database & Storage">🗄️ Database & Storage</option>
+                            <option value="Security & Auth">🛡️ Security & Auth</option>
+                            <option value="SaaS & Productivity">⚡ SaaS & Productivity</option>
+                          </>
+                        )}
                       </select>
                     </div>
 
@@ -1939,6 +2523,428 @@ export function Chat({ user }: { user: User }) {
                   {savingAd ? "Submitting Placement…" : "🚀 Launch Sponsored Placement"}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {tab === "revenue" && (
+          <div className="revenue-view">
+            {/* Header */}
+            <div className="tab-hero-header">
+              <div className="hero-text-block">
+                <h3>💰 Revenue & Monetization Management</h3>
+                <p>
+                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts powered by SQLite ORM.
+                </p>
+              </div>
+              <button
+                className="refresh-btn"
+                onClick={() => {
+                  fetchRevenueSummary();
+                  fetchExternalAds();
+                  fetchCategories();
+                  fetchTables();
+                }}
+                disabled={revenueLoading}
+              >
+                {revenueLoading ? "Refreshing…" : "🔄 Refresh Financials"}
+              </button>
+            </div>
+
+            {/* Comprehensive Revenue Metrics Grid */}
+            <div className="revenue-grid">
+              <div className="rev-card highlight-rev">
+                <span className="rev-icon">💵</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.grossRevenue?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">Total Gross Platform Revenue</span>
+                </div>
+              </div>
+
+              <div className="rev-card">
+                <span className="rev-icon">🌐</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.adNetworkRevenue?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">External Ad Networks (CPM + CPC)</span>
+                </div>
+              </div>
+
+              <div className="rev-card">
+                <span className="rev-icon">🚀</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.marketplaceRevenue?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">Direct Sponsored Marketplace</span>
+                </div>
+              </div>
+
+              <div className="rev-card">
+                <span className="rev-icon">💳</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.paymentPlatformFees?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">Payment Processing Fees (2.5%)</span>
+                </div>
+              </div>
+
+              <div className="rev-card expense-card">
+                <span className="rev-icon">🎁</span>
+                <div className="rev-meta">
+                  <span className="rev-val">-${revenueSummary?.referralPayouts?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">Referral Partner Payouts</span>
+                </div>
+              </div>
+
+              <div className="rev-card net-profit-card">
+                <span className="rev-icon">💎</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.netRevenue?.toFixed(2) || "0.00"}</span>
+                  <span className="rev-label">Net Platform Margin</span>
+                </div>
+              </div>
+
+              <div className="rev-card">
+                <span className="rev-icon">👁️</span>
+                <div className="rev-meta">
+                  <span className="rev-val">
+                    {revenueSummary?.totalImpressions || 0} / {revenueSummary?.totalAdClicks || 0}
+                  </span>
+                  <span className="rev-label">Ad Views / Link Clicks</span>
+                </div>
+              </div>
+
+              <div className="rev-card">
+                <span className="rev-icon">📈</span>
+                <div className="rev-meta">
+                  <span className="rev-val">${revenueSummary?.averageRPM?.toFixed(2) || "18.50"}</span>
+                  <span className="rev-label">Average Ad Network RPM</span>
+                </div>
+              </div>
+            </div>
+
+            {/* External Ad Network Inventory Manager */}
+            <div className="revenue-section-card">
+              <div className="card-header">
+                <h4>📡 External Ad Network Placements ({externalAds.length})</h4>
+                <p>
+                  Manage active network units (EthicalAds, Carbon Ads, Google AdSense, Direct) generating revenue per 1,000 views (CPM) and per click (CPC).
+                </p>
+              </div>
+
+              <div className="results-table-container">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Placement Unit</th>
+                      <th>Network</th>
+                      <th>Slot</th>
+                      <th>CPM Rate</th>
+                      <th>CPC Rate</th>
+                      <th>Views</th>
+                      <th>Clicks</th>
+                      <th>Total Earned</th>
+                      <th>Status</th>
+                      <th>Live Preview</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {externalAds.map((ad) => (
+                      <tr key={ad.id}>
+                        <td>
+                          <strong>{ad.title}</strong>
+                          <div className="table-subtext">{ad.tagline}</div>
+                        </td>
+                        <td>
+                          <span className={`ad-net-tag ${ad.network}`}>
+                            {ad.network === "ethicalads" ? "EthicalAds" : ad.network === "carbon" ? "Carbon" : ad.network === "adsense" ? "AdSense" : "Direct"}
+                          </span>
+                        </td>
+                        <td><code>{ad.placement}</code></td>
+                        <td>${ad.cpmRate.toFixed(2)}</td>
+                        <td>${ad.cpcRate.toFixed(2)}</td>
+                        <td>{ad.impressions}</td>
+                        <td>{ad.clicks}</td>
+                        <td><strong className="earned-text">${ad.earnings.toFixed(2)}</strong></td>
+                        <td>
+                          <span className={`status-pill ${ad.isActive ? "active" : "inactive"}`}>
+                            {ad.isActive ? "ACTIVE" : "PAUSED"}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="test-ad-btn"
+                            onClick={() => handleExternalAdClick(ad)}
+                          >
+                            {ad.ctaText}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Form to Register New Ad Unit */}
+              <div className="create-subcard">
+                <h5>➕ Register New External Ad Network Placement</h5>
+                {extAdSuccessMsg && <div className="form-alert success">{extAdSuccessMsg}</div>}
+                {extAdErrorMsg && <div className="form-alert error">{extAdErrorMsg}</div>}
+
+                <form onSubmit={handleCreateExternalAd} className="compact-form">
+                  <div className="form-row-3">
+                    <div className="form-group">
+                      <label>Ad Campaign Title *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. DeepSeek R1 Global Inference"
+                        value={newExtTitle}
+                        onChange={(e) => setNewExtTitle(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Ad Network Provider</label>
+                      <select
+                        value={newExtNetwork}
+                        onChange={(e) => setNewExtNetwork(e.target.value as any)}
+                      >
+                        <option value="ethicalads">🛡️ EthicalAds Developer Network</option>
+                        <option value="carbon">⚡ Carbon Ads</option>
+                        <option value="adsense">🌐 Google AdSense</option>
+                        <option value="direct">⭐ Direct Sponsor</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Placement Slot</label>
+                      <select
+                        value={newExtPlacement}
+                        onChange={(e) => setNewExtPlacement(e.target.value as any)}
+                      >
+                        <option value="header_leaderboard">Header Leaderboard (Top)</option>
+                        <option value="in_stream">In-Stream Banner (Chat)</option>
+                        <option value="footer_deck">Footer Deck</option>
+                        <option value="sidebar">Sidebar Rail</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Tagline / Promo Copy</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Serverless GPUs running 70B reasoning models with sub-second latency."
+                      value={newExtTagline}
+                      onChange={(e) => setNewExtTagline(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-row-4">
+                    <div className="form-group">
+                      <label>Target URL *</label>
+                      <input
+                        type="url"
+                        placeholder="https://..."
+                        value={newExtUrl}
+                        onChange={(e) => setNewExtUrl(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>CTA Label</label>
+                      <input
+                        type="text"
+                        placeholder="Claim Offer →"
+                        value={newExtCta}
+                        onChange={(e) => setNewExtCta(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>CPM Rate ($/1,000 views)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        placeholder="18.50"
+                        value={newExtCpm}
+                        onChange={(e) => setNewExtCpm(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>CPC Rate ($/click)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="1.50"
+                        value={newExtCpc}
+                        onChange={(e) => setNewExtCpc(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="submit-action-btn"
+                    disabled={savingExtAd || !newExtTitle.trim() || !newExtUrl.trim()}
+                  >
+                    {savingExtAd ? "Activating Placement…" : "🚀 Activate Ad Network Unit"}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Referral Categories Taxonomy Manager (ORM) */}
+            <div className="revenue-section-card">
+              <div className="card-header">
+                <h4>🏷️ Referral Categories Manager (SQLite ORM `mas_categories`)</h4>
+                <p>
+                  Configure and maintain the categorization taxonomy used by partners to list developer tools, affiliate links, and monetization campaigns.
+                </p>
+              </div>
+
+              <div className="results-table-container">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Icon</th>
+                      <th>Category Name</th>
+                      <th>Slug</th>
+                      <th>Description</th>
+                      <th>Sort Order</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map((cat) => (
+                      <tr key={cat.id}>
+                        <td style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</td>
+                        <td><strong>{cat.name}</strong></td>
+                        <td><code>{cat.slug}</code></td>
+                        <td>{cat.description}</td>
+                        <td>{cat.sortOrder}</td>
+                        <td>
+                          <span className={`status-pill ${cat.isActive ? "active" : "inactive"}`}>
+                            {cat.isActive ? "ACTIVE" : "INACTIVE"}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="danger-sm-btn"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            title="Delete category"
+                          >
+                            🗑️ Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Form to Add New Category */}
+              <div className="create-subcard">
+                <h5>➕ Add New Referral Category via ORM</h5>
+                {catSuccessMsg && <div className="form-alert success">{catSuccessMsg}</div>}
+                {catErrorMsg && <div className="form-alert error">{catErrorMsg}</div>}
+
+                <form onSubmit={handleCreateCategory} className="compact-form">
+                  <div className="form-row-3">
+                    <div className="form-group">
+                      <label>Category Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Web3 & Crypto, DevOps & CI/CD"
+                        value={newCatName}
+                        onChange={(e) => setNewCatName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Emoji Icon</label>
+                      <input
+                        type="text"
+                        placeholder="⚡"
+                        value={newCatIcon}
+                        onChange={(e) => setNewCatIcon(e.target.value)}
+                        style={{ width: "80px", textAlign: "center" }}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Sort Priority (Order)</label>
+                      <input
+                        type="number"
+                        placeholder="10"
+                        value={newCatOrder}
+                        onChange={(e) => setNewCatOrder(e.target.value)}
+                        style={{ width: "100px" }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Description</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Decentralized infrastructure, smart contracts, and wallet tooling."
+                      value={newCatDesc}
+                      onChange={(e) => setNewCatDesc(e.target.value)}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="submit-action-btn"
+                    disabled={savingCat || !newCatName.trim()}
+                  >
+                    {savingCat ? "Saving Category…" : "🏷️ Save Category via ORM"}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* SQLite ORM Database Tables Schema Inspection */}
+            <div className="revenue-section-card">
+              <div className="card-header">
+                <h4>🗄️ Database Tables Schema & Record Counts (`DatabaseORM`)</h4>
+                <p>
+                  Direct view into the typed repositories and relational SQLite tables managed by the Durable Object ORM.
+                </p>
+              </div>
+
+              <div className="tables-meta-grid">
+                {tables.map((tbl) => (
+                  <div key={tbl.name} className="table-card">
+                    <div className="table-card-header">
+                      <h5><code>{tbl.name}</code></h5>
+                      <span className="row-count-badge">{tbl.rowCount} rows</span>
+                    </div>
+                    <p className="table-desc">{tbl.description}</p>
+                    <div className="table-cols">
+                      <span className="col-count">{tbl.columns.length} columns:</span>
+                      <div className="col-tags">
+                        {tbl.columns.map((c) => (
+                          <span key={c.name} className={`col-pill ${c.isPrimary ? "pk" : ""}`}>
+                            {c.name} {c.isPrimary ? "(PK)" : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="table-action">
+                      <button
+                        type="button"
+                        className="browse-data-btn"
+                        onClick={() => {
+                          setSelectedBrowseTable(tbl.name);
+                          browseTable(tbl.name);
+                          setTab("nlq");
+                        }}
+                      >
+                        🔍 Browse Table Records (ORM) →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

@@ -2,9 +2,21 @@ import { generateText } from "ai";
 import { getWorkersAIModel } from "./model";
 import { z } from "zod";
 import type { Env } from "../types";
+import type { DatabaseORM } from "../orm";
 
 export const nlqPlanSchema = z.object({
-  operation: z.enum(["list", "count", "search"]),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "custom_query"]).default("conversation"),
+  operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
+  targetTable: z.string().optional(),
+  categoryData: z
+    .object({
+      action: z.enum(["create", "update"]).optional(),
+      id: z.string().optional(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      icon: z.string().optional(),
+    })
+    .optional(),
   terms: z.string().max(200).default(""),
   role: z.enum(["user", "assistant", "any"]).default("any"),
   since: z.string().nullable().default(null),
@@ -16,14 +28,10 @@ export type NLQPlan = z.infer<typeof nlqPlanSchema>;
 export interface NLQQueryResult {
   plan: NLQPlan;
   count: number;
-  rows: Array<{
-    id?: string;
-    role?: string;
-    content?: string;
-    agent?: string;
-    created_at?: string;
-    count?: number;
-  }>;
+  domain: string;
+  targetTable?: string;
+  summary?: string;
+  rows: Array<Record<string, unknown>>;
   executedAt: string;
 }
 
@@ -31,26 +39,82 @@ const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conv
 
 export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   const model = getWorkersAIModel(env);
+  const qLower = question.toLowerCase();
+
+  // Fast-path intent detection for database tables & categories
+  if (/\b(tables?|schema|databases?|columns?|catalog)\b/i.test(question) && !/\b(messages?|chats?)\b/i.test(question)) {
+    return {
+      domain: "tables",
+      operation: "list",
+      terms: "",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // Fast-path for Category addition or update
+  const addCatMatch = question.match(/\b(?:add|create|insert|new)\s+category\s+["']?([^"']+)["']?/i);
+  if (addCatMatch) {
+    const rawName = addCatMatch[1].trim();
+    return {
+      domain: "category_mutation",
+      operation: "create",
+      categoryData: {
+        action: "create",
+        name: rawName,
+        description: `Category for ${rawName} referral and partner links`,
+        icon: "🏷️",
+      },
+      terms: rawName,
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // Fast-path for Table data queries
+  if (/\b(categories|referrals|ads|external ads|transactions|ledger|events|memory)\b/i.test(question)) {
+    let target = "mas_categories";
+    if (/\b(referrals?|links?)\b/i.test(question)) target = "mas_referrals";
+    else if (/\b(external\s*ads?)\b/i.test(question)) target = "mas_external_ads";
+    else if (/\b(ads?|marketplace)\b/i.test(question)) target = "mas_ads";
+    else if (/\b(transactions?|payments?|charges?|refunds?)\b/i.test(question)) target = "mas_transactions";
+    else if (/\b(events?|audit)\b/i.test(question)) target = "mas_events";
+    else if (/\b(memory|facts?)\b/i.test(question)) target = "mas_memory";
+
+    return {
+      domain: "table_data",
+      operation: "list",
+      targetTable: target,
+      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
+      role: "any",
+      since: null,
+      limit: 50,
+    };
+  }
+
   try {
     const { text } = await generateText({
       model,
       temperature: 0,
-      system: `Convert a user's natural language question about their conversation history into a structured read-only JSON query plan.
-Valid operations:
-- 'count': if asking how many / total messages or questions.
-- 'list': if asking to see messages, user questions, assistant answers, or chat history.
-- 'search': if looking for specific topics, words, or domain subjects (e.g. 'pricing', 'payment', 'SOC2').
-
-Crucial Rules for 'terms':
-- 'terms' must ONLY contain specific topical search keywords (e.g. 'pricing', 'refund', 'workers', 'dark mode', 'search', 'acme').
-- If the user asks for 'all questions', 'user questions', 'messages', 'chat history', 'prompts', or 'search results', strip meta words like 'results', 'messages', 'questions', 'containing'.
-- If asking about user questions or prompts, set role: 'user' and terms: "".
-- If asking about assistant responses or answers, set role: 'assistant' and terms: "".
-- If asking about all messages or transcript, set role: 'any' and terms: "".
-- Default limit is 25 (max 100).
+      system: `You are an NLQ planner for an enterprise multi-agent database over SQLite.
+Classify the user's natural language request into a query plan:
+Domains:
+1. 'tables': if asking to list tables, inspect database schema, or show structure.
+2. 'table_data': if asking to view/search records in a specific table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_messages, mas_memory, mas_events).
+3. 'category_mutation': if asking to add or update referral categories.
+4. 'conversation': if asking questions about past chat messages or user prompts.
 
 Return JSON only:
-{"operation": "list"|"count"|"search", "terms": "", "role": "any"|"user"|"assistant", "since": null|"YYYY-MM-DD", "limit": 25}`,
+{
+  "domain": "tables"|"table_data"|"category_mutation"|"conversation",
+  "operation": "list"|"count"|"search"|"create"|"update",
+  "targetTable": "mas_categories"|"mas_referrals"|"mas_ads"|"mas_transactions"|"mas_messages"|"mas_events",
+  "terms": "search keyword",
+  "role": "any"|"user"|"assistant",
+  "limit": 25
+}`,
       prompt: question.slice(0, 2000),
     });
 
@@ -64,7 +128,7 @@ Return JSON only:
       return nlqPlanSchema.parse(parsed);
     }
   } catch {
-    // Fall back to a default search plan on parse failure
+    // Fall back to conversation search
   }
 
   const isCount = /\b(how many|count|total)\b/i.test(question);
@@ -73,6 +137,7 @@ Return JSON only:
   const cleanTerms = question.replace(STOP_WORDS_REGEX, " ").trim();
 
   return {
+    domain: "conversation",
     operation: isCount ? "count" : "list",
     terms: cleanTerms.slice(0, 100),
     role: isAssistant ? "assistant" : isUser ? "user" : "any",
@@ -81,64 +146,123 @@ Return JSON only:
   };
 }
 
-export function queryConversation(sql: { exec: (query: string, ...args: unknown[]) => Iterable<unknown> }, sessionId: string, plan: NLQPlan): NLQQueryResult {
-  const clauses: string[] = ["session_id = ?"];
-  const args: unknown[] = [sessionId];
+export function executeNLQQuery(orm: DatabaseORM, sessionId: string, plan: NLQPlan): NLQQueryResult {
+  const executedAt = new Date().toISOString();
 
-  if (plan.role && plan.role !== "any") {
-    clauses.push("role = ?");
-    args.push(plan.role);
-  }
-
-  // Defensively strip conversational stop words so meta-terms don't block SQL matching
-  const cleanTerms = (plan.terms || "").replace(STOP_WORDS_REGEX, " ").trim();
-
-  // Split into keyword tokens to allow matching across words and agent column
-  const keywords = cleanTerms
-    .split(/\s+/)
-    .map((w) => w.trim().toLowerCase())
-    .filter((w) => w.length > 1);
-
-  if (keywords.length > 0) {
-    for (const kw of keywords) {
-      clauses.push("(lower(content) LIKE ? OR lower(agent) LIKE ?)");
-      args.push(`%${kw}%`, `%${kw}%`);
-    }
-  }
-
-  if (plan.since) {
-    clauses.push("created_at >= ?");
-    args.push(plan.since);
-  }
-
-  const where = clauses.join(" AND ");
-
-  let rows: NLQQueryResult["rows"] = [];
-
-  if (plan.operation === "count") {
-    const raw = Array.from(sql.exec(`SELECT COUNT(*) AS count FROM mas_messages WHERE ${where}`, ...args)) as Array<{ count: number }>;
-    const total = raw[0]?.count ?? 0;
-    rows = [{ count: total }];
+  // 1. List Tables & Schema
+  if (plan.domain === "tables") {
+    const tables = orm.listTables();
     return {
       plan,
-      count: total,
-      rows,
-      executedAt: new Date().toISOString(),
+      domain: "tables",
+      count: tables.length,
+      summary: `Found ${tables.length} tables in SQLite database schema.`,
+      rows: tables.map((t) => ({
+        tableName: t.name,
+        rowCount: t.rowCount,
+        description: t.description,
+        columnCount: t.columns.length,
+        columns: t.columns.map((c) => `${c.name} (${c.type}${c.isPrimary ? ", PK" : ""})`).join(", "),
+      })),
+      executedAt,
     };
   }
 
-  args.push(plan.limit);
-  rows = Array.from(
-    sql.exec(
-      `SELECT id, role, content, agent, created_at FROM mas_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
-      ...args
-    )
-  ) as NLQQueryResult["rows"];
+  // 2. Add or Update Referral Categories via ORM
+  if (plan.domain === "category_mutation") {
+    const catName = plan.categoryData?.name || plan.terms || "New Category";
+    const slug = catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const now = new Date().toISOString();
+    const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
+
+    const created = orm.categories.create({
+      id,
+      name: catName,
+      slug,
+      description: plan.categoryData?.description || `Category for ${catName} referrals`,
+      icon: plan.categoryData?.icon || "🏷️",
+      isActive: true,
+      sortOrder: (orm.categories.count() || 0) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const allCategories = orm.categories.findMany({ orderBy: "sort_order ASC" });
+
+    return {
+      plan,
+      domain: "category_mutation",
+      targetTable: "mas_categories",
+      count: allCategories.length,
+      summary: `Category "${created.name}" created successfully via ORM. Total active categories: ${allCategories.length}.`,
+      rows: allCategories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        slug: c.slug,
+        description: c.description,
+        status: c.isActive ? "ACTIVE" : "INACTIVE",
+        sortOrder: c.sortOrder,
+      })),
+      executedAt,
+    };
+  }
+
+  // 3. Query Specific Table Data via ORM
+  if (plan.domain === "table_data") {
+    const table = plan.targetTable || "mas_categories";
+    const data = orm.getTableData(table, { search: plan.terms, limit: plan.limit });
+    return {
+      plan,
+      domain: "table_data",
+      targetTable: table,
+      count: data.rows.length,
+      summary: `Retrieved ${data.rows.length} rows from ${table} (Total: ${data.total}).`,
+      rows: data.rows,
+      executedAt,
+    };
+  }
+
+  // 4. Default: Query Conversation History
+  const messages = orm.messages.findMany({
+    where: { sessionId },
+    orderBy: "created_at DESC",
+    limit: 100,
+  });
+
+  const cleanTerms = (plan.terms || "").replace(STOP_WORDS_REGEX, " ").trim().toLowerCase();
+  const keywords = cleanTerms
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 1);
+
+  let filtered = messages;
+  if (plan.role && plan.role !== "any") {
+    filtered = filtered.filter((m) => m.role === plan.role);
+  }
+
+  if (keywords.length > 0) {
+    filtered = filtered.filter((m) => {
+      const content = (m.content || "").toLowerCase();
+      const agent = (m.agent || "").toLowerCase();
+      return keywords.some((kw) => content.includes(kw) || agent.includes(kw));
+    });
+  }
+
+  filtered = filtered.slice(0, plan.limit);
 
   return {
     plan,
-    count: rows.length,
-    rows,
-    executedAt: new Date().toISOString(),
+    domain: "conversation",
+    targetTable: "mas_messages",
+    count: filtered.length,
+    summary: `Found ${filtered.length} conversation records matching query.`,
+    rows: filtered.map((m) => ({
+      role: m.role,
+      agent: m.agent,
+      content: m.content,
+      created_at: m.createdAt,
+    })),
+    executedAt,
   };
 }
