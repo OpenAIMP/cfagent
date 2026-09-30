@@ -25,7 +25,7 @@ export interface McpPromptMeta {
 
 export interface RestEndpointMeta {
   id: string;
-  category: "Agents & NLQ" | "Payments & DIDs" | "Database & ORM" | "Monetization & Ads" | "Referrals & Community" | "System & Audit";
+  category: "Agents & NLQ" | "Payments & DIDs" | "Database & ORM" | "Monetization & Ads" | "Referrals & Community" | "System & Audit" | "Trading & E*TRADE";
   method: "GET" | "POST" | "DELETE";
   path: string;
   title: string;
@@ -220,13 +220,95 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     },
     sampleArgs: { limit: 15 },
   },
+  {
+    name: "etrade_market_scan",
+    category: "Trading & E*TRADE",
+    description: "Scan equity markets using technical criteria (RSI-14, MACD, momentum, sector, market cap, volume) via E*TRADE Market APIs.",
+    schema: {
+      type: "object",
+      properties: {
+        sector: { type: "string", description: "Sector filter (Technology, Financial, Healthcare, etc.)" },
+        minRsi: { type: "number", description: "Minimum RSI-14 value" },
+        maxRsi: { type: "number", description: "Maximum RSI-14 value (e.g. 35 for oversold)" },
+        minMarketCap: { type: "number", description: "Minimum market cap in billions (e.g. 50)" },
+        onlyGainers: { type: "boolean", description: "Filter only positive 24h gainers" },
+        onlyLosers: { type: "boolean", description: "Filter only negative 24h losers" },
+        limit: { type: "number", description: "Max stocks to return (default 10)" },
+      },
+    },
+    sampleArgs: { sector: "Technology", maxRsi: 45, limit: 5 },
+  },
+  {
+    name: "etrade_get_quote",
+    category: "Trading & E*TRADE",
+    description: "Retrieve real-time Level 1 equity quote, bid/ask spread, 52-week high/low, and RSI technicals from E*TRADE.",
+    schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT)" },
+      },
+      required: ["symbol"],
+    },
+    sampleArgs: { symbol: "NVDA" },
+  },
+  {
+    name: "etrade_preview_order",
+    category: "Trading & E*TRADE",
+    description: "Prepare an order draft in preview status with cryptographic Trading Agent DID attestation. DOES NOT execute trades without explicit human approval.",
+    schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Stock ticker symbol" },
+        action: { type: "string", enum: ["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"], description: "Order action" },
+        quantity: { type: "number", description: "Number of shares" },
+        orderType: { type: "string", enum: ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"], description: "Order pricing type" },
+        limitPrice: { type: "number", description: "Limit price (required for LIMIT orders)" },
+      },
+      required: ["symbol", "action", "quantity"],
+    },
+    sampleArgs: { symbol: "NVDA", action: "BUY", quantity: 10, orderType: "LIMIT", limitPrice: 125.5 },
+  },
+  {
+    name: "etrade_execute_order",
+    category: "HITL & Security",
+    description: "Authorize or reject a pending E*TRADE equity order draft using Human-in-the-Loop approval with cryptographic DID stamp.",
+    schema: {
+      type: "object",
+      properties: {
+        draftId: { type: "string", description: "Draft Order ID (ord_xxxxxxxx)" },
+        decision: { type: "string", enum: ["approved", "rejected"], description: "Reviewer authorization decision" },
+        note: { type: "string", description: "Optional compliance note" },
+      },
+      required: ["draftId", "decision"],
+    },
+    sampleArgs: { draftId: "ord_1a2b3c4d", decision: "approved" },
+  },
+  {
+    name: "etrade_get_positions",
+    category: "Trading & E*TRADE",
+    description: "Retrieve current portfolio holdings, equity positions, unrealized gain/loss, and purchasing power from E*TRADE brokerage.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
 ];
 
 export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
   {
     uri: "sqlite://schema/tables",
     name: "SQLite Database Schema & Table Metadata",
-    description: "Complete database introspection of all 8 relational tables with columns, types, and primary keys.",
+    description: "Complete database introspection of all 9 relational tables with columns, types, and primary keys.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "sqlite://trading/orders",
+    name: "E*TRADE Orders Ledger & Audit Trail",
+    description: "Persistent ledger of previewed and executed equity trades in mas_trades with Agent DID attestations.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "etrade://portfolio/positions",
+    name: "E*TRADE Brokerage Portfolio Holdings",
+    description: "Active positions, market value, unrealized P&L, and account purchasing power.",
     mimeType: "application/json",
   },
   {
@@ -262,6 +344,14 @@ export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
 ];
 
 export const MCP_PROMPTS_CATALOG: McpPromptMeta[] = [
+  {
+    name: "etrade_market_scan_summary",
+    description: "Generate structured market scanning summary and trade proposal ideas based on technical indicators.",
+    args: [
+      { name: "sector", description: "Sector to analyze (e.g. Technology)" },
+      { name: "strategy", description: "Strategy focus: 'oversold_bounce', 'momentum_breakout', or 'value'" },
+    ],
+  },
   {
     name: "audit_security_review",
     description: "Audit agent decisions, guardrail safety scores, and financial authorizations for compliance risks.",
@@ -466,5 +556,84 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/mcp \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
+  },
+  {
+    id: "api_etrade_status",
+    category: "Trading & E*TRADE",
+    method: "GET",
+    path: "/api/etrade/status",
+    title: "E*TRADE Broker Connectivity & DID Status",
+    description: "Returns connection status to E*TRADE by Morgan Stanley, account info, live/sandbox mode, and Trading Agent DID.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/etrade/status`,
+  },
+  {
+    id: "api_etrade_screen",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/etrade/screen",
+    title: "Market Scanner & Screener",
+    description: "Screens equities based on sector, RSI-14 oversold/overbought criteria, market cap, and momentum.",
+    authRequired: true,
+    sampleBody: { sector: "Technology", maxRsi: 45, limit: 10 },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/etrade/screen \\
+  -H "Content-Type: application/json" \\
+  -d '{"sector":"Technology","maxRsi":45,"limit":10}'`,
+  },
+  {
+    id: "api_etrade_quote",
+    category: "Trading & E*TRADE",
+    method: "GET",
+    path: "/api/etrade/quote?symbol=NVDA",
+    title: "Real-Time Equity Quote",
+    description: "Fetches live Level 1 quote, bid/ask spread, volume, 52-week high/low, and RSI technicals for a ticker symbol.",
+    authRequired: true,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/etrade/quote?symbol=NVDA"`,
+  },
+  {
+    id: "api_etrade_preview_order",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/etrade/order/preview",
+    title: "Preview Equity Order (HITL Draft)",
+    description: "Drafts a stock order with cryptographic Trading Agent DID attestation in mas_trades without moving funds.",
+    authRequired: true,
+    sampleBody: { symbol: "NVDA", action: "BUY", quantity: 10, orderType: "LIMIT", limitPrice: 125.5 },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/etrade/order/preview \\
+  -H "Content-Type: application/json" \\
+  -d '{"symbol":"NVDA","action":"BUY","quantity":10,"orderType":"LIMIT","limitPrice":125.5}'`,
+  },
+  {
+    id: "api_etrade_execute_order",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/etrade/order/execute",
+    title: "Execute / Authorize Order Draft",
+    description: "Executes an approved draft or cancels it, recording the human authorizer DID and broker order confirmation.",
+    authRequired: true,
+    sampleBody: { draftId: "ord_1a2b3c4d", decision: "approved" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/etrade/order/execute \\
+  -H "Content-Type: application/json" \\
+  -d '{"draftId":"ord_1a2b3c4d","decision":"approved"}'`,
+  },
+  {
+    id: "api_etrade_positions",
+    category: "Trading & E*TRADE",
+    method: "GET",
+    path: "/api/etrade/positions",
+    title: "Portfolio Holdings & Positions",
+    description: "Returns portfolio summary, cash balances, and equity positions with live market values and unrealized P&L.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/etrade/positions`,
+  },
+  {
+    id: "api_etrade_orders",
+    category: "Trading & E*TRADE",
+    method: "GET",
+    path: "/api/etrade/orders",
+    title: "Order Ledger & Audit History",
+    description: "Queries persistent SQLite mas_trades ledger of all previewed, executed, and cancelled orders.",
+    authRequired: true,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/etrade/orders`,
   },
 ];

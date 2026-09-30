@@ -3,6 +3,7 @@ import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
+import { ETradeTradingHub } from "./ETradeTradingHub";
 
 interface User {
   login: string;
@@ -308,7 +309,125 @@ function ToolResultView({
     );
   }
 
-  // 3. Payment Draft Tool
+  // 3. E*TRADE Trading Tool (Preview, Execution, Quote)
+  if (
+    normalizedType.includes("trade") ||
+    normalizedType.includes("etrade") ||
+    data?.orderId?.startsWith("ord_") ||
+    data?.draftId?.startsWith("ord_") ||
+    (data?.action && (data.action === "BUY" || data.action === "SELL" || data.action === "BUY_TO_COVER" || data.action === "SELL_SHORT")) ||
+    data?.resultsFoundStocks
+  ) {
+    const isExecution = normalizedType.includes("execute") || data?.executionId || data?.brokerOrderRef;
+    const isQuote = normalizedType.includes("quote") || (data?.symbol && data?.lastPrice && !data?.orderId && !data?.action);
+    const orderId = data?.orderId || data?.draftId;
+    const symbol = data?.symbol || data?.input?.symbol;
+    const action = data?.action || data?.input?.action || "BUY";
+    const quantity = data?.quantity || data?.input?.quantity || 1;
+    const status = data?.status || "previewed";
+    const price = data?.limitPrice || data?.estimatedPrice || data?.executionPrice || data?.lastPrice;
+
+    if (isExecution) {
+      return (
+        <div className="tool-card confirm-card trading-card">
+          <div className="tool-card-header" onClick={() => setOpen(!open)}>
+            <span className="tool-icon">📈</span>
+            <div className="tool-summary">
+              <strong>E*TRADE Execution:</strong> {data.success !== false ? "FILLED" : "CANCELLED"} {quantity} {symbol} ({action})
+            </div>
+            <span className={`tool-status-pill ${data.success !== false ? "success" : "priority-urgent"}`}>
+              {data.status ? String(data.status).toUpperCase() : "EXECUTED"}
+            </span>
+            <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+          </div>
+          <div className="confirm-details">
+            {data.message || `Order ${orderId} executed on E*TRADE broker. Ref: ${data.brokerOrderRef || "simulated"}`}
+          </div>
+          {open && (
+            <div className="tool-card-body">
+              <pre>{JSON.stringify(data, null, 2)}</pre>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (isQuote) {
+      return (
+        <div className="tool-card quote-card trading-card">
+          <div className="tool-card-header" onClick={() => setOpen(!open)}>
+            <span className="tool-icon">📊</span>
+            <div className="tool-summary">
+              <strong>E*TRADE Quote:</strong> {symbol} — ${(price || 0).toFixed(2)} ({data.change >= 0 ? "+" : ""}{data.change?.toFixed(2) || 0})
+            </div>
+            <span className="tool-status-pill info">Level 1 Live</span>
+            <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+          </div>
+          <div className="hitl-actions">
+            <button
+              type="button"
+              className="hitl-btn approve"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Preview buy 10 shares of ${symbol}`)}
+            >
+              ⚡ Preview Buy 10 {symbol}
+            </button>
+          </div>
+          {open && (
+            <div className="tool-card-body">
+              <pre>{JSON.stringify(data, null, 2)}</pre>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default: Order Draft / Preview
+    return (
+      <div className="tool-card trading-card order-preview-card">
+        <div className="tool-card-header" onClick={() => setOpen(!open)}>
+          <span className="tool-icon">📈</span>
+          <div className="tool-summary">
+            <strong>E*TRADE Trade Intent:</strong> {action} {quantity} {symbol} {price ? `@ $${Number(price).toFixed(2)}` : ""}
+          </div>
+          <span className={`tool-status-pill ${status === "executed" ? "success" : "warning"}`}>
+            {status === "executed" ? "EXECUTED" : "Awaiting Approval"}
+          </span>
+          <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
+        </div>
+        <div className="payment-notice">
+          🛡️ <strong>Safety Guarantee:</strong> No trade will be executed without explicit authorization. E*TRADE Order ID <code>{orderId || "ord_preview"}</code> reserved.
+        </div>
+        {orderId && status !== "executed" && status !== "rejected" && (
+          <div className="hitl-actions">
+            <button
+              type="button"
+              className="hitl-btn approve"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Approve trade draft ${orderId}`)}
+            >
+              ✅ Approve &amp; Execute Order
+            </button>
+            <button
+              type="button"
+              className="hitl-btn reject"
+              disabled={isBusy}
+              onClick={() => onAction?.(`Cancel trade draft ${orderId}`)}
+            >
+              ❌ Cancel Order
+            </button>
+          </div>
+        )}
+        {open && (
+          <div className="tool-card-body">
+            <pre>{JSON.stringify(data, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 4. Payment Draft Tool
   if (normalizedType.includes("payment") || data?.status === "awaiting_confirmation" || data?.action) {
     const amount = data?.amount || data?.input?.amount;
     const currency = data?.currency || data?.input?.currency || "USD";
@@ -433,7 +552,7 @@ function ToolResultView({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints">("chat");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading">("chat");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -1185,7 +1304,13 @@ export function Chat({ user }: { user: User }) {
             className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
             onClick={() => setTab("endpoints")}
           >
-            🔌 API & MCP Endpoints
+            🔌 API &amp; MCP Endpoints
+          </button>
+          <button
+            className={`tab-btn ${tab === "trading" ? "active" : ""}`}
+            onClick={() => setTab("trading")}
+          >
+            📈 E*TRADE Trading
           </button>
         </nav>
 
@@ -3350,6 +3475,19 @@ export function Chat({ user }: { user: User }) {
         {tab === "endpoints" && (
           <div className="endpoints-view">
             <McpApiExplorer />
+          </div>
+        )}
+
+        {/* E*TRADE Agentic Trading Hub */}
+        {tab === "trading" && (
+          <div className="trading-view">
+            <ETradeTradingHub
+              user={user}
+              onSendPrompt={(prompt) => {
+                setTab("chat");
+                handleChipClick(prompt);
+              }}
+            />
           </div>
         )}
       </main>

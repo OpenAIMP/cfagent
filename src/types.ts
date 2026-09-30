@@ -25,6 +25,14 @@ export interface Env {
   PAYPAL_MCP_SERVER_URL?: string;
   LEMONSQUEEZY_MCP_SERVER_URL?: string;
   EXTERNAL_PAYMENTS_MCP_URL?: string;
+  // E*TRADE Trading API & Remote MCP Configuration
+  ETRADE_CONSUMER_KEY?: string;
+  ETRADE_CONSUMER_SECRET?: string;
+  ETRADE_OAUTH_TOKEN?: string;
+  ETRADE_OAUTH_TOKEN_SECRET?: string;
+  ETRADE_ACCOUNT_ID_KEY?: string;
+  ETRADE_ENVIRONMENT?: "sandbox" | "live";
+  ETRADE_MCP_SERVER_URL?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
@@ -58,7 +66,7 @@ export interface SessionData {
   createdAt: number;
 }
 
-export type AgentName = "search" | "payments" | "tasks" | "memory" | "general";
+export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading";
 
 export interface AuditEvent {
   id: string;
@@ -166,4 +174,173 @@ export interface RevenueSummary {
   totalAdClicks: number;
   averageRPM: number;
 }
+
+// ==========================================
+// E*TRADE Trading & Screening Domain Models
+// ==========================================
+
+export interface TradeRecord {
+  id: string;
+  sessionId: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  orderType: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
+  quantity: number;
+  price: number;
+  totalValue: number;
+  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled";
+  orderRef?: string;
+  proposerDid: string;
+  authorizerDid?: string;
+  proofSignature: string;
+  previewNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ETradeQuote {
+  symbol: string;
+  companyName: string;
+  lastPrice: number;
+  price?: number;
+  change: number;
+  changePercent: number;
+  bid: number;
+  ask: number;
+  bidSize?: number;
+  askSize?: number;
+  volume: number;
+  open: number;
+  high: number;
+  low: number;
+  peRatio?: number;
+  marketCap?: number;
+  week52High: number;
+  week52Low: number;
+  high52?: number;
+  low52?: number;
+  rsi?: number;
+  sector?: string;
+  source?: string;
+  timestamp: string;
+}
+
+export interface StockScreenerFilter {
+  sector?: string;
+  minMarketCap?: number; // in billions or absolute
+  maxPeRatio?: number;
+  maxRsi?: number;
+  minRsi?: number;
+  gainersOnly?: boolean;
+  losersOnly?: boolean;
+  rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
+  momentum?: "bullish_breakout" | "bearish_pullback" | "high_relative_volume" | "any";
+  gainersLosers?: "gainers" | "losers" | "active" | "all";
+  minVolume?: number;
+  search?: string;
+  limit?: number;
+}
+
+export interface ScreenedStockItem extends ETradeQuote {
+  price: number;
+  rsi14: number;
+  macdSignal: string;
+  signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
+  technicalSignal: string;
+  momentumScore: number;
+  highlightReason: string;
+}
+
+export interface StockScreenResult {
+  totalScanned: number;
+  totalScreened: number;
+  matchedCount: number;
+  filterApplied: StockScreenerFilter;
+  filterSummary: string;
+  stocks: ScreenedStockItem[];
+  scannedAt: string;
+}
+
+export interface ETradeOrderDraft {
+  orderId: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  orderAction: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  orderType: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
+  quantity: number;
+  estimatedPrice: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  term: "GOOD_FOR_DAY" | "GOOD_UNTIL_CANCEL";
+  estimatedCommission: number;
+  estimatedTotal: number;
+  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled";
+  proposerDid: string;
+  authorizerDid: string;
+  proofSignature: string;
+  previewMessage: string;
+  safetyNotice?: string;
+  placedAt?: string;
+}
+
+export interface ETradeOrderExecutionResult {
+  success: boolean;
+  orderId: string;
+  executionId: string;
+  brokerOrderRef: string;
+  authorizerDid?: string;
+  status: "executed" | "submitted" | "rejected";
+  symbol: string;
+  action: string;
+  quantity: number;
+  executionPrice: number;
+  totalSettled: number;
+  didAttestation?: {
+    proposerDid: string;
+    authorizerDid: string;
+    signature: string;
+  };
+  message: string;
+  timestamp: string;
+}
+
+export interface ETradePosition {
+  symbol: string;
+  description: string;
+  quantity: number;
+  pricePaid: number;
+  costBasis: number;
+  currentPrice: number;
+  marketPrice: number;
+  marketValue: number;
+  totalGain: number;
+  unrealizedGainLoss: number;
+  totalGainPercent: number;
+  unrealizedGainLossPercent: number;
+  daysGain: number;
+  daysGainPercent: number;
+}
+
+export interface ETradeAccount {
+  accountId: string;
+  accountKey: string;
+  accountDesc: string;
+  accountType: string;
+  netAccountValue: number;
+  totalAccountValue: number;
+  cashAvailableForInvestment: number;
+  dayTraderStatus: boolean;
+}
+
+export interface ETradeBrokerStatus {
+  broker: "etrade";
+  name: string;
+  configured: boolean;
+  mode: "live_oauth" | "sandbox_api" | "mcp_remote" | "simulated_engine";
+  protocol: "mcp_json_rpc" | "etrade_oauth_rest" | "sandbox_simulated";
+  mcpServerUrl?: string;
+  environment: "sandbox" | "live";
+  capabilities: string[];
+}
+
 

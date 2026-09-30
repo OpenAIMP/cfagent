@@ -13,6 +13,7 @@ import type {
   MemoryRecord,
   AuditEvent,
   RevenueSummary,
+  TradeRecord,
 } from "../types";
 
 export interface SqlStorage {
@@ -169,6 +170,7 @@ export class DatabaseORM {
   public messages: Repository<MessageRecord>;
   public memory: Repository<MemoryRecord>;
   public events: Repository<AuditEvent>;
+  public trades: Repository<TradeRecord>;
 
   constructor(private sql: SqlStorage) {
     this.categories = new Repository<CategoryRecord>(sql, "mas_categories", "id", {
@@ -269,6 +271,25 @@ export class DatabaseORM {
       agent: "agent",
       payload: "payload",
       createdAt: "created_at",
+    });
+
+    this.trades = new Repository<TradeRecord>(sql, "mas_trades", "id", {
+      id: "id",
+      sessionId: "session_id",
+      symbol: "symbol",
+      action: "action",
+      orderType: "order_type",
+      quantity: "quantity",
+      price: "price",
+      totalValue: "total_value",
+      status: "status",
+      orderRef: "order_ref",
+      proposerDid: "proposer_did",
+      authorizerDid: "authorizer_did",
+      proofSignature: "proof_signature",
+      previewNotes: "preview_notes",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
     });
   }
 
@@ -397,6 +418,28 @@ export class DatabaseORM {
         agent TEXT NOT NULL,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
+      )
+    `);
+
+    // 9. Trades & E*TRADE Orders Table
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_trades (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        action TEXT NOT NULL,
+        order_type TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        price REAL NOT NULL,
+        total_value REAL NOT NULL,
+        status TEXT NOT NULL,
+        order_ref TEXT,
+        proposer_did TEXT NOT NULL,
+        authorizer_did TEXT,
+        proof_signature TEXT NOT NULL,
+        preview_notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     `);
 
@@ -600,6 +643,7 @@ export class DatabaseORM {
       mas_messages: "Persistent conversation history and multi-turn prompt transcripts",
       mas_memory: "Session facts and long-term user preferences key-value store",
       mas_events: "Real-time audit log of router decisions, HITL approvals, and agent executions",
+      mas_trades: "E*TRADE brokerage trading orders with cryptographic Agent DID attestation",
     };
 
     const tables = Object.keys(tableDescriptions);

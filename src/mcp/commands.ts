@@ -16,6 +16,13 @@ import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import type { SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "../agents/did";
 import { planNLQ, executeNLQQuery } from "../agents/nlq";
+import {
+  ETradeMarketScanCommand,
+  ETradeGetQuoteCommand,
+  ETradePreviewOrderCommand,
+  ETradeExecuteOrderCommand,
+  ETradeGetPositionsCommand,
+} from "./etradeCommands";
 
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
@@ -834,6 +841,13 @@ export class McpToolFactory {
     this.registerTool(new GetRevenueSummaryCommand());
     this.registerTool(new ManageSessionMemoryCommand());
     this.registerTool(new GetAuditEventsCommand());
+
+    // E*TRADE Trading & Screening Commands
+    this.registerTool(new ETradeMarketScanCommand());
+    this.registerTool(new ETradeGetQuoteCommand());
+    this.registerTool(new ETradePreviewOrderCommand());
+    this.registerTool(new ETradeExecuteOrderCommand());
+    this.registerTool(new ETradeGetPositionsCommand());
   }
 
   /**

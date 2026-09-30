@@ -5,6 +5,7 @@ import { LLMJudge } from "./judge";
 import { planNLQ, executeNLQQuery } from "./nlq";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
+import { ETradeService } from "../services/etrade";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -437,9 +438,9 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'confirm_payment_draft' / 'confirmDraft': Formally approve, authorize, or cancel a pending payment or task draft upon explicit user confirmation.
 - 'get_payment_gateways': Inspect processor health status and registered agent DIDs.
 - 'get_transactions': Query transaction ledger and cryptographic proof signatures.
-- 'execute_nlq': Execute natural language queries over database tables, schemas, or conversations.
+- 'execute_nlq': Execute natural language queries over database tables, schemas, trading, or conversations.
 - 'list_database_tables': Inspect database tables, schema columns, and row counts via DatabaseORM.
-- 'query_table_data': Query rows from any table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_events) with filters and pagination.
+- 'query_table_data': Query rows from any table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_events, mas_trades) with filters and pagination.
 - 'manage_categories': Full CRUD for referral categories taxonomy in SQLite.
 - 'manage_referrals': Manage developer referral links and track click attribution.
 - 'manage_external_ads': Manage external ad placements (EthicalAds, Carbon, AdSense, Direct) and track CPM/CPC impressions.
@@ -447,13 +448,19 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'manage_session_memory' / 'rememberFact': Read, persist, or clear session facts in SQLite.
 - 'get_audit_events': Stream real-time routing decisions, judge evaluations, and security logs.
 - 'createTaskDraft': Draft actionable tasks with priorities and deadlines.
+- 'etrade_market_scan': Screen and scan equities across technical and fundamental indicators (RSI, Market Cap, Sector, Price, MACD, Volume, Gainers/Losers).
+- 'etrade_get_quote': Look up real-time equity quotes with Bid, Ask, Volume, and 52-week statistics.
+- 'etrade_preview_order': Prepare an order proposal draft with cryptographic Agent DID attestation ('did:agent:openaimp:trading'). NEVER execute without human confirmation.
+- 'etrade_execute_order': Submit and execute a confirmed order draft after explicit human authorization.
+- 'etrade_get_positions': Retrieve broker account balances, equity holdings, and real-time unrealized P&L.
 
 Agentic Best Practices & Workflow Rules:
-1. Direct MCP Tool Self-Consumption: You have direct access to database tables, revenue analytics, categories, ads, and transactions. Always invoke these tools when answering user questions about data, finances, or system state.
+1. Direct MCP Tool Self-Consumption: You have direct access to database tables, revenue analytics, categories, ads, transactions, and trading. Always invoke these tools when answering user questions about data, finances, or system state.
 2. RAG & Knowledge Retrieval: If 'knowledge_search' returns matching documents, cite them accurately. If it returns 0 documents, explicitly state that no internal documents were found in the custom knowledge base, then synthesize a comprehensive, helpful answer from verified domain knowledge so the user's question is thoroughly answered.
 3. Human-in-the-Loop (HITL) Execution: For financial operations or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirm_payment_draft' with decision: 'approved'.
 4. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'manage_session_memory' with action: 'remember'.
-5. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
+5. E*TRADE Trading & Market Screening: When user asks to scan, screen, quote, or trade stocks, invoke 'etrade_market_scan' or 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
+6. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
         messages: modelMessages,
         tools,
         stopWhen: stepCountIs(maxSteps),
@@ -1364,6 +1371,145 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ received: true });
       } catch {
         return Response.json({ received: false }, { status: 400 });
+      }
+    }
+
+    // ==========================================
+    // E*TRADE Brokerage & Stock Screening APIs
+    // ==========================================
+
+    // Broker status & account metadata
+    if (path.endsWith("/etrade/status") && request.method === "GET") {
+      try {
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const status = etrade.getStatus();
+        return Response.json(status);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch broker status" }, { status: 500 });
+      }
+    }
+
+    // Market Screener & Scanning
+    if (path.endsWith("/etrade/screen") && (request.method === "POST" || request.method === "GET")) {
+      try {
+        const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
+        if (request.method === "GET") {
+          if (url.searchParams.get("sector")) filters.sector = url.searchParams.get("sector");
+          if (url.searchParams.get("maxRsi")) filters.maxRsi = Number(url.searchParams.get("maxRsi"));
+          if (url.searchParams.get("minRsi")) filters.minRsi = Number(url.searchParams.get("minRsi"));
+          if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
+          if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
+        }
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const results = etrade.screenStocks(filters);
+        this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
+        return Response.json(results);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
+      }
+    }
+
+    // Real-time equity quote
+    if (path.endsWith("/etrade/quote") && request.method === "GET") {
+      try {
+        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const quote = etrade.getQuote(symbol);
+        return Response.json(quote);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch quote" }, { status: 500 });
+      }
+    }
+
+    // Order Proposal & Preview with DID Attestation (HITL)
+    if (path.endsWith("/etrade/order/preview") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const symbol = (body.symbol || "").trim();
+        const quantity = Number(body.quantity) || 1;
+        const orderAction = body.orderAction || "BUY";
+        const orderType = body.orderType || "MARKET";
+        const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
+        const stopPrice = body.stopPrice !== undefined ? Number(body.stopPrice) : undefined;
+
+        if (!symbol) {
+          return Response.json({ error: "Stock symbol is required" }, { status: 400 });
+        }
+
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const preview = etrade.previewOrder({
+          sessionId,
+          symbol,
+          orderAction,
+          quantity,
+          orderType,
+          limitPrice,
+          stopPrice,
+        });
+
+        this.audit("etrade.order_previewed", "trading", {
+          orderId: preview.orderId,
+          symbol: preview.symbol,
+          orderAction: preview.orderAction,
+          quantity: preview.quantity,
+          estimatedTotal: preview.estimatedTotal,
+          proposerDid: preview.proposerDid,
+        });
+
+        return Response.json(preview);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to preview trade order" }, { status: 500 });
+      }
+    }
+
+    // Authorize & Execute Confirmed Order Draft (HITL Execution)
+    if (path.endsWith("/etrade/order/execute") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const orderId = (body.orderId || "").trim();
+        const decision = body.decision || "approved";
+
+        if (!orderId) {
+          return Response.json({ error: "orderId is required" }, { status: 400 });
+        }
+
+        const userDid = getUserDid(sessionId);
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const result = etrade.executeOrder(orderId, userDid, decision);
+
+        this.audit("etrade.order_executed", "trading", {
+          orderId,
+          decision,
+          authorizerDid: userDid,
+          status: result.status,
+          executionId: result.executionId,
+        });
+
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to execute trade order" }, { status: 500 });
+      }
+    }
+
+    // Positions & Account Holdings
+    if (path.endsWith("/etrade/positions") && request.method === "GET") {
+      try {
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const holdings = etrade.getPositions();
+        return Response.json(holdings);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch positions" }, { status: 500 });
+      }
+    }
+
+    // Order History & Trade Audit Ledger
+    if (path.endsWith("/etrade/orders") && request.method === "GET") {
+      try {
+        const orm = this.getOrm();
+        const trades = orm.trades.findMany({ orderBy: "created_at DESC", limit: 50 });
+        return Response.json({ count: trades.length, trades });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch order history" }, { status: 500 });
       }
     }
 

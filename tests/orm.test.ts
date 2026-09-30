@@ -131,14 +131,19 @@ describe("DatabaseORM & Repositories", () => {
   });
 
   describe("Schema Introspection & Querying", () => {
-    it("listTables() returns all 8 relational tables with descriptions and column types", () => {
+    it("listTables() returns all 9 relational tables with descriptions and column types", () => {
       const tables = orm.listTables();
-      expect(tables.length).toBe(8);
+      expect(tables.length).toBe(9);
 
       const catTable = tables.find((t) => t.name === "mas_categories");
       expect(catTable).toBeDefined();
       expect(catTable?.columns.length).toBeGreaterThan(5);
       expect(catTable?.columns.some((c) => c.name === "id" && c.isPrimary)).toBe(true);
+
+      const tradesTable = tables.find((t) => t.name === "mas_trades");
+      expect(tradesTable).toBeDefined();
+      expect(tradesTable?.columns.some((c) => c.name === "symbol")).toBe(true);
+      expect(tradesTable?.columns.some((c) => c.name === "proposer_did")).toBe(true);
 
       const extTable = tables.find((t) => t.name === "mas_external_ads");
       expect(extTable).toBeDefined();

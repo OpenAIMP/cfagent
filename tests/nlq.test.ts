@@ -60,8 +60,9 @@ describe("Natural Language Query (NLQ) Engine", () => {
 
       const result = executeNLQQuery(orm, "test_session", plan);
       expect(result.domain).toBe("tables");
-      expect(result.count).toBe(8);
+      expect(result.count).toBe(9);
       expect(result.rows.some((r) => r.tableName === "mas_categories")).toBe(true);
+      expect(result.rows.some((r) => r.tableName === "mas_trades")).toBe(true);
       expect(result.rows.some((r) => r.tableName === "mas_external_ads")).toBe(true);
     });
 

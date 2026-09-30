@@ -113,6 +113,25 @@ export class MockSqlStorage implements SqlStorage {
       { name: "created_at", type: "TEXT", pk: 0 },
     ]);
 
+    this.schema.set("mas_trades", [
+      { name: "id", type: "TEXT", pk: 1 },
+      { name: "session_id", type: "TEXT", pk: 0 },
+      { name: "symbol", type: "TEXT", pk: 0 },
+      { name: "action", type: "TEXT", pk: 0 },
+      { name: "order_type", type: "TEXT", pk: 0 },
+      { name: "quantity", type: "REAL", pk: 0 },
+      { name: "price", type: "REAL", pk: 0 },
+      { name: "total_value", type: "REAL", pk: 0 },
+      { name: "status", type: "TEXT", pk: 0 },
+      { name: "order_ref", type: "TEXT", pk: 0 },
+      { name: "proposer_did", type: "TEXT", pk: 0 },
+      { name: "authorizer_did", type: "TEXT", pk: 0 },
+      { name: "proof_signature", type: "TEXT", pk: 0 },
+      { name: "preview_notes", type: "TEXT", pk: 0 },
+      { name: "created_at", type: "TEXT", pk: 0 },
+      { name: "updated_at", type: "TEXT", pk: 0 },
+    ]);
+
     for (const key of this.schema.keys()) {
       this.tables.set(key, []);
     }

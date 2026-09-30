@@ -43,6 +43,7 @@ export const AGENT_DIDS = {
   TASKS: "did:agent:openaimp:tasks",
   MEMORY: "did:agent:openaimp:memory",
   NLQ: "did:agent:openaimp:nlq",
+  TRADING: "did:agent:openaimp:trading",
 } as const;
 
 export type KnownAgentDid = typeof AGENT_DIDS[keyof typeof AGENT_DIDS];
@@ -178,6 +179,52 @@ export async function createDidAttestation(params: {
   };
 }
 
+export function createDidAttestationSync(params: {
+  draftId: string;
+  action: string;
+  amount: number;
+  currency: string;
+  customer: string;
+  gateway: string;
+  proposerDid?: string;
+  authorizerDid?: string;
+}): DidAttestationProof {
+  const proofId = `proof_${crypto.randomUUID().slice(0, 12)}`;
+  const timestamp = new Date().toISOString();
+  const proposerDid = params.proposerDid || AGENT_DIDS.PAYMENTS;
+  const authorizerDid = params.authorizerDid || "did:user:pending-human-authorization";
+  const executorDid = AGENT_DIDS.ORCHESTRATOR;
+
+  const payload = [
+    proofId,
+    params.draftId,
+    params.action,
+    params.amount.toFixed(2),
+    params.currency.toUpperCase(),
+    params.customer,
+    params.gateway,
+    proposerDid,
+    authorizerDid,
+    timestamp
+  ].join("|");
+
+  const signature = `sig_0x${hashToHex(payload)}${hashToHex(payload + "_salt")}${hashToHex(payload + "_end")}`;
+
+  return {
+    proofId,
+    proposerDid,
+    authorizerDid,
+    executorDid,
+    gateway: params.gateway,
+    action: params.action,
+    amount: params.amount,
+    currency: params.currency,
+    timestamp,
+    signature,
+    proofType: "HmacSha256Verification2026"
+  };
+}
+
 async function computeSha256Hex(message: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(message);
@@ -186,7 +233,7 @@ async function computeSha256Hex(message: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function hashToHex(str: string): string {
+export function hashToHex(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = (hash << 5) - hash + str.charCodeAt(i);

@@ -3,9 +3,10 @@ import { getWorkersAIModel } from "./model";
 import { z } from "zod";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
+import { ETradeService } from "../services/etrade";
 
 export const nlqPlanSchema = z.object({
-  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "custom_query"]).default("conversation"),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "custom_query"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
   targetTable: z.string().optional(),
   categoryData: z
@@ -15,6 +16,17 @@ export const nlqPlanSchema = z.object({
       name: z.string().optional(),
       description: z.string().optional(),
       icon: z.string().optional(),
+    })
+    .optional(),
+  tradingData: z
+    .object({
+      action: z.enum(["screen", "quote", "preview_order", "execute_order", "positions"]).optional(),
+      symbol: z.string().optional(),
+      orderAction: z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]).optional(),
+      quantity: z.number().optional(),
+      orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
+      limitPrice: z.number().optional(),
+      filters: z.record(z.string(), z.any()).optional(),
     })
     .optional(),
   terms: z.string().max(200).default(""),
@@ -38,7 +50,6 @@ export interface NLQQueryResult {
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
 
 export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
-  const model = getWorkersAIModel(env);
   const qLower = question.toLowerCase();
 
   // 1. Fast-path for Category addition or update (check before generic tables)
@@ -103,7 +114,105 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
+  // 4. Fast-path for E*TRADE Stock Screening / Market Scanning
+  if (
+    /\b(screen|screener|scan|scanning|scanned|breakout|oversold|overbought|gainers?|losers?|momentum)\b/i.test(question) ||
+    (/\b(stocks?|equities)\b/i.test(question) && /\b(tech|semiconductor|rsi|macd|pe|p\/e|cap|volume|dividend|growth)\b/i.test(question))
+  ) {
+    const filters: Record<string, any> = {};
+    if (/\b(tech|technology)\b/i.test(question)) filters.sector = "Technology";
+    if (/\b(semiconductor|semis|chips)\b/i.test(question)) filters.sector = "Semiconductors";
+    if (/\b(cloud|enterprise|software)\b/i.test(question)) filters.sector = "Enterprise Software";
+    if (/\b(crypto|bitcoin|fintech)\b/i.test(question)) filters.sector = "Fintech & Crypto";
+
+    const rsiUnderMatch = question.match(/rsi\s*(?:<|under|less than|below)\s*(\d+)/i);
+    if (rsiUnderMatch) filters.maxRsi = Number(rsiUnderMatch[1]);
+    const rsiOverMatch = question.match(/rsi\s*(?:>|over|greater than|above)\s*(\d+)/i);
+    if (rsiOverMatch) filters.minRsi = Number(rsiOverMatch[1]);
+
+    if (/\b(gainer|gainers|up|green)\b/i.test(question)) filters.gainersOnly = true;
+    if (/\b(loser|losers|down|red)\b/i.test(question)) filters.losersOnly = true;
+
+    return {
+      domain: "trading",
+      operation: "search",
+      tradingData: {
+        action: "screen",
+        filters,
+      },
+      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 5. Fast-path for E*TRADE Stock Quote
+  const quoteMatch =
+    question.match(/(?:quote|price|ticker|trading at)\s+([A-Za-z]{1,5})/i) ||
+    question.match(/\b([A-Za-z]{1,5})\s+(?:quote|price|ticker)\b/i);
+  if (quoteMatch && !/\b(messages?|categories|tables?)\b/i.test(question)) {
+    const symbol = quoteMatch[1].toUpperCase();
+    return {
+      domain: "trading",
+      operation: "list",
+      tradingData: {
+        action: "quote",
+        symbol,
+      },
+      terms: symbol,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 6. Fast-path for E*TRADE Order Proposal / Preview
+  const orderMatch = question.match(/\b(buy|sell|short|purchase)\s+(\d+)?\s*(?:shares?\s*(?:of\s*)?)?([A-Za-z]{1,5})\b/i);
+  if (orderMatch && !/\b(messages?|categories|tables?)\b/i.test(question)) {
+    const rawAction = orderMatch[1].toLowerCase();
+    const orderAction = rawAction === "sell" ? "SELL" : rawAction === "short" ? "SELL_SHORT" : "BUY";
+    const quantity = orderMatch[2] ? Number(orderMatch[2]) : 10;
+    const symbol = orderMatch[3].toUpperCase();
+
+    const limitMatch = question.match(/limit\s*(?:at|of)?\s*\$?(\d+(?:\.\d+)?)/i);
+    const limitPrice = limitMatch ? Number(limitMatch[1]) : undefined;
+
+    return {
+      domain: "trading",
+      operation: "create",
+      tradingData: {
+        action: "preview_order",
+        symbol,
+        orderAction,
+        quantity,
+        orderType: limitPrice ? "LIMIT" : "MARKET",
+        limitPrice,
+      },
+      terms: `${orderAction} ${quantity} ${symbol}`,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 7. Fast-path for E*TRADE Portfolio & Positions
+  if (/\b(positions?|portfolio|holdings?|balance|brokerage account|shares i own)\b/i.test(question) && !/\b(messages?|categories)\b/i.test(question)) {
+    return {
+      domain: "trading",
+      operation: "list",
+      tradingData: {
+        action: "positions",
+      },
+      terms: "portfolio positions",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
   try {
+    const model = getWorkersAIModel(env);
     const { text } = await generateText({
       model,
       temperature: 0,
@@ -111,15 +220,16 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
 Classify the user's natural language request into a query plan:
 Domains:
 1. 'tables': if asking to list tables, inspect database schema, or show structure.
-2. 'table_data': if asking to view/search records in a specific table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_messages, mas_memory, mas_events).
+2. 'table_data': if asking to view/search records in a specific table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_messages, mas_memory, mas_events, mas_trades).
 3. 'category_mutation': if asking to add or update referral categories.
-4. 'conversation': if asking questions about past chat messages or user prompts.
+4. 'trading': if asking to screen/scan stocks, get quotes, preview trades, or inspect positions.
+5. 'conversation': if asking questions about past chat messages or user prompts.
 
 Return JSON only:
 {
-  "domain": "tables"|"table_data"|"category_mutation"|"conversation",
+  "domain": "tables"|"table_data"|"category_mutation"|"trading"|"conversation",
   "operation": "list"|"count"|"search"|"create"|"update",
-  "targetTable": "mas_categories"|"mas_referrals"|"mas_ads"|"mas_transactions"|"mas_messages"|"mas_events",
+  "targetTable": "mas_categories"|"mas_referrals"|"mas_ads"|"mas_transactions"|"mas_messages"|"mas_events"|"mas_trades",
   "terms": "search keyword",
   "role": "any"|"user"|"assistant",
   "limit": 25
@@ -232,7 +342,125 @@ export function executeNLQQuery(orm: DatabaseORM, sessionId: string, plan: NLQPl
     };
   }
 
-  // 4. Default: Query Conversation History
+  // 4. Trading Domain (E*TRADE stock screening, quotes, order previews, positions)
+  if (plan.domain === "trading") {
+    const etrade = new ETradeService(orm);
+    const action = plan.tradingData?.action || "screen";
+
+    if (action === "screen") {
+      const screenRes = etrade.screenStocks(plan.tradingData?.filters);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: screenRes.stocks.length,
+        summary: `Market Scanner screened ${screenRes.totalScreened} equities across market universe; ${screenRes.stocks.length} matched criteria (${screenRes.filterSummary}).`,
+        rows: screenRes.stocks.map((s) => ({
+          symbol: s.symbol,
+          companyName: s.companyName,
+          sector: s.sector,
+          price: `$${s.price.toFixed(2)}`,
+          change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+          rsi14: s.rsi14,
+          macdSignal: s.macdSignal,
+          marketCap: s.marketCap ? `$${(s.marketCap / 1e9).toFixed(1)}B` : "N/A",
+          peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
+          signal: s.signal,
+          actionAvailable: `Preview Buy/Sell for ${s.symbol}`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const sym = plan.tradingData?.symbol || plan.terms || "NVDA";
+      const q = etrade.getQuote(sym);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        rows: [
+          {
+            symbol: q.symbol,
+            company: q.companyName,
+            lastPrice: `$${q.lastPrice.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            volume: q.volume.toLocaleString(),
+            range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
+            peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
+            marketCap: q.marketCap ? `$${(q.marketCap / 1e9).toFixed(1)}B` : "N/A",
+            source: q.source,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "preview_order") {
+      const sym = (plan.tradingData?.symbol || "NVDA").toUpperCase();
+      const qty = plan.tradingData?.quantity || 10;
+      const orderAction = plan.tradingData?.orderAction || "BUY";
+      const draft = etrade.previewOrder({
+        sessionId,
+        symbol: sym,
+        orderAction,
+        quantity: qty,
+        orderType: plan.tradingData?.orderType || "MARKET",
+        limitPrice: plan.tradingData?.limitPrice,
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
+        rows: [
+          {
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
+            estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
+            commission: `$${draft.estimatedCommission.toFixed(2)}`,
+            proposerDid: draft.proposerDid,
+            status: draft.status.toUpperCase(),
+            safetyGuarantee: "No live trade submitted. Human approval required.",
+            authorizationPrompt: `Reply 'approve ${draft.orderId}' or execute via Trading Hub.`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "positions") {
+      const posRes = etrade.getPositions();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: posRes.positions.length,
+        summary: `E*TRADE Account ${posRes.account.accountId}: Total Value $${posRes.account.totalAccountValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash $${posRes.account.cashAvailableForInvestment.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Open Positions: ${posRes.positions.length}.`,
+        rows: posRes.positions.map((p) => ({
+          symbol: p.symbol,
+          description: p.description,
+          shares: p.quantity,
+          costBasis: `$${p.costBasis.toFixed(2)}`,
+          lastPrice: `$${p.marketPrice.toFixed(2)}`,
+          marketValue: `$${p.marketValue.toFixed(2)}`,
+          unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
+        })),
+        executedAt,
+      };
+    }
+  }
+
+  // 5. Default: Query Conversation History
   const messages = orm.messages.findMany({
     where: { sessionId },
     orderBy: "created_at DESC",

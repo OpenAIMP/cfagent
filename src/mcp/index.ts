@@ -113,6 +113,18 @@ export const MCP_RESOURCES: MCPResourceDefinition[] = [
     description: "Recent router decisions, HITL authorizations, and agent execution events.",
     mimeType: "application/json",
   },
+  {
+    uri: "sqlite://trading/orders",
+    name: "E*TRADE Order Ledger",
+    description: "Historical equity orders, execution statuses, and cryptographic Agent DID stamps.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "etrade://portfolio/positions",
+    name: "E*TRADE Account Positions & Holdings",
+    description: "Active equity portfolio holdings, cost basis, and unrealized market gains/losses.",
+    mimeType: "application/json",
+  },
 ];
 
 /**
@@ -214,6 +226,24 @@ export async function readMCPResource(
         uri,
         mimeType: "application/json",
         text: JSON.stringify(events, null, 2),
+      };
+    }
+    case "sqlite://trading/orders": {
+      const orders = orm.trades.findMany({ orderBy: "created_at DESC", limit: 50 });
+      return {
+        uri,
+        mimeType: "application/json",
+        text: JSON.stringify(orders, null, 2),
+      };
+    }
+    case "etrade://portfolio/positions": {
+      const { ETradeService } = await import("../services/etrade");
+      const etrade = new ETradeService(orm);
+      const holdings = etrade.getPositions();
+      return {
+        uri,
+        mimeType: "application/json",
+        text: JSON.stringify(holdings, null, 2),
       };
     }
     default:

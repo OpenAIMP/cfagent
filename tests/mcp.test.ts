@@ -85,8 +85,9 @@ describe("Model Context Protocol (MCP) Server", () => {
 
       expect(resp.result?.isError).toBe(false);
       const parsed = JSON.parse(resp.result.content[0].text);
-      expect(parsed.count).toBe(8);
+      expect(parsed.count).toBe(9);
       expect(parsed.tables.some((t: any) => t.name === "mas_categories")).toBe(true);
+      expect(parsed.tables.some((t: any) => t.name === "mas_trades")).toBe(true);
     });
 
     it("executes tool: manage_categories (create, list, delete)", async () => {
@@ -225,7 +226,7 @@ describe("Model Context Protocol (MCP) Server", () => {
       const content = resp.result?.contents?.[0];
       expect(content?.uri).toBe("sqlite://schema/tables");
       const tables = JSON.parse(content?.text);
-      expect(tables.length).toBe(8);
+      expect(tables.length).toBe(9);
     });
 
     it("reads resource: sqlite://revenue/summary", async () => {
