@@ -48,6 +48,7 @@ export interface Env {
   FOSS_MARKET_DATA_PROVIDER?: "alpaca" | "yfinance" | "hybrid";
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
+  ETRADE_KV?: KVNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
@@ -357,6 +358,9 @@ export interface ETradeBrokerStatus {
   activeEnvironment?: "TEST" | "PROD" | string;
   apiUrl?: string;
   hasApiKey?: boolean;
+  oauthAuthenticated?: boolean;
+  oauthExpiresAtEt?: string;
+  oauthRenewable?: boolean;
   capabilities: string[];
 }
 

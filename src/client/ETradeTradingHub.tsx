@@ -72,22 +72,158 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   // DID Copy feedback
   const [copiedDid, setCopiedDid] = useState(false);
 
-  // Fetch initial broker status, positions, and screener
+  // E*TRADE 3-Legged OAuth 1.0a state
+  const [oauthStatus, setOauthStatus] = useState<{
+    authenticated: boolean;
+    environment?: string;
+    storedAt?: string;
+    renewable?: boolean;
+    expired?: boolean;
+  } | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [oauthPin, setOauthPin] = useState("");
+  const [requestTokenInfo, setRequestTokenInfo] = useState<{ requestToken: string; authorizeUrl: string } | null>(null);
+  const [oauthSubmitting, setOauthSubmitting] = useState(false);
+  const [oauthMsg, setOauthMsg] = useState("");
+
+  // Fetch initial broker status, OAuth status, positions, and screener
   useEffect(() => {
+    fetchOAuthStatus();
     fetchBrokerStatus();
     fetchPositions();
     runScreener();
     fetchOrders();
     fetchSymbolQuote(orderSymbol);
+
+    // Check if redirected back from E*TRADE OAuth
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("etrade_auth") === "success") {
+      setOauthMsg("E*TRADE OAuth 1.0a connection established! Real broker access enabled.");
+      fetchOAuthStatus();
+      fetchBrokerStatus();
+      fetchPositions();
+    }
   }, []);
+
+  const fetchOAuthStatus = async () => {
+    setOauthLoading(true);
+    try {
+      const resp = await fetch("/api/etrade/oauth/status");
+      if (resp.ok) {
+        const data = (await resp.json()) as any;
+        setOauthStatus(data);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setOauthLoading(false);
+    }
+  };
+
+  const handleStartOAuth = async () => {
+    setOauthLoading(true);
+    setOauthMsg("");
+    try {
+      const resp = await fetch("/api/etrade/oauth/start");
+      const data = (await resp.json()) as any;
+      if (resp.ok && data.authorizeUrl) {
+        setRequestTokenInfo(data);
+        setShowPinModal(true);
+        // Open E*TRADE login & authorization in a new tab
+        window.open(data.authorizeUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setOauthMsg(data.error || "Failed to start E*TRADE OAuth session");
+      }
+    } catch (err: any) {
+      setOauthMsg(err.message || "Failed to initiate OAuth request");
+    } finally {
+      setOauthLoading(false);
+    }
+  };
+
+  const handleSubmitPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!oauthPin.trim()) return;
+    setOauthSubmitting(true);
+    setOauthMsg("");
+    try {
+      const resp = await fetch("/api/etrade/oauth/verifier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          verifier: oauthPin.trim(),
+          requestToken: requestTokenInfo?.requestToken,
+        }),
+      });
+      const data = (await resp.json()) as any;
+      if (resp.ok && data.success) {
+        setShowPinModal(false);
+        setOauthPin("");
+        await fetchOAuthStatus();
+        await fetchBrokerStatus();
+        await fetchPositions();
+        await fetchSymbolQuote(orderSymbol);
+        setOauthMsg("E*TRADE Account Connected! Access token active until midnight Eastern Time.");
+      } else {
+        setOauthMsg(data.error || "Failed to exchange verification code with E*TRADE");
+      }
+    } catch (err: any) {
+      setOauthMsg(err.message || "Failed to submit verification code");
+    } finally {
+      setOauthSubmitting(false);
+    }
+  };
+
+  const handleRenewOAuth = async () => {
+    setOauthLoading(true);
+    setOauthMsg("");
+    try {
+      const resp = await fetch("/api/etrade/oauth/renew", { method: "POST" });
+      const data = (await resp.json()) as any;
+      if (resp.ok && data.success) {
+        await fetchOAuthStatus();
+        setOauthMsg("Token renewed successfully for today!");
+      } else {
+        setOauthMsg(data.error || "Failed to renew token. Please re-authenticate.");
+      }
+    } catch (err: any) {
+      setOauthMsg(err.message || "Failed to renew token");
+    } finally {
+      setOauthLoading(false);
+    }
+  };
+
+  const handleRevokeOAuth = async () => {
+    if (!confirm("Are you sure you want to disconnect your E*TRADE account?")) return;
+    setOauthLoading(true);
+    try {
+      await fetch("/api/etrade/oauth/revoke", { method: "POST" });
+      await fetchOAuthStatus();
+      await fetchBrokerStatus();
+      setOauthMsg("E*TRADE account disconnected.");
+    } catch {
+      // Ignore
+    } finally {
+      setOauthLoading(false);
+    }
+  };
 
   const fetchBrokerStatus = async () => {
     try {
       const resp = await fetch("/api/etrade/status");
       if (resp.ok) {
-        const data = await resp.json() as any;
+        const data = (await resp.json()) as any;
         setBrokerStatus(data.status || data);
         if (data.account) setAccount(data.account);
+        if (data.oauthAuthenticated !== undefined) {
+          setOauthStatus((prev) => ({
+            authenticated: data.oauthAuthenticated,
+            environment: data.activeEnvironment || prev?.environment,
+            storedAt: data.oauthExpiresAtEt || prev?.storedAt,
+            renewable: data.oauthRenewable !== undefined ? data.oauthRenewable : prev?.renewable,
+          }));
+        }
       }
     } catch {
       // Ignore
@@ -384,6 +520,140 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </div>
         </div>
       </div>
+
+      {/* E*TRADE OAuth 1.0a Authentication Lifecycle Banner */}
+      {oauthStatus?.authenticated ? (
+        <div className="etrade-oauth-banner connected">
+          <div className="oauth-status-info">
+            <span className="oauth-icon">🛡️</span>
+            <div>
+              <strong>E*TRADE Brokerage Account Connected [{brokerStatus?.activeEnvironment || "TEST"}]</strong>
+              <span className="oauth-meta">
+                OAuth 1.0a Active Session • Access token valid until Midnight US Eastern Time • Auto-renewing
+              </span>
+            </div>
+          </div>
+          <div className="oauth-actions">
+            {oauthStatus.renewable && (
+              <button
+                type="button"
+                className="btn-oauth-renew"
+                disabled={oauthLoading}
+                onClick={handleRenewOAuth}
+                title="Renew OAuth Access Token proactively before midnight ET"
+              >
+                🔄 Renew Token
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-oauth-revoke"
+              disabled={oauthLoading}
+              onClick={handleRevokeOAuth}
+            >
+              Disconnect
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="etrade-oauth-banner unauthenticated">
+          <div className="oauth-status-info">
+            <span className="oauth-icon">⚠️</span>
+            <div>
+              <strong>Authentication Required for Real E*TRADE Broker API [{brokerStatus?.activeEnvironment || "TEST"}]</strong>
+              <span className="oauth-meta">
+                E*TRADE requires 3-legged OAuth 1.0a. Connect your account to fetch live quotes directly and route orders to the exchange.
+              </span>
+            </div>
+          </div>
+          <div className="oauth-actions">
+            <button
+              type="button"
+              className="btn-oauth-connect"
+              disabled={oauthLoading}
+              onClick={handleStartOAuth}
+            >
+              {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE Account"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* OAuth Banner Notification Message */}
+      {oauthMsg && (
+        <div style={{ background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px", padding: "0.6rem 1rem", color: "#38bdf8", fontSize: "0.85rem", marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>ℹ️ {oauthMsg}</span>
+          <button type="button" onClick={() => setOauthMsg("")} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "0.9rem" }}>✕</button>
+        </div>
+      )}
+
+      {/* OAuth PIN Verification Modal */}
+      {showPinModal && (
+        <div className="modal-backdrop">
+          <div className="etrade-pin-modal">
+            <div className="modal-header">
+              <h3>Authorize E*TRADE Application</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setShowPinModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: "0 0 1rem 0", color: "#cbd5e1", fontSize: "0.88rem", lineHeight: "1.4" }}>
+                An E*TRADE authorization window has opened in a new tab. Log in, authorize application access, and enter the verification PIN provided by E*TRADE.
+              </p>
+              <div className="step-instruction">
+                <span className="step-number">1</span>
+                <span>If the tab did not open, click the button below:</span>
+              </div>
+              {requestTokenInfo?.authorizeUrl && (
+                <a
+                  href={requestTokenInfo.authorizeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-open-etrade"
+                >
+                  ↗ Open E*TRADE Login &amp; Authorization
+                </a>
+              )}
+              <div className="step-instruction">
+                <span className="step-number">2</span>
+                <span>Copy the verification code (PIN) displayed by E*TRADE and paste it here:</span>
+              </div>
+              <form onSubmit={handleSubmitPin} className="pin-form">
+                <input
+                  type="text"
+                  className="pin-input"
+                  placeholder="Enter E*TRADE Verification Code (e.g. ABC1234)"
+                  value={oauthPin}
+                  onChange={(e) => setOauthPin(e.target.value)}
+                  autoFocus
+                />
+                {oauthMsg && <div style={{ color: "#f87171", fontSize: "0.82rem", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
+                <div className="modal-btn-row">
+                  <button
+                    type="submit"
+                    className="btn-submit-pin"
+                    disabled={oauthSubmitting || !oauthPin.trim()}
+                  >
+                    {oauthSubmitting ? "Verifying…" : "✓ Complete Authorization & Store Token"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-cancel-modal"
+                    onClick={() => setShowPinModal(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NLQ Natural Language Trading Prompt Bar */}
       <div className="nlq-quick-bar">
@@ -881,11 +1151,26 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       type="button"
                       className="btn-peek-quote"
                       disabled={quoteLoading}
-                      onClick={() => fetchSymbolQuote(orderSymbol)}
+                      onClick={() => {
+                        if (!oauthStatus?.authenticated) {
+                          handleStartOAuth();
+                        } else {
+                          fetchSymbolQuote(orderSymbol);
+                        }
+                      }}
+                      title={!oauthStatus?.authenticated ? "Authentication required for live broker quotes" : "Fetch live quote from E*TRADE"}
                     >
-                      {quoteLoading ? "Fetching…" : "🔍 Get Live Quote"}
+                      {quoteLoading ? "Fetching…" : !oauthStatus?.authenticated ? "🔑 Connect & Quote" : "🔍 Get Live Quote"}
                     </button>
                   </div>
+                  {!oauthStatus?.authenticated && (
+                    <div className="order-auth-notice">
+                      <span>🔒 Connect your E*TRADE account to fetch authenticated live market quotes.</span>
+                      <button type="button" onClick={handleStartOAuth}>
+                        Connect E*TRADE →
+                      </button>
+                    </div>
+                  )}
                   {orderQuote && (
                     <div className="order-quote-peek">
                       <span className="quote-company">{orderQuote.companyName}</span>
@@ -894,6 +1179,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         {orderQuote.change >= 0 ? "+" : ""}{orderQuote.change.toFixed(2)} ({orderQuote.changePercent.toFixed(2)}%)
                       </span>
                       <span className="quote-bidask">Bid: ${orderQuote.bid.toFixed(2)} / Ask: ${orderQuote.ask.toFixed(2)}</span>
+                      {orderQuote.source && (
+                        <span style={{ fontSize: "0.72rem", color: "#38bdf8", background: "rgba(56, 189, 248, 0.12)", padding: "0.15rem 0.45rem", borderRadius: "4px", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
+                          ✓ {orderQuote.source}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

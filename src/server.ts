@@ -2,6 +2,13 @@ import type { Env, SessionData } from "./types";
 import { getSessionId, getSession, setSessionCookie } from "./session";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import { routeAgentRequest } from "agents";
+import {
+  getETradeRequestToken,
+  exchangeETradeVerifier,
+  renewETradeAccessToken,
+  revokeStoredTokens,
+  getETradeAuthStatus,
+} from "./services/etradeOAuth";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -56,6 +63,79 @@ export default {
     if (path === "/auth/login") return handleLogin(env);
     if (path === "/auth/callback") return handleOAuthCallback(env, request);
     if (path === "/auth/logout") return handleLogout(env, request);
+
+    // --- E*TRADE OAuth 1.0a 3-Legged Lifecycle Endpoints ---
+    if (path === "/auth/etrade/start" || path === "/api/etrade/oauth/start") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const callbackUrl = new URL("/auth/etrade/callback", request.url).toString();
+      try {
+        const result = await getETradeRequestToken(env, session.githubLogin, callbackUrl);
+        if (url.searchParams.get("mode") === "redirect") {
+          return Response.redirect(result.authorizeUrl, 302);
+        }
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to initiate E*TRADE OAuth" }, { status: 500 });
+      }
+    }
+
+    if (path === "/auth/etrade/callback") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.redirect("/?error=unauthorized", 302);
+      const verifier = url.searchParams.get("oauth_verifier");
+      if (!verifier) {
+        return Response.redirect("/?tab=trading&error=missing_verifier", 302);
+      }
+      try {
+        await exchangeETradeVerifier(env, session.githubLogin, verifier);
+        return Response.redirect("/?tab=trading&etrade_auth=success", 302);
+      } catch (err: any) {
+        return Response.redirect(`/?tab=trading&error=${encodeURIComponent(err.message || "exchange_failed")}`, 302);
+      }
+    }
+
+    if (path === "/api/etrade/oauth/status") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ authenticated: false });
+      const status = await getETradeAuthStatus(env, session.githubLogin);
+      return Response.json(status);
+    }
+
+    if (path === "/api/etrade/oauth/verifier" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as any;
+      const verifier = (body.verifier || "").trim();
+      if (!verifier) return Response.json({ error: "Verifier PIN is required" }, { status: 400 });
+      try {
+        const tokens = await exchangeETradeVerifier(env, session.githubLogin, verifier, body.requestToken, body.requestTokenSecret);
+        return Response.json({ success: true, environment: tokens.environment, storedAt: tokens.storedAt });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to exchange verifier" }, { status: 400 });
+      }
+    }
+
+    if (path === "/api/etrade/oauth/renew" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      try {
+        const renewed = await renewETradeAccessToken(env, session.githubLogin);
+        if (renewed) {
+          return Response.json({ success: true, storedAt: renewed.storedAt });
+        }
+        return Response.json({ success: false, error: "Token could not be renewed. User must re-authenticate." }, { status: 400 });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to renew token" }, { status: 500 });
+      }
+    }
+
+    if (path === "/api/etrade/oauth/revoke" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      await revokeStoredTokens(env, session.githubLogin);
+      return Response.json({ success: true });
+    }
 
     // --- User Profile API ---
     if (path === "/api/me") {
@@ -112,7 +192,9 @@ export default {
       const subPath = path.replace(/^\/api/, "");
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
 
-      return env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", session.githubLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
     // --- Simulated Sandbox Terminal for Payment Gateways ---

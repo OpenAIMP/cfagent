@@ -5,21 +5,47 @@
     "TEST": {
       "name": "TEST",
       "label": "Sandbox",
-      "description": "E*TRADE Sandbox (apisb.etrade.com) — safe testing, no real money",
+      "description": "E*TRADE Sandbox (apisb.etrade.com) & Payment Gateways in Sandbox / Test Mode",
       "isLive": false,
       "etrade": {
         "baseUrl": "https://apisb.etrade.com/v1",
         "type": "sandbox"
+      },
+      "payments": {
+        "mode": "test",
+        "paypal": {
+          "environment": "sandbox",
+          "baseUrl": "https://api-m.sandbox.paypal.com"
+        },
+        "stripe": {
+          "mode": "test"
+        },
+        "lemonsqueezy": {
+          "mode": "test"
+        }
       }
     },
     "PROD": {
       "name": "PROD",
       "label": "Live",
-      "description": "E*TRADE Live (api.etrade.com) — real brokerage account, real money",
+      "description": "E*TRADE Live (api.etrade.com) & Payment Gateways in Live Production Mode",
       "isLive": true,
       "etrade": {
         "baseUrl": "https://api.etrade.com/v1",
         "type": "live"
+      },
+      "payments": {
+        "mode": "live",
+        "paypal": {
+          "environment": "live",
+          "baseUrl": "https://api-m.paypal.com"
+        },
+        "stripe": {
+          "mode": "live"
+        },
+        "lemonsqueezy": {
+          "mode": "live"
+        }
       }
     }
   }

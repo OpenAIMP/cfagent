@@ -1193,7 +1193,16 @@ Agentic Best Practices & Workflow Rules:
           userLogin: sessionId,
         });
 
+        if (!checkoutResult.success) {
+          return Response.json({
+            success: false,
+            error: checkoutResult.message || `Failed to create checkout with ${gateway}`,
+            code: "PAYMENT_GATEWAY_ERROR",
+          }, { status: 400 });
+        }
+
         const now = new Date().toISOString();
+        const initialStatus = checkoutResult.checkoutUrl ? "pending_checkout" : "completed";
         sql.exec(
           "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           draftId,
@@ -1204,7 +1213,7 @@ Agentic Best Practices & Workflow Rules:
           customer,
           gateway,
           checkoutResult.gatewayRef || "",
-          "completed",
+          initialStatus,
           checkoutResult.checkoutUrl,
           AGENT_DIDS.PAYMENTS,
           userDid,
@@ -1236,7 +1245,7 @@ Agentic Best Practices & Workflow Rules:
             customer,
             gateway,
             gatewayRef: checkoutResult.gatewayRef,
-            status: "completed",
+            status: initialStatus,
             checkoutUrl: checkoutResult.checkoutUrl,
             proposerDid: AGENT_DIDS.PAYMENTS,
             authorizerDid: userDid,
@@ -1433,8 +1442,9 @@ Agentic Best Practices & Workflow Rules:
     // Broker status & account metadata
     if (path.endsWith("/etrade/status") && request.method === "GET") {
       try {
-        const etrade = new ETradeService(this.getOrm(), this.env);
-        const status = etrade.getStatus();
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const status = await etrade.getStatusAsync();
         return Response.json(status);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch broker status" }, { status: 500 });
@@ -1444,7 +1454,8 @@ Agentic Best Practices & Workflow Rules:
     // Broker Accounts List (Real E*TRADE REST / OAuth 1.0a)
     if (path.endsWith("/etrade/accounts") && request.method === "GET") {
       try {
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const accounts = await etrade.fetchAccountsRemote();
         return Response.json({ count: accounts.length, accounts });
       } catch (err) {
@@ -1455,6 +1466,7 @@ Agentic Best Practices & Workflow Rules:
     // Market Screener & Scanning
     if (path.endsWith("/etrade/screen") && (request.method === "POST" || request.method === "GET")) {
       try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
         if (request.method === "GET") {
           if (url.searchParams.get("sector")) filters.sector = url.searchParams.get("sector");
@@ -1463,7 +1475,7 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
         }
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const results = etrade.screenStocks(filters);
         this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
         return Response.json(results);
@@ -1476,7 +1488,8 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/etrade/quote") && request.method === "GET") {
       try {
         const symbol = url.searchParams.get("symbol") || "NVDA";
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const quote = await etrade.fetchQuoteRemote(symbol);
         return Response.json(quote);
       } catch (err) {
@@ -1499,7 +1512,8 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: "Stock symbol is required" }, { status: 400 });
         }
 
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const preview = await etrade.previewOrderRemote({
           sessionId,
           symbol,
@@ -1536,11 +1550,12 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: "orderId is required" }, { status: 400 });
         }
 
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const userDid = getUserDid(sessionId);
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         let result: any;
 
-        if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL)) {
+        if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY)) {
           result = await etrade.placeOrderRemote({
             orderId,
             symbol: body.symbol || "NVDA",
@@ -1549,7 +1564,7 @@ Agentic Best Practices & Workflow Rules:
             orderType: body.orderType || "MARKET",
             limitPrice: body.limitPrice,
             previewId: body.previewId,
-            userLogin: userDid,
+            userLogin,
           });
         } else {
           result = etrade.executeOrder(orderId, userDid, decision);
@@ -1572,7 +1587,8 @@ Agentic Best Practices & Workflow Rules:
     // Positions & Account Holdings (Real E*TRADE OAuth 1.0a)
     if (path.endsWith("/etrade/positions") && request.method === "GET") {
       try {
-        const etrade = new ETradeService(this.getOrm(), this.env);
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const holdings = await etrade.fetchPortfolioRemote();
         return Response.json(holdings);
       } catch (err) {

@@ -90,7 +90,7 @@ jobs:
           echo "KV_ID=$KV_ID" >> $GITHUB_ENV
 
       - name: Update wrangler.jsonc with KV ID
-        run: sed -i "s/<YOUR_KV_NAMESPACE_ID>/$KV_ID/" wrangler.jsonc
+        run: sed -i "s/<YOUR_KV_NAMESPACE_ID>/$KV_ID/g" wrangler.jsonc
 
       - name: Deploy Worker
         env:

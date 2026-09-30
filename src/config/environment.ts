@@ -10,11 +10,19 @@ export interface EnvironmentETradeConfig {
   oauthTokenSecret?: string;
 }
 
+export interface EnvironmentPaymentsConfig {
+  mode: "test" | "live";
+  paypalEnvironment: "sandbox" | "live";
+  stripeMode: "test" | "live";
+  lemonsqueezyMode: "test" | "live";
+}
+
 export interface ResolvedEnvironment {
   name: "TEST" | "PROD" | string;
   label: string;
   isLive: boolean;
   etrade: EnvironmentETradeConfig;
+  payments: EnvironmentPaymentsConfig;
 }
 
 /**
@@ -98,6 +106,8 @@ export function resolveEnvironmentConfig(env?: Partial<Env>): ResolvedEnvironmen
     processEnv.ETRADE_OAUTH_TOKEN_SECRET ||
     processEnv.ETRADE_ACCESS_TOKEN_SECRET;
 
+  const paypalEnv = env?.PAYPAL_ENVIRONMENT || (isLive ? "live" : "sandbox");
+
   return {
     name: activeName,
     label: baseDef.label || (isLive ? "Live" : "Sandbox"),
@@ -109,6 +119,12 @@ export function resolveEnvironmentConfig(env?: Partial<Env>): ResolvedEnvironmen
       apiSecret,
       oauthToken,
       oauthTokenSecret,
+    },
+    payments: {
+      mode: isLive ? "live" : "test",
+      paypalEnvironment: paypalEnv,
+      stripeMode: isLive ? "live" : "test",
+      lemonsqueezyMode: isLive ? "live" : "test",
     },
   };
 }

@@ -24,6 +24,7 @@ import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../agents/did"
 import { RemoteMcpClient } from "./mcpClient";
 import { generateOAuth1Header } from "./cryptoUtils";
 import { resolveEnvironmentConfig, resolveETradeBaseUrl } from "../config/environment";
+import { getValidTokens, getETradeAuthStatus } from "./etradeOAuth";
 
 // Authentic stock universe with realistic market and technical metrics
 export const MARKET_UNIVERSE: ScreenedStockItem[] = [
@@ -324,13 +325,16 @@ export const MARKET_UNIVERSE: ScreenedStockItem[] = [
 export class ETradeService {
   private orm?: DatabaseORM;
   private env: Env;
+  private userLogin: string;
 
-  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env) {
+  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string) {
     if (ormOrEnv && "trades" in (ormOrEnv as any)) {
       this.orm = ormOrEnv as DatabaseORM;
       this.env = env || ({} as Env);
+      this.userLogin = userLogin || "default_trader";
     } else {
       this.env = (ormOrEnv as Env) || ({} as Env);
+      this.userLogin = userLogin || "default_trader";
     }
   }
 
@@ -350,6 +354,7 @@ export class ETradeService {
       : "simulated_engine";
 
     const protocol = isMcp ? "mcp_json_rpc" : hasApiKey ? "etrade_oauth_rest" : "sandbox_simulated";
+    const hasStaticToken = Boolean(envConfig.etrade.oauthToken && envConfig.etrade.oauthTokenSecret);
 
     return {
       broker: "etrade",
@@ -362,6 +367,7 @@ export class ETradeService {
       activeEnvironment: envConfig.name,
       apiUrl: envConfig.etrade.baseUrl,
       hasApiKey,
+      oauthAuthenticated: hasStaticToken,
       capabilities: [
         "Natural Language Market Screener (NLQ)",
         "Technical Indicator Signals (RSI, Breakout, MACD)",
@@ -371,6 +377,22 @@ export class ETradeService {
         "Portfolio Positions & Purchasing Power",
       ],
     };
+  }
+
+  /**
+   * Async broker status that includes live KV token validity & midnight ET expiry check
+   */
+  async getStatusAsync(): Promise<ETradeBrokerStatus> {
+    const status = this.getStatus();
+    try {
+      const authStatus = await getETradeAuthStatus(this.env, this.userLogin);
+      status.oauthAuthenticated = authStatus.authenticated;
+      status.oauthExpiresAtEt = authStatus.storedAt;
+      status.oauthRenewable = authStatus.renewable;
+    } catch {
+      // Ignore KV lookup errors
+    }
+    return status;
   }
 
   /**
@@ -844,8 +866,21 @@ export class ETradeService {
     const envConfig = resolveEnvironmentConfig(this.env);
     const consumerKey = envConfig.etrade.apiKey || "";
     const consumerSecret = envConfig.etrade.apiSecret || "";
-    const token = envConfig.etrade.oauthToken || "";
-    const tokenSecret = envConfig.etrade.oauthTokenSecret || "";
+    let token = envConfig.etrade.oauthToken || "";
+    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
+
+    // If static token is not set, look up valid stored token from KV for this userLogin
+    if ((!token || !tokenSecret) && this.userLogin) {
+      try {
+        const stored = await getValidTokens(this.env, this.userLogin);
+        if (stored) {
+          token = stored.accessToken;
+          tokenSecret = stored.accessTokenSecret;
+        }
+      } catch {
+        // Ignore KV lookup errors
+      }
+    }
 
     return generateOAuth1Header({
       method,
@@ -942,10 +977,21 @@ export class ETradeService {
               timestamp: new Date().toISOString(),
             };
           }
+        } else if (res.status === 401) {
+          if (envConfig.isLive) {
+            throw new Error(`E*TRADE Live API Authentication Error [HTTP 401]: OAuth access token is expired or unauthorized. Token must be renewed or re-authorized.`);
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (envConfig.isLive) {
+          throw err;
+        }
         console.warn("E*TRADE REST quote error:", err);
       }
+    }
+
+    if (envConfig.isLive) {
+      throw new Error(`E*TRADE Live Market Data Error: ET_API_KEY and ET_API_SECRET must be configured for live market quotes [PROD environment]. Simulation disabled in PROD.`);
     }
 
     return this.getQuote(sym);
@@ -1302,11 +1348,14 @@ export class ETradeService {
     const envConfig = resolveEnvironmentConfig(this.env);
 
     // Step 2 of read-only sequence: resolve real accountIdKey.
-    // If not passed in, call List Accounts to get it (never use a hard-coded value).
+    // If not passed in or if a template placeholder was passed, call List Accounts to get it (never use a literal template value).
     let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) {
+      key = "";
+    }
 
     if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
-      // Auto-discover accountIdKey if not provided
+      // Auto-discover accountIdKey from GET /v1/accounts/list if not provided
       if (!key) {
         const accounts = await this.fetchAccountsRemote();
         key = accounts[0]?.accountKey || "";
