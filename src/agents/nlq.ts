@@ -35,19 +35,20 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
       temperature: 0,
       system: `Convert a user's natural language question about their conversation history into a structured read-only JSON query plan.
 Valid operations:
-- 'count': if asking how many / total messages.
-- 'search': if looking for specific topics, words, or questions.
-- 'list': if asking to see recent messages or transcript.
+- 'count': if asking how many / total messages or questions.
+- 'list': if asking to see messages, user questions, assistant answers, or chat history.
+- 'search': if looking for specific topics, words, or domain subjects (e.g. 'pricing', 'payment', 'SOC2').
 
-Rules:
-- Never generate SQL syntax directly.
-- Terms should extract the core keyword or phrase to search.
-- Role should be 'user', 'assistant', or 'any'.
-- Use ISO-8601 for 'since' if an explicit date is mentioned, otherwise null.
+Crucial Rules for 'terms':
+- 'terms' must ONLY contain specific topical search keywords (e.g. 'pricing', 'refund', 'workers', 'dark mode').
+- If the user asks for 'all questions', 'user questions', 'messages', 'chat history', or 'prompts', 'terms' MUST BE empty string ""! (DO NOT put 'questions', 'messages', or 'asked' in terms).
+- If asking about user questions or prompts, set role: 'user' and terms: "".
+- If asking about assistant responses or answers, set role: 'assistant' and terms: "".
+- If asking about all messages or transcript, set role: 'any' and terms: "".
 - Default limit is 25 (max 100).
 
 Return JSON only:
-{"operation": "list"|"count"|"search", "terms": "...", "role": "any"|"user"|"assistant", "since": null|"YYYY-MM-DD", "limit": 25}`,
+{"operation": "list"|"count"|"search", "terms": "", "role": "any"|"user"|"assistant", "since": null|"YYYY-MM-DD", "limit": 25}`,
       prompt: question.slice(0, 2000),
     });
 
@@ -55,16 +56,28 @@ Return JSON only:
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
+      // Strip generic conversational stop-words from terms
+      if (typeof parsed.terms === "string") {
+        parsed.terms = parsed.terms
+          .replace(/\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all)\b/gi, "")
+          .trim();
+      }
       return nlqPlanSchema.parse(parsed);
     }
   } catch {
     // Fall back to a default search plan on parse failure
   }
 
+  const isCount = /\b(how many|count|total)\b/i.test(question);
+  const isUserQuestions = /\b(questions?|user.*questions?|prompts?)\b/i.test(question);
+  const cleanTerms = question
+    .replace(/\b(list|show|get|all|user|questions?|messages?|chats?|history|transcript|conversations?|asked|how many|count|total)\b/gi, "")
+    .trim();
+
   return {
-    operation: question.toLowerCase().includes("how many") || question.toLowerCase().includes("count") ? "count" : "search",
-    terms: question.slice(0, 100),
-    role: "any",
+    operation: isCount ? "count" : "list",
+    terms: cleanTerms.slice(0, 100),
+    role: isUserQuestions ? "user" : "any",
     since: null,
     limit: 25,
   };
@@ -74,14 +87,19 @@ export function queryConversation(sql: { exec: (query: string, ...args: unknown[
   const clauses: string[] = ["session_id = ?"];
   const args: unknown[] = [sessionId];
 
-  if (plan.role !== "any") {
+  if (plan.role && plan.role !== "any") {
     clauses.push("role = ?");
     args.push(plan.role);
   }
 
-  if (plan.terms && plan.terms.trim()) {
+  // Defensively strip conversational stop words so meta-terms don't block SQL matching
+  const cleanTerms = (plan.terms || "")
+    .replace(/\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all)\b/gi, "")
+    .trim();
+
+  if (cleanTerms) {
     clauses.push("lower(content) LIKE ?");
-    args.push(`%${plan.terms.trim().toLowerCase()}%`);
+    args.push(`%${cleanTerms.toLowerCase()}%`);
   }
 
   if (plan.since) {
