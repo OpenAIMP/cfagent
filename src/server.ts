@@ -96,6 +96,13 @@ export default {
       return new Response(resp.body, { status: resp.status, headers });
     }
 
+    // --- External Payment Webhook Listeners (Stripe, PayPal, Lemon Squeezy) ---
+    if (path.startsWith("/api/payments/webhook") || path === "/payments/webhook") {
+      const id = env.SEARCH_AGENT.idFromName("system_webhook_receiver");
+      const targetUrl = new URL("/payments/webhook" + url.search, "https://agent.internal");
+      return env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
+    }
+
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);

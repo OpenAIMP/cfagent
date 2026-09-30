@@ -631,6 +631,49 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   }
 
   async getQuote(symbol: string): Promise<FossQuote> {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "application/json",
+        },
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && (meta.regularMarketPrice !== undefined || meta.chartPreviousClose !== undefined)) {
+          const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose);
+          const prevClose = Number(meta.chartPreviousClose ?? meta.previousClose ?? price);
+          const change = Number((price - prevClose).toFixed(2));
+          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+          return {
+            symbol: meta.symbol || symbol.toUpperCase(),
+            provider: "yfinance",
+            companyName: meta.shortName || meta.longName || `${symbol.toUpperCase()} Inc.`,
+            price,
+            lastPrice: price,
+            change,
+            changePercent,
+            bid: Number(meta.bid || (price - 0.05).toFixed(2)),
+            ask: Number(meta.ask || (price + 0.05).toFixed(2)),
+            volume: Number(meta.regularMarketVolume || 0),
+            open: Number(meta.regularMarketDayHigh ? ((meta.regularMarketDayHigh + meta.regularMarketDayLow) / 2).toFixed(2) : price),
+            high: Number(meta.regularMarketDayHigh || meta.fiftyTwoWeekHigh || price),
+            low: Number(meta.regularMarketDayLow || meta.fiftyTwoWeekLow || price),
+            previousClose: prevClose,
+            vwap: price,
+            trailingPE: getOrCreateProfile(symbol).peTrailing,
+            marketCap: getOrCreateProfile(symbol).marketCap,
+            timestamp: new Date().toISOString(),
+            currency: meta.currency || "USD",
+          };
+        }
+      }
+    } catch (err) {
+      // Fall through to deterministic profile
+    }
+
     return this.getQuoteSync(symbol);
   }
 
@@ -669,6 +712,54 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   }
 
   async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+    try {
+      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=price,summaryDetail,defaultKeyStatistics,financialData,recommendationTrend`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "application/json",
+        },
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        const result = data?.quoteSummary?.result?.[0];
+        if (result) {
+          const priceMod = result.price || {};
+          const summaryMod = result.summaryDetail || {};
+          const statsMod = result.defaultKeyStatistics || {};
+          const finMod = result.financialData || {};
+
+          return {
+            symbol: symbol.toUpperCase(),
+            companyName: priceMod.longName || priceMod.shortName || `${symbol.toUpperCase()} Inc.`,
+            sector: finMod.sector || "Technology",
+            industry: finMod.industry || "Software & Cloud Services",
+            description: finMod.description || "",
+            marketCap: Number(priceMod.marketCap?.raw || summaryMod.marketCap?.raw || 0),
+            enterpriseValue: Number(statsMod.enterpriseValue?.raw || 0),
+            peTrailing: Number(summaryMod.trailingPE?.raw || 0),
+            peForward: Number(summaryMod.forwardPE?.raw || 0),
+            pegRatio: Number(statsMod.pegRatio?.raw || 0),
+            priceToBook: Number(statsMod.priceToBook?.raw || 0),
+            beta: Number(statsMod.beta?.raw || 1),
+            fiftyTwoWeekHigh: Number(summaryMod.fiftyTwoWeekHigh?.raw || 0),
+            fiftyTwoWeekLow: Number(summaryMod.fiftyTwoWeekLow?.raw || 0),
+            targetMeanPrice: Number(finMod.targetMeanPrice?.raw || 0),
+            targetHighPrice: Number(finMod.targetHighPrice?.raw || 0),
+            targetLowPrice: Number(finMod.targetLowPrice?.raw || 0),
+            recommendationKey: finMod.recommendationKey || "buy",
+            numberOfAnalystOpinions: Number(finMod.numberOfAnalystOpinions?.raw || 0),
+            dividendYield: Number(summaryMod.dividendYield?.raw || 0),
+            profitMargins: Number(finMod.profitMargins?.raw || 0),
+            operatingMargins: Number(finMod.operatingMargins?.raw || 0),
+            revenue: Number(finMod.totalRevenue?.raw || 0),
+          };
+        }
+      }
+    } catch (err) {
+      // Fall through to deterministic profile
+    }
+
     return this.getFundamentalsSync(symbol);
   }
 
@@ -678,6 +769,51 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   }
 
   async getHistoricalBars(symbol: string, _timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "application/json",
+        },
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        const result = data?.chart?.result?.[0];
+        const timestamps = result?.timestamp;
+        const quote = result?.indicators?.quote?.[0];
+
+        if (Array.isArray(timestamps) && quote?.close) {
+          const bars: FossHistoricalBar[] = [];
+          const count = Math.min(timestamps.length, limit);
+          const startIndex = timestamps.length - count;
+
+          for (let i = startIndex; i < timestamps.length; i++) {
+            const o = quote.open?.[i] || quote.close?.[i] || 0;
+            const h = quote.high?.[i] || quote.close?.[i] || 0;
+            const l = quote.low?.[i] || quote.close?.[i] || 0;
+            const c = quote.close?.[i] || 0;
+            const v = quote.volume?.[i] || 0;
+            if (c > 0) {
+              bars.push({
+                timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
+                open: Number(o.toFixed(2)),
+                high: Number(h.toFixed(2)),
+                low: Number(l.toFixed(2)),
+                close: Number(c.toFixed(2)),
+                volume: Math.round(v),
+                vwap: Number(((h + l + c) / 3).toFixed(2)),
+                tradeCount: Math.round(v / 100),
+              });
+            }
+          }
+          if (bars.length > 0) return bars;
+        }
+      }
+    } catch (err) {
+      // Fall through to deterministic profile
+    }
+
     return this.getHistoricalBarsSync(symbol, _timeframe, limit);
   }
 }
@@ -685,6 +821,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 /**
  * 2. Alpaca Market Data Provider Strategy (GoF Strategy Pattern)
  * Specializes in real-time Level 1/2 quotes, latest trades, NBBO bid/ask spreads, and multi-asset crypto/equities.
+ * Also integrates Alpaca v2 Trading API for live/paper order executions, accounts, and portfolio positions.
  */
 export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   readonly providerId = "alpaca" as const;
@@ -695,6 +832,21 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   isConfigured(env?: Env): boolean {
     const activeEnv = env || this.env;
     return Boolean(activeEnv?.ALPACA_API_KEY_ID && activeEnv?.ALPACA_API_SECRET_KEY);
+  }
+
+  getDataUrl(): string {
+    return this.env?.ALPACA_DATA_URL || "https://data.alpaca.markets";
+  }
+
+  getTradingUrl(): string {
+    return this.env?.ALPACA_BASE_URL || "https://paper-api.alpaca.markets";
+  }
+
+  getHeaders(): Record<string, string> {
+    return {
+      "APCA-API-KEY-ID": this.env?.ALPACA_API_KEY_ID || "",
+      "APCA-API-SECRET-KEY": this.env?.ALPACA_API_SECRET_KEY || "",
+    };
   }
 
   getQuoteSync(symbol: string): FossQuote {
@@ -723,6 +875,50 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   async getQuote(symbol: string): Promise<FossQuote> {
+    const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
+
+    if (this.isConfigured()) {
+      try {
+        const url = isCrypto
+          ? `${this.getDataUrl()}/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(symbol)}`
+          : `${this.getDataUrl()}/v2/stocks/${encodeURIComponent(symbol)}/quotes/latest`;
+
+        const res = await fetch(url, { headers: this.getHeaders() });
+        if (res.ok) {
+          const data = (await res.json().catch(() => ({}))) as any;
+          const q = isCrypto ? data?.quotes?.[symbol] : data?.quote;
+          if (q) {
+            const bid = Number(q.bp || 0);
+            const ask = Number(q.ap || 0);
+            const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : bid || ask;
+            return {
+              symbol: symbol.toUpperCase(),
+              provider: "alpaca",
+              companyName: `${symbol.toUpperCase()} Asset`,
+              price: Number(mid.toFixed(2)),
+              lastPrice: Number(mid.toFixed(2)),
+              change: 0,
+              changePercent: 0,
+              bid,
+              ask,
+              bidSize: Number(q.bs || 0),
+              askSize: Number(q.as || 0),
+              volume: 0,
+              open: mid,
+              high: mid,
+              low: mid,
+              previousClose: mid,
+              vwap: mid,
+              timestamp: q.t || new Date().toISOString(),
+              currency: "USD",
+            };
+          }
+        }
+      } catch (err) {
+        // Fall through to deterministic profile
+      }
+    }
+
     return this.getQuoteSync(symbol);
   }
 
@@ -753,6 +949,35 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   async getHistoricalBars(symbol: string, _timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+    if (this.isConfigured()) {
+      try {
+        const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
+        const url = isCrypto
+          ? `${this.getDataUrl()}/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=1Day&limit=${limit}`
+          : `${this.getDataUrl()}/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Day&limit=${limit}`;
+
+        const res = await fetch(url, { headers: this.getHeaders() });
+        if (res.ok) {
+          const data = (await res.json().catch(() => ({}))) as any;
+          const rawBars = isCrypto ? data?.bars?.[symbol] : data?.bars;
+          if (Array.isArray(rawBars) && rawBars.length > 0) {
+            return rawBars.map((b: any) => ({
+              timestamp: String(b.t).split("T")[0],
+              open: Number(b.o || 0),
+              high: Number(b.h || 0),
+              low: Number(b.l || 0),
+              close: Number(b.c || 0),
+              volume: Number(b.v || 0),
+              vwap: Number(b.vw || b.c || 0),
+              tradeCount: Number(b.n || 0),
+            }));
+          }
+        }
+      } catch (err) {
+        // Fall through
+      }
+    }
+
     return this.getHistoricalBarsSync(symbol, _timeframe, limit);
   }
 
@@ -791,7 +1016,206 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   async getMarketSnapshot(symbol: string): Promise<AlpacaMarketSnapshot> {
+    if (this.isConfigured()) {
+      try {
+        const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
+        const url = isCrypto
+          ? `${this.getDataUrl()}/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(symbol)}`
+          : `${this.getDataUrl()}/v2/stocks/${encodeURIComponent(symbol)}/snapshot`;
+
+        const res = await fetch(url, { headers: this.getHeaders() });
+        if (res.ok) {
+          const data = (await res.json().catch(() => ({}))) as any;
+          const s = isCrypto ? data?.snapshots?.[symbol] : data;
+          if (s) {
+            const bid = Number(s.latestQuote?.bp || 0);
+            const ask = Number(s.latestQuote?.ap || 0);
+            return {
+              symbol: symbol.toUpperCase(),
+              assetClass: isCrypto ? "crypto" : "us_equity",
+              latestTrade: {
+                price: Number(s.latestTrade?.p || 0),
+                size: Number(s.latestTrade?.s || 0),
+                timestamp: s.latestTrade?.t || new Date().toISOString(),
+              },
+              latestQuote: {
+                bidPrice: bid,
+                bidSize: Number(s.latestQuote?.bs || 0),
+                askPrice: ask,
+                askSize: Number(s.latestQuote?.as || 0),
+                timestamp: s.latestQuote?.t || new Date().toISOString(),
+              },
+              nbboSpread: Number((ask - bid).toFixed(3)),
+              dailyBar: {
+                timestamp: s.dailyBar?.t || new Date().toISOString(),
+                open: Number(s.dailyBar?.o || 0),
+                high: Number(s.dailyBar?.h || 0),
+                low: Number(s.dailyBar?.l || 0),
+                close: Number(s.dailyBar?.c || 0),
+                volume: Number(s.dailyBar?.v || 0),
+                vwap: Number(s.dailyBar?.vw || 0),
+              },
+              prevDailyBar: {
+                timestamp: s.prevDailyBar?.t || new Date().toISOString(),
+                open: Number(s.prevDailyBar?.o || 0),
+                high: Number(s.prevDailyBar?.h || 0),
+                low: Number(s.prevDailyBar?.l || 0),
+                close: Number(s.prevDailyBar?.c || 0),
+                volume: Number(s.prevDailyBar?.v || 0),
+                vwap: Number(s.prevDailyBar?.vw || 0),
+              },
+              minuteBar: {
+                timestamp: s.minuteBar?.t || new Date().toISOString(),
+                open: Number(s.minuteBar?.o || 0),
+                high: Number(s.minuteBar?.h || 0),
+                low: Number(s.minuteBar?.l || 0),
+                close: Number(s.minuteBar?.c || 0),
+                volume: Number(s.minuteBar?.v || 0),
+              },
+            };
+          }
+        }
+      } catch (err) {
+        // Fall through
+      }
+    }
+
     return this.getMarketSnapshotSync(symbol);
+  }
+
+  /**
+   * Real Alpaca Trading v2: Place Live or Paper Order
+   */
+  async placeOrder(params: {
+    symbol: string;
+    qty: number;
+    side: "buy" | "sell";
+    type?: "market" | "limit" | "stop" | "stop_limit";
+    limit_price?: number;
+    time_in_force?: "day" | "gtc" | "ioc" | "fok";
+  }): Promise<{ success: boolean; orderId?: string; status?: string; symbol?: string; qty?: number; side?: string; message: string }> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        message: "Alpaca Trading error: ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY must be configured for order placement. Simulation is disabled.",
+      };
+    }
+
+    try {
+      const body = {
+        symbol: params.symbol.toUpperCase(),
+        qty: params.qty,
+        side: params.side.toLowerCase(),
+        type: params.type || "market",
+        time_in_force: params.time_in_force || "day",
+        ...(params.limit_price ? { limit_price: params.limit_price } : {}),
+      };
+
+      const res = await fetch(`${this.getTradingUrl()}/v2/orders`, {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data?.id) {
+        return {
+          success: true,
+          orderId: data.id,
+          status: data.status,
+          symbol: data.symbol,
+          qty: Number(data.qty),
+          side: data.side,
+          message: `Alpaca Order ${data.id} placed successfully. Status: ${data.status}`,
+        };
+      }
+
+      return {
+        success: false,
+        message: data?.message || `Alpaca order placement failed: HTTP ${res.status}`,
+      };
+    } catch (err: any) {
+      return { success: false, message: `Alpaca network exception: ${err.message || String(err)}` };
+    }
+  }
+
+  /**
+   * Real Alpaca Trading v2: Get Account Details
+   */
+  async getAccount(): Promise<{ success: boolean; account?: any; message?: string }> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        message: "Alpaca Trading error: ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY are required.",
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.getTradingUrl()}/v2/account`, {
+        headers: this.getHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data?.id) {
+        return { success: true, account: data };
+      }
+      return { success: false, message: data?.message || "Failed to fetch Alpaca account" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Network error" };
+    }
+  }
+
+  /**
+   * Real Alpaca Trading v2: Get Open Positions
+   */
+  async getPositions(): Promise<{ success: boolean; positions?: any[]; message?: string }> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        message: "Alpaca Trading error: ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY are required.",
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.getTradingUrl()}/v2/positions`, {
+        headers: this.getHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && Array.isArray(data)) {
+        return { success: true, positions: data };
+      }
+      return { success: false, message: data?.message || "Failed to fetch Alpaca positions" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Network error" };
+    }
+  }
+
+  /**
+   * Real Alpaca Trading v2: Get Orders
+   */
+  async getOrders(status: "open" | "closed" | "all" = "open"): Promise<{ success: boolean; orders?: any[]; message?: string }> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        message: "Alpaca Trading error: ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY are required.",
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.getTradingUrl()}/v2/orders?status=${status}`, {
+        headers: this.getHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && Array.isArray(data)) {
+        return { success: true, orders: data };
+      }
+      return { success: false, message: data?.message || "Failed to fetch Alpaca orders" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Network error" };
+    }
   }
 }
 
@@ -1050,4 +1474,40 @@ export class FossResearchService {
       },
     ];
   }
+
+  /**
+   * Real Alpaca Trading v2: Place Live or Paper Order
+   */
+  async placeAlpacaOrder(params: {
+    symbol: string;
+    qty: number;
+    side: "buy" | "sell";
+    type?: "market" | "limit" | "stop" | "stop_limit";
+    limit_price?: number;
+    time_in_force?: "day" | "gtc" | "ioc" | "fok";
+  }): Promise<{ success: boolean; orderId?: string; status?: string; symbol?: string; qty?: number; side?: string; message: string }> {
+    return this.alpaca.placeOrder(params);
+  }
+
+  /**
+   * Real Alpaca Trading v2: Query Account
+   */
+  async getAlpacaAccount(): Promise<{ success: boolean; account?: any; message?: string }> {
+    return this.alpaca.getAccount();
+  }
+
+  /**
+   * Real Alpaca Trading v2: Query Positions
+   */
+  async getAlpacaPositions(): Promise<{ success: boolean; positions?: any[]; message?: string }> {
+    return this.alpaca.getPositions();
+  }
+
+  /**
+   * Real Alpaca Trading v2: Query Orders
+   */
+  async getAlpacaOrders(status: "open" | "closed" | "all" = "open"): Promise<{ success: boolean; orders?: any[]; message?: string }> {
+    return this.alpaca.getOrders(status);
+  }
 }
+

@@ -297,7 +297,7 @@ export interface ETradeOrderExecutionResult {
   executionId: string;
   brokerOrderRef: string;
   authorizerDid?: string;
-  status: "executed" | "submitted" | "rejected";
+  status: "executed" | "submitted" | "rejected" | "failed";
   symbol: string;
   action: string;
   quantity: number;

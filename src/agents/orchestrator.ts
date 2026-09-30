@@ -1347,11 +1347,62 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Unified Payment Webhook listener (Stripe, PayPal, Lemon Squeezy)
+    // Real payment capture endpoint (PayPal & Stripe)
+    if (path.endsWith("/payments/capture") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as {
+          orderId?: string;
+          gateway?: SupportedGateway;
+        };
+        const orderId = (body.orderId || "").trim();
+        const gateway = (body.gateway || "paypal") as SupportedGateway;
+        if (!orderId) {
+          return Response.json({ error: "orderId is required" }, { status: 400 });
+        }
+        const paymentService = new PaymentGatewayService(this.env);
+        const result = await paymentService.capturePayment({
+          gateway,
+          orderId,
+          userLogin: sessionId,
+        });
+
+        if (result.success) {
+          const now = new Date().toISOString();
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ? OR gateway_ref = ?",
+            now,
+            orderId,
+            orderId
+          );
+          this.audit("payment.captured", "payments", { orderId, gateway, captureId: result.captureId });
+        }
+
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to capture payment" }, { status: 500 });
+      }
+    }
+
+    // Unified Payment Webhook listener (Stripe, PayPal, Lemon Squeezy with HMAC Verification)
     if (path.endsWith("/payments/webhook") && request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const provider = url.searchParams.get("provider") || "stripe";
+        const provider = (url.searchParams.get("provider") || "stripe") as SupportedGateway;
+        const rawBody = await request.text();
+        const paymentService = new PaymentGatewayService(this.env);
+
+        // Verify cryptographic webhook signature
+        const verification = await paymentService.verifyWebhookSignature(provider, rawBody, request.headers);
+        if (!verification.isValid) {
+          return Response.json({ error: verification.reason || "Invalid webhook signature" }, { status: 401 });
+        }
+
+        let body: any = {};
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          body = {};
+        }
+
         const now = new Date().toISOString();
 
         // Extract reference ID from Stripe / PayPal / Lemon Squeezy payload
@@ -1390,6 +1441,17 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Broker Accounts List (Real E*TRADE REST / OAuth 1.0a)
+    if (path.endsWith("/etrade/accounts") && request.method === "GET") {
+      try {
+        const etrade = new ETradeService(this.getOrm(), this.env);
+        const accounts = await etrade.fetchAccountsRemote();
+        return Response.json({ count: accounts.length, accounts });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch accounts" }, { status: 500 });
+      }
+    }
+
     // Market Screener & Scanning
     if (path.endsWith("/etrade/screen") && (request.method === "POST" || request.method === "GET")) {
       try {
@@ -1410,12 +1472,12 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Real-time equity quote
+    // Real-time equity quote (Real E*TRADE REST / OAuth 1.0a)
     if (path.endsWith("/etrade/quote") && request.method === "GET") {
       try {
         const symbol = url.searchParams.get("symbol") || "NVDA";
         const etrade = new ETradeService(this.getOrm(), this.env);
-        const quote = etrade.getQuote(symbol);
+        const quote = await etrade.fetchQuoteRemote(symbol);
         return Response.json(quote);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch quote" }, { status: 500 });
@@ -1438,7 +1500,7 @@ Agentic Best Practices & Workflow Rules:
         }
 
         const etrade = new ETradeService(this.getOrm(), this.env);
-        const preview = etrade.previewOrder({
+        const preview = await etrade.previewOrderRemote({
           sessionId,
           symbol,
           orderAction,
@@ -1463,7 +1525,7 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Authorize & Execute Confirmed Order Draft (HITL Execution)
+    // Authorize & Execute Confirmed Order Draft (HITL Execution via OAuth 1.0a)
     if (path.endsWith("/etrade/order/execute") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
@@ -1476,7 +1538,22 @@ Agentic Best Practices & Workflow Rules:
 
         const userDid = getUserDid(sessionId);
         const etrade = new ETradeService(this.getOrm(), this.env);
-        const result = etrade.executeOrder(orderId, userDid, decision);
+        let result: any;
+
+        if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL)) {
+          result = await etrade.placeOrderRemote({
+            orderId,
+            symbol: body.symbol || "NVDA",
+            action: body.action || "BUY",
+            quantity: Number(body.quantity || 1),
+            orderType: body.orderType || "MARKET",
+            limitPrice: body.limitPrice,
+            previewId: body.previewId,
+            userLogin: userDid,
+          });
+        } else {
+          result = etrade.executeOrder(orderId, userDid, decision);
+        }
 
         this.audit("etrade.order_executed", "trading", {
           orderId,
@@ -1492,11 +1569,11 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Positions & Account Holdings
+    // Positions & Account Holdings (Real E*TRADE OAuth 1.0a)
     if (path.endsWith("/etrade/positions") && request.method === "GET") {
       try {
         const etrade = new ETradeService(this.getOrm(), this.env);
-        const holdings = etrade.getPositions();
+        const holdings = await etrade.fetchPortfolioRemote();
         return Response.json(holdings);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch positions" }, { status: 500 });
@@ -1511,6 +1588,76 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ count: trades.length, trades });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch order history" }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // Alpaca Trading API v2 Endpoints
+    // ==========================================
+
+    // Place Alpaca Live / Paper Order
+    if (path.endsWith("/trading/alpaca/order") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const symbol = (body.symbol || "").trim();
+        const qty = Number(body.qty) || 1;
+        const side = (body.side || "buy").toLowerCase() as "buy" | "sell";
+        const type = body.type || "market";
+        const limit_price = body.limit_price !== undefined ? Number(body.limit_price) : undefined;
+        const time_in_force = body.time_in_force || "day";
+
+        if (!symbol) {
+          return Response.json({ error: "Stock symbol is required" }, { status: 400 });
+        }
+
+        const foss = new FossResearchService(this.env);
+        const orderResult = await foss.placeAlpacaOrder({
+          symbol,
+          qty,
+          side,
+          type,
+          limit_price,
+          time_in_force,
+        });
+
+        this.audit("alpaca.order_placed", "trading", { symbol, qty, side, status: orderResult.status });
+        return Response.json(orderResult);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to place Alpaca order" }, { status: 500 });
+      }
+    }
+
+    // Get Alpaca Account & Buying Power
+    if (path.endsWith("/trading/alpaca/account") && request.method === "GET") {
+      try {
+        const foss = new FossResearchService(this.env);
+        const account = await foss.getAlpacaAccount();
+        return Response.json(account);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to fetch Alpaca account" }, { status: 500 });
+      }
+    }
+
+    // Get Alpaca Open Positions
+    if (path.endsWith("/trading/alpaca/positions") && request.method === "GET") {
+      try {
+        const foss = new FossResearchService(this.env);
+        const positions = await foss.getAlpacaPositions();
+        return Response.json(positions);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to fetch Alpaca positions" }, { status: 500 });
+      }
+    }
+
+    // Get Alpaca Orders List
+    if (path.endsWith("/trading/alpaca/orders") && request.method === "GET") {
+      try {
+        const status = (url.searchParams.get("status") || "open") as any;
+        const foss = new FossResearchService(this.env);
+        const orders = await foss.getAlpacaOrders(status);
+        return Response.json(orders);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to fetch Alpaca orders" }, { status: 500 });
       }
     }
 
