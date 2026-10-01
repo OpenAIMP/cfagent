@@ -186,17 +186,23 @@ export async function getStoredTokens(
 }
 
 /**
- * Revokes and deletes stored tokens from KV
+ * Revokes and deletes stored tokens from KV across all environments
  */
 export async function revokeStoredTokens(env: Env, userLogin: string, overrideEnv?: string): Promise<void> {
   const kv = getKv(env);
-  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  await Promise.all([
-    kv.delete(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name)),
-    kv.delete(KV_REQUEST_TOKEN_KEY(userLogin, envConfig.name)),
-    kv.delete(KV_ACCESS_TOKEN_KEY(userLogin)),
-    kv.delete(KV_REQUEST_TOKEN_KEY(userLogin)),
-  ]);
+  const logins = Array.from(new Set([userLogin, userLogin.toLowerCase(), userLogin.toUpperCase()]));
+  const deletes: Promise<any>[] = [];
+  for (const login of logins) {
+    deletes.push(
+      kv.delete(KV_ACCESS_TOKEN_KEY(login, "PROD")),
+      kv.delete(KV_ACCESS_TOKEN_KEY(login, "TEST")),
+      kv.delete(KV_REQUEST_TOKEN_KEY(login, "PROD")),
+      kv.delete(KV_REQUEST_TOKEN_KEY(login, "TEST")),
+      kv.delete(KV_ACCESS_TOKEN_KEY(login)),
+      kv.delete(KV_REQUEST_TOKEN_KEY(login))
+    );
+  }
+  await Promise.all(deletes);
 }
 
 /**
@@ -272,7 +278,7 @@ export async function getETradeRequestToken(
         );
       }
 
-      await storeRequestTokenSecret(env, userLogin, requestToken, requestTokenSecret);
+      await storeRequestTokenSecret(env, userLogin, requestToken, requestTokenSecret, overrideEnv);
 
       const authorizeUrl = `https://us.etrade.com/e/t/etws/authorize?key=${encodeURIComponent(
         consumerKey
@@ -307,7 +313,7 @@ export async function exchangeETradeVerifier(
   let requestTokenSecret = explicitRequestTokenSecret;
 
   if (!requestToken || !requestTokenSecret) {
-    const stored = await getRequestTokenSecret(env, userLogin);
+    const stored = await getRequestTokenSecret(env, userLogin, overrideEnv);
     if (!stored) {
       throw new ETradeError(
         ETradeErrorCode.AUTH_REQUIRED,
@@ -362,7 +368,7 @@ export async function exchangeETradeVerifier(
         );
       }
 
-      await storeAccessTokens(env, userLogin, accessToken, accessTokenSecret);
+      await storeAccessTokens(env, userLogin, accessToken, accessTokenSecret, overrideEnv);
 
       return {
         accessToken,
@@ -384,12 +390,12 @@ export async function renewETradeAccessToken(
   userLogin: string,
   overrideEnv?: string
 ): Promise<ETradeTokenSet | null> {
-  const tokens = await getStoredTokens(env, userLogin);
+  const tokens = await getStoredTokens(env, userLogin, overrideEnv);
   if (!tokens) return null;
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`Cannot renew E*TRADE token for ${userLogin}: already expired past midnight ET.`);
-    await revokeStoredTokens(env, userLogin);
+    await revokeStoredTokens(env, userLogin, overrideEnv);
     return null;
   }
 
@@ -456,17 +462,35 @@ export async function getValidTokens(
     };
   }
 
-  const tokens = await getStoredTokens(env, userLogin);
-  if (!tokens) return null;
+  const kv = getKv(env);
+  const scopedKey = KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name);
+  let raw = await kv.get(scopedKey);
+  let tokens: ETradeTokenSet | null = null;
 
-  // Environment isolation: tokens from TEST cannot be used in PROD, and vice versa
-  if (tokens.environment && tokens.environment !== envConfig.name) {
-    return null;
+  if (raw) {
+    try { tokens = JSON.parse(raw); } catch {}
   }
+
+  // If not found in environment-scoped key, check unscoped fallback key
+  if (!tokens) {
+    const legacyRaw = await kv.get(KV_ACCESS_TOKEN_KEY(userLogin));
+    if (legacyRaw) {
+      try {
+        const parsed = JSON.parse(legacyRaw) as ETradeTokenSet;
+        if (!parsed.environment || parsed.environment.toUpperCase() === envConfig.name.toUpperCase()) {
+          tokens = parsed;
+          // Adopt active token for current environment in KV so future reads are instantaneous
+          await kv.put(scopedKey, JSON.stringify({ ...parsed, environment: envConfig.name }), { expirationTtl: 86400 });
+        }
+      } catch {}
+    }
+  }
+
+  if (!tokens) return null;
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
-    await revokeStoredTokens(env, userLogin);
+    await revokeStoredTokens(env, userLogin, overrideEnv);
     return null;
   }
 
@@ -482,9 +506,9 @@ export async function getETradeAuthStatus(
   overrideEnv?: string
 ): Promise<ETradeAuthStatus> {
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  const tokens = await getStoredTokens(env, userLogin);
+  const valid = await getValidTokens(env, userLogin, overrideEnv);
 
-  if (!tokens) {
+  if (!valid) {
     const hasStatic = Boolean(envConfig.etrade.oauthToken && envConfig.etrade.oauthTokenSecret);
     return {
       authenticated: hasStatic,
@@ -493,26 +517,13 @@ export async function getETradeAuthStatus(
     };
   }
 
-  // If tokens belong to a different environment, they are inactive in this environment
-  if (tokens.environment && tokens.environment !== envConfig.name) {
-    return {
-      authenticated: false,
-      userLogin,
-      environment: envConfig.name,
-      storedAt: undefined,
-      expired: false,
-      renewable: false,
-    };
-  }
-
-  const expired = isTokenExpiredEt(tokens.storedAt);
   return {
-    authenticated: !expired,
+    authenticated: true,
     userLogin,
     environment: envConfig.name,
-    storedAt: tokens.storedAt,
-    expired,
-    renewable: !expired,
+    storedAt: valid.storedAt,
+    expired: false,
+    renewable: true,
   };
 }
 
@@ -520,10 +531,10 @@ export async function getETradeAuthStatus(
  * Agentic Token Guardian: Autonomous Token Health & Renewal Observer
  */
 export class ETradeTokenGuardian {
-  constructor(private env: Env, private userLogin: string) {}
+  constructor(private env: Env, private userLogin: string, private overrideEnv?: string) {}
 
   async checkHealth(): Promise<{ status: ETradeAuthStatus; actionRecommended: string }> {
-    const status = await getETradeAuthStatus(this.env, this.userLogin);
+    const status = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv);
 
     if (!status.authenticated) {
       return {
@@ -546,7 +557,7 @@ export class ETradeTokenGuardian {
   }
 
   async ensureActiveToken(): Promise<ETradeTokenSet> {
-    const valid = await getValidTokens(this.env, this.userLogin);
+    const valid = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
     if (!valid) {
       throw new ETradeError(ETradeErrorCode.AUTH_REQUIRED);
     }

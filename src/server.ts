@@ -136,7 +136,7 @@ export default {
     if (path === "/api/etrade/oauth/revoke" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
-      await revokeStoredTokens(env, session.githubLogin);
+      await revokeStoredTokens(env, session.githubLogin, reqEnv);
       return Response.json({ success: true });
     }
 

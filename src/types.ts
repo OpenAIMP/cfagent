@@ -375,6 +375,7 @@ export interface ETradeAccount {
   netAccountValue: number;
   totalAccountValue: number;
   cashAvailableForInvestment: number;
+  marginBuyingPower?: number;
   dayTraderStatus: boolean;
 }
 

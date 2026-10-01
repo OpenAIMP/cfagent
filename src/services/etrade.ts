@@ -391,10 +391,15 @@ export class ETradeService {
   /**
    * Real E*TRADE REST API: Fetch live portfolio positions with OAuth 1.0a
    */
-  async fetchPortfolioRemote(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
-    const res = await this.platform.getPositions(accountKey);
-    if (res && res.positions.length > 0) return res;
-    if (res && res.account.netAccountValue > 0) return res;
+  async fetchPortfolioRemote(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
+    const res = await this.platform.getPositions(accountKey, includeBalance);
+    if (res && res.account && res.account.accountId !== "unconnected") {
+      return res;
+    }
     return this.getPositions();
+  }
+
+  getLastError(): string | undefined {
+    return this.platform.getLastError?.() || this.client.getLastError();
   }
 }

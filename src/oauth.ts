@@ -1,5 +1,6 @@
 import type { Env, SessionData } from "./types";
-import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie } from "./session";
+import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId } from "./session";
+import { revokeStoredTokens } from "./security/etradeOAuth";
 
 function getRedirectUri(env: Env): string {
   return `${env.APP_BASE_URL}/auth/callback`;
@@ -95,12 +96,19 @@ export async function handleOAuthCallback(env: Env, request: Request): Promise<R
 }
 
 export async function handleLogout(env: Env, request: Request): Promise<Response> {
-  const cookie = request.headers.get("Cookie");
-  const match = cookie?.match(/session_id=([^;]+)/);
-  const sessionId = match?.[1];
+  const sessionId = getSessionId(request);
 
   if (sessionId) {
     try {
+      const rawSession = await env.SESSIONS.get(sessionId);
+      if (rawSession) {
+        try {
+          const session = JSON.parse(rawSession) as SessionData;
+          if (session?.githubLogin) {
+            await revokeStoredTokens(env, session.githubLogin);
+          }
+        } catch {}
+      }
       await env.SESSIONS.delete(sessionId);
     } catch {
       // Ignore KV deletion errors on logout

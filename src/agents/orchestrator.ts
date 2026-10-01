@@ -1693,8 +1693,12 @@ Agentic Best Practices & Workflow Rules:
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const holdings = await etrade.fetchPortfolioRemote();
-        return Response.json(holdings);
+        const holdings = await etrade.fetchPortfolioRemote(undefined, true);
+        const lastError = etrade.getLastError();
+        return Response.json({
+          ...holdings,
+          error: lastError && holdings.account.accountId === "unconnected" ? lastError : undefined,
+        });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch positions" }, { status: 500 });
       }

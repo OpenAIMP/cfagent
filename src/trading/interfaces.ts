@@ -51,7 +51,7 @@ export interface ITradingPlatform {
   getStatus(): Promise<ETradeBrokerStatus>;
   getQuote(symbol: string): Promise<ETradeQuote>;
   getAccounts(): Promise<ETradeAccount[]>;
-  getPositions(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }>;
+  getPositions(accountKey?: string, includeBalance?: boolean): Promise<{ account: ETradeAccount; positions: ETradePosition[] }>;
   previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft>;
   executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
   placeOrderRemote?(params: PlaceOrderParams): Promise<ETradeOrderExecutionResult>;

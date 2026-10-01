@@ -44,7 +44,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       : "simulated_engine";
 
     const protocol = isMcp ? "mcp_json_rpc" : hasApiKey ? "etrade_oauth_rest" : "sandbox_simulated";
-    const authStatus = await getETradeAuthStatus(this.env, this.userLogin).catch(() => ({
+    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv).catch(() => ({
       authenticated: false,
       storedAt: undefined,
       renewable: false,
@@ -136,13 +136,28 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     return realAccounts;
   }
 
-  async getPositions(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
-    const realPortfolio = await this.client.fetchPortfolio(accountKey);
+  async getPositions(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
+    const realPortfolio = await this.client.fetchPortfolio(accountKey, includeBalance);
     if (realPortfolio) return realPortfolio;
 
     const accounts = await this.getAccounts();
     const envConfig = this.getEnvConfig();
-    const account = accounts[0] || {
+    if (accounts.length > 0) {
+      const acc = accounts[0];
+      const bal = includeBalance ? await this.client.fetchBalance(acc.accountKey || acc.accountId).catch(() => null) : null;
+      return {
+        account: {
+          ...acc,
+          netAccountValue: bal?.netAccountValue ?? acc.netAccountValue,
+          totalAccountValue: bal?.netAccountValue ?? acc.totalAccountValue,
+          cashAvailableForInvestment: bal?.cashBuyingPower ?? acc.cashAvailableForInvestment,
+          marginBuyingPower: bal?.marginBuyingPower ?? acc.marginBuyingPower,
+        },
+        positions: [],
+      };
+    }
+
+    const account = {
       accountId: "unconnected",
       accountKey: "unconnected",
       accountDesc: `E*TRADE Brokerage Account [${envConfig.label} - Unauthenticated]`,
@@ -327,5 +342,9 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
   async placeOrderRemote(params: any): Promise<ETradeOrderExecutionResult> {
     return this.client.placeOrder(params);
+  }
+
+  getLastError(): string | undefined {
+    return this.client.getLastError();
   }
 }

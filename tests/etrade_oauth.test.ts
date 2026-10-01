@@ -228,5 +228,89 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
       expect(portfolio.positions[0].quantity).toBe(100);
       expect(portfolio.positions[0].marketValue).toBe(14500.0);
     });
+
+    it("retrieves real live balance and cash purchasing power in PROD even with 0 holdings", async () => {
+      const prodEnv: Env = {
+        ...env,
+        APP_ENV: "PROD",
+        ET_PROD_API_KEY: "prod_key_live_999",
+        ET_PROD_API_SECRET: "prod_sec_live_888",
+        ET_BASE_URL: "https://api.etrade.com/v1",
+      };
+
+      // Store authentic PROD access tokens
+      await storeAccessTokens(prodEnv, userLogin, "real_prod_token", "real_prod_secret", "PROD");
+
+      const authStatus = await getETradeAuthStatus(prodEnv, userLogin, "PROD");
+      expect(authStatus.authenticated).toBe(true);
+      expect(authStatus.environment).toBe("PROD");
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        // Call 1: /accounts/list.json
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              AccountListResponse: {
+                Accounts: {
+                  Account: [
+                    {
+                      accountId: "84729103",
+                      accountIdKey: "PROD_KEY_XYZ888",
+                      accountDesc: "Individual Brokerage",
+                      accountType: "MARGIN",
+                    },
+                  ],
+                },
+              },
+            }),
+            { status: 200 }
+          )
+        )
+        // Call 2: /accounts/PROD_KEY_XYZ888/portfolio.json (0 stock holdings)
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PortfolioResponse: {
+                AccountPortfolio: [{ Position: [] }],
+              },
+            }),
+            { status: 200 }
+          )
+        )
+        // Call 3: /accounts/PROD_KEY_XYZ888/balance.json (Real production cash balances)
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              BalanceResponse: {
+                accountId: "84729103",
+                accountType: "MARGIN",
+                Computed: {
+                  cashBuyingPower: 25430.50,
+                  marginBuyingPower: 50861.00,
+                  RealTimeValues: {
+                    totalAccountValue: 25430.50,
+                  },
+                },
+              },
+            }),
+            { status: 200 }
+          )
+        );
+
+      const etrade = new ETradeService(prodEnv, undefined, userLogin, "PROD");
+      const result = await etrade.fetchPortfolioRemote(undefined, true);
+
+      expect(result.account.accountId).toBe("84729103");
+      expect(result.account.accountKey).toBe("PROD_KEY_XYZ888");
+      expect(result.account.netAccountValue).toBe(25430.50);
+      expect(result.account.cashAvailableForInvestment).toBe(25430.50);
+      expect(result.positions.length).toBe(0);
+
+      // Verify the 3 authentic calls were made to live production (api.etrade.com)
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(fetchSpy.mock.calls[0][0]).toBe("https://api.etrade.com/v1/accounts/list.json");
+      expect(fetchSpy.mock.calls[1][0]).toBe("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/portfolio.json");
+      expect(fetchSpy.mock.calls[2][0]).toContain("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/balance.json");
+    });
   });
 });

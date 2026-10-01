@@ -253,10 +253,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         method: "POST",
         headers: { "x-environment": activeEnv },
       });
-      await fetchOAuthStatus(activeEnv);
-      await fetchBrokerStatus(activeEnv);
+      setOauthStatus({
+        authenticated: false,
+        environment: activeEnv,
+        storedAt: undefined,
+        renewable: false,
+      });
+      setBrokerStatus((prev) => (prev ? { ...prev, oauthAuthenticated: false } : prev));
+      setAccount(null);
       setPositions([]);
       setOauthMsg("E*TRADE account disconnected.");
+      await fetchOAuthStatus(activeEnv);
+      await fetchBrokerStatus(activeEnv);
     } catch {
       // Ignore
     } finally {
@@ -296,9 +304,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         headers: { "x-environment": envToUse },
       });
       if (resp.ok) {
-        const data = await resp.json() as { account: ETradeAccount; positions: ETradePosition[] };
+        const data = await resp.json() as { account: ETradeAccount; positions: ETradePosition[]; error?: string };
         if (data.account) setAccount(data.account);
         if (data.positions) setPositions(data.positions);
+        if (data.error && (!data.account || data.account.accountId === "unconnected")) {
+          setOauthMsg(data.error);
+        }
         setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch {
@@ -596,7 +607,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </span>
           <span className="env-trust-item">
             <strong>Account:</strong>{" "}
-            <code>{maskAccount ? `••••${(account?.accountId || (isLive ? "PROD_ACTIVE" : "SANDBOX")).slice(-4)}` : (account?.accountId || (isLive ? "PROD_ACTIVE" : "SANDBOX"))}</code>
+            <code>
+              {account?.accountId && account.accountId !== "unconnected"
+                ? (maskAccount ? `••••${account.accountId.slice(-4)}` : account.accountId)
+                : (isLive ? "Awaiting PROD Sync" : "Awaiting Sandbox Sync")}
+            </code>
             <button
               type="button"
               className="btn-mask-toggle"

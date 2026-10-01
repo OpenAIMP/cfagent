@@ -95,18 +95,17 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
 
   // OAuth credentials — strictly segregated by environment:
   const isProd = activeName === "PROD";
-  const isSandboxKey = Boolean(
-    env?.ET_BASE_URL?.includes("apisb.etrade.com") ||
-    processEnv.ET_BASE_URL?.includes("apisb.etrade.com")
-  );
 
-  // In PROD: strictly require production keys. Only fall back to ET_API_KEY if ET_BASE_URL is not explicitly a sandbox URL.
+  // In PROD: prefer ET_PROD_API_KEY, falling back to ET_API_KEY if dedicated prod secret is not yet set
   const apiKey = isProd
     ? (env?.ET_PROD_API_KEY ||
        (env as any)?.ETRADE_PROD_CONSUMER_KEY ||
        processEnv.ET_PROD_API_KEY ||
        processEnv.ETRADE_PROD_CONSUMER_KEY ||
-       (!isSandboxKey ? (env?.ET_API_KEY || env?.ETRADE_CONSUMER_KEY || processEnv.ET_API_KEY || processEnv.ETRADE_CONSUMER_KEY) : undefined))
+       env?.ET_API_KEY ||
+       env?.ETRADE_CONSUMER_KEY ||
+       processEnv.ET_API_KEY ||
+       processEnv.ETRADE_CONSUMER_KEY)
     : (env?.ET_SANDBOX_API_KEY ||
        (env as any)?.ETRADE_SANDBOX_CONSUMER_KEY ||
        processEnv.ET_SANDBOX_API_KEY ||
@@ -121,7 +120,10 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
        (env as any)?.ETRADE_PROD_CONSUMER_SECRET ||
        processEnv.ET_PROD_API_SECRET ||
        processEnv.ETRADE_PROD_CONSUMER_SECRET ||
-       (!isSandboxKey ? (env?.ET_API_SECRET || env?.ETRADE_CONSUMER_SECRET || processEnv.ET_API_SECRET || processEnv.ETRADE_CONSUMER_SECRET) : undefined))
+       env?.ET_API_SECRET ||
+       env?.ETRADE_CONSUMER_SECRET ||
+       processEnv.ET_API_SECRET ||
+       processEnv.ETRADE_CONSUMER_SECRET)
     : (env?.ET_SANDBOX_API_SECRET ||
        (env as any)?.ETRADE_SANDBOX_CONSUMER_SECRET ||
        processEnv.ET_SANDBOX_API_SECRET ||

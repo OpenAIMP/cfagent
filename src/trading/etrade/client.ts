@@ -19,7 +19,13 @@ import { RemoteMcpClient } from "../../services/mcpClient";
 import { EXPANDED_MARKET_UNIVERSE } from "../screener";
 
 export class ETradeRestClient {
+  public lastError?: string;
+
   constructor(private env: Env, private userLogin: string = "default_trader", private overrideEnv?: string) {}
+
+  public getLastError(): string | undefined {
+    return this.lastError;
+  }
 
   public getEnvConfig() {
     return resolveEnvironmentConfig(this.env, this.overrideEnv);
@@ -34,7 +40,7 @@ export class ETradeRestClient {
 
     if ((!token || !tokenSecret) && this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -42,6 +48,10 @@ export class ETradeRestClient {
       } catch {
         // Ignore KV error
       }
+    }
+
+    if (!token || !tokenSecret) {
+      this.lastError = `E*TRADE OAuth Token Missing: No active session for user in [${envConfig.name}] mode. Please click 'Connect E*TRADE Account'.`;
     }
 
     return generateOAuth1Header({
@@ -70,7 +80,7 @@ export class ETradeRestClient {
     let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
     if ((!token || !tokenSecret) && this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -110,7 +120,7 @@ export class ETradeRestClient {
 
       const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
       const rawCompanyName = String(quoteData?.companyName || "").trim();
-      const price = Number(quoteData.lastTrade || quoteData.price || quoteData.bid || 0);
+      const price = Number(quoteData.lastTrade || quoteData.price || quoteData.close || quoteData.previousClose || quoteData.bid || 0);
       if (price <= 0) return null;
 
       // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
@@ -149,7 +159,7 @@ export class ETradeRestClient {
         companyName,
         lastPrice: price,
         price,
-        change: Number(quoteData.changeClose || 0),
+        change: Number(quoteData.changeClose || (price && quoteData.previousClose ? price - Number(quoteData.previousClose) : 0)),
         changePercent: Number(quoteData.changeClosePercentage || 0),
         bid: Number(quoteData.bid || price),
         ask: Number(quoteData.ask || price),
@@ -189,7 +199,7 @@ export class ETradeRestClient {
     let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
     if ((!token || !tokenSecret) && this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -231,7 +241,7 @@ export class ETradeRestClient {
         .map((item: any) => {
           const qd = item?.All || item?.Product;
           const sym = String(item?.Product?.symbol || qd?.symbol || "").toUpperCase().trim();
-          const price = Number(qd?.lastTrade || qd?.price || qd?.bid || 0);
+          const price = Number(qd?.lastTrade || qd?.price || qd?.close || qd?.previousClose || qd?.bid || 0);
           const rawCompany = String(qd?.companyName || "").trim();
           const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
           let companyName = rawCompany;
@@ -246,7 +256,7 @@ export class ETradeRestClient {
             companyName,
             lastPrice: price,
             price,
-            change: Number(qd?.changeClose || 0),
+            change: Number(qd?.changeClose || (price && qd?.previousClose ? price - Number(qd.previousClose) : 0)),
             changePercent: Number(qd?.changeClosePercentage || 0),
             bid: Number(qd?.bid || price),
             ask: Number(qd?.ask || price),
@@ -579,15 +589,21 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Accounts API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] fetchAccounts HTTP ${res.status}: ${errorText}`);
+        return [];
+      }
 
       const data = (await res.json().catch(() => ({}))) as any;
-      const rawAccounts = data?.AccountListResponse?.Accounts?.Account;
-      if (!Array.isArray(rawAccounts)) return [];
+      let rawAccounts = data?.AccountListResponse?.Accounts?.Account;
+      if (!rawAccounts) return [];
+      if (!Array.isArray(rawAccounts)) rawAccounts = [rawAccounts];
 
       return rawAccounts.map((a: any) => ({
         accountId: String(a.accountId || ""),
-        accountKey: String(a.accountIdKey || a.accountKey || ""),
+        accountKey: String(a.accountIdKey || a.accountKey || a.accountId || ""),
         accountDesc: String(a.accountDesc || a.accountName || "Brokerage Account"),
         accountType: String(a.accountType || "INDIVIDUAL"),
         netAccountValue: Number(a.netAccountValue || 0),
@@ -595,13 +611,14 @@ export class ETradeRestClient {
         cashAvailableForInvestment: Number(a.cashAvailableForInvestment || 0),
         dayTraderStatus: Boolean(a.dayTraderStatus),
       }));
-    } catch {
+    } catch (err) {
+      console.warn("[ETradeClient] fetchAccounts error:", err);
       return [];
     }
   }
 
   /**
-   * Fetches real live portfolio positions using dynamic account discovery
+   * Fetches real live portfolio positions using dynamic account discovery and authentic balance
    */
   async fetchPortfolio(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
     const envConfig = this.getEnvConfig();
@@ -614,9 +631,12 @@ export class ETradeRestClient {
       key = "";
     }
 
+    let accountMeta: ETradeAccount | undefined;
     if (!key) {
       const accounts = await this.fetchAccounts();
-      key = accounts[0]?.accountKey || "";
+      if (!accounts.length) return null;
+      accountMeta = accounts[0];
+      key = accountMeta.accountKey || accountMeta.accountId || "";
       if (!key) return null;
     }
 
@@ -633,51 +653,74 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok) return null;
+      if (!res.ok && res.status !== 204) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Portfolio API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] fetchPortfolio HTTP ${res.status}: ${errorText}`);
+        return null;
+      }
 
-      const data = (await res.json().catch(() => ({}))) as any;
-      const rawPositions = data?.PortfolioResponse?.AccountPortfolio?.[0]?.Position;
-      if (!Array.isArray(rawPositions)) return null;
+      let positions: ETradePosition[] = [];
+      if (res.ok && res.status !== 204) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        let rawPositions = data?.PortfolioResponse?.AccountPortfolio?.[0]?.Position;
+        if (rawPositions) {
+          if (!Array.isArray(rawPositions)) rawPositions = [rawPositions];
+          positions = rawPositions.map((p: any) => ({
+            symbol: String(p.Product?.symbol || p.symbol || ""),
+            description: String(p.Product?.securityType || p.description || "Common Stock"),
+            quantity: Number(p.quantity || 0),
+            pricePaid: Number(p.pricePaid || 0),
+            costBasis: Number(p.costBasis || p.pricePaid || 0),
+            currentPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)),
+            marketPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)),
+            marketValue: Number(p.marketValue || 0),
+            totalGain: Number(p.totalGain || 0),
+            unrealizedGainLoss: Number(p.totalGain || 0),
+            totalGainPercent: Number(p.totalGainPct || 0),
+            unrealizedGainLossPercent: Number(p.totalGainPct || 0),
+            daysGain: Number(p.daysGain || 0),
+            daysGainPercent: Number(p.daysGainPct || 0),
+          }));
+        }
+      }
 
-      const positions: ETradePosition[] = rawPositions.map((p: any) => ({
-        symbol: String(p.Product?.symbol || p.symbol || ""),
-        description: String(p.Product?.securityType || p.description || "Common Stock"),
-        quantity: Number(p.quantity || 0),
-        pricePaid: Number(p.pricePaid || 0),
-        costBasis: Number(p.costBasis || p.pricePaid || 0),
-        currentPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : 0),
-        marketPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : 0),
-        marketValue: Number(p.marketValue || 0),
-        totalGain: Number(p.totalGain || 0),
-        unrealizedGainLoss: Number(p.totalGain || 0),
-        totalGainPercent: Number(p.totalGainPct || 0),
-        unrealizedGainLossPercent: Number(p.totalGainPct || 0),
-        daysGain: Number(p.daysGain || 0),
-        daysGainPercent: Number(p.daysGainPct || 0),
-      }));
-
-      let cashPower = 0;
+      let cashPower = accountMeta?.cashAvailableForInvestment || 0;
+      let marginPower = accountMeta?.marginBuyingPower || 0;
       let netVal = positions.reduce((sum, p) => sum + p.marketValue, 0);
 
       if (includeBalance) {
         const balance = await this.fetchBalance(key).catch(() => null);
-        if (balance?.netAccountValue && balance.netAccountValue > 0) netVal = balance.netAccountValue;
-        if (balance?.cashBuyingPower !== undefined) cashPower = balance.cashBuyingPower;
+        if (balance) {
+          if (balance.netAccountValue !== undefined && balance.netAccountValue > 0) {
+            netVal = balance.netAccountValue;
+          } else if (netVal === 0 && (balance.cashBuyingPower || balance.cashBalance)) {
+            netVal = balance.cashBuyingPower || balance.cashBalance || 0;
+          }
+          if (balance.cashBuyingPower !== undefined) cashPower = balance.cashBuyingPower;
+          if (balance.marginBuyingPower !== undefined) marginPower = balance.marginBuyingPower;
+        }
+      }
+
+      if (netVal === 0 && accountMeta?.netAccountValue) {
+        netVal = accountMeta.netAccountValue;
       }
 
       const account: ETradeAccount = {
-        accountId: key,
+        accountId: accountMeta?.accountId || key,
         accountKey: key,
-        accountDesc: `E*TRADE Brokerage Account [${envConfig.label}]`,
-        accountType: "MARGIN",
+        accountDesc: accountMeta?.accountDesc || `E*TRADE Brokerage Account [${envConfig.label}]`,
+        accountType: accountMeta?.accountType || "MARGIN",
         netAccountValue: netVal,
         totalAccountValue: netVal,
         cashAvailableForInvestment: cashPower,
+        marginBuyingPower: marginPower,
         dayTraderStatus: false,
       };
 
       return { account, positions };
-    } catch {
+    } catch (err) {
+      console.warn("[ETradeClient] fetchPortfolio error:", err);
       return null;
     }
   }
@@ -685,16 +728,16 @@ export class ETradeRestClient {
   /**
    * Fetches real account balance (cash buying power, margin buying power, net account value)
    */
-  async fetchBalance(accountKey: string): Promise<{ netAccountValue?: number; cashBuyingPower?: number; marginBuyingPower?: number } | null> {
-    const envConfig = resolveEnvironmentConfig(this.env);
+  async fetchBalance(accountKey: string): Promise<{ netAccountValue?: number; cashBuyingPower?: number; marginBuyingPower?: number; cashBalance?: number } | null> {
+    const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
 
-    const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?accountType=MARGIN&realTimeNAV=true`;
+    const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?instType=BROKERAGE&realTimeNAV=true`;
     assertSandboxUrlSafety(url, envConfig.isLive);
     const authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
@@ -702,20 +745,74 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok) return null;
+      if (!res.ok && res.status === 400) {
+        // Fallback to balance endpoint without optional params
+        const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json`;
+        const fallbackAuth = await this.generateOAuthHeader("GET", fallbackUrl);
+        res = await fetch(fallbackUrl, {
+          method: "GET",
+          headers: {
+            Authorization: fallbackAuth,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Balance API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] fetchBalance HTTP ${res.status}: ${errorText}`);
+        return null;
+      }
 
       const data = (await res.json().catch(() => ({}))) as any;
-      const computed = data?.BalanceResponse?.Computed;
-      const cashBuyingPower = Number(computed?.cashBuyingPower ?? data?.BalanceResponse?.cashAvailableForInvestment ?? 0);
-      const marginBuyingPower = Number(computed?.marginBuyingPower ?? 0);
-      const netAccountValue = Number(computed?.RealTimeValues?.totalAccountValue ?? data?.BalanceResponse?.netAccountValue ?? 0);
+      const balanceResp = data?.BalanceResponse;
+      if (!balanceResp) return null;
+
+      const computed = balanceResp.Computed;
+      const cashObj = balanceResp.Cash;
+
+      const netAccountValue = Number(
+        computed?.RealTimeValues?.totalAccountValue ??
+        computed?.netAccountValue ??
+        computed?.RealTimeValues?.netMv ??
+        balanceResp?.accountBalance ??
+        balanceResp?.netAccountValue ??
+        0
+      );
+
+      const cashBuyingPower = Number(
+        computed?.cashBuyingPower ??
+        computed?.cashAvailableForInvestment ??
+        computed?.netCash ??
+        computed?.cashBalance ??
+        cashObj?.moneyMktBuyPower ??
+        cashObj?.cashAvailableForWithdrawal ??
+        balanceResp?.cashAvailableForInvestment ??
+        0
+      );
+
+      const marginBuyingPower = Number(
+        computed?.marginBuyingPower ??
+        computed?.marginBalance ??
+        0
+      );
+
+      const cashBalance = Number(
+        computed?.cashBalance ??
+        cashObj?.cashBalance ??
+        cashObj?.fundsForOpenOrdersCash ??
+        0
+      );
 
       return {
         netAccountValue: netAccountValue > 0 ? netAccountValue : undefined,
         cashBuyingPower: cashBuyingPower > 0 ? cashBuyingPower : undefined,
         marginBuyingPower: marginBuyingPower > 0 ? marginBuyingPower : undefined,
+        cashBalance: cashBalance > 0 ? cashBalance : undefined,
       };
-    } catch {
+    } catch (err) {
+      console.warn("[ETradeClient] fetchBalance error:", err);
       return null;
     }
   }
