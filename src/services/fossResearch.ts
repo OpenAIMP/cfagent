@@ -1626,93 +1626,99 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 
   async getQuote(symbol: string): Promise<FossQuote> {
     const cleanSym = symbol.toUpperCase().trim();
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`;
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept: "application/json",
-        },
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => ({}))) as any;
-        const meta = data?.chart?.result?.[0]?.meta;
-        if (meta && (meta.regularMarketPrice !== undefined || meta.chartPreviousClose !== undefined)) {
-          const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose);
-          
-          const rawCloses = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
-          const closes: number[] = Array.isArray(rawCloses)
-            ? rawCloses.filter((c: any): c is number => typeof c === "number" && !isNaN(c))
-            : [];
+    const urls = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
+    ];
 
-          // Determine authentic regular-trading-day previous close (1D reference)
-          let prevClose = Number(meta.regularMarketPreviousClose);
-          if (!prevClose || isNaN(prevClose)) {
-            if (closes.length >= 2) {
-              prevClose = Number(closes[closes.length - 2]);
-            } else {
-              prevClose = Number(meta.previousClose ?? meta.chartPreviousClose ?? (closes[0] || price));
-            }
-          }
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "application/json",
+          },
+        });
+        if (res.ok) {
+          const data = (await res.json().catch(() => ({}))) as any;
+          const meta = data?.chart?.result?.[0]?.meta;
+          if (meta && (meta.regularMarketPrice !== undefined || meta.chartPreviousClose !== undefined)) {
+            const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose);
+            
+            const rawCloses = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+            const closes: number[] = Array.isArray(rawCloses)
+              ? rawCloses.filter((c: any): c is number => typeof c === "number" && !isNaN(c))
+              : [];
 
-          const change = Number((price - prevClose).toFixed(2));
-          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-          const companyName = meta.longName || meta.shortName || `${cleanSym} Inc.`;
-
-          const rsi14 = computeRsi14(closes);
-          const macd = computeMacd(closes);
-
-          // Try to enrich with real crumb fundamentals for PE and MarketCap
-          let trailingPE: number | undefined;
-          let marketCap: number | undefined;
-          try {
-            const session = await getYahooCrumbSession();
-            if (session) {
-              const sumUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(cleanSym)}?modules=price,summaryDetail&crumb=${encodeURIComponent(session.crumb)}`;
-              const sumRes = await fetch(sumUrl, {
-                headers: {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                  Cookie: session.cookie,
-                },
-              });
-              if (sumRes.ok) {
-                const sumData = (await sumRes.json().catch(() => ({}))) as any;
-                const r = sumData?.quoteSummary?.result?.[0];
-                marketCap = Number(r?.price?.marketCap?.raw || r?.summaryDetail?.marketCap?.raw || 0) || undefined;
-                trailingPE = Number(r?.summaryDetail?.trailingPE?.raw || 0) || undefined;
+            // Determine authentic regular-trading-day previous close (1D reference)
+            let prevClose = Number(meta.regularMarketPreviousClose);
+            if (!prevClose || isNaN(prevClose)) {
+              if (closes.length >= 2) {
+                prevClose = Number(closes[closes.length - 2]);
+              } else {
+                prevClose = Number(meta.previousClose ?? meta.chartPreviousClose ?? (closes[0] || price));
               }
             }
-          } catch {
-            // Ignore enrichment error
-          }
 
-          return {
-            symbol: meta.symbol || cleanSym,
-            provider: "yfinance",
-            companyName,
-            price,
-            lastPrice: price,
-            change,
-            changePercent,
-            bid: Number(meta.bid || (price - 0.05).toFixed(2)),
-            ask: Number(meta.ask || (price + 0.05).toFixed(2)),
-            volume: Number(meta.regularMarketVolume || 0),
-            open: Number(meta.regularMarketDayHigh ? ((meta.regularMarketDayHigh + meta.regularMarketDayLow) / 2).toFixed(2) : price),
-            high: Number(meta.regularMarketDayHigh || meta.fiftyTwoWeekHigh || price),
-            low: Number(meta.regularMarketDayLow || meta.fiftyTwoWeekLow || price),
-            previousClose: prevClose,
-            vwap: price,
-            trailingPE: trailingPE ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.peTrailing || undefined),
-            marketCap: marketCap ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.marketCap || undefined),
-            rsi14,
-            macdSignal: macd.macdSignal,
-            timestamp: new Date().toISOString(),
-            currency: meta.currency || "USD",
-          };
+            const change = Number((price - prevClose).toFixed(2));
+            const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+            const companyName = meta.longName || meta.shortName || `${cleanSym} Inc.`;
+
+            const rsi14 = computeRsi14(closes);
+            const macd = computeMacd(closes);
+
+            // Try to enrich with real crumb fundamentals for PE and MarketCap
+            let trailingPE: number | undefined;
+            let marketCap: number | undefined;
+            try {
+              const session = await getYahooCrumbSession();
+              if (session) {
+                const sumUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(cleanSym)}?modules=price,summaryDetail&crumb=${encodeURIComponent(session.crumb)}`;
+                const sumRes = await fetch(sumUrl, {
+                  headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    Cookie: session.cookie,
+                  },
+                });
+                if (sumRes.ok) {
+                  const sumData = (await sumRes.json().catch(() => ({}))) as any;
+                  const r = sumData?.quoteSummary?.result?.[0];
+                  marketCap = Number(r?.price?.marketCap?.raw || r?.summaryDetail?.marketCap?.raw || 0) || undefined;
+                  trailingPE = Number(r?.summaryDetail?.trailingPE?.raw || 0) || undefined;
+                }
+              }
+            } catch {
+              // Ignore enrichment error
+            }
+
+            return {
+              symbol: meta.symbol || cleanSym,
+              provider: "yfinance",
+              companyName,
+              price,
+              lastPrice: price,
+              change,
+              changePercent,
+              bid: Number(meta.bid || (price - 0.05).toFixed(2)),
+              ask: Number(meta.ask || (price + 0.05).toFixed(2)),
+              volume: Number(meta.regularMarketVolume || 0),
+              open: Number(meta.regularMarketDayHigh ? ((meta.regularMarketDayHigh + meta.regularMarketDayLow) / 2).toFixed(2) : price),
+              high: Number(meta.regularMarketDayHigh || meta.fiftyTwoWeekHigh || price),
+              low: Number(meta.regularMarketDayLow || meta.fiftyTwoWeekLow || price),
+              previousClose: prevClose,
+              vwap: price,
+              trailingPE: trailingPE ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.peTrailing || undefined),
+              marketCap: marketCap ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.marketCap || undefined),
+              rsi14,
+              macdSignal: macd.macdSignal,
+              timestamp: new Date().toISOString(),
+              currency: meta.currency || "USD",
+            };
+          }
         }
+      } catch {
+        // Fall through to query2 or deterministic profile
       }
-    } catch {
-      // Fall through to deterministic profile
     }
 
     return this.getQuoteSync(symbol);
@@ -1862,50 +1868,69 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     return generateHistoricalBars(p, limit);
   }
 
-  async getHistoricalBars(symbol: string, _timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept: "application/json",
-        },
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => ({}))) as any;
-        const result = data?.chart?.result?.[0];
-        const timestamps = result?.timestamp;
-        const quote = result?.indicators?.quote?.[0];
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+    const cleanSym = symbol.toUpperCase().trim();
+    const isWeekly = timeframe.toUpperCase().includes("W");
+    const isMonthly = timeframe.toUpperCase().includes("M") && !timeframe.toUpperCase().includes("MIN");
+    const isHourly = timeframe.toUpperCase().includes("H");
+    const interval = isWeekly ? "1wk" : isMonthly ? "1mo" : isHourly ? "1h" : "1d";
+    const range = isWeekly
+      ? (limit > 52 ? "5y" : limit > 26 ? "2y" : "1y")
+      : isMonthly
+      ? "5y"
+      : isHourly
+      ? "1mo"
+      : (limit > 60 ? "1y" : limit > 30 ? "6mo" : "3mo");
 
-        if (Array.isArray(timestamps) && quote?.close) {
-          const bars: FossHistoricalBar[] = [];
-          for (let i = timestamps.length - 1; i >= 0 && bars.length < limit; i--) {
-            const c = quote.close?.[i] || 0;
-            if (c > 0) {
-              const o = quote.open?.[i] || c;
-              const h = quote.high?.[i] || c;
-              const l = quote.low?.[i] || c;
-              const v = quote.volume?.[i] || 0;
-              bars.unshift({
-                timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
-                open: Number(o.toFixed(2)),
-                high: Number(h.toFixed(2)),
-                low: Number(l.toFixed(2)),
-                close: Number(c.toFixed(2)),
-                volume: Math.round(v),
-                vwap: Number(((h + l + c) / 3).toFixed(2)),
-                tradeCount: Math.round(v / 100),
-              });
+    const urls = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=${interval}&range=${range}`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=${interval}&range=${range}`,
+    ];
+
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "application/json",
+          },
+        });
+        if (res.ok) {
+          const data = (await res.json().catch(() => ({}))) as any;
+          const result = data?.chart?.result?.[0];
+          const timestamps = result?.timestamp;
+          const quote = result?.indicators?.quote?.[0];
+
+          if (Array.isArray(timestamps) && quote?.close) {
+            const bars: FossHistoricalBar[] = [];
+            for (let i = timestamps.length - 1; i >= 0 && bars.length < limit; i--) {
+              const c = quote.close?.[i];
+              if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
+                const o = quote.open?.[i] ?? c;
+                const h = quote.high?.[i] ?? c;
+                const l = quote.low?.[i] ?? c;
+                const v = quote.volume?.[i] ?? 0;
+                bars.unshift({
+                  timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
+                  open: Number(Number(o).toFixed(2)),
+                  high: Number(Number(h).toFixed(2)),
+                  low: Number(Number(l).toFixed(2)),
+                  close: Number(Number(c).toFixed(2)),
+                  volume: Math.round(Number(v) || 0),
+                  vwap: Number(((Number(h) + Number(l) + Number(c)) / 3).toFixed(2)),
+                  tradeCount: Math.round(Number(v) / 100),
+                });
+              }
             }
+            if (bars.length > 0) return bars;
           }
-          if (bars.length > 0) return bars;
         }
+      } catch {
+        // Try fallback url
       }
-    } catch {
-      // Fall through to deterministic profile
     }
 
-    return this.getHistoricalBarsSync(symbol, _timeframe, limit);
+    return this.getHistoricalBarsSync(symbol, timeframe, limit);
   }
 }
 
@@ -2043,18 +2068,22 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
     return this.getFundamentalsSync(symbol);
   }
 
-  getHistoricalBarsSync(symbol: string, _timeframe = "1D", limit = 30): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): FossHistoricalBar[] {
     const p = getOrCreateProfile(symbol);
     return generateHistoricalBars(p, limit);
   }
 
-  async getHistoricalBars(symbol: string, _timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
     if (this.isConfigured()) {
       try {
+        const isWeekly = timeframe.toUpperCase().includes("W");
+        const isMonthly = timeframe.toUpperCase().includes("M") && !timeframe.toUpperCase().includes("MIN");
+        const isHourly = timeframe.toUpperCase().includes("H");
+        const alpacaTf = isWeekly ? "1Week" : isMonthly ? "1Month" : isHourly ? "1Hour" : "1Day";
         const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
         const url = isCrypto
-          ? `${this.getDataUrl()}/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=1Day&limit=${limit}`
-          : `${this.getDataUrl()}/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Day&limit=${limit}`;
+          ? `${this.getDataUrl()}/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=${alpacaTf}&limit=${limit}`
+          : `${this.getDataUrl()}/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${alpacaTf}&limit=${limit}`;
 
         const res = await fetch(url, { headers: this.getHeaders() });
         if (res.ok) {
@@ -2078,7 +2107,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
       }
     }
 
-    return this.getHistoricalBarsSync(symbol, _timeframe, limit);
+    return this.getHistoricalBarsSync(symbol, timeframe, limit);
   }
 
   getMarketSnapshotSync(symbol: string): AlpacaMarketSnapshot {
@@ -2447,12 +2476,24 @@ export class FossResearchService {
     return this.yfinance.getFundamentals(symbol);
   }
 
-  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): FossHistoricalBar[] {
+    if (provider === "alpaca") return this.alpaca.getHistoricalBarsSync(symbol, timeframe, limit);
     return this.yfinance.getHistoricalBarsSync(symbol, timeframe, limit);
   }
 
-  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
-    return this.yfinance.getHistoricalBars(symbol, timeframe, limit);
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): Promise<FossHistoricalBar[]> {
+    if (provider === "alpaca" && this.alpaca.isConfigured()) {
+      const alpacaBars = await this.alpaca.getHistoricalBars(symbol, timeframe, limit);
+      if (alpacaBars && alpacaBars.length > 0) return alpacaBars;
+    }
+    const yfBars = await this.yfinance.getHistoricalBars(symbol, timeframe, limit);
+    if (yfBars && yfBars.length > 0) return yfBars;
+
+    if (this.alpaca.isConfigured()) {
+      const alpacaFallback = await this.alpaca.getHistoricalBars(symbol, timeframe, limit);
+      if (alpacaFallback && alpacaFallback.length > 0) return alpacaFallback;
+    }
+    return yfBars;
   }
 
   getAlpacaSnapshotSync(symbol: string): AlpacaMarketSnapshot {

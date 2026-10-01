@@ -50,6 +50,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [bars, setBars] = useState<FossHistoricalBar[]>([]);
   const [barTimeframe, setBarTimeframe] = useState("1D");
   const [barLimit, setBarLimit] = useState(30);
+  const [barProvider, setBarProvider] = useState<"yfinance" | "alpaca">("yfinance");
+  const [barsMeta, setBarsMeta] = useState<{ source?: string; timestamp?: string; provider?: string } | null>(null);
   const [barsLoading, setBarsLoading] = useState(false);
 
   // Alpaca Snapshot & Tracing State
@@ -153,7 +155,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     loadResearchReport(cleanSym);
     loadQuotes(cleanSym);
     loadFundamentals(cleanSym);
-    loadHistoricalBars(cleanSym, barTimeframe, barLimit);
+    loadHistoricalBars(cleanSym, barTimeframe, barLimit, barProvider);
     loadAlpacaSnapshot(cleanSym);
   };
 
@@ -210,13 +212,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     }
   };
 
-  const loadHistoricalBars = async (sym: string, timeframe: string, limit: number) => {
+  const loadHistoricalBars = async (sym: string, timeframe: string, limit: number, provider: "yfinance" | "alpaca" = barProvider) => {
     setBarsLoading(true);
     try {
-      const resp = await fetch(`/api/foss/bars?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`);
+      const resp = await fetch(`/api/foss/bars?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}&provider=${provider}`);
       if (resp.ok) {
-        const data = await resp.json() as { count: number; bars: FossHistoricalBar[] };
+        const data = await resp.json() as { count: number; bars: FossHistoricalBar[]; source?: string; timestamp?: string; provider?: string };
         setBars(data.bars || []);
+        setBarsMeta({ source: data.source, timestamp: data.timestamp, provider: data.provider });
       }
     } catch {
       // Ignore
@@ -1250,23 +1253,69 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               Historical OHLCV Bars for <strong>{activeSymbol}</strong>
             </span>
             <div className="bars-filters">
+              <label>Feed:</label>
+              <select
+                value={barProvider}
+                onChange={(e) => {
+                  const p = e.target.value as "yfinance" | "alpaca";
+                  setBarProvider(p);
+                  loadHistoricalBars(activeSymbol, barTimeframe, barLimit, p);
+                }}
+              >
+                <option value="yfinance">Yahoo Finance FOSS (Live)</option>
+                <option value="alpaca">Alpaca Data v2 (Live)</option>
+              </select>
               <label>Timeframe:</label>
-              <select value={barTimeframe} onChange={(e) => setBarTimeframe(e.target.value)}>
+              <select
+                value={barTimeframe}
+                onChange={(e) => {
+                  const tf = e.target.value;
+                  setBarTimeframe(tf);
+                  loadHistoricalBars(activeSymbol, tf, barLimit, barProvider);
+                }}
+              >
                 <option value="1D">Daily (1D)</option>
                 <option value="1W">Weekly (1W)</option>
+                <option value="1M">Monthly (1M)</option>
+                <option value="1H">Hourly (1H)</option>
               </select>
               <label>Limit:</label>
-              <select value={barLimit} onChange={(e) => {
-                const l = Number(e.target.value);
-                setBarLimit(l);
-                loadHistoricalBars(activeSymbol, barTimeframe, l);
-              }}>
+              <select
+                value={barLimit}
+                onChange={(e) => {
+                  const l = Number(e.target.value);
+                  setBarLimit(l);
+                  loadHistoricalBars(activeSymbol, barTimeframe, l, barProvider);
+                }}
+              >
                 <option value={15}>15 Bars</option>
                 <option value={30}>30 Bars</option>
                 <option value={60}>60 Bars</option>
+                <option value={90}>90 Bars</option>
               </select>
+              <button
+                type="button"
+                className="btn-compact btn-secondary"
+                disabled={barsLoading}
+                onClick={() => loadHistoricalBars(activeSymbol, barTimeframe, barLimit, barProvider)}
+                title="Refresh live market bars"
+                style={{ marginLeft: "0.25rem", padding: "0.25rem 0.65rem", fontSize: "0.78rem" }}
+              >
+                {barsLoading ? "Refreshing…" : "↻ Refresh"}
+              </button>
             </div>
           </div>
+
+          {barsMeta && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "#94a3b8" }}>
+              <span>
+                📡 Verified Source: <strong style={{ color: "#38bdf8" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
+              </span>
+              <span>
+                Live Synced: {barsMeta.timestamp ? new Date(barsMeta.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
+              </span>
+            </div>
+          )}
 
           <div className="bars-table-wrap">
             <table className="trading-table">

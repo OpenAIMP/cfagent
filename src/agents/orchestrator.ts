@@ -2044,9 +2044,18 @@ Agentic Best Practices & Workflow Rules:
         const symbol = url.searchParams.get("symbol") || "NVDA";
         const timeframe = url.searchParams.get("timeframe") || "1D";
         const limit = Number(url.searchParams.get("limit") || "30");
+        const provider = (url.searchParams.get("provider") || "yfinance") as "yfinance" | "alpaca" | "hybrid";
         const foss = new FossResearchService(this.env);
-        const bars = await foss.getHistoricalBars(symbol, timeframe, limit);
-        return Response.json({ symbol: symbol.toUpperCase(), count: bars.length, bars });
+        const bars = await foss.getHistoricalBars(symbol, timeframe, limit, provider);
+        return Response.json({
+          symbol: symbol.toUpperCase(),
+          provider,
+          timeframe,
+          count: bars.length,
+          bars,
+          source: provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API",
+          timestamp: new Date().toISOString(),
+        });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch historical bars" }, { status: 500 });
       }
