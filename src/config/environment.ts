@@ -93,14 +93,21 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const baseUrl = resolveETradeBaseUrl(rawUrl);
   const isLive = activeName === "PROD" || (baseUrl.startsWith("https://api.etrade.com") && !baseUrl.startsWith("https://apisb.etrade.com"));
 
-  // OAuth credentials — ET_API_KEY / ET_API_SECRET (plus legacy aliases)
+  // OAuth credentials — environment-specific (ET_PROD_API_KEY / ET_SANDBOX_API_KEY) with ET_API_KEY fallback
+  const isProd = activeName === "PROD";
   const apiKey =
+    (isProd
+      ? (env?.ET_PROD_API_KEY || (env as any)?.ETRADE_PROD_CONSUMER_KEY || processEnv.ET_PROD_API_KEY || processEnv.ETRADE_PROD_CONSUMER_KEY)
+      : (env?.ET_SANDBOX_API_KEY || (env as any)?.ETRADE_SANDBOX_CONSUMER_KEY || processEnv.ET_SANDBOX_API_KEY || processEnv.ETRADE_SANDBOX_CONSUMER_KEY)) ||
     env?.ET_API_KEY ||
     env?.ETRADE_CONSUMER_KEY ||
     processEnv.ET_API_KEY ||
     processEnv.ETRADE_CONSUMER_KEY;
 
   const apiSecret =
+    (isProd
+      ? (env?.ET_PROD_API_SECRET || (env as any)?.ETRADE_PROD_CONSUMER_SECRET || processEnv.ET_PROD_API_SECRET || processEnv.ETRADE_PROD_CONSUMER_SECRET)
+      : (env?.ET_SANDBOX_API_SECRET || (env as any)?.ETRADE_SANDBOX_CONSUMER_SECRET || processEnv.ET_SANDBOX_API_SECRET || processEnv.ETRADE_SANDBOX_CONSUMER_SECRET)) ||
     env?.ET_API_SECRET ||
     env?.ETRADE_CONSUMER_SECRET ||
     processEnv.ET_API_SECRET ||

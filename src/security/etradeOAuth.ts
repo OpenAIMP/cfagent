@@ -230,9 +230,14 @@ export async function getETradeRequestToken(
 
       if (!res.ok) {
         const errorBody = await res.text().catch(() => "");
+        const isLiveProd = envConfig.isLive;
+        const diagnosticNote =
+          res.status === 401 && isLiveProd
+            ? " — E*TRADE Production Gateway (api.etrade.com) rejected credentials. If your ET_API_KEY is a Sandbox key, switch environment to TEST. Live production requires an approved Morgan Stanley Production Key & Secret."
+            : "";
         throw new ETradeError(
           ETradeErrorCode.UPSTREAM_ERROR,
-          `E*TRADE request_token failed [HTTP ${res.status}]: ${errorBody.slice(0, 300)}`
+          `E*TRADE request_token failed [HTTP ${res.status}]${diagnosticNote}: ${errorBody.slice(0, 300)}`
         );
       }
 

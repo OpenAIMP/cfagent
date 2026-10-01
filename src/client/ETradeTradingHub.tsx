@@ -100,7 +100,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       const stored = localStorage.getItem("cfagent_env");
       if (stored === "TEST" || stored === "PROD") return stored;
     }
-    return "PROD";
+    return "TEST";
   });
 
   const handleSwitchEnvironment = async (target: "TEST" | "PROD") => {
@@ -125,8 +125,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       fetchBrokerStatus(target),
       fetchPositions(target),
     ]);
-    runScreener();
-    fetchSymbolQuote(orderSymbol);
+    runScreener(target);
+    fetchSymbolQuote(orderSymbol, target);
   };
 
   // Fetch initial broker status, OAuth status, positions, and screener
@@ -323,7 +323,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const runScreener = async () => {
+  const runScreener = async (envOverride?: unknown) => {
+    const envToUse = typeof envOverride === "string" ? envOverride : activeEnv;
     setScreenerLoading(true);
     try {
       const body: Record<string, any> = { limit: 12 };
@@ -342,7 +343,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
       const resp = await fetch("/api/etrade/screen", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
+        headers: { "Content-Type": "application/json", "x-environment": envToUse },
         body: JSON.stringify(body),
       });
 
@@ -370,12 +371,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const fetchSymbolQuote = async (sym: string) => {
+  const fetchSymbolQuote = async (sym: string, envOverride?: unknown) => {
     if (!sym) return;
+    const envToUse = typeof envOverride === "string" ? envOverride : activeEnv;
     setQuoteLoading(true);
     try {
       const resp = await fetch(`/api/etrade/quote?symbol=${encodeURIComponent(sym)}`, {
-        headers: { "x-environment": activeEnv },
+        headers: { "x-environment": envToUse },
       });
       if (resp.ok) {
         const data = (await resp.json()) as ETradeQuote;
