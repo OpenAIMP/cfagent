@@ -1715,7 +1715,11 @@ Agentic Best Practices & Workflow Rules:
             quantity,
             orderType,
             limitPrice,
-            previewId: body.previewId && !isNaN(Number(body.previewId)) ? body.previewId : undefined,
+            previewId: body.previewId && !isNaN(Number(body.previewId))
+              ? body.previewId
+              : existingRecord?.orderRef && !isNaN(Number(existingRecord.orderRef))
+              ? existingRecord.orderRef
+              : undefined,
             userLogin,
           });
           if (result.success && this.getOrm().trades) {

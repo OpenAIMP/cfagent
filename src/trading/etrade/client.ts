@@ -358,7 +358,7 @@ export class ETradeRestClient {
    * POST /v1/accounts/{accountIdKey}/orders/preview
    */
   async previewOrder(
-    accountKey: string,
+    accountKey: string | undefined,
     params: {
       orderId: string;
       symbol: string;
@@ -371,32 +371,47 @@ export class ETradeRestClient {
     }
   ): Promise<{ previewId: string; estimatedTotal?: number; estimatedCommission?: number; message?: string } | null> {
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) {
+      key = "";
+    }
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      key = accounts[0]?.accountIdKey || accounts[0]?.accountKey || accounts[0]?.accountId || "";
+    }
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !key) return null;
 
-    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/orders/preview`;
-    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/orders/preview.json`;
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/preview`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/preview.json`;
 
     let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
     let authHeader = await this.generateOAuthHeader("POST", url);
 
+    const clientOrderId = (params.orderId.replace(/[^a-zA-Z0-9]/g, "") || `ord${Date.now()}`).slice(0, 20);
+    const priceType = (params.orderType || "MARKET").toUpperCase();
+    const isLimit = priceType === "LIMIT" || priceType === "STOP_LIMIT";
+    const limitPrice = isLimit && params.limitPrice && params.limitPrice > 0 ? Number(params.limitPrice.toFixed(2)) : undefined;
+    const isStop = priceType === "STOP" || priceType === "STOP_LIMIT";
+    const stopPrice = isStop && params.stopPrice && params.stopPrice > 0 ? Number(params.stopPrice.toFixed(2)) : undefined;
+
     const body = {
       PreviewOrderRequest: {
         orderType: "EQ",
-        clientOrderId: params.orderId,
+        clientOrderId,
         Order: [
           {
             allOrNone: false,
-            priceType: params.orderType || "MARKET",
-            ...(params.limitPrice ? { limitPrice: params.limitPrice } : {}),
-            ...(params.stopPrice ? { stopPrice: params.stopPrice } : {}),
+            priceType,
+            ...(limitPrice !== undefined ? { limitPrice } : {}),
+            ...(stopPrice !== undefined ? { stopPrice } : {}),
             orderTerm: params.orderTerm || "GOOD_FOR_DAY",
             marketSession: "REGULAR",
             Instrument: [
               {
                 Product: {
                   securityType: "EQ",
-                  symbol: params.symbol,
+                  symbol: params.symbol.toUpperCase().trim(),
                 },
                 orderAction: params.action,
                 quantityType: "QUANTITY",
@@ -434,21 +449,71 @@ export class ETradeRestClient {
         });
       }
 
+      const rawText = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        const pIdMatch = rawText.match(/<previewId>(\d+)<\/previewId>/i);
+        const estTotalMatch = rawText.match(/<estimatedTotalAmount>([^<]+)<\/estimatedTotalAmount>/i);
+        const estCommMatch = rawText.match(/<estimatedCommission>([^<]+)<\/estimatedCommission>/i);
+        const msgMatch = rawText.match(/<description>([^<]+)<\/description>/i) || rawText.match(/<message>([^<]+)<\/message>/i);
+        if (pIdMatch) {
+          data = {
+            PreviewOrderResponse: {
+              PreviewIds: [{ previewId: pIdMatch[1] }],
+              Order: [{
+                estimatedTotalAmount: estTotalMatch ? Number(estTotalMatch[1]) : undefined,
+                estimatedCommission: estCommMatch ? Number(estCommMatch[1]) : undefined,
+              }],
+              messageList: msgMatch ? { Message: [{ description: msgMatch[1] }] } : undefined,
+            },
+          };
+        }
+      }
+
       if (!res.ok) {
-        const errorText = await res.text().catch(() => "");
-        this.lastError = `E*TRADE Preview Order API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "previewOrder", errorText);
+        let errDesc = "";
+        if (data?.Error?.message) {
+          errDesc = data.Error.message;
+        } else if (data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description) {
+          errDesc = data.PreviewOrderResponse.messageList.Message[0].description;
+        } else {
+          const xmlMsg = rawText.match(/<message>([^<]+)<\/message>/i) || rawText.match(/<description>([^<]+)<\/description>/i);
+          if (xmlMsg) errDesc = xmlMsg[1];
+        }
+        const finalMsg = errDesc || rawText.slice(0, 200) || res.statusText;
+        this.lastError = `E*TRADE Preview Order API Error [HTTP ${res.status}]: ${finalMsg}`;
+        this.handleUpstreamAuthError(res.status, "previewOrder", rawText);
         return null;
       }
 
-      const data = (await res.json().catch(() => ({}))) as any;
-      const previewId = data?.PreviewOrderResponse?.PreviewIds?.[0]?.previewId;
-      const orderResp = data?.PreviewOrderResponse?.Order?.[0];
+      let rawPreviewId: any = data?.PreviewOrderResponse?.PreviewIds;
+      let previewIdVal: string | number | undefined;
+      if (Array.isArray(rawPreviewId) && rawPreviewId[0]?.previewId) {
+        previewIdVal = rawPreviewId[0].previewId;
+      } else if (rawPreviewId?.previewId) {
+        previewIdVal = rawPreviewId.previewId;
+      } else if (typeof rawPreviewId === "string" || typeof rawPreviewId === "number") {
+        previewIdVal = rawPreviewId;
+      }
+
+      const orderResp = Array.isArray(data?.PreviewOrderResponse?.Order)
+        ? data?.PreviewOrderResponse?.Order?.[0]
+        : data?.PreviewOrderResponse?.Order;
+
+      const rawMsg = data?.PreviewOrderResponse?.messageList?.Message;
+      const message = Array.isArray(rawMsg) ? rawMsg[0]?.description : rawMsg?.description;
+
+      if (!previewIdVal) {
+        return null;
+      }
+
       return {
-        previewId: String(previewId || `prev_${crypto.randomUUID().slice(0, 8)}`),
+        previewId: String(previewIdVal),
         estimatedTotal: orderResp?.estimatedTotalAmount !== undefined ? Number(orderResp.estimatedTotalAmount) : undefined,
         estimatedCommission: orderResp?.estimatedCommission !== undefined ? Number(orderResp.estimatedCommission) : undefined,
-        message: data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description,
+        message,
       };
     } catch (err: any) {
       console.warn("[ETradeClient] previewOrder error:", err);
@@ -684,7 +749,92 @@ export class ETradeRestClient {
           if (xmlMsg) parsedMsg = xmlMsg[1];
         }
 
-        const errMsg = parsedMsg || `HTTP ${res.status}: ${rawText.slice(0, 200) || res.statusText}`;
+        let errMsg = parsedMsg || `HTTP ${res.status}: ${rawText.slice(0, 200) || res.statusText}`;
+
+        // Auto-recovery: If E*TRADE rejects because preview session timed out or expired, re-preview and retry once!
+        if (errMsg.includes("timed out") || errMsg.includes("timeout") || errMsg.includes("resubmit it now")) {
+          try {
+            console.log("[ETradeClient] Upstream preview timed out; re-previewing with E*TRADE...");
+            const refreshedPreview = await this.previewOrder(key, {
+              orderId: params.orderId,
+              symbol: params.symbol,
+              action: params.action,
+              quantity: params.quantity,
+              orderType: priceType as any,
+              limitPrice,
+              stopPrice: (params as any).stopPrice,
+            });
+
+            if (refreshedPreview && refreshedPreview.previewId && !isNaN(Number(refreshedPreview.previewId))) {
+              const retryPreviewId = Number(refreshedPreview.previewId);
+              const retryBody = {
+                PlaceOrderRequest: {
+                  orderType: "EQ",
+                  clientOrderId,
+                  PreviewIds: [{ previewId: retryPreviewId }],
+                  Order: body.PlaceOrderRequest.Order,
+                },
+              };
+              const retryAuthHeader = await this.generateOAuthHeader("POST", url);
+              const retryRes = await fetch(url, {
+                method: "POST",
+                headers: {
+                  Authorization: retryAuthHeader,
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify(retryBody),
+              });
+              const retryRawText = await retryRes.text().catch(() => "");
+              let retryData: any = {};
+              try {
+                retryData = JSON.parse(retryRawText);
+              } catch {
+                const orderIdMatch = retryRawText.match(/<orderId>([^<]+)<\/orderId>/i);
+                if (orderIdMatch) {
+                  retryData = { PlaceOrderResponse: { OrderIds: [{ orderId: orderIdMatch[1] }] } };
+                }
+              }
+              const retryOrderIdVal = retryData?.PlaceOrderResponse?.OrderIds?.[0]?.orderId || retryData?.PlaceOrderResponse?.OrderIds?.orderId;
+              if (retryRes.ok && retryOrderIdVal) {
+                const brokerId = `et_order_${retryOrderIdVal}`;
+                const executionPrice = limitPrice || params.limitPrice || 0;
+                const totalSettled = executionPrice > 0 ? executionPrice * params.quantity : 0;
+                return {
+                  success: true,
+                  orderId: params.orderId,
+                  executionId: brokerId,
+                  brokerOrderRef: brokerId,
+                  authorizerDid: userDid,
+                  status: "executed",
+                  symbol: params.symbol,
+                  action: params.action,
+                  quantity: params.quantity,
+                  executionPrice,
+                  totalSettled,
+                  didAttestation: {
+                    proposerDid: AGENT_DIDS.TRADING,
+                    authorizerDid: userDid,
+                    signature: `sig_0x${crypto.randomUUID().slice(0, 16)}`,
+                  },
+                  message: `E*TRADE Execution Confirmed: Broker Order ID ${brokerId}`,
+                  timestamp: now,
+                };
+              }
+              if (retryData?.Error?.message) {
+                errMsg = retryData.Error.message;
+              } else if (retryData?.PlaceOrderResponse?.messageList?.Message?.[0]?.description) {
+                errMsg = retryData.PlaceOrderResponse.messageList.Message[0].description;
+              } else {
+                const xmlMsg = retryRawText.match(/<message>([^<]+)<\/message>/i) || retryRawText.match(/<description>([^<]+)<\/description>/i);
+                if (xmlMsg) errMsg = xmlMsg[1];
+              }
+            }
+          } catch (retryErr) {
+            console.warn("[ETradeClient] Auto-recovery preview retry failed:", retryErr);
+          }
+        }
+
         return {
           success: false,
           orderId: params.orderId,

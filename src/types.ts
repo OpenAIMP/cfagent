@@ -309,6 +309,7 @@ export interface StockScreenResult {
 
 export interface ETradeOrderDraft {
   orderId: string;
+  previewId?: string;
   symbol: string;
   action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
   orderAction: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";

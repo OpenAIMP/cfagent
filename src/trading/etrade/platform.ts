@@ -194,9 +194,47 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     const userDid = getUserDid(sessionId);
     const orderType = params.orderType || "MARKET";
 
-    const executionPrice = orderType === "LIMIT" && params.limitPrice ? params.limitPrice : quote.lastPrice;
-    const estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
-    const estimatedCommission = 0.0;
+    let executionPrice = orderType === "LIMIT" && params.limitPrice ? params.limitPrice : quote.lastPrice;
+    let estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
+    let estimatedCommission = 0.0;
+    let upstreamPreviewId: string | undefined;
+
+    // Check if authentic E*TRADE REST credentials exist and user is authenticated
+    const envConfig = this.getEnvConfig();
+    const hasKeys = Boolean(envConfig.etrade.apiKey && envConfig.etrade.apiSecret);
+    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv).catch(() => ({ authenticated: false }));
+
+    if (hasKeys && authStatus.authenticated) {
+      try {
+        const upstreamPreview = await this.client.previewOrder(undefined, {
+          orderId,
+          symbol,
+          action,
+          quantity: params.quantity,
+          orderType,
+          limitPrice: params.limitPrice,
+          stopPrice: params.stopPrice,
+        });
+
+        if (upstreamPreview) {
+          if (upstreamPreview.previewId && !isNaN(Number(upstreamPreview.previewId))) {
+            upstreamPreviewId = String(upstreamPreview.previewId);
+          }
+          if (upstreamPreview.estimatedCommission !== undefined) {
+            estimatedCommission = upstreamPreview.estimatedCommission;
+          }
+          if (upstreamPreview.estimatedTotal !== undefined && upstreamPreview.estimatedTotal > 0) {
+            estimatedTotal = upstreamPreview.estimatedTotal;
+            executionPrice = Number((estimatedTotal / (params.quantity || 1)).toFixed(2));
+          }
+        } else if (this.client.getLastError()) {
+          throw new Error(this.client.getLastError());
+        }
+      } catch (err: any) {
+        console.warn("[ETradePlatform] upstream previewOrder error:", err);
+        throw err;
+      }
+    }
 
     const didProof = createDidAttestationSync({
       draftId: orderId,
@@ -204,7 +242,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       amount: estimatedTotal,
       currency: "USD",
       customer: `E*TRADE:${symbol}`,
-      gateway: "sandbox",
+      gateway: envConfig.isLive ? "etrade_live" : "sandbox",
       proposerDid: AGENT_DIDS.TRADING,
       authorizerDid: userDid,
     });
@@ -213,6 +251,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
     const draft: ETradeOrderDraft = {
       orderId,
+      previewId: upstreamPreviewId,
       symbol,
       action,
       orderAction: action,
@@ -245,7 +284,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
           price: executionPrice,
           totalValue: estimatedTotal,
           status: "previewed",
-          orderRef: undefined,
+          orderRef: upstreamPreviewId,
           proposerDid: didProof.proposerDid,
           authorizerDid: userDid,
           proofSignature: draft.proofSignature,

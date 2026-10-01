@@ -1198,6 +1198,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             </div>
 
             <div className="hitl-attestation-box">
+              {activeDraft.previewId && (
+                <div className="attest-item">
+                  <span className="attest-label">E*TRADE Upstream Session:</span>
+                  <code style={{ color: "#10b981", fontWeight: "bold" }}>Preview #{activeDraft.previewId} (Verified)</code>
+                </div>
+              )}
               <div className="attest-item">
                 <span className="attest-label">Proposer DID:</span>
                 <code>{activeDraft.proposerDid}</code>
@@ -1665,10 +1671,24 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       </div>
                     );
                   }
+                  if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit < askPrice * 0.7) {
+                    return (
+                      <div className="limit-warning-box" role="alert" style={{ background: "#fee2e2", color: "#991b1b", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fca5a5" }}>
+                        ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is {Math.round((1 - parsedLimit / askPrice) * 100)}% below current ask (${askPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
+                      </div>
+                    );
+                  }
                   if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit < bidPrice * 0.95) {
                     return (
                       <div className="limit-warning-box" role="alert" style={{ background: "#fef3c7", color: "#92400e", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fde68a" }}>
                         ⚠️ <strong>Limit Price Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is &gt;5% below current bid (${bidPrice.toFixed(2)}). As a sell limit, this order may execute immediately below prevailing value.
+                      </div>
+                    );
+                  }
+                  if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit > bidPrice * 1.3) {
+                    return (
+                      <div className="limit-warning-box" role="alert" style={{ background: "#fee2e2", color: "#991b1b", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fca5a5" }}>
+                        ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is {Math.round((parsedLimit / bidPrice - 1) * 100)}% above current bid (${bidPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
                       </div>
                     );
                   }
