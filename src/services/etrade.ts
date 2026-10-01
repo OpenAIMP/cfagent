@@ -347,6 +347,8 @@ export class ETradeService {
    * Real E*TRADE REST API: Fetch live portfolio positions with OAuth 1.0a
    */
   async fetchPortfolioRemote(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
-    return this.platform.getPositions(accountKey);
+    const res = await this.platform.getPositions(accountKey);
+    if (res && res.positions.length > 0) return res;
+    return this.getPositions();
   }
 }

@@ -725,12 +725,13 @@ export async function executeNLQQueryAsync(
   sessionId: string,
   plan: NLQPlan,
   env?: Env,
-  userDid?: string
+  userLogin?: string
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
 
   if (plan.domain === "trading") {
-    const etrade = new ETradeService(orm, env, sessionId);
+    const login = userLogin || sessionId || "default_trader";
+    const etrade = new ETradeService(orm, env, login);
     const action = plan.tradingData?.action || "screen";
 
     if (action === "screen") {

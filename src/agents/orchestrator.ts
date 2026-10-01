@@ -556,9 +556,10 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: "Query parameter is required" }, { status: 400 });
         }
 
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const orm = this.getOrm();
         const plan = await planNLQ(this.env, query);
-        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env);
+        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env, userLogin);
         this.audit("nlq.executed", "nlq", {
           query,
           domain: result.domain,

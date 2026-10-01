@@ -112,60 +112,18 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     if (realPortfolio) return realPortfolio;
 
     const accounts = await this.getAccounts();
-    const account = accounts[0];
+    const account = accounts[0] || {
+      accountId: "unconnected",
+      accountKey: "unconnected",
+      accountDesc: "No Brokerage Connected",
+      accountType: "CASH",
+      netAccountValue: 0,
+      totalAccountValue: 0,
+      cashAvailableForInvestment: 0,
+      dayTraderStatus: false,
+    };
 
-    const defaultPositions: ETradePosition[] = [
-      {
-        symbol: "NVDA",
-        description: "NVIDIA Corporation Common Stock",
-        quantity: 120,
-        pricePaid: 112.5,
-        costBasis: 13500.0,
-        currentPrice: 138.25,
-        marketPrice: 138.25,
-        marketValue: 16590.0,
-        totalGain: 3090.0,
-        unrealizedGainLoss: 3090.0,
-        totalGainPercent: 22.89,
-        unrealizedGainLossPercent: 22.89,
-        daysGain: 582.0,
-        daysGainPercent: 3.63,
-      },
-      {
-        symbol: "AAPL",
-        description: "Apple Inc. Common Stock",
-        quantity: 80,
-        pricePaid: 215.0,
-        costBasis: 17200.0,
-        currentPrice: 228.4,
-        marketPrice: 228.4,
-        marketValue: 18272.0,
-        totalGain: 1072.0,
-        unrealizedGainLoss: 1072.0,
-        totalGainPercent: 6.23,
-        unrealizedGainLossPercent: 6.23,
-        daysGain: -92.0,
-        daysGainPercent: -0.5,
-      },
-      {
-        symbol: "MSFT",
-        description: "Microsoft Corporation Common Stock",
-        quantity: 65,
-        pricePaid: 405.0,
-        costBasis: 26325.0,
-        currentPrice: 422.9,
-        marketPrice: 422.9,
-        marketValue: 27488.5,
-        totalGain: 1163.5,
-        unrealizedGainLoss: 1163.5,
-        totalGainPercent: 4.42,
-        unrealizedGainLossPercent: 4.42,
-        daysGain: 221.0,
-        daysGainPercent: 0.81,
-      },
-    ];
-
-    return { account, positions: defaultPositions };
+    return { account, positions: [] };
   }
 
   async previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft> {
