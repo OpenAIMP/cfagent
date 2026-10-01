@@ -5,9 +5,19 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target GitHub Environment (overrides environment.config.json)"
+        required: false
+        default: "CONFIG"
+        type: choice
+        options:
+          - "CONFIG"
+          - "PROD"
+          - "TEST"
 
 jobs:
-  # ── Step 1: read environment.config.json to determine target environment ──
+  # ── Step 1: read environment.config.json or input to determine target environment ──
   load-environment:
     name: Load Active Environment
     runs-on: ubuntu-latest
@@ -17,11 +27,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read Active Environment from Config
+      - name: Read Active Environment from Config or Input
         id: read-env
         run: |
-          TARGET_ENV=$(jq -r '.environment' environment.config.json)
-          echo "Active environment: $TARGET_ENV"
+          INPUT_ENV="${{ github.event.inputs.target_env }}"
+          if [ -n "$INPUT_ENV" ] && [ "$INPUT_ENV" != "CONFIG" ]; then
+            TARGET_ENV="$INPUT_ENV"
+          else
+            TARGET_ENV=$(jq -r '.environment' environment.config.json)
+          fi
+          echo "Active target environment: $TARGET_ENV"
           echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
 
   # ── Step 2: build & deploy using secrets from the GitHub Environment ──
