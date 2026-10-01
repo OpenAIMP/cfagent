@@ -228,6 +228,7 @@ export interface ETradeQuote {
   open: number;
   high: number;
   low: number;
+  previousClose?: number;
   peRatio?: number;
   marketCap?: number;
   week52High: number;
@@ -256,6 +257,22 @@ export interface StockScreenerFilter {
   limit?: number;
 }
 
+export interface StockScreenRejection {
+  symbol: string;
+  reason: string;
+  changePercent?: number;
+  price?: number;
+  rsi?: number;
+}
+
+export interface StockScreenLedger {
+  universeSymbols: string[];
+  totalEvaluated: number;
+  passedCount: number;
+  rejectedCount: number;
+  rejections: StockScreenRejection[];
+}
+
 export interface ScreenedStockItem extends ETradeQuote {
   price: number;
   rsi14: number;
@@ -264,6 +281,11 @@ export interface ScreenedStockItem extends ETradeQuote {
   technicalSignal: string;
   momentumScore: number;
   highlightReason: string;
+  previousClose?: number;
+  changePeriod?: string;
+  rsiLookback?: string;
+  macdIndicatorVersion?: string;
+  validationStatus?: "PASS_CONFIRMED" | "FAIL_MISMATCH" | "UNVERIFIED";
 }
 
 export interface StockScreenResult {
@@ -274,6 +296,9 @@ export interface StockScreenResult {
   filterSummary: string;
   stocks: ScreenedStockItem[];
   scannedAt: string;
+  status?: "matches_found" | "no_matches" | "SCAN_INVALID_DATA_MISMATCH" | "no_universe";
+  ledger?: StockScreenLedger;
+  validationError?: string;
 }
 
 export interface ETradeOrderDraft {
@@ -384,6 +409,8 @@ export interface FossQuote {
   vwap?: number;
   trailingPE?: number;
   marketCap?: number;
+  rsi14?: number;
+  macdSignal?: string;
   timestamp: string;
   currency?: string;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { planNLQ, executeNLQQuery } from "../src/agents/nlq";
+import { planNLQ, executeNLQQuery, formatMarketCap } from "../src/agents/nlq";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import type { Env } from "../src/types";
@@ -106,6 +106,62 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(result.domain).toBe("table_data");
       expect(result.rows.length).toBeGreaterThan(0);
       expect(result.rows[0].cpm_rate ?? result.rows[0].cpmRate).toBeDefined();
+    });
+  });
+
+  describe("Market Screener NLQ & Audit Ledger Verification", () => {
+    it("formatMarketCap scales raw dollars and billions accurately without redundant unit suffixes", () => {
+      // Raw dollar numbers (from Yahoo Finance / live feeds)
+      expect(formatMarketCap(3.39e12)).toBe("$3.39T");
+      expect(formatMarketCap(2.53e11)).toBe("$253.00B");
+      expect(formatMarketCap(4.5e10)).toBe("$45.00B");
+      // Billion-normalized numbers (from internal screener universe)
+      expect(formatMarketCap(3390)).toBe("$3.39T");
+      expect(formatMarketCap(253)).toBe("$253.0B");
+      expect(formatMarketCap(45.2)).toBe("$45.2B");
+      // Edge cases
+      expect(formatMarketCap(undefined)).toBe("N/A");
+      expect(formatMarketCap(0)).toBe("N/A");
+    });
+
+    it("executes 'Show top momentum gainers' with strict filter enforcement, audit ledger, and fail-closed validation", async () => {
+      const plan = await planNLQ(mockEnv, "Show top momentum gainers");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("screen");
+      expect(plan.tradingData?.filters?.gainersOnly).toBe(true);
+
+      const result = executeNLQQuery(orm, "test_session", plan);
+      expect(result.targetTable).toBe("etrade_market_screener");
+      expect(result.status).toBe("matches_found");
+
+      // Verify every returned row is strictly positive
+      expect(result.rows.length).toBeGreaterThan(0);
+      for (const row of result.rows) {
+        expect(String(row.change)).toMatch(/^\+/);
+        expect(row.actionAvailable).toContain("Preview Buy/Sell");
+        expect(row.changePeriod).toBe("1D (Regular Trading Day)");
+        expect(row.rsiLookback).toBe("14-Period Daily RSI");
+        expect(row.calculationVersion).toBe("MACD (12, 26, 9 EMA)");
+        expect(row.priorClose).toBeDefined();
+        // Market cap should NEVER have nonsensical trillion prefixes like $3390000000.00T
+        expect(String(row.marketCap)).not.toMatch(/\$3390000000/);
+        expect(String(row.marketCap)).toMatch(/^\$[0-9.]+[TB]$/);
+        // MACD signal should be an authentic technical indicator, not a pattern name
+        expect(String(row.macdSignal)).not.toContain("Support Bounce at 50-Day EMA");
+        expect(String(row.macdSignal)).not.toContain("New 52-Week High Breakout");
+        expect(String(row.macdSignal)).toMatch(/MACD|Centerline|Divergence/);
+      }
+
+      // Verify Scan Ledger is present and accurately documents rejected symbols
+      expect(result.scanLedger).toBeDefined();
+      const ledger = result.scanLedger as any;
+      expect(ledger.universeSymbols).toHaveLength(10);
+      expect(ledger.totalEvaluated).toBe(10);
+      expect(ledger.passedCount + ledger.rejectedCount).toBe(10);
+      // Losers like AVGO, AAPL, TSLA, GOOGL, META must be in rejections with clear explanations
+      expect(ledger.rejections.some((r: any) => r.symbol === "AVGO")).toBe(true);
+      const avgoRej = ledger.rejections.find((r: any) => r.symbol === "AVGO");
+      expect(avgoRej.reason).toContain("violates gainersOnly rule");
     });
   });
 });

@@ -1780,6 +1780,74 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   </div>
                 )}
 
+                {/* Fail-Closed Scan Mismatch Alert */}
+                {(nlqResult.status === "SCAN_INVALID_DATA_MISMATCH" || nlqResult.result?.status === "SCAN_INVALID_DATA_MISMATCH") && (
+                  <div className="nlq-unverified-warning-banner" role="alert" style={{ background: "rgba(185, 28, 28, 0.2)", borderColor: "#ef4444" }}>
+                    <div className="warning-title" style={{ color: "#fca5a5" }}>
+                      🚨 SCAN INVALID — DATA MISMATCH: FILTER CONTRADICTION DETECTED
+                    </div>
+                    <p className="warning-desc" style={{ color: "#fee2e2" }}>
+                      {nlqResult.summary || nlqResult.result?.summary}
+                    </p>
+                    <div style={{ fontSize: "0.85rem", color: "#fca5a5", marginTop: "0.4rem" }}>
+                      Trading order shortcuts disabled because one or more candidates failed validation.
+                    </div>
+                  </div>
+                )}
+
+                {/* Scan Audit Ledger Box */}
+                {(nlqResult.scanLedger || nlqResult.result?.scanLedger) && (
+                  <div className="scan-audit-ledger-box" style={{ background: "rgba(15, 23, 42, 0.7)", border: "1px solid #334155", borderRadius: "8px", padding: "1rem", margin: "1rem 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                      <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#93c5fd", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span>🛡️</span> Market Universe Scan Audit Ledger
+                      </h5>
+                      <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                        Evaluated: <strong style={{ color: "#f8fafc" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).totalEvaluated}</strong> | 
+                        Passed: <strong style={{ color: "#4ade80" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).passedCount}</strong> | 
+                        Rejected: <strong style={{ color: "#f87171" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).rejectedCount}</strong>
+                      </div>
+                    </div>
+
+                    {/* Universe Evaluated Badges */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.75rem" }}>
+                      <span style={{ fontSize: "0.8rem", color: "#94a3b8", alignSelf: "center", marginRight: "0.25rem" }}>Universe:</span>
+                      {((nlqResult.scanLedger || nlqResult.result?.scanLedger).universeSymbols || []).map((sym: string) => {
+                        const isRejected = ((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).some((r: any) => r.symbol === sym);
+                        return (
+                          <span key={sym} style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontSize: "0.75rem",
+                            fontFamily: "monospace",
+                            background: !isRejected ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                            color: !isRejected ? "#4ade80" : "#fca5a5",
+                            border: `1px solid ${!isRejected ? "#16a34a" : "#dc2626"}`
+                          }}>
+                            {sym} {!isRejected ? "✓" : "✗"}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Rejection Details */}
+                    {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length > 0 && (
+                      <details style={{ fontSize: "0.8rem", color: "#cbd5e1", marginTop: "0.5rem" }}>
+                        <summary style={{ cursor: "pointer", color: "#f87171" }}>
+                          View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (Filter Enforcement)
+                        </summary>
+                        <ul style={{ margin: "0.5rem 0 0 1rem", padding: 0 }}>
+                          {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).map((rej: any, rIdx: number) => (
+                            <li key={rIdx} style={{ margin: "0.25rem 0", color: "#94a3b8" }}>
+                              <strong style={{ color: "#f87171" }}>{rej.symbol}</strong>: {rej.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+
                 {/* Text Summary */}
                 {(nlqResult.summary || nlqResult.result?.summary) && (nlqResult.reconciled !== false && nlqResult.result?.reconciled !== false && nlqResult.status !== "RECONCILIATION_FAILED") && (
                   <div className="nlq-summary-text" role="status" aria-live="polite">
@@ -1801,9 +1869,32 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       <tbody>
                         {(nlqResult.rows || nlqResult.result?.rows).map((row: any, idx: number) => (
                           <tr key={idx}>
-                            {Object.values(row).map((val: any, cidx: number) => (
-                              <td key={cidx}>{String(val)}</td>
-                            ))}
+                            {Object.entries(row).map(([key, val]: [string, any], cidx: number) => {
+                              if (key === "actionAvailable") {
+                                const isDisabled = String(val).includes("DISABLED");
+                                return (
+                                  <td key={cidx}>
+                                    {isDisabled ? (
+                                      <span style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>
+                                        ⛔ {String(val)}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="btn-card-quote"
+                                        style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+                                        onClick={() => {
+                                          if (row.symbol) handleOpenInspectQuote(row.symbol);
+                                        }}
+                                      >
+                                        ⚡ {String(val)}
+                                      </button>
+                                    )}
+                                  </td>
+                                );
+                              }
+                              return <td key={cidx}>{String(val)}</td>;
+                            })}
                           </tr>
                         ))}
                       </tbody>

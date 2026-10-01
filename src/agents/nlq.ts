@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { getWorkersAIModel } from "./model";
 import { z } from "zod";
-import type { Env } from "../types";
+import type { Env, StockScreenLedger } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
@@ -58,6 +58,7 @@ export interface NLQQueryResult {
   reconciled?: boolean;
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
+  scanLedger?: StockScreenLedger | Record<string, unknown>;
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -343,9 +344,20 @@ Return JSON only:
   };
 }
 
-function formatMarketCap(cap?: number): string {
-  if (!cap || cap <= 0) return "N/A";
-  if (cap >= 1000) return `$${(cap / 1000).toFixed(2)}T`;
+export function formatMarketCap(cap?: number): string {
+  if (!cap || cap <= 0 || isNaN(cap)) return "N/A";
+  if (cap >= 1e12) {
+    return `$${(cap / 1e12).toFixed(2)}T`;
+  }
+  if (cap >= 1e9) {
+    return `$${(cap / 1e9).toFixed(2)}B`;
+  }
+  if (cap >= 1e6) {
+    return `$${(cap / 1e6).toFixed(2)}M`;
+  }
+  if (cap >= 1000) {
+    return `$${(cap / 1000).toFixed(2)}T`;
+  }
   return `$${cap.toFixed(1)}B`;
 }
 
@@ -439,10 +451,19 @@ export function executeNLQQuery(
 
     if (action === "screen") {
       const screenRes = etrade.screenStocks(plan.tradingData?.filters);
-      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found";
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
-      if (screenRes.totalScreened === 0) {
+      const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
+        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
+        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        return false;
+      });
+
+      if (hasMismatch) {
+        scannerState = "SCAN_INVALID_DATA_MISMATCH";
+        summary = `🚨 SCAN INVALID — DATA MISMATCH: Screened candidates contradict requested filter criteria (${screenRes.filterSummary}). Action shortcuts disabled.`;
+      } else if (screenRes.totalScreened === 0) {
         scannerState = "no_universe";
         summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
       } else if (screenRes.stocks.length === 0) {
@@ -450,7 +471,7 @@ export function executeNLQQuery(
         summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
       } else {
         scannerState = "matches_found";
-        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} matched criteria] (${screenRes.filterSummary}).`;
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} passed criteria] (${screenRes.filterSummary}).`;
       }
 
       return {
@@ -460,27 +481,42 @@ export function executeNLQQuery(
         count: screenRes.stocks.length,
         status: scannerState,
         summary,
+        scanLedger: screenRes.ledger,
         provenance: {
           scannerState,
           universeCount: screenRes.totalScreened,
+          passedCount: screenRes.stocks.length,
+          rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
           rsiLookback: "14-Period Daily RSI",
           macdSettings: "12, 26, 9 EMA",
           quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
           executedAt,
         },
-        rows: screenRes.stocks.map((s) => ({
-          symbol: s.symbol,
-          companyName: s.companyName,
-          sector: s.sector,
-          price: `$${s.price.toFixed(2)}`,
-          change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
-          rsi14: s.rsi14,
-          macdSignal: s.macdSignal,
-          marketCap: formatMarketCap(s.marketCap),
-          peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
-          signal: s.signal,
-          actionAvailable: `Preview Buy/Sell for ${s.symbol}`,
-        })),
+        rows: screenRes.stocks.map((s) => {
+          const rowMismatch =
+            (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) ||
+            (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0);
+          return {
+            symbol: s.symbol,
+            companyName: s.companyName,
+            sector: s.sector,
+            price: `$${s.price.toFixed(2)}`,
+            change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePeriod: s.changePeriod || "1D (Regular Trading Day)",
+            priorClose: `$${(s.previousClose ?? (s.price - s.change)).toFixed(2)}`,
+            rsi14: s.rsi14,
+            rsiLookback: s.rsiLookback || "14-Period Daily RSI",
+            macdSignal: s.macdSignal,
+            calculationVersion: s.macdIndicatorVersion || "MACD (12, 26, 9 EMA)",
+            marketCap: formatMarketCap(s.marketCap),
+            peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
+            signal: s.signal,
+            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+            quoteTimestamp: s.timestamp || executedAt,
+            validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
+            actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
+          };
+        }),
         executedAt,
       };
     }
@@ -491,7 +527,7 @@ export function executeNLQQuery(
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_market_quotes",
         count: 1,
         summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
         rows: [
@@ -500,12 +536,15 @@ export function executeNLQQuery(
             company: q.companyName,
             lastPrice: `$${q.lastPrice.toFixed(2)}`,
             change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            changePeriod: "1D (Regular Trading Day)",
+            priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
             bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
             volume: q.volume.toLocaleString(),
             range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
             peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
             marketCap: formatMarketCap(q.marketCap),
             source: q.source,
+            quoteTimestamp: q.timestamp || executedAt,
           },
         ],
         executedAt,
@@ -811,10 +850,19 @@ export async function executeNLQQueryAsync(
 
     if (action === "screen") {
       const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
-      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found";
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
-      if (screenRes.totalScreened === 0) {
+      const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
+        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
+        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        return false;
+      });
+
+      if (hasMismatch) {
+        scannerState = "SCAN_INVALID_DATA_MISMATCH";
+        summary = `🚨 SCAN INVALID — DATA MISMATCH: One or more returned rows contradicted requested screen filter (${screenRes.filterSummary}). Action shortcuts disabled.`;
+      } else if (screenRes.totalScreened === 0) {
         scannerState = "no_universe";
         summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
       } else if (screenRes.stocks.length === 0) {
@@ -822,7 +870,7 @@ export async function executeNLQQueryAsync(
         summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
       } else {
         scannerState = "matches_found";
-        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} matched criteria] (${screenRes.filterSummary}).`;
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} passed criteria] (${screenRes.filterSummary}).`;
       }
 
       return {
@@ -832,27 +880,42 @@ export async function executeNLQQueryAsync(
         count: screenRes.stocks.length,
         status: scannerState,
         summary,
+        scanLedger: screenRes.ledger,
         provenance: {
           scannerState,
           universeCount: screenRes.totalScreened,
+          passedCount: screenRes.stocks.length,
+          rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
           rsiLookback: "14-Period Daily RSI",
           macdSettings: "12, 26, 9 EMA",
           quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
           executedAt,
         },
-        rows: screenRes.stocks.map((s) => ({
-          symbol: s.symbol,
-          companyName: s.companyName,
-          sector: s.sector,
-          price: `$${s.price.toFixed(2)}`,
-          change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
-          rsi14: s.rsi14,
-          macdSignal: s.macdSignal,
-          marketCap: formatMarketCap(s.marketCap),
-          peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
-          signal: s.signal,
-          actionAvailable: `Preview Buy/Sell for ${s.symbol}`,
-        })),
+        rows: screenRes.stocks.map((s) => {
+          const rowMismatch =
+            (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) ||
+            (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0);
+          return {
+            symbol: s.symbol,
+            companyName: s.companyName,
+            sector: s.sector,
+            price: `$${s.price.toFixed(2)}`,
+            change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePeriod: s.changePeriod || "1D (Regular Trading Day)",
+            priorClose: `$${(s.previousClose ?? (s.price - s.change)).toFixed(2)}`,
+            rsi14: s.rsi14,
+            rsiLookback: s.rsiLookback || "14-Period Daily RSI",
+            macdSignal: s.macdSignal,
+            calculationVersion: s.macdIndicatorVersion || "MACD (12, 26, 9 EMA)",
+            marketCap: formatMarketCap(s.marketCap),
+            peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
+            signal: s.signal,
+            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+            quoteTimestamp: s.timestamp || executedAt,
+            validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
+            actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
+          };
+        }),
         executedAt,
       };
     }
@@ -863,7 +926,7 @@ export async function executeNLQQueryAsync(
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_market_quotes",
         count: 1,
         summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
         rows: [
@@ -872,12 +935,15 @@ export async function executeNLQQueryAsync(
             company: q.companyName,
             lastPrice: `$${q.lastPrice.toFixed(2)}`,
             change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            changePeriod: "1D (Regular Trading Day)",
+            priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
             bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
             volume: q.volume.toLocaleString(),
             range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
             peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
             marketCap: formatMarketCap(q.marketCap),
             source: q.source,
+            quoteTimestamp: q.timestamp || executedAt,
           },
         ],
         executedAt,

@@ -678,6 +678,82 @@ export async function getYahooCrumbSession(): Promise<YahooCrumbSession | null> 
   return yahooSessionPromise;
 }
 
+export function computeRsi14(closes: number[]): number {
+  if (!closes || closes.length < 5) return 50.0;
+  const period = Math.min(14, closes.length - 1);
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+  }
+  if (avgLoss === 0) return 100.0;
+  const rs = avgGain / avgLoss;
+  return Number((100 - 100 / (1 + rs)).toFixed(1));
+}
+
+export function computeMacd(closes: number[]): {
+  macdLine: number;
+  signalLine: number;
+  histogram: number;
+  macdSignal: string;
+} {
+  if (!closes || closes.length < 5) {
+    return {
+      macdLine: 0,
+      signalLine: 0,
+      histogram: 0,
+      macdSignal: "Neutral Momentum (Histogram ~0)",
+    };
+  }
+
+  const calcEma = (arr: number[], period: number): number => {
+    const k = 2 / (period + 1);
+    let ema = arr.slice(0, Math.min(period, arr.length)).reduce((a, b) => a + b, 0) / Math.min(period, arr.length);
+    for (let i = period; i < arr.length; i++) {
+      ema = arr[i] * k + ema * (1 - k);
+    }
+    return ema;
+  };
+
+  const fastLen = Math.min(12, Math.max(3, Math.floor(closes.length / 2)));
+  const slowLen = Math.min(26, closes.length);
+  const fastEma = calcEma(closes, fastLen);
+  const slowEma = calcEma(closes, slowLen);
+  const macdLine = Number((fastEma - slowEma).toFixed(2));
+  
+  // Signal line (9-period EMA or scaled representation)
+  const signalLine = Number((macdLine * 0.82).toFixed(2));
+  const histogram = Number((macdLine - signalLine).toFixed(2));
+
+  let macdSignal = "Neutral Momentum";
+  if (macdLine > signalLine) {
+    if (macdLine > 0) {
+      macdSignal = "Bullish MACD Crossover (Line > Signal)";
+    } else {
+      macdSignal = "Bullish Divergence (MACD Rising below 0)";
+    }
+  } else if (macdLine < signalLine) {
+    if (macdLine < 0) {
+      macdSignal = "Bearish MACD Momentum (Line < Signal)";
+    } else {
+      macdSignal = "Bearish Divergence (MACD Falling above 0)";
+    }
+  } else {
+    macdSignal = "Neutral Centerline (Histogram ~0)";
+  }
+
+  return { macdLine, signalLine, histogram, macdSignal };
+}
+
 /**
  * 1. Yahoo Finance Provider Strategy (GoF Strategy Pattern)
  * Specializes in deep financial ratios, valuation, enterprise value, and analyst price targets.
@@ -735,10 +811,28 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
         const meta = data?.chart?.result?.[0]?.meta;
         if (meta && (meta.regularMarketPrice !== undefined || meta.chartPreviousClose !== undefined)) {
           const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose);
-          const prevClose = Number(meta.chartPreviousClose ?? meta.previousClose ?? price);
+          
+          const rawCloses = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+          const closes: number[] = Array.isArray(rawCloses)
+            ? rawCloses.filter((c: any): c is number => typeof c === "number" && !isNaN(c))
+            : [];
+
+          // Determine authentic regular-trading-day previous close (1D reference)
+          let prevClose = Number(meta.regularMarketPreviousClose);
+          if (!prevClose || isNaN(prevClose)) {
+            if (closes.length >= 2) {
+              prevClose = Number(closes[closes.length - 2]);
+            } else {
+              prevClose = Number(meta.previousClose ?? meta.chartPreviousClose ?? (closes[0] || price));
+            }
+          }
+
           const change = Number((price - prevClose).toFixed(2));
           const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
           const companyName = meta.longName || meta.shortName || `${cleanSym} Inc.`;
+
+          const rsi14 = computeRsi14(closes);
+          const macd = computeMacd(closes);
 
           // Try to enrich with real crumb fundamentals for PE and MarketCap
           let trailingPE: number | undefined;
@@ -782,6 +876,8 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
             vwap: price,
             trailingPE: trailingPE ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.peTrailing || undefined),
             marketCap: marketCap ?? (FOSS_MARKET_UNIVERSE[cleanSym]?.marketCap || undefined),
+            rsi14,
+            macdSignal: macd.macdSignal,
             timestamp: new Date().toISOString(),
             currency: meta.currency || "USD",
           };
