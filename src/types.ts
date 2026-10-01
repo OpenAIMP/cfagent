@@ -52,6 +52,15 @@ export interface Env {
   ALPACA_DATA_URL?: string;
   YFINANCE_API_ENDPOINT?: string;
   FOSS_MARKET_DATA_PROVIDER?: "alpaca" | "yfinance" | "hybrid";
+  // Cloudflare Email Service & Email Agent Configuration
+  EMAIL?: any;
+  EMAIL_SECRET?: string;
+  EMAIL_AGENT_ADDRESS?: string;
+  // Cloudflare Slack Agent Configuration
+  SLACK_CLIENT_ID?: string;
+  SLACK_CLIENT_SECRET?: string;
+  SLACK_SIGNING_SECRET?: string;
+  SLACK_BOT_TOKEN?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   ETRADE_KV?: KVNamespace;
@@ -694,6 +703,63 @@ export interface ETradeCancelOrderResult {
   success: boolean;
   orderId: string;
   message: string;
+  timestamp: string;
+}
+
+// --- Omnichannel Trading Agent Communication Channels (Email & Slack) ---
+
+export interface InboundEmailPayload {
+  from: string;
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+  messageId?: string;
+}
+
+export interface EmailTradingResult {
+  success: boolean;
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
+  from: string;
+  to: string;
+  responseSubject: string;
+  responseHtml: string;
+  responseText: string;
+  orderId?: string;
+  orderStatus?: string;
+  proposerDid: string;
+  authorizerDid?: string;
+  timestamp: string;
+}
+
+export interface SlackBlockKitPayload {
+  channel?: string;
+  text: string;
+  blocks?: any[];
+  thread_ts?: string;
+  replace_original?: boolean;
+}
+
+export interface SlackEventResult {
+  handled: boolean;
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored";
+  response?: SlackBlockKitPayload;
+  orderId?: string;
+  challenge?: string;
+  proposerDid?: string;
+  authorizerDid?: string;
+  timestamp: string;
+}
+
+export interface SlackInteractionResult {
+  success: boolean;
+  actionId: string;
+  orderId?: string;
+  status: "executed" | "rejected" | "error";
+  message: string;
+  replacementBlocks?: any[];
+  proposerDid?: string;
+  authorizerDid?: string;
   timestamp: string;
 }
 

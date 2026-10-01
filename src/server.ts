@@ -13,6 +13,8 @@ import {
 } from "./services/etradeOAuth";
 import { ETradeRestClient } from "./trading/etrade/client";
 import { resolveEnvironmentConfig } from "./config/environment";
+import { handleCloudflareEmailMessage } from "./trading/email/agent";
+import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -240,6 +242,157 @@ export default {
       return env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
     }
 
+    // --- Omnichannel Trading Agent: Inbound Email Webhook & Simulator ---
+    if (path === "/api/trading/email/inbound" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "omnichannel_email_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/trading/email/inbound", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Slack Test Simulator ---
+    if (path === "/api/trading/slack/test" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "omnichannel_slack_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/trading/slack/event", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Slack Events Webhook ---
+    if ((path === "/slack" || path === "/slack/events") && request.method === "POST") {
+      const rawBody = await request.text();
+      const sig = request.headers.get("x-slack-signature");
+      const ts = request.headers.get("x-slack-request-timestamp");
+
+      if (env.SLACK_SIGNING_SECRET) {
+        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
+        if (!isValid) {
+          return new Response("Invalid Slack signature", { status: 401 });
+        }
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch {
+        return new Response("Invalid JSON", { status: 400 });
+      }
+
+      if (parsed.type === "url_verification") {
+        return Response.json({ challenge: parsed.challenge });
+      }
+
+      // Multi-tenant: Route to workspace DO or fallback receiver
+      const teamId = parsed.team_id || "default_workspace";
+      const id = env.SEARCH_AGENT.idFromName(`slack_${teamId}`);
+      const targetUrl = new URL("/trading/slack/event", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: rawBody,
+      });
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Slack Interactive Component Actions ---
+    if (path === "/slack/interactions" && request.method === "POST") {
+      const rawBody = await request.text();
+      const sig = request.headers.get("x-slack-signature");
+      const ts = request.headers.get("x-slack-request-timestamp");
+
+      if (env.SLACK_SIGNING_SECRET) {
+        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
+        if (!isValid) {
+          return new Response("Invalid Slack signature", { status: 401 });
+        }
+      }
+
+      const params = new URLSearchParams(rawBody);
+      const payloadRaw = params.get("payload");
+      if (!payloadRaw) {
+        return new Response("Missing payload", { status: 400 });
+      }
+
+      let payload: any;
+      try {
+        payload = JSON.parse(payloadRaw);
+      } catch {
+        return new Response("Invalid payload JSON", { status: 400 });
+      }
+
+      const teamId = payload.team?.id || "default_workspace";
+      const id = env.SEARCH_AGENT.idFromName(`slack_${teamId}`);
+      const targetUrl = new URL("/trading/slack/interaction", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Slack OAuth Install & Callback ---
+    if (path === "/slack/install") {
+      const clientId = env.SLACK_CLIENT_ID;
+      if (!clientId) {
+        return new Response("SLACK_CLIENT_ID is not configured in environment.", { status: 500 });
+      }
+      const redirectUri = `${env.APP_BASE_URL || "https://agent.openaimp.com"}/slack/oauth_callback`;
+      const installUrl = ETradeSlackTradingService.getInstallUrl(clientId, redirectUri);
+      return Response.redirect(installUrl, 302);
+    }
+
+    if (path === "/slack/oauth_callback") {
+      const code = url.searchParams.get("code");
+      if (!code) {
+        return Response.redirect("/?tab=trading&error=missing_slack_code", 302);
+      }
+      const clientId = env.SLACK_CLIENT_ID || "";
+      const clientSecret = env.SLACK_CLIENT_SECRET || "";
+      const redirectUri = `${env.APP_BASE_URL || "https://agent.openaimp.com"}/slack/oauth_callback`;
+      try {
+        const tokens = await ETradeSlackTradingService.exchangeOAuthCode(code, clientId, clientSecret, redirectUri);
+        const kv = env.ETRADE_KV || env.SESSIONS;
+        if (kv) {
+          await kv.put(`slack_token_${tokens.teamId}`, tokens.accessToken);
+        }
+        return Response.redirect(`/?tab=trading&slack=connected&team=${encodeURIComponent(tokens.teamName)}`, 302);
+      } catch (err: any) {
+        return Response.redirect(`/?tab=trading&error=${encodeURIComponent(err.message || "slack_oauth_failed")}`, 302);
+      }
+    }
+
+    // --- One-Click Email HITL Trade Approval Endpoint ---
+    if (path === "/trade/approve") {
+      const orderId = url.searchParams.get("orderId");
+      if (!orderId) {
+        return new Response("Missing orderId parameter", { status: 400 });
+      }
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "email_authorized_user";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/etrade/order/execute", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-login": userLogin },
+        body: JSON.stringify({ orderId, decision: "approved" }),
+      });
+      const res = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
+      const json = (await res.json().catch(() => ({}))) as any;
+
+      if (json.success) {
+        return Response.redirect(`/?tab=trading&executedOrder=${encodeURIComponent(orderId)}&brokerRef=${encodeURIComponent(json.brokerOrderRef || json.executionId || "")}`, 302);
+      } else {
+        return Response.redirect(`/?tab=trading&error=${encodeURIComponent(json.error || "Execution failed")}`, 302);
+      }
+    }
+
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);
@@ -343,6 +496,9 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
+  },
+  async email(message: any, env: Env, ctx?: any): Promise<void> {
+    await handleCloudflareEmailMessage(message, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
 

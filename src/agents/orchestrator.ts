@@ -14,6 +14,8 @@ import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
+import { ETradeEmailTradingService } from "../trading/email/agent";
+import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import type {
@@ -1806,6 +1808,48 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result, { status: result.success ? 200 : 400 });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to cancel order" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Trading Channel: Inbound Email Trading Agent
+    if (path.endsWith("/trading/email/inbound") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "email_trader";
+        const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
+        const result = await emailService.processInboundEmail(body);
+        this.audit("trading.email_processed", "trading", { actionType: result.actionType, from: result.from, orderId: result.orderId });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to process inbound email" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Trading Channel: Slack Event Handler
+    if (path.endsWith("/trading/slack/event") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
+        const slackService = new ETradeSlackTradingService(this.env, this.getOrm(), userLogin);
+        const result = await slackService.processSlackEvent(body);
+        this.audit("trading.slack_event", "trading", { actionType: result.actionType, handled: result.handled });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack event" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Trading Channel: Slack Interactive Component Actions (Button Approvals)
+    if (path.endsWith("/trading/slack/interaction") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
+        const slackService = new ETradeSlackTradingService(this.env, this.getOrm(), userLogin);
+        const result = await slackService.processSlackInteraction(body);
+        this.audit("trading.slack_interaction", "trading", { actionId: result.actionId, orderId: result.orderId, status: result.status });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack interaction" }, { status: 500 });
       }
     }
 

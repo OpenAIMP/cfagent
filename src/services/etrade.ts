@@ -442,6 +442,7 @@ export class ETradeService {
     return this.platform.placeOrderRemote!(params);
   }
 
+
   /**
    * Real E*TRADE REST API: Fetch live portfolio positions with OAuth 1.0a
    */

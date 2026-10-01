@@ -23,7 +23,7 @@ export interface ETradeTradingHubProps {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "order" | "portfolio" | "ledger" | "nlq">("scanner");
+  const [subTab, setSubTab] = useState<"scanner" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel">("scanner");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -98,6 +98,108 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [requestTokenInfo, setRequestTokenInfo] = useState<{ requestToken: string; authorizeUrl: string } | null>(null);
   const [oauthSubmitting, setOauthSubmitting] = useState(false);
   const [oauthMsg, setOauthMsg] = useState("");
+
+  // Omnichannel Email & Slack Simulator states
+  const [emailFrom, setEmailFrom] = useState("trader@example.com");
+  const [emailSubject, setEmailSubject] = useState("Quote NVDA");
+  const [emailBody, setEmailBody] = useState("What is the current market price and technical signal?");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailResult, setEmailResult] = useState<any>(null);
+
+  const [slackPrompt, setSlackPrompt] = useState("@ETradeAgent preview buy 10 NVDA limit 125.00");
+  const [slackLoading, setSlackLoading] = useState(false);
+  const [slackResult, setSlackResult] = useState<any>(null);
+  const [slackActionLoading, setSlackActionLoading] = useState(false);
+
+  const handleSimulateEmail = async () => {
+    setEmailLoading(true);
+    setEmailResult(null);
+    try {
+      const resp = await fetch("/api/trading/email/inbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
+        body: JSON.stringify({
+          from: emailFrom,
+          to: "trade@agent.openaimp.com",
+          subject: emailSubject,
+          text: emailBody,
+        }),
+      });
+      const data = (await resp.json()) as any;
+      setEmailResult(data);
+      if (data.actionType === "preview" || data.actionType === "approval") {
+        fetchOrders();
+      }
+    } catch (err: any) {
+      setEmailResult({ success: false, responseSubject: "Error", responseText: err.message, responseHtml: `<p style="color:red">${err.message}</p>` });
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const handleSimulateSlack = async (customPrompt?: string) => {
+    const textToRun = customPrompt || slackPrompt;
+    setSlackLoading(true);
+    setSlackResult(null);
+    try {
+      const resp = await fetch("/api/trading/slack/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
+        body: JSON.stringify({
+          type: "event_callback",
+          event: {
+            type: "app_mention",
+            text: textToRun,
+            channel: "C_TRADING_FLOOR",
+            user: "U_TRADER_DEV",
+            ts: `${Date.now() / 1000}`,
+          },
+        }),
+      });
+      const data = (await resp.json()) as any;
+      setSlackResult(data);
+      if (data.actionType === "preview") {
+        fetchOrders();
+      }
+    } catch (err: any) {
+      setSlackResult({ handled: false, error: err.message });
+    } finally {
+      setSlackLoading(false);
+    }
+  };
+
+  const handleSlackActionButton = async (actionId: string, orderId: string) => {
+    setSlackActionLoading(true);
+    try {
+      const resp = await fetch("/slack/interactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "x-environment": activeEnv },
+        body: new URLSearchParams({
+          payload: JSON.stringify({
+            type: "block_actions",
+            user: { id: "U_TRADER_DEV", username: "trader_openaimp" },
+            actions: [{ action_id: actionId, value: orderId }],
+          }),
+        }),
+      });
+      const data = await resp.json() as any;
+      if (slackResult?.response) {
+        setSlackResult({
+          ...slackResult,
+          response: {
+            ...slackResult.response,
+            blocks: data.replacementBlocks || slackResult.response.blocks,
+          },
+        });
+      }
+      fetchOrders();
+      fetchPositions();
+    } catch (err: any) {
+      console.warn("Slack button action failed:", err);
+    } finally {
+      setSlackActionLoading(false);
+    }
+  };
 
   // Active environment (Sandbox TEST vs Live PROD)
   const [activeEnv, setActiveEnv] = useState<"TEST" | "PROD">(() => {
@@ -1190,6 +1292,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           onClick={() => setSubTab("nlq")}
         >
           🤖 NLQ Results
+        </button>
+        <button
+          className={`subnav-btn ${subTab === "omnichannel" ? "active" : ""}`}
+          onClick={() => setSubTab("omnichannel")}
+        >
+          💬 Email &amp; Slack Agents
         </button>
       </div>
 
@@ -2363,6 +2471,318 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                 </details>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
+      {subTab === "omnichannel" && (
+        <div className="tab-pane active omnichannel-pane" style={{ marginTop: "1.5rem" }}>
+          {/* Header Card */}
+          <div style={{ background: "linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%)", border: "1px solid #1e3a8a", borderRadius: "12px", padding: "1.5rem", marginBottom: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+              <div>
+                <span style={{ background: "#3b82f6", color: "white", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", textTransform: "uppercase" }}>
+                  Cloudflare Agents SDK
+                </span>
+                <h3 style={{ margin: "0.5rem 0 0.25rem 0", color: "#ffffff", fontSize: "1.4rem" }}>
+                  💬 Omnichannel Trading Agents (Email &amp; Slack)
+                </h3>
+                <p style={{ color: "#94a3b8", fontSize: "0.9rem", margin: 0, maxWidth: "700px" }}>
+                  Autonomous market research, quoting, and Human-in-the-Loop order drafting via Inbound Email and Slack Bot communication channels. All orders require explicit human authorization before live E*TRADE execution.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <span style={{ background: "rgba(34, 197, 94, 0.15)", border: "1px solid #22c55e", color: "#4ade80", padding: "4px 10px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600 }}>
+                  ✓ Direct REST API Live
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
+            {/* Channel 1: Cloudflare Email Trading Agent */}
+            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                <h4 style={{ margin: 0, color: "#38bdf8", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>✉️</span> Cloudflare Email Trading Agent
+                </h4>
+                <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold" }}>
+                  send_email &amp; PostalMime
+                </span>
+              </div>
+
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid #1e293b", borderRadius: "8px", padding: "0.85rem", marginBottom: "1rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
+                <div style={{ marginBottom: "0.4rem" }}>
+                  <strong>Inbound Address:</strong> <code style={{ color: "#38bdf8" }}>trade@agent.openaimp.com</code>
+                </div>
+                <div style={{ marginBottom: "0.4rem" }}>
+                  <strong>Security Guarantee:</strong> Stamped with Trading DID (<code>did:agent:openaimp:trading</code>).
+                </div>
+                <div>
+                  <strong>Commands:</strong> <code>Quote &lt;SYMBOL&gt;</code>, <code>Screen tech stocks</code>, <code>Preview Buy 10 NVDA limit 125</code>, <code>APPROVE &lt;orderId&gt;</code>.
+                </div>
+              </div>
+
+              {/* Email Simulator Form */}
+              <div style={{ background: "#1e293b", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
+                <h5 style={{ margin: "0 0 0.75rem 0", color: "#f8fafc", fontSize: "0.9rem" }}>
+                  🧪 Interactive Email Simulator
+                </h5>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>From (Sender Email):</label>
+                    <input
+                      type="email"
+                      value={emailFrom}
+                      onChange={(e) => setEmailFrom(e.target.value)}
+                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Subject:</label>
+                    <input
+                      type="text"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Email Body:</label>
+                    <textarea
+                      rows={2}
+                      value={emailBody}
+                      onChange={(e) => setEmailBody(e.target.value)}
+                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box", resize: "vertical" }}
+                    />
+                  </div>
+
+                  {/* Preset Quick Chips */}
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => { setEmailSubject("Quote NVDA"); setEmailBody("What is the current price and technicals?"); }}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      📈 Quote NVDA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEmailSubject("Screen Oversold Tech"); setEmailBody("Show tech stocks with RSI < 35"); }}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      🔍 Screen Tech
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEmailSubject("Order Preview"); setEmailBody("Buy 10 shares of NVDA limit 125.00"); }}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      🛡️ Buy 10 NVDA
+                    </button>
+                    {activeDraft && (
+                      <button
+                        type="button"
+                        onClick={() => { setEmailSubject("Order Approval"); setEmailBody(`APPROVE ${activeDraft.orderId}`); }}
+                        style={{ background: "#166534", border: "1px solid #22c55e", color: "#86efac", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      >
+                        ✓ APPROVE {activeDraft.orderId}
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={emailLoading}
+                    onClick={handleSimulateEmail}
+                    style={{ background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)", color: "#ffffff", border: "none", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer", marginTop: "0.4rem" }}
+                  >
+                    {emailLoading ? "Processing Inbound Email…" : "⚡ Send Test Email to Agent"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Email Result Output */}
+              {emailResult && (
+                <div style={{ background: "#0b0f19", border: "1px solid #1e293b", borderRadius: "8px", padding: "1rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Agent Email Reply:</span>
+                    <span style={{ fontSize: "0.75rem", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", padding: "2px 6px", borderRadius: "4px", textTransform: "uppercase" }}>
+                      {emailResult.actionType || "reply"}
+                    </span>
+                  </div>
+                  <h6 style={{ margin: "0 0 0.5rem 0", color: "#f8fafc", fontSize: "0.95rem" }}>
+                    Subject: {emailResult.responseSubject}
+                  </h6>
+                  {emailResult.responseHtml ? (
+                    <div
+                      style={{ maxHeight: "280px", overflowY: "auto", border: "1px solid #334155", borderRadius: "6px", padding: "0.5rem", background: "#0f172a" }}
+                      dangerouslySetInnerHTML={{ __html: emailResult.responseHtml }}
+                    />
+                  ) : (
+                    <pre style={{ margin: 0, fontSize: "0.75rem", color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                      {emailResult.responseText}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Channel 2: Cloudflare Slack Trading Agent */}
+            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                <h4 style={{ margin: 0, color: "#a855f7", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🤖</span> Cloudflare Slack Trading Agent
+                </h4>
+                <span style={{ background: "rgba(168, 85, 247, 0.15)", color: "#c084fc", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold" }}>
+                  Events &amp; Block Kit
+                </span>
+              </div>
+
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid #1e293b", borderRadius: "8px", padding: "0.85rem", marginBottom: "1rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
+                <div style={{ marginBottom: "0.4rem" }}>
+                  <strong>Event Request URL:</strong> <code style={{ color: "#c084fc" }}>https://agent.openaimp.com/slack/events</code>
+                </div>
+                <div style={{ marginBottom: "0.4rem" }}>
+                  <strong>Interactivity URL:</strong> <code style={{ color: "#c084fc" }}>https://agent.openaimp.com/slack/interactions</code>
+                </div>
+                <div>
+                  <strong>OAuth App Install:</strong> <a href="/slack/install" target="_blank" rel="noreferrer" style={{ color: "#38bdf8", textDecoration: "underline" }}>Install to Workspace</a>
+                </div>
+              </div>
+
+              {/* Slack Simulator Form */}
+              <div style={{ background: "#1e293b", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
+                <h5 style={{ margin: "0 0 0.75rem 0", color: "#f8fafc", fontSize: "0.9rem" }}>
+                  🧪 Interactive Slack Bot Simulator
+                </h5>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Slack Message / Mention:</label>
+                    <input
+                      type="text"
+                      value={slackPrompt}
+                      onChange={(e) => setSlackPrompt(e.target.value)}
+                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  {/* Preset Quick Chips */}
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSimulateSlack("@ETradeAgent quote NVDA")}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      📈 Quote NVDA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSimulateSlack("@ETradeAgent screen tech stocks with RSI < 35")}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      🔍 Screen Tech RSI &lt; 35
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSimulateSlack("@ETradeAgent preview buy 10 NVDA limit 125.00")}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      ⚡ Buy 10 NVDA Ticket
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSimulateSlack("@ETradeAgent show my portfolio positions")}
+                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                    >
+                      💼 Portfolio
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={slackLoading}
+                    onClick={() => handleSimulateSlack()}
+                    style={{ background: "linear-gradient(135deg, #9333ea 0%, #7e22ce 100%)", color: "#ffffff", border: "none", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer", marginTop: "0.4rem" }}
+                  >
+                    {slackLoading ? "Simulating Slack Agent…" : "⚡ Simulate Slack Message"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Slack Block Kit Card Viewer */}
+              {slackResult?.response && (
+                <div style={{ background: "#1a1d21", border: "1px solid #383f45", borderRadius: "8px", padding: "1rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                    <span style={{ fontSize: "1.2rem" }}>🤖</span>
+                    <div>
+                      <strong style={{ color: "#ffffff", fontSize: "0.9rem" }}>ETradeAgent</strong>{" "}
+                      <span style={{ background: "#334155", color: "#94a3b8", fontSize: "0.7rem", padding: "1px 4px", borderRadius: "3px" }}>APP</span>
+                      <span style={{ color: "#64748b", fontSize: "0.75rem", marginLeft: "0.5rem" }}>Just now</span>
+                    </div>
+                  </div>
+
+                  <div style={{ borderLeft: "3px solid #a855f7", paddingLeft: "0.75rem", color: "#e2e8f0", fontSize: "0.88rem" }}>
+                    {slackResult.response.blocks?.map((block: any, bIdx: number) => {
+                      if (block.type === "header") {
+                        return <h5 key={bIdx} style={{ margin: "0.25rem 0 0.5rem 0", color: "#f8fafc", fontSize: "1rem" }}>{block.text?.text}</h5>;
+                      }
+                      if (block.type === "section" && block.fields) {
+                        return (
+                          <div key={bIdx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", margin: "0.5rem 0" }}>
+                            {block.fields.map((f: any, fIdx: number) => (
+                              <div key={fIdx} style={{ fontSize: "0.82rem", background: "#222529", padding: "6px 8px", borderRadius: "4px" }}>
+                                {f.text?.split("\n").map((line: string, lIdx: number) => (
+                                  <div key={lIdx}>{line.replace(/\*/g, "")}</div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      if (block.type === "section" && block.text) {
+                        return <p key={bIdx} style={{ margin: "0.4rem 0", color: "#cbd5e1" }}>{block.text.text?.replace(/\*/g, "")}</p>;
+                      }
+                      if (block.type === "actions") {
+                        return (
+                          <div key={bIdx} style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                            {block.elements?.map((btn: any, btnIdx: number) => (
+                              <button
+                                key={btnIdx}
+                                type="button"
+                                disabled={slackActionLoading}
+                                onClick={() => handleSlackActionButton(btn.action_id, btn.value)}
+                                style={{
+                                  background: btn.style === "primary" ? "#007a5a" : "#e01e5a",
+                                  color: "#ffffff",
+                                  border: "none",
+                                  borderRadius: "4px",
+                                  padding: "6px 12px",
+                                  fontWeight: "bold",
+                                  fontSize: "0.8rem",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {btn.text?.text}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      }
+                      if (block.type === "context") {
+                        return (
+                          <div key={bIdx} style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.5rem" }}>
+                            {block.elements?.[0]?.text?.replace(/`/g, "")}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
