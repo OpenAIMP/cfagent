@@ -16,6 +16,7 @@ import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import type {
@@ -1851,6 +1852,31 @@ Agentic Best Practices & Workflow Rules:
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack interaction" }, { status: 500 });
       }
+    }
+
+    // Omnichannel Trading Channel: Voice Trading Turn
+    if (path.endsWith("/trading/voice/turn") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
+        const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin);
+        const result = await voiceService.processVoiceTurn({
+          ...body,
+          sessionId: userLogin,
+          userLogin,
+        });
+        this.audit("trading.voice_turn", "trading", { actionType: result.actionType, orderId: result.orderId, success: result.success });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to process voice turn" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Trading Channel: Voice Trading Welcome Greeting
+    if (path.endsWith("/trading/voice/greeting") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
+      const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin);
+      return Response.json(voiceService.getWelcomeGreeting());
     }
 
     // Real E*TRADE REST API: Account Transactions

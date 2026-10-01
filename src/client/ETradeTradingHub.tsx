@@ -23,7 +23,7 @@ export interface ETradeTradingHubProps {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel">("scanner");
+  const [subTab, setSubTab] = useState<"scanner" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -199,6 +199,168 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     } finally {
       setSlackActionLoading(false);
     }
+  };
+
+  // Cloudflare Voice Trading Agent state
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
+  const [voiceTranscript, setVoiceTranscript] = useState<Array<{
+    role: "user" | "assistant";
+    text: string;
+    actionType?: string;
+    orderId?: string;
+    orderDraft?: any;
+    brokerOrderRef?: string;
+    marketQuote?: any;
+    screenedStocks?: any[];
+    timestamp: string;
+  }>>([
+    {
+      role: "assistant",
+      text: "Welcome to the E*TRADE Voice Trading Desk. You can ask for real-time market quotes, technical screening, portfolio status, or draft order tickets. How can I assist your portfolio today?",
+      timestamp: new Date().toLocaleTimeString(),
+    },
+  ]);
+  const [voiceInterim, setVoiceInterim] = useState<string | null>(null);
+  const [voiceInputText, setVoiceInputText] = useState("");
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [voiceIsMuted, setVoiceIsMuted] = useState(false);
+  const [speechRecognitionActive, setSpeechRecognitionActive] = useState(false);
+
+  const speakText = (text: string) => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window && !voiceIsMuted) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.onstart = () => setVoiceStatus("speaking");
+      utterance.onend = () => setVoiceStatus("idle");
+      utterance.onerror = () => setVoiceStatus("idle");
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const handleVoiceTurn = async (textToSubmit?: string) => {
+    const prompt = (textToSubmit || voiceInputText).trim();
+    if (!prompt) return;
+
+    setVoiceLoading(true);
+    setVoiceStatus("thinking");
+    setVoiceInputText("");
+    setVoiceInterim(null);
+
+    const userMessageTime = new Date().toLocaleTimeString();
+    setVoiceTranscript((prev) => [
+      ...prev,
+      { role: "user", text: prompt, timestamp: userMessageTime },
+    ]);
+
+    try {
+      const resp = await fetch("/api/trading/voice/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
+        body: JSON.stringify({ transcript: prompt }),
+      });
+      const data = (await resp.json()) as any;
+
+      const assistantMsg = {
+        role: "assistant" as const,
+        text: data.spokenText || data.displayMarkdown || "Request processed.",
+        actionType: data.actionType,
+        orderId: data.orderId,
+        orderDraft: data.orderDraft,
+        brokerOrderRef: data.brokerOrderRef,
+        marketQuote: data.marketQuote,
+        screenedStocks: data.screenedStocks,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+
+      setVoiceTranscript((prev) => [...prev, assistantMsg]);
+      setVoiceStatus("speaking");
+      speakText(data.spokenText || "");
+
+      if (data.actionType === "preview" || data.actionType === "approval") {
+        fetchOrders();
+        fetchPositions();
+      }
+    } catch (err: any) {
+      setVoiceTranscript((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: `Voice Agent Error: ${err.message || "Could not process voice turn."}`,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setVoiceStatus("idle");
+    } finally {
+      setVoiceLoading(false);
+    }
+  };
+
+  const handleToggleVoiceRecording = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Web Speech API is not supported in this browser. You can type in the prompt box or use the quick chips.");
+      return;
+    }
+
+    if (speechRecognitionActive) {
+      setSpeechRecognitionActive(false);
+      setVoiceStatus("idle");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setSpeechRecognitionActive(true);
+        setVoiceStatus("listening");
+      };
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        if (interim) setVoiceInterim(interim);
+        if (final) {
+          setVoiceInterim(null);
+          setSpeechRecognitionActive(false);
+          handleVoiceTurn(final);
+        }
+      };
+
+      recognition.onerror = () => {
+        setSpeechRecognitionActive(false);
+        setVoiceStatus("idle");
+      };
+
+      recognition.onend = () => {
+        setSpeechRecognitionActive(false);
+      };
+
+      recognition.start();
+    } catch (e) {
+      console.warn("Speech recognition error:", e);
+      setSpeechRecognitionActive(false);
+      setVoiceStatus("idle");
+    }
+  };
+
+  const handleVoiceOrderAction = async (action: "approve" | "cancel", orderId: string) => {
+    const textPrompt = action === "approve" ? `Confirm order ${orderId}` : `Cancel order ${orderId}`;
+    await handleVoiceTurn(textPrompt);
   };
 
   // Active environment (Sandbox TEST vs Live PROD)
@@ -1298,6 +1460,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           onClick={() => setSubTab("omnichannel")}
         >
           💬 Email &amp; Slack Agents
+        </button>
+        <button
+          className={`subnav-btn ${subTab === "voice" ? "active" : ""}`}
+          onClick={() => setSubTab("voice")}
+        >
+          🎙️ Voice Trading Desk
         </button>
       </div>
 
@@ -2782,6 +2950,272 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cloudflare Voice Trading Agent Desk */}
+      {subTab === "voice" && (
+        <div className="tab-pane active voice-pane" style={{ marginTop: "1.5rem" }}>
+          {/* Header Card */}
+          <div style={{ background: "linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(15, 23, 42, 0.85) 100%)", border: "1px solid rgba(16, 185, 129, 0.4)", borderRadius: "12px", padding: "1.5rem", marginBottom: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+              <div>
+                <span style={{ background: "#10b981", color: "white", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", textTransform: "uppercase" }}>
+                  Cloudflare Agents Voice SDK
+                </span>
+                <h3 style={{ margin: "0.5rem 0 0.25rem 0", color: "#ffffff", fontSize: "1.4rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🎙️</span> E*TRADE Voice Trading Desk
+                </h3>
+                <p style={{ color: "#94a3b8", fontSize: "0.9rem", margin: 0, maxWidth: "720px" }}>
+                  Real-time conversational voice trading powered by Cloudflare Workers AI STT &amp; TTS. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <span style={{
+                  background: voiceStatus === "speaking" ? "rgba(56, 189, 248, 0.2)" : (voiceStatus === "listening" ? "rgba(34, 197, 94, 0.2)" : (voiceStatus === "thinking" ? "rgba(245, 158, 11, 0.2)" : "rgba(100, 116, 139, 0.2)")),
+                  border: `1px solid ${voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : (voiceStatus === "thinking" ? "#f59e0b" : "#64748b"))}`,
+                  color: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#4ade80" : (voiceStatus === "thinking" ? "#fbbf24" : "#94a3b8")),
+                  padding: "4px 12px",
+                  borderRadius: "20px",
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                }}>
+                  <span style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    background: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : (voiceStatus === "thinking" ? "#f59e0b" : "#64748b")),
+                    animation: (voiceStatus === "listening" || voiceStatus === "speaking") ? "pulse 1.2s infinite" : "none",
+                  }} />
+                  {voiceStatus.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1.5rem", maxWidth: "900px", margin: "0 auto 2rem auto" }}>
+            {/* Visualizer & Mic Control Bar */}
+            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", textAlign: "center" }}>
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "1rem", marginBottom: "1.2rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={handleToggleVoiceRecording}
+                  style={{
+                    background: speechRecognitionActive
+                      ? "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)"
+                      : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "50px",
+                    padding: "0.8rem 2rem",
+                    fontSize: "1.05rem",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    boxShadow: speechRecognitionActive
+                      ? "0 0 20px rgba(239, 68, 68, 0.5)"
+                      : "0 0 20px rgba(16, 185, 129, 0.4)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.6rem",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <span>{speechRecognitionActive ? "🛑 Stop Listening" : "🎙️ Push to Talk / Speak"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setVoiceIsMuted(!voiceIsMuted)}
+                  style={{
+                    background: "#1e293b",
+                    border: "1px solid #475569",
+                    color: voiceIsMuted ? "#f87171" : "#cbd5e1",
+                    padding: "0.75rem 1.2rem",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {voiceIsMuted ? "🔇 Voice Muted" : "🔊 Audio On"}
+                </button>
+              </div>
+
+              {/* Animated Audio Visualizer Bars */}
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "6px", height: "40px", margin: "1rem 0" }}>
+                {[12, 24, 38, 20, 32, 16, 28, 36, 18, 26, 34, 14].map((h, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: "6px",
+                      height: voiceStatus === "speaking" || voiceStatus === "listening" ? `${Math.max(8, (h * (voiceStatus === "listening" ? 1.2 : 0.9)))}px` : "6px",
+                      background: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : "#475569"),
+                      borderRadius: "3px",
+                      transition: "height 0.15s ease",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Interim Real-Time Transcript Display */}
+              {voiceInterim && (
+                <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px dashed #0284c7", borderRadius: "8px", padding: "0.75rem", margin: "0.75rem 0", color: "#38bdf8", fontSize: "0.9rem", fontStyle: "italic" }}>
+                  🎙️ <em>{voiceInterim}…</em>
+                </div>
+              )}
+
+              {/* Quick Spoken Chips */}
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceTurn("What is Nvidia trading at?")}
+                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                >
+                  📈 "What is Nvidia trading at?"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceTurn("Screen tech stocks with RSI under 40")}
+                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                >
+                  🔍 "Screen tech stocks"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceTurn("What is my portfolio balance?")}
+                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                >
+                  💼 "Check portfolio balance"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceTurn("Buy 10 shares of NVDA at market")}
+                  style={{ background: "#1e293b", border: "1px solid #f59e0b", color: "#fbbf24", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                >
+                  ⚡ "Buy 10 NVDA at market"
+                </button>
+                {activeDraft && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleVoiceTurn(`Confirm order ${activeDraft.orderId}`)}
+                      style={{ background: "#166534", border: "1px solid #22c55e", color: "#86efac", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer", fontWeight: "bold" }}
+                    >
+                      ✓ "Confirm order {activeDraft.orderId}"
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVoiceTurn(`Cancel order ${activeDraft.orderId}`)}
+                      style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#fca5a5", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                    >
+                      ✕ "Cancel order {activeDraft.orderId}"
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Text Fallback Input Box */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleVoiceTurn(); }}
+                style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}
+              >
+                <input
+                  type="text"
+                  placeholder="Or type a spoken command: e.g. 'What is Apple trading at?' or 'Buy 10 NVDA at market'"
+                  value={voiceInputText}
+                  onChange={(e) => setVoiceInputText(e.target.value)}
+                  style={{ flex: 1, background: "#0b0f19", border: "1px solid #334155", color: "#f8fafc", padding: "0.6rem 0.8rem", borderRadius: "6px", fontSize: "0.88rem" }}
+                />
+                <button
+                  type="submit"
+                  disabled={voiceLoading || !voiceInputText.trim()}
+                  style={{ background: "#2563eb", color: "#ffffff", border: "none", padding: "0.6rem 1.2rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer" }}
+                >
+                  {voiceLoading ? "Processing…" : "Send Voice Turn"}
+                </button>
+              </form>
+            </div>
+
+            {/* Conversation Feed */}
+            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem" }}>
+              <h5 style={{ margin: "0 0 1rem 0", color: "#f8fafc", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span>💬</span> Live Voice Conversation History
+              </h5>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "480px", overflowY: "auto", paddingRight: "0.5rem" }}>
+                {voiceTranscript.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "3px", fontSize: "0.75rem", color: "#64748b" }}>
+                      <span>{msg.role === "user" ? "👤 Trader (Voice)" : "🤖 E*TRADE Voice Desk"}</span>
+                      <span>• {msg.timestamp}</span>
+                    </div>
+
+                    <div
+                      style={{
+                        maxWidth: "85%",
+                        padding: "0.85rem 1rem",
+                        borderRadius: "10px",
+                        background: msg.role === "user" ? "linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)" : "#1e293b",
+                        color: msg.role === "user" ? "#ffffff" : "#cbd5e1",
+                        border: msg.role === "user" ? "none" : "1px solid #334155",
+                        fontSize: "0.9rem",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <div>{msg.text}</div>
+
+                      {/* Embedded HITL Order Preview Card in Voice Feed */}
+                      {msg.actionType === "preview" && msg.orderDraft && (
+                        <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid #f59e0b", borderRadius: "8px", padding: "0.85rem", marginTop: "0.75rem" }}>
+                          <div style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "0.85rem", marginBottom: "0.4rem" }}>
+                            🛡️ Order Preview Staged (HITL Required)
+                          </div>
+                          <div style={{ fontSize: "0.82rem", color: "#cbd5e1", display: "grid", gap: "0.25rem" }}>
+                            <div><strong>Order ID:</strong> <code>{msg.orderDraft.orderId}</code></div>
+                            <div><strong>Action:</strong> {msg.orderDraft.action} {msg.orderDraft.quantity} {msg.orderDraft.symbol}</div>
+                            <div><strong>Estimated Total:</strong> ${msg.orderDraft.estimatedTotal?.toFixed(2)} USD</div>
+                          </div>
+                          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleVoiceOrderAction("approve", msg.orderDraft.orderId)}
+                              style={{ background: "#166534", border: "1px solid #22c55e", color: "#ffffff", padding: "5px 12px", borderRadius: "4px", fontSize: "0.8rem", fontWeight: "bold", cursor: "pointer" }}
+                            >
+                              ✓ Voice Approve &amp; Execute
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleVoiceOrderAction("cancel", msg.orderDraft.orderId)}
+                              style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#ffffff", padding: "5px 12px", borderRadius: "4px", fontSize: "0.8rem", fontWeight: "bold", cursor: "pointer" }}
+                            >
+                              ✕ Cancel Draft
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Embedded Execution Receipt */}
+                      {msg.actionType === "approval" && msg.brokerOrderRef && (
+                        <div style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid #22c55e", borderRadius: "8px", padding: "0.75rem", marginTop: "0.75rem", color: "#86efac", fontSize: "0.82rem" }}>
+                          ✓ Broker Ref: <code>{msg.brokerOrderRef}</code> • Status: <strong>EXECUTED</strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

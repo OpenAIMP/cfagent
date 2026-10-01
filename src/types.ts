@@ -61,6 +61,10 @@ export interface Env {
   SLACK_CLIENT_SECRET?: string;
   SLACK_SIGNING_SECRET?: string;
   SLACK_BOT_TOKEN?: string;
+  // Cloudflare Voice Agent Configuration
+  DEEPGRAM_API_KEY?: string;
+  ELEVENLABS_API_KEY?: string;
+  VOICE_AGENT_MODEL?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   ETRADE_KV?: KVNamespace;
@@ -762,5 +766,58 @@ export interface SlackInteractionResult {
   authorizerDid?: string;
   timestamp: string;
 }
+
+// --- Cloudflare Voice Trading Agent Domain Models ---
+
+export interface VoiceTranscriptMessage {
+  role: "user" | "assistant" | "system";
+  text: string;
+  timestamp?: string;
+  actionType?: string;
+  orderId?: string;
+  tradeDraft?: ETradeOrderDraft;
+}
+
+export interface VoiceTradingTurnRequest {
+  transcript?: string;
+  audioBase64?: string;
+  audioFormat?: "pcm16" | "wav" | "mp3" | "opus";
+  sampleRate?: number;
+  sessionId?: string;
+  userLogin?: string;
+}
+
+export interface VoiceTradingTurnResponse {
+  success: boolean;
+  spokenText: string;
+  displayMarkdown: string;
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
+  orderId?: string;
+  orderDraft?: ETradeOrderDraft;
+  orderStatus?: "previewed" | "executed" | "rejected" | "not_found";
+  brokerOrderRef?: string;
+  marketQuote?: ETradeQuote;
+  screenedStocks?: ScreenedStockItem[];
+  audioBase64?: string;
+  audioFormat?: string;
+  metrics?: {
+    sttMs?: number;
+    llmMs?: number;
+    ttsMs?: number;
+  };
+  proposerDid: string;
+  authorizerDid?: string;
+  timestamp: string;
+}
+
+export interface VoiceSessionState {
+  status: "idle" | "listening" | "thinking" | "speaking";
+  transcript: VoiceTranscriptMessage[];
+  interimTranscript: string | null;
+  audioLevel: number;
+  isMuted: boolean;
+  connected: boolean;
+}
+
 
 

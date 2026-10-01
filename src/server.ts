@@ -15,6 +15,7 @@ import { ETradeRestClient } from "./trading/etrade/client";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage } from "./trading/email/agent";
 import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
+import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -262,6 +263,42 @@ export default {
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", userLogin);
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Voice Trading Turn Simulator & API ---
+    if ((path === "/api/trading/voice/turn" || path === "/api/trading/voice/test") && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "omnichannel_voice_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/trading/voice/turn", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Voice Welcome Greeting ---
+    if (path === "/api/trading/voice/greeting" && request.method === "GET") {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "omnichannel_voice_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/trading/voice/greeting", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Voice WebSocket Session ---
+    if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      const [clientWs, serverWs] = Object.values(pair);
+      serverWs.accept();
+
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "voice_trader";
+
+      handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
+
+      return new Response(null, { status: 101, webSocket: clientWs });
     }
 
     // --- Omnichannel Trading Agent: Slack Events Webhook ---

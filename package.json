@@ -19,11 +19,12 @@
   "dependencies": {
     "@ai-sdk/react": "latest",
     "@cloudflare/ai-chat": "latest",
+    "@cloudflare/voice": "^0.5.0",
     "agents": "latest",
     "ai": "latest",
+    "postal-mime": "^2.7.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "postal-mime": "^2.7.5",
     "workers-ai-provider": "latest",
     "zod": "^4.1.8"
   },
