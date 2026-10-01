@@ -8,6 +8,7 @@
  */
 
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
+import type { IMarketScreener } from "./interfaces";
 import { YahooFinanceProvider } from "../services/fossResearch";
 
 // Comprehensive liquid universe spanning all major market sectors
@@ -307,7 +308,7 @@ export const EXPANDED_MARKET_UNIVERSE: ScreenedStockItem[] = [
   },
 ];
 
-export class DynamicMarketScreener {
+export class DynamicMarketScreener implements IMarketScreener {
   private yfProvider: YahooFinanceProvider;
 
   constructor() {
@@ -429,48 +430,89 @@ export class DynamicMarketScreener {
   }
 
   /**
-   * Retrieves quote from local universe or dynamically queries live Yahoo Finance
+   * Asynchronous market screener that enriches results with real-time FOSS quotes
+   */
+  async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    const base = this.screenStocks(filter);
+
+    const enrichedStocks = await Promise.all(
+      base.stocks.map(async (s) => {
+        try {
+          const live = await this.yfProvider.getQuote(s.symbol);
+          if (live && live.price > 0) {
+            return {
+              ...s,
+              lastPrice: live.price,
+              price: live.price,
+              change: live.change,
+              changePercent: live.changePercent,
+              volume: live.volume || s.volume,
+              peRatio: live.trailingPE || s.peRatio,
+            };
+          }
+        } catch {
+          // Keep base universe entry if network fails
+        }
+        return s;
+      })
+    );
+
+    return {
+      ...base,
+      stocks: enrichedStocks,
+      scannedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Retrieves real-time quote via Yahoo Finance FOSS Engine with graceful offline fallback
    */
   async getQuote(symbol: string): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
     const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
+
+    // 1. Always attempt live real-time quote from Yahoo Finance / Alpaca FOSS Engine
+    try {
+      const live = await this.yfProvider.getQuote(cleanSym);
+      if (live && live.price > 0) {
+        return {
+          symbol: live.symbol,
+          companyName: live.companyName || found?.companyName || `${cleanSym} Inc.`,
+          lastPrice: live.price,
+          price: live.price,
+          change: live.change,
+          changePercent: live.changePercent,
+          bid: live.bid || live.price,
+          ask: live.ask || live.price,
+          volume: live.volume || found?.volume || 0,
+          open: live.open || live.price,
+          high: live.high || live.price,
+          low: live.low || live.price,
+          peRatio: live.trailingPE || found?.peRatio || 25.0,
+          marketCap: live.marketCap ? Number((live.marketCap / 1e9).toFixed(1)) : (found?.marketCap || 10.0),
+          week52High: (live as any).high52 || live.high * 1.25,
+          week52Low: (live as any).low52 || live.low * 0.75,
+          high52: (live as any).high52 || live.high * 1.25,
+          low52: (live as any).low52 || live.low * 0.75,
+          rsi: (live as any).rsi14 || found?.rsi || 50,
+          source: `Live Real-Time Market Feed (${live.provider === "yfinance" ? "Yahoo Finance" : live.provider})`,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    } catch {
+      // Network failure: proceed to cached fallback
+    }
+
+    // 2. Local Market Universe Cached Fallback
     if (found) {
       return {
         ...found,
         price: found.lastPrice,
         high52: found.week52High,
         low52: found.week52Low,
-        source: "Market Data Engine",
+        source: "Market Universe (Cached)",
       };
     }
-
-    try {
-      const live = await this.yfProvider.getQuote(cleanSym);
-      return {
-        symbol: live.symbol,
-        companyName: live.companyName || `${cleanSym} Inc.`,
-        lastPrice: live.price,
-        price: live.price,
-        change: live.change,
-        changePercent: live.changePercent,
-        bid: live.bid,
-        ask: live.ask,
-        volume: live.volume,
-        open: live.open,
-        high: live.high,
-        low: live.low,
-        peRatio: live.trailingPE || 25.0,
-        marketCap: live.marketCap ? live.marketCap / 1e9 : 10.0,
-        week52High: (live as any).high52 || live.high * 1.25,
-        week52Low: (live as any).low52 || live.low * 0.75,
-        high52: (live as any).high52 || live.high * 1.25,
-        low52: (live as any).low52 || live.low * 0.75,
-        rsi: (live as any).rsi14 || 50,
-        source: `FOSS Live Market Feed (${live.provider})`,
-        timestamp: new Date().toISOString(),
-      };
-    } catch {
-      // Deterministic fallback
       const seedPrice = Math.abs(cleanSym.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 300) + 25.5;
       return {
         symbol: cleanSym,
@@ -495,6 +537,5 @@ export class DynamicMarketScreener {
         source: "Deterministic Pricing Engine",
         timestamp: new Date().toISOString(),
       };
-    }
   }
 }

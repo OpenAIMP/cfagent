@@ -102,6 +102,20 @@ export class ETradeService {
   }
 
   /**
+   * Real-time dynamic market screening with live quote enrichment
+   */
+  async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    return this.screener.screenMarkets(filter);
+  }
+
+  /**
+   * Real-time dynamic equity quote with live feed enrichment
+   */
+  async getQuoteAsync(symbol: string): Promise<ETradeQuote> {
+    return this.fetchQuoteRemote(symbol);
+  }
+
+  /**
    * Fetch quote for a specific ticker symbol (synchronous or cached)
    */
   getQuote(symbol: string): ETradeQuote {

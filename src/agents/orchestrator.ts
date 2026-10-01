@@ -2,7 +2,7 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
 import { getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
-import { planNLQ, executeNLQQuery } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "./nlq";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
@@ -558,7 +558,7 @@ Agentic Best Practices & Workflow Rules:
 
         const orm = this.getOrm();
         const plan = await planNLQ(this.env, query);
-        const result = executeNLQQuery(orm, sessionId, plan);
+        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env);
         this.audit("nlq.executed", "nlq", {
           query,
           domain: result.domain,
@@ -1476,7 +1476,7 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
         }
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
-        const results = etrade.screenStocks(filters);
+        const results = await etrade.screenMarketsAsync(filters);
         this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
         return Response.json(results);
       } catch (err) {

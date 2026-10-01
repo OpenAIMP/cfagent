@@ -339,6 +339,12 @@ Return JSON only:
   };
 }
 
+function formatMarketCap(cap?: number): string {
+  if (!cap || cap <= 0) return "N/A";
+  if (cap >= 1000) return `$${(cap / 1000).toFixed(2)}T`;
+  return `$${cap.toFixed(1)}B`;
+}
+
 export function executeNLQQuery(
   orm: DatabaseORM,
   sessionId: string,
@@ -424,7 +430,7 @@ export function executeNLQQuery(
 
   // 4. Trading Domain (E*TRADE stock screening, quotes, order previews, positions)
   if (plan.domain === "trading") {
-    const etrade = new ETradeService(orm);
+    const etrade = new ETradeService(orm, env, sessionId);
     const action = plan.tradingData?.action || "screen";
 
     if (action === "screen") {
@@ -443,7 +449,7 @@ export function executeNLQQuery(
           change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
           rsi14: s.rsi14,
           macdSignal: s.macdSignal,
-          marketCap: s.marketCap ? `$${(s.marketCap / 1e9).toFixed(1)}B` : "N/A",
+          marketCap: formatMarketCap(s.marketCap),
           peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
           signal: s.signal,
           actionAvailable: `Preview Buy/Sell for ${s.symbol}`,
@@ -471,7 +477,7 @@ export function executeNLQQuery(
             volume: q.volume.toLocaleString(),
             range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
             peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
-            marketCap: q.marketCap ? `$${(q.marketCap / 1e9).toFixed(1)}B` : "N/A",
+            marketCap: formatMarketCap(q.marketCap),
             source: q.source,
           },
         ],
@@ -709,4 +715,97 @@ export function executeNLQQuery(
     })),
     executedAt,
   };
+}
+
+/**
+ * Asynchronous NLQ execution pipeline for real-time live quoting and market screening
+ */
+export async function executeNLQQueryAsync(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userDid?: string
+): Promise<NLQQueryResult> {
+  const executedAt = new Date().toISOString();
+
+  if (plan.domain === "trading") {
+    const etrade = new ETradeService(orm, env, sessionId);
+    const action = plan.tradingData?.action || "screen";
+
+    if (action === "screen") {
+      const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: screenRes.stocks.length,
+        summary: `Market Scanner screened ${screenRes.totalScreened} equities across market universe; ${screenRes.stocks.length} matched criteria (${screenRes.filterSummary}).`,
+        rows: screenRes.stocks.map((s) => ({
+          symbol: s.symbol,
+          companyName: s.companyName,
+          sector: s.sector,
+          price: `$${s.price.toFixed(2)}`,
+          change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+          rsi14: s.rsi14,
+          macdSignal: s.macdSignal,
+          marketCap: formatMarketCap(s.marketCap),
+          peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
+          signal: s.signal,
+          actionAvailable: `Preview Buy/Sell for ${s.symbol}`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const sym = plan.tradingData?.symbol || plan.terms || "NVDA";
+      const q = await etrade.fetchQuoteRemote(sym);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        rows: [
+          {
+            symbol: q.symbol,
+            company: q.companyName,
+            lastPrice: `$${q.lastPrice.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            volume: q.volume.toLocaleString(),
+            range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
+            peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
+            marketCap: formatMarketCap(q.marketCap),
+            source: q.source,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "positions") {
+      const posRes = await etrade.fetchPortfolioRemote();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: posRes.positions.length,
+        summary: `E*TRADE Account ${posRes.account.accountId}: Total Value $${posRes.account.totalAccountValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash $${posRes.account.cashAvailableForInvestment.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Open Positions: ${posRes.positions.length}.`,
+        rows: posRes.positions.map((p) => ({
+          symbol: p.symbol,
+          description: p.description,
+          shares: p.quantity,
+          costBasis: `$${p.costBasis.toFixed(2)}`,
+          lastPrice: `$${p.marketPrice.toFixed(2)}`,
+          marketValue: `$${p.marketValue.toFixed(2)}`,
+          unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
+        })),
+        executedAt,
+      };
+    }
+  }
+
+  return executeNLQQuery(orm, sessionId, plan, env, userDid);
 }

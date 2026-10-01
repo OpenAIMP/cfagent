@@ -486,39 +486,52 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         </div>
 
         {/* Account Financials & Purchasing Power */}
-        <div className="account-metric-strip">
-          <div className="metric-box">
-            <span className="metric-label">Net Account Value</span>
-            <span className="metric-val highlight">
-              ${account?.netAccountValue ? account.netAccountValue.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "128,450.00"}
-            </span>
-            <span className="metric-sub positive">+$1,842.30 (+1.45%) today</span>
-          </div>
-          <div className="metric-box">
-            <span className="metric-label">Cash Purchasing Power</span>
-            <span className="metric-val">
-              ${account?.cashAvailableForInvestment ? account.cashAvailableForInvestment.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "42,180.50"}
-            </span>
-            <span className="metric-sub">Margin: $84,361.00</span>
-          </div>
-          <div className="metric-box did-box">
-            <span className="metric-label">Trading Agent DID</span>
-            <div className="did-attest-row">
-              <code className="did-snippet" title={tradingAgentDid}>
-                did:agent:…:trading
-              </code>
-              <button
-                type="button"
-                className="btn-tiny-copy"
-                onClick={() => copyDidToClipboard(tradingAgentDid)}
-                title="Copy full W3C Agent DID"
-              >
-                {copiedDid ? "✓" : "📋"}
-              </button>
+        {(() => {
+          const totalDayGain = positions.reduce((sum, p) => sum + (p.daysGain || 0), 0);
+          const totalVal = account?.netAccountValue || positions.reduce((sum, p) => sum + p.marketValue, 0);
+          const dayGainPct = totalVal > 0 ? (totalDayGain / totalVal) * 100 : 0;
+          const cashPower = account?.cashAvailableForInvestment || 0;
+          const marginPower = cashPower * 2;
+          const isGain = totalDayGain >= 0;
+
+          return (
+            <div className="account-metric-strip">
+              <div className="metric-box">
+                <span className="metric-label">Net Account Value</span>
+                <span className="metric-val highlight">
+                  ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className={`metric-sub ${isGain ? "positive" : "negative"}`}>
+                  {isGain ? "+" : ""}${totalDayGain.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({isGain ? "+" : ""}{dayGainPct.toFixed(2)}%) today
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-label">Cash Purchasing Power</span>
+                <span className="metric-val">
+                  ${cashPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="metric-sub">Margin: ${marginPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div className="metric-box did-box">
+                <span className="metric-label">Trading Agent DID</span>
+                <div className="did-attest-row">
+                  <code className="did-snippet" title={tradingAgentDid}>
+                    did:agent:…:trading
+                  </code>
+                  <button
+                    type="button"
+                    className="btn-tiny-copy"
+                    onClick={() => copyDidToClipboard(tradingAgentDid)}
+                    title="Copy full W3C Agent DID"
+                  >
+                    {copiedDid ? "✓" : "📋"}
+                  </button>
+                </div>
+                <span className="did-verified-tag">🛡️ W3C Cryptographic Stamp</span>
+              </div>
             </div>
-            <span className="did-verified-tag">🛡️ W3C Cryptographic Stamp</span>
-          </div>
-        </div>
+          );
+        })()}
       </div>
 
       {/* E*TRADE OAuth 1.0a Authentication Lifecycle Banner */}
