@@ -256,7 +256,7 @@ export class ETradeRestClient {
       return [];
     }
 
-    const maxCount = options?.overrideSymbolCount ? 50 : 25;
+    const maxCount = 50;
     const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean).slice(0, maxCount);
     if (!cleanSyms.length) return [];
 

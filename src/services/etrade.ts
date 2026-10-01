@@ -122,9 +122,33 @@ export class ETradeService {
    * Real-time dynamic market screening with authentic E*TRADE quote enrichment (no yfinance)
    */
   async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    const symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
+    let symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
+    if (filter.sector && filter.sector.toLowerCase() !== "all" && filter.sector.toLowerCase() !== "any") {
+      const sec = filter.sector.toLowerCase().trim();
+      const sectorSymbols = EXPANDED_MARKET_UNIVERSE.filter((def) => {
+        const itemSec = (def.sector || "").toLowerCase().trim();
+        return (sec === "tech" || sec === "technology" || sec === "semiconductors")
+          ? (itemSec === "technology" || itemSec === "semiconductors" || itemSec.includes("tech") || itemSec.includes("semiconductor"))
+          : (sec === "financial" || sec === "financials" || sec === "finance" || sec === "financial services")
+          ? (itemSec === "financial" || itemSec === "financials" || itemSec === "financial services" || itemSec.includes("finan"))
+          : (sec === "consumer discretionary" || sec === "consumer")
+          ? (itemSec === "consumer discretionary" || itemSec.includes("consumer"))
+          : (sec === "communication services" || sec === "communication")
+          ? (itemSec === "communication services" || itemSec.includes("communication"))
+          : (sec === "healthcare" || sec === "health")
+          ? (itemSec === "healthcare" || itemSec.includes("health"))
+          : (sec === "energy")
+          ? (itemSec === "energy" || itemSec.includes("energy"))
+          : (itemSec === sec || itemSec.includes(sec) || sec.includes(itemSec));
+      }).map((s) => s.symbol);
+
+      if (sectorSymbols.length > 0) {
+        symbols = [...sectorSymbols, ...symbols.filter((sym) => !sectorSymbols.includes(sym))];
+      }
+    }
+
     try {
-      const liveQuotes = await this.client.fetchQuotes(symbols);
+      const liveQuotes = await this.client.fetchQuotes(symbols, { overrideSymbolCount: true });
       if (liveQuotes.length > 0) {
         return this.screener.screenWithQuotes(liveQuotes, filter);
       }

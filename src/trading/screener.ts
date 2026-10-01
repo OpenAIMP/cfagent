@@ -18,19 +18,52 @@ export interface MarketSecurityDefinition {
 
 // Canonical liquid security universe for E*TRADE market screening & quoting (identities only — no hardcoded prices)
 export const ETRADE_MARKET_UNIVERSE: MarketSecurityDefinition[] = [
-  // Semiconductors
-  { symbol: "NVDA", companyName: "NVIDIA Corporation", sector: "Semiconductors" },
-  { symbol: "AMD", companyName: "Advanced Micro Devices, Inc.", sector: "Semiconductors" },
-  { symbol: "AVGO", companyName: "Broadcom Inc.", sector: "Semiconductors" },
+  // Financial
+  { symbol: "JPM", companyName: "JPMorgan Chase & Co.", sector: "Financial" },
+  { symbol: "MS", companyName: "Morgan Stanley", sector: "Financial" },
+  { symbol: "GS", companyName: "The Goldman Sachs Group, Inc.", sector: "Financial" },
+  { symbol: "BAC", companyName: "Bank of America Corporation", sector: "Financial" },
+  { symbol: "V", companyName: "Visa Inc.", sector: "Financial" },
+  { symbol: "MA", companyName: "Mastercard Incorporated", sector: "Financial" },
+  { symbol: "COIN", companyName: "Coinbase Global, Inc.", sector: "Financial" },
+
   // Technology
   { symbol: "AAPL", companyName: "Apple Inc.", sector: "Technology" },
   { symbol: "MSFT", companyName: "Microsoft Corporation", sector: "Technology" },
   { symbol: "PLTR", companyName: "Palantir Technologies Inc.", sector: "Technology" },
-  // Consumer Discretionary & Communication
+  { symbol: "CRM", companyName: "Salesforce, Inc.", sector: "Technology" },
+  { symbol: "ORCL", companyName: "Oracle Corporation", sector: "Technology" },
+
+  // Semiconductors
+  { symbol: "NVDA", companyName: "NVIDIA Corporation", sector: "Semiconductors" },
+  { symbol: "AMD", companyName: "Advanced Micro Devices, Inc.", sector: "Semiconductors" },
+  { symbol: "AVGO", companyName: "Broadcom Inc.", sector: "Semiconductors" },
+
+  // Consumer Discretionary
   { symbol: "AMZN", companyName: "Amazon.com, Inc.", sector: "Consumer Discretionary" },
   { symbol: "TSLA", companyName: "Tesla, Inc.", sector: "Consumer Discretionary" },
+  { symbol: "HD", companyName: "The Home Depot, Inc.", sector: "Consumer Discretionary" },
+  { symbol: "NKE", companyName: "NIKE, Inc.", sector: "Consumer Discretionary" },
+  { symbol: "MCD", companyName: "McDonald's Corporation", sector: "Consumer Discretionary" },
+
+  // Communication Services
   { symbol: "GOOGL", companyName: "Alphabet Inc.", sector: "Communication Services" },
   { symbol: "META", companyName: "Meta Platforms, Inc.", sector: "Communication Services" },
+  { symbol: "NFLX", companyName: "Netflix, Inc.", sector: "Communication Services" },
+  { symbol: "DIS", companyName: "The Walt Disney Company", sector: "Communication Services" },
+
+  // Healthcare
+  { symbol: "LLY", companyName: "Eli Lilly and Company", sector: "Healthcare" },
+  { symbol: "UNH", companyName: "UnitedHealth Group Incorporated", sector: "Healthcare" },
+  { symbol: "JNJ", companyName: "Johnson & Johnson", sector: "Healthcare" },
+  { symbol: "ABBV", companyName: "AbbVie Inc.", sector: "Healthcare" },
+  { symbol: "PFE", companyName: "Pfizer Inc.", sector: "Healthcare" },
+
+  // Energy
+  { symbol: "XOM", companyName: "Exxon Mobil Corporation", sector: "Energy" },
+  { symbol: "CVX", companyName: "Chevron Corporation", sector: "Energy" },
+  { symbol: "COP", companyName: "ConocoPhillips", sector: "Energy" },
+  { symbol: "SLB", companyName: "Schlumberger Limited", sector: "Energy" },
 ];
 
 export const EXPANDED_MARKET_UNIVERSE: MarketSecurityDefinition[] = ETRADE_MARKET_UNIVERSE;
@@ -195,11 +228,24 @@ export class DynamicMarketScreener implements IMarketScreener {
 
       // 2. Sector check
       if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
-        const sec = filter.sector.toLowerCase();
-        const itemSec = stock.sector?.toLowerCase() || "";
-        const sectorMatches = (sec === "tech" || sec === "technology")
-          ? (itemSec === "technology" || itemSec === "semiconductors")
-          : (itemSec === sec);
+        const sec = filter.sector.toLowerCase().trim();
+        const itemSec = (stock.sector || "").toLowerCase().trim();
+        const sectorMatches =
+          (sec === "semiconductors")
+            ? (itemSec === "semiconductors")
+            : (sec === "tech" || sec === "technology")
+            ? (itemSec === "technology" || itemSec === "semiconductors" || itemSec.includes("tech"))
+            : (sec === "financial" || sec === "financials" || sec === "finance" || sec === "financial services")
+            ? (itemSec === "financial" || itemSec === "financials" || itemSec === "financial services" || itemSec.includes("finan"))
+            : (sec === "consumer discretionary" || sec === "consumer")
+            ? (itemSec === "consumer discretionary" || itemSec.includes("consumer"))
+            : (sec === "communication services" || sec === "communication")
+            ? (itemSec === "communication services" || itemSec.includes("communication"))
+            : (sec === "healthcare" || sec === "health")
+            ? (itemSec === "healthcare" || itemSec.includes("health"))
+            : (sec === "energy")
+            ? (itemSec === "energy" || itemSec.includes("energy"))
+            : (itemSec === sec || itemSec.includes(sec) || sec.includes(itemSec));
         if (!sectorMatches) {
           rejections.push({
             symbol: stock.symbol,
