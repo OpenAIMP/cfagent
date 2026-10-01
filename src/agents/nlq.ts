@@ -725,9 +725,11 @@ export async function executeNLQQueryAsync(
   sessionId: string,
   plan: NLQPlan,
   env?: Env,
-  userLogin?: string
+  userLogin?: string,
+  userDid?: string
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
+  const effectiveUserDid = userDid || (userLogin?.startsWith("did:") ? userLogin : undefined);
 
   if (plan.domain === "trading") {
     const login = userLogin || sessionId || "default_trader";
@@ -847,5 +849,5 @@ export async function executeNLQQueryAsync(
     }
   }
 
-  return executeNLQQuery(orm, sessionId, plan, env, userDid);
+  return executeNLQQuery(orm, sessionId, plan, env, effectiveUserDid);
 }

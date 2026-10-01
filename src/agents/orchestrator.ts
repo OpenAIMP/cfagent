@@ -557,9 +557,10 @@ Agentic Best Practices & Workflow Rules:
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userDid = getUserDid(sessionId);
         const orm = this.getOrm();
         const plan = await planNLQ(this.env, query);
-        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env, userLogin);
+        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env, userLogin, userDid);
         this.audit("nlq.executed", "nlq", {
           query,
           domain: result.domain,
@@ -1565,7 +1566,7 @@ Agentic Best Practices & Workflow Rules:
         const action = (body.action || existingRecord?.action || "BUY") as any;
         const quantity = Number(body.quantity || existingRecord?.quantity || 1);
         const orderType = body.orderType || existingRecord?.orderType || "MARKET";
-        const limitPrice = body.limitPrice ?? existingRecord?.limitPrice;
+        const limitPrice = body.limitPrice ?? (existingRecord?.orderType === "LIMIT" ? existingRecord.price : undefined);
 
         if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY)) {
           result = await etrade.placeOrderRemote({
@@ -1575,7 +1576,7 @@ Agentic Best Practices & Workflow Rules:
             quantity,
             orderType,
             limitPrice,
-            previewId: body.previewId || existingRecord?.orderId,
+            previewId: body.previewId || existingRecord?.id,
             userLogin,
           });
         } else {
