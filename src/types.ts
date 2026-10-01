@@ -238,6 +238,8 @@ export interface ETradeQuote {
   rsi?: number;
   sector?: string;
   source?: string;
+  quoteStatus?: string;
+  dateTime?: string;
   timestamp: string;
 }
 

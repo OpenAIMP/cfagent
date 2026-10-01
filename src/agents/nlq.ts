@@ -5,6 +5,7 @@ import type { Env, StockScreenLedger } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
+import { resolveEnvironmentConfig } from "../config/environment";
 
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "custom_query"]).default("conversation"),
@@ -552,8 +553,19 @@ export function executeNLQQuery(
     }
 
     if (action === "preview_order") {
-      const sym = (plan.tradingData?.symbol || "NVDA").toUpperCase();
-      const qty = plan.tradingData?.quantity || 10;
+      const sym = (plan.tradingData?.symbol || "").trim().toUpperCase();
+      if (!sym) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: "E*TRADE order preview requires a valid stock symbol (e.g. 'buy 10 shares of NVDA').",
+          rows: [],
+          executedAt,
+        };
+      }
+      const qty = plan.tradingData?.quantity || 1;
       const orderAction = plan.tradingData?.orderAction || "BUY";
       const draft = etrade.previewOrder({
         sessionId,
@@ -616,8 +628,8 @@ export function executeNLQQuery(
             unexplainedVariance: `$${variance.toFixed(2)}`,
           },
           provenance: {
-            dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
-            environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+            dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+            environment: resolveEnvironmentConfig(env).name,
             accountKey: `••••${posRes.account.accountId.slice(-4)}`,
             reconciliationStatus: "FAIL_CLOSED",
             pricesObservedAt: executedAt,
@@ -637,8 +649,8 @@ export function executeNLQQuery(
         reconciled: true,
         summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
         provenance: {
-          dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
-          environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+          dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+          environment: resolveEnvironmentConfig(env).name,
           accountKey: `••••${posRes.account.accountId.slice(-4)}`,
           reconciliationStatus: "VERIFIED_EXACT",
           pricesObservedAt: executedAt,
@@ -951,8 +963,19 @@ export async function executeNLQQueryAsync(
     }
 
     if (action === "preview_order") {
-      const sym = (plan.tradingData?.symbol || "NVDA").toUpperCase();
-      const qty = plan.tradingData?.quantity || 10;
+      const sym = (plan.tradingData?.symbol || "").trim().toUpperCase();
+      if (!sym) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: "E*TRADE order preview requires a valid stock symbol (e.g. 'buy 10 shares of NVDA').",
+          rows: [],
+          executedAt,
+        };
+      }
+      const qty = plan.tradingData?.quantity || 1;
       const orderAction = plan.tradingData?.orderAction || "BUY";
       const draft = await etrade.previewOrderRemote({
         sessionId,
@@ -1015,8 +1038,8 @@ export async function executeNLQQueryAsync(
             unexplainedVariance: `$${variance.toFixed(2)}`,
           },
           provenance: {
-            dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
-            environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+            dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+            environment: resolveEnvironmentConfig(env).name,
             accountKey: `••••${posRes.account.accountId.slice(-4)}`,
             reconciliationStatus: "FAIL_CLOSED",
             pricesObservedAt: executedAt,
@@ -1036,8 +1059,8 @@ export async function executeNLQQueryAsync(
         reconciled: true,
         summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
         provenance: {
-          dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
-          environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+          dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+          environment: resolveEnvironmentConfig(env).name,
           accountKey: `••••${posRes.account.accountId.slice(-4)}`,
           reconciliationStatus: "VERIFIED_EXACT",
           pricesObservedAt: executedAt,

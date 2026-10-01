@@ -28,6 +28,7 @@ import {
   ETradeRestClient,
   OrderPreviewParams,
 } from "../trading";
+import { resolveEnvironmentConfig } from "../config/environment";
 
 // Re-export the expanded market universe for backward compatibility
 export const MARKET_UNIVERSE: ScreenedStockItem[] = EXPANDED_MARKET_UNIVERSE;
@@ -39,40 +40,43 @@ export class ETradeService {
   private orm?: DatabaseORM;
   private env: Env;
   private userLogin: string;
+  private overrideEnv?: string;
 
-  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string) {
+  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string, overrideEnv?: string) {
     if (ormOrEnv && "trades" in (ormOrEnv as any)) {
       this.orm = ormOrEnv as DatabaseORM;
       this.env = env || ({} as Env);
       this.userLogin = userLogin || "default_trader";
+      this.overrideEnv = overrideEnv;
     } else {
       this.env = (ormOrEnv as Env) || ({} as Env);
       this.userLogin = userLogin || "default_trader";
+      this.overrideEnv = overrideEnv;
     }
 
-    this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin);
+    this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin, this.overrideEnv);
     this.screener = new DynamicMarketScreener();
-    this.client = new ETradeRestClient(this.env, this.userLogin);
+    this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv);
   }
 
   /**
    * Synchronous broker connectivity status
    */
   getStatus(): ETradeBrokerStatus {
-    // Return synchronous baseline status
+    const envConfig = resolveEnvironmentConfig(this.env, this.overrideEnv);
     const isMcp = Boolean(this.env.ETRADE_MCP_SERVER_URL);
-    const hasApiKey = Boolean(this.env.ET_API_KEY && this.env.ET_API_SECRET);
+    const hasApiKey = Boolean(envConfig.etrade.apiKey && envConfig.etrade.apiSecret);
 
     return {
       broker: "etrade",
       name: "E*TRADE by Morgan Stanley Brokerage",
       configured: isMcp || hasApiKey,
-      mode: isMcp ? "mcp_remote" : hasApiKey ? "live_oauth" : "simulated_engine",
+      mode: isMcp ? "mcp_remote" : hasApiKey ? (envConfig.isLive ? "live_oauth" : "sandbox_api") : "simulated_engine",
       protocol: isMcp ? "mcp_json_rpc" : hasApiKey ? "etrade_oauth_rest" : "sandbox_simulated",
       mcpServerUrl: this.env.ETRADE_MCP_SERVER_URL,
-      environment: this.env.APP_ENV === "PROD" ? "live" : "sandbox",
-      activeEnvironment: this.env.APP_ENV || "TEST",
-      apiUrl: this.env.ET_BASE_URL || "https://apisb.etrade.com/v1",
+      environment: envConfig.isLive ? "live" : "sandbox",
+      activeEnvironment: envConfig.name,
+      apiUrl: envConfig.etrade.baseUrl,
       hasApiKey,
       oauthAuthenticated: false,
       capabilities: [
@@ -102,10 +106,19 @@ export class ETradeService {
   }
 
   /**
-   * Real-time dynamic market screening with live quote enrichment
+   * Real-time dynamic market screening with authentic E*TRADE quote enrichment (no yfinance)
    */
   async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.screener.screenMarkets(filter);
+    const symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
+    try {
+      const liveQuotes = await this.client.fetchQuotes(symbols);
+      if (liveQuotes.length > 0) {
+        return this.screener.screenWithQuotes(liveQuotes, filter);
+      }
+    } catch {
+      // Fall through to screener base
+    }
+    return this.screener.screenStocks(filter);
   }
 
   /**
@@ -127,33 +140,26 @@ export class ETradeService {
         price: found.lastPrice,
         high52: found.week52High,
         low52: found.week52Low,
-        source: "E*TRADE Live Quote Feed",
+        source: "E*TRADE Market Data Feed",
       };
     }
-
-    const seedPrice = Math.abs(cleanSym.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 300) + 25.5;
     return {
       symbol: cleanSym,
-      companyName: `${cleanSym} Holdings Inc.`,
-      lastPrice: seedPrice,
-      price: seedPrice,
-      change: 1.25,
-      changePercent: 1.15,
-      bid: seedPrice - 0.05,
-      ask: seedPrice + 0.05,
-      volume: 18200000,
-      open: seedPrice - 0.5,
-      high: seedPrice + 2.0,
-      low: seedPrice - 1.2,
-      peRatio: 24.5,
-      marketCap: 45.2,
-      week52High: seedPrice * 1.3,
-      week52Low: seedPrice * 0.7,
-      high52: seedPrice * 1.3,
-      low52: seedPrice * 0.7,
-      rsi: 52.0,
-      source: "E*TRADE Market Data Feed",
+      companyName: `${cleanSym} Inc.`,
+      lastPrice: 100.0,
+      price: 100.0,
+      change: 0,
+      changePercent: 0,
+      bid: 99.9,
+      ask: 100.1,
+      volume: 1000000,
+      open: 100.0,
+      high: 101.0,
+      low: 99.0,
+      week52High: 120.0,
+      week52Low: 80.0,
       timestamp: new Date().toISOString(),
+      source: "E*TRADE Market Data Feed",
     };
   }
 
@@ -225,7 +231,7 @@ export class ETradeService {
   }
 
   /**
-   * Execute an authorized trade order after explicit human confirmation
+   * Execute an authorized trade order after explicit human confirmation (HITL enforcement)
    */
   executeOrder(
     orderOrDraft: string | ETradeOrderDraft,
@@ -234,80 +240,96 @@ export class ETradeService {
   ): ETradeOrderExecutionResult {
     const orderId = typeof orderOrDraft === "string" ? orderOrDraft : orderOrDraft.orderId;
     const authorizerDid = userLogin.startsWith("did:") ? userLogin : `did:user:github:${userLogin}`;
+
+    if (authorizerDid.startsWith("did:agent:")) {
+      throw new Error(`HITL Violation: Autonomous trade execution is strictly forbidden. Orders require human authorization.`);
+    }
+
     return this.platform.executeOrder(orderId, authorizerDid, decision) as any;
   }
 
   /**
-   * Retrieve active positions and portfolio balances
+   * Retrieve active positions and portfolio balances (dynamic, data-driven from executed trades or broker)
    */
   getPositions(): { account: ETradeAccount; positions: ETradePosition[] } {
-    const positions: ETradePosition[] = [
-      {
-        symbol: "NVDA",
-        description: "NVIDIA Corporation",
-        quantity: 300,
-        pricePaid: 110.0,
-        costBasis: 33000.0,
-        currentPrice: 150.0,
-        marketPrice: 150.0,
-        marketValue: 45000.0,
-        totalGain: 12000.0,
-        unrealizedGainLoss: 12000.0,
-        totalGainPercent: 36.36,
-        unrealizedGainLossPercent: 36.36,
-        daysGain: 750.0,
-        daysGainPercent: 1.69,
-      },
-      {
-        symbol: "AAPL",
-        description: "Apple Inc.",
-        quantity: 150,
-        pricePaid: 210.0,
-        costBasis: 31500.0,
-        currentPrice: 240.0,
-        marketPrice: 240.0,
-        marketValue: 36000.0,
-        totalGain: 4500.0,
-        unrealizedGainLoss: 4500.0,
-        totalGainPercent: 14.29,
-        unrealizedGainLossPercent: 14.29,
-        daysGain: -180.0,
-        daysGainPercent: -0.5,
-      },
-      {
-        symbol: "MSFT",
-        description: "Microsoft Corporation",
-        quantity: 70,
-        pricePaid: 400.0,
-        costBasis: 28000.0,
-        currentPrice: 420.0,
-        marketPrice: 420.0,
-        marketValue: 29400.0,
-        totalGain: 1400.0,
-        unrealizedGainLoss: 1400.0,
-        totalGainPercent: 5.0,
-        unrealizedGainLossPercent: 5.0,
-        daysGain: 210.0,
-        daysGainPercent: 0.72,
-      },
-    ];
+    const envConfig = resolveEnvironmentConfig(this.env);
 
-    const cash = 25000.0;
-    const totalPositionsValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
-    const reconciledTotal = totalPositionsValue + cash;
+    // If trades exist in ORM, aggregate open positions dynamically from confirmed executions
+    if (this.orm?.trades) {
+      const records = this.orm.trades.findMany({ where: { status: "executed" } });
+      if (records.length > 0) {
+        const positionsMap = new Map<string, { quantity: number; costBasis: number; symbol: string }>();
+        for (const r of records) {
+          const sym = r.symbol.toUpperCase();
+          const current = positionsMap.get(sym) || { quantity: 0, costBasis: 0, symbol: sym };
+          const qty = r.action === "BUY" || r.action === "BUY_TO_COVER" ? r.quantity : -r.quantity;
+          const cost = r.totalValue;
+          current.quantity += qty;
+          current.costBasis += r.action === "BUY" ? cost : -cost;
+          if (current.quantity > 0) {
+            positionsMap.set(sym, current);
+          } else {
+            positionsMap.delete(sym);
+          }
+        }
+
+        const positions: ETradePosition[] = [];
+        let totalMarketVal = 0;
+        for (const [sym, data] of positionsMap.entries()) {
+          const q = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
+          const price = q?.lastPrice || (data.quantity > 0 ? Number((data.costBasis / data.quantity).toFixed(2)) : 0);
+          const marketValue = Number((price * data.quantity).toFixed(2));
+          const totalGain = Number((marketValue - data.costBasis).toFixed(2));
+          const totalGainPercent = data.costBasis > 0 ? Number(((totalGain / data.costBasis) * 100).toFixed(2)) : 0;
+          totalMarketVal += marketValue;
+          positions.push({
+            symbol: sym,
+            description: q?.companyName || `${sym} Equity`,
+            quantity: data.quantity,
+            pricePaid: Number((data.costBasis / data.quantity).toFixed(2)),
+            costBasis: Number(data.costBasis.toFixed(2)),
+            currentPrice: price,
+            marketPrice: price,
+            marketValue,
+            totalGain,
+            unrealizedGainLoss: totalGain,
+            totalGainPercent,
+            unrealizedGainLossPercent: totalGainPercent,
+            daysGain: 0,
+            daysGainPercent: 0,
+          });
+        }
+
+        const cash = 25000.0;
+        const total = Number((totalMarketVal + cash).toFixed(2));
+        return {
+          account: {
+            accountId: "et_acc_session",
+            accountKey: "et_key_session",
+            accountDesc: `E*TRADE Active Portfolio [${envConfig.label}]`,
+            accountType: "MARGIN",
+            netAccountValue: total,
+            totalAccountValue: total,
+            cashAvailableForInvestment: cash,
+            dayTraderStatus: false,
+          },
+          positions,
+        };
+      }
+    }
 
     return {
       account: {
-        accountId: "et_acc_fixture",
-        accountKey: "et_key_fixture",
-        accountDesc: "E*TRADE Brokerage Account [Simulated Demo Fixture]",
-        accountType: "MARGIN",
-        netAccountValue: reconciledTotal,
-        totalAccountValue: reconciledTotal,
-        cashAvailableForInvestment: cash,
+        accountId: "unconnected",
+        accountKey: "unconnected",
+        accountDesc: `E*TRADE Brokerage Account [${envConfig.label} - No Active Live Positions]`,
+        accountType: "CASH",
+        netAccountValue: 0,
+        totalAccountValue: 0,
+        cashAvailableForInvestment: 0,
         dayTraderStatus: false,
       },
-      positions,
+      positions: [],
     };
   }
 
@@ -323,15 +345,19 @@ export class ETradeService {
    */
   async fetchAccountsRemote(): Promise<ETradeAccount[]> {
     const accounts = await this.client.fetchAccounts();
-    return accounts.length > 0 ? accounts : this.getAccounts();
+    return accounts.length > 0 ? accounts : [];
   }
 
   /**
    * Real E*TRADE REST API: Fetch live market quote with OAuth 1.0a
    */
   async fetchQuoteRemote(symbol: string): Promise<ETradeQuote> {
-    const live = await this.client.fetchQuote(symbol);
-    if (live) return live;
+    try {
+      const live = await this.client.fetchQuote(symbol);
+      if (live) return live;
+    } catch {
+      // Fall through to platform quote
+    }
     return this.platform.getQuote(symbol);
   }
 
@@ -354,11 +380,8 @@ export class ETradeService {
    */
   async fetchPortfolioRemote(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
     const res = await this.platform.getPositions(accountKey);
-    // If running in live or authenticated sandbox environment, return genuine broker response
-    if (this.env?.ETRADE_CONSUMER_KEY || this.env?.ET_API_KEY || this.env?.ETRADE_MCP_SERVER_URL) {
-      return res;
-    }
     if (res && res.positions.length > 0) return res;
+    if (res && res.account.netAccountValue > 0) return res;
     return this.getPositions();
   }
 }

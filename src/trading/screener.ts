@@ -156,23 +156,23 @@ export const EXPANDED_MARKET_UNIVERSE: ScreenedStockItem[] = [
     symbol: "MSFT",
     companyName: "Microsoft Corporation",
     sector: "Technology",
-    lastPrice: 512.90,
-    price: 512.90,
+    lastPrice: 422.90,
+    price: 422.90,
     change: 5.61,
     changePercent: 1.11,
-    bid: 512.70,
-    ask: 513.10,
+    bid: 422.80,
+    ask: 423.00,
     volume: 19800000,
-    open: 508.50,
-    high: 514.20,
-    low: 507.80,
-    previousClose: 507.29,
+    open: 420.50,
+    high: 424.20,
+    low: 419.80,
+    previousClose: 417.29,
     peRatio: 35.1,
     marketCap: 3140,
-    week52High: 525.00,
-    week52Low: 340.00,
-    high52: 525.00,
-    low52: 340.00,
+    week52High: 468.35,
+    week52Low: 366.50,
+    high52: 468.35,
+    low52: 366.50,
     rsi: 54.8,
     rsi14: 54.8,
     macdSignal: "Bullish MACD Momentum (Line > Signal)",
@@ -633,6 +633,29 @@ export class DynamicMarketScreener implements IMarketScreener {
   }
 
   /**
+   * Evaluates screener filters against real quotes provided directly (e.g. from E*TRADE REST API)
+   */
+  screenWithQuotes(quotes: ETradeQuote[], filter: StockScreenerFilter = {}): StockScreenResult {
+    const universe = quotes.map((q) => {
+      const found = EXPANDED_MARKET_UNIVERSE.find((u) => u.symbol === q.symbol);
+      const rsi14 = q.rsi || 50;
+      return {
+        ...q,
+        price: q.lastPrice,
+        sector: q.sector || found?.sector || "Equities",
+        rsi14,
+        macdSignal: q.changePercent > 1 ? "Bullish MACD Momentum" : q.changePercent < -1 ? "Bearish Pullback" : "Neutral Centerline",
+        signal: (rsi14 > 70 ? "OVERBOUGHT" : rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
+        technicalSignal: q.changePercent > 0 ? "Positive Momentum" : "Consolidation",
+        momentumScore: Math.round(50 + q.changePercent * 5),
+        highlightReason: `${q.companyName} Level 1 Quote`,
+      } as ScreenedStockItem;
+    });
+
+    return this.evaluateUniverse(universe, filter);
+  }
+
+  /**
    * Filter and scan stocks based on fundamental and technical criteria (synchronous baseline)
    */
   screenStocks(filter: StockScreenerFilter = {}): StockScreenResult {
@@ -731,29 +754,6 @@ export class DynamicMarketScreener implements IMarketScreener {
         source: "Market Universe (Cached)",
       };
     }
-      const seedPrice = Math.abs(cleanSym.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 300) + 25.5;
-      return {
-        symbol: cleanSym,
-        companyName: `${cleanSym} Holdings Inc.`,
-        lastPrice: seedPrice,
-        price: seedPrice,
-        change: 1.25,
-        changePercent: 1.15,
-        bid: seedPrice - 0.05,
-        ask: seedPrice + 0.05,
-        volume: 18200000,
-        open: seedPrice - 0.5,
-        high: seedPrice + 2.0,
-        low: seedPrice - 1.2,
-        peRatio: 24.5,
-        marketCap: 45.2,
-        week52High: seedPrice * 1.3,
-        week52Low: seedPrice * 0.7,
-        high52: seedPrice * 1.3,
-        low52: seedPrice * 0.7,
-        rsi: 52.0,
-        source: "Deterministic Pricing Engine",
-        timestamp: new Date().toISOString(),
-      };
+    throw new Error(`Quote data unavailable for '${cleanSym}'. Unable to resolve quote from live market data feeds or market universe.`);
   }
 }

@@ -133,7 +133,8 @@ export class ETradePreviewOrderCommand implements IMcpToolCommand<{
     const etrade = new ETradeService(context.orm, context.env);
     const draft = etrade.previewOrder({
       symbol: input.symbol,
-      action: input.action,
+      action: input.action || input.orderAction,
+      orderAction: input.orderAction || input.action,
       quantity: input.quantity,
       orderType: input.orderType,
       limitPrice: input.limitPrice,

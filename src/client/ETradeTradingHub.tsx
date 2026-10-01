@@ -94,11 +94,46 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [oauthSubmitting, setOauthSubmitting] = useState(false);
   const [oauthMsg, setOauthMsg] = useState("");
 
+  // Active environment (Sandbox TEST vs Live PROD)
+  const [activeEnv, setActiveEnv] = useState<"TEST" | "PROD">(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_env");
+      if (stored === "TEST" || stored === "PROD") return stored;
+    }
+    return "PROD";
+  });
+
+  const handleSwitchEnvironment = async (target: "TEST" | "PROD") => {
+    setActiveEnv(target);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfagent_env", target);
+    }
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOauthMsg(`Switched to ${target === "PROD" ? "Production (Live)" : "Sandbox (TEST)"} mode.`);
+    try {
+      await fetch("/api/environment/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-environment": target },
+        body: JSON.stringify({ environment: target }),
+      });
+    } catch {
+      // Ignore
+    }
+    await Promise.all([
+      fetchOAuthStatus(target),
+      fetchBrokerStatus(target),
+      fetchPositions(target),
+    ]);
+    runScreener();
+    fetchSymbolQuote(orderSymbol);
+  };
+
   // Fetch initial broker status, OAuth status, positions, and screener
   useEffect(() => {
-    fetchOAuthStatus();
-    fetchBrokerStatus();
-    fetchPositions();
+    fetchOAuthStatus(activeEnv);
+    fetchBrokerStatus(activeEnv);
+    fetchPositions(activeEnv);
     runScreener();
     fetchOrders();
     fetchSymbolQuote(orderSymbol);
@@ -107,16 +142,19 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     const params = new URLSearchParams(window.location.search);
     if (params.get("etrade_auth") === "success") {
       setOauthMsg("E*TRADE OAuth 1.0a connection established! Real broker access enabled.");
-      fetchOAuthStatus();
-      fetchBrokerStatus();
-      fetchPositions();
+      fetchOAuthStatus(activeEnv);
+      fetchBrokerStatus(activeEnv);
+      fetchPositions(activeEnv);
     }
-  }, []);
+  }, [activeEnv]);
 
-  const fetchOAuthStatus = async () => {
+  const fetchOAuthStatus = async (override?: string) => {
+    const envToUse = override || activeEnv;
     setOauthLoading(true);
     try {
-      const resp = await fetch("/api/etrade/oauth/status");
+      const resp = await fetch("/api/etrade/oauth/status", {
+        headers: { "x-environment": envToUse },
+      });
       if (resp.ok) {
         const data = (await resp.json()) as any;
         setOauthStatus(data);
@@ -132,7 +170,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setOauthLoading(true);
     setOauthMsg("");
     try {
-      const resp = await fetch("/api/etrade/oauth/start");
+      const resp = await fetch("/api/etrade/oauth/start", {
+        headers: { "x-environment": activeEnv },
+      });
       const data = (await resp.json()) as any;
       if (resp.ok && data.authorizeUrl) {
         setRequestTokenInfo(data);
@@ -157,19 +197,20 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     try {
       const resp = await fetch("/api/etrade/oauth/verifier", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify({
           verifier: oauthPin.trim(),
           requestToken: requestTokenInfo?.requestToken,
+          requestTokenSecret: (requestTokenInfo as any)?.requestTokenSecret,
         }),
       });
       const data = (await resp.json()) as any;
       if (resp.ok && data.success) {
         setShowPinModal(false);
         setOauthPin("");
-        await fetchOAuthStatus();
-        await fetchBrokerStatus();
-        await fetchPositions();
+        await fetchOAuthStatus(activeEnv);
+        await fetchBrokerStatus(activeEnv);
+        await fetchPositions(activeEnv);
         await fetchSymbolQuote(orderSymbol);
         setOauthMsg("E*TRADE Account Connected! Access token active until midnight Eastern Time.");
       } else {
@@ -186,10 +227,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setOauthLoading(true);
     setOauthMsg("");
     try {
-      const resp = await fetch("/api/etrade/oauth/renew", { method: "POST" });
+      const resp = await fetch("/api/etrade/oauth/renew", {
+        method: "POST",
+        headers: { "x-environment": activeEnv },
+      });
       const data = (await resp.json()) as any;
       if (resp.ok && data.success) {
-        await fetchOAuthStatus();
+        await fetchOAuthStatus(activeEnv);
         setOauthMsg("Token renewed successfully for today!");
       } else {
         setOauthMsg(data.error || "Failed to renew token. Please re-authenticate.");
@@ -205,9 +249,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     if (!confirm("Are you sure you want to disconnect your E*TRADE account?")) return;
     setOauthLoading(true);
     try {
-      await fetch("/api/etrade/oauth/revoke", { method: "POST" });
-      await fetchOAuthStatus();
-      await fetchBrokerStatus();
+      await fetch("/api/etrade/oauth/revoke", {
+        method: "POST",
+        headers: { "x-environment": activeEnv },
+      });
+      await fetchOAuthStatus(activeEnv);
+      await fetchBrokerStatus(activeEnv);
+      setPositions([]);
       setOauthMsg("E*TRADE account disconnected.");
     } catch {
       // Ignore
@@ -216,9 +264,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const fetchBrokerStatus = async () => {
+  const fetchBrokerStatus = async (override?: string) => {
+    const envToUse = override || activeEnv;
     try {
-      const resp = await fetch("/api/etrade/status");
+      const resp = await fetch("/api/etrade/status", {
+        headers: { "x-environment": envToUse },
+      });
       if (resp.ok) {
         const data = (await resp.json()) as any;
         setBrokerStatus(data.status || data);
@@ -226,7 +277,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         if (data.oauthAuthenticated !== undefined) {
           setOauthStatus((prev) => ({
             authenticated: data.oauthAuthenticated,
-            environment: data.activeEnvironment || prev?.environment,
+            environment: data.activeEnvironment || envToUse,
             storedAt: data.oauthExpiresAtEt || prev?.storedAt,
             renewable: data.oauthRenewable !== undefined ? data.oauthRenewable : prev?.renewable,
           }));
@@ -237,10 +288,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const fetchPositions = async () => {
+  const fetchPositions = async (override?: string) => {
+    const envToUse = override || activeEnv;
     setPositionsLoading(true);
     try {
-      const resp = await fetch("/api/etrade/positions");
+      const resp = await fetch("/api/etrade/positions", {
+        headers: { "x-environment": envToUse },
+      });
       if (resp.ok) {
         const data = await resp.json() as { account: ETradeAccount; positions: ETradePosition[] };
         if (data.account) setAccount(data.account);
@@ -288,7 +342,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
       const resp = await fetch("/api/etrade/screen", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify(body),
       });
 
@@ -320,12 +374,21 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     if (!sym) return;
     setQuoteLoading(true);
     try {
-      const resp = await fetch(`/api/etrade/quote?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/etrade/quote?symbol=${encodeURIComponent(sym)}`, {
+        headers: { "x-environment": activeEnv },
+      });
       if (resp.ok) {
         const data = await resp.json() as ETradeQuote;
         setOrderQuote(data);
-        if (data.ask > 0 && orderType === "LIMIT") {
-          setOrderLimitPrice(data.ask.toFixed(2));
+        if (orderType === "LIMIT") {
+          // Align limit price with order direction: Buy -> Ask; Sell -> Bid
+          if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && data.ask > 0) {
+            setOrderLimitPrice(data.ask.toFixed(2));
+          } else if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && data.bid > 0) {
+            setOrderLimitPrice(data.bid.toFixed(2));
+          } else if (data.lastPrice > 0) {
+            setOrderLimitPrice(data.lastPrice.toFixed(2));
+          }
         }
       }
     } catch {
@@ -335,12 +398,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const handleOpenInspectQuote = async (sym: string) => {
+  const handleOpenInspectQuote = async (sym: string, existingStock?: ScreenedStockItem) => {
     setInspectSymbol(sym);
     setInspectLoading(true);
-    setInspectQuote(null);
+    if (existingStock) {
+      setInspectQuote(existingStock as any);
+    } else {
+      setInspectQuote(null);
+    }
     try {
-      const resp = await fetch(`/api/etrade/quote?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/etrade/quote?symbol=${encodeURIComponent(sym)}`, {
+        headers: { "x-environment": activeEnv },
+      });
       if (resp.ok) {
         const data = await resp.json() as ETradeQuote;
         setInspectQuote(data);
@@ -355,10 +424,17 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const handleQuickTrade = (stock: ScreenedStockItem | ETradePosition | ETradeQuote, defaultAction: "BUY" | "SELL" = "BUY") => {
     setOrderSymbol(stock.symbol);
     setOrderAction(defaultAction);
-    const p = (stock as any).lastPrice || (stock as any).currentPrice || (stock as any).price || 100;
+    const quoteBid = (stock as any).bid;
+    const quoteAsk = (stock as any).ask;
+    let p = (stock as any).lastPrice || (stock as any).currentPrice || (stock as any).price || 100;
+    if (defaultAction === "SELL" && quoteBid > 0) {
+      p = quoteBid;
+    } else if (defaultAction === "BUY" && quoteAsk > 0) {
+      p = quoteAsk;
+    }
     setOrderLimitPrice(Number(p).toFixed(2));
     setOrderQuote(stock as any);
-    setActiveDraft(null);
+    setActiveDraft(null); // Invalidate any previous approval
     setLastExecutionResult(null);
     setSubTab("order");
   };
@@ -380,9 +456,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     try {
       const resp = await fetch("/api/etrade/order/preview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify({
           symbol: orderSymbol.toUpperCase(),
+          orderAction,
           action: orderAction,
           quantity: Number(orderQuantity),
           orderType,
@@ -410,7 +487,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     try {
       const resp = await fetch("/api/etrade/order/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify({
           orderId: draftId,
           draftId,
@@ -498,7 +575,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const statedNav = Number((account?.netAccountValue || calculatedPortfolioTotal).toFixed(2));
   const balanceDiscrepancy = Math.abs(Number((statedNav - calculatedPortfolioTotal).toFixed(2)));
   const isReconciled = balanceDiscrepancy <= 1.00;
-  const isLive = brokerStatus?.environment === "live";
+  const isLive = activeEnv === "PROD" || brokerStatus?.environment === "live" || brokerStatus?.activeEnvironment === "PROD";
 
   return (
     <div className="etrade-trading-hub">
@@ -507,12 +584,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         <div className="env-trust-left">
           <span className="env-trust-badge">
             {isLive
-              ? "🔴 LIVE PRODUCTION — REAL ORDERS & REAL CAPITAL"
-              : "⚠️ SANDBOX — SIMULATED DATA — NO REAL ORDERS"}
+              ? "🔴 LIVE PRODUCTION — REAL ORDERS & REAL CAPITAL (HITL REQUIRED)"
+              : "⚠️ SANDBOX — SIMULATED DATA — NO REAL ORDERS (HITL REQUIRED)"}
           </span>
           <span className="env-trust-item">
             <strong>Account:</strong>{" "}
-            <code>{maskAccount ? `••••${(account?.accountId || "SANDBOX").slice(-4)}` : (account?.accountId || "SANDBOX")}</code>
+            <code>{maskAccount ? `••••${(account?.accountId || (isLive ? "PROD_ACTIVE" : "SANDBOX")).slice(-4)}` : (account?.accountId || (isLive ? "PROD_ACTIVE" : "SANDBOX"))}</code>
             <button
               type="button"
               className="btn-mask-toggle"
@@ -523,13 +600,34 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               {maskAccount ? "👁️ Show" : "🙈 Hide"}
             </button>
           </span>
-          <span className="env-trust-item">
-            <strong>Environment:</strong> {brokerStatus?.activeEnvironment || "TEST"}
+          <span className="env-trust-item env-trust-switch-item">
+            <strong>Environment:</strong>{" "}
+            <span className={`env-status-badge ${isLive ? "badge-prod" : "badge-test"}`}>
+              {isLive ? "PROD (Live)" : "TEST (Sandbox)"}
+            </span>
+            <span className="env-switch-toggles">
+              <button
+                type="button"
+                className={`btn-env-toggle ${!isLive ? "active-env" : ""}`}
+                onClick={() => handleSwitchEnvironment("TEST")}
+                title="Switch to E*TRADE Developer Sandbox"
+              >
+                🧪 TEST
+              </button>
+              <button
+                type="button"
+                className={`btn-env-toggle ${isLive ? "active-env" : ""}`}
+                onClick={() => handleSwitchEnvironment("PROD")}
+                title="Switch to E*TRADE Live Production"
+              >
+                🔴 PROD
+              </button>
+            </span>
           </span>
         </div>
         <div className="env-trust-right">
           <span className="env-trust-item">
-            <strong>Data Source:</strong> {oauthStatus?.authenticated ? "E*TRADE Sandbox REST API" : "Simulated Fixture"}
+            <strong>Data Source:</strong> {oauthStatus?.authenticated ? (isLive ? "E*TRADE Live REST API" : "E*TRADE Sandbox REST API") : (isLive ? "E*TRADE Live (Awaiting OAuth Authentication)" : "E*TRADE Sandbox (Awaiting OAuth)")}
           </span>
           <span className="env-trust-item">
             <strong>Prices As Of:</strong> {lastSyncTime || "Real-time"} ET
@@ -1197,7 +1295,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                               type="button"
                               className="btn-act-quote"
                               title="Inspect full Level 1 quote"
-                              onClick={() => handleOpenInspectQuote(stock.symbol)}
+                              onClick={() => handleOpenInspectQuote(stock.symbol, stock)}
                             >
                               📊 Quote
                             </button>
@@ -1255,6 +1353,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       onChange={(e) => {
                         const s = e.target.value.toUpperCase();
                         setOrderSymbol(s);
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
                       }}
                       onBlur={() => fetchSymbolQuote(orderSymbol)}
                     />
@@ -1262,16 +1362,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       type="button"
                       className="btn-peek-quote"
                       disabled={quoteLoading}
-                      onClick={() => {
-                        if (!oauthStatus?.authenticated) {
-                          handleStartOAuth();
-                        } else {
-                          fetchSymbolQuote(orderSymbol);
-                        }
-                      }}
-                      title={!oauthStatus?.authenticated ? "Authentication required for live broker quotes" : "Fetch live quote from E*TRADE"}
+                      onClick={() => fetchSymbolQuote(orderSymbol)}
+                      title="Fetch live quote from E*TRADE"
                     >
-                      {quoteLoading ? "Fetching…" : !oauthStatus?.authenticated ? "🔑 Connect & Quote" : "🔍 Get Live Quote"}
+                      {quoteLoading ? "Fetching…" : "🔍 Get Live Quote"}
                     </button>
                   </div>
                   {!oauthStatus?.authenticated && (
@@ -1284,7 +1378,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   )}
                   {orderQuote && (
                     <div className="order-quote-peek">
-                      <span className="quote-company">{orderQuote.companyName}</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+                        <span className="quote-company">{orderQuote.companyName}</span>
+                        {orderQuote.quoteStatus && (
+                          <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "4px", background: orderQuote.quoteStatus === "REALTIME" ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)", color: orderQuote.quoteStatus === "REALTIME" ? "#10b981" : "#f59e0b", border: "1px solid currentColor" }}>
+                            ● {orderQuote.quoteStatus}
+                          </span>
+                        )}
+                      </div>
                       <span className="quote-price">${orderQuote.lastPrice.toFixed(2)}</span>
                       <span className={`quote-change ${orderQuote.change >= 0 ? "positive" : "negative"}`}>
                         {orderQuote.change >= 0 ? "+" : ""}{orderQuote.change.toFixed(2)} ({orderQuote.changePercent.toFixed(2)}%)
@@ -1306,28 +1407,60 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                     <button
                       type="button"
                       className={`action-btn buy ${orderAction === "BUY" ? "active" : ""}`}
-                      onClick={() => setOrderAction("BUY")}
+                      onClick={() => {
+                        setOrderAction("BUY");
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                        if (orderQuote && orderType === "LIMIT") {
+                          const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
+                          if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
+                        }
+                      }}
                     >
                       BUY
                     </button>
                     <button
                       type="button"
                       className={`action-btn sell ${orderAction === "SELL" ? "active" : ""}`}
-                      onClick={() => setOrderAction("SELL")}
+                      onClick={() => {
+                        setOrderAction("SELL");
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                        if (orderQuote && orderType === "LIMIT") {
+                          const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
+                          if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
+                        }
+                      }}
                     >
                       SELL
                     </button>
                     <button
                       type="button"
                       className={`action-btn short ${orderAction === "SELL_SHORT" ? "active" : ""}`}
-                      onClick={() => setOrderAction("SELL_SHORT")}
+                      onClick={() => {
+                        setOrderAction("SELL_SHORT");
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                        if (orderQuote && orderType === "LIMIT") {
+                          const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
+                          if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
+                        }
+                      }}
                     >
                       SHORT
                     </button>
                     <button
                       type="button"
                       className={`action-btn cover ${orderAction === "BUY_TO_COVER" ? "active" : ""}`}
-                      onClick={() => setOrderAction("BUY_TO_COVER")}
+                      onClick={() => {
+                        setOrderAction("BUY_TO_COVER");
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                        if (orderQuote && orderType === "LIMIT") {
+                          const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
+                          if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
+                        }
+                      }}
                     >
                       COVER
                     </button>
@@ -1340,7 +1473,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                     <label>Order Type</label>
                     <select
                       value={orderType}
-                      onChange={(e) => setOrderType(e.target.value as any)}
+                      onChange={(e) => {
+                        setOrderType(e.target.value as any);
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                      }}
                     >
                       <option value="MARKET">Market</option>
                       <option value="LIMIT">Limit</option>
@@ -1357,10 +1494,37 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       disabled={orderType === "MARKET"}
                       placeholder={orderQuote?.lastPrice ? orderQuote.lastPrice.toFixed(2) : "125.50"}
                       value={orderLimitPrice}
-                      onChange={(e) => setOrderLimitPrice(e.target.value)}
+                      onChange={(e) => {
+                        setOrderLimitPrice(e.target.value);
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                      }}
                     />
                   </div>
                 </div>
+
+                {/* Limit Price Sanity / Market Divergence Notice */}
+                {(() => {
+                  const parsedLimit = parseFloat(orderLimitPrice);
+                  if (orderType !== "LIMIT" || isNaN(parsedLimit) || parsedLimit <= 0 || !orderQuote) return null;
+                  const askPrice = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
+                  const bidPrice = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
+                  if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit > askPrice * 1.05) {
+                    return (
+                      <div className="limit-warning-box" role="alert" style={{ background: "#fef3c7", color: "#92400e", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fde68a" }}>
+                        ⚠️ <strong>Limit Price Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is &gt;5% above current ask (${askPrice.toFixed(2)}). As a buy limit, this order may execute immediately at prevailing market prices.
+                      </div>
+                    );
+                  }
+                  if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit < bidPrice * 0.95) {
+                    return (
+                      <div className="limit-warning-box" role="alert" style={{ background: "#fef3c7", color: "#92400e", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fde68a" }}>
+                        ⚠️ <strong>Limit Price Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is &gt;5% below current bid (${bidPrice.toFixed(2)}). As a sell limit, this order may execute immediately below prevailing value.
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Quantity and Quick Stepper */}
                 <div className="form-group">
@@ -1369,7 +1533,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                     <button
                       type="button"
                       className="qty-btn"
-                      onClick={() => setOrderQuantity(Math.max(1, orderQuantity - 5))}
+                      onClick={() => {
+                        setOrderQuantity(Math.max(1, orderQuantity - 5));
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                      }}
                     >
                       -5
                     </button>
@@ -1378,12 +1546,20 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       min="1"
                       className="qty-input"
                       value={orderQuantity}
-                      onChange={(e) => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      onChange={(e) => {
+                        setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1));
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                      }}
                     />
                     <button
                       type="button"
                       className="qty-btn"
-                      onClick={() => setOrderQuantity(orderQuantity + 5)}
+                      onClick={() => {
+                        setOrderQuantity(orderQuantity + 5);
+                        setActiveDraft(null);
+                        setLastExecutionResult(null);
+                      }}
                     >
                       +5
                     </button>
@@ -1394,7 +1570,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         key={q}
                         type="button"
                         className={`qty-chip ${orderQuantity === q ? "selected" : ""}`}
-                        onClick={() => setOrderQuantity(q)}
+                        onClick={() => {
+                          setOrderQuantity(q);
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                        }}
                       >
                         {q} shs
                       </button>
@@ -1923,7 +2103,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                           <button
                             type="button"
                             className="btn-card-quote"
-                            onClick={() => handleOpenInspectQuote(stock.symbol)}
+                            onClick={() => handleOpenInspectQuote(stock.symbol, stock)}
                           >
                             Quote
                           </button>

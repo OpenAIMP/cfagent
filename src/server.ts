@@ -65,13 +65,15 @@ export default {
     if (path === "/auth/logout") return handleLogout(env, request);
 
     // --- E*TRADE OAuth 1.0a 3-Legged Lifecycle Endpoints ---
+    const reqEnv = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase() || undefined;
+
     if (path === "/auth/etrade/start" || path === "/api/etrade/oauth/start") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       const callbackParam = url.searchParams.get("callback");
       const callbackUrl = callbackParam || "oob";
       try {
-        const result = await getETradeRequestToken(env, session.githubLogin, callbackUrl);
+        const result = await getETradeRequestToken(env, session.githubLogin, callbackUrl, reqEnv);
         if (url.searchParams.get("mode") === "redirect") {
           return Response.redirect(result.authorizeUrl, 302);
         }
@@ -89,7 +91,7 @@ export default {
         return Response.redirect("/?tab=trading&error=missing_verifier", 302);
       }
       try {
-        await exchangeETradeVerifier(env, session.githubLogin, verifier);
+        await exchangeETradeVerifier(env, session.githubLogin, verifier, undefined, undefined, reqEnv);
         return Response.redirect("/?tab=trading&etrade_auth=success", 302);
       } catch (err: any) {
         return Response.redirect(`/?tab=trading&error=${encodeURIComponent(err.message || "exchange_failed")}`, 302);
@@ -99,7 +101,7 @@ export default {
     if (path === "/api/etrade/oauth/status") {
       const session = await requireAuth(request, env);
       if (!session) return Response.json({ authenticated: false });
-      const status = await getETradeAuthStatus(env, session.githubLogin);
+      const status = await getETradeAuthStatus(env, session.githubLogin, reqEnv);
       return Response.json(status);
     }
 
@@ -110,7 +112,7 @@ export default {
       const verifier = (body.verifier || "").trim();
       if (!verifier) return Response.json({ error: "Verifier PIN is required" }, { status: 400 });
       try {
-        const tokens = await exchangeETradeVerifier(env, session.githubLogin, verifier, body.requestToken, body.requestTokenSecret);
+        const tokens = await exchangeETradeVerifier(env, session.githubLogin, verifier, body.requestToken, body.requestTokenSecret, reqEnv);
         return Response.json({ success: true, environment: tokens.environment, storedAt: tokens.storedAt });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to exchange verifier" }, { status: 400 });
@@ -121,7 +123,7 @@ export default {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       try {
-        const renewed = await renewETradeAccessToken(env, session.githubLogin);
+        const renewed = await renewETradeAccessToken(env, session.githubLogin, reqEnv);
         if (renewed) {
           return Response.json({ success: true, storedAt: renewed.storedAt });
         }

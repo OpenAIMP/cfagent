@@ -18,10 +18,14 @@ import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
 
 export class ETradeRestClient {
-  constructor(private env: Env, private userLogin: string = "default_trader") {}
+  constructor(private env: Env, private userLogin: string = "default_trader", private overrideEnv?: string) {}
+
+  public getEnvConfig() {
+    return resolveEnvironmentConfig(this.env, this.overrideEnv);
+  }
 
   private async generateOAuthHeader(method: string, url: string, extraParams?: Record<string, string>): Promise<string> {
-    const envConfig = resolveEnvironmentConfig(this.env);
+    const envConfig = this.getEnvConfig();
     const consumerKey = envConfig.etrade.apiKey || "";
     const consumerSecret = envConfig.etrade.apiSecret || "";
     let token = envConfig.etrade.oauthToken || "";
@@ -55,9 +59,28 @@ export class ETradeRestClient {
    */
   async fetchQuote(symbol: string): Promise<ETradeQuote | null> {
     const sym = symbol.toUpperCase().trim();
-    const envConfig = resolveEnvironmentConfig(this.env);
+    const envConfig = this.getEnvConfig();
 
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      return null;
+    }
+
+    let token = envConfig.etrade.oauthToken || "";
+    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
+    if ((!token || !tokenSecret) && this.userLogin) {
+      try {
+        const stored = await getValidTokens(this.env, this.userLogin);
+        if (stored) {
+          token = stored.accessToken;
+          tokenSecret = stored.accessTokenSecret;
+        }
+      } catch {
+        // Ignore KV error
+      }
+    }
+
+    if (!token || !tokenSecret) {
+      // Unauthenticated: cannot call authenticated 3-legged E*TRADE quote endpoint
       return null;
     }
 
@@ -76,21 +99,19 @@ export class ETradeRestClient {
       });
 
       if (!res.ok) {
-        if (res.status === 401 && envConfig.isLive) {
-          throw new ETradeError(
-            ETradeErrorCode.AUTH_REQUIRED,
-            "E*TRADE OAuth token is expired or unauthorized. Token must be renewed."
-          );
-        }
         return null;
       }
 
       const data = (await res.json().catch(() => ({}))) as any;
-      const quoteData = data?.QuoteResponse?.QuoteData?.[0]?.All || data?.QuoteResponse?.QuoteData?.[0]?.Product;
+      const quoteItem = data?.QuoteResponse?.QuoteData?.[0];
+      const quoteData = quoteItem?.All || quoteItem?.Product;
       if (!quoteData) return null;
 
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.bid || 0);
       if (price <= 0) return null;
+
+      const quoteStatus = String(quoteItem?.quoteStatus || quoteData?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
+      const dateTime = String(quoteItem?.dateTime || quoteData?.dateTime || new Date().toISOString());
 
       return {
         symbol: sym,
@@ -112,12 +133,106 @@ export class ETradeRestClient {
         high52: Number(quoteData.high52 || 0),
         low52: Number(quoteData.low52 || 0),
         rsi: 50.0,
+        quoteStatus,
+        dateTime,
         source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
-        timestamp: new Date().toISOString(),
+        timestamp: dateTime,
       };
     } catch (err) {
       if (err instanceof ETradeError) throw err;
       return null;
+    }
+  }
+
+  /**
+   * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
+   */
+  async fetchQuotes(symbols: string[]): Promise<ETradeQuote[]> {
+    if (!symbols.length) return [];
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      return [];
+    }
+
+    let token = envConfig.etrade.oauthToken || "";
+    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
+    if ((!token || !tokenSecret) && this.userLogin) {
+      try {
+        const stored = await getValidTokens(this.env, this.userLogin);
+        if (stored) {
+          token = stored.accessToken;
+          tokenSecret = stored.accessTokenSecret;
+        }
+      } catch {
+        // Ignore KV error
+      }
+    }
+
+    if (!token || !tokenSecret) {
+      return [];
+    }
+
+    const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean).slice(0, 25);
+    if (!cleanSyms.length) return [];
+
+    const symList = cleanSyms.join(",");
+    const url = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json`;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+
+    const authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok) return [];
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const rawList = data?.QuoteResponse?.QuoteData;
+      if (!Array.isArray(rawList)) return [];
+
+      return rawList
+        .map((item: any) => {
+          const qd = item?.All || item?.Product;
+          const sym = String(item?.Product?.symbol || qd?.symbol || "");
+          const price = Number(qd?.lastTrade || qd?.price || qd?.bid || 0);
+          const quoteStatus = String(item?.quoteStatus || qd?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
+          const dateTime = String(item?.dateTime || qd?.dateTime || new Date().toISOString());
+
+          return {
+            symbol: sym,
+            companyName: qd?.companyName || `${sym} Inc.`,
+            lastPrice: price,
+            price,
+            change: Number(qd?.changeClose || 0),
+            changePercent: Number(qd?.changeClosePercentage || 0),
+            bid: Number(qd?.bid || price),
+            ask: Number(qd?.ask || price),
+            volume: Number(qd?.totalVolume || 0),
+            open: Number(qd?.open || price),
+            high: Number(qd?.high || price),
+            low: Number(qd?.low || price),
+            peRatio: Number(qd?.pe || 0),
+            marketCap: Number(qd?.marketCap || 0) / 1e9,
+            week52High: Number(qd?.high52 || 0),
+            week52Low: Number(qd?.low52 || 0),
+            high52: Number(qd?.high52 || 0),
+            low52: Number(qd?.low52 || 0),
+            rsi: 50.0,
+            quoteStatus,
+            dateTime,
+            source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
+            timestamp: dateTime,
+          };
+        })
+        .filter((q: ETradeQuote) => q.symbol && q.lastPrice > 0);
+    } catch {
+      return [];
     }
   }
 
@@ -136,8 +251,32 @@ export class ETradeRestClient {
   }): Promise<ETradeOrderExecutionResult> {
     const userDid = params.userLogin.startsWith("did:") ? params.userLogin : getUserDid(params.userLogin);
     const now = new Date().toISOString();
-    const envConfig = resolveEnvironmentConfig(this.env);
+    const envConfig = this.getEnvConfig();
     const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "";
+
+    // Strict HITL Gate: block autonomous agent execution without human authorization
+    if (!userDid || userDid.startsWith("did:agent:")) {
+      return {
+        success: false,
+        orderId: params.orderId,
+        executionId: "",
+        brokerOrderRef: "",
+        authorizerDid: userDid || "did:user:unknown",
+        status: "failed",
+        symbol: params.symbol,
+        action: params.action,
+        quantity: params.quantity,
+        executionPrice: 0,
+        totalSettled: 0,
+        didAttestation: {
+          proposerDid: AGENT_DIDS.TRADING,
+          authorizerDid: userDid || "did:user:unknown",
+          signature: "",
+        },
+        message: "HITL Enforcement: Autonomous live order execution is blocked. Explicit human confirmation required.",
+        timestamp: now,
+      };
+    }
 
     // 1. Remote MCP Tool Execution (if configured)
     if (this.env.ETRADE_MCP_SERVER_URL) {
@@ -375,7 +514,7 @@ export class ETradeRestClient {
    * Fetches authentic accounts list
    */
   async fetchAccounts(): Promise<ETradeAccount[]> {
-    const envConfig = resolveEnvironmentConfig(this.env);
+    const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       return [];
     }
@@ -418,7 +557,7 @@ export class ETradeRestClient {
    * Fetches real live portfolio positions using dynamic account discovery
    */
   async fetchPortfolio(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
-    const envConfig = resolveEnvironmentConfig(this.env);
+    const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       return null;
     }

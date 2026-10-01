@@ -104,10 +104,11 @@ export async function storeAccessTokens(
   env: Env,
   userLogin: string,
   accessToken: string,
-  accessTokenSecret: string
+  accessTokenSecret: string,
+  overrideEnv?: string
 ): Promise<void> {
   const kv = getKv(env);
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const payload: ETradeTokenSet = {
     accessToken,
     accessTokenSecret,
@@ -186,9 +187,10 @@ export async function revokeStoredTokens(env: Env, userLogin: string): Promise<v
 export async function getETradeRequestToken(
   env: Env,
   userLogin: string,
-  callbackUrl?: string
+  callbackUrl?: string,
+  overrideEnv?: string
 ): Promise<ETradeRequestTokenResult> {
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const consumerKey = envConfig.etrade.apiKey;
   const consumerSecret = envConfig.etrade.apiSecret;
 
@@ -266,9 +268,10 @@ export async function exchangeETradeVerifier(
   userLogin: string,
   verifier: string,
   explicitRequestToken?: string,
-  explicitRequestTokenSecret?: string
+  explicitRequestTokenSecret?: string,
+  overrideEnv?: string
 ): Promise<ETradeTokenSet> {
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const consumerKey = envConfig.etrade.apiKey;
   const consumerSecret = envConfig.etrade.apiSecret;
 
@@ -354,7 +357,8 @@ export async function exchangeETradeVerifier(
  */
 export async function renewETradeAccessToken(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  overrideEnv?: string
 ): Promise<ETradeTokenSet | null> {
   const tokens = await getStoredTokens(env, userLogin);
   if (!tokens) return null;
@@ -365,7 +369,7 @@ export async function renewETradeAccessToken(
     return null;
   }
 
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const consumerKey = envConfig.etrade.apiKey;
   const consumerSecret = envConfig.etrade.apiSecret;
 
@@ -401,8 +405,9 @@ export async function renewETradeAccessToken(
       const renewedTokens: ETradeTokenSet = {
         ...tokens,
         storedAt: new Date().toISOString(),
+        environment: envConfig.name,
       };
-      await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret);
+      await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
       return renewedTokens;
     }
   );
@@ -413,9 +418,10 @@ export async function renewETradeAccessToken(
  */
 export async function getValidTokens(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  overrideEnv?: string
 ): Promise<ETradeTokenSet | null> {
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   if (envConfig.etrade.oauthToken && envConfig.etrade.oauthTokenSecret) {
     return {
       accessToken: envConfig.etrade.oauthToken,
@@ -428,6 +434,11 @@ export async function getValidTokens(
 
   const tokens = await getStoredTokens(env, userLogin);
   if (!tokens) return null;
+
+  // Environment isolation: tokens from TEST cannot be used in PROD, and vice versa
+  if (tokens.environment && tokens.environment !== envConfig.name) {
+    return null;
+  }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
@@ -443,9 +454,10 @@ export async function getValidTokens(
  */
 export async function getETradeAuthStatus(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  overrideEnv?: string
 ): Promise<ETradeAuthStatus> {
-  const envConfig = resolveEnvironmentConfig(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const tokens = await getStoredTokens(env, userLogin);
 
   if (!tokens) {
@@ -454,6 +466,18 @@ export async function getETradeAuthStatus(
       authenticated: hasStatic,
       userLogin,
       environment: envConfig.name,
+    };
+  }
+
+  // If tokens belong to a different environment, they are inactive in this environment
+  if (tokens.environment && tokens.environment !== envConfig.name) {
+    return {
+      authenticated: false,
+      userLogin,
+      environment: envConfig.name,
+      storedAt: undefined,
+      expired: false,
+      renewable: false,
     };
   }
 

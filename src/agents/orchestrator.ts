@@ -1438,14 +1438,30 @@ Agentic Best Practices & Workflow Rules:
     }
 
     // ==========================================
-    // E*TRADE Brokerage & Stock Screening APIs
+    // Environment & E*TRADE Trading APIs
     // ==========================================
+
+    const requestedEnv = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase() || undefined;
+
+    // Environment Switcher API (allows client to toggle between Sandbox TEST and Live PROD)
+    if (path.endsWith("/environment/switch") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const requested = String(body.environment || "PROD").toUpperCase().trim();
+        if (requested === "TEST" || requested === "PROD") {
+          return Response.json({ success: true, environment: requested });
+        }
+        return Response.json({ error: "Invalid environment. Expected TEST or PROD." }, { status: 400 });
+      } catch (err) {
+        return Response.json({ error: "Failed to switch environment" }, { status: 500 });
+      }
+    }
 
     // Broker status & account metadata
     if (path.endsWith("/etrade/status") && request.method === "GET") {
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const status = await etrade.getStatusAsync();
         return Response.json(status);
       } catch (err) {
@@ -1493,11 +1509,18 @@ Agentic Best Practices & Workflow Rules:
     // Real-time equity quote (Real E*TRADE REST / OAuth 1.0a)
     if (path.endsWith("/etrade/quote") && request.method === "GET") {
       try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
+        const rawSym = url.searchParams.get("symbol") || "NVDA";
+        const symbol = rawSym.toUpperCase().trim() || "NVDA";
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const quote = await etrade.fetchQuoteRemote(symbol);
-        return Response.json(quote);
+        return Response.json(quote, {
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+          },
+        });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch quote" }, { status: 500 });
       }
@@ -1507,9 +1530,11 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/etrade/order/preview") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        const symbol = (body.symbol || "").trim();
+        const symbol = (body.symbol || "").trim().toUpperCase();
         const quantity = Number(body.quantity) || 1;
-        const orderAction = body.orderAction || "BUY";
+        const rawAction = String(body.orderAction || body.action || "BUY").toUpperCase().trim();
+        const validActions = ["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"];
+        const orderAction = (validActions.includes(rawAction) ? rawAction : "BUY") as "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
         const orderType = body.orderType || "MARKET";
         const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
         const stopPrice = body.stopPrice !== undefined ? Number(body.stopPrice) : undefined;
@@ -1550,25 +1575,81 @@ Agentic Best Practices & Workflow Rules:
       try {
         const body = (await request.json().catch(() => ({}))) as any;
         const orderId = (body.orderId || body.draftId || "").trim();
-        const decision = body.decision || "approved";
+        const decision = body.decision;
 
         if (!orderId) {
           return Response.json({ error: "orderId is required" }, { status: 400 });
         }
 
+        if (decision !== "approved" && decision !== "rejected") {
+          return Response.json({ error: "decision must be either 'approved' or 'rejected'" }, { status: 400 });
+        }
+
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const userDid = getUserDid(sessionId);
+
+        // Strict HITL Gate: block autonomous agents
+        if (userDid.startsWith("did:agent:")) {
+          return Response.json({ error: "HITL Enforcement: Autonomous trade execution is strictly prohibited. Orders require verified human authorization." }, { status: 403 });
+        }
+
+        const existingRecord = this.getOrm().trades?.findById(orderId);
+        if (!existingRecord) {
+          return Response.json({ error: `Order draft '${orderId}' not found. All orders must be previewed and drafted prior to execution.` }, { status: 404 });
+        }
+
+        if (existingRecord.status !== "previewed") {
+          return Response.json({ error: `Order draft '${orderId}' cannot be executed. Current status is '${existingRecord.status}'. Only 'previewed' drafts may be executed.` }, { status: 400 });
+        }
+
+        // Handle user rejection / cancellation immediately
+        if (decision === "rejected") {
+          if (this.getOrm().trades) {
+            this.getOrm().trades.update(orderId, {
+              status: "rejected",
+              authorizerDid: userDid,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return Response.json({
+            success: true,
+            orderId,
+            status: "rejected",
+            message: `Order draft '${orderId}' cancelled by user. No broker order submitted.`,
+          });
+        }
+
+        // Strict Immutability Verification: Ensure submitted parameters strictly match the previewed draft
+        const reqAction = (body.action || body.orderAction || "").toUpperCase().trim();
+        if (reqAction && reqAction !== existingRecord.action.toUpperCase()) {
+          return Response.json({
+            error: `Order Action Mismatch: Previewed action is '${existingRecord.action}', but execution request specifies '${reqAction}'. Submission rejected. A fresh preview is required.`,
+          }, { status: 422 });
+        }
+
+        const reqSymbol = (body.symbol || "").toUpperCase().trim();
+        if (reqSymbol && reqSymbol !== existingRecord.symbol.toUpperCase()) {
+          return Response.json({
+            error: `Order Symbol Mismatch: Previewed symbol is '${existingRecord.symbol}', but execution request specifies '${reqSymbol}'. Submission rejected.`,
+          }, { status: 422 });
+        }
+
+        if (body.quantity !== undefined && Number(body.quantity) !== Number(existingRecord.quantity)) {
+          return Response.json({
+            error: `Order Quantity Mismatch: Previewed quantity is ${existingRecord.quantity}, but execution request specifies ${body.quantity}. Submission rejected.`,
+          }, { status: 422 });
+        }
+
+        const symbol = existingRecord.symbol.toUpperCase();
+        const action = existingRecord.action as any;
+        const quantity = Number(existingRecord.quantity);
+        const orderType = existingRecord.orderType || "MARKET";
+        const limitPrice = existingRecord.orderType === "LIMIT" ? existingRecord.price : undefined;
+
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         let result: any;
 
-        const existingRecord = this.getOrm().trades?.findById(orderId);
-        const symbol = (body.symbol || existingRecord?.symbol || "NVDA").toUpperCase();
-        const action = (body.action || existingRecord?.action || "BUY") as any;
-        const quantity = Number(body.quantity || existingRecord?.quantity || 1);
-        const orderType = body.orderType || existingRecord?.orderType || "MARKET";
-        const limitPrice = body.limitPrice ?? (existingRecord?.orderType === "LIMIT" ? existingRecord.price : undefined);
-
-        if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY)) {
+        if (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY) {
           result = await etrade.placeOrderRemote({
             orderId,
             symbol,
@@ -1576,9 +1657,17 @@ Agentic Best Practices & Workflow Rules:
             quantity,
             orderType,
             limitPrice,
-            previewId: body.previewId || existingRecord?.id,
+            previewId: body.previewId || existingRecord.id,
             userLogin,
           });
+          if (result.success && this.getOrm().trades) {
+            this.getOrm().trades.update(orderId, {
+              status: "executed",
+              orderRef: result.executionId,
+              authorizerDid: userDid,
+              updatedAt: new Date().toISOString(),
+            });
+          }
         } else {
           result = etrade.executeOrder(orderId, userDid, decision);
         }

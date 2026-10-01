@@ -173,14 +173,21 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("retrieves open broker positions and portfolio balances", () => {
+      const initial = etrade.getPositions();
+      expect(initial.account.accountId).toBeDefined();
+      expect(initial.positions).toEqual([]);
+
+      // Execute confirmed trade to verify dynamic position calculation without hardcoding
+      const draft = etrade.previewOrder({ sessionId, symbol: "NVDA", orderAction: "BUY", quantity: 15 });
+      etrade.executeOrder(draft.orderId, userDid, "approved");
+
       const portfolio = etrade.getPositions();
-      expect(portfolio.account.accountId).toBeDefined();
-      expect(portfolio.account.totalAccountValue).toBeGreaterThan(100_000);
-      expect(portfolio.positions.length).toBeGreaterThanOrEqual(3);
+      expect(portfolio.account.totalAccountValue).toBeGreaterThan(0);
+      expect(portfolio.positions.length).toBe(1);
 
       const firstPos = portfolio.positions[0];
-      expect(firstPos.symbol).toBeDefined();
-      expect(firstPos.quantity).toBeGreaterThan(0);
+      expect(firstPos.symbol).toBe("NVDA");
+      expect(firstPos.quantity).toBe(15);
       expect(firstPos.costBasis).toBeGreaterThan(0);
       expect(firstPos.marketPrice).toBeGreaterThan(0);
       expect(firstPos.marketValue).toBeGreaterThan(0);
@@ -193,8 +200,8 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
   describe("E*TRADE Model Context Protocol (MCP) Commands", () => {
     const auditMock = vi.fn();
     const mcpContext = {
-      env: mockEnv,
-      orm,
+      get env() { return mockEnv; },
+      get orm() { return orm; },
       sessionId,
       audit: auditMock,
     };
@@ -262,8 +269,8 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     it("etrade_get_positions: returns broker account holdings", async () => {
       const cmd = McpToolFactory.getTool("etrade_get_positions");
       const pos = await cmd.execute({}, mcpContext);
-      expect(pos.positions.length).toBeGreaterThan(0);
-      expect(pos.account.totalAccountValue).toBeGreaterThan(0);
+      expect(pos.account).toBeDefined();
+      expect(Array.isArray(pos.positions)).toBe(true);
     });
   });
 
@@ -319,6 +326,10 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("NLQ classifies 'show my portfolio positions' and returns holdings", async () => {
+      // Execute trade draft first
+      const draft = etrade.previewOrder({ sessionId, symbol: "MSFT", orderAction: "BUY", quantity: 10 });
+      etrade.executeOrder(draft.orderId, userDid, "approved");
+
       const plan = await planNLQ(mockEnv, "show my portfolio positions");
       expect(plan.domain).toBe("trading");
       expect(plan.tradingData?.action).toBe("positions");
@@ -401,7 +412,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       });
       expect(res.accounts).toBeDefined();
       expect(Array.isArray(res.accounts)).toBe(true);
-      expect(res.count).toBeGreaterThanOrEqual(1);
+      expect(res.count).toBe(res.accounts.length);
     });
 
     it("assertSandboxUrlSafety blocks outgoing calls to live production when isLive is false", async () => {

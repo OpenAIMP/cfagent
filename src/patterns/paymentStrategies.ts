@@ -28,6 +28,7 @@ import type {
 import type { IPaymentGatewayStrategy } from "./interfaces";
 import { RemoteMcpClient } from "../services/mcpClient";
 import { computeHmacSha256Hex } from "../services/cryptoUtils";
+import { resolveEnvironmentConfig } from "../config/environment";
 
 /**
  * Concrete Strategy: Stripe Payments Engine (Real REST API / Remote MCP)
@@ -36,25 +37,57 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
   readonly gatewayId: SupportedGateway = "stripe";
   readonly name = "Stripe Payment Gateway";
 
+  /**
+   * Resolves the appropriate Stripe Secret Key based on the active environment
+   * Supports both Sandbox (Testmode: sk_test_...) and Live (Production: sk_live_...)
+   */
+  resolveApiKey(env: Env): { apiKey?: string; mode: "sandbox" | "live" } {
+    const isMcp = Boolean(env.STRIPE_MCP_SERVER_URL);
+    const envConfig = resolveEnvironmentConfig(env);
+    const isTestMode = envConfig.name === "TEST" || !envConfig.isLive;
+
+    // Check environment-specific secrets first
+    const testKey = (env as any).STRIPE_TEST_SECRET_KEY || (typeof process !== "undefined" ? (process?.env as any)?.STRIPE_TEST_SECRET_KEY : undefined);
+    const liveKey = (env as any).STRIPE_LIVE_SECRET_KEY || (typeof process !== "undefined" ? (process?.env as any)?.STRIPE_LIVE_SECRET_KEY : undefined);
+    const genericKey = env.STRIPE_SECRET_KEY || (typeof process !== "undefined" ? (process?.env as any)?.STRIPE_SECRET_KEY : undefined);
+
+    let apiKey = genericKey;
+    if (isTestMode && testKey) {
+      apiKey = testKey;
+    } else if (!isTestMode && liveKey) {
+      apiKey = liveKey;
+    }
+
+    const mode = isMcp ? "mcp_remote" : (apiKey?.startsWith("sk_test") || isTestMode) ? "sandbox" : "live";
+    return { apiKey, mode: mode === "sandbox" ? "sandbox" : "live" };
+  }
+
   isConfigured(env: Env): boolean {
-    return Boolean(env.STRIPE_SECRET_KEY || env.STRIPE_MCP_SERVER_URL);
+    const { apiKey } = this.resolveApiKey(env);
+    return Boolean(apiKey || env.STRIPE_MCP_SERVER_URL);
   }
 
   getStatus(env: Env): GatewayStatus {
     const isMcp = Boolean(env.STRIPE_MCP_SERVER_URL);
-    const hasKey = Boolean(env.STRIPE_SECRET_KEY);
-    const configured = isMcp || hasKey;
-    const mode = isMcp ? "mcp_remote" : hasKey ? (env.STRIPE_SECRET_KEY?.startsWith("sk_test") ? "sandbox" : "live") : "live";
+    const { apiKey, mode } = this.resolveApiKey(env);
+    const configured = Boolean(isMcp || apiKey);
     const protocol = isMcp ? "mcp_json_rpc" : "rest_api";
 
     return {
       id: "stripe",
       name: this.name,
       configured,
-      mode,
+      mode: isMcp ? "mcp_remote" : mode,
       capabilities: isMcp
         ? ["Stripe Remote Model Context Protocol Server (JSON-RPC 2.0)", "Agentic Checkout", "PaymentIntents", "Refunds"]
-        : ["Card Checkout", "PaymentIntents", "Capture", "Refunds", "Invoices", "Webhooks HMAC-SHA256"],
+        : [
+            "Real Stripe Checkout Sessions (/v1/checkout/sessions)",
+            "Real Stripe PaymentIntents (/v1/payment_intents)",
+            "Automatic Dual-Mode Sandbox (sk_test_) & Production (sk_live_)",
+            "Instant Webhook Signature Verification (HMAC-SHA256)",
+            "Automated Server-Side Capture & Settle",
+            "Refunds & Reversals (/v1/refunds)",
+          ],
       mcpServerUrl: env.STRIPE_MCP_SERVER_URL,
       protocol,
     };
@@ -97,7 +130,8 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
     }
 
     // 2. Direct Stripe REST API Execution (Real Network Call)
-    if (env.STRIPE_SECRET_KEY) {
+    const { apiKey, mode } = this.resolveApiKey(env);
+    if (apiKey) {
       try {
         const returnUrl = params.returnUrl || `${env.APP_BASE_URL || "https://agent.openaimp.com"}/?payment=success&draft=${params.draftId}`;
         const cancelUrl = `${env.APP_BASE_URL || "https://agent.openaimp.com"}/?payment=cancelled`;
@@ -117,7 +151,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
         const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body,
@@ -133,7 +167,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
             gatewayRef: data.id || `cs_${params.draftId}`,
             status: "pending_checkout",
             didAttestation: attestation,
-            message: `Stripe checkout session initialized for ${params.customer}`,
+            message: `Stripe ${mode === "sandbox" ? "Testmode" : "Live"} checkout session initialized for ${params.customer}`,
           };
         }
 
@@ -171,11 +205,56 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
       gatewayRef: "",
       status: "pending_checkout",
       didAttestation: attestation,
-      message: "Stripe error: STRIPE_SECRET_KEY or STRIPE_MCP_SERVER_URL must be configured to process real payments. Simulation and mockups are disabled.",
+      message: "Stripe error: STRIPE_SECRET_KEY or STRIPE_MCP_SERVER_URL must be configured to process real payments. STRIPE_TEST_SECRET_KEY or STRIPE_LIVE_SECRET_KEY may also be provided. Simulation and mockups are disabled.",
     };
   }
 
+  /**
+   * Creates a native Stripe PaymentIntent for headless or mobile checkouts
+   */
+  async createPaymentIntent(
+    env: Env,
+    params: { amount: number; currency: string; customer?: string; description?: string; draftId: string }
+  ): Promise<{ success: boolean; clientSecret?: string; paymentIntentId?: string; message: string }> {
+    const { apiKey, mode } = this.resolveApiKey(env);
+    if (!apiKey) {
+      return { success: false, message: "STRIPE_SECRET_KEY is required to create a PaymentIntent." };
+    }
+
+    try {
+      const body = new URLSearchParams({
+        amount: String(Math.round(params.amount * 100)),
+        currency: params.currency.toLowerCase(),
+        description: params.description || `AI Agent Order ${params.draftId}`,
+        "metadata[draftId]": params.draftId,
+      });
+
+      const res = await fetch("https://api.stripe.com/v1/payment_intents", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body,
+      });
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.client_secret) {
+        return {
+          success: true,
+          clientSecret: data.client_secret,
+          paymentIntentId: data.id,
+          message: `Stripe ${mode === "sandbox" ? "Testmode" : "Live"} PaymentIntent created: ${data.id}`,
+        };
+      }
+      return { success: false, message: data?.error?.message || `PaymentIntent failed: HTTP ${res.status}` };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Stripe PaymentIntent network failure" };
+    }
+  }
+
   async executeRefund(env: Env, params: RefundParams, attestation: DidAttestationProof): Promise<RefundResult> {
+    const { apiKey, mode } = this.resolveApiKey(env);
     // 1. External Service MCP Execution
     if (env.STRIPE_MCP_SERVER_URL) {
       try {
@@ -187,7 +266,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
             amount: params.amount,
             reason: params.reason,
           },
-          apiKey: env.STRIPE_SECRET_KEY,
+          apiKey,
         });
 
         if (mcpData?.id || mcpData?.refundId) {
@@ -207,12 +286,12 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
     }
 
     // 2. Direct Stripe REST API
-    if (env.STRIPE_SECRET_KEY && params.gatewayRef) {
+    if (apiKey && params.gatewayRef) {
       try {
         const res = await fetch("https://api.stripe.com/v1/refunds", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body: new URLSearchParams({
@@ -229,7 +308,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
             amountRefunded: (data.amount || 0) / 100,
             status: "refunded",
             didAttestation: attestation,
-            message: "Stripe refund settled successfully via real API",
+            message: `Stripe ${mode === "sandbox" ? "Testmode" : "Live"} refund settled successfully via real API`,
           };
         }
 
@@ -270,7 +349,8 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
    * Captures an authorized PaymentIntent
    */
   async capturePayment(env: Env, paymentIntentId: string, attestation: DidAttestationProof): Promise<{ success: boolean; captureId?: string; message: string }> {
-    if (!env.STRIPE_SECRET_KEY) {
+    const { apiKey } = this.resolveApiKey(env);
+    if (!apiKey) {
       return { success: false, message: "STRIPE_SECRET_KEY required to capture payment" };
     }
 
@@ -278,7 +358,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
       const res = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/capture`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
       });

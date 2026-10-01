@@ -55,30 +55,43 @@ export function resolveETradeBaseUrl(rawUrl: string): string {
  * ET_BASE_URL is expected to be a base URL ("https://apisb.etrade.com") — NOT a path template.
  * accountIdKey must be resolved at runtime via GET /v1/accounts/list (see ETradeService.fetchAccountsRemote).
  */
-export function resolveEnvironmentConfig(env?: Partial<Env>): ResolvedEnvironment {
+export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: string): ResolvedEnvironment {
   const processEnv = typeof process !== "undefined" && process?.env ? process.env : {};
 
-  // Active environment name — matches a GitHub environment name
-  const activeName = (
+  // Active environment name priority:
+  // 1. Explicit overrideEnv (from request header x-environment or UI toggle)
+  // 2. Explicit runtime override on env (e.g. in targeted tests or specific workers)
+  // 3. environment.config.json default (developer's repository choice)
+  // 4. Cloudflare Worker or process env bindings
+  const envNameCandidate =
+    overrideEnv ||
+    (env?.ETRADE_ENVIRONMENT === "sandbox" ? "TEST" : env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : undefined) ||
+    (env?.APP_ENV && env.APP_ENV !== defaultConfig.environment ? env.APP_ENV : undefined) ||
+    defaultConfig.environment ||
     env?.APP_ENV ||
     env?.ENVIRONMENT ||
     processEnv.APP_ENV ||
     processEnv.ENVIRONMENT ||
-    defaultConfig.environment ||
-    "TEST"
-  ).toUpperCase();
+    "PROD";
+
+  const activeName = envNameCandidate.toUpperCase();
 
   const envsMap = defaultConfig.environments as Record<string, any>;
-  const baseDef = envsMap[activeName] || envsMap["TEST"];
+  const baseDef = envsMap[activeName] || envsMap["PROD"] || envsMap["TEST"];
 
-  // ET_BASE_URL from secret takes priority; fall back to config-defined baseUrl
-  const rawUrl =
-    env?.ET_BASE_URL ||
-    processEnv.ET_BASE_URL ||
-    baseDef.etrade.baseUrl;
+  // ET_BASE_URL from secret takes priority if matching the active environment
+  let rawUrl = baseDef.etrade.baseUrl;
+  const envUrl = env?.ET_BASE_URL || processEnv.ET_BASE_URL;
+  if (envUrl) {
+    if (activeName === "PROD" && !envUrl.includes("apisb.etrade.com")) {
+      rawUrl = envUrl;
+    } else if (activeName === "TEST" && envUrl.includes("apisb.etrade.com")) {
+      rawUrl = envUrl;
+    }
+  }
 
   const baseUrl = resolveETradeBaseUrl(rawUrl);
-  const isLive = baseUrl.startsWith("https://api.etrade.com") && !baseUrl.startsWith("https://apisb.etrade.com");
+  const isLive = activeName === "PROD" || (baseUrl.startsWith("https://api.etrade.com") && !baseUrl.startsWith("https://apisb.etrade.com"));
 
   // OAuth credentials — ET_API_KEY / ET_API_SECRET (plus legacy aliases)
   const apiKey =
