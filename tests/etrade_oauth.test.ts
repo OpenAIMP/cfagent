@@ -88,7 +88,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      expect(url).toBe("https://apisb.etrade.com/v1/oauth/request_token");
+      expect(url).toBe("https://apisb.etrade.com/oauth/request_token");
       expect((init?.headers as any)?.Authorization).toMatch(/^OAuth /);
       expect((init?.headers as any)?.Authorization).toContain('oauth_consumer_key="sandbox_consumer_key_123"');
       expect((init?.headers as any)?.Authorization).toContain('oauth_callback="oob"');
@@ -120,7 +120,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      expect(url).toBe("https://apisb.etrade.com/v1/oauth/access_token");
+      expect(url).toBe("https://apisb.etrade.com/oauth/access_token");
       expect((init?.headers as any)?.Authorization).toContain('oauth_verifier="VERIFY_PIN_123"');
 
       expect(tokenSet.accessToken).toBe("access_tok_xyz");
@@ -147,7 +147,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
       const renewed = await renewETradeAccessToken(env, userLogin);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      expect(url).toBe("https://apisb.etrade.com/v1/oauth/renew_access_token");
+      expect(url).toBe("https://apisb.etrade.com/oauth/renew_access_token");
       expect((init?.headers as any)?.Authorization).toContain('oauth_token="token_to_renew"');
 
       expect(renewed).not.toBeNull();

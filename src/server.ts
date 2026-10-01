@@ -68,7 +68,8 @@ export default {
     if (path === "/auth/etrade/start" || path === "/api/etrade/oauth/start") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
-      const callbackUrl = new URL("/auth/etrade/callback", request.url).toString();
+      const callbackParam = url.searchParams.get("callback");
+      const callbackUrl = callbackParam || "oob";
       try {
         const result = await getETradeRequestToken(env, session.githubLogin, callbackUrl);
         if (url.searchParams.get("mode") === "redirect") {

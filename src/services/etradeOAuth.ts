@@ -223,9 +223,9 @@ export async function getETradeRequestToken(
     );
   }
 
-  // Base URL without /v1 trailing
-  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1$/, "");
-  const requestTokenUrl = `${baseUrl}/v1/oauth/request_token`;
+  // Base URL without /v1 trailing (E*TRADE OAuth 1.0a endpoints live at /oauth/*, not /v1/oauth/*)
+  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
+  const requestTokenUrl = `${baseUrl}/oauth/request_token`;
 
   const extraParams: Record<string, string> = {
     oauth_callback: callbackUrl || "oob",
@@ -303,8 +303,8 @@ export async function exchangeETradeVerifier(
     requestTokenSecret = stored.requestTokenSecret;
   }
 
-  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1$/, "");
-  const accessTokenUrl = `${baseUrl}/v1/oauth/access_token`;
+  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
+  const accessTokenUrl = `${baseUrl}/oauth/access_token`;
 
   const authHeader = await generateOAuth1Header({
     method: "GET",
@@ -373,8 +373,8 @@ export async function renewETradeAccessToken(
 
   if (!consumerKey || !consumerSecret) return null;
 
-  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1$/, "");
-  const renewUrl = `${baseUrl}/v1/oauth/renew_access_token`;
+  const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
+  const renewUrl = `${baseUrl}/oauth/renew_access_token`;
 
   const authHeader = await generateOAuth1Header({
     method: "GET",
