@@ -460,6 +460,77 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(msft.companyName).not.toContain("GOOGLE INC");
       expect(msft.lastPrice).not.toBe(577.51);
     });
+
+    it("automatically recovers from E*TRADE preview timeout by acquiring fresh preview and clientOrderId", async () => {
+      const liveEnv: Env = {
+        ETRADE_CONSUMER_KEY: "mock_ckey",
+        ETRADE_CONSUMER_SECRET: "mock_csecret",
+        ETRADE_OAUTH_TOKEN: "mock_token",
+        ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
+        ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
+        ETRADE_ENVIRONMENT: "sandbox",
+      } as Env;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        // 1. Initial place call fails with E*TRADE timeout error
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              Error: {
+                message: "For your protection, we have timed out your original order request. If you would like to place this order, please resubmit it now.",
+              },
+            }),
+            { status: 400 }
+          )
+        )
+        // 2. Auto-recovery calls previewOrder with a fresh unique clientOrderId
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PreviewOrderResponse: {
+                PreviewIds: [{ previewId: "999111" }],
+                Order: [{ estimatedTotalAmount: 198.0 }],
+              },
+            }),
+            { status: 200 }
+          )
+        )
+        // 3. Auto-recovery re-submits placeOrder with the new previewId and fresh clientOrderId
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PlaceOrderResponse: {
+                OrderIds: [{ orderId: "888222" }],
+              },
+            }),
+            { status: 200 }
+          )
+        );
+
+      const tradingService = new ETradeService(orm, liveEnv);
+      const res = await tradingService.placeOrderRemote({
+        orderId: "ord_51765383",
+        symbol: "NVDA",
+        action: "BUY",
+        quantity: 1,
+        orderType: "LIMIT",
+        limitPrice: 198.0,
+        previewId: "old_expired_preview_123",
+        userLogin: "did:user:github:openaimp",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(res.success).toBe(true);
+      expect(res.status).toBe("executed");
+      expect(res.executionId).toBe("et_order_888222");
+      expect(res.brokerOrderRef).toBe("et_order_888222");
+
+      // Verify the retry place request payload used the new previewId and a fresh clientOrderId
+      const retryPlaceCall = fetchSpy.mock.calls[2];
+      const retryBody = JSON.parse(retryPlaceCall[1]?.body as string);
+      expect(retryBody.PlaceOrderRequest.PreviewIds[0].previewId).toBe(999111);
+      expect(retryBody.PlaceOrderRequest.clientOrderId).not.toBe("ord51765383");
+    });
   });
 });
 

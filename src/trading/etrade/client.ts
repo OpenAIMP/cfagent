@@ -434,7 +434,7 @@ export class ETradeRestClient {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok && (res.status === 404 || res.status === 400)) {
+      if (!res.ok && res.status === 404 && !url.includes(".json")) {
         url = fallbackUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
         authHeader = await this.generateOAuthHeader("POST", url);
@@ -686,7 +686,7 @@ export class ETradeRestClient {
           body: JSON.stringify(body),
         });
 
-        if (!res.ok && (res.status === 404 || res.status === 400)) {
+        if (!res.ok && res.status === 404 && !url.includes(".json")) {
           url = fallbackUrl;
           assertSandboxUrlSafety(url, envConfig.isLive);
           authHeader = await this.generateOAuthHeader("POST", url);
@@ -751,32 +751,61 @@ export class ETradeRestClient {
 
         let errMsg = parsedMsg || `HTTP ${res.status}: ${rawText.slice(0, 200) || res.statusText}`;
 
-        // Auto-recovery: If E*TRADE rejects because preview session timed out or expired, re-preview and retry once!
-        if (errMsg.includes("timed out") || errMsg.includes("timeout") || errMsg.includes("resubmit it now")) {
+        // Auto-recovery: If E*TRADE rejects because preview session timed out or expired, re-preview with a fresh unique clientOrderId and retry once!
+        if (
+          errMsg.includes("timed out") ||
+          errMsg.includes("timeout") ||
+          errMsg.includes("resubmit it now") ||
+          errMsg.includes("expired")
+        ) {
           try {
-            console.log("[ETradeClient] Upstream preview timed out; re-previewing with E*TRADE...");
+            console.log("[ETradeClient] Upstream preview timed out; re-previewing with fresh unique clientOrderId...");
+            // CRITICAL: E*TRADE requires a fresh clientOrderId for the new preview so it does not collide with the timed-out session
+            const freshPreviewOrderId = `ord_pv_${crypto.randomUUID().slice(0, 8)}`;
             const refreshedPreview = await this.previewOrder(key, {
-              orderId: params.orderId,
+              orderId: freshPreviewOrderId,
               symbol: params.symbol,
               action: params.action,
               quantity: params.quantity,
               orderType: priceType as any,
               limitPrice,
               stopPrice: (params as any).stopPrice,
+              orderTerm: "GOOD_FOR_DAY",
             });
 
             if (refreshedPreview && refreshedPreview.previewId && !isNaN(Number(refreshedPreview.previewId))) {
               const retryPreviewId = Number(refreshedPreview.previewId);
+              // CRITICAL: PlaceOrderRequest must also use a unique clientOrderId
+              const freshPlaceClientOrderId = `ord${Date.now().toString().slice(-8)}${Math.random().toString(36).slice(2, 6)}`.slice(0, 20);
               const retryBody = {
                 PlaceOrderRequest: {
                   orderType: "EQ",
-                  clientOrderId,
+                  clientOrderId: freshPlaceClientOrderId,
                   PreviewIds: [{ previewId: retryPreviewId }],
-                  Order: body.PlaceOrderRequest.Order,
+                  Order: [
+                    {
+                      allOrNone: false,
+                      priceType,
+                      ...(limitPrice ? { limitPrice } : {}),
+                      orderTerm: "GOOD_FOR_DAY",
+                      marketSession: "REGULAR",
+                      Instrument: [
+                        {
+                          Product: {
+                            securityType: "EQ",
+                            symbol: params.symbol.toUpperCase().trim(),
+                          },
+                          orderAction: params.action,
+                          quantityType: "QUANTITY",
+                          quantity: params.quantity,
+                        },
+                      ],
+                    },
+                  ],
                 },
               };
-              const retryAuthHeader = await this.generateOAuthHeader("POST", url);
-              const retryRes = await fetch(url, {
+              const retryAuthHeader = await this.generateOAuthHeader("POST", primaryUrl);
+              const retryRes = await fetch(primaryUrl, {
                 method: "POST",
                 headers: {
                   Authorization: retryAuthHeader,

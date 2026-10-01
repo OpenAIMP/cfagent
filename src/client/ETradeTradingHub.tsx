@@ -571,6 +571,37 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
+  const handleRefreshAndExecuteDraft = async () => {
+    if (!activeDraft) return;
+    setExecutingDraft(true);
+    setOrderError("");
+    try {
+      const previewResp = await fetch("/api/etrade/order/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-environment": activeEnv },
+        body: JSON.stringify({
+          symbol: activeDraft.symbol,
+          orderAction: activeDraft.action,
+          action: activeDraft.action,
+          quantity: activeDraft.quantity,
+          orderType: activeDraft.orderType,
+          limitPrice: activeDraft.limitPrice,
+        }),
+      });
+      const freshDraft = await previewResp.json() as any;
+      if (previewResp.ok && freshDraft.orderId) {
+        setActiveDraft(freshDraft);
+        await handleExecuteDraft(freshDraft.orderId, "approved");
+      } else {
+        setOrderError(freshDraft.error || "Failed to generate fresh preview on E*TRADE");
+      }
+    } catch (err: any) {
+      setOrderError(err.message || "Failed to refresh and submit order");
+    } finally {
+      setExecutingDraft(false);
+    }
+  };
+
   const handleRunNlq = async (e?: React.FormEvent, customQuery?: string) => {
     if (e) e.preventDefault();
     const q = customQuery || nlqQuery;
@@ -1223,14 +1254,26 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             </div>
 
             <div className="hitl-action-buttons">
-              <button
-                type="button"
-                className="btn-approve-order"
-                disabled={executingDraft}
-                onClick={() => handleExecuteDraft(activeDraft.orderId, "approved")}
-              >
-                {executingDraft ? "Executing on E*TRADE…" : "✅ Approve & Submit Trade to E*TRADE"}
-              </button>
+              {(orderError.includes("timed out") || orderError.includes("resubmit") || lastExecutionResult?.message?.includes("timed out") || lastExecutionResult?.message?.includes("resubmit")) ? (
+                <button
+                  type="button"
+                  className="btn-approve-order"
+                  style={{ background: "#2563eb", borderColor: "#3b82f6" }}
+                  disabled={executingDraft}
+                  onClick={handleRefreshAndExecuteDraft}
+                >
+                  {executingDraft ? "Refreshing & Executing…" : "⚡ Re-preview & Resubmit Now"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-approve-order"
+                  disabled={executingDraft}
+                  onClick={() => handleExecuteDraft(activeDraft.orderId, "approved")}
+                >
+                  {executingDraft ? "Executing on E*TRADE…" : "✅ Approve & Submit Trade to E*TRADE"}
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-reject-order"
@@ -1255,6 +1298,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               Status: <strong>{lastExecutionResult.status.toUpperCase()}</strong> •
               Authorizer: <code>{lastExecutionResult.authorizerDid || userDid}</code>
             </div>
+            {(!lastExecutionResult.success && (lastExecutionResult.message?.includes("timed out") || lastExecutionResult.message?.includes("resubmit"))) && activeDraft && (
+              <div style={{ marginTop: "8px" }}>
+                <button
+                  type="button"
+                  style={{ background: "#2563eb", color: "#fff", fontWeight: 700, padding: "6px 14px", borderRadius: "6px", border: "none", cursor: "pointer" }}
+                  disabled={executingDraft}
+                  onClick={handleRefreshAndExecuteDraft}
+                >
+                  {executingDraft ? "Refreshing & Executing…" : "⚡ Re-preview & Submit Fresh Order to E*TRADE"}
+                </button>
+              </div>
+            )}
           </div>
           <button
             type="button"
