@@ -22,7 +22,7 @@ export interface FossResearchHubProps {
 
 export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResearchHubProps) {
   // Navigation Subtabs
-  const [subTab, setSubTab] = useState<"report" | "quoting" | "fundamentals" | "bars" | "snapshot" | "compare">("report");
+  const [subTab, setSubTab] = useState<"screener" | "report" | "quoting" | "fundamentals" | "bars" | "snapshot" | "compare">("screener");
 
   // Active Symbol State
   const [activeSymbol, setActiveSymbol] = useState("NVDA");
@@ -69,13 +69,65 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   // Copy feedback
   const [copiedDid, setCopiedDid] = useState(false);
 
+  // Yahoo Finance Screener State
+  const [screenerStocks, setScreenerStocks] = useState<any[]>([]);
+  const [screenerLoading, setScreenerLoading] = useState(false);
+  const [screenerSearch, setScreenerSearch] = useState("");
+  const [screenerSector, setScreenerSector] = useState("all");
+  const [screenerGainersOnly, setScreenerGainersOnly] = useState(false);
+  const [screenerLosersOnly, setScreenerLosersOnly] = useState(false);
+  const [screenerMinRsi, setScreenerMinRsi] = useState<number | undefined>(undefined);
+  const [screenerMaxRsi, setScreenerMaxRsi] = useState<number | undefined>(undefined);
+  const [screenerSummary, setScreenerSummary] = useState("All Equities (Yahoo Finance Feed)");
+  const [screenerLastScanned, setScreenerLastScanned] = useState<string>("");
+
   const researchAgentDid = "did:agent:openaimp:research";
 
   // Initial load
   useEffect(() => {
     fetchProviders();
     loadAllSymbolData("NVDA");
+    fetchScreener();
   }, []);
+
+  const fetchScreener = async (override?: {
+    search?: string;
+    sector?: string;
+    gainersOnly?: boolean;
+    losersOnly?: boolean;
+    minRsi?: number;
+    maxRsi?: number;
+  }) => {
+    setScreenerLoading(true);
+    try {
+      const search = override?.search !== undefined ? override.search : screenerSearch;
+      const sector = override?.sector !== undefined ? override.sector : screenerSector;
+      const gainers = override?.gainersOnly !== undefined ? override.gainersOnly : screenerGainersOnly;
+      const losers = override?.losersOnly !== undefined ? override.losersOnly : screenerLosersOnly;
+      const minRsi = override?.minRsi !== undefined ? override.minRsi : screenerMinRsi;
+      const maxRsi = override?.maxRsi !== undefined ? override.maxRsi : screenerMaxRsi;
+
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (sector && sector !== "all") params.set("sector", sector);
+      if (gainers) params.set("gainersOnly", "true");
+      if (losers) params.set("losersOnly", "true");
+      if (minRsi !== undefined) params.set("minRsi", String(minRsi));
+      if (maxRsi !== undefined) params.set("maxRsi", String(maxRsi));
+
+      const resp = await fetch(`/api/foss/screen?${params.toString()}`);
+      if (resp.ok) {
+        const data = (await resp.json()) as any;
+        setScreenerStocks(data.stocks || data.results || []);
+        if (data.filterSummary) setScreenerSummary(data.filterSummary);
+        setScreenerLastScanned(new Date().toLocaleTimeString());
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setScreenerLoading(false);
+    }
+  };
 
   const fetchProviders = async () => {
     try {
@@ -450,6 +502,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
       {/* Navigation Sub-Tabs */}
       <div className="trading-subnav-bar">
         <button
+          className={`subnav-btn ${subTab === "screener" ? "active" : ""}`}
+          onClick={() => {
+            setSubTab("screener");
+            if (screenerStocks.length === 0) fetchScreener();
+          }}
+        >
+          🔍 Yahoo Finance Screener
+        </button>
+        <button
           className={`subnav-btn ${subTab === "report" ? "active" : ""}`}
           onClick={() => setSubTab("report")}
         >
@@ -489,6 +550,241 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
           🔄 Multi-Stock Valuation Comparison
         </button>
       </div>
+
+      {/* SUBTAB 0: YAHOO FINANCE LIVE MARKET SCREENER */}
+      {subTab === "screener" && (
+        <div className="research-section screener-section">
+          <div className="section-intro-card" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#38bdf8" }}>
+                  📊 Yahoo Finance Live Market Screener
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
+                  Real-time Level 1 quotes, daily changes, dynamic RSI-14 momentum, and institutional P/E valuations powered 100% by Yahoo Finance FOSS API.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  className="btn-refresh"
+                  onClick={() => fetchScreener()}
+                  disabled={screenerLoading}
+                >
+                  {screenerLoading ? "Scanning…" : "🔄 Refresh Screener"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Screener Controls Bar */}
+          <div className="screener-controls-bar" style={{ marginBottom: "1rem" }}>
+            <div className="control-item search-item">
+              <label>Search Ticker / Company</label>
+              <input
+                type="text"
+                placeholder="e.g. NVDA, Apple, Semiconductors…"
+                value={screenerSearch}
+                onChange={(e) => setScreenerSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") fetchScreener();
+                }}
+              />
+            </div>
+
+            <div className="control-item">
+              <label>Sector</label>
+              <select
+                value={screenerSector}
+                onChange={(e) => {
+                  setScreenerSector(e.target.value);
+                  fetchScreener({ sector: e.target.value });
+                }}
+              >
+                <option value="all">All Sectors</option>
+                <option value="Semiconductors">Semiconductors</option>
+                <option value="Technology">Technology</option>
+                <option value="Communication Services">Communication Services</option>
+                <option value="Consumer Discretionary">Consumer Discretionary</option>
+              </select>
+            </div>
+
+            <div className="control-item">
+              <label>Quick Presets</label>
+              <div style={{ display: "flex", gap: "0.35rem" }}>
+                <button
+                  type="button"
+                  className={`btn-pill ${screenerGainersOnly ? "active" : ""}`}
+                  onClick={() => {
+                    const next = !screenerGainersOnly;
+                    setScreenerGainersOnly(next);
+                    if (next) setScreenerLosersOnly(false);
+                    fetchScreener({ gainersOnly: next, losersOnly: false });
+                  }}
+                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: screenerGainersOnly ? "#10b981" : "rgba(15,23,42,0.8)", color: "#fff", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
+                >
+                  🚀 Gainers
+                </button>
+                <button
+                  type="button"
+                  className={`btn-pill ${screenerLosersOnly ? "active" : ""}`}
+                  onClick={() => {
+                    const next = !screenerLosersOnly;
+                    setScreenerLosersOnly(next);
+                    if (next) setScreenerGainersOnly(false);
+                    fetchScreener({ losersOnly: next, gainersOnly: false });
+                  }}
+                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: screenerLosersOnly ? "#ef4444" : "rgba(15,23,42,0.8)", color: "#fff", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
+                >
+                  📉 Losers
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScreenerSearch("");
+                    setScreenerSector("all");
+                    setScreenerGainersOnly(false);
+                    setScreenerLosersOnly(false);
+                    setScreenerMinRsi(undefined);
+                    setScreenerMaxRsi(undefined);
+                    fetchScreener({ search: "", sector: "all", gainersOnly: false, losersOnly: false, minRsi: undefined, maxRsi: undefined });
+                  }}
+                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: "rgba(15,23,42,0.8)", color: "#94a3b8", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn-run-scan"
+              onClick={() => fetchScreener()}
+              disabled={screenerLoading}
+            >
+              {screenerLoading ? "Scanning…" : "🔍 Run Scan"}
+            </button>
+          </div>
+
+          {/* Screener Results Meta */}
+          <div className="screener-results-header">
+            <span>
+              <strong>Filtered:</strong> {screenerSummary} • <strong>Matches:</strong> {screenerStocks.length} equities
+            </span>
+            <span>
+              Data Source: <strong>Yahoo Finance FOSS Engine</strong> {screenerLastScanned ? `• ${screenerLastScanned}` : ""}
+            </span>
+          </div>
+
+          {/* Table */}
+          {screenerLoading ? (
+            <div className="research-loading-state">
+              <span className="spinner-large" />
+              <p>Scanning equities universe via Yahoo Finance API…</p>
+            </div>
+          ) : (
+            <div className="trading-table-container">
+              <table className="trading-table">
+                <thead>
+                  <tr>
+                    <th>Security</th>
+                    <th>Sector</th>
+                    <th style={{ textAlign: "right" }}>Price (YF)</th>
+                    <th style={{ textAlign: "right" }}>Change (1D)</th>
+                    <th style={{ textAlign: "right" }}>P/E Ratio</th>
+                    <th style={{ textAlign: "right" }}>Market Cap</th>
+                    <th style={{ textAlign: "center" }}>RSI (14)</th>
+                    <th>Momentum Signal</th>
+                    <th style={{ textAlign: "center" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {screenerStocks.map((stock) => (
+                    <tr key={stock.symbol}>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontWeight: 700, color: "#38bdf8" }}>{stock.symbol}</span>
+                          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{stock.companyName}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "0.8rem", color: "#cbd5e1" }}>{stock.sector}</span>
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>
+                        ${Number(stock.lastPrice || stock.price || 0).toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className={`pill-badge ${stock.change >= 0 ? "positive" : "negative"}`} style={{ display: "inline-block", padding: "0.15rem 0.45rem", borderRadius: "4px", fontSize: "0.78rem", fontWeight: 600, background: stock.change >= 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: stock.change >= 0 ? "#10b981" : "#ef4444", border: "1px solid currentColor" }}>
+                          {stock.change >= 0 ? "+" : ""}{Number(stock.change || 0).toFixed(2)} ({Number(stock.changePercent || 0).toFixed(2)}%)
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", color: "#94a3b8" }}>
+                        {stock.peRatio ? Number(stock.peRatio).toFixed(1) : "N/A"}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#94a3b8" }}>
+                        {stock.marketCap ? `$${Number(stock.marketCap).toFixed(1)}B` : "N/A"}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.8rem", padding: "0.15rem 0.45rem", borderRadius: "4px", background: stock.rsi14 > 70 ? "rgba(239, 68, 68, 0.15)" : stock.rsi14 < 35 ? "rgba(16, 185, 129, 0.15)" : "rgba(56, 189, 248, 0.15)", color: stock.rsi14 > 70 ? "#ef4444" : stock.rsi14 < 35 ? "#10b981" : "#38bdf8", border: "1px solid currentColor" }}>
+                          {stock.rsi14 ? stock.rsi14.toFixed(1) : "50.0"}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "#10b981" : "#f59e0b" }}>
+                            {stock.signal || "RANGE_BOUND"}
+                          </span>
+                          <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                            Score: {stock.momentumScore || 50}/100
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>
+                          <button
+                            type="button"
+                            title="Generate AI Research Report with Yahoo Finance & Alpaca"
+                            onClick={() => {
+                              setActiveSymbol(stock.symbol);
+                              loadAllSymbolData(stock.symbol);
+                              setSubTab("report");
+                            }}
+                            style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer" }}
+                          >
+                            🔬 Report
+                          </button>
+                          <button
+                            type="button"
+                            title="Inspect Fundamentals & Valuations via Yahoo Finance"
+                            onClick={() => {
+                              setActiveSymbol(stock.symbol);
+                              loadFundamentals(stock.symbol);
+                              setSubTab("fundamentals");
+                            }}
+                            style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)", cursor: "pointer" }}
+                          >
+                            ⚖️ Ratios
+                          </button>
+                          {onTradeSymbol && (
+                            <button
+                              type="button"
+                              title="Send to E*TRADE Order Ticket for Execution"
+                              onClick={() => onTradeSymbol(stock.symbol)}
+                              style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", cursor: "pointer", fontWeight: 600 }}
+                            >
+                              ⚡ Trade on E*TRADE
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SUBTAB 1: AUTONOMOUS RESEARCH REPORT */}
       {subTab === "report" && (

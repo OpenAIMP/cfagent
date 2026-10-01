@@ -7,6 +7,7 @@ import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
+import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -1877,6 +1878,32 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ providers: statuses });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS providers" }, { status: 500 });
+      }
+    }
+
+    // Dedicated Yahoo Finance (FOSS) Market Screener
+    if ((path.endsWith("/foss/screen") || path.endsWith("/yfinance/screen")) && (request.method === "POST" || request.method === "GET")) {
+      try {
+        const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
+        if (request.method === "GET") {
+          if (url.searchParams.get("sector")) filters.sector = url.searchParams.get("sector");
+          if (url.searchParams.get("search")) filters.search = url.searchParams.get("search");
+          if (url.searchParams.get("maxRsi")) filters.maxRsi = Number(url.searchParams.get("maxRsi"));
+          if (url.searchParams.get("minRsi")) filters.minRsi = Number(url.searchParams.get("minRsi"));
+          if (url.searchParams.get("maxPeRatio")) filters.maxPeRatio = Number(url.searchParams.get("maxPeRatio"));
+          if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
+          if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
+        }
+        const screener = new YFinanceMarketScreener();
+        const results = await screener.screenMarkets(filters);
+        this.audit("foss.screener.executed", "research", { filterSummary: results.filterSummary, count: results.stocks.length });
+        return Response.json({
+          ...results,
+          results: results.stocks,
+          stocks: results.stocks,
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to run Yahoo Finance screener" }, { status: 500 });
       }
     }
 

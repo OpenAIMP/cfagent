@@ -1433,13 +1433,13 @@ export function Chat({ user }: { user: User }) {
             className={`tab-btn ${tab === "trading" ? "active" : ""}`}
             onClick={() => setTab("trading")}
           >
-            📈 E*TRADE Trading
+            📈 E*TRADE Brokerage
           </button>
           <button
             className={`tab-btn ${tab === "research" ? "active" : ""}`}
             onClick={() => setTab("research")}
           >
-            🔬 FOSS Research
+            🔬 Yahoo Finance Screener
           </button>
         </nav>
 
