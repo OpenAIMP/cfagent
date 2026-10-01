@@ -261,9 +261,9 @@ export class ETradeRestClient {
     if (!cleanSyms.length) return [];
 
     const qs = cleanSyms.length > 25 || options?.overrideSymbolCount ? "?overrideSymbolCount=true" : "";
-    const symList = cleanSyms.join(",");
-    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}${qs}`;
-    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json${qs}`;
+    const symList = cleanSyms.map((s) => encodeURIComponent(s)).join(",");
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}.json${qs}`;
 
     let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
@@ -568,7 +568,7 @@ export class ETradeRestClient {
         }
         if (!key) {
           const accounts = await this.fetchAccounts();
-          key = accounts[0]?.accountKey || "";
+          key = accounts[0]?.accountIdKey || accounts[0]?.accountKey || accounts[0]?.accountId || "";
         }
 
         const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place`;
@@ -577,23 +577,29 @@ export class ETradeRestClient {
         assertSandboxUrlSafety(url, envConfig.isLive);
         let authHeader = await this.generateOAuthHeader("POST", url);
 
+        const clientOrderId = (params.orderId.replace(/[^a-zA-Z0-9]/g, "") || `ord${Date.now()}`).slice(0, 20);
+        const validPreviewId = params.previewId && !isNaN(Number(params.previewId)) ? Number(params.previewId) : undefined;
+        const priceType = (params.orderType || "MARKET").toUpperCase();
+        const isLimit = priceType === "LIMIT" || priceType === "STOP_LIMIT";
+        const limitPrice = isLimit && params.limitPrice && params.limitPrice > 0 ? Number(params.limitPrice.toFixed(2)) : undefined;
+
         const body = {
           PlaceOrderRequest: {
             orderType: "EQ",
-            clientOrderId: params.orderId,
-            ...(params.previewId ? { PreviewIds: [{ previewId: params.previewId }] } : {}),
+            clientOrderId,
+            ...(validPreviewId ? { PreviewIds: [{ previewId: validPreviewId }] } : {}),
             Order: [
               {
                 allOrNone: false,
-                priceType: params.orderType || "MARKET",
-                ...(params.limitPrice ? { limitPrice: params.limitPrice } : {}),
+                priceType,
+                ...(limitPrice ? { limitPrice } : {}),
                 orderTerm: "GOOD_FOR_DAY",
                 marketSession: "REGULAR",
                 Instrument: [
                   {
                     Product: {
                       securityType: "EQ",
-                      symbol: params.symbol,
+                      symbol: params.symbol.toUpperCase().trim(),
                     },
                     orderAction: params.action,
                     quantityType: "QUANTITY",
@@ -605,7 +611,7 @@ export class ETradeRestClient {
           },
         };
 
-        const res = await fetch(url, {
+        let res = await fetch(url, {
           method: "POST",
           headers: {
             Authorization: authHeader,
@@ -615,9 +621,37 @@ export class ETradeRestClient {
           body: JSON.stringify(body),
         });
 
-        const data = (await res.json().catch(() => ({}))) as any;
-        if (res.ok && data?.PlaceOrderResponse?.OrderIds?.[0]?.orderId) {
-          const brokerId = `et_order_${data.PlaceOrderResponse.OrderIds[0].orderId}`;
+        if (!res.ok && (res.status === 404 || res.status === 400)) {
+          url = fallbackUrl;
+          assertSandboxUrlSafety(url, envConfig.isLive);
+          authHeader = await this.generateOAuthHeader("POST", url);
+          res = await fetch(url, {
+            method: "POST",
+            headers: {
+              Authorization: authHeader,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+        }
+
+        const rawText = await res.text().catch(() => "");
+        let data: any = {};
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          const orderIdMatch = rawText.match(/<orderId>([^<]+)<\/orderId>/i);
+          if (orderIdMatch) {
+            data = { PlaceOrderResponse: { OrderIds: [{ orderId: orderIdMatch[1] }] } };
+          }
+        }
+
+        const orderIdVal = data?.PlaceOrderResponse?.OrderIds?.[0]?.orderId || data?.PlaceOrderResponse?.OrderIds?.orderId;
+        if (res.ok && orderIdVal) {
+          const brokerId = `et_order_${orderIdVal}`;
+          const executionPrice = limitPrice || params.limitPrice || 0;
+          const totalSettled = executionPrice > 0 ? executionPrice * params.quantity : 0;
           return {
             success: true,
             orderId: params.orderId,
@@ -628,8 +662,8 @@ export class ETradeRestClient {
             symbol: params.symbol,
             action: params.action,
             quantity: params.quantity,
-            executionPrice: 0,
-            totalSettled: 0,
+            executionPrice,
+            totalSettled,
             didAttestation: {
               proposerDid: AGENT_DIDS.TRADING,
               authorizerDid: userDid,
@@ -640,7 +674,17 @@ export class ETradeRestClient {
           };
         }
 
-        const errMsg = data?.Error?.message || `HTTP ${res.status}`;
+        let parsedMsg = "";
+        if (data?.Error?.message) {
+          parsedMsg = data.Error.message;
+        } else if (data?.PlaceOrderResponse?.messageList?.Message?.[0]?.description) {
+          parsedMsg = data.PlaceOrderResponse.messageList.Message[0].description;
+        } else {
+          const xmlMsg = rawText.match(/<message>([^<]+)<\/message>/i) || rawText.match(/<description>([^<]+)<\/description>/i);
+          if (xmlMsg) parsedMsg = xmlMsg[1];
+        }
+
+        const errMsg = parsedMsg || `HTTP ${res.status}: ${rawText.slice(0, 200) || res.statusText}`;
         return {
           success: false,
           orderId: params.orderId,

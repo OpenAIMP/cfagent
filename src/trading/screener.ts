@@ -35,6 +35,8 @@ export const ETRADE_MARKET_UNIVERSE: MarketSecurityDefinition[] = [
 
 export const EXPANDED_MARKET_UNIVERSE: MarketSecurityDefinition[] = ETRADE_MARKET_UNIVERSE;
 
+import { FOSS_MARKET_UNIVERSE } from "../services/fossResearch";
+
 export class DynamicMarketScreener implements IMarketScreener {
   private static testUniverseFixture: ScreenedStockItem[] = [];
   private universeCache: ScreenedStockItem[] = [];
@@ -51,20 +53,61 @@ export class DynamicMarketScreener implements IMarketScreener {
     return DynamicMarketScreener.testUniverseFixture;
   }
 
+  getDefaultUniverse(): ScreenedStockItem[] {
+    return ETRADE_MARKET_UNIVERSE.map((def) => {
+      const prof = FOSS_MARKET_UNIVERSE[def.symbol];
+      const price = prof?.price || 150.0;
+      const change = prof?.change || 0.5;
+      const changePercent = prof?.changePercent || 0.35;
+      const rsi14 = (prof as any)?.rsi || 45.0;
+
+      return {
+        symbol: def.symbol,
+        companyName: def.companyName,
+        sector: def.sector,
+        price,
+        lastPrice: price,
+        change,
+        changePercent,
+        bid: prof?.bid || price,
+        ask: prof?.ask || price,
+        volume: prof?.volume || 10000000,
+        open: prof?.open || price,
+        high: prof?.high || price,
+        low: prof?.low || price,
+        week52High: prof?.high52 || price * 1.2,
+        week52Low: prof?.low52 || price * 0.8,
+        marketCap: prof?.marketCap || 1e11,
+        peRatio: prof?.peTrailing || 25.0,
+        rsi14,
+        rsi: rsi14,
+        macdSignal: changePercent > 1 ? "Bullish MACD Momentum" : changePercent < -1 ? "Bearish Pullback" : "Neutral Centerline",
+        signal: rsi14 > 70 ? "OVERBOUGHT" : rsi14 < 35 ? "OVERSOLD_BOUNCE" : changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND",
+        technicalSignal: changePercent > 0 ? "Positive Momentum" : "Consolidation",
+        momentumScore: Math.round(50 + changePercent * 5),
+        highlightReason: `${def.companyName} Liquid Equities Universe`,
+        source: "Market Universe Baseline",
+        timestamp: new Date().toISOString(),
+      } as ScreenedStockItem;
+    });
+  }
+
   constructor(initialUniverse?: ScreenedStockItem[]) {
     if (initialUniverse && initialUniverse.length > 0) {
       this.universeCache = initialUniverse;
     } else if (DynamicMarketScreener.testUniverseFixture.length > 0) {
       this.universeCache = DynamicMarketScreener.testUniverseFixture;
+    } else {
+      this.universeCache = this.getDefaultUniverse();
     }
   }
 
   setUniverse(universe: ScreenedStockItem[]): void {
-    this.universeCache = universe;
+    this.universeCache = universe && universe.length > 0 ? universe : this.getDefaultUniverse();
   }
 
   getUniverse(): ScreenedStockItem[] {
-    return this.universeCache;
+    return this.universeCache.length > 0 ? this.universeCache : this.getDefaultUniverse();
   }
 
   /**
@@ -381,14 +424,14 @@ export class DynamicMarketScreener implements IMarketScreener {
    * Filter and scan stocks based on fundamental and technical criteria (synchronous baseline)
    */
   screenStocks(filter: StockScreenerFilter = {}): StockScreenResult {
-    return this.evaluateUniverse(this.universeCache, filter);
+    return this.evaluateUniverse(this.getUniverse(), filter);
   }
 
   /**
    * Asynchronous market screener evaluating current equities universe
    */
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.evaluateUniverse(this.universeCache, filter);
+    return this.evaluateUniverse(this.getUniverse(), filter);
   }
 
   /**
@@ -396,7 +439,7 @@ export class DynamicMarketScreener implements IMarketScreener {
    */
   async getQuote(symbol: string): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
-    const found = this.universeCache.find((s) => s.symbol === cleanSym);
+    const found = this.getUniverse().find((s) => s.symbol === cleanSym);
 
     if (found) {
       return {

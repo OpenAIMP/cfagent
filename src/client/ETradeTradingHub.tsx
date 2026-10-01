@@ -551,7 +551,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           quantity: activeDraft?.quantity,
           orderType: activeDraft?.orderType,
           limitPrice: activeDraft?.limitPrice,
-          previewId: activeDraft?.orderId,
+          previewId: (activeDraft as any)?.previewId && !isNaN(Number((activeDraft as any)?.previewId)) ? (activeDraft as any)?.previewId : undefined,
         }),
       });
 
