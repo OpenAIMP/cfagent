@@ -176,7 +176,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(amd).toBeDefined();
       expect(nvda?.quote.price).toBeGreaterThan(0);
       expect(amd?.quote.price).toBeGreaterThan(0);
-    });
+    }, 15000);
 
     it("inspects live health status of FOSS data providers", async () => {
       const statuses = await researchService.getProviderStatuses();

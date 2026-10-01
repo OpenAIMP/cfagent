@@ -643,16 +643,19 @@ export class ETradeRestClient {
         let authHeader = await this.generateOAuthHeader("POST", url);
 
         const clientOrderId = (params.orderId.replace(/[^a-zA-Z0-9]/g, "") || `ord${Date.now()}`).slice(0, 20);
-        const validPreviewId = params.previewId && !isNaN(Number(params.previewId)) ? Number(params.previewId) : undefined;
         const priceType = (params.orderType || "MARKET").toUpperCase();
         const isLimit = priceType === "LIMIT" || priceType === "STOP_LIMIT";
         const limitPrice = isLimit && params.limitPrice && params.limitPrice > 0 ? Number(params.limitPrice.toFixed(2)) : undefined;
+
+        const pId = params.previewId !== undefined && params.previewId !== null
+          ? (!isNaN(Number(params.previewId)) ? Number(params.previewId) : params.previewId)
+          : undefined;
 
         const body = {
           PlaceOrderRequest: {
             orderType: "EQ",
             clientOrderId,
-            ...(validPreviewId ? { PreviewIds: [{ previewId: validPreviewId }] } : {}),
+            ...(pId !== undefined ? { PreviewIds: [{ previewId: pId }] } : {}),
             Order: [
               {
                 allOrNone: false,
@@ -804,8 +807,9 @@ export class ETradeRestClient {
                   ],
                 },
               };
-              const retryAuthHeader = await this.generateOAuthHeader("POST", primaryUrl);
-              const retryRes = await fetch(primaryUrl, {
+              let retryUrl = primaryUrl;
+              let retryAuthHeader = await this.generateOAuthHeader("POST", retryUrl);
+              let retryRes = await fetch(retryUrl, {
                 method: "POST",
                 headers: {
                   Authorization: retryAuthHeader,
@@ -814,6 +818,20 @@ export class ETradeRestClient {
                 },
                 body: JSON.stringify(retryBody),
               });
+              if (!retryRes.ok && retryRes.status === 404 && !retryUrl.includes(".json")) {
+                retryUrl = fallbackUrl;
+                assertSandboxUrlSafety(retryUrl, envConfig.isLive);
+                retryAuthHeader = await this.generateOAuthHeader("POST", retryUrl);
+                retryRes = await fetch(retryUrl, {
+                  method: "POST",
+                  headers: {
+                    Authorization: retryAuthHeader,
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                  },
+                  body: JSON.stringify(retryBody),
+                });
+              }
               const retryRawText = await retryRes.text().catch(() => "");
               let retryData: any = {};
               try {
@@ -858,9 +876,12 @@ export class ETradeRestClient {
                 const xmlMsg = retryRawText.match(/<message>([^<]+)<\/message>/i) || retryRawText.match(/<description>([^<]+)<\/description>/i);
                 if (xmlMsg) errMsg = xmlMsg[1];
               }
+            } else if (this.getLastError()) {
+              errMsg = `E*TRADE Auto-Recovery Failed: ${this.getLastError()}`;
             }
-          } catch (retryErr) {
+          } catch (retryErr: any) {
             console.warn("[ETradeClient] Auto-recovery preview retry failed:", retryErr);
+            errMsg = `Auto-recovery failed: ${retryErr.message || String(retryErr)}`;
           }
         }
 

@@ -535,7 +535,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const handleExecuteDraft = async (draftId: string, decision: "approved" | "rejected") => {
+  const handleExecuteDraft = async (
+    draftId: string,
+    decision: "approved" | "rejected",
+    draftOverride?: any
+  ) => {
+    const draft = draftOverride || activeDraft;
     setExecutingDraft(true);
     setOrderError("");
     try {
@@ -546,12 +551,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           orderId: draftId,
           draftId,
           decision,
-          symbol: activeDraft?.symbol,
-          action: activeDraft?.orderAction || (activeDraft as any)?.action,
-          quantity: activeDraft?.quantity,
-          orderType: activeDraft?.orderType,
-          limitPrice: activeDraft?.limitPrice,
-          previewId: (activeDraft as any)?.previewId && !isNaN(Number((activeDraft as any)?.previewId)) ? (activeDraft as any)?.previewId : undefined,
+          symbol: draft?.symbol,
+          action: draft?.orderAction || draft?.action,
+          quantity: draft?.quantity,
+          orderType: draft?.orderType,
+          limitPrice: draft?.limitPrice,
+          previewId: draft?.previewId && !isNaN(Number(draft.previewId)) ? String(draft.previewId) : undefined,
         }),
       });
 
@@ -559,6 +564,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       setLastExecutionResult(data);
       if (data.success || decision === "rejected") {
         setActiveDraft(null);
+        setOrderError("");
         fetchOrders();
         fetchPositions();
       } else {
@@ -591,7 +597,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       const freshDraft = await previewResp.json() as any;
       if (previewResp.ok && freshDraft.orderId) {
         setActiveDraft(freshDraft);
-        await handleExecuteDraft(freshDraft.orderId, "approved");
+        await handleExecuteDraft(freshDraft.orderId, "approved", freshDraft);
       } else {
         setOrderError(freshDraft.error || "Failed to generate fresh preview on E*TRADE");
       }
