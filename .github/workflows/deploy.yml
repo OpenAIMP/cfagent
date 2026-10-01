@@ -117,48 +117,92 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          S_GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          S_GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          S_GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          S_GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          S_APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          S_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
-          GH_ID="${{ secrets.GH_CLIENT_ID || secrets.GITHUB_CLIENT_ID }}"
-          GH_SEC="${{ secrets.GH_CLIENT_SECRET || secrets.GITHUB_CLIENT_SECRET }}"
-          APP_URL="${{ secrets.APP_BASE_URL }}"
-          SESS_SEC="${{ secrets.SESSION_SECRET }}"
+          GH_ID="$S_GH_CLIENT_ID"
+          if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
+
+          GH_SEC="$S_GH_CLIENT_SECRET"
+          if [ -z "$GH_SEC" ]; then GH_SEC="$S_GITHUB_CLIENT_SECRET"; fi
 
           if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | npx wrangler secret put GITHUB_CLIENT_ID; fi
           if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
-          if [ -n "$APP_URL" ]; then printf "%s" "$APP_URL" | npx wrangler secret put APP_BASE_URL; fi
-          if [ -n "$SESS_SEC" ]; then printf "%s" "$SESS_SEC" | npx wrangler secret put SESSION_SECRET; fi
+          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | npx wrangler secret put APP_BASE_URL; fi
+          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | npx wrangler secret put SESSION_SECRET; fi
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          ACTIVE_ENV_NAME: ${{ needs.load-environment.outputs.target_env }}
+          S_ET_API_KEY: ${{ secrets.ET_API_KEY }}
+          S_ETRADE_API_KEY: ${{ secrets.ETRADE_API_KEY }}
+          S_ET_PROD_API_KEY: ${{ secrets.ET_PROD_API_KEY }}
+          S_PROD_ET_API_KEY: ${{ secrets.PROD_ET_API_KEY }}
+          S_ETRADE_CONSUMER_KEY: ${{ secrets.ETRADE_CONSUMER_KEY }}
+          S_ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
+          S_ETRADE_API_SECRET: ${{ secrets.ETRADE_API_SECRET }}
+          S_ET_PROD_API_SECRET: ${{ secrets.ET_PROD_API_SECRET }}
+          S_PROD_ET_API_SECRET: ${{ secrets.PROD_ET_API_SECRET }}
+          S_ETRADE_CONSUMER_SECRET: ${{ secrets.ETRADE_CONSUMER_SECRET }}
+          S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
+          S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
         run: |
-          # Resolve E*TRADE credentials from active GitHub Environment (or repo fallbacks)
-          TARGET_KEY="${{ secrets.ET_API_KEY || secrets.ETRADE_API_KEY || secrets.ET_PROD_API_KEY || secrets.PROD_ET_API_KEY || secrets.ETRADE_CONSUMER_KEY || secrets.ET_KEY }}"
-          TARGET_SEC="${{ secrets.ET_API_SECRET || secrets.ETRADE_API_SECRET || secrets.ET_PROD_API_SECRET || secrets.PROD_ET_API_SECRET || secrets.ETRADE_CONSUMER_SECRET || secrets.ET_SECRET }}"
-          ACTIVE_ENV="${{ needs.load-environment.outputs.target_env }}"
+          TARGET_KEY="$S_ET_API_KEY"
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ET_PROD_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_PROD_ET_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_CONSUMER_KEY"; fi
 
-          if [ "$ACTIVE_ENV" = "PROD" ]; then
+          TARGET_SEC="$S_ET_API_SECRET"
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ETRADE_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ET_PROD_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_PROD_ET_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ETRADE_CONSUMER_SECRET"; fi
+
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
             DEFAULT_BASE="https://api.etrade.com/v1"
           else
             DEFAULT_BASE="https://apisb.etrade.com/v1"
           fi
 
-          TARGET_URL="${{ secrets.ET_BASE_URL || secrets.ETRADE_BASE_URL }}"
-          if [ -z "$TARGET_URL" ]; then
-            TARGET_URL="$DEFAULT_BASE"
-          fi
+          TARGET_URL="$S_ET_BASE_URL"
+          if [ -z "$TARGET_URL" ]; then TARGET_URL="$S_ETRADE_BASE_URL"; fi
+          if [ -z "$TARGET_URL" ]; then TARGET_URL="$DEFAULT_BASE"; fi
+
+          echo "Target Environment: $ACTIVE_ENV_NAME"
+          echo "Target Base URL: $TARGET_URL"
+          echo "Key length: ${#TARGET_KEY}"
+          echo "Secret length: ${#TARGET_SEC}"
 
           if [ -n "$TARGET_KEY" ]; then
             printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_API_KEY
+            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_PROD_API_KEY
+            else
+              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_SANDBOX_API_KEY
+            fi
           fi
+
           if [ -n "$TARGET_SEC" ]; then
             printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_API_SECRET
+            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_PROD_API_SECRET
+            else
+              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_SANDBOX_API_SECRET
+            fi
           fi
+
           if [ -n "$TARGET_URL" ]; then
             printf "%s" "$TARGET_URL" | npx wrangler secret put ET_BASE_URL
           fi
-          printf "%s" "$ACTIVE_ENV" | npx wrangler secret put APP_ENV
+
+          printf "%s" "$ACTIVE_ENV_NAME" | npx wrangler secret put APP_ENV
 
       - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:

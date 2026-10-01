@@ -100,6 +100,9 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const sanitize = (val: unknown): string | undefined => {
     if (typeof val !== "string") return undefined;
     const clean = val.trim();
+    if (clean === "true" || clean === "false" || clean === "null" || clean === "undefined") {
+      return undefined;
+    }
     return clean.length > 0 ? clean : undefined;
   };
 
