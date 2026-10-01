@@ -118,22 +118,47 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          echo "${{ secrets.GH_CLIENT_ID }}" | npx wrangler secret put GITHUB_CLIENT_ID
-          echo "${{ secrets.GH_CLIENT_SECRET }}" | npx wrangler secret put GITHUB_CLIENT_SECRET
-          echo "${{ secrets.APP_BASE_URL }}" | npx wrangler secret put APP_BASE_URL
-          echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+          GH_ID="${{ secrets.GH_CLIENT_ID || secrets.GITHUB_CLIENT_ID }}"
+          GH_SEC="${{ secrets.GH_CLIENT_SECRET || secrets.GITHUB_CLIENT_SECRET }}"
+          APP_URL="${{ secrets.APP_BASE_URL }}"
+          SESS_SEC="${{ secrets.SESSION_SECRET }}"
+
+          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | npx wrangler secret put GITHUB_CLIENT_ID; fi
+          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
+          if [ -n "$APP_URL" ]; then printf "%s" "$APP_URL" | npx wrangler secret put APP_BASE_URL; fi
+          if [ -n "$SESS_SEC" ]; then printf "%s" "$SESS_SEC" | npx wrangler secret put SESSION_SECRET; fi
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          # Push E*TRADE credentials from the active GitHub Environment into the Worker
-          echo "${{ secrets.ET_API_KEY }}" | npx wrangler secret put ET_API_KEY
-          echo "${{ secrets.ET_API_SECRET }}" | npx wrangler secret put ET_API_SECRET
-          echo "${{ secrets.ET_BASE_URL }}" | npx wrangler secret put ET_BASE_URL
-          # Push the active environment name so the Worker knows its context
-          echo "${{ needs.load-environment.outputs.target_env }}" | npx wrangler secret put APP_ENV
+          # Resolve E*TRADE credentials from active GitHub Environment (or repo fallbacks)
+          TARGET_KEY="${{ secrets.ET_API_KEY || secrets.ETRADE_API_KEY || secrets.ET_PROD_API_KEY || secrets.PROD_ET_API_KEY || secrets.ETRADE_CONSUMER_KEY || secrets.ET_KEY }}"
+          TARGET_SEC="${{ secrets.ET_API_SECRET || secrets.ETRADE_API_SECRET || secrets.ET_PROD_API_SECRET || secrets.PROD_ET_API_SECRET || secrets.ETRADE_CONSUMER_SECRET || secrets.ET_SECRET }}"
+          ACTIVE_ENV="${{ needs.load-environment.outputs.target_env }}"
+
+          if [ "$ACTIVE_ENV" = "PROD" ]; then
+            DEFAULT_BASE="https://api.etrade.com/v1"
+          else
+            DEFAULT_BASE="https://apisb.etrade.com/v1"
+          fi
+
+          TARGET_URL="${{ secrets.ET_BASE_URL || secrets.ETRADE_BASE_URL }}"
+          if [ -z "$TARGET_URL" ]; then
+            TARGET_URL="$DEFAULT_BASE"
+          fi
+
+          if [ -n "$TARGET_KEY" ]; then
+            printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_API_KEY
+          fi
+          if [ -n "$TARGET_SEC" ]; then
+            printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_API_SECRET
+          fi
+          if [ -n "$TARGET_URL" ]; then
+            printf "%s" "$TARGET_URL" | npx wrangler secret put ET_BASE_URL
+          fi
+          printf "%s" "$ACTIVE_ENV" | npx wrangler secret put APP_ENV
 
       - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -148,11 +173,11 @@ jobs:
           LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
         run: |
-          if [ -n "$STRIPE_SECRET_KEY" ]; then echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
-          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
-          if [ -n "$PAYPAL_CLIENT_ID" ]; then echo "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
-          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then echo "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
-          if [ -n "$PAYPAL_ENVIRONMENT" ]; then echo "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
-          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then echo "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
-          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then echo "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
-          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then echo "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
+          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
+          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
+          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
+          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
+          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
+          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
+          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
+          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi

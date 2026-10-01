@@ -97,41 +97,62 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const isProd = activeName === "PROD";
 
   // In PROD: prefer ET_PROD_API_KEY, falling back to ET_API_KEY if dedicated prod secret is not yet set
-  const apiKey = isProd
+  const sanitize = (val: unknown): string | undefined => {
+    if (typeof val !== "string") return undefined;
+    const clean = val.trim();
+    return clean.length > 0 ? clean : undefined;
+  };
+
+  const rawApiKey = isProd
     ? (env?.ET_PROD_API_KEY ||
        (env as any)?.ETRADE_PROD_CONSUMER_KEY ||
+       (env as any)?.PROD_ET_API_KEY ||
        processEnv.ET_PROD_API_KEY ||
        processEnv.ETRADE_PROD_CONSUMER_KEY ||
        env?.ET_API_KEY ||
+       (env as any)?.ETRADE_API_KEY ||
        env?.ETRADE_CONSUMER_KEY ||
        processEnv.ET_API_KEY ||
+       processEnv.ETRADE_API_KEY ||
        processEnv.ETRADE_CONSUMER_KEY)
     : (env?.ET_SANDBOX_API_KEY ||
        (env as any)?.ETRADE_SANDBOX_CONSUMER_KEY ||
+       (env as any)?.SANDBOX_ET_API_KEY ||
        processEnv.ET_SANDBOX_API_KEY ||
        processEnv.ETRADE_SANDBOX_CONSUMER_KEY ||
        env?.ET_API_KEY ||
+       (env as any)?.ETRADE_API_KEY ||
        env?.ETRADE_CONSUMER_KEY ||
        processEnv.ET_API_KEY ||
+       processEnv.ETRADE_API_KEY ||
        processEnv.ETRADE_CONSUMER_KEY);
 
-  const apiSecret = isProd
+  const rawApiSecret = isProd
     ? (env?.ET_PROD_API_SECRET ||
        (env as any)?.ETRADE_PROD_CONSUMER_SECRET ||
+       (env as any)?.PROD_ET_API_SECRET ||
        processEnv.ET_PROD_API_SECRET ||
        processEnv.ETRADE_PROD_CONSUMER_SECRET ||
        env?.ET_API_SECRET ||
+       (env as any)?.ETRADE_API_SECRET ||
        env?.ETRADE_CONSUMER_SECRET ||
        processEnv.ET_API_SECRET ||
+       processEnv.ETRADE_API_SECRET ||
        processEnv.ETRADE_CONSUMER_SECRET)
     : (env?.ET_SANDBOX_API_SECRET ||
        (env as any)?.ETRADE_SANDBOX_CONSUMER_SECRET ||
+       (env as any)?.SANDBOX_ET_API_SECRET ||
        processEnv.ET_SANDBOX_API_SECRET ||
        processEnv.ETRADE_SANDBOX_CONSUMER_SECRET ||
        env?.ET_API_SECRET ||
+       (env as any)?.ETRADE_API_SECRET ||
        env?.ETRADE_CONSUMER_SECRET ||
        processEnv.ET_API_SECRET ||
+       processEnv.ETRADE_API_SECRET ||
        processEnv.ETRADE_CONSUMER_SECRET);
+
+  const apiKey = sanitize(rawApiKey);
+  const apiSecret = sanitize(rawApiSecret);
 
   // OAuth 1.0a access token pair (obtained after user authorizes via E*TRADE OAuth flow)
   const oauthToken =
