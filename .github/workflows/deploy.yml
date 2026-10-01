@@ -119,3 +119,25 @@ jobs:
           echo "${{ secrets.ET_BASE_URL }}" | npx wrangler secret put ET_BASE_URL
           # Push the active environment name so the Worker knows its context
           echo "${{ needs.load-environment.outputs.target_env }}" | npx wrangler secret put APP_ENV
+
+      - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_ENVIRONMENT: ${{ secrets.PAYPAL_ENVIRONMENT }}
+          LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
+          LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
+          LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
+        run: |
+          if [ -n "$STRIPE_SECRET_KEY" ]; then echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
+          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
+          if [ -n "$PAYPAL_CLIENT_ID" ]; then echo "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
+          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then echo "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
+          if [ -n "$PAYPAL_ENVIRONMENT" ]; then echo "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
+          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then echo "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
+          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then echo "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
+          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then echo "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi

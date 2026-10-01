@@ -955,17 +955,14 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 
         if (Array.isArray(timestamps) && quote?.close) {
           const bars: FossHistoricalBar[] = [];
-          const count = Math.min(timestamps.length, limit);
-          const startIndex = timestamps.length - count;
-
-          for (let i = startIndex; i < timestamps.length; i++) {
-            const o = quote.open?.[i] || quote.close?.[i] || 0;
-            const h = quote.high?.[i] || quote.close?.[i] || 0;
-            const l = quote.low?.[i] || quote.close?.[i] || 0;
+          for (let i = timestamps.length - 1; i >= 0 && bars.length < limit; i--) {
             const c = quote.close?.[i] || 0;
-            const v = quote.volume?.[i] || 0;
             if (c > 0) {
-              bars.push({
+              const o = quote.open?.[i] || c;
+              const h = quote.high?.[i] || c;
+              const l = quote.low?.[i] || c;
+              const v = quote.volume?.[i] || 0;
+              bars.unshift({
                 timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
                 open: Number(o.toFixed(2)),
                 high: Number(h.toFixed(2)),
