@@ -236,6 +236,36 @@ export default {
       return new Response(resp.body, { status: resp.status, headers });
     }
 
+    // --- Cloudflare Agentic Payments (HTTP 402 Gated Endpoints & Wallet API) ---
+    if (path.startsWith("/api/premium/") || path.startsWith("/api/payments/agentic/")) {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment",
+            "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt",
+          },
+        });
+      }
+
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || request.headers.get("x-user-id") || "agentic_consumer";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const subPath = path.replace(/^\/api/, "");
+      const targetUrl = new URL(subPath + url.search, "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+
+      const resp = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
+      const headers = new Headers(resp.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment");
+      headers.set("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt");
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
     // --- External Payment Webhook Listeners (Stripe, PayPal, Lemon Squeezy) ---
     if (path.startsWith("/api/payments/webhook") || path === "/payments/webhook") {
       const id = env.SEARCH_AGENT.idFromName("system_webhook_receiver");

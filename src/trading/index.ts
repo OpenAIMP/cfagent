@@ -23,3 +23,4 @@ export * from "./agent";
 export * from "./etrade/client";
 export * from "./etrade/platform";
 export * from "./alpaca/platform";
+export * from "./optionsScreener";

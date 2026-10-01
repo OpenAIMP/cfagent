@@ -36,6 +36,11 @@ import {
   FossAlpacaOrdersCommand,
   FossAlpacaPlaceOrderCommand,
 } from "./fossCommands";
+import {
+  PaidOptionsScreenerCommand,
+  PaidMarketResearchCommand,
+  AgenticWalletStatusCommand,
+} from "./agenticPaymentCommands";
 
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
@@ -874,6 +879,11 @@ export class McpToolFactory {
     this.registerTool(new FossAlpacaPositionsCommand());
     this.registerTool(new FossAlpacaOrdersCommand());
     this.registerTool(new FossAlpacaPlaceOrderCommand());
+
+    // Cloudflare Agentic Payments (x402 & MPP paidTool patterns)
+    this.registerTool(new PaidOptionsScreenerCommand());
+    this.registerTool(new PaidMarketResearchCommand());
+    this.registerTool(new AgenticWalletStatusCommand());
   }
 
   /**

@@ -128,17 +128,28 @@ export function tuneFinancialPronunciation(text: string): string {
 }
 
 export class ETradeVoiceTradingService {
+  private env: Env;
+  private orm?: DatabaseORM;
+
   constructor(
-    private env: Env,
-    private orm?: DatabaseORM,
+    envOrOrm: Env | DatabaseORM,
+    ormOrEnv?: DatabaseORM | Env,
     private sessionId: string = "voice_agent_session"
-  ) {}
+  ) {
+    if (envOrOrm instanceof DatabaseORM || (envOrOrm && ("initializeSchema" in (envOrOrm as any) || "watchlists" in (envOrOrm as any)))) {
+      this.orm = envOrOrm as DatabaseORM;
+      this.env = ormOrEnv as Env;
+    } else {
+      this.env = envOrOrm as Env;
+      this.orm = ormOrEnv as DatabaseORM | undefined;
+    }
+  }
 
   /**
    * Process a conversational voice trading turn
    */
   async processVoiceTurn(request: VoiceTradingTurnRequest): Promise<VoiceTradingTurnResponse> {
-    const rawTranscript = (request.transcript || "").trim();
+    const rawTranscript = (request.transcript || request.rawTranscript || "").trim();
     const cleanTranscript = normalizeVoiceTradingTranscript(rawTranscript);
     const timestamp = new Date().toISOString();
     const userLogin = request.userLogin || this.sessionId;
@@ -602,6 +613,102 @@ export class ETradeVoiceTradingService {
           spokenText,
           displayMarkdown,
           actionType: "schedule",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      // Case F: Options Screener Voice Response
+      if (domain === "trading" && action === "options_screen") {
+        const contracts = nlqRes.rows || [];
+        if (contracts.length === 0) {
+          const spokenRaw = "I evaluated the options universe, but no contracts matched your specified delta, volume, or volatility criteria. Try relaxing your filters or scanning another underlying.";
+          return {
+            success: true,
+            spokenText: tuneFinancialPronunciation(spokenRaw),
+            displayMarkdown: `### 🔍 Options Screener: No Contracts Matched\n\n${nlqRes.summary || "No contracts matched the requested filters."}`,
+            actionType: "options_screener",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
+        const topC = contracts.slice(0, 3);
+        const topDesc = topC
+          .map((c: any) => `${c.underlying} ${c.strike} ${c.type} at ${c.bidAsk} with delta ${c.delta}`)
+          .join(", and ");
+        const spokenRaw = `I screened ${contracts.length} option contracts. Top candidates include ${topDesc}. Would you like to review an option order?`;
+        const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+        const tableRows = contracts.slice(0, 5).map((c: any) =>
+          `| **${c.underlying}** | ${c.type} | ${c.strike} | ${c.bidAsk} | ${c.delta} | ${c.iv} | ${c.volume} | ${c.dte} | \`${c.technicalSignal}\` |`
+        ).join("\n");
+
+        const displayMarkdown = `### 📊 E*TRADE Options Screener (${contracts.length} Contracts Matched)\n\n` +
+          `| Symbol | Type | Strike | Bid/Ask | Delta | IV | Volume | DTE | Signal |\n` +
+          `|---|---|---|---|---|---|---|---|---|\n` +
+          `${tableRows}\n\n` +
+          `*Say "Preview buy 1 <symbol> <strike> call" to draft an option order.*`;
+
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown,
+          actionType: "options_screener",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      // Case G: Watchlist Management Voice Response
+      if (domain === "trading" && (action === "watchlist_save" || action === "watchlist_list")) {
+        const spokenRaw = nlqRes.summary || "Watchlist operation completed successfully.";
+        const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+        let tableRows = "";
+        if (action === "watchlist_list") {
+          tableRows = (nlqRes.rows || [])
+            .map((w: any) => `| **${w.name}** | ${w.symbolCount} | ${w.symbols} | \`${w.source}\` |`)
+            .join("\n");
+        } else {
+          tableRows = (nlqRes.rows || [])
+            .map((w: any) => `| **${w.name}** | ${w.symbolCount} symbols | ${w.symbols} | \`${w.source}\` |`)
+            .join("\n");
+        }
+
+        const displayMarkdown = `### 📋 E*TRADE Watchlists\n\n` +
+          `${nlqRes.summary}\n\n` +
+          `| Watchlist | Symbols Count | Tickers | Storage |\n` +
+          `|---|---|---|---|\n` +
+          `${tableRows || "| None | 0 | - | - |"}`;
+
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown,
+          actionType: "watchlist",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      // Case H: Cloudflare Agentic Payments Voice Response
+      if (domain === "agentic_payments") {
+        const spokenRaw = nlqRes.summary || "Agentic wallet and micropayment status retrieved.";
+        const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+        const rows = nlqRes.rows || [];
+        const details = rows.map((r: any) =>
+          Object.entries(r).map(([k, v]) => `- **${k}:** ${v}`).join("\n")
+        ).join("\n\n");
+
+        const displayMarkdown = `### 💳 Cloudflare Agentic Payments (x402 & MPP)\n\n${nlqRes.summary}\n\n${details}`;
+
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown,
+          actionType: "agentic_payment",
           proposerDid: AGENT_DIDS.TRADING,
           timestamp,
         };

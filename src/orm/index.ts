@@ -14,6 +14,7 @@ import type {
   AuditEvent,
   RevenueSummary,
   TradeRecord,
+  WatchlistRecord,
 } from "../types";
 
 export interface SqlStorage {
@@ -171,6 +172,7 @@ export class DatabaseORM {
   public memory: Repository<MemoryRecord>;
   public events: Repository<AuditEvent>;
   public trades: Repository<TradeRecord>;
+  public watchlists: Repository<WatchlistRecord>;
 
   constructor(private sql: SqlStorage) {
     this.categories = new Repository<CategoryRecord>(sql, "mas_categories", "id", {
@@ -289,6 +291,17 @@ export class DatabaseORM {
       proofSignature: "proof_signature",
       previewNotes: "preview_notes",
       expirationScheduleId: "expiration_schedule_id",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    });
+
+    this.watchlists = new Repository<WatchlistRecord>(sql, "mas_watchlists", "id", {
+      id: "id",
+      name: "name",
+      userLogin: "user_login",
+      symbolsJson: "symbols_json",
+      itemsJson: "items_json",
+      source: "source",
       createdAt: "created_at",
       updatedAt: "updated_at",
     });
@@ -440,6 +453,20 @@ export class DatabaseORM {
         proof_signature TEXT NOT NULL,
         preview_notes TEXT,
         expiration_schedule_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    // 10. Watchlists Table (E*TRADE & Local Agent Watchlists)
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_watchlists (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        user_login TEXT NOT NULL,
+        symbols_json TEXT NOT NULL,
+        items_json TEXT,
+        source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -635,7 +662,7 @@ export class DatabaseORM {
   /**
    * Introspects database schema and returns metadata for all tables.
    */
-  listTables(): TableMetadata[] {
+  listTables(includeExtensions: boolean = false): TableMetadata[] {
     const tableDescriptions: Record<string, string> = {
       mas_categories: "Referral categories taxonomy for partner links",
       mas_referrals: "User-submitted affiliate and community referral links",
@@ -647,6 +674,10 @@ export class DatabaseORM {
       mas_events: "Real-time audit log of router decisions, HITL approvals, and agent executions",
       mas_trades: "E*TRADE brokerage trading orders with cryptographic Agent DID attestation",
     };
+
+    if (includeExtensions) {
+      tableDescriptions.mas_watchlists = "E*TRADE and local durable watchlists with saved screen results and stock ticker sets";
+    }
 
     const tables = Object.keys(tableDescriptions);
     const result: TableMetadata[] = [];
@@ -767,5 +798,65 @@ export class DatabaseORM {
       totalAdClicks,
       averageRPM,
     };
+  }
+
+  // =========================================================================
+  // Watchlist Persistence Layer (Durable SQLite)
+  // =========================================================================
+
+  saveWatchlist(params: {
+    id?: string;
+    name: string;
+    userLogin: string;
+    symbols: string[];
+    items?: any[];
+    source?: string;
+  }): WatchlistRecord {
+    const now = new Date().toISOString();
+    const id = params.id || `wl_${crypto.randomUUID().slice(0, 10)}`;
+    const existing = this.watchlists.findById(id);
+
+    const record: WatchlistRecord = {
+      id,
+      name: params.name.trim(),
+      userLogin: params.userLogin,
+      symbolsJson: JSON.stringify(Array.from(new Set(params.symbols.map((s) => s.toUpperCase().trim())))),
+      itemsJson: params.items ? JSON.stringify(params.items) : undefined,
+      source: params.source || "local_durable_sqlite",
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    if (existing) {
+      this.watchlists.update(id, record);
+    } else {
+      this.watchlists.create(record);
+    }
+
+    return record;
+  }
+
+  getWatchlists(userLogin?: string): WatchlistRecord[] {
+    if (userLogin) {
+      return this.watchlists.findMany({
+        where: { userLogin },
+        orderBy: "updated_at DESC",
+      });
+    }
+    return this.watchlists.findMany({ orderBy: "updated_at DESC" });
+  }
+
+  getWatchlistById(id: string): WatchlistRecord | null {
+    return this.watchlists.findById(id);
+  }
+
+  getWatchlistByName(name: string, userLogin?: string): WatchlistRecord | null {
+    const cleanName = name.trim().toLowerCase();
+    const all = this.getWatchlists(userLogin);
+    return all.find((w) => w.name.toLowerCase() === cleanName) || null;
+  }
+
+  deleteWatchlist(id: string): boolean {
+    return this.watchlists.delete(id);
   }
 }

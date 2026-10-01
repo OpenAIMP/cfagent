@@ -11,6 +11,7 @@ import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
+import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -20,6 +21,7 @@ import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import { ScheduledTasksService } from "../services/scheduledTasks";
+import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
   AgentName,
@@ -251,6 +253,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         impressions INTEGER DEFAULT 0,
         clicks INTEGER DEFAULT 0,
         created_at TEXT NOT NULL
+      )
+    `);
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_watchlists (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        user_login TEXT NOT NULL,
+        symbols_json TEXT NOT NULL,
+        items_json TEXT,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     `);
 
@@ -1555,6 +1570,160 @@ Agentic Best Practices & Workflow Rules:
     }
 
     // ==========================================
+    // Cloudflare Agentic Payments (x402 & MPP)
+    // ==========================================
+
+    // Agentic Wallet Status & Micropayment Metrics
+    if ((path.endsWith("/payments/agentic/wallet") || path.includes("/payments/agentic/wallet")) && request.method === "GET") {
+      try {
+        const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
+        const status = await paymentService.getWalletStatus();
+        return Response.json(status);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to fetch wallet status" }, { status: 500 });
+      }
+    }
+
+    // Agentic Auto-Approve Limit (HITL threshold)
+    if (path.endsWith("/payments/agentic/auto-approve-limit") || path.includes("/payments/agentic/auto-approve-limit")) {
+      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
+      if (request.method === "GET") {
+        return Response.json({
+          autoApproveLimitUSD: paymentService.getAutoApproveLimit(),
+          network: this.env.X402_NETWORK || "base-sepolia",
+        });
+      }
+      if (request.method === "POST") {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const limit = Number(body.limitUSD !== undefined ? body.limitUSD : body.limit);
+          if (isNaN(limit) || limit < 0) {
+            return Response.json({ error: "Invalid limitUSD. Must be non-negative number." }, { status: 400 });
+          }
+          paymentService.setAutoApproveLimit(limit);
+          this.audit("agentic_payment.limit_updated", "payments", { limitUSD: limit });
+          return Response.json({ success: true, autoApproveLimitUSD: limit });
+        } catch (err: any) {
+          return Response.json({ error: err.message || "Failed to update limit" }, { status: 500 });
+        }
+      }
+    }
+
+    // Paid Trading Service: Institutional Options & Greeks Screener ($0.05 USDC)
+    if (path.includes("/premium/options-scan") && (request.method === "GET" || request.method === "POST")) {
+      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
+      const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
+
+      return paymentService.handleGatedEndpoint(
+        request,
+        tier.resource,
+        tier.priceUSD,
+        tier.description,
+        async (receipt) => {
+          let filter: any = {};
+          if (request.method === "POST") {
+            filter = (await request.json().catch(() => ({}))) as any;
+          } else {
+            filter = {
+              underlyingSymbols: url.searchParams.get("symbol") ? [url.searchParams.get("symbol")!.toUpperCase().trim()] : ["NVDA"],
+              contractType: url.searchParams.get("contractType") || "CALL",
+              minDelta: url.searchParams.get("minDelta") ? Number(url.searchParams.get("minDelta")) : undefined,
+              maxDelta: url.searchParams.get("maxDelta") ? Number(url.searchParams.get("maxDelta")) : undefined,
+            };
+          }
+          const userLogin = request.headers.get("x-user-login") || sessionId || "premium_subscriber";
+          const rawEnvHdr = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
+          const reqEnvLocal = (rawEnvHdr === "TEST" || rawEnvHdr === "PROD") ? rawEnvHdr : undefined;
+          const etrade = new ETradeService(this.getOrm(), this.env, userLogin, reqEnvLocal);
+          const screener = new DynamicOptionsScreener(etrade.client);
+          const result = await screener.screenOptions(filter);
+          return {
+            success: true,
+            service: tier.name,
+            receipt,
+            screenResult: result,
+          };
+        }
+      );
+    }
+
+    // Paid Trading Service: Autonomous Equity Research Report ($0.10 USDC)
+    if (path.includes("/premium/market-research") && (request.method === "GET" || request.method === "POST")) {
+      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
+      const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
+
+      return paymentService.handleGatedEndpoint(
+        request,
+        tier.resource,
+        tier.priceUSD,
+        tier.description,
+        async (receipt) => {
+          let symbol = "NVDA";
+          if (request.method === "POST") {
+            const body = (await request.json().catch(() => ({}))) as any;
+            if (body.symbol) symbol = String(body.symbol).toUpperCase().trim();
+          } else {
+            const sym = url.searchParams.get("symbol");
+            if (sym) symbol = sym.toUpperCase().trim();
+          }
+
+          const foss = new FossResearchService(this.env);
+          const report = await foss.generateResearchReport(symbol);
+          return {
+            success: true,
+            service: tier.name,
+            receipt,
+            report,
+          };
+        }
+      );
+    }
+
+    // Paid Trading Service: Real-Time Quantitative Anomaly Signals ($0.02 USDC)
+    if (path.includes("/premium/stock-signals") && (request.method === "GET" || request.method === "POST")) {
+      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
+      const tier = TRADING_PAID_SERVICES.STOCK_SIGNALS;
+
+      return paymentService.handleGatedEndpoint(
+        request,
+        tier.resource,
+        tier.priceUSD,
+        tier.description,
+        async (receipt) => {
+          let symbols = ["NVDA", "AAPL", "MSFT", "TSLA"];
+          if (request.method === "POST") {
+            const body = (await request.json().catch(() => ({}))) as any;
+            if (Array.isArray(body.symbols) && body.symbols.length > 0) symbols = body.symbols;
+          } else {
+            const sym = url.searchParams.get("symbols") || url.searchParams.get("symbol");
+            if (sym) symbols = sym.split(",").map(s => s.trim().toUpperCase());
+          }
+
+          const screener = new YFinanceMarketScreener();
+          const screen = await screener.screenMarkets({ search: symbols.join(",") });
+          const signals = screen.stocks.map(stock => ({
+            symbol: stock.symbol,
+            price: stock.price,
+            changePercent: stock.changePercent,
+            rsi: stock.rsi,
+            volume: stock.volume,
+            signalType: (stock.rsi && stock.rsi < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi && stock.rsi > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
+            confidence: 0.88,
+            timestamp: new Date().toISOString(),
+          }));
+
+          return {
+            success: true,
+            service: tier.name,
+            receipt,
+            count: signals.length,
+            signals,
+          };
+        }
+      );
+    }
+
+    // ==========================================
     // Environment & E*TRADE Trading APIs
     // ==========================================
 
@@ -2149,6 +2318,120 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ count: dates.length, dates });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch option expire dates" }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // Dynamic Options Screener Engine Endpoint
+    // ==========================================
+    if (path.endsWith("/trading/options/screen") && (request.method === "POST" || request.method === "GET")) {
+      try {
+        let filter: any = {};
+        if (request.method === "POST") {
+          filter = (await request.json().catch(() => ({}))) as any;
+        } else {
+          // Parse GET query params
+          filter = {
+            sector: url.searchParams.get("sector") || undefined,
+            contractType: url.searchParams.get("contractType") || undefined,
+            minDelta: url.searchParams.get("minDelta") ? Number(url.searchParams.get("minDelta")) : undefined,
+            maxDelta: url.searchParams.get("maxDelta") ? Number(url.searchParams.get("maxDelta")) : undefined,
+            minImpliedVolatility: url.searchParams.get("minIv") ? Number(url.searchParams.get("minIv")) : undefined,
+            maxImpliedVolatility: url.searchParams.get("maxIv") ? Number(url.searchParams.get("maxIv")) : undefined,
+            minVolume: url.searchParams.get("minVolume") ? Number(url.searchParams.get("minVolume")) : undefined,
+            minOpenInterest: url.searchParams.get("minOi") ? Number(url.searchParams.get("minOi")) : undefined,
+            minDte: url.searchParams.get("minDte") ? Number(url.searchParams.get("minDte")) : undefined,
+            maxDte: url.searchParams.get("maxDte") ? Number(url.searchParams.get("maxDte")) : undefined,
+            moneyness: url.searchParams.get("moneyness") || undefined,
+            underlyingSymbols: url.searchParams.get("symbols") ? url.searchParams.get("symbols")!.split(",").map((s) => s.trim()) : undefined,
+            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+          };
+        }
+
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const screener = new DynamicOptionsScreener(etrade.client);
+        const result = await screener.screenOptions(filter);
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options screening failed" }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // E*TRADE Watchlist Endpoints & Persistence
+    // ==========================================
+
+    // List Watchlists (E*TRADE REST + Durable SQLite)
+    if (path.endsWith("/etrade/watchlists") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const watchlists = await etrade.getWatchlists();
+        return Response.json({ count: watchlists.length, watchlists });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to retrieve watchlists" }, { status: 500 });
+      }
+    }
+
+    // Get Watchlist Details
+    if (path.endsWith("/etrade/watchlist/details") && request.method === "GET") {
+      try {
+        const id = url.searchParams.get("id") || url.searchParams.get("name") || "";
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const details = await etrade.getWatchlistDetails(id);
+        if (!details) {
+          return Response.json({ error: `Watchlist '${id}' not found` }, { status: 404 });
+        }
+        return Response.json(details);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to get watchlist details" }, { status: 500 });
+      }
+    }
+
+    // Create Watchlist
+    if (path.endsWith("/etrade/watchlist/create") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const name = (body.name || "Default Watchlist").trim();
+        const symbols = Array.isArray(body.symbols) ? body.symbols : [];
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const res = await etrade.createWatchlist({ name, symbols });
+        return Response.json(res);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to create watchlist" }, { status: 500 });
+      }
+    }
+
+    // Save Screen Results directly as Watchlist
+    if (path.endsWith("/etrade/watchlist/save-screen") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const name = (body.name || "Screener Results").trim();
+        const symbols = Array.isArray(body.symbols) ? body.symbols : [];
+        const items = body.items || [];
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const res = await etrade.saveScanAsWatchlist(name, symbols, items);
+        return Response.json(res);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to save screen as watchlist" }, { status: 500 });
+      }
+    }
+
+    // Delete Watchlist
+    if (path.endsWith("/etrade/watchlist/delete") && (request.method === "DELETE" || request.method === "POST")) {
+      try {
+        const id = url.searchParams.get("id") || (await request.json().catch(() => ({})) as any)?.id;
+        if (!id) return Response.json({ error: "Missing watchlist id" }, { status: 400 });
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const deleted = await etrade.deleteWatchlist(id);
+        return Response.json({ success: deleted, deletedId: id });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete watchlist" }, { status: 500 });
       }
     }
 

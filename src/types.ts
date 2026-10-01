@@ -65,6 +65,13 @@ export interface Env {
   DEEPGRAM_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;
   VOICE_AGENT_MODEL?: string;
+  // Cloudflare Agentic Payments (x402 & Machine Payments Protocol - MPP)
+  X402_NETWORK?: string;
+  X402_RECIPIENT_ADDRESS?: string;
+  X402_FACILITATOR_URL?: string;
+  X402_AUTO_APPROVE_LIMIT?: string;
+  X402_AGENT_WALLET_KEY?: string;
+  MPP_SECRET_KEY?: string;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   ETRADE_KV?: KVNamespace;
@@ -77,11 +84,11 @@ export interface Env {
 export interface TransactionRecord {
   id: string;
   sessionId: string;
-  action: "charge" | "refund" | "invoice" | "payout";
+  action: "charge" | "refund" | "invoice" | "payout" | "micropayment" | "agentic_payment";
   amount: number;
   currency: string;
   customer: string;
-  gateway: "stripe" | "paypal" | "lemonsqueezy" | "sandbox";
+  gateway: "stripe" | "paypal" | "lemonsqueezy" | "sandbox" | "x402" | "mpp";
   gatewayRef?: string;
   status: "draft" | "awaiting_confirmation" | "authorized" | "completed" | "failed" | "rejected";
   checkoutUrl?: string;
@@ -321,6 +328,112 @@ export interface StockScreenResult {
   status?: "matches_found" | "no_matches" | "SCAN_INVALID_DATA_MISMATCH" | "no_universe";
   ledger?: StockScreenLedger;
   validationError?: string;
+}
+
+// =========================================================================
+// Dynamic Options Screener Engine Types
+// =========================================================================
+
+export interface OptionScreenerFilter {
+  underlyingSymbols?: string[];
+  sector?: string;
+  contractType?: "CALL" | "PUT" | "BOTH";
+  minVolume?: number;
+  minOpenInterest?: number;
+  minDelta?: number;
+  maxDelta?: number;
+  minImpliedVolatility?: number; // decimal e.g. 0.35 = 35%
+  maxImpliedVolatility?: number; // decimal e.g. 1.20 = 120%
+  minDte?: number; // Days to expiration min
+  maxDte?: number; // Days to expiration max
+  moneyness?: "ITM" | "OTM" | "ATM" | "ALL";
+  maxStrikeDistancePct?: number; // e.g. 10 for strikes within 10% of underlying price
+  limit?: number;
+}
+
+export interface ScreenedOptionContractItem extends ETradeOptionChainContract {
+  underlyingSymbol: string;
+  underlyingPrice: number;
+  daysToExpiration: number;
+  expirationDate: string; // YYYY-MM-DD
+  moneyness: "ITM" | "OTM" | "ATM";
+  strikeDistancePct: number;
+  volumeOiRatio?: number;
+  ivRankEstimated?: number;
+  technicalSignal: string;
+  highlightReason: string;
+  validationStatus?: "PASS_CONFIRMED" | "FAIL_MISMATCH";
+}
+
+export interface OptionScreenRejection {
+  contractSymbol: string;
+  underlyingSymbol: string;
+  reason: string;
+  strikePrice?: number;
+  delta?: number;
+  iv?: number;
+  volume?: number;
+  daysToExpiration?: number;
+}
+
+export interface OptionScreenResult {
+  totalUnderlyingsScanned: number;
+  totalContractsEvaluated: number;
+  matchedCount: number;
+  filterApplied: OptionScreenerFilter;
+  filterSummary: string;
+  contracts: ScreenedOptionContractItem[];
+  scannedAt: string;
+  status: "matches_found" | "no_matches" | "error";
+  rejections?: OptionScreenRejection[];
+}
+
+// =========================================================================
+// E*TRADE Watchlist Models & Persistence Types
+// =========================================================================
+
+export interface ETradeWatchlistItem {
+  symbol: string;
+  ordered?: number;
+  price?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  companyName?: string;
+  sector?: string;
+  addedAt?: string;
+}
+
+export interface ETradeWatchlist {
+  watchlistId: string | number;
+  name: string;
+  symbols: string[];
+  items?: ETradeWatchlistItem[];
+  createdTimestamp?: number;
+  updatedTimestamp?: number;
+  source?: "etrade_api" | "local_durable_sqlite";
+}
+
+export interface SaveWatchlistResult {
+  success: boolean;
+  watchlistId: string | number;
+  name: string;
+  symbolCount: number;
+  symbols: string[];
+  source: "etrade_api" | "local_durable_sqlite";
+  message: string;
+  timestamp: string;
+}
+
+export interface WatchlistRecord {
+  id: string;
+  name: string;
+  userLogin: string;
+  symbolsJson: string; // JSON string array of ticker symbols
+  itemsJson?: string; // Optional detailed cached quote metadata
+  source: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ETradeOrderDraft {
@@ -783,6 +896,7 @@ export interface VoiceTranscriptMessage {
 
 export interface VoiceTradingTurnRequest {
   transcript?: string;
+  rawTranscript?: string;
   audioBase64?: string;
   audioFormat?: "pcm16" | "wav" | "mp3" | "opus";
   sampleRate?: number;
@@ -794,7 +908,7 @@ export interface VoiceTradingTurnResponse {
   success: boolean;
   spokenText: string;
   displayMarkdown: string;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "general" | "error";
+  actionType: "quote" | "screener" | "options_screener" | "watchlist" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "agentic_payment" | "general" | "error";
   orderId?: string;
   orderDraft?: ETradeOrderDraft;
   orderStatus?: "previewed" | "executed" | "rejected" | "not_found";
@@ -859,6 +973,102 @@ export interface ScheduledTaskResult<T = unknown> {
   error?: string;
   timestamp: string;
 }
+
+// ==========================================
+// Cloudflare Agentic Payments (x402 & MPP)
+// ==========================================
+
+export type AgenticPaymentProtocol = "x402" | "mpp";
+
+export interface X402PaymentChallenge {
+  version: string;
+  network: "base" | "base-sepolia" | "ethereum" | "solana" | string;
+  recipient: string;
+  amount: number;
+  currency: "USDC" | "USD" | string;
+  facilitator: string;
+  description: string;
+  resource: string;
+  nonce: string;
+  expiresAt: number;
+}
+
+export interface X402PaymentProof {
+  signature: string;
+  payer: string;
+  txHash?: string;
+  nonce: string;
+  timestamp: number;
+  facilitatorToken?: string;
+}
+
+export interface MppChallenge {
+  protocol: "mpp";
+  method: "tempo" | "card" | "stablecoin" | string;
+  amount: string;
+  currency: string;
+  recipient: string;
+  description: string;
+  realm?: string;
+  testnet?: boolean;
+}
+
+export interface MppPaymentProof {
+  authorization: string;
+  method: string;
+  payer: string;
+  receipt?: string;
+}
+
+export interface AgenticPaymentReceipt {
+  receiptId: string;
+  protocol: AgenticPaymentProtocol;
+  resource: string;
+  amount: number;
+  currency: string;
+  network: string;
+  payer: string;
+  recipient: string;
+  status: "paid" | "verified" | "failed";
+  txHash?: string;
+  signature?: string;
+  timestamp: string;
+  proposerDid: string;
+  authorizerDid?: string;
+  note?: string;
+}
+
+export interface AgenticWalletStatus {
+  walletAddress: string;
+  network: string;
+  balanceUSD: number;
+  autoApproveLimitUSD: number;
+  facilitatorUrl: string;
+  protocol: "x402" | "mpp" | "hybrid";
+  totalSpentUSD: number;
+  totalEarnedUSD: number;
+  transactionCount: number;
+}
+
+export interface AgenticPaymentConfig {
+  network?: string;
+  recipient?: string;
+  facilitatorUrl?: string;
+  autoApproveLimitUSD?: number;
+  walletKey?: string;
+  mppSecretKey?: string;
+}
+
+export interface PaidTradingServiceTier {
+  id: string;
+  resource: string;
+  name: string;
+  description: string;
+  priceUSD: number;
+  rateLimitPerMin?: number;
+}
+
+export type PaymentRequiredCallback = (challenge: X402PaymentChallenge | MppChallenge) => Promise<boolean>;
 
 
 

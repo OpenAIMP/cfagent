@@ -24,6 +24,7 @@ import type {
   ETradeRemoteOrder,
   ETradeCancelOrderResult,
   ETradePositionLot,
+  ETradeWatchlist,
 } from "../../types";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
@@ -2483,6 +2484,355 @@ export class ETradeRestClient {
     });
 
     return res.json().catch(() => ({}));
+  }
+
+  // =========================================================================
+  // Official E*TRADE User API: Watchlist Management
+  // Endpoints: GET/POST/PUT/DELETE /v1/user/watchlist
+  // =========================================================================
+
+  /**
+   * Watchlist API: List User Watchlists
+   * GET /v1/user/watchlist
+   */
+  async getWatchlists(): Promise<ETradeWatchlist[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) return [];
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const resp = data?.WatchlistResponse || data?.WatchlistDetailResponse;
+      let rawWatchlists = resp?.watchlist || resp?.Watchlist;
+      if (!rawWatchlists) return [];
+      if (!Array.isArray(rawWatchlists)) rawWatchlists = [rawWatchlists];
+
+      return rawWatchlists.map((w: any) => {
+        let items = w.items?.item || w.item || [];
+        if (!Array.isArray(items)) items = items ? [items] : [];
+        const symbols = items.map((i: any) => (i.symbol || i.symbolDesc || "").toUpperCase()).filter(Boolean);
+
+        return {
+          watchlistId: w.watchlistId || w.id || crypto.randomUUID().slice(0, 8),
+          name: String(w.name || "Default Watchlist"),
+          symbols,
+          source: "etrade_api" as const,
+        };
+      });
+    } catch (err) {
+      console.warn("[ETradeClient] getWatchlists error:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Watchlist API: Get Watchlist Details
+   * GET /v1/user/watchlist/{watchlistId}
+   */
+  async getWatchlistDetails(watchlistId: string | number): Promise<ETradeWatchlist | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !watchlistId) return null;
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/${encodeURIComponent(String(watchlistId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/${encodeURIComponent(String(watchlistId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) return null;
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const resp = data?.WatchlistDetailResponse || data?.WatchlistResponse;
+      const w = resp?.watchlist || resp?.Watchlist || resp;
+      if (!w) return null;
+
+      let items = w.items?.item || w.item || [];
+      if (!Array.isArray(items)) items = items ? [items] : [];
+      const symbols = items.map((i: any) => (i.symbol || i.symbolDesc || "").toUpperCase()).filter(Boolean);
+
+      return {
+        watchlistId: w.watchlistId || watchlistId,
+        name: String(w.name || "Watchlist"),
+        symbols,
+        items: items.map((i: any) => ({
+          symbol: String(i.symbol || "").toUpperCase(),
+          price: i.price ? Number(i.price) : undefined,
+          change: i.change ? Number(i.change) : undefined,
+          changePercent: i.changePercent ? Number(i.changePercent) : undefined,
+          volume: i.volume ? Number(i.volume) : undefined,
+        })),
+        source: "etrade_api",
+      };
+    } catch (err) {
+      console.warn("[ETradeClient] getWatchlistDetails error:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Watchlist API: Create Watchlist
+   * POST /v1/user/watchlist/create
+   */
+  async createWatchlist(params: { name: string; symbols: string[] }): Promise<{
+    success: boolean;
+    watchlistId: string | number;
+    name: string;
+    symbols: string[];
+    error?: string;
+  }> {
+    const envConfig = this.getEnvConfig();
+    const cleanName = params.name.trim();
+    const cleanSymbols = Array.from(new Set(params.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
+
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      return {
+        success: false,
+        watchlistId: "",
+        name: cleanName,
+        symbols: cleanSymbols,
+        error: "E*TRADE API credentials not configured",
+      };
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/create`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/create.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("POST", url);
+
+    const payload = {
+      CreateWatchlist: {
+        name: cleanName,
+        items: {
+          item: cleanSymbols.map((sym) => ({ symbol: sym })),
+        },
+      },
+    };
+
+    try {
+      let res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("POST", url);
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        const wlId =
+          data?.CreateWatchlistResponse?.watchlistId ||
+          data?.WatchlistResponse?.watchlistId ||
+          `et_wl_${crypto.randomUUID().slice(0, 8)}`;
+        return {
+          success: true,
+          watchlistId: wlId,
+          name: cleanName,
+          symbols: cleanSymbols,
+        };
+      }
+
+      // If upstream rejects (e.g. sandbox limitation), return structured failure with error detail
+      const errText = await res.text().catch(() => "");
+      return {
+        success: false,
+        watchlistId: `et_wl_sim_${crypto.randomUUID().slice(0, 8)}`,
+        name: cleanName,
+        symbols: cleanSymbols,
+        error: `Upstream HTTP ${res.status}: ${errText.slice(0, 150) || res.statusText}`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        watchlistId: `et_wl_err_${crypto.randomUUID().slice(0, 8)}`,
+        name: cleanName,
+        symbols: cleanSymbols,
+        error: err instanceof Error ? err.message : "Network error calling E*TRADE Watchlist API",
+      };
+    }
+  }
+
+  /**
+   * Watchlist API: Add items to Watchlist
+   * PUT /v1/user/watchlist/add/{watchlistId}
+   */
+  async addWatchlistItems(params: {
+    watchlistId: string | number;
+    symbols: string[];
+  }): Promise<{ success: boolean; symbolsAdded: string[]; error?: string }> {
+    const envConfig = this.getEnvConfig();
+    const cleanSymbols = Array.from(new Set(params.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
+
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      return { success: false, symbolsAdded: [], error: "Missing API credentials" };
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/add/${encodeURIComponent(String(params.watchlistId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/add/${encodeURIComponent(String(params.watchlistId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("PUT", url);
+
+    const payload = {
+      AddWatchlist: {
+        items: {
+          item: cleanSymbols.map((sym) => ({ symbol: sym })),
+        },
+      },
+    };
+
+    try {
+      let res = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("PUT", url);
+        res = await fetch(url, {
+          method: "PUT",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      return {
+        success: res.ok,
+        symbolsAdded: cleanSymbols,
+        error: res.ok ? undefined : `HTTP ${res.status}`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        symbolsAdded: [],
+        error: err instanceof Error ? err.message : "Error adding items to watchlist",
+      };
+    }
+  }
+
+  /**
+   * Watchlist API: Delete Watchlist
+   * DELETE /v1/user/watchlist/delete/{watchlistId}
+   */
+  async deleteWatchlist(watchlistId: string | number): Promise<boolean> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !watchlistId) return false;
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/delete/${encodeURIComponent(String(watchlistId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/delete/${encodeURIComponent(String(watchlistId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("DELETE", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("DELETE", url);
+        res = await fetch(url, {
+          method: "DELETE",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   /**

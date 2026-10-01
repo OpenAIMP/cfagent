@@ -29,6 +29,8 @@ import type {
   ETradeOptionExpireDate,
   ETradeRemoteOrder,
   ETradeCancelOrderResult,
+  ETradeWatchlist,
+  SaveWatchlistResult,
 } from "../types";
 import {
   DynamicMarketScreener,
@@ -45,7 +47,7 @@ export const MARKET_UNIVERSE = EXPANDED_MARKET_UNIVERSE;
 export class ETradeService {
   private platform: ETradeTradingPlatform;
   private screener: DynamicMarketScreener;
-  private client: ETradeRestClient;
+  public client: ETradeRestClient;
   private orm?: DatabaseORM;
   private env: Env;
   private userLogin: string;
@@ -121,6 +123,10 @@ export class ETradeService {
   /**
    * Real-time dynamic market screening with authentic E*TRADE quote enrichment (no yfinance)
    */
+  async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    return this.screenMarketsAsync(filter);
+  }
+
   async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     let symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
 
@@ -595,6 +601,208 @@ export class ETradeService {
    */
   async revokeRemoteAccessToken(): Promise<{ success: boolean; message: string }> {
     return this.client.revokeRemoteAccessToken();
+  }
+
+  // =========================================================================
+  // Watchlist Management & Screener Results Persistence
+  // =========================================================================
+
+  /**
+   * Retrieve watchlists from E*TRADE API and local durable SQLite store
+   */
+  async getWatchlists(): Promise<ETradeWatchlist[]> {
+    const remoteList = await this.client.getWatchlists().catch(() => []);
+    const localList = this.orm ? this.orm.getWatchlists(this.userLogin) : [];
+
+    const mergedMap = new Map<string, ETradeWatchlist>();
+
+    // Add local SQLite watchlists first
+    for (const lw of localList) {
+      let symbols: string[] = [];
+      try {
+        symbols = JSON.parse(lw.symbolsJson);
+      } catch {
+        symbols = [];
+      }
+
+      mergedMap.set(lw.name.toLowerCase(), {
+        watchlistId: lw.id,
+        name: lw.name,
+        symbols,
+        createdTimestamp: new Date(lw.createdAt).getTime(),
+        updatedTimestamp: new Date(lw.updatedAt).getTime(),
+        source: "local_durable_sqlite",
+      });
+    }
+
+    // Merge upstream E*TRADE API watchlists (upstream takes precedence if name matches)
+    for (const rw of remoteList) {
+      mergedMap.set(rw.name.toLowerCase(), rw);
+    }
+
+    return Array.from(mergedMap.values());
+  }
+
+  /**
+   * Get details and quotes for a specific watchlist
+   */
+  async getWatchlistDetails(idOrName: string | number): Promise<ETradeWatchlist | null> {
+    const isNumericOrApiId = typeof idOrName === "number" || (!String(idOrName).startsWith("wl_") && !isNaN(Number(idOrName)));
+
+    if (isNumericOrApiId) {
+      const remote = await this.client.getWatchlistDetails(idOrName);
+      if (remote) return remote;
+    }
+
+    // Check local store
+    const local = this.orm
+      ? (this.orm.getWatchlistById(String(idOrName)) || this.orm.getWatchlistByName(String(idOrName), this.userLogin))
+      : null;
+
+    if (local) {
+      let symbols: string[] = [];
+      let items: any[] = [];
+      try {
+        symbols = JSON.parse(local.symbolsJson);
+      } catch {}
+      try {
+        items = local.itemsJson ? JSON.parse(local.itemsJson) : [];
+      } catch {}
+
+      return {
+        watchlistId: local.id,
+        name: local.name,
+        symbols,
+        items,
+        source: "local_durable_sqlite",
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Create a new watchlist across E*TRADE API and local SQLite
+   */
+  async createWatchlist(params: { name: string; symbols: string[] }): Promise<{
+    success: boolean;
+    watchlistId: string | number;
+    name: string;
+    symbols: string[];
+    source: "etrade_api" | "local_durable_sqlite";
+  }> {
+    const cleanSymbols = Array.from(new Set(params.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
+    const cleanName = params.name.trim();
+
+    // 1. Try remote E*TRADE API
+    const remoteRes = await this.client.createWatchlist({ name: cleanName, symbols: cleanSymbols });
+
+    const source = remoteRes.success ? ("etrade_api" as const) : ("local_durable_sqlite" as const);
+    const watchlistId = remoteRes.success && remoteRes.watchlistId ? remoteRes.watchlistId : `wl_${crypto.randomUUID().slice(0, 10)}`;
+
+    // 2. Persist in durable SQLite
+    if (this.orm) {
+      this.orm.saveWatchlist({
+        id: String(watchlistId),
+        name: cleanName,
+        userLogin: this.userLogin,
+        symbols: cleanSymbols,
+        source,
+      });
+    }
+
+    return {
+      success: true,
+      watchlistId,
+      name: cleanName,
+      symbols: cleanSymbols,
+      source,
+    };
+  }
+
+  /**
+   * Save screened stocks or options directly into an E*TRADE or local watchlist
+   */
+  async saveScanAsWatchlist(
+    name: string,
+    symbols: string[],
+    screenItems?: any[]
+  ): Promise<SaveWatchlistResult> {
+    const cleanSymbols = Array.from(new Set(symbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
+    const cleanName = name.trim();
+
+    if (cleanSymbols.length === 0) {
+      throw new Error("Cannot save empty watchlist: no valid symbols provided.");
+    }
+
+    // Check if watchlist with this name already exists in local SQLite
+    const existing = this.orm ? this.orm.getWatchlistByName(cleanName, this.userLogin) : null;
+
+    let watchlistId = existing?.id;
+    let source: "etrade_api" | "local_durable_sqlite" = "local_durable_sqlite";
+
+    // Attempt upstream creation or update
+    const remoteRes = await this.client.createWatchlist({ name: cleanName, symbols: cleanSymbols });
+    if (remoteRes.success && remoteRes.watchlistId) {
+      watchlistId = String(remoteRes.watchlistId);
+      source = "etrade_api";
+    } else if (existing) {
+      // Add items upstream if existing
+      await this.client.addWatchlistItems({ watchlistId: existing.id, symbols: cleanSymbols }).catch(() => {});
+    }
+
+    const mergedSymbols = existing
+      ? Array.from(new Set([...JSON.parse(existing.symbolsJson || "[]"), ...cleanSymbols]))
+      : cleanSymbols;
+
+    const savedId = watchlistId || `wl_${crypto.randomUUID().slice(0, 10)}`;
+    const savedRecord = this.orm
+      ? this.orm.saveWatchlist({
+          id: savedId,
+          name: cleanName,
+          userLogin: this.userLogin,
+          symbols: mergedSymbols,
+          items: screenItems,
+          source,
+        })
+      : { id: savedId };
+
+    // Record audit event
+    if (this.orm?.events) {
+      this.orm.events.create({
+        id: `evt_wl_${crypto.randomUUID().slice(0, 10)}`,
+        sessionId: this.userLogin,
+        type: "WATCHLIST_SAVED",
+        agent: "orchestrator",
+        payload: {
+          watchlistId: savedRecord.id,
+          name: cleanName,
+          symbolCount: mergedSymbols.length,
+          symbols: mergedSymbols,
+          source,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return {
+      success: true,
+      watchlistId: savedRecord.id,
+      name: cleanName,
+      symbolCount: mergedSymbols.length,
+      symbols: mergedSymbols,
+      source,
+      message: `Successfully saved ${cleanSymbols.length} screened symbols into watchlist "${cleanName}" (${source === "etrade_api" ? "E*TRADE Live Watchlist" : "Local Durable SQLite"}).`,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Delete watchlist by id
+   */
+  async deleteWatchlist(watchlistId: string | number): Promise<boolean> {
+    await this.client.deleteWatchlist(watchlistId).catch(() => {});
+    return this.orm ? this.orm.deleteWatchlist(String(watchlistId)) : true;
   }
 
   getLastError(): string | undefined {

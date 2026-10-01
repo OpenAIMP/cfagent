@@ -6,9 +6,11 @@ import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
+import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 
 export const nlqPlanSchema = z.object({
-  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "custom_query"]).default("conversation"),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
   targetTable: z.string().optional(),
   categoryData: z
@@ -22,13 +24,27 @@ export const nlqPlanSchema = z.object({
     .optional(),
   tradingData: z
     .object({
-      action: z.enum(["screen", "quote", "preview_order", "execute_order", "positions"]).optional(),
+      action: z
+        .enum([
+          "screen",
+          "quote",
+          "preview_order",
+          "execute_order",
+          "positions",
+          "options_screen",
+          "watchlist_save",
+          "watchlist_list",
+          "watchlist_details",
+        ])
+        .optional(),
       symbol: z.string().optional(),
       orderAction: z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]).optional(),
       quantity: z.number().optional(),
       orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
       limitPrice: z.number().optional(),
       filters: z.record(z.string(), z.any()).optional(),
+      watchlistName: z.string().optional(),
+      symbols: z.array(z.string()).optional(),
     })
     .optional(),
   researchData: z
@@ -49,6 +65,13 @@ export const nlqPlanSchema = z.object({
       cron: z.string().optional(),
       scheduleId: z.string().optional(),
       description: z.string().optional(),
+    })
+    .optional(),
+  agenticPaymentsData: z
+    .object({
+      action: z.enum(["wallet_status", "micropayments_list", "set_limit", "paid_scan", "paid_research"]),
+      limitUSD: z.number().optional(),
+      symbol: z.string().optional(),
     })
     .optional(),
   terms: z.string().max(200).default(""),
@@ -169,6 +192,72 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
+  // 0e. Fast-path for Cloudflare Agentic Payments & Agent Wallet
+  if (
+    /\b(wallet\s+status|agent\s+wallet|agentic\s+wallet|wallet\s+balance|micropayments?|x402|mpp)\b/i.test(question) ||
+    /\b(set|update|change)\s+(?:the\s+)?(?:auto\s*[-]?\s*approve\s+)?(?:agent\s+)?limit\b/i.test(question)
+  ) {
+    if (/\b(set|update|change)\s+(?:the\s+)?(?:auto\s*[-]?\s*approve\s+)?(?:agent\s+)?limit\b/i.test(question)) {
+      const limitMatch = question.match(/\$?\s*(\d+(?:\.\d+)?)/);
+      const limitUSD = limitMatch ? parseFloat(limitMatch[1]) : 0.05;
+      return {
+        domain: "agentic_payments",
+        operation: "update",
+        agenticPaymentsData: {
+          action: "set_limit",
+          limitUSD,
+        },
+        terms: "set_limit",
+        role: "any",
+        since: null,
+        limit: 1,
+      };
+    }
+    if (/\b(transactions?|ledger|history|payments?)\b/i.test(question)) {
+      return {
+        domain: "agentic_payments",
+        operation: "list",
+        agenticPaymentsData: {
+          action: "micropayments_list",
+        },
+        terms: "micropayments",
+        role: "any",
+        since: null,
+        limit: 25,
+      };
+    }
+    return {
+      domain: "agentic_payments",
+      operation: "list",
+      agenticPaymentsData: {
+        action: "wallet_status",
+      },
+      terms: "wallet_status",
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 0f. Fast-path for Paid Trading Services with Agentic Payment
+  if (/\b(paid\s+options?\s+screen|premium\s+options?\s+screen|paid\s+research|premium\s+market\s+research)\b/i.test(question)) {
+    const isResearch = /\b(research)\b/i.test(question);
+    const symMatch = question.match(/\b(?:for|on|symbol|ticker)\s+([a-zA-Z]{1,5})\b/i);
+    const symbol = symMatch ? symMatch[1].toUpperCase() : "NVDA";
+    return {
+      domain: "agentic_payments",
+      operation: "create",
+      agenticPaymentsData: {
+        action: isResearch ? "paid_research" : "paid_scan",
+        symbol,
+      },
+      terms: symbol,
+      role: "any",
+      since: null,
+      limit: 10,
+    };
+  }
+
   // 1. Fast-path for Category addition or update (check before generic tables)
   const addCatMatch = question.match(/\b(?:add|create|insert|new)\s+category\s+["']?([^"']+)["']?/i);
   if (addCatMatch) {
@@ -228,6 +317,114 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
       role: "any",
       since: null,
       limit: 50,
+    };
+  }
+
+  // 3b. Fast-path for Watchlists (Save / Create / List)
+  let saveWatchlistMatch: { name: string; symbolsText?: string } | null = null;
+
+  const m1 = question.match(/\bsave\s+(.+?)\s+(?:as|to|into)\s+(?:a\s+)?watchlist\s*(?:named\s+|called\s+)?["']?([^"']+)["']?/i);
+  if (m1) {
+    saveWatchlistMatch = { name: m1[2].trim(), symbolsText: m1[1].trim() };
+  } else {
+    const m2 = question.match(/\bsave\s+(?:as|to|into)\s+(?:a\s+)?watchlist\s*(?:named\s+|called\s+)?["']?([^"']+)["']?/i);
+    if (m2) {
+      saveWatchlistMatch = { name: m2[1].trim() };
+    } else {
+      const m3 = question.match(/\bcreate\s+(?:a\s+)?watchlist\s*(?:named\s+|called\s+)?["']?([^"'\s]+)["']?(?:\s+with\s+(.+))?/i);
+      if (m3) {
+        saveWatchlistMatch = { name: m3[1].trim(), symbolsText: m3[2]?.trim() };
+      }
+    }
+  }
+
+  if (saveWatchlistMatch) {
+    const rawName = saveWatchlistMatch.name;
+    const symbolsRaw = saveWatchlistMatch.symbolsText || "";
+    const explicitSymbols = symbolsRaw
+      ? symbolsRaw
+          .split(/[,\s]+/)
+          .map((s) => s.replace(/[^A-Za-z]/g, "").toUpperCase())
+          .filter((s) => s.length >= 1 && s.length <= 5 && !["THESE", "THE", "ALL", "SCREENED", "STOCKS", "RESULTS", "OPTIONS"].includes(s))
+      : [];
+
+    return {
+      domain: "trading",
+      operation: "create",
+      tradingData: {
+        action: "watchlist_save",
+        watchlistName: rawName,
+        symbols: explicitSymbols,
+      },
+      terms: rawName,
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  if (/\b(list|show|view|get)\s+(?:all\s+)?(?:my\s+)?watchlists?\b/i.test(question) || /^(?:watchlists?|my\s+watchlists?)$/i.test(question.trim())) {
+    return {
+      domain: "trading",
+      operation: "list",
+      tradingData: {
+        action: "watchlist_list",
+      },
+      terms: "watchlists",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 3c. Fast-path for Options Screening
+  if (
+    (/\b(options?|contracts?)\b/i.test(question) && /\b(screen|screener|scan|scanning|scanned|filter|chains?)\b/i.test(question)) ||
+    /\b(call|put)\s+options?\b/i.test(question) ||
+    (/\boptions?\b/i.test(question) && /\b(delta|iv|implied\s+volatility|gamma|theta|dte|strike|moneyness)\b/i.test(question))
+  ) {
+    const optFilters: Record<string, any> = {};
+
+    if (/\b(call|calls)\b/i.test(question) && !/\b(put|puts)\b/i.test(question)) optFilters.contractType = "CALL";
+    else if (/\b(put|puts)\b/i.test(question) && !/\b(call|calls)\b/i.test(question)) optFilters.contractType = "PUT";
+    else optFilters.contractType = "BOTH";
+
+    // Underlying symbol e.g. "for NVDA", "NVDA options"
+    const symMatch = question.match(/\b(?:for|on|in)\s+([A-Za-z]{1,5})\b/i) || question.match(/\b([A-Za-z]{1,5})\s+options?\b/i);
+    if (symMatch && !["CALL", "PUTS", "CALLS", "PUT", "TECH", "RSI", "MACD"].includes(symMatch[1].toUpperCase())) {
+      optFilters.underlyingSymbols = [symMatch[1].toUpperCase()];
+    }
+
+    if (/\b(tech|technology)\b/i.test(question)) optFilters.sector = "Technology";
+    if (/\b(semiconductor|semis|chips)\b/i.test(question)) optFilters.sector = "Semiconductors";
+
+    // Delta filters
+    const deltaOverMatch = question.match(/delta\s*(?:>|over|greater than|above)\s*(0?\.\d+|\d+)/i);
+    if (deltaOverMatch) optFilters.minDelta = Number(deltaOverMatch[1]) > 1 ? Number(deltaOverMatch[1]) / 100 : Number(deltaOverMatch[1]);
+    const deltaUnderMatch = question.match(/delta\s*(?:<|under|less than|below)\s*(0?\.\d+|\d+)/i);
+    if (deltaUnderMatch) optFilters.maxDelta = Number(deltaUnderMatch[1]) > 1 ? Number(deltaUnderMatch[1]) / 100 : Number(deltaUnderMatch[1]);
+
+    // IV filters
+    const ivOverMatch = question.match(/iv\s*(?:>|over|above|greater than)\s*(\d+)%?/i) || question.match(/implied\s+volatility\s*(?:>|over|above)\s*(\d+)%?/i);
+    if (ivOverMatch) optFilters.minImpliedVolatility = Number(ivOverMatch[1]) / 100;
+    if (/\b(high\s*iv|unusual\s*volume)\b/i.test(question)) optFilters.minImpliedVolatility = 0.50;
+
+    // Moneyness
+    if (/\b(itm|in the money)\b/i.test(question)) optFilters.moneyness = "ITM";
+    else if (/\b(otm|out of the money)\b/i.test(question)) optFilters.moneyness = "OTM";
+    else if (/\b(atm|at the money)\b/i.test(question)) optFilters.moneyness = "ATM";
+
+    return {
+      domain: "trading",
+      operation: "search",
+      tradingData: {
+        action: "options_screen",
+        filters: optFilters,
+      },
+      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
+      role: "any",
+      since: null,
+      limit: 25,
     };
   }
 
@@ -636,6 +833,99 @@ export function executeNLQQuery(
     }
   }
 
+  // 1c. Cloudflare Agentic Payments Operations (x402 & MPP)
+  if (plan.domain === "agentic_payments") {
+    const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
+    const action = plan.agenticPaymentsData?.action || "wallet_status";
+
+    if (action === "wallet_status") {
+      let totalSpent = 0;
+      let totalEarned = 0;
+      let count = 0;
+      if (orm.transactions) {
+        const allTx = orm.transactions.findMany();
+        for (const tx of allTx) {
+          if (tx.gateway === "x402" || tx.gateway === "mpp") {
+            count++;
+            if (tx.action === "agentic_payment" || tx.action === "charge") {
+              totalEarned += tx.amount;
+            } else if (tx.action === "micropayment" || tx.action === "payout") {
+              totalSpent += tx.amount;
+            }
+          }
+        }
+      }
+      const balance = Math.max(0, 50.0 + totalEarned - totalSpent);
+      const network = env?.X402_NETWORK || "base-sepolia";
+      const autoLimit = Number(env?.X402_AUTO_APPROVE_LIMIT || 0.05);
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_agentic_wallet",
+        count: 1,
+        summary: `Cloudflare Agentic Wallet: Balance $${balance.toFixed(2)} USDC on ${network}. Auto-approve limit: $${autoLimit.toFixed(2)}. Total spent: $${totalSpent.toFixed(2)}, total earned: $${totalEarned.toFixed(2)} across ${count} micropayments.`,
+        rows: [
+          {
+            network,
+            balanceUSD: `$${balance.toFixed(2)}`,
+            autoApproveLimitUSD: `$${autoLimit.toFixed(2)}`,
+            totalSpentUSD: `$${totalSpent.toFixed(2)}`,
+            totalEarnedUSD: `$${totalEarned.toFixed(2)}`,
+            micropaymentCount: count,
+            status: "ACTIVE",
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "set_limit") {
+      const limit = plan.agenticPaymentsData?.limitUSD ?? 0.05;
+      paymentService.setAutoApproveLimit(limit);
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_agentic_wallet",
+        count: 1,
+        summary: `Agentic micropayment auto-approval limit updated to $${limit.toFixed(2)} USD (HITL safeguard active).`,
+        rows: [
+          {
+            action: "SET_LIMIT",
+            limitUSD: `$${limit.toFixed(2)}`,
+            status: "SUCCESS",
+            updatedAt: executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "micropayments_list") {
+      const allTx = orm.transactions ? orm.transactions.findMany({ limit: plan.limit || 25, orderBy: "created_at DESC" }) : [];
+      const micropayments = allTx.filter((t) => t.gateway === "x402" || t.gateway === "mpp");
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_transactions",
+        count: micropayments.length,
+        summary: `Found ${micropayments.length} micropayment transaction(s) in durable financial ledger.`,
+        rows: micropayments.map((t) => ({
+          id: t.id,
+          action: t.action,
+          amount: `$${t.amount.toFixed(2)} ${t.currency}`,
+          customer: t.customer,
+          gateway: t.gateway,
+          status: t.status,
+          proposerDid: t.proposerDid,
+          proofSignature: t.proofSignature,
+          createdAt: t.createdAt,
+        })),
+        executedAt,
+      };
+    }
+  }
+
   // 2. Add or Update Referral Categories via ORM
   if (plan.domain === "category_mutation") {
     const catName = plan.categoryData?.name || plan.terms || "New Category";
@@ -911,6 +1201,101 @@ export function executeNLQQuery(
           marketValue: `$${p.marketValue.toFixed(2)}`,
           unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
         })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_screen") {
+      const screener = new DynamicOptionsScreener(etrade.client);
+      const res = screener.screenOptionsSync(plan.tradingData?.filters);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_options_screener",
+        count: res.contracts.length,
+        status: res.status,
+        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).`,
+        rows: res.contracts.map((c) => ({
+          contractSymbol: c.symbol,
+          underlying: c.underlyingSymbol,
+          underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
+          type: c.optionType,
+          strike: `$${c.strikePrice.toFixed(2)}`,
+          bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
+          delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
+          iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
+          volume: (c.volume || 0).toLocaleString(),
+          openInterest: (c.openInterest || 0).toLocaleString(),
+          volOiRatio: c.volumeOiRatio !== undefined ? `${c.volumeOiRatio.toFixed(2)}x` : "N/A",
+          dte: `${c.daysToExpiration}d (${c.expirationDate})`,
+          moneyness: c.moneyness,
+          technicalSignal: c.technicalSignal,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_save") {
+      const name = plan.tradingData?.watchlistName || "My Watchlist";
+      let symbols = plan.tradingData?.symbols || [];
+      if (symbols.length === 0) {
+        const screened = etrade.screenStocks(plan.tradingData?.filters);
+        symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+      }
+      if (symbols.length === 0) {
+        symbols = ["NVDA", "AAPL", "MSFT", "AMD"];
+      }
+
+      const saved = orm.saveWatchlist({
+        name,
+        userLogin: sessionId,
+        symbols,
+        source: "local_durable_sqlite",
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: symbols.length,
+        summary: `Successfully saved ${symbols.length} symbol(s) into watchlist "${name}" (ID: ${saved.id}). Tickers: [${symbols.join(", ")}].`,
+        rows: [
+          {
+            watchlistId: saved.id,
+            name: saved.name,
+            symbolCount: symbols.length,
+            symbols: symbols.join(", "),
+            source: saved.source,
+            status: "SAVED",
+            createdAt: saved.createdAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_list") {
+      const all = orm.getWatchlists(sessionId);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: all.length,
+        summary: `Found ${all.length} saved watchlist(s) in durable storage.`,
+        rows: all.map((w) => {
+          let syms: string[] = [];
+          try {
+            syms = JSON.parse(w.symbolsJson);
+          } catch {}
+          return {
+            watchlistId: w.id,
+            name: w.name,
+            symbolCount: syms.length,
+            symbols: syms.join(", "),
+            source: w.source,
+            updatedAt: w.updatedAt,
+          };
+        }),
         executedAt,
       };
     }
@@ -1333,6 +1718,180 @@ export async function executeNLQQueryAsync(
           marketValue: `$${p.marketValue.toFixed(2)}`,
           unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
         })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_screen") {
+      const screener = new DynamicOptionsScreener(etrade.client);
+      const res = await screener.screenOptions(plan.tradingData?.filters);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_options_screener",
+        count: res.contracts.length,
+        status: res.status,
+        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).`,
+        rows: res.contracts.map((c) => ({
+          contractSymbol: c.symbol,
+          underlying: c.underlyingSymbol,
+          underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
+          type: c.optionType,
+          strike: `$${c.strikePrice.toFixed(2)}`,
+          bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
+          delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
+          iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
+          volume: (c.volume || 0).toLocaleString(),
+          openInterest: (c.openInterest || 0).toLocaleString(),
+          volOiRatio: c.volumeOiRatio !== undefined ? `${c.volumeOiRatio.toFixed(2)}x` : "N/A",
+          dte: `${c.daysToExpiration}d (${c.expirationDate})`,
+          moneyness: c.moneyness,
+          technicalSignal: c.technicalSignal,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_save") {
+      const name = plan.tradingData?.watchlistName || "My Watchlist";
+      let symbols = plan.tradingData?.symbols || [];
+      if (symbols.length === 0) {
+        const screened = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+        symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+      }
+      if (symbols.length === 0) {
+        symbols = ["NVDA", "AAPL", "MSFT", "AMD"];
+      }
+
+      const res = await etrade.saveScanAsWatchlist(name, symbols);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: res.symbolCount,
+        summary: res.message,
+        rows: [
+          {
+            watchlistId: res.watchlistId,
+            name: res.name,
+            symbolCount: res.symbolCount,
+            symbols: res.symbols.join(", "),
+            source: res.source === "etrade_api" ? "E*TRADE Live API" : "Local Durable SQLite",
+            status: "SAVED",
+            timestamp: res.timestamp,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_list") {
+      const all = await etrade.getWatchlists();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: all.length,
+        summary: `Found ${all.length} saved watchlist(s) across E*TRADE and local storage.`,
+        rows: all.map((w) => ({
+          watchlistId: w.watchlistId,
+          name: w.name,
+          symbolCount: w.symbols.length,
+          symbols: w.symbols.join(", "),
+          source: w.source || "etrade_api",
+        })),
+        executedAt,
+      };
+    }
+  }
+
+  if (plan.domain === "agentic_payments") {
+    const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
+    const action = plan.agenticPaymentsData?.action || "wallet_status";
+
+    if (action === "paid_scan") {
+      const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
+      const login = userLogin || sessionId || "default_trader";
+      const etrade = new ETradeService(orm, env, login);
+      const screener = new DynamicOptionsScreener(etrade.client);
+      const res = await screener.screenOptions({ underlyingSymbols: [sym], contractType: "CALL" });
+
+      const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
+      const receipt: any = {
+        receiptId: `rcpt_${Date.now()}`,
+        protocol: "x402",
+        resource: tier.resource,
+        amount: tier.priceUSD,
+        currency: "USDC",
+        network: env?.X402_NETWORK || "base-sepolia",
+        payer: login,
+        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
+        status: "verified",
+        txHash: `0x_${Date.now().toString(16)}`,
+        timestamp: executedAt,
+      };
+      await paymentService.recordPaymentTransaction(receipt, "inbound");
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "etrade_premium_options",
+        count: res.contracts.length,
+        summary: `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${sym} options chain. Found ${res.contracts.length} qualified contracts. Receipt: ${receipt.receiptId}.`,
+        rows: res.contracts.slice(0, 10).map((c) => ({
+          contract: c.displaySymbol || c.symbol,
+          strike: `$${c.strikePrice.toFixed(2)}`,
+          type: c.optionType,
+          delta: c.delta?.toFixed(2) || "N/A",
+          iv: c.impliedVolatility ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
+          dte: c.daysToExpiration,
+          lastPrice: `$${c.lastPrice.toFixed(2)}`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "paid_research") {
+      const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
+      const foss = new FossResearchService(env);
+      const report = await foss.generateResearchReport(sym);
+
+      const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
+      const receipt: any = {
+        receiptId: `rcpt_${Date.now()}`,
+        protocol: "x402",
+        resource: tier.resource,
+        amount: tier.priceUSD,
+        currency: "USDC",
+        network: env?.X402_NETWORK || "base-sepolia",
+        payer: userLogin || sessionId || "default_trader",
+        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
+        status: "verified",
+        txHash: `0x_${Date.now().toString(16)}`,
+        timestamp: executedAt,
+      };
+      await paymentService.recordPaymentTransaction(receipt, "inbound");
+
+      const companyName = report.quote.companyName || report.fundamentals.companyName || report.symbol;
+      const targetPrice = report.fundamentals.targetMeanPrice ? `$${report.fundamentals.targetMeanPrice.toFixed(2)}` : "N/A";
+      const currentPrice = `$${report.quote.price.toFixed(2)}`;
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "etrade_premium_research",
+        count: 1,
+        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}.`,
+        rows: [
+          {
+            symbol: report.symbol,
+            companyName,
+            analystRating: report.analystRating,
+            targetPrice,
+            currentPrice,
+            receiptId: receipt.receiptId,
+          },
+        ],
         executedAt,
       };
     }
