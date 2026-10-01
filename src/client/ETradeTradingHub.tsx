@@ -285,8 +285,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       });
 
       if (resp.ok) {
-        const data = await resp.json() as { results?: ScreenedStockItem[]; scannedAt?: string };
-        setScreenerStocks(data.results || []);
+        const data = (await resp.json()) as any;
+        const list = Array.isArray(data.stocks) ? data.stocks : Array.isArray(data.results) ? data.results : [];
+        setScreenerStocks(list);
         setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
       }
     } catch {

@@ -1478,7 +1478,11 @@ Agentic Best Practices & Workflow Rules:
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         const results = await etrade.screenMarketsAsync(filters);
         this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
-        return Response.json(results);
+        return Response.json({
+          ...results,
+          results: results.stocks,
+          stocks: results.stocks,
+        });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
       }

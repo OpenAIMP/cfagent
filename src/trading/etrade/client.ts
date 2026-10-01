@@ -408,7 +408,7 @@ export class ETradeRestClient {
   /**
    * Fetches real live portfolio positions using dynamic account discovery
    */
-  async fetchPortfolio(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
+  async fetchPortfolio(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
     const envConfig = resolveEnvironmentConfig(this.env);
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       return null;
@@ -461,18 +461,65 @@ export class ETradeRestClient {
         daysGainPercent: Number(p.daysGainPct || 0),
       }));
 
+      let cashPower = 0;
+      let netVal = positions.reduce((sum, p) => sum + p.marketValue, 0);
+
+      if (includeBalance) {
+        const balance = await this.fetchBalance(key).catch(() => null);
+        if (balance?.netAccountValue && balance.netAccountValue > 0) netVal = balance.netAccountValue;
+        if (balance?.cashBuyingPower !== undefined) cashPower = balance.cashBuyingPower;
+      }
+
       const account: ETradeAccount = {
         accountId: key,
         accountKey: key,
         accountDesc: `E*TRADE Brokerage Account [${envConfig.label}]`,
         accountType: "MARGIN",
-        netAccountValue: positions.reduce((sum, p) => sum + p.marketValue, 0),
-        totalAccountValue: positions.reduce((sum, p) => sum + p.marketValue, 0),
-        cashAvailableForInvestment: 0,
+        netAccountValue: netVal,
+        totalAccountValue: netVal,
+        cashAvailableForInvestment: cashPower,
         dayTraderStatus: false,
       };
 
       return { account, positions };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetches real account balance (cash buying power, margin buying power, net account value)
+   */
+  async fetchBalance(accountKey: string): Promise<{ netAccountValue?: number; cashBuyingPower?: number; marginBuyingPower?: number } | null> {
+    const envConfig = resolveEnvironmentConfig(this.env);
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
+
+    const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?accountType=MARGIN&realTimeNAV=true`;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    const authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok) return null;
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const computed = data?.BalanceResponse?.Computed;
+      const cashBuyingPower = Number(computed?.cashBuyingPower ?? data?.BalanceResponse?.cashAvailableForInvestment ?? 0);
+      const marginBuyingPower = Number(computed?.marginBuyingPower ?? 0);
+      const netAccountValue = Number(computed?.RealTimeValues?.totalAccountValue ?? data?.BalanceResponse?.netAccountValue ?? 0);
+
+      return {
+        netAccountValue: netAccountValue > 0 ? netAccountValue : undefined,
+        cashBuyingPower: cashBuyingPower > 0 ? cashBuyingPower : undefined,
+        marginBuyingPower: marginBuyingPower > 0 ? marginBuyingPower : undefined,
+      };
     } catch {
       return null;
     }
