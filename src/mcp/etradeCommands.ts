@@ -49,8 +49,8 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const etrade = new ETradeService(context.env);
-    const result = await etrade.screenStocks(input);
+    const etrade = new ETradeService(context.orm, context.env);
+    const result = await etrade.screenMarketsAsync(input);
 
     context.audit("etrade.market_scanned", "trading", {
       matchedCount: result.matchedCount,
@@ -82,8 +82,8 @@ export class ETradeGetQuoteCommand implements IMcpToolCommand<{ symbol: string }
 
   async execute(input: { symbol: string }, context: McpToolContext) {
     const symbol = input.symbol.trim().toUpperCase();
-    const etrade = new ETradeService(context.env);
-    const quote = await etrade.getQuote(symbol);
+    const etrade = new ETradeService(context.orm, context.env);
+    const quote = await etrade.getQuoteAsync(symbol);
 
     context.audit("etrade.quote_fetched", "trading", {
       symbol: quote.symbol,
@@ -227,8 +227,8 @@ export class ETradeGetPositionsCommand implements IMcpToolCommand<{}> {
 
   async execute(_input: any, context: McpToolContext) {
     const etrade = new ETradeService(context.orm, context.env);
-    const { account, positions } = etrade.getPositions();
-    const accounts = etrade.getAccounts();
+    const { account, positions } = await etrade.fetchPortfolioRemote();
+    const accounts = await etrade.fetchAccountsRemote();
 
     return {
       account,

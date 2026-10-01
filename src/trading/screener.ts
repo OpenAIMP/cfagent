@@ -331,7 +331,14 @@ export class DynamicMarketScreener implements IMarketScreener {
     }
 
     if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
-      filtered = filtered.filter((s) => s.sector?.toLowerCase() === filter.sector?.toLowerCase());
+      const sec = filter.sector.toLowerCase();
+      filtered = filtered.filter((s) => {
+        const itemSec = s.sector?.toLowerCase() || "";
+        if (sec === "tech" || sec === "technology") {
+          return itemSec === "technology" || itemSec === "semiconductors";
+        }
+        return itemSec === sec;
+      });
       summaryParts.push(`Sector: ${filter.sector}`);
     }
 
