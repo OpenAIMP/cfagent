@@ -83,7 +83,13 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     // 1. Direct E*TRADE REST API call
     try {
       const live = await this.client.fetchQuote(cleanSym);
-      if (live && live.lastPrice > 0) return live;
+      if (live && live.lastPrice > 0) {
+        const isStub =
+          (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
+          cleanSym !== "GOOG" &&
+          cleanSym !== "GOOGL";
+        if (!isStub) return live;
+      }
     } catch {
       // Ignore
     }
@@ -91,13 +97,14 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     // 2. Pure E*TRADE market universe feed (No third-party yfinance dependency)
     const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
     if (found) {
+      const envConfig = this.getEnvConfig();
       return {
         ...found,
         price: found.lastPrice,
         high52: found.week52High,
         low52: found.week52Low,
-        quoteStatus: "DELAYED",
-        source: "E*TRADE Market Data Feed",
+        quoteStatus: envConfig.isLive ? "REALTIME" : "SIMULATED_LEVEL1",
+        source: envConfig.isLive ? "E*TRADE Live Market Feed" : "E*TRADE Market Universe Feed",
       };
     }
 

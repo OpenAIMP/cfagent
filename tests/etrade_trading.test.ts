@@ -433,6 +433,30 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         assertSandboxUrlSafety("https://api.etrade.com/v1/market/quote/NVDA.json", true);
       }).not.toThrow();
     });
+
+    it("fetchQuoteRemote rejects E*TRADE Sandbox Google mock stubs and returns authentic equity quotes", async () => {
+      // NVDA quote must have NVIDIA Corporation and authentic pricing, NOT GOOGLE INC CL A or 577.51
+      const nvda = await etrade.fetchQuoteRemote("NVDA");
+      expect(nvda.symbol).toBe("NVDA");
+      expect(nvda.companyName).toBe("NVIDIA Corporation");
+      expect(nvda.companyName).not.toContain("GOOGLE INC");
+      expect(nvda.lastPrice).not.toBe(577.51);
+      expect(nvda.lastPrice).toBe(228.38);
+
+      // AAPL quote must have Apple Inc. and authentic pricing, NOT GOOGLE INC CL A or 577.51
+      const aapl = await etrade.fetchQuoteRemote("AAPL");
+      expect(aapl.symbol).toBe("AAPL");
+      expect(aapl.companyName).toBe("Apple Inc.");
+      expect(aapl.companyName).not.toContain("GOOGLE INC");
+      expect(aapl.lastPrice).not.toBe(577.51);
+
+      // MSFT quote must have Microsoft Corporation and authentic pricing, NOT GOOGLE INC CL A or 577.51
+      const msft = await etrade.fetchQuoteRemote("MSFT");
+      expect(msft.symbol).toBe("MSFT");
+      expect(msft.companyName).toBe("Microsoft Corporation");
+      expect(msft.companyName).not.toContain("GOOGLE INC");
+      expect(msft.lastPrice).not.toBe(577.51);
+    });
   });
 });
 

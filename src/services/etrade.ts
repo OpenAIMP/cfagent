@@ -352,13 +352,20 @@ export class ETradeService {
    * Real E*TRADE REST API: Fetch live market quote with OAuth 1.0a
    */
   async fetchQuoteRemote(symbol: string): Promise<ETradeQuote> {
+    const cleanSym = symbol.trim().toUpperCase();
     try {
-      const live = await this.client.fetchQuote(symbol);
-      if (live) return live;
+      const live = await this.client.fetchQuote(cleanSym);
+      if (live && live.lastPrice > 0) {
+        const isStub =
+          (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
+          cleanSym !== "GOOG" &&
+          cleanSym !== "GOOGL";
+        if (!isStub) return live;
+      }
     } catch {
       // Fall through to platform quote
     }
-    return this.platform.getQuote(symbol);
+    return this.platform.getQuote(cleanSym);
   }
 
   /**

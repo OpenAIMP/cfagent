@@ -378,16 +378,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         headers: { "x-environment": activeEnv },
       });
       if (resp.ok) {
-        const data = await resp.json() as ETradeQuote;
-        setOrderQuote(data);
-        if (orderType === "LIMIT") {
-          // Align limit price with order direction: Buy -> Ask; Sell -> Bid
-          if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && data.ask > 0) {
-            setOrderLimitPrice(data.ask.toFixed(2));
-          } else if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && data.bid > 0) {
-            setOrderLimitPrice(data.bid.toFixed(2));
-          } else if (data.lastPrice > 0) {
-            setOrderLimitPrice(data.lastPrice.toFixed(2));
+        const data = (await resp.json()) as ETradeQuote;
+        if (data && data.symbol === sym) {
+          setOrderQuote(data);
+          if (orderType === "LIMIT") {
+            // Align limit price with order direction: Buy -> Ask; Sell -> Bid
+            if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && data.ask > 0) {
+              setOrderLimitPrice(data.ask.toFixed(2));
+            } else if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && data.bid > 0) {
+              setOrderLimitPrice(data.bid.toFixed(2));
+            } else if (data.lastPrice > 0) {
+              setOrderLimitPrice(data.lastPrice.toFixed(2));
+            }
           }
         }
       }
@@ -401,8 +403,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const handleOpenInspectQuote = async (sym: string, existingStock?: ScreenedStockItem) => {
     setInspectSymbol(sym);
     setInspectLoading(true);
-    if (existingStock) {
-      setInspectQuote(existingStock as any);
+    const initialStock = existingStock || screenerStocks.find((s) => s.symbol === sym);
+    if (initialStock) {
+      setInspectQuote(initialStock as any);
     } else {
       setInspectQuote(null);
     }
@@ -411,8 +414,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         headers: { "x-environment": activeEnv },
       });
       if (resp.ok) {
-        const data = await resp.json() as ETradeQuote;
-        setInspectQuote(data);
+        const data = (await resp.json()) as ETradeQuote;
+        if (data && data.symbol === sym) {
+          setInspectQuote(data);
+        }
       }
     } catch {
       // Ignore

@@ -16,6 +16,7 @@ import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
+import { EXPANDED_MARKET_UNIVERSE } from "../screener";
 
 export class ETradeRestClient {
   constructor(private env: Env, private userLogin: string = "default_trader", private overrideEnv?: string) {}
@@ -107,15 +108,45 @@ export class ETradeRestClient {
       const quoteData = quoteItem?.All || quoteItem?.Product;
       if (!quoteData) return null;
 
+      const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
+      const rawCompanyName = String(quoteData?.companyName || "").trim();
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.bid || 0);
       if (price <= 0) return null;
+
+      // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
+      const isGoogleStub =
+        price === 577.51 ||
+        returnedSym === "GOOG" ||
+        returnedSym === "GOOGL" ||
+        rawCompanyName.toUpperCase().includes("GOOGLE INC");
+
+      if (isGoogleStub && sym !== "GOOG" && sym !== "GOOGL") {
+        // Reject sandbox dummy Google mock response for non-Google equities
+        return null;
+      }
+
+      if (!envConfig.isLive && price === 577.51) {
+        // Discard 2014 legacy static sandbox price
+        return null;
+      }
+
+      if (returnedSym && returnedSym !== sym) {
+        // Symbol mismatch: E*TRADE returned a different symbol than requested
+        return null;
+      }
 
       const quoteStatus = String(quoteItem?.quoteStatus || quoteData?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
       const dateTime = String(quoteItem?.dateTime || quoteData?.dateTime || new Date().toISOString());
 
+      const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
+      let companyName = rawCompanyName;
+      if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
+        companyName = knownStock?.companyName || `${sym} Inc.`;
+      }
+
       return {
         symbol: sym,
-        companyName: quoteData.companyName || `${sym} Inc.`,
+        companyName,
         lastPrice: price,
         price,
         change: Number(quoteData.changeClose || 0),
@@ -199,14 +230,20 @@ export class ETradeRestClient {
       return rawList
         .map((item: any) => {
           const qd = item?.All || item?.Product;
-          const sym = String(item?.Product?.symbol || qd?.symbol || "");
+          const sym = String(item?.Product?.symbol || qd?.symbol || "").toUpperCase().trim();
           const price = Number(qd?.lastTrade || qd?.price || qd?.bid || 0);
+          const rawCompany = String(qd?.companyName || "").trim();
+          const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
+          let companyName = rawCompany;
+          if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
+            companyName = knownStock?.companyName || `${sym} Inc.`;
+          }
           const quoteStatus = String(item?.quoteStatus || qd?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
           const dateTime = String(item?.dateTime || qd?.dateTime || new Date().toISOString());
 
           return {
             symbol: sym,
-            companyName: qd?.companyName || `${sym} Inc.`,
+            companyName,
             lastPrice: price,
             price,
             change: Number(qd?.changeClose || 0),
@@ -230,7 +267,17 @@ export class ETradeRestClient {
             timestamp: dateTime,
           };
         })
-        .filter((q: ETradeQuote) => q.symbol && q.lastPrice > 0);
+        .filter((q: ETradeQuote) => {
+          if (!q.symbol || q.lastPrice <= 0) return false;
+          if (!cleanSyms.includes(q.symbol)) return false;
+          if ((q.companyName.toUpperCase().includes("GOOGLE INC") || q.lastPrice === 577.51) && q.symbol !== "GOOG" && q.symbol !== "GOOGL") {
+            return false;
+          }
+          if (!envConfig.isLive && q.lastPrice === 577.51) {
+            return false;
+          }
+          return true;
+        });
     } catch {
       return [];
     }

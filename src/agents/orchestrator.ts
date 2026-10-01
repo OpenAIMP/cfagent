@@ -1441,7 +1441,8 @@ Agentic Best Practices & Workflow Rules:
     // Environment & E*TRADE Trading APIs
     // ==========================================
 
-    const requestedEnv = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase() || undefined;
+    const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
+    const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
 
     // Environment Switcher API (allows client to toggle between Sandbox TEST and Live PROD)
     if (path.endsWith("/environment/switch") && request.method === "POST") {
@@ -1473,7 +1474,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/etrade/accounts") && request.method === "GET") {
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const accounts = await etrade.fetchAccountsRemote();
         return Response.json({ count: accounts.length, accounts });
       } catch (err) {
@@ -1493,7 +1494,7 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
         }
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const results = await etrade.screenMarketsAsync(filters);
         this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
         return Response.json({
@@ -1512,7 +1513,7 @@ Agentic Best Practices & Workflow Rules:
         const rawSym = url.searchParams.get("symbol") || "NVDA";
         const symbol = rawSym.toUpperCase().trim() || "NVDA";
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const quote = await etrade.fetchQuoteRemote(symbol);
         return Response.json(quote, {
           headers: {
@@ -1544,7 +1545,7 @@ Agentic Best Practices & Workflow Rules:
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const preview = await etrade.previewOrderRemote({
           sessionId,
           symbol,
@@ -1646,7 +1647,7 @@ Agentic Best Practices & Workflow Rules:
         const orderType = existingRecord.orderType || "MARKET";
         const limitPrice = existingRecord.orderType === "LIMIT" ? existingRecord.price : undefined;
 
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         let result: any;
 
         if (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY) {
@@ -1690,7 +1691,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/etrade/positions") && request.method === "GET") {
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const holdings = await etrade.fetchPortfolioRemote();
         return Response.json(holdings);
       } catch (err) {
