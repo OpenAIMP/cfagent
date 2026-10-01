@@ -352,6 +352,109 @@ export class ETradeRestClient {
   }
 
   /**
+   * Orders API: Preview Order
+   * POST /v1/accounts/{accountIdKey}/orders/preview
+   */
+  async previewOrder(
+    accountKey: string,
+    params: {
+      orderId: string;
+      symbol: string;
+      action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+      quantity: number;
+      orderType?: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
+      limitPrice?: number;
+      stopPrice?: number;
+      orderTerm?: "GOOD_FOR_DAY" | "GOOD_UNTIL_CANCEL" | "IMMEDIATE_OR_CANCEL";
+    }
+  ): Promise<{ previewId: string; estimatedTotal?: number; estimatedCommission?: number; message?: string } | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/orders/preview`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/orders/preview.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("POST", url);
+
+    const body = {
+      PreviewOrderRequest: {
+        orderType: "EQ",
+        clientOrderId: params.orderId,
+        Order: [
+          {
+            allOrNone: false,
+            priceType: params.orderType || "MARKET",
+            ...(params.limitPrice ? { limitPrice: params.limitPrice } : {}),
+            ...(params.stopPrice ? { stopPrice: params.stopPrice } : {}),
+            orderTerm: params.orderTerm || "GOOD_FOR_DAY",
+            marketSession: "REGULAR",
+            Instrument: [
+              {
+                Product: {
+                  securityType: "EQ",
+                  symbol: params.symbol,
+                },
+                orderAction: params.action,
+                quantityType: "QUANTITY",
+                quantity: params.quantity,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    try {
+      let res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("POST", url);
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Preview Order API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "previewOrder", errorText);
+        return null;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const previewId = data?.PreviewOrderResponse?.PreviewIds?.[0]?.previewId;
+      const orderResp = data?.PreviewOrderResponse?.Order?.[0];
+      return {
+        previewId: String(previewId || `prev_${crypto.randomUUID().slice(0, 8)}`),
+        estimatedTotal: orderResp?.estimatedTotalAmount !== undefined ? Number(orderResp.estimatedTotalAmount) : undefined,
+        estimatedCommission: orderResp?.estimatedCommission !== undefined ? Number(orderResp.estimatedCommission) : undefined,
+        message: data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description,
+      };
+    } catch (err: any) {
+      console.warn("[ETradeClient] previewOrder error:", err);
+      return null;
+    }
+  }
+
+  /**
    * Places an equity order via E*TRADE REST API with OAuth 1.0a
    */
   async placeOrder(params: {

@@ -460,6 +460,35 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/orders");
     });
 
+    it("18b. POST /v1/accounts/{accountIdKey}/orders/preview", async () => {
+      await storeAccessTokens(env, userLogin, "valid_token", "valid_secret");
+      const client = new ETradeRestClient(env, userLogin);
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            PreviewOrderResponse: {
+              PreviewIds: [{ previewId: "prev_init_123" }],
+              Order: [{ estimatedTotalAmount: 1450.50, estimatedCommission: 0.0 }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const res = await client.previewOrder("KEY_12345", {
+        orderId: "client_prev_1",
+        symbol: "NVDA",
+        action: "BUY",
+        quantity: 10,
+        orderType: "MARKET",
+      });
+
+      expect(res?.previewId).toBe("prev_init_123");
+      expect(res?.estimatedTotal).toBe(1450.50);
+      expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/orders/preview");
+    });
+
     it("19. POST /v1/accounts/{accountIdKey}/orders/place", async () => {
       await storeAccessTokens(env, userLogin, "valid_token", "valid_secret");
       const client = new ETradeRestClient(env, userLogin);

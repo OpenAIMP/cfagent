@@ -2403,6 +2403,25 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       <div style={{ marginTop: "0.35rem", fontFamily: "ui-monospace, monospace", wordBreak: "break-all" }}>
                         {diagnostics.lastError}
                       </div>
+                      {diagnostics.lastError.includes("only in SANDBOX environment") && (
+                        <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(239, 68, 68, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                          <span style={{ color: "#fbbf24", fontWeight: 600 }}>
+                            💡 This Consumer Key belongs to E*TRADE Sandbox (apisb.etrade.com). Switch to TEST to test with this key!
+                          </span>
+                          <button
+                            type="button"
+                            className="btn-env-toggle active-env"
+                            style={{ background: "#0ea5e9", color: "#fff", padding: "0.4rem 0.8rem", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: 700 }}
+                            onClick={async () => {
+                              setShowDiagnosticsModal(false);
+                              await handleSwitchEnvironment("TEST");
+                              await runDiagnostics("TEST");
+                            }}
+                          >
+                            🧪 Switch to TEST &amp; Re-run
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
