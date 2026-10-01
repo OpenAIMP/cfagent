@@ -11,7 +11,7 @@
 import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradeOrderExecutionResult } from "../../types";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
-import { getValidTokens } from "../../security/etradeOAuth";
+import { getValidTokens, revokeStoredTokens } from "../../security/etradeOAuth";
 import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
@@ -22,6 +22,17 @@ export class ETradeRestClient {
   public lastError?: string;
 
   constructor(private env: Env, private userLogin: string = "default_trader", private overrideEnv?: string) {}
+
+  private handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): void {
+    if (status === 401 || status === 403) {
+      const envConfig = this.getEnvConfig();
+      this.lastError = `E*TRADE Session Expired [HTTP ${status}]: Token rejected on ${endpoint} [${envConfig.name}]. Please reconnect account.`;
+      console.warn(`[ETradeClient] Token rejected HTTP ${status} on ${endpoint}: ${errorBody}`);
+      if (this.userLogin) {
+        revokeStoredTokens(this.env, this.userLogin, this.overrideEnv).catch(() => {});
+      }
+    }
+  }
 
   public getLastError(): string | undefined {
     return this.lastError;
@@ -110,6 +121,10 @@ export class ETradeRestClient {
       });
 
       if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] fetchQuote HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "quote", errorText);
         return null;
       }
 
@@ -593,6 +608,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Accounts API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchAccounts HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "accounts", errorText);
         return [];
       }
 
@@ -657,6 +673,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Portfolio API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchPortfolio HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "portfolio", errorText);
         return null;
       }
 
@@ -762,6 +779,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Balance API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchBalance HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "balance", errorText);
         return null;
       }
 
