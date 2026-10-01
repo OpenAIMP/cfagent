@@ -354,6 +354,26 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(result.stocks[0].price).toBeGreaterThan(0);
       expect(result.stocks[0].marketCap).toBeGreaterThan(0);
     });
+
+    it("NLQ classifies 'Preview buy 10 shares of NVDA at market' and executeNLQQueryAsync drafts order with live quote", async () => {
+      const { executeNLQQueryAsync } = await import("../src/agents/nlq");
+      const plan = await planNLQ(mockEnv, "Preview buy 10 shares of NVDA at market");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("preview_order");
+      expect(plan.tradingData?.symbol).toBe("NVDA");
+      expect(plan.tradingData?.quantity).toBe(10);
+
+      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv);
+      expect(result.domain).toBe("trading");
+      expect(result.count).toBe(1);
+      const row = result.rows[0];
+      expect(row.symbol).toBe("NVDA");
+      expect(row.quantity).toBe(10);
+      expect(row.action).toBe("BUY");
+      expect(row.estimatedPrice).toBeDefined();
+      expect(row.estimatedTotal).toBeDefined();
+      expect(row.status).toBe("PREVIEWED");
+    });
   });
 
   // =========================================================================

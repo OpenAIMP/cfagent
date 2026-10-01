@@ -785,6 +785,45 @@ export async function executeNLQQueryAsync(
       };
     }
 
+    if (action === "preview_order") {
+      const sym = (plan.tradingData?.symbol || "NVDA").toUpperCase();
+      const qty = plan.tradingData?.quantity || 10;
+      const orderAction = plan.tradingData?.orderAction || "BUY";
+      const draft = await etrade.previewOrderRemote({
+        sessionId,
+        symbol: sym,
+        orderAction,
+        quantity: qty,
+        orderType: plan.tradingData?.orderType || "MARKET",
+        limitPrice: plan.tradingData?.limitPrice,
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
+        rows: [
+          {
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
+            estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
+            commission: `$${draft.estimatedCommission.toFixed(2)}`,
+            proposerDid: draft.proposerDid,
+            status: draft.status.toUpperCase(),
+            safetyGuarantee: "No live trade submitted. Human approval required.",
+            authorizationPrompt: `Reply 'approve ${draft.orderId}' or execute via Trading Hub.`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
     if (action === "positions") {
       const posRes = await etrade.fetchPortfolioRemote();
       return {
