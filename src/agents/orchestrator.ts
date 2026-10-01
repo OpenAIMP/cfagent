@@ -1548,7 +1548,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/etrade/order/execute") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        const orderId = (body.orderId || "").trim();
+        const orderId = (body.orderId || body.draftId || "").trim();
         const decision = body.decision || "approved";
 
         if (!orderId) {
@@ -1560,15 +1560,22 @@ Agentic Best Practices & Workflow Rules:
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin);
         let result: any;
 
+        const existingRecord = this.getOrm().trades?.findById(orderId);
+        const symbol = (body.symbol || existingRecord?.symbol || "NVDA").toUpperCase();
+        const action = (body.action || existingRecord?.action || "BUY") as any;
+        const quantity = Number(body.quantity || existingRecord?.quantity || 1);
+        const orderType = body.orderType || existingRecord?.orderType || "MARKET";
+        const limitPrice = body.limitPrice ?? existingRecord?.limitPrice;
+
         if (decision === "approved" && (this.env.ETRADE_CONSUMER_KEY || this.env.ETRADE_MCP_SERVER_URL || this.env.ET_API_KEY)) {
           result = await etrade.placeOrderRemote({
             orderId,
-            symbol: body.symbol || "NVDA",
-            action: body.action || "BUY",
-            quantity: Number(body.quantity || 1),
-            orderType: body.orderType || "MARKET",
-            limitPrice: body.limitPrice,
-            previewId: body.previewId,
+            symbol,
+            action,
+            quantity,
+            orderType,
+            limitPrice,
+            previewId: body.previewId || existingRecord?.orderId,
             userLogin,
           });
         } else {

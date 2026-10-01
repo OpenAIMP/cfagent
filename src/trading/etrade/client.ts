@@ -203,7 +203,16 @@ export class ETradeRestClient {
     // 2. Direct E*TRADE OAuth 1.0a REST API Execution
     if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
-        const url = `${envConfig.etrade.baseUrl}/accounts/${accountKey}/orders/place.json`;
+        let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+        if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) {
+          key = "";
+        }
+        if (!key) {
+          const accounts = await this.fetchAccounts();
+          key = accounts[0]?.accountKey || "";
+        }
+
+        const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place.json`;
         assertSandboxUrlSafety(url, envConfig.isLive);
         const authHeader = await this.generateOAuthHeader("POST", url);
 

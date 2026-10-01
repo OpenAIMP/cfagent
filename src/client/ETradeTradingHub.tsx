@@ -392,7 +392,17 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       const resp = await fetch("/api/etrade/order/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draftId, decision }),
+        body: JSON.stringify({
+          orderId: draftId,
+          draftId,
+          decision,
+          symbol: activeDraft?.symbol,
+          action: activeDraft?.orderAction || (activeDraft as any)?.action,
+          quantity: activeDraft?.quantity,
+          orderType: activeDraft?.orderType,
+          limitPrice: activeDraft?.limitPrice,
+          previewId: activeDraft?.orderId,
+        }),
       });
 
       const data = await resp.json() as ETradeOrderExecutionResult;
