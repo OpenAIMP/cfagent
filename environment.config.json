@@ -1,5 +1,5 @@
 {
-  "environment": "TEST",
+  "environment": "PROD",
   "_comment": "Change 'environment' to 'TEST' or 'PROD' to switch the active GitHub environment. GitHub Actions will pull ET_API_KEY, ET_API_SECRET, and ET_BASE_URL from the matching environment's secrets.",
   "environments": {
     "TEST": {

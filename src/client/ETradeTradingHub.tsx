@@ -105,7 +105,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       const stored = localStorage.getItem("cfagent_env");
       if (stored === "TEST" || stored === "PROD") return stored;
     }
-    return "TEST";
+    return "PROD";
   });
 
   const handleSwitchEnvironment = async (target: "TEST" | "PROD") => {
