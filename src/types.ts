@@ -328,6 +328,7 @@ export interface ETradeOrderDraft {
   authorizerDid: string;
   proofSignature: string;
   previewMessage: string;
+  previewNotes?: string;
   safetyNotice?: string;
   placedAt?: string;
 }

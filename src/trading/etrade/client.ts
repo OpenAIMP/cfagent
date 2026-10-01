@@ -256,101 +256,112 @@ export class ETradeRestClient {
       return [];
     }
 
-    const maxCount = 50;
-    const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean).slice(0, maxCount);
+    const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean);
     if (!cleanSyms.length) return [];
 
-    const qs = cleanSyms.length > 25 || options?.overrideSymbolCount ? "?overrideSymbolCount=true" : "";
-    const symList = cleanSyms.map((s) => encodeURIComponent(s)).join(",");
-    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}${qs}`;
-    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}.json${qs}`;
+    const uniqueSyms = Array.from(new Set(cleanSyms));
+    const batchSize = 50;
+    const batches: string[][] = [];
+    for (let i = 0; i < uniqueSyms.length; i += batchSize) {
+      batches.push(uniqueSyms.slice(i, i + batchSize));
+    }
 
-    let url = primaryUrl;
-    assertSandboxUrlSafety(url, envConfig.isLive);
-    let authHeader = await this.generateOAuthHeader("GET", url);
+    const fetchBatch = async (batchSyms: string[]): Promise<ETradeQuote[]> => {
+      const qs = batchSyms.length > 25 || options?.overrideSymbolCount ? "?overrideSymbolCount=true" : "";
+      const symList = batchSyms.map((s) => encodeURIComponent(s)).join(",");
+      const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}${qs}`;
+      const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${symList}.json${qs}`;
 
-    try {
-      let res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: authHeader,
-          Accept: "application/json",
-        },
-      });
+      let url = primaryUrl;
+      assertSandboxUrlSafety(url, envConfig.isLive);
+      let authHeader = await this.generateOAuthHeader("GET", url);
 
-      if (!res.ok && (res.status === 404 || res.status === 400)) {
-        url = fallbackUrl;
-        assertSandboxUrlSafety(url, envConfig.isLive);
-        authHeader = await this.generateOAuthHeader("GET", url);
-        res = await fetch(url, {
+      try {
+        let res = await fetch(url, {
           method: "GET",
           headers: {
             Authorization: authHeader,
             Accept: "application/json",
           },
         });
+
+        if (!res.ok && (res.status === 404 || res.status === 400)) {
+          url = fallbackUrl;
+          assertSandboxUrlSafety(url, envConfig.isLive);
+          authHeader = await this.generateOAuthHeader("GET", url);
+          res = await fetch(url, {
+            method: "GET",
+            headers: {
+              Authorization: authHeader,
+              Accept: "application/json",
+            },
+          });
+        }
+
+        if (!res.ok) return [];
+
+        const data = (await res.json().catch(() => ({}))) as any;
+        const rawList = data?.QuoteResponse?.QuoteData;
+        if (!Array.isArray(rawList)) return [];
+
+        return rawList
+          .map((item: any) => {
+            const qd = item?.All || item?.Product;
+            const sym = String(item?.Product?.symbol || qd?.symbol || "").toUpperCase().trim();
+            const price = Number(qd?.lastTrade || qd?.price || qd?.close || qd?.previousClose || qd?.bid || 0);
+            const rawCompany = String(qd?.companyName || "").trim();
+            const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
+            let companyName = rawCompany;
+            if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
+              companyName = knownStock?.companyName || `${sym} Inc.`;
+            }
+            const quoteStatus = String(item?.quoteStatus || qd?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
+            const dateTime = String(item?.dateTime || qd?.dateTime || new Date().toISOString());
+
+            return {
+              symbol: sym,
+              companyName,
+              lastPrice: price,
+              price,
+              change: Number(qd?.changeClose || (price && qd?.previousClose ? price - Number(qd.previousClose) : 0)),
+              changePercent: Number(qd?.changeClosePercentage || 0),
+              bid: Number(qd?.bid || price),
+              ask: Number(qd?.ask || price),
+              volume: Number(qd?.totalVolume || 0),
+              open: Number(qd?.open || price),
+              high: Number(qd?.high || price),
+              low: Number(qd?.low || price),
+              peRatio: Number(qd?.pe || 0),
+              marketCap: Number(qd?.marketCap || 0) / 1e9,
+              week52High: Number(qd?.high52 || 0),
+              week52Low: Number(qd?.low52 || 0),
+              high52: Number(qd?.high52 || 0),
+              low52: Number(qd?.low52 || 0),
+              rsi: 50.0,
+              quoteStatus,
+              dateTime,
+              source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
+              timestamp: dateTime,
+            };
+          })
+          .filter((q: ETradeQuote) => {
+            if (!q.symbol || q.lastPrice <= 0) return false;
+            if (!batchSyms.includes(q.symbol)) return false;
+            if ((q.companyName.toUpperCase().includes("GOOGLE INC") || q.lastPrice === 577.51) && q.symbol !== "GOOG" && q.symbol !== "GOOGL") {
+              return false;
+            }
+            if (!envConfig.isLive && q.lastPrice === 577.51) {
+              return false;
+            }
+            return true;
+          });
+      } catch {
+        return [];
       }
+    };
 
-      if (!res.ok) return [];
-
-      const data = (await res.json().catch(() => ({}))) as any;
-      const rawList = data?.QuoteResponse?.QuoteData;
-      if (!Array.isArray(rawList)) return [];
-
-      return rawList
-        .map((item: any) => {
-          const qd = item?.All || item?.Product;
-          const sym = String(item?.Product?.symbol || qd?.symbol || "").toUpperCase().trim();
-          const price = Number(qd?.lastTrade || qd?.price || qd?.close || qd?.previousClose || qd?.bid || 0);
-          const rawCompany = String(qd?.companyName || "").trim();
-          const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
-          let companyName = rawCompany;
-          if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
-            companyName = knownStock?.companyName || `${sym} Inc.`;
-          }
-          const quoteStatus = String(item?.quoteStatus || qd?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
-          const dateTime = String(item?.dateTime || qd?.dateTime || new Date().toISOString());
-
-          return {
-            symbol: sym,
-            companyName,
-            lastPrice: price,
-            price,
-            change: Number(qd?.changeClose || (price && qd?.previousClose ? price - Number(qd.previousClose) : 0)),
-            changePercent: Number(qd?.changeClosePercentage || 0),
-            bid: Number(qd?.bid || price),
-            ask: Number(qd?.ask || price),
-            volume: Number(qd?.totalVolume || 0),
-            open: Number(qd?.open || price),
-            high: Number(qd?.high || price),
-            low: Number(qd?.low || price),
-            peRatio: Number(qd?.pe || 0),
-            marketCap: Number(qd?.marketCap || 0) / 1e9,
-            week52High: Number(qd?.high52 || 0),
-            week52Low: Number(qd?.low52 || 0),
-            high52: Number(qd?.high52 || 0),
-            low52: Number(qd?.low52 || 0),
-            rsi: 50.0,
-            quoteStatus,
-            dateTime,
-            source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
-            timestamp: dateTime,
-          };
-        })
-        .filter((q: ETradeQuote) => {
-          if (!q.symbol || q.lastPrice <= 0) return false;
-          if (!cleanSyms.includes(q.symbol)) return false;
-          if ((q.companyName.toUpperCase().includes("GOOGLE INC") || q.lastPrice === 577.51) && q.symbol !== "GOOG" && q.symbol !== "GOOGL") {
-            return false;
-          }
-          if (!envConfig.isLive && q.lastPrice === 577.51) {
-            return false;
-          }
-          return true;
-        });
-    } catch {
-      return [];
-    }
+    const results = await Promise.all(batches.map((b) => fetchBatch(b)));
+    return results.flat();
   }
 
   /**
@@ -459,22 +470,25 @@ export class ETradeRestClient {
       try {
         data = JSON.parse(rawText);
       } catch {
-        const pIdMatch = rawText.match(/<previewId>\s*([^<\s]+)\s*<\/previewId>/i);
-        const estTotalMatch = rawText.match(/<estimatedTotalAmount>\s*([^<\s]+)\s*<\/estimatedTotalAmount>/i);
-        const estCommMatch = rawText.match(/<estimatedCommission>\s*([^<\s]+)\s*<\/estimatedCommission>/i);
-        const msgMatch = rawText.match(/<description>([^<]+)<\/description>/i) || rawText.match(/<message>([^<]+)<\/message>/i);
-        if (pIdMatch) {
-          data = {
-            PreviewOrderResponse: {
-              PreviewIds: [{ previewId: pIdMatch[1] }],
-              Order: [{
-                estimatedTotalAmount: estTotalMatch ? Number(estTotalMatch[1]) : undefined,
-                estimatedCommission: estCommMatch ? Number(estCommMatch[1]) : undefined,
-              }],
-              messageList: msgMatch ? { Message: [{ description: msgMatch[1] }] } : undefined,
-            },
-          };
-        }
+        const pIdMatch = rawText.match(/<previewId[^>]*>\s*([^<\s]+)\s*<\/previewId>/i) ||
+          rawText.match(/&lt;previewId[^&]*&gt;\s*([^&<\s]+)\s*&lt;\/previewId&gt;/i);
+        const estTotalMatch = rawText.match(/<estimatedTotalAmount[^>]*>\s*([^<\s]+)\s*<\/estimatedTotalAmount>/i);
+        const estCommMatch = rawText.match(/<estimatedCommission[^>]*>\s*([^<\s]+)\s*<\/estimatedCommission>/i);
+        const msgMatch = rawText.match(/<description[^>]*>([^<]+)<\/description>/i) ||
+          rawText.match(/<message[^>]*>([^<]+)<\/message>/i) ||
+          rawText.match(/<error[^>]*>([^<]+)<\/error>/i);
+
+        data = {
+          PreviewOrderResponse: {
+            PreviewIds: pIdMatch ? [{ previewId: pIdMatch[1] }] : undefined,
+            Order: [{
+              estimatedTotalAmount: estTotalMatch ? Number(estTotalMatch[1]) : undefined,
+              estimatedCommission: estCommMatch ? Number(estCommMatch[1]) : undefined,
+            }],
+            messageList: msgMatch ? { Message: [{ description: msgMatch[1] }] } : undefined,
+          },
+          Error: msgMatch ? { message: msgMatch[1] } : undefined,
+        };
       }
 
       if (!res.ok) {
@@ -484,7 +498,7 @@ export class ETradeRestClient {
         } else if (data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description) {
           errDesc = data.PreviewOrderResponse.messageList.Message[0].description;
         } else {
-          const xmlMsg = rawText.match(/<message>([^<]+)<\/message>/i) || rawText.match(/<description>([^<]+)<\/description>/i);
+          const xmlMsg = rawText.match(/<message[^>]*>([^<]+)<\/message>/i) || rawText.match(/<description[^>]*>([^<]+)<\/description>/i);
           if (xmlMsg) errDesc = xmlMsg[1];
         }
         const finalMsg = errDesc || rawText.slice(0, 200) || res.statusText;
@@ -493,36 +507,70 @@ export class ETradeRestClient {
         return null;
       }
 
-      let rawPreviewId: any = data?.PreviewOrderResponse?.PreviewIds ||
-        data?.previewOrderResponse?.PreviewIds ||
-        data?.PreviewOrderResponse?.previewIds ||
-        data?.previewOrderResponse?.previewIds ||
-        data?.PreviewOrderResponse?.previewId ||
-        data?.previewOrderResponse?.previewId;
+      let rawPreviewId: any = data?.PreviewOrderResponse?.PreviewIds ??
+        data?.PreviewOrderResponse?.PreviewId ??
+        data?.PreviewOrderResponse?.previewIds ??
+        data?.PreviewOrderResponse?.previewId ??
+        data?.previewOrderResponse?.PreviewIds ??
+        data?.previewOrderResponse?.previewIds ??
+        data?.previewOrderResponse?.previewId ??
+        data?.previewId ??
+        data?.PreviewId;
 
       let previewIdVal: string | number | undefined;
-      if (Array.isArray(rawPreviewId) && rawPreviewId[0]?.previewId) {
-        previewIdVal = rawPreviewId[0].previewId;
-      } else if (rawPreviewId?.previewId) {
+      if (Array.isArray(rawPreviewId)) {
+        if (rawPreviewId[0]?.previewId !== undefined) {
+          previewIdVal = rawPreviewId[0].previewId;
+        } else if (rawPreviewId[0] !== undefined) {
+          previewIdVal = rawPreviewId[0];
+        }
+      } else if (rawPreviewId?.previewId !== undefined) {
         previewIdVal = rawPreviewId.previewId;
       } else if (typeof rawPreviewId === "string" || typeof rawPreviewId === "number") {
         previewIdVal = rawPreviewId;
       } else if (data?.PreviewOrderResponse?.Order?.[0]?.previewId) {
         previewIdVal = data.PreviewOrderResponse.Order[0].previewId;
+      } else if (data?.PreviewOrderResponse?.Order?.[0]?.orderId) {
+        previewIdVal = data.PreviewOrderResponse.Order[0].orderId;
+      } else if (data?.PreviewOrderResponse?.orderId) {
+        previewIdVal = data.PreviewOrderResponse.orderId;
+      }
+
+      if (!previewIdVal && rawText) {
+        const regexMatch = rawText.match(/(?:<previewId[^>]*>|["'](?:previewId|PreviewId)["']\s*:\s*["']?)([0-9a-zA-Z_-]+)/i);
+        if (regexMatch) {
+          previewIdVal = regexMatch[1];
+        }
       }
 
       const orderResp = Array.isArray(data?.PreviewOrderResponse?.Order)
         ? data?.PreviewOrderResponse?.Order?.[0]
         : data?.PreviewOrderResponse?.Order;
 
-      const rawMsg = data?.PreviewOrderResponse?.messageList?.Message;
-      const message = Array.isArray(rawMsg) ? rawMsg[0]?.description : rawMsg?.description;
+      const rawMsg = data?.PreviewOrderResponse?.messageList?.Message ||
+        data?.PreviewOrderResponse?.messageList?.message ||
+        data?.PreviewOrderResponse?.messageList?.messages ||
+        data?.PreviewOrderResponse?.messages ||
+        data?.PreviewOrderResponse?.message ||
+        data?.messageList?.Message ||
+        data?.messageList?.message;
+      const message = Array.isArray(rawMsg)
+        ? (rawMsg[0]?.description || rawMsg[0]?.message || rawMsg[0]?.text || String(rawMsg[0]))
+        : (rawMsg?.description || rawMsg?.message || rawMsg?.text || (typeof rawMsg === "string" ? rawMsg : undefined));
 
       if (!previewIdVal) {
-        const fallbackMsg = data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description ||
+        const fallbackMsg = message ||
           data?.Error?.message ||
-          "E*TRADE Preview Order succeeded but returned no valid previewId";
+          "E*TRADE Preview Order succeeded with broker validation notices";
         this.lastError = fallbackMsg;
+        if (orderResp?.estimatedTotalAmount !== undefined) {
+          return {
+            previewId: "",
+            estimatedTotal: Number(orderResp.estimatedTotalAmount),
+            estimatedCommission: orderResp?.estimatedCommission !== undefined ? Number(orderResp.estimatedCommission) : undefined,
+            message: fallbackMsg,
+          };
+        }
         return null;
       }
 

@@ -123,6 +123,16 @@ export class ETradeService {
    */
   async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     let symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
+
+    if (filter.search && filter.search.trim()) {
+      const searchTerms = filter.search.trim().toUpperCase().split(/[,\s]+/);
+      for (const t of searchTerms) {
+        if (t && /^[A-Z0-9.\/-]+$/.test(t) && !symbols.includes(t)) {
+          symbols.unshift(t);
+        }
+      }
+    }
+
     if (filter.sector && filter.sector.toLowerCase() !== "all" && filter.sector.toLowerCase() !== "any") {
       const sec = filter.sector.toLowerCase().trim();
       const sectorSymbols = EXPANDED_MARKET_UNIVERSE.filter((def) => {
@@ -139,6 +149,16 @@ export class ETradeService {
           ? (itemSec === "healthcare" || itemSec.includes("health"))
           : (sec === "energy")
           ? (itemSec === "energy" || itemSec.includes("energy"))
+          : (sec === "industrials" || sec === "industrial")
+          ? (itemSec === "industrials" || itemSec.includes("industrial"))
+          : (sec === "materials" || sec === "material")
+          ? (itemSec === "materials" || itemSec.includes("material"))
+          : (sec === "consumer staples" || sec === "staples")
+          ? (itemSec === "consumer staples" || itemSec.includes("staple"))
+          : (sec === "utilities" || sec === "utility")
+          ? (itemSec === "utilities" || itemSec.includes("utilit"))
+          : (sec === "real estate" || sec === "reit")
+          ? (itemSec === "real estate" || itemSec.includes("estate"))
           : (itemSec === sec || itemSec.includes(sec) || sec.includes(itemSec));
       }).map((s) => s.symbol);
 

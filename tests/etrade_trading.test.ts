@@ -694,6 +694,91 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       const retryBody = JSON.parse(retryPlaceCall[1]?.body as string);
       expect(retryBody.PlaceOrderRequest.PreviewIds[0].previewId).toBe(777999);
     });
+
+    it("creates preview draft for HITL authorization even when broker returns collar notice or validation warning without previewId", async () => {
+      const testEnv: Env = {
+        ETRADE_CONSUMER_KEY: "mock_ckey",
+        ETRADE_CONSUMER_SECRET: "mock_csecret",
+        ETRADE_OAUTH_TOKEN: "mock_token",
+        ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
+        ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
+        ETRADE_ENVIRONMENT: "sandbox",
+      } as Env;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+        const url = String(input);
+        if (url.includes("/quote/")) {
+          return new Response(
+            JSON.stringify({
+              QuoteResponse: {
+                QuoteData: [
+                  {
+                    All: {
+                      lastTrade: 54.43,
+                      bid: 54.22,
+                      ask: 54.30,
+                      companyName: "Bank of America Corporation",
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/orders/preview")) {
+          return new Response(
+            `<PreviewOrderResponse>
+              <messageList>
+                <Message>
+                  <code>1029</code>
+                  <description>Proposed limit price $43.30 is outside prevailing market collar threshold</description>
+                </Message>
+              </messageList>
+            </PreviewOrderResponse>`,
+            { status: 200 }
+          );
+        }
+        return new Response("Not Found", { status: 404 });
+      });
+
+      const tradingService = new ETradeService(orm, testEnv, "openaimp");
+      const draft = await tradingService.previewOrderRemote({
+        sessionId: "openaimp",
+        symbol: "BAC",
+        action: "BUY",
+        quantity: 1,
+        orderType: "LIMIT",
+        limitPrice: 43.30,
+      });
+
+      expect(draft).toBeDefined();
+      expect(draft.orderId).toMatch(/^ord_/);
+      expect(draft.status).toBe("previewed");
+      expect(draft.symbol).toBe("BAC");
+      expect(draft.quantity).toBe(1);
+      expect(draft.limitPrice).toBe(43.30);
+      expect(draft.proposerDid).toBe("did:agent:openaimp:trading");
+      expect(draft.authorizerDid).toBe("did:user:github:openaimp");
+      expect(draft.previewNotes).toContain("Proposed limit price $43.30 is outside prevailing market collar");
+    });
+
+    it("scans expanded 100+ liquid securities universe across all sectors", async () => {
+      const screener = new DynamicMarketScreener();
+      const defaultUni = screener.getDefaultUniverse();
+      expect(defaultUni.length).toBeGreaterThanOrEqual(100);
+    });
+
+    it("dynamically injects searched ticker into screener universe", async () => {
+      DynamicMarketScreener.setTestUniverseFixture([]);
+      try {
+        const tradingService = new ETradeService(orm);
+        const res = await tradingService.screenMarketsAsync({ search: "DELL" });
+        expect(res.ledger.universeSymbols).toContain("DELL");
+      } finally {
+        DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
+      }
+    });
   });
 });
 

@@ -1241,6 +1241,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   <code style={{ color: "#10b981", fontWeight: "bold" }}>Preview #{activeDraft.previewId} (Verified)</code>
                 </div>
               )}
+              {activeDraft.previewNotes && (
+                <div className="attest-item" style={{ gridColumn: "1 / -1", background: "rgba(245, 158, 11, 0.12)", padding: "0.4rem 0.6rem", borderRadius: "6px", border: "1px solid rgba(245, 158, 11, 0.25)" }}>
+                  <span className="attest-label" style={{ color: "#f59e0b" }}>⚠️ Broker Notice:</span>
+                  <span style={{ fontSize: "0.8rem", color: "#fef3c7" }}>{activeDraft.previewNotes}</span>
+                </div>
+              )}
               <div className="attest-item">
                 <span className="attest-label">Proposer DID:</span>
                 <code>{activeDraft.proposerDid}</code>

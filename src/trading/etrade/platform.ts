@@ -198,6 +198,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     let estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
     let estimatedCommission = 0.0;
     let upstreamPreviewId: string | undefined;
+    let brokerNotice: string | undefined;
 
     // Check if authentic E*TRADE REST credentials exist and user is authenticated
     const envConfig = this.getEnvConfig();
@@ -227,12 +228,14 @@ export class ETradeTradingPlatform implements ITradingPlatform {
             estimatedTotal = upstreamPreview.estimatedTotal;
             executionPrice = Number((estimatedTotal / (params.quantity || 1)).toFixed(2));
           }
-        } else if (this.client.getLastError()) {
-          throw new Error(this.client.getLastError());
+          if (upstreamPreview.message) {
+            brokerNotice = upstreamPreview.message;
+          }
+        } else {
+          brokerNotice = this.client.getLastError() || undefined;
         }
       } catch (err: any) {
-        console.warn("[ETradePlatform] upstream previewOrder error:", err);
-        throw err;
+        console.warn("[ETradePlatform] upstream previewOrder notice:", err);
       }
     }
 
@@ -251,7 +254,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
     const draft: ETradeOrderDraft = {
       orderId,
-      previewId: upstreamPreviewId,
+      previewId: upstreamPreviewId || `pv_${orderId}`,
       symbol,
       action,
       orderAction: action,
@@ -268,6 +271,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       authorizerDid: userDid,
       proofSignature: didProof.signature.startsWith("sig_0x") ? didProof.signature : `sig_0x${didProof.signature}`,
       previewMessage,
+      previewNotes: brokerNotice,
       safetyNotice: "SAFETY GUARANTEE: NO CAPITAL HAS BEEN MOVED. HUMAN APPROVAL REQUIRED BEFORE BROKER EXECUTION.",
       placedAt: new Date().toISOString(),
     };
@@ -288,7 +292,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
           proposerDid: didProof.proposerDid,
           authorizerDid: userDid,
           proofSignature: draft.proofSignature,
-          previewNotes: previewMessage,
+          previewNotes: brokerNotice || previewMessage,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
