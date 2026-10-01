@@ -7,7 +7,7 @@
  * - Human-in-the-Loop (HITL) Execution Safety with W3C Agent DID Attestations.
  */
 
-import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus } from "../../types";
+import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { ETradeRestClient } from "./client";
@@ -144,6 +144,10 @@ export class ETradeTradingPlatform implements ITradingPlatform {
   async getAccounts(): Promise<ETradeAccount[]> {
     const realAccounts = await this.client.fetchAccounts();
     return realAccounts;
+  }
+
+  async getPositionLots(accountKey: string, positionId: string): Promise<ETradePositionLot[]> {
+    return this.client.fetchPositionLots(accountKey, positionId);
   }
 
   async getPositions(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {

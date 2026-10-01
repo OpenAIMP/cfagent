@@ -370,13 +370,52 @@ export interface ETradePosition {
 export interface ETradeAccount {
   accountId: string;
   accountKey: string;
+  accountIdKey?: string;
   accountDesc: string;
+  accountName?: string;
   accountType: string;
+  accountMode?: string;
+  accountStatus?: string;
+  institutionType?: string;
+  shareWorksAccount?: boolean;
+  fcCheckMkt?: boolean;
+  lineOfCredit?: boolean;
+  openDate?: number;
+  closedDate?: number;
   netAccountValue: number;
   totalAccountValue: number;
   cashAvailableForInvestment: number;
   marginBuyingPower?: number;
   dayTraderStatus: boolean;
+}
+
+export interface ETradePositionLot {
+  positionId?: number | string;
+  positionLotId?: number | string;
+  price?: number;
+  termCode?: number;
+  daysGain?: number;
+  daysGainPct?: number;
+  marketValue?: number;
+  totalCost?: number;
+  totalCostForGainPct?: number;
+  totalGain?: number;
+  totalGainPct?: number;
+  lotSourceCode?: number;
+  originalQty?: number;
+  remainingQty?: number;
+  availableQty?: number;
+  orderNo?: number;
+  legNo?: number;
+  acquiredDate?: number;
+  locationCode?: number;
+  exchangeRate?: number;
+  settlementCurrency?: string;
+  paymentCurrency?: string;
+  adjPrice?: number;
+  commPerShare?: number;
+  feesPerShare?: number;
+  adjustedPrice?: number;
 }
 
 export interface ETradeBrokerStatus {

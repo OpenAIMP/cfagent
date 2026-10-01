@@ -15,6 +15,7 @@ import type {
   ETradeOrderDraft,
   ETradeOrderExecutionResult,
   ETradePosition,
+  ETradePositionLot,
   ETradeAccount,
   ETradeBrokerStatus,
 } from "../types";
@@ -52,6 +53,7 @@ export interface ITradingPlatform {
   getQuote(symbol: string): Promise<ETradeQuote>;
   getAccounts(): Promise<ETradeAccount[]>;
   getPositions(accountKey?: string, includeBalance?: boolean): Promise<{ account: ETradeAccount; positions: ETradePosition[] }>;
+  getPositionLots?(accountKey: string, positionId: string): Promise<ETradePositionLot[]>;
   previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft>;
   executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
   placeOrderRemote?(params: PlaceOrderParams): Promise<ETradeOrderExecutionResult>;

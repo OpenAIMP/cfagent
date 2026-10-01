@@ -231,6 +231,41 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       expect(portfolio?.positions[0].currentPrice).toBe(220);
       expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/portfolio?view=QUICK&totalsRequired=true");
     });
+
+    it("10b. GET /v1/accounts/{accountIdKey}/portfolio/{positionId}", async () => {
+      await storeAccessTokens(env, userLogin, "valid_token", "valid_secret");
+      const client = new ETradeRestClient(env, userLogin);
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            PositionLotsResponse: {
+              PositionLot: [
+                {
+                  positionId: 101,
+                  positionLotId: 10087531,
+                  price: 195.5,
+                  marketValue: 9775,
+                  totalCost: 9775,
+                  totalGain: 1225,
+                  totalGainPct: 12.53,
+                  remainingQty: 50,
+                  availableQty: 50,
+                },
+              ],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const lots = await client.fetchPositionLots("KEY_12345", "101");
+      expect(lots.length).toBe(1);
+      expect(lots[0].positionLotId).toBe(10087531);
+      expect(lots[0].price).toBe(195.5);
+      expect(lots[0].totalGain).toBe(1225);
+      expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/portfolio/101");
+    });
   });
 
   describe("Module 3: Alerts Endpoints", () => {

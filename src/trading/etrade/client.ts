@@ -23,6 +23,7 @@ import type {
   ETradeOptionExpireDate,
   ETradeRemoteOrder,
   ETradeCancelOrderResult,
+  ETradePositionLot,
 } from "../../types";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
@@ -680,8 +681,18 @@ export class ETradeRestClient {
       return rawAccounts.map((a: any) => ({
         accountId: String(a.accountId || ""),
         accountKey: String(a.accountIdKey || a.accountKey || a.accountId || ""),
+        accountIdKey: String(a.accountIdKey || a.accountKey || a.accountId || ""),
         accountDesc: String(a.accountDesc || a.accountName || "Brokerage Account"),
+        accountName: a.accountName ? String(a.accountName) : undefined,
+        accountMode: a.accountMode ? String(a.accountMode) : undefined,
+        accountStatus: a.accountStatus ? String(a.accountStatus) : undefined,
+        institutionType: a.institutionType ? String(a.institutionType) : undefined,
         accountType: String(a.accountType || "INDIVIDUAL"),
+        shareWorksAccount: a.shareWorksAccount !== undefined ? Boolean(a.shareWorksAccount) : undefined,
+        fcCheckMkt: a.fcCheckMkt !== undefined ? Boolean(a.fcCheckMkt) : undefined,
+        lineOfCredit: a.lineOfCredit !== undefined ? Boolean(a.lineOfCredit) : undefined,
+        openDate: a.openDate ? Number(a.openDate) : undefined,
+        closedDate: a.closedDate ? Number(a.closedDate) : undefined,
         netAccountValue: Number(a.netAccountValue || 0),
         totalAccountValue: Number(a.totalAccountValue || a.netAccountValue || 0),
         cashAvailableForInvestment: Number(a.cashAvailableForInvestment || 0),
@@ -852,6 +863,89 @@ export class ETradeRestClient {
     } catch (err) {
       console.warn("[ETradeClient] fetchPortfolio error:", err);
       return null;
+    }
+  }
+
+  /**
+   * Accounts API: View Portfolio Position Lots
+   * GET /v1/accounts/{accountIdKey}/portfolio/{positionId}
+   */
+  async fetchPositionLots(accountKey: string, positionId: string): Promise<ETradePositionLot[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey || !positionId) return [];
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/portfolio/${encodeURIComponent(positionId)}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/portfolio/${encodeURIComponent(positionId)}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Position Lots API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "positionLots", errorText);
+        return [];
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      let rawLots = data?.PositionLotsResponse?.PositionLot || data?.PositionLot;
+      if (!rawLots) return [];
+      if (!Array.isArray(rawLots)) rawLots = [rawLots];
+
+      return rawLots.map((lot: any) => ({
+        positionId: lot.positionId !== undefined ? lot.positionId : positionId,
+        positionLotId: lot.positionLotId !== undefined ? lot.positionLotId : lot.lotId,
+        price: Number(lot.price || 0),
+        termCode: lot.termCode !== undefined ? Number(lot.termCode) : undefined,
+        daysGain: lot.daysGain !== undefined ? Number(lot.daysGain) : undefined,
+        daysGainPct: lot.daysGainPct !== undefined ? Number(lot.daysGainPct) : undefined,
+        marketValue: lot.marketValue !== undefined ? Number(lot.marketValue) : undefined,
+        totalCost: lot.totalCost !== undefined ? Number(lot.totalCost) : undefined,
+        totalCostForGainPct: lot.totalCostForGainPct !== undefined ? Number(lot.totalCostForGainPct) : undefined,
+        totalGain: lot.totalGain !== undefined ? Number(lot.totalGain) : undefined,
+        totalGainPct: lot.totalGainPct !== undefined ? Number(lot.totalGainPct) : undefined,
+        lotSourceCode: lot.lotSourceCode !== undefined ? Number(lot.lotSourceCode) : undefined,
+        originalQty: lot.originalQty !== undefined ? Number(lot.originalQty) : undefined,
+        remainingQty: lot.remainingQty !== undefined ? Number(lot.remainingQty) : undefined,
+        availableQty: lot.availableQty !== undefined ? Number(lot.availableQty) : undefined,
+        orderNo: lot.orderNo !== undefined ? Number(lot.orderNo) : undefined,
+        legNo: lot.legNo !== undefined ? Number(lot.legNo) : undefined,
+        acquiredDate: lot.acquiredDate !== undefined ? Number(lot.acquiredDate) : undefined,
+        locationCode: lot.locationCode !== undefined ? Number(lot.locationCode) : undefined,
+        exchangeRate: lot.exchangeRate !== undefined ? Number(lot.exchangeRate) : undefined,
+        settlementCurrency: lot.settlementCurrency ? String(lot.settlementCurrency) : undefined,
+        paymentCurrency: lot.paymentCurrency ? String(lot.paymentCurrency) : undefined,
+        adjPrice: lot.adjPrice !== undefined ? Number(lot.adjPrice) : undefined,
+        commPerShare: lot.commPerShare !== undefined ? Number(lot.commPerShare) : undefined,
+        feesPerShare: lot.feesPerShare !== undefined ? Number(lot.feesPerShare) : undefined,
+        adjustedPrice: lot.adjustedPrice !== undefined ? Number(lot.adjustedPrice) : undefined,
+      }));
+    } catch (err) {
+      console.warn("[ETradeClient] fetchPositionLots error:", err);
+      return [];
     }
   }
 
