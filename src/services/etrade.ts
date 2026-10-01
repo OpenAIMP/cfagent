@@ -24,7 +24,9 @@ import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../agents/did"
 import { RemoteMcpClient } from "./mcpClient";
 import { generateOAuth1Header } from "./cryptoUtils";
 import { resolveEnvironmentConfig, resolveETradeBaseUrl } from "../config/environment";
-import { getValidTokens, getETradeAuthStatus } from "./etradeOAuth";
+import { getValidTokens, getETradeAuthStatus } from "../security/etradeOAuth";
+import { ETradeError, ETradeErrorCode } from "../aspects/errorCodes";
+import { assertSandboxUrlSafety, withAspects } from "../aspects/loggingAspect";
 
 // Authentic stock universe with realistic market and technical metrics
 export const MARKET_UNIVERSE: ScreenedStockItem[] = [
@@ -940,6 +942,7 @@ export class ETradeService {
     if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
         const url = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}.json`;
+        assertSandboxUrlSafety(url, envConfig.isLive);
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",
@@ -1020,6 +1023,7 @@ export class ETradeService {
     if (envConfig.etrade.apiKey && envConfig.etrade.apiSecret) {
       try {
         const url = `${envConfig.etrade.baseUrl}/accounts/${accountKey}/orders/preview.json`;
+        assertSandboxUrlSafety(url, envConfig.isLive);
         const authHeader = await this.generateOAuthHeader("POST", url);
 
         const body = {
@@ -1304,6 +1308,7 @@ export class ETradeService {
         // Step 1 of read-only sequence: GET /v1/accounts/list
         // The returned accountIdKey (not accountId) is used for all subsequent calls.
         const url = `${envConfig.etrade.baseUrl}/accounts/list.json`;
+        assertSandboxUrlSafety(url, envConfig.isLive);
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",
@@ -1368,6 +1373,7 @@ export class ETradeService {
       try {
         // Step 3: GET /v1/accounts/{accountIdKey}/portfolio (not accountId)
         const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio.json`;
+        assertSandboxUrlSafety(url, envConfig.isLive);
         const authHeader = await this.generateOAuthHeader("GET", url);
         const res = await fetch(url, {
           method: "GET",

@@ -22,6 +22,8 @@ import {
   ETradePreviewOrderCommand,
   ETradeExecuteOrderCommand,
   ETradeGetPositionsCommand,
+  ETradeAuthStatusCommand,
+  ETradeAccountDiscoveryCommand,
 } from "./etradeCommands";
 import {
   FossGetQuoteCommand,
@@ -855,6 +857,8 @@ export class McpToolFactory {
     this.registerTool(new ETradePreviewOrderCommand());
     this.registerTool(new ETradeExecuteOrderCommand());
     this.registerTool(new ETradeGetPositionsCommand());
+    this.registerTool(new ETradeAuthStatusCommand());
+    this.registerTool(new ETradeAccountDiscoveryCommand());
 
     // FOSS Market Research & Quoting Commands (yfinance & Alpaca)
     this.registerTool(new FossGetQuoteCommand());

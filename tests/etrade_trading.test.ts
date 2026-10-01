@@ -330,4 +330,53 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(result.rows[0].marketValue).toBeDefined();
     });
   });
+
+  // =========================================================================
+  // 6. Security Layer & Aspect-Oriented Sandbox Guards
+  // =========================================================================
+  describe("Security Layer & Aspect-Oriented Sandbox Guards", () => {
+    it("etrade_auth_status MCP command inspects token health and active environment", async () => {
+      const res = await McpToolFactory.executeTool("etrade_auth_status", {}, {
+        env: mockEnv,
+        orm,
+        sessionId,
+        audit: vi.fn(),
+      });
+      expect(res.broker).toBe("etrade");
+      expect(res.environment).toBe("sandbox");
+      expect(res.activeEnvironment).toBeDefined();
+    });
+
+    it("etrade_account_discovery MCP command discovers account list via real API contract", async () => {
+      const res = await McpToolFactory.executeTool("etrade_account_discovery", {}, {
+        env: mockEnv,
+        orm,
+        sessionId,
+        audit: vi.fn(),
+      });
+      expect(res.accounts).toBeDefined();
+      expect(Array.isArray(res.accounts)).toBe(true);
+      expect(res.count).toBeGreaterThanOrEqual(1);
+    });
+
+    it("assertSandboxUrlSafety blocks outgoing calls to live production when isLive is false", async () => {
+      const { assertSandboxUrlSafety } = await import("../src/aspects/loggingAspect");
+      const { ETradeErrorCode } = await import("../src/aspects/errorCodes");
+
+      expect(() => {
+        assertSandboxUrlSafety("https://api.etrade.com/v1/market/quote/NVDA.json", false);
+      }).toThrowError(/SECURITY VIOLATION/);
+
+      // Safe sandbox URLs must be allowed
+      expect(() => {
+        assertSandboxUrlSafety("https://apisb.etrade.com/v1/market/quote/NVDA.json", false);
+      }).not.toThrow();
+
+      // In live production mode, api.etrade.com must be allowed
+      expect(() => {
+        assertSandboxUrlSafety("https://api.etrade.com/v1/market/quote/NVDA.json", true);
+      }).not.toThrow();
+    });
+  });
 });
+

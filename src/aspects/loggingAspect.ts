@@ -1,0 +1,118 @@
+/**
+ * Aspect-Oriented Programming (AOP) Interceptors
+ *
+ * Implements:
+ * - Cross-Cutting Concerns: Logging, Sandbox Security Guard, and Error Handling decoupled from domain logic.
+ * - Standard Library Compliance: Relies strictly on standard console streams and standard Web APIs.
+ * - Sensitive Data Masking: Redacts OAuth tokens, client secrets, and consumer keys from logs.
+ */
+
+import { ETradeError, ETradeErrorCode } from "./errorCodes";
+
+export interface AspectContext {
+  operationName: string;
+  domain?: string;
+  isLive?: boolean;
+  targetUrl?: string;
+  audit?: (event: string, category: string, payload: Record<string, unknown>) => void;
+}
+
+/**
+ * Sanitizes input arguments to prevent secret leakage in logs
+ */
+function sanitizeForLog(obj: unknown): unknown {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForLog);
+
+  const clean: Record<string, unknown> = {};
+  const sensitivePatterns = /key|secret|token|password|authorization|verifier|signature/i;
+
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (sensitivePatterns.test(k) && typeof v === "string") {
+      clean[k] = v.length > 8 ? `${v.slice(0, 4)}...${v.slice(-4)}` : "***";
+    } else if (typeof v === "object") {
+      clean[k] = sanitizeForLog(v);
+    } else {
+      clean[k] = v;
+    }
+  }
+  return clean;
+}
+
+/**
+ * Sandbox Security Guard Aspect
+ * Guarantees that in non-live (TEST) mode, NO network call can ever target live production.
+ */
+export function assertSandboxUrlSafety(url: string, isLive: boolean): void {
+  if (!isLive) {
+    // If running in TEST / Sandbox mode, live production hostnames are strictly forbidden
+    const lower = url.toLowerCase();
+    if (lower.includes("api.etrade.com") && !lower.includes("apisb.etrade.com")) {
+      throw new ETradeError(
+        ETradeErrorCode.SANDBOX_GUARD_VIOLATION,
+        `SECURITY VIOLATION: Blocked outgoing call to live production URL [${url}] while running in Sandbox/TEST mode.`
+      );
+    }
+  }
+}
+
+/**
+ * Aspect Wrapper: executes a function with standardized logging, error translation, and sandbox security check.
+ */
+export async function withAspects<T>(
+  context: AspectContext,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  const start = performance.now();
+  const { operationName, isLive, targetUrl, audit } = context;
+
+  // 1. Sandbox Security Guard Aspect
+  if (targetUrl !== undefined && isLive !== undefined) {
+    assertSandboxUrlSafety(targetUrl, isLive);
+  }
+
+  try {
+    const result = await fn();
+    const durationMs = Math.round(performance.now() - start);
+
+    // 2. Logging Aspect (Success)
+    console.info(`[Aspect][${operationName}] Completed in ${durationMs}ms`);
+
+    // 3. Audit Aspect
+    if (audit) {
+      audit(`etrade.${operationName}.success`, "trading", {
+        operationName,
+        durationMs,
+        isLive,
+      });
+    }
+
+    return result;
+  } catch (err: unknown) {
+    const durationMs = Math.round(performance.now() - start);
+
+    if (err instanceof ETradeError) {
+      console.warn(`[Aspect][${operationName}] Handled ETradeError [${err.code}]: ${err.message} (${durationMs}ms)`);
+      if (audit) {
+        audit(`etrade.${operationName}.failed`, "trading", {
+          code: err.code,
+          error: err.message,
+          durationMs,
+        });
+      }
+      throw err;
+    }
+
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    console.error(`[Aspect][${operationName}] Unhandled exception (${durationMs}ms):`, rawMessage);
+
+    if (audit) {
+      audit(`etrade.${operationName}.error`, "trading", {
+        error: rawMessage,
+        durationMs,
+      });
+    }
+
+    throw new ETradeError(ETradeErrorCode.INTERNAL_ERROR, rawMessage, { durationMs });
+  }
+}

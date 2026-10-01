@@ -241,3 +241,46 @@ export class ETradeGetPositionsCommand implements IMcpToolCommand<{}> {
     };
   }
 }
+
+/**
+ * 6. E*TRADE Authentication Status Command (Agentic Token Guardian)
+ */
+export class ETradeAuthStatusCommand implements IMcpToolCommand<{}> {
+  readonly name = "etrade_auth_status";
+  readonly description = "Check E*TRADE 3-legged OAuth 1.0a authentication status, midnight ET expiration cutoff, token renewal eligibility, and active environment (TEST/PROD).";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {},
+  };
+  readonly zodSchema = z.object({});
+
+  async execute(_input: any, context: McpToolContext) {
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
+    const status = await etrade.getStatusAsync();
+    return status;
+  }
+}
+
+/**
+ * 7. E*TRADE Account Discovery Command
+ */
+export class ETradeAccountDiscoveryCommand implements IMcpToolCommand<{}> {
+  readonly name = "etrade_account_discovery";
+  readonly description = "Discover and inspect active E*TRADE brokerage accounts by dynamically calling GET /v1/accounts/list to resolve authentic accountIdKey values.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {},
+  };
+  readonly zodSchema = z.object({});
+
+  async execute(_input: any, context: McpToolContext) {
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
+    const accounts = await etrade.fetchAccountsRemote();
+    return {
+      count: accounts.length,
+      accounts,
+      asOf: new Date().toISOString(),
+    };
+  }
+}
+
