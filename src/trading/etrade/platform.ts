@@ -217,7 +217,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
         });
 
         if (upstreamPreview) {
-          if (upstreamPreview.previewId && !isNaN(Number(upstreamPreview.previewId))) {
+          if (upstreamPreview.previewId) {
             upstreamPreviewId = String(upstreamPreview.previewId);
           }
           if (upstreamPreview.estimatedCommission !== undefined) {

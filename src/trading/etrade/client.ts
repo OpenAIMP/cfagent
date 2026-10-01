@@ -379,7 +379,12 @@ export class ETradeRestClient {
       const accounts = await this.fetchAccounts();
       key = accounts[0]?.accountIdKey || accounts[0]?.accountKey || accounts[0]?.accountId || "";
     }
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !key) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !key) {
+      this.lastError = !key
+        ? "No active E*TRADE account key found. Please connect your brokerage account."
+        : "E*TRADE API key or secret not configured.";
+      return null;
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/preview`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/preview.json`;
@@ -454,9 +459,9 @@ export class ETradeRestClient {
       try {
         data = JSON.parse(rawText);
       } catch {
-        const pIdMatch = rawText.match(/<previewId>(\d+)<\/previewId>/i);
-        const estTotalMatch = rawText.match(/<estimatedTotalAmount>([^<]+)<\/estimatedTotalAmount>/i);
-        const estCommMatch = rawText.match(/<estimatedCommission>([^<]+)<\/estimatedCommission>/i);
+        const pIdMatch = rawText.match(/<previewId>\s*([^<\s]+)\s*<\/previewId>/i);
+        const estTotalMatch = rawText.match(/<estimatedTotalAmount>\s*([^<\s]+)\s*<\/estimatedTotalAmount>/i);
+        const estCommMatch = rawText.match(/<estimatedCommission>\s*([^<\s]+)\s*<\/estimatedCommission>/i);
         const msgMatch = rawText.match(/<description>([^<]+)<\/description>/i) || rawText.match(/<message>([^<]+)<\/message>/i);
         if (pIdMatch) {
           data = {
@@ -488,7 +493,13 @@ export class ETradeRestClient {
         return null;
       }
 
-      let rawPreviewId: any = data?.PreviewOrderResponse?.PreviewIds;
+      let rawPreviewId: any = data?.PreviewOrderResponse?.PreviewIds ||
+        data?.previewOrderResponse?.PreviewIds ||
+        data?.PreviewOrderResponse?.previewIds ||
+        data?.previewOrderResponse?.previewIds ||
+        data?.PreviewOrderResponse?.previewId ||
+        data?.previewOrderResponse?.previewId;
+
       let previewIdVal: string | number | undefined;
       if (Array.isArray(rawPreviewId) && rawPreviewId[0]?.previewId) {
         previewIdVal = rawPreviewId[0].previewId;
@@ -496,6 +507,8 @@ export class ETradeRestClient {
         previewIdVal = rawPreviewId.previewId;
       } else if (typeof rawPreviewId === "string" || typeof rawPreviewId === "number") {
         previewIdVal = rawPreviewId;
+      } else if (data?.PreviewOrderResponse?.Order?.[0]?.previewId) {
+        previewIdVal = data.PreviewOrderResponse.Order[0].previewId;
       }
 
       const orderResp = Array.isArray(data?.PreviewOrderResponse?.Order)
@@ -506,6 +519,10 @@ export class ETradeRestClient {
       const message = Array.isArray(rawMsg) ? rawMsg[0]?.description : rawMsg?.description;
 
       if (!previewIdVal) {
+        const fallbackMsg = data?.PreviewOrderResponse?.messageList?.Message?.[0]?.description ||
+          data?.Error?.message ||
+          "E*TRADE Preview Order succeeded but returned no valid previewId";
+        this.lastError = fallbackMsg;
         return null;
       }
 
@@ -517,6 +534,7 @@ export class ETradeRestClient {
       };
     } catch (err: any) {
       console.warn("[ETradeClient] previewOrder error:", err);
+      this.lastError = err.message || String(err);
       return null;
     }
   }
@@ -636,6 +654,30 @@ export class ETradeRestClient {
           key = accounts[0]?.accountIdKey || accounts[0]?.accountKey || accounts[0]?.accountId || "";
         }
 
+        if (!key) {
+          const errMsg = this.lastError || "E*TRADE Account Not Connected: No active brokerage account found. Please connect your E*TRADE account in Settings before submitting trades.";
+          return {
+            success: false,
+            orderId: params.orderId,
+            executionId: "",
+            brokerOrderRef: "",
+            authorizerDid: userDid,
+            status: "failed",
+            symbol: params.symbol,
+            action: params.action,
+            quantity: params.quantity,
+            executionPrice: 0,
+            totalSettled: 0,
+            didAttestation: {
+              proposerDid: AGENT_DIDS.TRADING,
+              authorizerDid: userDid,
+              signature: "",
+            },
+            message: `E*TRADE Execution Blocked: ${errMsg}`,
+            timestamp: now,
+          };
+        }
+
         const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place`;
         const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place.json`;
         let url = primaryUrl;
@@ -647,8 +689,8 @@ export class ETradeRestClient {
         const isLimit = priceType === "LIMIT" || priceType === "STOP_LIMIT";
         const limitPrice = isLimit && params.limitPrice && params.limitPrice > 0 ? Number(params.limitPrice.toFixed(2)) : undefined;
 
-        const pId = params.previewId !== undefined && params.previewId !== null
-          ? (!isNaN(Number(params.previewId)) ? Number(params.previewId) : params.previewId)
+        const pId = params.previewId !== undefined && params.previewId !== null && String(params.previewId).trim() !== ""
+          ? (!isNaN(Number(params.previewId)) ? Number(params.previewId) : String(params.previewId).trim())
           : undefined;
 
         const body = {
@@ -709,13 +751,16 @@ export class ETradeRestClient {
         try {
           data = JSON.parse(rawText);
         } catch {
-          const orderIdMatch = rawText.match(/<orderId>([^<]+)<\/orderId>/i);
+          const orderIdMatch = rawText.match(/<orderId>\s*([^<\s]+)\s*<\/orderId>/i);
           if (orderIdMatch) {
             data = { PlaceOrderResponse: { OrderIds: [{ orderId: orderIdMatch[1] }] } };
           }
         }
 
-        const orderIdVal = data?.PlaceOrderResponse?.OrderIds?.[0]?.orderId || data?.PlaceOrderResponse?.OrderIds?.orderId;
+        const orderIdVal = data?.PlaceOrderResponse?.OrderIds?.[0]?.orderId ||
+          data?.PlaceOrderResponse?.OrderIds?.orderId ||
+          data?.placeOrderResponse?.OrderIds?.[0]?.orderId ||
+          data?.PlaceOrderResponse?.orderId;
         if (res.ok && orderIdVal) {
           const brokerId = `et_order_${orderIdVal}`;
           const executionPrice = limitPrice || params.limitPrice || 0;
@@ -776,8 +821,8 @@ export class ETradeRestClient {
               orderTerm: "GOOD_FOR_DAY",
             });
 
-            if (refreshedPreview && refreshedPreview.previewId && !isNaN(Number(refreshedPreview.previewId))) {
-              const retryPreviewId = Number(refreshedPreview.previewId);
+            if (refreshedPreview?.previewId) {
+              const retryPreviewId = !isNaN(Number(refreshedPreview.previewId)) ? Number(refreshedPreview.previewId) : refreshedPreview.previewId;
               // CRITICAL: PlaceOrderRequest must also use a unique clientOrderId
               const freshPlaceClientOrderId = `ord${Date.now().toString().slice(-8)}${Math.random().toString(36).slice(2, 6)}`.slice(0, 20);
               const retryBody = {
@@ -837,12 +882,15 @@ export class ETradeRestClient {
               try {
                 retryData = JSON.parse(retryRawText);
               } catch {
-                const orderIdMatch = retryRawText.match(/<orderId>([^<]+)<\/orderId>/i);
+                const orderIdMatch = retryRawText.match(/<orderId>\s*([^<\s]+)\s*<\/orderId>/i);
                 if (orderIdMatch) {
                   retryData = { PlaceOrderResponse: { OrderIds: [{ orderId: orderIdMatch[1] }] } };
                 }
               }
-              const retryOrderIdVal = retryData?.PlaceOrderResponse?.OrderIds?.[0]?.orderId || retryData?.PlaceOrderResponse?.OrderIds?.orderId;
+              const retryOrderIdVal = retryData?.PlaceOrderResponse?.OrderIds?.[0]?.orderId ||
+                retryData?.PlaceOrderResponse?.OrderIds?.orderId ||
+                retryData?.placeOrderResponse?.OrderIds?.[0]?.orderId ||
+                retryData?.PlaceOrderResponse?.orderId;
               if (retryRes.ok && retryOrderIdVal) {
                 const brokerId = `et_order_${retryOrderIdVal}`;
                 const executionPrice = limitPrice || params.limitPrice || 0;
@@ -876,8 +924,9 @@ export class ETradeRestClient {
                 const xmlMsg = retryRawText.match(/<message>([^<]+)<\/message>/i) || retryRawText.match(/<description>([^<]+)<\/description>/i);
                 if (xmlMsg) errMsg = xmlMsg[1];
               }
-            } else if (this.getLastError()) {
-              errMsg = `E*TRADE Auto-Recovery Failed: ${this.getLastError()}`;
+            } else {
+              const autoRecoveryErr = this.getLastError() || "Failed to acquire fresh preview session from E*TRADE";
+              errMsg = `E*TRADE Auto-Recovery Failed: ${autoRecoveryErr}`;
             }
           } catch (retryErr: any) {
             console.warn("[ETradeClient] Auto-recovery preview retry failed:", retryErr);

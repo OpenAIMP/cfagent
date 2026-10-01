@@ -1715,10 +1715,10 @@ Agentic Best Practices & Workflow Rules:
             quantity,
             orderType,
             limitPrice,
-            previewId: body.previewId && !isNaN(Number(body.previewId))
-              ? body.previewId
-              : existingRecord?.orderRef && !isNaN(Number(existingRecord.orderRef))
-              ? existingRecord.orderRef
+            previewId: body.previewId && String(body.previewId).trim() !== ""
+              ? String(body.previewId).trim()
+              : existingRecord?.orderRef && String(existingRecord.orderRef).trim() !== ""
+              ? String(existingRecord.orderRef).trim()
               : undefined,
             userLogin,
           });

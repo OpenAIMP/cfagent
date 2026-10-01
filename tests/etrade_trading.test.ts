@@ -531,6 +531,169 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(retryBody.PlaceOrderRequest.PreviewIds[0].previewId).toBe(999111);
       expect(retryBody.PlaceOrderRequest.clientOrderId).not.toBe("ord51765383");
     });
+
+    it("blocks order placement gracefully with actionable error when account key / OAuth connection is missing", async () => {
+      const unauthEnv: Env = {
+        ETRADE_CONSUMER_KEY: "mock_ckey",
+        ETRADE_CONSUMER_SECRET: "mock_csecret",
+        ETRADE_ENVIRONMENT: "sandbox",
+      } as Env;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        // fetchAccounts fails because user has no stored OAuth tokens
+        .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+
+      const tradingService = new ETradeService(orm, unauthEnv);
+      const res = await tradingService.placeOrderRemote({
+        orderId: "ord_unauth_123",
+        symbol: "JPM",
+        action: "BUY",
+        quantity: 1,
+        orderType: "LIMIT",
+        limitPrice: 293.0,
+        userLogin: "did:user:github:openaimp",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.status).toBe("failed");
+      expect(res.message).toContain("E*TRADE Execution Blocked");
+      expect(res.message).toMatch(/Account Not Connected|No active brokerage account|Session Expired|Token rejected/i);
+      // Ensure it never attempted to place an order to /accounts//orders/place
+      const calledUrls = fetchSpy.mock.calls.map((c) => String(c[0]));
+      expect(calledUrls.some((u) => u.includes("/accounts//orders/place"))).toBe(false);
+    });
+
+    it("automatically recovers and acquires previewId when initial order lacks previewId and triggers E*TRADE timeout", async () => {
+      const liveEnv: Env = {
+        ETRADE_CONSUMER_KEY: "mock_ckey",
+        ETRADE_CONSUMER_SECRET: "mock_csecret",
+        ETRADE_OAUTH_TOKEN: "mock_token",
+        ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
+        ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
+        ETRADE_ENVIRONMENT: "sandbox",
+      } as Env;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        // 1. Initial place call fails with timeout because previewId was omitted/expired
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              Error: {
+                message: "For your protection, we have timed out your original order request. If you would like to place this order, please resubmit it now.",
+              },
+            }),
+            { status: 400 }
+          )
+        )
+        // 2. Auto-recovery previewOrder acquires previewId
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PreviewOrderResponse: {
+                PreviewIds: [{ previewId: "555888" }],
+                Order: [{ estimatedTotalAmount: 293.0 }],
+              },
+            }),
+            { status: 200 }
+          )
+        )
+        // 3. placeOrder executes with acquired previewId
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PlaceOrderResponse: {
+                OrderIds: [{ orderId: "333444" }],
+              },
+            }),
+            { status: 200 }
+          )
+        );
+
+      const tradingService = new ETradeService(orm, liveEnv);
+      const res = await tradingService.placeOrderRemote({
+        orderId: "ord_no_preview_id",
+        symbol: "JPM",
+        action: "BUY",
+        quantity: 1,
+        orderType: "LIMIT",
+        limitPrice: 293.0,
+        // Notice: previewId is completely omitted
+        userLogin: "did:user:github:openaimp",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(res.success).toBe(true);
+      expect(res.executionId).toBe("et_order_333444");
+
+      // Verify that the PlaceOrderRequest retry sent the newly acquired previewId
+      const placeCall = fetchSpy.mock.calls[2];
+      const placeBody = JSON.parse(placeCall[1]?.body as string);
+      expect(placeBody.PlaceOrderRequest.PreviewIds[0].previewId).toBe(555888);
+    });
+
+    it("recovers from preview timeout when E*TRADE returns XML previewId response", async () => {
+      const liveEnv: Env = {
+        ETRADE_CONSUMER_KEY: "mock_ckey",
+        ETRADE_CONSUMER_SECRET: "mock_csecret",
+        ETRADE_OAUTH_TOKEN: "mock_token",
+        ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
+        ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
+        ETRADE_ENVIRONMENT: "sandbox",
+      } as Env;
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        // 1. Initial place call fails with timeout
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              Error: {
+                message: "For your protection, we have timed out your original order request. If you would like to place this order, please resubmit it now.",
+              },
+            }),
+            { status: 400 }
+          )
+        )
+        // 2. previewOrder returns XML format
+        .mockResolvedValueOnce(
+          new Response(
+            `<PreviewOrderResponse>
+              <PreviewIds><previewId>777999</previewId></PreviewIds>
+              <Order><estimatedTotalAmount>293.00</estimatedTotalAmount></Order>
+            </PreviewOrderResponse>`,
+            { status: 200, headers: { "Content-Type": "application/xml" } }
+          )
+        )
+        // 3. Retry placeOrder succeeds
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              PlaceOrderResponse: {
+                OrderIds: [{ orderId: "666111" }],
+              },
+            }),
+            { status: 200 }
+          )
+        );
+
+      const tradingService = new ETradeService(orm, liveEnv);
+      const res = await tradingService.placeOrderRemote({
+        orderId: "ord_timeout_xml",
+        symbol: "JPM",
+        action: "BUY",
+        quantity: 1,
+        orderType: "LIMIT",
+        limitPrice: 293.0,
+        previewId: "expired_id",
+        userLogin: "did:user:github:openaimp",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.executionId).toBe("et_order_666111");
+
+      const retryPlaceCall = fetchSpy.mock.calls[2];
+      const retryBody = JSON.parse(retryPlaceCall[1]?.body as string);
+      expect(retryBody.PlaceOrderRequest.PreviewIds[0].previewId).toBe(777999);
+    });
   });
 });
 
