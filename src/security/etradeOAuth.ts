@@ -39,9 +39,11 @@ export interface ETradeAuthStatus {
   renewable?: boolean;
 }
 
-// KV key constants
-const KV_ACCESS_TOKEN_KEY = (userLogin: string) => `etrade:token:${userLogin}`;
-const KV_REQUEST_TOKEN_KEY = (userLogin: string) => `etrade:req_token:${userLogin}`;
+// KV key constants — environment-scoped to allow independent TEST and PROD sessions
+const KV_ACCESS_TOKEN_KEY = (userLogin: string, envName?: string) =>
+  envName ? `etrade:token:${envName.toUpperCase()}:${userLogin}` : `etrade:token:${userLogin}`;
+const KV_REQUEST_TOKEN_KEY = (userLogin: string, envName?: string) =>
+  envName ? `etrade:req_token:${envName.toUpperCase()}:${userLogin}` : `etrade:req_token:${userLogin}`;
 
 function getKv(env: Env): KVNamespace {
   const kv = (env as any).ETRADE_KV || env.SESSIONS || env.KV;
@@ -116,9 +118,10 @@ export async function storeAccessTokens(
     environment: envConfig.name,
     userLogin,
   };
-  await kv.put(KV_ACCESS_TOKEN_KEY(userLogin), JSON.stringify(payload), {
-    expirationTtl: 86400,
-  });
+  await Promise.all([
+    kv.put(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), { expirationTtl: 86400 }),
+    kv.put(KV_ACCESS_TOKEN_KEY(userLogin), JSON.stringify(payload), { expirationTtl: 86400 }),
+  ]);
 }
 
 /**
@@ -128,13 +131,16 @@ export async function storeRequestTokenSecret(
   env: Env,
   userLogin: string,
   requestToken: string,
-  requestTokenSecret: string
+  requestTokenSecret: string,
+  overrideEnv?: string
 ): Promise<void> {
   const kv = getKv(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const payload = { requestToken, requestTokenSecret, createdAt: new Date().toISOString() };
-  await kv.put(KV_REQUEST_TOKEN_KEY(userLogin), JSON.stringify(payload), {
-    expirationTtl: 900,
-  });
+  await Promise.all([
+    kv.put(KV_REQUEST_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), { expirationTtl: 900 }),
+    kv.put(KV_REQUEST_TOKEN_KEY(userLogin), JSON.stringify(payload), { expirationTtl: 900 }),
+  ]);
 }
 
 /**
@@ -142,10 +148,14 @@ export async function storeRequestTokenSecret(
  */
 export async function getRequestTokenSecret(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  overrideEnv?: string
 ): Promise<{ requestToken: string; requestTokenSecret: string } | null> {
   const kv = getKv(env);
-  const raw = await kv.get(KV_REQUEST_TOKEN_KEY(userLogin));
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  const raw =
+    (await kv.get(KV_REQUEST_TOKEN_KEY(userLogin, envConfig.name))) ||
+    (await kv.get(KV_REQUEST_TOKEN_KEY(userLogin)));
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -159,10 +169,14 @@ export async function getRequestTokenSecret(
  */
 export async function getStoredTokens(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  overrideEnv?: string
 ): Promise<ETradeTokenSet | null> {
   const kv = getKv(env);
-  const raw = await kv.get(KV_ACCESS_TOKEN_KEY(userLogin));
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  const raw =
+    (await kv.get(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name))) ||
+    (await kv.get(KV_ACCESS_TOKEN_KEY(userLogin)));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as ETradeTokenSet;
@@ -174,10 +188,15 @@ export async function getStoredTokens(
 /**
  * Revokes and deletes stored tokens from KV
  */
-export async function revokeStoredTokens(env: Env, userLogin: string): Promise<void> {
+export async function revokeStoredTokens(env: Env, userLogin: string, overrideEnv?: string): Promise<void> {
   const kv = getKv(env);
-  await kv.delete(KV_ACCESS_TOKEN_KEY(userLogin));
-  await kv.delete(KV_REQUEST_TOKEN_KEY(userLogin));
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  await Promise.all([
+    kv.delete(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name)),
+    kv.delete(KV_REQUEST_TOKEN_KEY(userLogin, envConfig.name)),
+    kv.delete(KV_ACCESS_TOKEN_KEY(userLogin)),
+    kv.delete(KV_REQUEST_TOKEN_KEY(userLogin)),
+  ]);
 }
 
 /**

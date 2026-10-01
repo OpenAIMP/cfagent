@@ -93,25 +93,43 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const baseUrl = resolveETradeBaseUrl(rawUrl);
   const isLive = activeName === "PROD" || (baseUrl.startsWith("https://api.etrade.com") && !baseUrl.startsWith("https://apisb.etrade.com"));
 
-  // OAuth credentials — environment-specific (ET_PROD_API_KEY / ET_SANDBOX_API_KEY) with ET_API_KEY fallback
+  // OAuth credentials — strictly segregated by environment:
   const isProd = activeName === "PROD";
-  const apiKey =
-    (isProd
-      ? (env?.ET_PROD_API_KEY || (env as any)?.ETRADE_PROD_CONSUMER_KEY || processEnv.ET_PROD_API_KEY || processEnv.ETRADE_PROD_CONSUMER_KEY)
-      : (env?.ET_SANDBOX_API_KEY || (env as any)?.ETRADE_SANDBOX_CONSUMER_KEY || processEnv.ET_SANDBOX_API_KEY || processEnv.ETRADE_SANDBOX_CONSUMER_KEY)) ||
-    env?.ET_API_KEY ||
-    env?.ETRADE_CONSUMER_KEY ||
-    processEnv.ET_API_KEY ||
-    processEnv.ETRADE_CONSUMER_KEY;
+  const isSandboxKey = Boolean(
+    env?.ET_BASE_URL?.includes("apisb.etrade.com") ||
+    processEnv.ET_BASE_URL?.includes("apisb.etrade.com")
+  );
 
-  const apiSecret =
-    (isProd
-      ? (env?.ET_PROD_API_SECRET || (env as any)?.ETRADE_PROD_CONSUMER_SECRET || processEnv.ET_PROD_API_SECRET || processEnv.ETRADE_PROD_CONSUMER_SECRET)
-      : (env?.ET_SANDBOX_API_SECRET || (env as any)?.ETRADE_SANDBOX_CONSUMER_SECRET || processEnv.ET_SANDBOX_API_SECRET || processEnv.ETRADE_SANDBOX_CONSUMER_SECRET)) ||
-    env?.ET_API_SECRET ||
-    env?.ETRADE_CONSUMER_SECRET ||
-    processEnv.ET_API_SECRET ||
-    processEnv.ETRADE_CONSUMER_SECRET;
+  // In PROD: strictly require production keys. Only fall back to ET_API_KEY if ET_BASE_URL is not explicitly a sandbox URL.
+  const apiKey = isProd
+    ? (env?.ET_PROD_API_KEY ||
+       (env as any)?.ETRADE_PROD_CONSUMER_KEY ||
+       processEnv.ET_PROD_API_KEY ||
+       processEnv.ETRADE_PROD_CONSUMER_KEY ||
+       (!isSandboxKey ? (env?.ET_API_KEY || env?.ETRADE_CONSUMER_KEY || processEnv.ET_API_KEY || processEnv.ETRADE_CONSUMER_KEY) : undefined))
+    : (env?.ET_SANDBOX_API_KEY ||
+       (env as any)?.ETRADE_SANDBOX_CONSUMER_KEY ||
+       processEnv.ET_SANDBOX_API_KEY ||
+       processEnv.ETRADE_SANDBOX_CONSUMER_KEY ||
+       env?.ET_API_KEY ||
+       env?.ETRADE_CONSUMER_KEY ||
+       processEnv.ET_API_KEY ||
+       processEnv.ETRADE_CONSUMER_KEY);
+
+  const apiSecret = isProd
+    ? (env?.ET_PROD_API_SECRET ||
+       (env as any)?.ETRADE_PROD_CONSUMER_SECRET ||
+       processEnv.ET_PROD_API_SECRET ||
+       processEnv.ETRADE_PROD_CONSUMER_SECRET ||
+       (!isSandboxKey ? (env?.ET_API_SECRET || env?.ETRADE_CONSUMER_SECRET || processEnv.ET_API_SECRET || processEnv.ETRADE_CONSUMER_SECRET) : undefined))
+    : (env?.ET_SANDBOX_API_SECRET ||
+       (env as any)?.ETRADE_SANDBOX_CONSUMER_SECRET ||
+       processEnv.ET_SANDBOX_API_SECRET ||
+       processEnv.ETRADE_SANDBOX_CONSUMER_SECRET ||
+       env?.ET_API_SECRET ||
+       env?.ETRADE_CONSUMER_SECRET ||
+       processEnv.ET_API_SECRET ||
+       processEnv.ETRADE_CONSUMER_SECRET);
 
   // OAuth 1.0a access token pair (obtained after user authorizes via E*TRADE OAuth flow)
   const oauthToken =
