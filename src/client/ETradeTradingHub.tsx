@@ -1416,20 +1416,33 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       {subTab === "portfolio" && (
         <div className="trading-section portfolio-section">
           <div className="portfolio-summary-row">
-            <div className="port-summary-card">
-              <span className="summary-title">Portfolio Equity</span>
-              <span className="summary-amount">
-                ${account?.totalAccountValue ? account.totalAccountValue.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "$128,450.00"}
-              </span>
-              <span className="summary-change positive">+$3,420.50 (Unrealized Gains)</span>
-            </div>
-            <div className="port-summary-card">
-              <span className="summary-title">Available Cash</span>
-              <span className="summary-amount">
-                ${account?.cashAvailableForInvestment ? account.cashAvailableForInvestment.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "$42,180.50"}
-              </span>
-              <span className="summary-change">Ready to deploy</span>
-            </div>
+            {(() => {
+              const totalUnrealizedGain = positions.reduce((sum, p) => sum + (p.unrealizedGainLoss || p.totalGain || 0), 0);
+              const totalVal = account?.totalAccountValue || positions.reduce((sum, p) => sum + p.marketValue, 0);
+              const cashVal = account?.cashAvailableForInvestment ?? 0;
+              const isGain = totalUnrealizedGain >= 0;
+
+              return (
+                <>
+                  <div className="port-summary-card">
+                    <span className="summary-title">Portfolio Equity</span>
+                    <span className="summary-amount">
+                      ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span className={`summary-change ${isGain ? "positive" : "negative"}`}>
+                      {isGain ? "+" : ""}${totalUnrealizedGain.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Unrealized {isGain ? "Gains" : "Losses"})
+                    </span>
+                  </div>
+                  <div className="port-summary-card">
+                    <span className="summary-title">Available Cash</span>
+                    <span className="summary-amount">
+                      ${cashVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span className="summary-change">Ready to deploy</span>
+                  </div>
+                </>
+              );
+            })()}
             <div className="port-summary-card">
               <span className="summary-title">Total Active Positions</span>
               <span className="summary-amount">{positions.length} Stocks</span>
