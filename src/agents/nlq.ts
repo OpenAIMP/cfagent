@@ -1223,21 +1223,31 @@ export async function executeNLQQueryAsync(
       }
       const qty = plan.tradingData?.quantity || 1;
       const orderAction = plan.tradingData?.orderAction || "BUY";
+      const orderType = plan.tradingData?.orderType || "MARKET";
+      const limitPrice = plan.tradingData?.limitPrice;
+
       const draft = await etrade.previewOrderRemote({
         sessionId,
         symbol: sym,
         orderAction,
         quantity: qty,
-        orderType: plan.tradingData?.orderType || "MARKET",
-        limitPrice: plan.tradingData?.limitPrice,
+        orderType,
+        limitPrice,
       });
+
+      const quote = await etrade.fetchQuoteRemote(sym);
+      const marketPriceStr = quote.lastPrice > 0 ? `$${quote.lastPrice.toFixed(2)}` : "Market";
+
+      const summary = orderType === "LIMIT" && limitPrice !== undefined
+        ? `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at limit price $${draft.estimatedPrice.toFixed(2)} (Prevailing Market Quote: ${marketPriceStr}). Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`
+        : `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`;
 
       return {
         plan,
         domain: "trading",
         targetTable: "mas_trades",
         count: 1,
-        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
+        summary,
         rows: [
           {
             orderId: draft.orderId,
@@ -1245,6 +1255,8 @@ export async function executeNLQQueryAsync(
             action: draft.orderAction,
             quantity: draft.quantity,
             orderType: draft.orderType,
+            limitPrice: limitPrice !== undefined ? `$${limitPrice.toFixed(2)}` : "N/A (Market Order)",
+            prevailingMarketPrice: marketPriceStr,
             estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
             estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
             commission: `$${draft.estimatedCommission.toFixed(2)}`,
