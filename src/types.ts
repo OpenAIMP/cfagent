@@ -44,6 +44,8 @@ export interface Env {
   ETRADE_ENVIRONMENT?: "sandbox" | "live";
   ETRADE_MCP_SERVER_URL?: string;
   // FOSS Market Data & Research Configuration (yfinance & Alpaca)
+  ALPACA_API_KEY?: string;
+  ALPACA_SECRET_KEY?: string;
   ALPACA_API_KEY_ID?: string;
   ALPACA_API_SECRET_KEY?: string;
   ALPACA_BASE_URL?: string;

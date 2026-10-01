@@ -52,9 +52,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [barLimit, setBarLimit] = useState(30);
   const [barsLoading, setBarsLoading] = useState(false);
 
-  // Alpaca Snapshot State
+  // Alpaca Snapshot & Tracing State
   const [snapshot, setSnapshot] = useState<AlpacaMarketSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [alpacaTraces, setAlpacaTraces] = useState<any[]>([]);
+  const [tracesLoading, setTracesLoading] = useState(false);
+  const [copiedMcpConfig, setCopiedMcpConfig] = useState(false);
+  const [alpacaAccount, setAlpacaAccount] = useState<any>(null);
+  const [alpacaPositions, setAlpacaPositions] = useState<any[]>([]);
+  const [alpacaAccountLoading, setAlpacaAccountLoading] = useState(false);
 
   // Multi-Stock Comparison State
   const [compareSymbolsInput, setCompareSymbolsInput] = useState("NVDA, AMD, INTC, MSFT");
@@ -219,6 +225,48 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     }
   };
 
+  const loadAlpacaTraces = async () => {
+    setTracesLoading(true);
+    try {
+      const resp = await fetch("/api/audit?limit=50");
+      if (resp.ok) {
+        const data = await resp.json() as any;
+        const events = Array.isArray(data?.events) ? data.events : [];
+        const alpacaEvents = events.filter((e: any) =>
+          e.type?.startsWith("alpaca") || e.type?.startsWith("foss.alpaca") || e.agent === "trading" || e.agent === "research"
+        );
+        setAlpacaTraces(alpacaEvents);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setTracesLoading(false);
+    }
+  };
+
+  const loadAlpacaAccountAndPositions = async () => {
+    setAlpacaAccountLoading(true);
+    try {
+      const [accRes, posRes] = await Promise.all([
+        fetch("/api/foss/alpaca/account").catch(() => null),
+        fetch("/api/foss/alpaca/positions").catch(() => null),
+      ]);
+      if (accRes && accRes.ok) {
+        const accData = await accRes.json() as any;
+        setAlpacaAccount(accData.account || accData);
+      }
+      if (posRes && posRes.ok) {
+        const posData = await posRes.json() as any;
+        setAlpacaPositions(posData.positions || []);
+      }
+      await loadAlpacaTraces();
+    } catch {
+      // Ignore
+    } finally {
+      setAlpacaAccountLoading(false);
+    }
+  };
+
   const loadAlpacaSnapshot = async (sym: string) => {
     setSnapshotLoading(true);
     try {
@@ -227,6 +275,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
         const data = await resp.json() as AlpacaMarketSnapshot;
         setSnapshot(data);
       }
+      await loadAlpacaTraces();
     } catch {
       // Ignore
     } finally {
@@ -1314,8 +1363,106 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
           ) : (
-            <div className="empty-state">No Alpaca snapshot data available.</div>
+            <div className="research-loading-state" style={{ opacity: 0.8 }}>
+              <p>No snapshot data loaded. Enter a ticker above and click Search FOSS Data.</p>
+            </div>
           )}
+
+          <div className="section-intro-card" style={{ marginTop: "1.5rem", background: "rgba(15, 23, 42, 0.65)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "12px", padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "1.25rem" }}>🛡️</span>
+                <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#38bdf8" }}>
+                  Alpaca Agentic Tracing Stream &amp; Provenance Ledger
+                </h4>
+                <span style={{ fontSize: "0.7rem", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", padding: "2px 8px", borderRadius: "10px", fontWeight: 700, border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                  W3C DID ATTESTED
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={loadAlpacaTraces}
+                disabled={tracesLoading}
+                style={{ background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.3)", color: "#38bdf8", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 }}
+              >
+                {tracesLoading ? "Refreshing Traces…" : "🔄 Refresh Audit Traces"}
+              </button>
+            </div>
+
+            <p style={{ margin: "0 0 1rem 0", fontSize: "0.85rem", color: "#94a3b8", lineHeight: 1.4 }}>
+              Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in SQLite Durable Objects (<code>mas_events</code>) for end-to-end provenance.
+            </p>
+
+            {alpacaTraces.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "1rem", color: "#64748b", fontSize: "0.85rem", background: "rgba(0,0,0,0.2)", borderRadius: "8px" }}>
+                {tracesLoading ? "Querying audit ledger…" : "No Alpaca traces recorded in this session yet. Run a snapshot or quote query above to generate trace telemetry."}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", maxHeight: "320px", overflowY: "auto" }}>
+                {alpacaTraces.map((tr, idx) => (
+                  <div key={tr.id || idx} style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(148, 163, 184, 0.15)", borderRadius: "8px", padding: "0.75rem", fontSize: "0.85rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "4px" }}>
+                      <span style={{ fontWeight: 700, color: "#38bdf8", background: "rgba(56, 189, 248, 0.1)", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem" }}>
+                        {tr.type}
+                      </span>
+                      <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
+                        {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
+                      </span>
+                    </div>
+                    <div style={{ color: "#cbd5e1", fontSize: "0.8rem", wordBreak: "break-all", fontFamily: "monospace", background: "rgba(0,0,0,0.25)", padding: "6px", borderRadius: "4px" }}>
+                      {typeof tr.payload === "string" ? tr.payload : JSON.stringify(tr.payload)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Antigravity MCP Integration Guide */}
+            <div style={{ marginTop: "1.25rem", borderTop: "1px solid rgba(148, 163, 184, 0.15)", paddingTop: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f8fafc" }}>
+                  ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cfg = JSON.stringify({
+                      mcpServers: {
+                        alpaca: {
+                          command: "uvx",
+                          args: ["alpaca-mcp-server"],
+                          env: {
+                            ALPACA_API_KEY: "your_alpaca_api_key",
+                            ALPACA_SECRET_KEY: "your_alpaca_secret_key"
+                          }
+                        }
+                      }
+                    }, null, 2);
+                    navigator.clipboard.writeText(cfg);
+                    setCopiedMcpConfig(true);
+                    setTimeout(() => setCopiedMcpConfig(false), 2000);
+                  }}
+                  style={{ background: "#2563eb", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer" }}
+                >
+                  {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
+                </button>
+              </div>
+              <pre style={{ margin: 0, background: "#0b1329", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "#e2e8f0", overflowX: "auto" }}>
+{`{
+  "mcpServers": {
+    "alpaca": {
+      "command": "uvx",
+      "args": ["alpaca-mcp-server"],
+      "env": {
+        "ALPACA_API_KEY": "your_alpaca_api_key",
+        "ALPACA_SECRET_KEY": "your_alpaca_secret_key"
+      }
+    }
+  }
+}`}
+              </pre>
+            </div>
+          </div>
         </div>
       )}
 

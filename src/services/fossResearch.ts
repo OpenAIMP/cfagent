@@ -1920,9 +1920,18 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
 
   constructor(private readonly env?: Env) {}
 
-  isConfigured(env?: Env): boolean {
+  getApiKey(env?: Env): string {
     const activeEnv = env || this.env;
-    return Boolean(activeEnv?.ALPACA_API_KEY_ID && activeEnv?.ALPACA_API_SECRET_KEY);
+    return activeEnv?.ALPACA_API_KEY || activeEnv?.ALPACA_API_KEY_ID || "";
+  }
+
+  getApiSecret(env?: Env): string {
+    const activeEnv = env || this.env;
+    return activeEnv?.ALPACA_SECRET_KEY || activeEnv?.ALPACA_API_SECRET_KEY || "";
+  }
+
+  isConfigured(env?: Env): boolean {
+    return Boolean(this.getApiKey(env) && this.getApiSecret(env));
   }
 
   getDataUrl(): string {
@@ -1935,8 +1944,8 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
 
   getHeaders(): Record<string, string> {
     return {
-      "APCA-API-KEY-ID": this.env?.ALPACA_API_KEY_ID || "",
-      "APCA-API-SECRET-KEY": this.env?.ALPACA_API_SECRET_KEY || "",
+      "APCA-API-KEY-ID": this.getApiKey(),
+      "APCA-API-SECRET-KEY": this.getApiSecret(),
     };
   }
 
@@ -2630,7 +2639,10 @@ export class FossResearchService {
 
 
   getProviderStatuses(): FossProviderStatus[] {
-    const alpacaConfigured = Boolean(this.env?.ALPACA_API_KEY_ID && this.env?.ALPACA_API_SECRET_KEY);
+    const alpacaConfigured = Boolean(
+      (this.env?.ALPACA_API_KEY || this.env?.ALPACA_API_KEY_ID) &&
+      (this.env?.ALPACA_SECRET_KEY || this.env?.ALPACA_API_SECRET_KEY)
+    );
     return [
       {
         provider: "yfinance",

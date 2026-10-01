@@ -16,11 +16,13 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
   private alpacaData: AlpacaMarketDataProvider;
 
   constructor(private env: Env, private orm?: DatabaseORM, private userLogin: string = "default_trader") {
-    this.alpacaData = new AlpacaMarketDataProvider();
+    this.alpacaData = new AlpacaMarketDataProvider(env);
   }
 
   async getStatus(): Promise<ETradeBrokerStatus> {
-    const configured = Boolean(this.env.ALPACA_API_KEY_ID && this.env.ALPACA_API_SECRET_KEY);
+    const hasKey = Boolean(this.env.ALPACA_API_KEY || this.env.ALPACA_API_KEY_ID);
+    const hasSecret = Boolean(this.env.ALPACA_SECRET_KEY || this.env.ALPACA_API_SECRET_KEY);
+    const configured = hasKey && hasSecret;
     const isLive = !this.env.ALPACA_BASE_URL?.includes("paper-api");
 
     return {

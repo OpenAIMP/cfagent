@@ -358,6 +358,49 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     },
     sampleArgs: { symbol: "NVDA" },
   },
+  {
+    name: "foss_alpaca_account",
+    category: "FOSS Research & Quoting",
+    description: "Query Alpaca Securities brokerage account details, cash balance, buying power, and portfolio equity with agentic DID audit tracing.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
+  {
+    name: "foss_alpaca_positions",
+    category: "FOSS Research & Quoting",
+    description: "Query open equity and crypto portfolio positions from Alpaca Securities with agentic DID audit tracing.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
+  },
+  {
+    name: "foss_alpaca_orders",
+    category: "FOSS Research & Quoting",
+    description: "Query active and filled orders from Alpaca Securities with status filter and agentic DID audit tracing.",
+    schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["open", "closed", "all"], description: "Order status filter (default: open)" },
+      },
+    },
+    sampleArgs: { status: "open" },
+  },
+  {
+    name: "foss_alpaca_place_order",
+    category: "FOSS Research & Quoting",
+    description: "Place a stock, ETF, or crypto order on Alpaca Securities with Agent DID attestation and audit tracing.",
+    schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Ticker symbol (e.g. NVDA, AAPL, BTC/USD)" },
+        qty: { type: "number", description: "Number of shares or contract units" },
+        side: { type: "string", enum: ["buy", "sell"], description: "Order side (buy or sell)" },
+        type: { type: "string", enum: ["market", "limit", "stop", "stop_limit"], description: "Order execution type" },
+        limit_price: { type: "number", description: "Limit price (required if type is limit)" },
+      },
+      required: ["symbol", "qty", "side"],
+    },
+    sampleArgs: { symbol: "NVDA", qty: 1, side: "buy", type: "limit", limit_price: 135.0 },
+  },
 ];
 
 export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [

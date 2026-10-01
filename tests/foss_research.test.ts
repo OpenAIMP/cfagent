@@ -243,14 +243,104 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(result.bars.length).toBeGreaterThan(0);
     });
 
-    it("executes foss_alpaca_snapshot tool via McpToolFactory", async () => {
+    it("executes foss_alpaca_snapshot tool via McpToolFactory with audit tracing", async () => {
+      const audits: any[] = [];
+      const ctx = {
+        ...getContext(),
+        audit: (type: string, domain: string, payload: any) => {
+          audits.push({ type, domain, payload });
+        },
+      };
+
       const result = await McpToolFactory.executeTool("foss_alpaca_snapshot", {
         symbol: "BTC/USD",
-      }, getContext());
+      }, ctx);
 
       expect(result.symbol).toBe("BTC/USD");
       expect(result.latestTrade).toBeDefined();
       expect(result.latestQuote).toBeDefined();
+      expect(audits.some((a) => a.type === "foss.alpaca.snapshot" && a.domain === "research")).toBe(true);
+    });
+
+    it("executes foss_alpaca_account tool via McpToolFactory with agentic DID audit tracing", async () => {
+      const audits: any[] = [];
+      const ctx = {
+        ...getContext(),
+        audit: (type: string, domain: string, payload: any) => {
+          audits.push({ type, domain, payload });
+        },
+      };
+
+      const result = await McpToolFactory.executeTool("foss_alpaca_account", {}, ctx);
+      expect(result).toBeDefined();
+      expect(audits.some((a) => a.type === "alpaca.account.query" && a.domain === "trading")).toBe(true);
+    });
+
+    it("executes foss_alpaca_positions tool via McpToolFactory with agentic DID audit tracing", async () => {
+      const audits: any[] = [];
+      const ctx = {
+        ...getContext(),
+        audit: (type: string, domain: string, payload: any) => {
+          audits.push({ type, domain, payload });
+        },
+      };
+
+      const result = await McpToolFactory.executeTool("foss_alpaca_positions", {}, ctx);
+      expect(result).toBeDefined();
+      expect(audits.some((a) => a.type === "alpaca.positions.query" && a.domain === "trading")).toBe(true);
+    });
+
+    it("executes foss_alpaca_orders tool via McpToolFactory with status filter and audit tracing", async () => {
+      const audits: any[] = [];
+      const ctx = {
+        ...getContext(),
+        audit: (type: string, domain: string, payload: any) => {
+          audits.push({ type, domain, payload });
+        },
+      };
+
+      const result = await McpToolFactory.executeTool("foss_alpaca_orders", { status: "all" }, ctx);
+      expect(result).toBeDefined();
+      expect(audits.some((a) => a.type === "alpaca.orders.query" && a.payload.status === "all")).toBe(true);
+    });
+
+    it("executes foss_alpaca_place_order tool via McpToolFactory with agentic DID audit tracing", async () => {
+      const audits: any[] = [];
+      const ctx = {
+        ...getContext(),
+        audit: (type: string, domain: string, payload: any) => {
+          audits.push({ type, domain, payload });
+        },
+      };
+
+      const result = await McpToolFactory.executeTool("foss_alpaca_place_order", {
+        symbol: "NVDA",
+        qty: 1,
+        side: "buy",
+        type: "limit",
+        limit_price: 120.5,
+      }, ctx);
+
+      expect(result).toBeDefined();
+      expect(audits.some((a) => a.type === "alpaca.order.place" && a.payload.symbol === "NVDA")).toBe(true);
+    });
+
+    it("supports both ALPACA_API_KEY and ALPACA_API_KEY_ID environment variable configurations", () => {
+      const envWithStandardKey: Env = {
+        ...mockEnv,
+        ALPACA_API_KEY: "test_key_alpaca",
+        ALPACA_SECRET_KEY: "test_secret_alpaca",
+      };
+      const provider1 = new AlpacaMarketDataProvider(envWithStandardKey);
+      expect(provider1.getApiKey()).toBe("test_key_alpaca");
+      expect(provider1.getApiSecret()).toBe("test_secret_alpaca");
+      expect(provider1.isConfigured()).toBe(true);
+
+      const service = new FossResearchService(envWithStandardKey);
+      const statuses = service.getProviderStatuses();
+      const alpacaStatus = statuses.find((s) => s.provider === "alpaca");
+      expect(alpacaStatus?.configured).toBe(true);
+      expect(alpacaStatus?.mode).toBe("live_api");
     });
   });
 

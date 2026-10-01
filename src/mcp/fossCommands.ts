@@ -156,3 +156,145 @@ export class FossAlpacaSnapshotCommand implements IMcpToolCommand {
     return snapshot;
   }
 }
+
+/**
+ * 6. FOSS Alpaca Account Command
+ * Queries Alpaca account balances, buying power, and portfolio equity with agentic DID audit tracing.
+ */
+export class FossAlpacaAccountCommand implements IMcpToolCommand {
+  readonly name = "foss_alpaca_account";
+  readonly description = "Query Alpaca Securities brokerage account details, cash balance, buying power, and portfolio equity with agentic DID audit tracing.";
+
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {},
+  };
+
+  readonly zodSchema = z.object({});
+
+  async execute(_input: Record<string, unknown>, context: McpToolContext) {
+    const service = new FossResearchService(context.env);
+    const result = await service.getAlpacaAccount();
+    context.audit?.("alpaca.account.query", "trading", {
+      success: result.success,
+      accountId: result.account?.id,
+      buyingPower: result.account?.buying_power,
+      portfolioValue: result.account?.portfolio_value,
+    });
+    return result;
+  }
+}
+
+/**
+ * 7. FOSS Alpaca Positions Command
+ * Queries open equity and crypto portfolio positions from Alpaca Securities with agentic DID audit tracing.
+ */
+export class FossAlpacaPositionsCommand implements IMcpToolCommand {
+  readonly name = "foss_alpaca_positions";
+  readonly description = "Query open equity and crypto portfolio positions from Alpaca Securities with agentic DID audit tracing.";
+
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {},
+  };
+
+  readonly zodSchema = z.object({});
+
+  async execute(_input: Record<string, unknown>, context: McpToolContext) {
+    const service = new FossResearchService(context.env);
+    const result = await service.getAlpacaPositions();
+    context.audit?.("alpaca.positions.query", "trading", {
+      success: result.success,
+      count: result.positions?.length || 0,
+      symbols: result.positions?.map((p: any) => p.symbol) || [],
+    });
+    return result;
+  }
+}
+
+/**
+ * 8. FOSS Alpaca Orders Command
+ * Queries active and filled orders from Alpaca Securities with status filter and agentic DID audit tracing.
+ */
+export class FossAlpacaOrdersCommand implements IMcpToolCommand {
+  readonly name = "foss_alpaca_orders";
+  readonly description = "Query active and filled orders from Alpaca Securities with status filter and agentic DID audit tracing.";
+
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", enum: ["open", "closed", "all"], description: "Order status filter (default: open)" },
+    },
+  };
+
+  readonly zodSchema = z.object({
+    status: z.enum(["open", "closed", "all"]).default("open").optional(),
+  });
+
+  async execute(input: { status?: "open" | "closed" | "all" }, context: McpToolContext) {
+    const service = new FossResearchService(context.env);
+    const result = await service.getAlpacaOrders(input.status || "open");
+    context.audit?.("alpaca.orders.query", "trading", {
+      status: input.status || "open",
+      count: result.orders?.length || 0,
+    });
+    return result;
+  }
+}
+
+/**
+ * 9. FOSS Alpaca Place Order Command
+ * Places an equity, ETF, or crypto order via Alpaca Trading API v2 with Agent DID cryptographic attestation.
+ */
+export class FossAlpacaPlaceOrderCommand implements IMcpToolCommand {
+  readonly name = "foss_alpaca_place_order";
+  readonly description = "Place a stock, ETF, or crypto order on Alpaca Securities with Agent DID attestation and audit tracing.";
+
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      symbol: { type: "string", description: "Ticker symbol (e.g. NVDA, AAPL, BTC/USD)" },
+      qty: { type: "number", description: "Number of shares or contract units" },
+      side: { type: "string", enum: ["buy", "sell"], description: "Order side (buy or sell)" },
+      type: { type: "string", enum: ["market", "limit", "stop", "stop_limit"], description: "Order execution type" },
+      limit_price: { type: "number", description: "Limit price (required if type is limit)" },
+      time_in_force: { type: "string", enum: ["day", "gtc", "ioc", "fok"], description: "Time in force" },
+    },
+    required: ["symbol", "qty", "side"],
+  };
+
+  readonly zodSchema = z.object({
+    symbol: z.string().min(1).max(20).describe("Ticker symbol"),
+    qty: z.number().positive().describe("Order quantity"),
+    side: z.enum(["buy", "sell"]).describe("Order side"),
+    type: z.enum(["market", "limit", "stop", "stop_limit"]).default("market").optional(),
+    limit_price: z.number().positive().optional().describe("Limit price"),
+    time_in_force: z.enum(["day", "gtc", "ioc", "fok"]).default("day").optional(),
+  });
+
+  async execute(
+    input: {
+      symbol: string;
+      qty: number;
+      side: "buy" | "sell";
+      type?: "market" | "limit" | "stop" | "stop_limit";
+      limit_price?: number;
+      time_in_force?: "day" | "gtc" | "ioc" | "fok";
+    },
+    context: McpToolContext
+  ) {
+    const service = new FossResearchService(context.env);
+    const result = await service.placeAlpacaOrder(input);
+    context.audit?.("alpaca.order.place", "trading", {
+      symbol: input.symbol,
+      qty: input.qty,
+      side: input.side,
+      type: input.type || "market",
+      limitPrice: input.limit_price,
+      orderId: result.orderId,
+      status: result.status,
+      success: result.success,
+    });
+    return result;
+  }
+}

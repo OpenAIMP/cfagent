@@ -31,6 +31,10 @@ import {
   FossHistoricalBarsCommand,
   FossMarketResearchCommand,
   FossAlpacaSnapshotCommand,
+  FossAlpacaAccountCommand,
+  FossAlpacaPositionsCommand,
+  FossAlpacaOrdersCommand,
+  FossAlpacaPlaceOrderCommand,
 } from "./fossCommands";
 
 /**
@@ -866,6 +870,10 @@ export class McpToolFactory {
     this.registerTool(new FossHistoricalBarsCommand());
     this.registerTool(new FossMarketResearchCommand());
     this.registerTool(new FossAlpacaSnapshotCommand());
+    this.registerTool(new FossAlpacaAccountCommand());
+    this.registerTool(new FossAlpacaPositionsCommand());
+    this.registerTool(new FossAlpacaOrdersCommand());
+    this.registerTool(new FossAlpacaPlaceOrderCommand());
   }
 
   /**
