@@ -4,3 +4,5 @@ node_modules
 .dev.vars.local
 !.dev.vars.example
 dist
+EtradeNodeClient.zip
+etrade_node_client/

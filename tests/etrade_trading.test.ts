@@ -329,6 +329,31 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(result.rows[0].symbol).toBeDefined();
       expect(result.rows[0].marketValue).toBeDefined();
     });
+
+    it("NLQ classifies 'Quote NVDA' and executeNLQQueryAsync fetches live quote with formatted market cap", async () => {
+      const { executeNLQQueryAsync } = await import("../src/agents/nlq");
+      const plan = await planNLQ(mockEnv, "Quote NVDA");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("quote");
+      expect(plan.tradingData?.symbol).toBe("NVDA");
+
+      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv);
+      expect(result.domain).toBe("trading");
+      expect(result.count).toBe(1);
+      const row = result.rows[0];
+      expect(row.symbol).toBe("NVDA");
+      expect(row.lastPrice).toBeDefined();
+      expect(row.marketCap).not.toBe("$0.0B");
+      expect(row.marketCap).toMatch(/\$[0-9.]+[TB]/);
+      expect(row.source).toMatch(/Live|Market/);
+    });
+
+    it("DynamicMarketScreener.screenMarkets enriches stocks with real-time quotes", async () => {
+      const result = await etrade.screenMarketsAsync({ sector: "Semiconductors", limit: 3 });
+      expect(result.stocks.length).toBeGreaterThan(0);
+      expect(result.stocks[0].price).toBeGreaterThan(0);
+      expect(result.stocks[0].marketCap).toBeGreaterThan(0);
+    });
   });
 
   // =========================================================================
