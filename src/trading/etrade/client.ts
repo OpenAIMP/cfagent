@@ -231,7 +231,7 @@ export class ETradeRestClient {
   /**
    * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
    */
-  async fetchQuotes(symbols: string[]): Promise<ETradeQuote[]> {
+  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean }): Promise<ETradeQuote[]> {
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
@@ -256,12 +256,14 @@ export class ETradeRestClient {
       return [];
     }
 
-    const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean).slice(0, 25);
+    const maxCount = options?.overrideSymbolCount ? 50 : 25;
+    const cleanSyms = symbols.map((s) => s.toUpperCase().trim()).filter(Boolean).slice(0, maxCount);
     if (!cleanSyms.length) return [];
 
+    const qs = cleanSyms.length > 25 || options?.overrideSymbolCount ? "?overrideSymbolCount=true" : "";
     const symList = cleanSyms.join(",");
-    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}`;
-    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json`;
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json${qs}`;
 
     let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
@@ -1476,17 +1478,18 @@ export class ETradeRestClient {
   }
 
   /**
-   * Alerts API: Delete Alert
-   * DELETE /v1/user/alerts/{alertId}
+   * Alerts API: Delete Alert(s)
+   * DELETE /v1/user/alerts/{alert_id_list}
    */
-  async deleteAlert(alertId: string | number): Promise<{ success: boolean; message: string }> {
+  async deleteAlert(alertId: string | number | (string | number)[]): Promise<{ success: boolean; message: string }> {
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !alertId) {
+    const idList = Array.isArray(alertId) ? alertId.join(",") : String(alertId);
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !idList) {
       return { success: false, message: "Missing credentials or alertId" };
     }
 
-    const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}`;
-    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}.json`;
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(idList)}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(idList)}.json`;
 
     let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
@@ -1843,6 +1846,91 @@ export class ETradeRestClient {
     } catch (err) {
       console.warn("[ETradeClient] fetchOrders error:", err);
       return [];
+    }
+  }
+
+  /**
+   * Order API: Get Order Details
+   * GET /v1/accounts/{accountIdKey}/orders/{orderId}
+   */
+  async fetchOrderDetails(
+    accountKey: string | undefined,
+    orderId: string | number
+  ): Promise<ETradeRemoteOrder | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !orderId) return null;
+
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      if (!accounts.length) return null;
+      key = accounts[0].accountKey || accounts[0].accountId;
+      if (!key) return null;
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/${encodeURIComponent(String(orderId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/${encodeURIComponent(String(orderId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Order Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "orderDetails", errorText);
+        return null;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const orderData = data?.OrdersResponse?.Order?.[0] || data?.Order?.[0] || data?.Order;
+      if (!orderData) return null;
+
+      const orderDetail = orderData?.OrderDetail?.[0] || {};
+      const instrument = orderDetail?.Instrument?.[0] || {};
+
+      return {
+        orderId: orderData.orderId || orderId,
+        details: orderData.detailsURI,
+        orderType: orderDetail.orderType || orderData.orderType,
+        orderValue: orderData.orderValue ? Number(orderData.orderValue) : undefined,
+        status: (orderDetail.status || orderData.status || "OPEN") as any,
+        placedTime: orderDetail.placedTime ? Number(orderDetail.placedTime) : undefined,
+        executedTime: orderDetail.executedTime ? Number(orderDetail.executedTime) : undefined,
+        orderTerm: orderDetail.orderTerm,
+        priceType: orderDetail.priceType,
+        limitPrice: orderDetail.limitPrice ? Number(orderDetail.limitPrice) : undefined,
+        stopPrice: orderDetail.stopPrice ? Number(orderDetail.stopPrice) : undefined,
+        orderAction: instrument.orderAction,
+        quantity: instrument.orderedQuantity ? Number(instrument.orderedQuantity) : undefined,
+        symbol: instrument.Product?.symbol,
+      };
+    } catch (err) {
+      console.warn("[ETradeClient] fetchOrderDetails error:", err);
+      return null;
     }
   }
 

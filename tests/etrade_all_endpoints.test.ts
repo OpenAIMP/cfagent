@@ -489,6 +489,42 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/orders/preview");
     });
 
+    it("18c. GET /v1/accounts/{accountIdKey}/orders/{orderId}", async () => {
+      await storeAccessTokens(env, userLogin, "valid_token", "valid_secret");
+      const client = new ETradeRestClient(env, userLogin);
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            OrdersResponse: {
+              Order: [
+                {
+                  orderId: 9005,
+                  detailsURI: "https://api.etrade.com/v1/accounts/KEY_12345/orders/9005",
+                  OrderDetail: [
+                    {
+                      orderType: "EQ",
+                      status: "EXECUTED",
+                      placedTime: 1727740800000,
+                      executedTime: 1727740805000,
+                      Instrument: [{ Product: { symbol: "AAPL" }, orderAction: "BUY", orderedQuantity: 50 }],
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const order = await client.fetchOrderDetails("KEY_12345", 9005);
+      expect(order?.orderId).toBe(9005);
+      expect(order?.symbol).toBe("AAPL");
+      expect(order?.status).toBe("EXECUTED");
+      expect(fetchSpy.mock.calls[0][0]).toContain("/accounts/KEY_12345/orders/9005");
+    });
+
     it("19. POST /v1/accounts/{accountIdKey}/orders/place", async () => {
       await storeAccessTokens(env, userLogin, "valid_token", "valid_secret");
       const client = new ETradeRestClient(env, userLogin);
