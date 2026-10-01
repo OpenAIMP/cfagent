@@ -171,12 +171,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const handleStartOAuth = async () => {
+  const handleStartOAuth = async (override?: unknown) => {
+    const envToUse = typeof override === "string" && (override === "TEST" || override === "PROD") ? override : activeEnv;
     setOauthLoading(true);
     setOauthMsg("");
     try {
       const resp = await fetch("/api/etrade/oauth/start", {
-        headers: { "x-environment": activeEnv },
+        headers: { "x-environment": envToUse },
       });
       const data = (await resp.json()) as any;
       if (resp.ok && data.authorizeUrl) {
@@ -192,6 +193,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     } finally {
       setOauthLoading(false);
     }
+  };
+
+  const handleSwitchAndConnect = async (target: "TEST" | "PROD") => {
+    await handleSwitchEnvironment(target);
+    await handleStartOAuth(target);
   };
 
   const handleSubmitPin = async (e: React.FormEvent) => {
@@ -859,9 +865,73 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
       {/* OAuth Banner Notification Message */}
       {oauthMsg && (
-        <div style={{ background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px", padding: "0.6rem 1rem", color: "#38bdf8", fontSize: "0.85rem", marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>ℹ️ {oauthMsg}</span>
-          <button type="button" onClick={() => setOauthMsg("")} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "0.9rem" }}>✕</button>
+        <div
+          style={{
+            background:
+              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
+                ? "rgba(245, 158, 11, 0.15)"
+                : "rgba(56, 189, 248, 0.15)",
+            border:
+              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
+                ? "1px solid rgba(245, 158, 11, 0.4)"
+                : "1px solid rgba(56, 189, 248, 0.3)",
+            borderRadius: "8px",
+            padding: "0.75rem 1rem",
+            color:
+              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
+                ? "#fbbf24"
+                : "#38bdf8",
+            fontSize: "0.85rem",
+            marginTop: "0.75rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.5rem",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
+            <span>ℹ️ {oauthMsg}</span>
+            <button
+              type="button"
+              onClick={() => setOauthMsg("")}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#94a3b8",
+                cursor: "pointer",
+                fontSize: "0.9rem",
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          {(oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")) && (
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.25rem" }}>
+              <button
+                type="button"
+                onClick={() => handleSwitchAndConnect("TEST")}
+                style={{
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                  border: "none",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  fontSize: "0.78rem",
+                  padding: "0.4rem 0.85rem",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
+                }}
+              >
+                🧪 Switch to TEST & Connect Now
+              </button>
+              <span style={{ fontSize: "0.75rem", color: "#d1d5db" }}>
+                Or configure a Morgan Stanley Production Key &amp; Secret in Cloudflare / GitHub secrets for Live PROD.
+              </span>
+            </div>
+          )}
         </div>
       )}
 
