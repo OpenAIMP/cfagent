@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { planNLQ, executeNLQQuery, formatMarketCap } from "../src/agents/nlq";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
+import { DynamicMarketScreener } from "../src/trading/screener";
+import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import type { Env } from "../src/types";
 
 describe("Natural Language Query (NLQ) Engine", () => {
@@ -15,6 +17,7 @@ describe("Natural Language Query (NLQ) Engine", () => {
   };
 
   beforeEach(() => {
+    DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema("test_session_user");

@@ -30,8 +30,8 @@ import {
 } from "../trading";
 import { resolveEnvironmentConfig } from "../config/environment";
 
-// Re-export the expanded market universe for backward compatibility
-export const MARKET_UNIVERSE: ScreenedStockItem[] = EXPANDED_MARKET_UNIVERSE;
+// Re-export the market universe definition for backward compatibility
+export const MARKET_UNIVERSE = EXPANDED_MARKET_UNIVERSE;
 
 export class ETradeService {
   private platform: ETradeTradingPlatform;
@@ -41,6 +41,10 @@ export class ETradeService {
   private env: Env;
   private userLogin: string;
   private overrideEnv?: string;
+
+  setScreenerUniverse(universe: ScreenedStockItem[]): void {
+    this.screener.setUniverse(universe);
+  }
 
   constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string, overrideEnv?: string) {
     if (ormOrEnv && "trades" in (ormOrEnv as any)) {
@@ -133,7 +137,7 @@ export class ETradeService {
    */
   getQuote(symbol: string): ETradeQuote {
     const cleanSym = symbol.trim().toUpperCase();
-    const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
+    const found = this.screener.getUniverse().find((s) => s.symbol === cleanSym);
     if (found) {
       return {
         ...found,
@@ -143,9 +147,10 @@ export class ETradeService {
         source: "E*TRADE Market Data Feed",
       };
     }
+    const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
     return {
       symbol: cleanSym,
-      companyName: `${cleanSym} Inc.`,
+      companyName: def?.companyName || `${cleanSym} Inc.`,
       lastPrice: 100.0,
       price: 100.0,
       change: 0,
@@ -276,7 +281,8 @@ export class ETradeService {
         const positions: ETradePosition[] = [];
         let totalMarketVal = 0;
         for (const [sym, data] of positionsMap.entries()) {
-          const q = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
+          const q = this.screener.getUniverse().find((s) => s.symbol === sym);
+          const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
           const price = q?.lastPrice || (data.quantity > 0 ? Number((data.costBasis / data.quantity).toFixed(2)) : 0);
           const marketValue = Number((price * data.quantity).toFixed(2));
           const totalGain = Number((marketValue - data.costBasis).toFixed(2));
@@ -284,7 +290,7 @@ export class ETradeService {
           totalMarketVal += marketValue;
           positions.push({
             symbol: sym,
-            description: q?.companyName || `${sym} Equity`,
+            description: q?.companyName || def?.companyName || `${sym} Equity`,
             quantity: data.quantity,
             pricePaid: Number((data.costBasis / data.quantity).toFixed(2)),
             costBasis: Number(data.costBasis.toFixed(2)),

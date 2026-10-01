@@ -95,7 +95,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     }
 
     // 2. Pure E*TRADE market universe feed (No third-party yfinance dependency)
-    const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
+    const found = this.screener.getUniverse().find((s) => s.symbol === cleanSym);
     if (found) {
       const envConfig = this.getEnvConfig();
       return {
@@ -108,10 +108,11 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       };
     }
 
+    const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
     const envConfig = this.getEnvConfig();
     return {
       symbol: cleanSym,
-      companyName: `${cleanSym} Inc.`,
+      companyName: def?.companyName || `${cleanSym} Inc.`,
       lastPrice: 100.0,
       price: 100.0,
       change: 0,

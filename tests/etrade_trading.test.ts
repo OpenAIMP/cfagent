@@ -4,6 +4,8 @@ import { MockSqlStorage } from "./mock-sql";
 import { ETradeService } from "../src/services/etrade";
 import { AGENT_DIDS } from "../src/agents/did";
 import { McpToolFactory } from "../src/mcp/commands";
+import { DynamicMarketScreener } from "../src/trading/screener";
+import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { planNLQ, executeNLQQuery } from "../src/agents/nlq";
 import type { Env } from "../src/types";
 
@@ -22,6 +24,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
   };
 
   beforeEach(() => {
+    DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);

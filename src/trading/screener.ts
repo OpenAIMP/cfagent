@@ -4,362 +4,68 @@
  * Implements:
  * - Dynamic screening across multi-sector universes without reliance on static hardcoded values.
  * - Technical indicator calculations: RSI-14, MACD momentum divergence, 52-week relative range.
- * - Real-time quotes enrichment via FOSS providers (Yahoo Finance & Alpaca).
+ * - Real-time quotes enrichment via authentic E*TRADE REST API feeds.
  */
 
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
 
-// Comprehensive liquid universe spanning all major market sectors
-// Comprehensive liquid universe spanning all major market sectors
-export const EXPANDED_MARKET_UNIVERSE: ScreenedStockItem[] = [
+export interface MarketSecurityDefinition {
+  symbol: string;
+  companyName: string;
+  sector: string;
+}
+
+// Canonical liquid security universe for E*TRADE market screening & quoting (identities only — no hardcoded prices)
+export const ETRADE_MARKET_UNIVERSE: MarketSecurityDefinition[] = [
   // Semiconductors
-  {
-    symbol: "NVDA",
-    companyName: "NVIDIA Corporation",
-    sector: "Semiconductors",
-    lastPrice: 228.38,
-    price: 228.38,
-    change: 1.17,
-    changePercent: 0.51,
-    bid: 228.30,
-    ask: 228.45,
-    volume: 52400000,
-    open: 226.50,
-    high: 229.80,
-    low: 225.90,
-    previousClose: 227.21,
-    peRatio: 58.2,
-    marketCap: 3390,
-    week52High: 235.00,
-    week52Low: 110.00,
-    high52: 235.00,
-    low52: 110.00,
-    rsi: 68.4,
-    rsi14: 68.4,
-    macdSignal: "Bullish MACD Crossover (Line > Signal)",
-    signal: "BULLISH_MOMENTUM",
-    technicalSignal: "Bullish MACD Crossover (Line > Signal)",
-    momentumScore: 94,
-    highlightReason: "Blackwell chip volume ramp and strong hyperscaler capex",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "AMD",
-    companyName: "Advanced Micro Devices, Inc.",
-    sector: "Semiconductors",
-    lastPrice: 611.76,
-    price: 611.76,
-    change: 4.19,
-    changePercent: 0.69,
-    bid: 611.50,
-    ask: 612.00,
-    volume: 38900000,
-    open: 606.00,
-    high: 614.50,
-    low: 605.20,
-    previousClose: 607.57,
-    peRatio: 46.5,
-    marketCap: 253,
-    week52High: 625.00,
-    week52Low: 320.00,
-    high52: 625.00,
-    low52: 320.00,
-    rsi: 58.6,
-    rsi14: 58.6,
-    macdSignal: "Bullish MACD Crossover (Line > Signal)",
-    signal: "BULLISH_MOMENTUM",
-    technicalSignal: "Bullish MACD Crossover (Line > Signal)",
-    momentumScore: 82,
-    highlightReason: "MI300X AI accelerator adoption expanding among enterprise clients",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "AVGO",
-    companyName: "Broadcom Inc.",
-    sector: "Semiconductors",
-    lastPrice: 351.19,
-    price: 351.19,
-    change: -3.91,
-    changePercent: -1.10,
-    bid: 351.00,
-    ask: 351.40,
-    volume: 24100000,
-    open: 354.00,
-    high: 356.20,
-    low: 350.10,
-    previousClose: 355.10,
-    peRatio: 38.4,
-    marketCap: 805,
-    week52High: 380.00,
-    week52Low: 180.00,
-    high52: 380.00,
-    low52: 180.00,
-    rsi: 64.2,
-    rsi14: 64.2,
-    macdSignal: "Bearish MACD Momentum (Line < Signal)",
-    signal: "RANGE_BOUND",
-    technicalSignal: "Bearish MACD Momentum (Line < Signal)",
-    momentumScore: 68,
-    highlightReason: "Custom ASIC silicon wins with major cloud service providers",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
+  { symbol: "NVDA", companyName: "NVIDIA Corporation", sector: "Semiconductors" },
+  { symbol: "AMD", companyName: "Advanced Micro Devices, Inc.", sector: "Semiconductors" },
+  { symbol: "AVGO", companyName: "Broadcom Inc.", sector: "Semiconductors" },
   // Technology
-  {
-    symbol: "AAPL",
-    companyName: "Apple Inc.",
-    sector: "Technology",
-    lastPrice: 228.40,
-    price: 228.40,
-    change: -1.15,
-    changePercent: -0.50,
-    bid: 228.35,
-    ask: 228.45,
-    volume: 38200000,
-    open: 229.80,
-    high: 230.40,
-    low: 227.60,
-    previousClose: 229.55,
-    peRatio: 33.8,
-    marketCap: 3470,
-    week52High: 237.23,
-    week52Low: 164.08,
-    high52: 237.23,
-    low52: 164.08,
-    rsi: 51.2,
-    rsi14: 51.2,
-    macdSignal: "Neutral Centerline (Histogram ~0)",
-    signal: "RANGE_BOUND",
-    technicalSignal: "Neutral Centerline (Histogram ~0)",
-    momentumScore: 62,
-    highlightReason: "Apple Intelligence rollout, steady institutional accumulation",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "MSFT",
-    companyName: "Microsoft Corporation",
-    sector: "Technology",
-    lastPrice: 422.90,
-    price: 422.90,
-    change: 5.61,
-    changePercent: 1.11,
-    bid: 422.80,
-    ask: 423.00,
-    volume: 19800000,
-    open: 420.50,
-    high: 424.20,
-    low: 419.80,
-    previousClose: 417.29,
-    peRatio: 35.1,
-    marketCap: 3140,
-    week52High: 468.35,
-    week52Low: 366.50,
-    high52: 468.35,
-    low52: 366.50,
-    rsi: 54.8,
-    rsi14: 54.8,
-    macdSignal: "Bullish MACD Momentum (Line > Signal)",
-    signal: "BULLISH_MOMENTUM",
-    technicalSignal: "Bullish MACD Momentum (Line > Signal)",
-    momentumScore: 78,
-    highlightReason: "Azure Cloud growth and Copilot commercial monetization",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "PLTR",
-    companyName: "Palantir Technologies Inc.",
-    sector: "Technology",
-    lastPrice: 187.05,
-    price: 187.05,
-    change: 0.67,
-    changePercent: 0.36,
-    bid: 186.95,
-    ask: 187.15,
-    volume: 68400000,
-    open: 185.00,
-    high: 188.40,
-    low: 184.20,
-    previousClose: 186.38,
-    peRatio: 112.5,
-    marketCap: 101,
-    week52High: 192.00,
-    week52Low: 60.00,
-    high52: 192.00,
-    low52: 60.00,
-    rsi: 74.2,
-    rsi14: 74.2,
-    macdSignal: "Bullish Centerline (MACD > 0)",
-    signal: "OVERBOUGHT",
-    technicalSignal: "Bullish Centerline (MACD > 0)",
-    momentumScore: 98,
-    highlightReason: "AIP enterprise bootcamp acceleration and S&P 500 inclusion",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
+  { symbol: "AAPL", companyName: "Apple Inc.", sector: "Technology" },
+  { symbol: "MSFT", companyName: "Microsoft Corporation", sector: "Technology" },
+  { symbol: "PLTR", companyName: "Palantir Technologies Inc.", sector: "Technology" },
   // Consumer Discretionary & Communication
-  {
-    symbol: "AMZN",
-    companyName: "Amazon.com, Inc.",
-    sector: "Consumer Discretionary",
-    lastPrice: 249.15,
-    price: 249.15,
-    change: 2.48,
-    changePercent: 1.01,
-    bid: 249.00,
-    ask: 249.30,
-    volume: 31200000,
-    open: 247.00,
-    high: 250.50,
-    low: 246.20,
-    previousClose: 246.67,
-    peRatio: 42.6,
-    marketCap: 1940,
-    week52High: 260.00,
-    week52Low: 155.00,
-    high52: 260.00,
-    low52: 155.00,
-    rsi: 56.4,
-    rsi14: 56.4,
-    macdSignal: "Bullish Centerline (MACD > 0)",
-    signal: "BULLISH_MOMENTUM",
-    technicalSignal: "Bullish Centerline (MACD > 0)",
-    momentumScore: 79,
-    highlightReason: "AWS margin expansion and prime day advertising revenue acceleration",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "TSLA",
-    companyName: "Tesla, Inc.",
-    sector: "Consumer Discretionary",
-    lastPrice: 218.80,
-    price: 218.80,
-    change: -4.30,
-    changePercent: -1.93,
-    bid: 218.70,
-    ask: 218.90,
-    volume: 64100000,
-    open: 224.50,
-    high: 225.80,
-    low: 217.20,
-    previousClose: 223.10,
-    peRatio: 64.2,
-    marketCap: 698,
-    week52High: 271.00,
-    week52Low: 138.80,
-    high52: 271.00,
-    low52: 138.80,
-    rsi: 38.5,
-    rsi14: 38.5,
-    macdSignal: "Bearish MACD Momentum (Line < Signal)",
-    signal: "OVERSOLD_BOUNCE",
-    technicalSignal: "Bearish MACD Momentum (Line < Signal)",
-    momentumScore: 61,
-    highlightReason: "Robotaxi and autonomous full self-driving (FSD) architecture events",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "GOOGL",
-    companyName: "Alphabet Inc.",
-    sector: "Communication Services",
-    lastPrice: 164.20,
-    price: 164.20,
-    change: -0.80,
-    changePercent: -0.48,
-    bid: 164.10,
-    ask: 164.30,
-    volume: 22400000,
-    open: 165.40,
-    high: 166.20,
-    low: 163.50,
-    previousClose: 165.00,
-    peRatio: 23.9,
-    marketCap: 2040,
-    week52High: 191.75,
-    week52Low: 120.21,
-    high52: 191.75,
-    low52: 120.21,
-    rsi: 48.7,
-    rsi14: 48.7,
-    macdSignal: "Neutral Centerline (Histogram ~0)",
-    signal: "RANGE_BOUND",
-    technicalSignal: "Neutral Centerline (Histogram ~0)",
-    momentumScore: 67,
-    highlightReason: "Gemini 1.5 Pro multimodal search integration and Cloud profitability",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
-  {
-    symbol: "META",
-    companyName: "Meta Platforms, Inc.",
-    sector: "Communication Services",
-    lastPrice: 725.18,
-    price: 725.18,
-    change: -13.61,
-    changePercent: -1.84,
-    bid: 724.80,
-    ask: 725.50,
-    volume: 14800000,
-    open: 735.00,
-    high: 738.50,
-    low: 722.00,
-    previousClose: 738.79,
-    peRatio: 27.3,
-    marketCap: 1450,
-    week52High: 745.00,
-    week52Low: 380.00,
-    high52: 745.00,
-    low52: 380.00,
-    rsi: 61.8,
-    rsi14: 61.8,
-    macdSignal: "Bearish Divergence (MACD Falling)",
-    signal: "RANGE_BOUND",
-    technicalSignal: "Bearish Divergence (MACD Falling)",
-    momentumScore: 72,
-    highlightReason: "Llama open source adoption and ad monetization efficiency",
-    changePeriod: "1D (Regular Trading Day)",
-    rsiLookback: "14-Period Daily RSI",
-    macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
-    validationStatus: "PASS_CONFIRMED",
-    timestamp: new Date().toISOString(),
-  },
+  { symbol: "AMZN", companyName: "Amazon.com, Inc.", sector: "Consumer Discretionary" },
+  { symbol: "TSLA", companyName: "Tesla, Inc.", sector: "Consumer Discretionary" },
+  { symbol: "GOOGL", companyName: "Alphabet Inc.", sector: "Communication Services" },
+  { symbol: "META", companyName: "Meta Platforms, Inc.", sector: "Communication Services" },
 ];
 
+export const EXPANDED_MARKET_UNIVERSE: MarketSecurityDefinition[] = ETRADE_MARKET_UNIVERSE;
+
 export class DynamicMarketScreener implements IMarketScreener {
-  constructor() {}
+  private static testUniverseFixture: ScreenedStockItem[] = [];
+  private universeCache: ScreenedStockItem[] = [];
+
+  /**
+   * Test fixture injector — allows offline unit tests to inject deterministic fixtures
+   * without embedding any mock data or fake prices in production code.
+   */
+  static setTestUniverseFixture(fixture: ScreenedStockItem[]): void {
+    DynamicMarketScreener.testUniverseFixture = fixture;
+  }
+
+  static getTestUniverseFixture(): ScreenedStockItem[] {
+    return DynamicMarketScreener.testUniverseFixture;
+  }
+
+  constructor(initialUniverse?: ScreenedStockItem[]) {
+    if (initialUniverse && initialUniverse.length > 0) {
+      this.universeCache = initialUniverse;
+    } else if (DynamicMarketScreener.testUniverseFixture.length > 0) {
+      this.universeCache = DynamicMarketScreener.testUniverseFixture;
+    }
+  }
+
+  setUniverse(universe: ScreenedStockItem[]): void {
+    this.universeCache = universe;
+  }
+
+  getUniverse(): ScreenedStockItem[] {
+    return this.universeCache;
+  }
 
   /**
    * Internal evaluator that strictly verifies filter rules and builds an auditable scan ledger
@@ -405,6 +111,26 @@ export class DynamicMarketScreener implements IMarketScreener {
       if (filter.rsiFilter === "oversold") summaryParts.push("RSI < 35 (Oversold)");
       else if (filter.rsiFilter === "overbought") summaryParts.push("RSI > 70 (Overbought)");
       else if (filter.rsiFilter === "neutral") summaryParts.push("RSI 35-70 (Neutral)");
+    }
+
+    if (!universe || universe.length === 0) {
+      return {
+        totalScanned: 0,
+        totalScreened: 0,
+        matchedCount: 0,
+        status: "no_matches",
+        filterApplied: filter,
+        filterSummary: summaryParts.join(", ") || "All Equities Universe",
+        ledger: {
+          universeSymbols: [],
+          totalEvaluated: 0,
+          passedCount: 0,
+          rejectedCount: 0,
+          rejections: [],
+        },
+        stocks: [],
+        scannedAt: new Date().toISOString(),
+      };
     }
 
     for (const stock of universe) {
@@ -632,7 +358,7 @@ export class DynamicMarketScreener implements IMarketScreener {
    */
   screenWithQuotes(quotes: ETradeQuote[], filter: StockScreenerFilter = {}): StockScreenResult {
     const universe = quotes.map((q) => {
-      const found = EXPANDED_MARKET_UNIVERSE.find((u) => u.symbol === q.symbol);
+      const found = ETRADE_MARKET_UNIVERSE.find((u) => u.symbol === q.symbol);
       const rsi14 = q.rsi || 50;
       return {
         ...q,
@@ -647,6 +373,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       } as ScreenedStockItem;
     });
 
+    this.universeCache = universe;
     return this.evaluateUniverse(universe, filter);
   }
 
@@ -654,14 +381,14 @@ export class DynamicMarketScreener implements IMarketScreener {
    * Filter and scan stocks based on fundamental and technical criteria (synchronous baseline)
    */
   screenStocks(filter: StockScreenerFilter = {}): StockScreenResult {
-    return this.evaluateUniverse(EXPANDED_MARKET_UNIVERSE, filter);
+    return this.evaluateUniverse(this.universeCache, filter);
   }
 
   /**
    * Asynchronous market screener evaluating current equities universe
    */
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.evaluateUniverse(EXPANDED_MARKET_UNIVERSE, filter);
+    return this.evaluateUniverse(this.universeCache, filter);
   }
 
   /**
@@ -669,7 +396,7 @@ export class DynamicMarketScreener implements IMarketScreener {
    */
   async getQuote(symbol: string): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
-    const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
+    const found = this.universeCache.find((s) => s.symbol === cleanSym);
 
     if (found) {
       return {
@@ -680,6 +407,6 @@ export class DynamicMarketScreener implements IMarketScreener {
         source: "E*TRADE Market Data Feed",
       };
     }
-    throw new Error(`Quote data unavailable for '${cleanSym}'. Unable to resolve quote from E*TRADE market universe.`);
+    throw new Error(`Quote data unavailable for '${cleanSym}'. No live or cached quote available from E*TRADE feed.`);
   }
 }
