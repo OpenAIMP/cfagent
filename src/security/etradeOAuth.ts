@@ -206,6 +206,51 @@ export async function revokeStoredTokens(env: Env, userLogin: string, overrideEn
 }
 
 /**
+ * Step 5: Revoke Access Token Upstream & Purge KV
+ * Calls GET /oauth/revoke_access_token on E*TRADE servers and removes session from KV
+ */
+export async function revokeRemoteAccessToken(
+  env: Env,
+  userLogin: string,
+  overrideEnv?: string
+): Promise<{ success: boolean; message: string }> {
+  const tokens = await getStoredTokens(env, userLogin, overrideEnv);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  const consumerKey = envConfig.etrade.apiKey;
+  const consumerSecret = envConfig.etrade.apiSecret;
+
+  if (tokens && consumerKey && consumerSecret) {
+    const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
+    const revokeUrl = `${baseUrl}/oauth/revoke_access_token`;
+
+    try {
+      const authHeader = await generateOAuth1Header({
+        method: "GET",
+        url: revokeUrl,
+        consumerKey,
+        consumerSecret,
+        token: tokens.accessToken,
+        tokenSecret: tokens.accessTokenSecret,
+      });
+
+      const res = await fetch(revokeUrl, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      console.log(`[ETradeOAuth] revoke_access_token status: ${res.status}`);
+    } catch (err) {
+      console.warn(`[ETradeOAuth] revoke_access_token upstream fetch error:`, err);
+    }
+  }
+
+  await revokeStoredTokens(env, userLogin, overrideEnv);
+  return { success: true, message: "E*TRADE access token revoked upstream and cleared from storage." };
+}
+
+/**
  * Step 1: Request Token
  * Calls GET /oauth/request_token
  */

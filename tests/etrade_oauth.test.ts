@@ -216,11 +216,11 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
       // Verify call 1: List Accounts
       const [listUrl] = fetchSpy.mock.calls[0];
-      expect(listUrl).toBe("https://apisb.etrade.com/v1/accounts/list.json");
+      expect(listUrl).toBe("https://apisb.etrade.com/v1/accounts/list");
 
       // Verify call 2: Portfolio uses the discovered REAL_KEY_ABC777, NEVER literal "{accountIdKey}"
       const [portfolioUrl] = fetchSpy.mock.calls[1];
-      expect(portfolioUrl).toBe("https://apisb.etrade.com/v1/accounts/REAL_KEY_ABC777/portfolio.json");
+      expect(portfolioUrl).toBe("https://apisb.etrade.com/v1/accounts/REAL_KEY_ABC777/portfolio");
       expect(portfolioUrl).not.toContain("{accountIdKey}");
 
       expect(portfolio.positions.length).toBe(1);
@@ -308,9 +308,9 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
       // Verify the 3 authentic calls were made to live production (api.etrade.com)
       expect(fetchSpy).toHaveBeenCalledTimes(3);
-      expect(fetchSpy.mock.calls[0][0]).toBe("https://api.etrade.com/v1/accounts/list.json");
-      expect(fetchSpy.mock.calls[1][0]).toBe("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/portfolio.json");
-      expect(fetchSpy.mock.calls[2][0]).toContain("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/balance.json");
+      expect(fetchSpy.mock.calls[0][0]).toBe("https://api.etrade.com/v1/accounts/list");
+      expect(fetchSpy.mock.calls[1][0]).toBe("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/portfolio");
+      expect(fetchSpy.mock.calls[2][0]).toContain("https://api.etrade.com/v1/accounts/PROD_KEY_XYZ888/balance");
     });
   });
 });

@@ -386,7 +386,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      expect(url).toBe("https://apisb.etrade.com/v1/market/quote/NVDA.json");
+      expect(url).toBe("https://apisb.etrade.com/v1/market/quote/NVDA");
       expect((init?.headers as any)?.Authorization).toMatch(/^OAuth oauth_consumer_key=/);
 
       expect(quote.symbol).toBe("NVDA");
@@ -429,7 +429,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      expect(url).toBe("https://apisb.etrade.com/v1/accounts/acct_83921048/orders/place.json");
+      expect(url).toBe("https://apisb.etrade.com/v1/accounts/acct_83921048/orders/place");
       expect(init?.method).toBe("POST");
       expect((init?.headers as any)?.Authorization).toMatch(/^OAuth /);
 

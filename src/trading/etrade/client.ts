@@ -8,10 +8,25 @@
  * - Sandbox URL Guard Aspect: aborts if live URL is targeted while running in TEST mode.
  */
 
-import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradeOrderExecutionResult } from "../../types";
+import type {
+  Env,
+  ETradeQuote,
+  ETradeAccount,
+  ETradePosition,
+  ETradeOrderExecutionResult,
+  ETradeTransaction,
+  ETradeTransactionDetails,
+  ETradeAlert,
+  ETradeAlertDetails,
+  ETradeProductLookup,
+  ETradeOptionChain,
+  ETradeOptionExpireDate,
+  ETradeRemoteOrder,
+  ETradeCancelOrderResult,
+} from "../../types";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
-import { getValidTokens, revokeStoredTokens } from "../../security/etradeOAuth";
+import { getValidTokens, revokeStoredTokens, revokeRemoteAccessToken } from "../../security/etradeOAuth";
 import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
@@ -26,11 +41,8 @@ export class ETradeRestClient {
   private handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): void {
     if (status === 401 || status === 403) {
       const envConfig = this.getEnvConfig();
-      this.lastError = `E*TRADE Session Expired [HTTP ${status}]: Token rejected on ${endpoint} [${envConfig.name}]. Please reconnect account.`;
+      this.lastError = `E*TRADE Session Expired [HTTP ${status}]: Token rejected on ${endpoint} [${envConfig.name}]. Error: ${errorBody.slice(0, 200) || "Unauthorized"}`;
       console.warn(`[ETradeClient] Token rejected HTTP ${status} on ${endpoint}: ${errorBody}`);
-      if (this.userLogin) {
-        revokeStoredTokens(this.env, this.userLogin, this.overrideEnv).catch(() => {});
-      }
     }
   }
 
@@ -106,19 +118,34 @@ export class ETradeRestClient {
       return null;
     }
 
-    const url = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}.json`;
-    assertSandboxUrlSafety(url, envConfig.isLive);
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}.json`;
 
-    const authHeader = await this.generateOAuthHeader("GET", url);
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
       });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
@@ -232,19 +259,34 @@ export class ETradeRestClient {
     if (!cleanSyms.length) return [];
 
     const symList = cleanSyms.join(",");
-    const url = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json`;
-    assertSandboxUrlSafety(url, envConfig.isLive);
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(symList)}.json`;
 
-    const authHeader = await this.generateOAuthHeader("GET", url);
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
       });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
 
       if (!res.ok) return [];
 
@@ -423,9 +465,11 @@ export class ETradeRestClient {
           key = accounts[0]?.accountKey || "";
         }
 
-        const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place.json`;
+        const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place`;
+        const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/place.json`;
+        let url = primaryUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
-        const authHeader = await this.generateOAuthHeader("POST", url);
+        let authHeader = await this.generateOAuthHeader("POST", url);
 
         const body = {
           PlaceOrderRequest: {
@@ -591,18 +635,34 @@ export class ETradeRestClient {
       return [];
     }
 
-    const url = `${envConfig.etrade.baseUrl}/accounts/list.json`;
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/list`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/list.json`;
+
+    let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
-    const authHeader = await this.generateOAuthHeader("GET", url);
+    let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
       });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
@@ -636,7 +696,11 @@ export class ETradeRestClient {
   /**
    * Fetches real live portfolio positions using dynamic account discovery and authentic balance
    */
-  async fetchPortfolio(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
+  async fetchPortfolio(
+    accountKey?: string,
+    includeBalance: boolean = false,
+    options?: { view?: "QUICK" | "COMPLETE" | "PERFORMANCE" | "FUNDAMENTAL" | "OPTIONSWATCH"; totalsRequired?: boolean; count?: number; sortBy?: string; sortOrder?: "ASC" | "DESC" }
+  ): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       return null;
@@ -656,18 +720,54 @@ export class ETradeRestClient {
       if (!key) return null;
     }
 
-    const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio.json`;
+    const query = new URLSearchParams();
+    if (options?.view) query.set("view", options.view);
+    if (options?.totalsRequired !== undefined) query.set("totalsRequired", String(options.totalsRequired));
+    if (options?.count) query.set("count", String(options.count));
+    if (options?.sortBy) query.set("sortBy", options.sortBy);
+    if (options?.sortOrder) query.set("sortOrder", options.sortOrder);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio.json${qs}`;
+
+    let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
-    const authHeader = await this.generateOAuthHeader("GET", url);
+    let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
       });
+
+      if (!res.ok && (res.status === 400 || res.status === 404)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+
+        if (!res.ok && (res.status === 400 || res.status === 404)) {
+          const plainUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio`;
+          const plainAuth = await this.generateOAuthHeader("GET", plainUrl);
+          res = await fetch(plainUrl, {
+            method: "GET",
+            headers: {
+              Authorization: plainAuth,
+              Accept: "application/json",
+            },
+          });
+        }
+      }
 
       if (!res.ok && res.status !== 204) {
         const errorText = await res.text().catch(() => "");
@@ -678,33 +778,46 @@ export class ETradeRestClient {
       }
 
       let positions: ETradePosition[] = [];
+      let totalsNetVal: number | undefined;
+      let totalsCash: number | undefined;
+
       if (res.ok && res.status !== 204) {
         const data = (await res.json().catch(() => ({}))) as any;
+        const portfolioTotals = data?.PortfolioResponse?.Totals || data?.PortfolioResponse?.totals;
+        if (portfolioTotals) {
+          if (portfolioTotals.totalMarketValue !== undefined) totalsNetVal = Number(portfolioTotals.totalMarketValue);
+          if (portfolioTotals.cashBalance !== undefined) totalsCash = Number(portfolioTotals.cashBalance);
+        }
+
         let rawPositions = data?.PortfolioResponse?.AccountPortfolio?.[0]?.Position;
         if (rawPositions) {
           if (!Array.isArray(rawPositions)) rawPositions = [rawPositions];
-          positions = rawPositions.map((p: any) => ({
-            symbol: String(p.Product?.symbol || p.symbol || ""),
-            description: String(p.Product?.securityType || p.description || "Common Stock"),
-            quantity: Number(p.quantity || 0),
-            pricePaid: Number(p.pricePaid || 0),
-            costBasis: Number(p.costBasis || p.pricePaid || 0),
-            currentPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)),
-            marketPrice: Number(p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)),
-            marketValue: Number(p.marketValue || 0),
-            totalGain: Number(p.totalGain || 0),
-            unrealizedGainLoss: Number(p.totalGain || 0),
-            totalGainPercent: Number(p.totalGainPct || 0),
-            unrealizedGainLossPercent: Number(p.totalGainPct || 0),
-            daysGain: Number(p.daysGain || 0),
-            daysGainPercent: Number(p.daysGainPct || 0),
-          }));
+          positions = rawPositions.map((p: any) => {
+            const quick = p.Quick || p.quick || p.Complete || p.complete || {};
+            const price = Number(quick.lastTrade || (p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)));
+            return {
+              symbol: String(p.Product?.symbol || p.symbol || ""),
+              description: String(p.Product?.securityType || p.symbolDescription || p.description || "Common Stock"),
+              quantity: Number(p.quantity || 0),
+              pricePaid: Number(p.pricePaid || 0),
+              costBasis: Number(p.totalCost || p.costBasis || p.pricePaid || 0),
+              currentPrice: price,
+              marketPrice: price,
+              marketValue: Number(p.marketValue || (price * Number(p.quantity || 0))),
+              totalGain: Number(p.totalGain || 0),
+              unrealizedGainLoss: Number(p.totalGain || 0),
+              totalGainPercent: Number(p.totalGainPct || 0),
+              unrealizedGainLossPercent: Number(p.totalGainPct || 0),
+              daysGain: Number(p.daysGain || quick.change || 0),
+              daysGainPercent: Number(p.daysGainPct || quick.changePct || 0),
+            };
+          });
         }
       }
 
-      let cashPower = accountMeta?.cashAvailableForInvestment || 0;
+      let cashPower = totalsCash ?? accountMeta?.cashAvailableForInvestment ?? 0;
       let marginPower = accountMeta?.marginBuyingPower || 0;
-      let netVal = positions.reduce((sum, p) => sum + p.marketValue, 0);
+      let netVal = totalsNetVal ?? positions.reduce((sum, p) => sum + p.marketValue, 0);
 
       if (includeBalance) {
         const balance = await this.fetchBalance(key).catch(() => null);
@@ -749,9 +862,12 @@ export class ETradeRestClient {
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
 
-    const url = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?instType=BROKERAGE&realTimeNAV=true`;
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance?instType=BROKERAGE&realTimeNAV=true`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?instType=BROKERAGE&realTimeNAV=true`;
+
+    let url = primaryUrl;
     assertSandboxUrlSafety(url, envConfig.isLive);
-    const authHeader = await this.generateOAuthHeader("GET", url);
+    let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
       let res = await fetch(url, {
@@ -762,17 +878,29 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok && res.status === 400) {
-        // Fallback to balance endpoint without optional params
-        const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json`;
-        const fallbackAuth = await this.generateOAuthHeader("GET", fallbackUrl);
-        res = await fetch(fallbackUrl, {
+      if (!res.ok && (res.status === 400 || res.status === 404)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
           method: "GET",
           headers: {
-            Authorization: fallbackAuth,
+            Authorization: authHeader,
             Accept: "application/json",
           },
         });
+
+        if (!res.ok && (res.status === 400 || res.status === 404)) {
+          const plainUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance`;
+          const plainAuth = await this.generateOAuthHeader("GET", plainUrl);
+          res = await fetch(plainUrl, {
+            method: "GET",
+            headers: {
+              Authorization: plainAuth,
+              Accept: "application/json",
+            },
+          });
+        }
       }
 
       if (!res.ok) {
@@ -834,4 +962,909 @@ export class ETradeRestClient {
       return null;
     }
   }
+
+  /**
+   * Accounts API: List Transactions
+   * GET /v1/accounts/{accountIdKey}/transactions
+   */
+  async fetchTransactions(
+    accountKey?: string,
+    params?: { startDate?: string; endDate?: string; sortOrder?: "ASC" | "DESC"; marker?: string; count?: number }
+  ): Promise<ETradeTransaction[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      if (!accounts.length) return [];
+      key = accounts[0].accountKey || accounts[0].accountId;
+      if (!key) return [];
+    }
+
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set("startDate", params.startDate);
+    if (params?.endDate) query.set("endDate", params.endDate);
+    if (params?.sortOrder) query.set("sortOrder", params.sortOrder);
+    if (params?.marker) query.set("marker", params.marker);
+    if (params?.count) query.set("count", String(params.count));
+    const qs = query.toString() ? `?${query.toString()}` : "";
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/transactions${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/transactions.json${qs}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Transactions API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "transactions", errorText);
+        return [];
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      let rawList = data?.TransactionListResponse?.Transaction;
+      if (!rawList) return [];
+      if (!Array.isArray(rawList)) rawList = [rawList];
+
+      return rawList.map((t: any) => ({
+        transactionId: String(t.transactionId || ""),
+        accountId: String(t.accountId || key),
+        transactionDate: Number(t.transactionDate || 0),
+        postDate: t.postDate ? Number(t.postDate) : undefined,
+        amount: Number(t.amount || 0),
+        description: String(t.description || ""),
+        transactionType: String(t.transactionType || ""),
+        memo: t.memo ? String(t.memo) : undefined,
+        imageFlag: Boolean(t.imageFlag),
+        instType: t.instType ? String(t.instType) : undefined,
+        detailsURI: t.detailsURI ? String(t.detailsURI) : undefined,
+      }));
+    } catch (err) {
+      console.warn("[ETradeClient] fetchTransactions error:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Accounts API: List Transaction Details
+   * GET /v1/accounts/{accountIdKey}/transactions/{transactionId}
+   */
+  async fetchTransactionDetails(
+    accountKey: string,
+    transactionId: string,
+    storeId?: string
+  ): Promise<ETradeTransactionDetails | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey || !transactionId) return null;
+
+    const qs = storeId ? `?storeId=${encodeURIComponent(storeId)}` : "";
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/transactions/${encodeURIComponent(transactionId)}${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/transactions/${encodeURIComponent(transactionId)}.json${qs}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Transaction Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "transactionDetails", errorText);
+        return null;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const resp = data?.TransactionDetailsResponse;
+      if (!resp) return null;
+
+      return {
+        transactionId: String(resp.transactionId || transactionId),
+        accountId: String(resp.accountId || accountKey),
+        transactionDate: Number(resp.transactionDate || 0),
+        amount: Number(resp.amount || 0),
+        description: String(resp.description || ""),
+        category: resp.Category ? {
+          categoryId: String(resp.Category.categoryId || ""),
+          categoryName: String(resp.Category.categoryName || ""),
+          parentName: resp.Category.parentName ? String(resp.Category.parentName) : undefined,
+        } : undefined,
+        brokerage: resp.Brokerage ? {
+          product: resp.Brokerage.Product ? {
+            symbol: String(resp.Brokerage.Product.symbol || ""),
+            securityType: String(resp.Brokerage.Product.securityType || ""),
+          } : undefined,
+          quantity: resp.Brokerage.quantity !== undefined ? Number(resp.Brokerage.quantity) : undefined,
+          price: resp.Brokerage.price !== undefined ? Number(resp.Brokerage.price) : undefined,
+          settlementDate: resp.Brokerage.settlementDate ? Number(resp.Brokerage.settlementDate) : undefined,
+          fee: resp.Brokerage.fee !== undefined ? Number(resp.Brokerage.fee) : undefined,
+          memo: resp.Brokerage.memo ? String(resp.Brokerage.memo) : undefined,
+        } : undefined,
+      };
+    } catch (err) {
+      console.warn("[ETradeClient] fetchTransactionDetails error:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Alerts API: List Alerts (Inbox)
+   * GET /v1/user/alerts
+   */
+  async fetchAlerts(params?: {
+    count?: number;
+    category?: string;
+    status?: "READ" | "UNREAD" | "DELETED";
+    direction?: "ASC" | "DESC";
+    search?: string;
+    unfiltered?: boolean;
+  }): Promise<ETradeAlert[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+
+    const query = new URLSearchParams();
+    if (params?.count) query.set("count", String(params.count));
+    if (params?.category) query.set("category", params.category);
+    if (params?.status) query.set("status", params.status);
+    if (params?.direction) query.set("direction", params.direction);
+    if (params?.search) query.set("search", params.search);
+    if (params?.unfiltered !== undefined) query.set("unfiltered", String(params.unfiltered));
+    const qs = query.toString() ? `?${query.toString()}` : "";
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts.json${qs}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Alerts API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "alerts", errorText);
+        return [];
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      let rawAlerts = data?.AlertsResponse?.Alert;
+      if (!rawAlerts) return [];
+      if (!Array.isArray(rawAlerts)) rawAlerts = [rawAlerts];
+
+      return rawAlerts.map((a: any) => ({
+        id: a.id,
+        createTime: Number(a.createTime || 0),
+        subject: String(a.subject || ""),
+        status: (a.status || "UNREAD") as "READ" | "UNREAD" | "DELETED",
+        msgText: a.msgText ? String(a.msgText) : undefined,
+        readTime: a.readTime ? Number(a.readTime) : undefined,
+        deleteTime: a.deleteTime ? Number(a.deleteTime) : undefined,
+      }));
+    } catch (err) {
+      console.warn("[ETradeClient] fetchAlerts error:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Alerts API: List Alert Details
+   * GET /v1/user/alerts/{alertId}
+   */
+  async fetchAlertDetails(alertId: string | number): Promise<ETradeAlertDetails | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !alertId) return null;
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Alert Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "alertDetails", errorText);
+        return null;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const resp = data?.AlertDetailsResponse;
+      if (!resp) return null;
+
+      return {
+        id: resp.id || alertId,
+        createTime: Number(resp.createTime || 0),
+        subject: String(resp.subject || ""),
+        msgText: String(resp.msgText || ""),
+        readTime: resp.readTime ? Number(resp.readTime) : undefined,
+        deleteTime: resp.deleteTime ? Number(resp.deleteTime) : undefined,
+        symbol: resp.symbol ? String(resp.symbol) : undefined,
+        next: resp.next ? String(resp.next) : undefined,
+        prev: resp.prev ? String(resp.prev) : undefined,
+      };
+    } catch (err) {
+      console.warn("[ETradeClient] fetchAlertDetails error:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Alerts API: Delete Alert
+   * DELETE /v1/user/alerts/{alertId}
+   */
+  async deleteAlert(alertId: string | number): Promise<{ success: boolean; message: string }> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !alertId) {
+      return { success: false, message: "Missing credentials or alertId" };
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("DELETE", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("DELETE", url);
+        res = await fetch(url, {
+          method: "DELETE",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Delete Alert Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "deleteAlert", errorText);
+        return { success: false, message: this.lastError };
+      }
+
+      return { success: true, message: `Alert ${alertId} deleted successfully.` };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Failed to delete alert" };
+    }
+  }
+
+  /**
+   * Market API: Look Up Product
+   * GET /v1/market/lookup/{search}
+   */
+  async lookupProduct(search: string): Promise<ETradeProductLookup[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !search.trim()) return [];
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/lookup/${encodeURIComponent(search.trim())}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/lookup/${encodeURIComponent(search.trim())}.json`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) return [];
+      const data = (await res.json().catch(() => ({}))) as any;
+      let list = data?.LookupResponse?.Data;
+      if (!list) return [];
+      if (!Array.isArray(list)) list = [list];
+
+      return list.map((item: any) => ({
+        symbol: String(item.symbol || ""),
+        description: String(item.description || ""),
+        type: String(item.type || "EQ"),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Market API: Get Option Chains
+   * GET /v1/market/optionchains
+   */
+  async getOptionChains(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+  }): Promise<ETradeOptionChain | null> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !params.symbol) return null;
+
+    const query = new URLSearchParams({ symbol: params.symbol.toUpperCase().trim() });
+    if (params.expiryYear) query.set("expiryYear", String(params.expiryYear));
+    if (params.expiryMonth) query.set("expiryMonth", String(params.expiryMonth));
+    if (params.expiryDay) query.set("expiryDay", String(params.expiryDay));
+    if (params.strikePrice) query.set("strikePrice", String(params.strikePrice));
+    if (params.noOfStrikes) query.set("noOfStrikes", String(params.noOfStrikes));
+    if (params.includeWeekly !== undefined) query.set("includeWeekly", String(params.includeWeekly));
+    if (params.chainType) query.set("chainType", params.chainType);
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/optionchains?${query.toString()}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/optionchains.json?${query.toString()}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Option Chains API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "optionchains", errorText);
+        return null;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      const resp = data?.OptionChainResponse;
+      if (!resp) return null;
+
+      let rawPairs = resp.OptionPair;
+      if (!rawPairs) return { symbol: params.symbol.toUpperCase(), underlyingPrice: Number(resp.nearPrice || 0), pairs: [] };
+      if (!Array.isArray(rawPairs)) rawPairs = [rawPairs];
+
+      const mapContract = (c: any, type: "CALL" | "PUT") => {
+        if (!c) return undefined;
+        return {
+          optionType: type,
+          strikePrice: Number(c.strikePrice || 0),
+          symbol: String(c.symbol || ""),
+          bid: Number(c.bid || 0),
+          ask: Number(c.ask || 0),
+          bidSize: c.bidSize ? Number(c.bidSize) : undefined,
+          askSize: c.askSize ? Number(c.askSize) : undefined,
+          lastPrice: Number(c.lastPrice || 0),
+          volume: c.volume ? Number(c.volume) : undefined,
+          openInterest: c.openInterest ? Number(c.openInterest) : undefined,
+          delta: c.OptionGreeks?.delta ? Number(c.OptionGreeks.delta) : undefined,
+          gamma: c.OptionGreeks?.gamma ? Number(c.OptionGreeks.gamma) : undefined,
+          theta: c.OptionGreeks?.theta ? Number(c.OptionGreeks.theta) : undefined,
+          vega: c.OptionGreeks?.vega ? Number(c.OptionGreeks.vega) : undefined,
+          rho: c.OptionGreeks?.rho ? Number(c.OptionGreeks.rho) : undefined,
+          impliedVolatility: c.OptionGreeks?.iv ? Number(c.OptionGreeks.iv) : undefined,
+        };
+      };
+
+      const pairs = rawPairs.map((p: any) => ({
+        call: mapContract(p.Call, "CALL"),
+        put: mapContract(p.Put, "PUT"),
+      }));
+
+      return {
+        symbol: params.symbol.toUpperCase(),
+        underlyingPrice: Number(resp.nearPrice || 0),
+        selectedExpiry: resp.SelectedED ? {
+          year: Number(resp.SelectedED.year || 0),
+          month: Number(resp.SelectedED.month || 0),
+          day: Number(resp.SelectedED.day || 0),
+        } : undefined,
+        pairs,
+      };
+    } catch (err) {
+      console.warn("[ETradeClient] getOptionChains error:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Market API: Get Option Expire Dates
+   * GET /v1/market/optionexpiredate
+   */
+  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !symbol) return [];
+
+    const query = new URLSearchParams({ symbol: symbol.toUpperCase().trim() });
+    if (expiryType) query.set("expiryType", expiryType);
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/optionexpiredate?${query.toString()}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/market/optionexpiredate.json?${query.toString()}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) return [];
+      const data = (await res.json().catch(() => ({}))) as any;
+      let rawDates = data?.OptionExpireDateResponse?.ExpirationDate;
+      if (!rawDates) return [];
+      if (!Array.isArray(rawDates)) rawDates = [rawDates];
+
+      return rawDates.map((d: any) => ({
+        year: Number(d.year || 0),
+        month: Number(d.month || 0),
+        day: Number(d.day || 0),
+        expiryType: d.expiryType ? String(d.expiryType) : undefined,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Order API: List Orders
+   * GET /v1/accounts/{accountIdKey}/orders
+   */
+  async fetchOrders(
+    accountKey?: string,
+    params?: { marker?: string; count?: number; status?: string; fromDate?: string; toDate?: string; symbol?: string }
+  ): Promise<ETradeRemoteOrder[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      if (!accounts.length) return [];
+      key = accounts[0].accountKey || accounts[0].accountId;
+      if (!key) return [];
+    }
+
+    const query = new URLSearchParams();
+    if (params?.marker) query.set("marker", params.marker);
+    if (params?.count) query.set("count", String(params.count));
+    if (params?.status) query.set("status", params.status);
+    if (params?.fromDate) query.set("fromDate", params.fromDate);
+    if (params?.toDate) query.set("toDate", params.toDate);
+    if (params?.symbol) query.set("symbol", params.symbol);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders${qs}`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders.json${qs}`;
+
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+        });
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Orders API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "orders", errorText);
+        return [];
+      }
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      let rawOrders = data?.OrdersResponse?.Order;
+      if (!rawOrders) return [];
+      if (!Array.isArray(rawOrders)) rawOrders = [rawOrders];
+
+      return rawOrders.map((o: any) => {
+        const orderDetail = o.OrderDetail?.[0] || o.OrderDetail || {};
+        const instrument = orderDetail.Instrument?.[0] || orderDetail.Instrument || {};
+        return {
+          orderId: o.orderId,
+          details: o.details,
+          orderType: String(o.orderType || orderDetail.orderType || "EQ"),
+          orderValue: o.orderValue ? Number(o.orderValue) : undefined,
+          status: (orderDetail.status || o.status || "OPEN") as any,
+          placedTime: orderDetail.placedTime ? Number(orderDetail.placedTime) : undefined,
+          executedTime: orderDetail.executedTime ? Number(orderDetail.executedTime) : undefined,
+          orderTerm: orderDetail.orderTerm,
+          priceType: orderDetail.priceType,
+          limitPrice: orderDetail.limitPrice ? Number(orderDetail.limitPrice) : undefined,
+          stopPrice: orderDetail.stopPrice ? Number(orderDetail.stopPrice) : undefined,
+          orderAction: instrument.orderAction,
+          quantity: instrument.orderedQuantity ? Number(instrument.orderedQuantity) : undefined,
+          symbol: instrument.Product?.symbol,
+        };
+      });
+    } catch (err) {
+      console.warn("[ETradeClient] fetchOrders error:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Order API: Cancel Order
+   * PUT /v1/accounts/{accountIdKey}/orders/cancel
+   */
+  async cancelOrder(accountKey: string | undefined, orderId: string | number): Promise<ETradeCancelOrderResult> {
+    const now = new Date().toISOString();
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      return { success: false, orderId: String(orderId), message: "Missing E*TRADE credentials", timestamp: now };
+    }
+
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      key = accounts[0]?.accountKey || accounts[0]?.accountId || "";
+      if (!key) return { success: false, orderId: String(orderId), message: "Account ID key not found", timestamp: now };
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/cancel`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/cancel.json`;
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("PUT", url);
+
+    const body = {
+      CancelOrderRequest: {
+        orderId: Number(orderId) || orderId,
+      },
+    };
+
+    try {
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok) {
+        return {
+          success: true,
+          orderId: String(orderId),
+          message: data?.CancelOrderResponse?.messages?.Message?.[0]?.description || `Order ${orderId} cancelled successfully.`,
+          timestamp: now,
+        };
+      }
+
+      const errMsg = data?.Error?.message || `HTTP ${res.status}`;
+      return {
+        success: false,
+        orderId: String(orderId),
+        message: `Cancel rejected: ${errMsg}`,
+        timestamp: now,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        orderId: String(orderId),
+        message: `Cancel network error: ${err.message || String(err)}`,
+        timestamp: now,
+      };
+    }
+  }
+
+  /**
+   * Order API: Change Previewed Order
+   * POST /v1/accounts/{accountIdKey}/orders/change/preview
+   */
+  async changeOrderPreview(
+    accountKey: string | undefined,
+    params: {
+      orderId: string | number;
+      clientOrderId?: string;
+      symbol: string;
+      action: string;
+      quantity: number;
+      orderType?: string;
+      limitPrice?: number;
+      stopPrice?: number;
+    }
+  ): Promise<any> {
+    const envConfig = this.getEnvConfig();
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      key = accounts[0]?.accountKey || accounts[0]?.accountId || "";
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/change/preview`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/change/preview.json`;
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("POST", url);
+
+    const body = {
+      PreviewOrderRequest: {
+        orderId: Number(params.orderId) || params.orderId,
+        clientOrderId: params.clientOrderId || `chg_${crypto.randomUUID().slice(0, 8)}`,
+        orderType: "EQ",
+        Order: [
+          {
+            allOrNone: false,
+            priceType: params.orderType || "MARKET",
+            ...(params.limitPrice ? { limitPrice: params.limitPrice } : {}),
+            ...(params.stopPrice ? { stopPrice: params.stopPrice } : {}),
+            orderTerm: "GOOD_FOR_DAY",
+            marketSession: "REGULAR",
+            Instrument: [
+              {
+                Product: { securityType: "EQ", symbol: params.symbol.toUpperCase() },
+                orderAction: params.action,
+                quantityType: "QUANTITY",
+                quantity: params.quantity,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    return res.json().catch(() => ({}));
+  }
+
+  /**
+   * Order API: Place Changed Order
+   * POST /v1/accounts/{accountIdKey}/orders/change/place
+   */
+  async changeOrderPlace(
+    accountKey: string | undefined,
+    params: {
+      orderId: string | number;
+      previewId: string;
+      clientOrderId?: string;
+      symbol: string;
+      action: string;
+      quantity: number;
+      orderType?: string;
+      limitPrice?: number;
+      stopPrice?: number;
+    }
+  ): Promise<any> {
+    const envConfig = this.getEnvConfig();
+    let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
+    if (!key) {
+      const accounts = await this.fetchAccounts();
+      key = accounts[0]?.accountKey || accounts[0]?.accountId || "";
+    }
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/change/place`;
+    const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/change/place.json`;
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("POST", url);
+
+    const body = {
+      PlaceOrderRequest: {
+        orderId: Number(params.orderId) || params.orderId,
+        clientOrderId: params.clientOrderId || `chg_pl_${crypto.randomUUID().slice(0, 8)}`,
+        PreviewIds: [{ previewId: params.previewId }],
+        Order: [
+          {
+            allOrNone: false,
+            priceType: params.orderType || "MARKET",
+            ...(params.limitPrice ? { limitPrice: params.limitPrice } : {}),
+            ...(params.stopPrice ? { stopPrice: params.stopPrice } : {}),
+            orderTerm: "GOOD_FOR_DAY",
+            marketSession: "REGULAR",
+            Instrument: [
+              {
+                Product: { securityType: "EQ", symbol: params.symbol.toUpperCase() },
+                orderAction: params.action,
+                quantityType: "QUANTITY",
+                quantity: params.quantity,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    return res.json().catch(() => ({}));
+  }
+
+  /**
+   * Authorization API: Revoke Access Token Remote
+   * GET /oauth/revoke_access_token
+   */
+  async revokeRemoteAccessToken(): Promise<{ success: boolean; message: string }> {
+    return revokeRemoteAccessToken(this.env, this.userLogin, this.overrideEnv);
+  }
 }
+

@@ -515,4 +515,143 @@ export interface FossProviderStatus {
   capabilities: string[];
 }
 
+// =========================================================================
+// Official E*TRADE API Models & Endpoints Contracts (Full Specification)
+// =========================================================================
+
+export interface ETradeTransaction {
+  transactionId: string;
+  accountId: string;
+  transactionDate: number;
+  postDate?: number;
+  amount: number;
+  description: string;
+  transactionType: string;
+  memo?: string;
+  imageFlag?: boolean;
+  instType?: string;
+  detailsURI?: string;
+}
+
+export interface ETradeTransactionDetails {
+  transactionId: string;
+  accountId: string;
+  transactionDate: number;
+  amount: number;
+  description: string;
+  category?: {
+    categoryId: string;
+    categoryName: string;
+    parentName?: string;
+  };
+  brokerage?: {
+    product?: {
+      symbol: string;
+      securityType: string;
+    };
+    quantity?: number;
+    price?: number;
+    settlementDate?: number;
+    fee?: number;
+    memo?: string;
+  };
+}
+
+export interface ETradeAlert {
+  id: number | string;
+  createTime: number;
+  subject: string;
+  status: "READ" | "UNREAD" | "DELETED";
+  msgText?: string;
+  readTime?: number;
+  deleteTime?: number;
+}
+
+export interface ETradeAlertDetails {
+  id: number | string;
+  createTime: number;
+  subject: string;
+  msgText: string;
+  readTime?: number;
+  deleteTime?: number;
+  symbol?: string;
+  next?: string;
+  prev?: string;
+}
+
+export interface ETradeProductLookup {
+  symbol: string;
+  description: string;
+  type: string;
+}
+
+export interface ETradeOptionChainContract {
+  optionCategory?: string;
+  optionRootSymbol?: string;
+  timeStamp?: number;
+  adjustedFlag?: boolean;
+  displaySymbol?: string;
+  optionType: "CALL" | "PUT";
+  strikePrice: number;
+  symbol: string;
+  bid: number;
+  ask: number;
+  bidSize?: number;
+  askSize?: number;
+  lastPrice: number;
+  volume?: number;
+  openInterest?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
+  rho?: number;
+  impliedVolatility?: number;
+}
+
+export interface ETradeOptionChain {
+  symbol: string;
+  underlyingPrice: number;
+  selectedExpiry?: {
+    year: number;
+    month: number;
+    day: number;
+  };
+  pairs: Array<{
+    call?: ETradeOptionChainContract;
+    put?: ETradeOptionChainContract;
+  }>;
+}
+
+export interface ETradeOptionExpireDate {
+  year: number;
+  month: number;
+  day: number;
+  expiryType?: string;
+}
+
+export interface ETradeRemoteOrder {
+  orderId: number | string;
+  details?: string;
+  orderType: string;
+  orderValue?: number;
+  status: "OPEN" | "EXECUTED" | "CANCELLED" | "INDIVIDUAL_FILLS" | "REJECTED";
+  placedTime?: number;
+  executedTime?: number;
+  orderTerm?: string;
+  priceType?: string;
+  limitPrice?: number;
+  stopPrice?: number;
+  orderAction?: string;
+  quantity?: number;
+  symbol?: string;
+}
+
+export interface ETradeCancelOrderResult {
+  success: boolean;
+  orderId: string;
+  message: string;
+  timestamp: string;
+}
+
 

@@ -7,8 +7,12 @@ import {
   exchangeETradeVerifier,
   renewETradeAccessToken,
   revokeStoredTokens,
+  revokeRemoteAccessToken,
   getETradeAuthStatus,
+  getValidTokens,
 } from "./services/etradeOAuth";
+import { ETradeRestClient } from "./trading/etrade/client";
+import { resolveEnvironmentConfig } from "./config/environment";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -105,6 +109,56 @@ export default {
       return Response.json(status);
     }
 
+    if (path === "/api/etrade/diagnostics") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ authenticated: false, error: "Unauthorized: Please log in with GitHub" }, { status: 401 });
+
+      const envConfig = resolveEnvironmentConfig(env, reqEnv);
+      const valid = await getValidTokens(env, session.githubLogin, reqEnv);
+
+      const client = new ETradeRestClient(env, session.githubLogin, reqEnv);
+      let accounts: any[] = [];
+      let balance: any = null;
+      let lastError: string | null = null;
+
+      if (valid) {
+        accounts = await client.fetchAccounts();
+        lastError = client.getLastError() || null;
+        if (accounts.length > 0) {
+          const key = accounts[0].accountKey || accounts[0].accountId;
+          balance = await client.fetchBalance(key);
+        }
+      } else {
+        lastError = client.getLastError() || `No active OAuth session in [${envConfig.name}] mode. Click 'Connect E*TRADE Account'.`;
+      }
+
+      return Response.json({
+        status: accounts.length > 0 ? "healthy" : (valid ? "upstream_error" : "auth_required"),
+        environment: envConfig.name,
+        isLive: envConfig.isLive,
+        apiUrl: envConfig.etrade.baseUrl,
+        userLogin: session.githubLogin,
+        credentials: {
+          apiKeyConfigured: Boolean(envConfig.etrade.apiKey),
+          apiKeyMasked: envConfig.etrade.apiKey ? `${envConfig.etrade.apiKey.slice(0, 4)}...${envConfig.etrade.apiKey.slice(-4)}` : "MISSING",
+          apiSecretConfigured: Boolean(envConfig.etrade.apiSecret),
+        },
+        oauthToken: {
+          present: Boolean(valid),
+          storedAt: valid?.storedAt || null,
+          environment: valid?.environment || envConfig.name,
+          validUntilMidnightEt: "E*TRADE access tokens expire at midnight US Eastern Time",
+        },
+        upstreamAccounts: {
+          count: accounts.length,
+          accounts,
+        },
+        upstreamBalance: balance,
+        lastError,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (path === "/api/etrade/oauth/verifier" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
@@ -136,8 +190,8 @@ export default {
     if (path === "/api/etrade/oauth/revoke" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
-      await revokeStoredTokens(env, session.githubLogin, reqEnv);
-      return Response.json({ success: true });
+      const result = await revokeRemoteAccessToken(env, session.githubLogin, reqEnv);
+      return Response.json(result);
     }
 
     // --- User Profile API ---

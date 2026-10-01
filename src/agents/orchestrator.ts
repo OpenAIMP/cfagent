@@ -6,6 +6,9 @@ import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "./nlq";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
+import { resolveEnvironmentConfig } from "../config/environment";
+import { getValidTokens } from "../security/etradeOAuth";
+import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -1471,6 +1474,59 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Real E*TRADE REST API Diagnostics
+    if (path.endsWith("/etrade/diagnostics") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const envConfig = resolveEnvironmentConfig(this.env, requestedEnv);
+        const valid = await getValidTokens(this.env, userLogin, requestedEnv);
+        const client = new ETradeRestClient(this.env, userLogin, requestedEnv);
+
+        let accounts: any[] = [];
+        let balance: any = null;
+        let lastError: string | null = null;
+
+        if (valid) {
+          accounts = await client.fetchAccounts();
+          lastError = client.getLastError() || null;
+          if (accounts.length > 0) {
+            const key = accounts[0].accountKey || accounts[0].accountId;
+            balance = await client.fetchBalance(key);
+          }
+        } else {
+          lastError = client.getLastError() || `No active OAuth session in [${envConfig.name}] mode. Click 'Connect E*TRADE Account'.`;
+        }
+
+        return Response.json({
+          status: accounts.length > 0 ? "healthy" : (valid ? "upstream_error" : "auth_required"),
+          environment: envConfig.name,
+          isLive: envConfig.isLive,
+          apiUrl: envConfig.etrade.baseUrl,
+          userLogin,
+          credentials: {
+            apiKeyConfigured: Boolean(envConfig.etrade.apiKey),
+            apiKeyMasked: envConfig.etrade.apiKey ? `${envConfig.etrade.apiKey.slice(0, 4)}...${envConfig.etrade.apiKey.slice(-4)}` : "MISSING",
+            apiSecretConfigured: Boolean(envConfig.etrade.apiSecret),
+          },
+          oauthToken: {
+            present: Boolean(valid),
+            storedAt: valid?.storedAt || null,
+            environment: valid?.environment || envConfig.name,
+            validUntilMidnightEt: "E*TRADE access tokens expire at midnight US Eastern Time",
+          },
+          upstreamAccounts: {
+            count: accounts.length,
+            accounts,
+          },
+          upstreamBalance: balance,
+          lastError,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to run diagnostics" }, { status: 500 });
+      }
+    }
+
     // Broker Accounts List (Real E*TRADE REST / OAuth 1.0a)
     if (path.endsWith("/etrade/accounts") && request.method === "GET") {
       try {
@@ -1712,6 +1768,170 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ count: trades.length, trades });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch order history" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Remote Orders on Exchange
+    if (path.endsWith("/etrade/orders/remote") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const status = url.searchParams.get("status") || undefined;
+        const marker = url.searchParams.get("marker") || undefined;
+        const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
+        const symbol = url.searchParams.get("symbol") || undefined;
+        const orders = await etrade.fetchOrdersRemote(undefined, { status, marker, count, symbol });
+        return Response.json({ count: orders.length, orders });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch exchange orders" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Cancel Order on Exchange
+    if (path.endsWith("/etrade/orders/cancel") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const orderId = body.orderId;
+        if (!orderId) {
+          return Response.json({ error: "orderId is required" }, { status: 400 });
+        }
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const result = await etrade.cancelOrderRemote(orderId);
+        this.audit("etrade.order_cancelled", "trading", { orderId, success: result.success });
+        return Response.json(result, { status: result.success ? 200 : 400 });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to cancel order" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Account Transactions
+    if (path.endsWith("/etrade/transactions") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const startDate = url.searchParams.get("startDate") || undefined;
+        const endDate = url.searchParams.get("endDate") || undefined;
+        const sortOrder = (url.searchParams.get("sortOrder") as "ASC" | "DESC") || undefined;
+        const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
+        const transactions = await etrade.fetchTransactions(undefined, { startDate, endDate, sortOrder, count });
+        return Response.json({ count: transactions.length, transactions });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch transactions" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Transaction Details
+    if (path.includes("/etrade/transactions/") && request.method === "GET") {
+      try {
+        const transactionId = path.split("/etrade/transactions/")[1].split("/")[0].split("?")[0];
+        const storeId = url.searchParams.get("storeId") || undefined;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const details = await etrade.fetchTransactionDetails(transactionId, undefined, storeId);
+        if (!details) {
+          return Response.json({ error: "Transaction not found" }, { status: 404 });
+        }
+        return Response.json(details);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch transaction details" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: User Alerts Inbox
+    if (path.endsWith("/etrade/alerts") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const category = url.searchParams.get("category") || undefined;
+        const status = (url.searchParams.get("status") as "READ" | "UNREAD" | "DELETED") || undefined;
+        const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
+        const alerts = await etrade.fetchAlerts({ category, status, count });
+        return Response.json({ count: alerts.length, alerts });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch alerts" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Alert Details & Delete
+    if (path.includes("/etrade/alerts/") && request.method === "GET") {
+      try {
+        const alertId = path.split("/etrade/alerts/")[1].split("/")[0].split("?")[0];
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const details = await etrade.fetchAlertDetails(alertId);
+        if (!details) {
+          return Response.json({ error: "Alert not found" }, { status: 404 });
+        }
+        return Response.json(details);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch alert details" }, { status: 500 });
+      }
+    }
+
+    if (path.includes("/etrade/alerts/") && request.method === "DELETE") {
+      try {
+        const alertId = path.split("/etrade/alerts/")[1].split("/")[0].split("?")[0];
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const result = await etrade.deleteAlert(alertId);
+        return Response.json(result, { status: result.success ? 200 : 400 });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete alert" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Product Lookup
+    if (path.endsWith("/etrade/lookup") && request.method === "GET") {
+      try {
+        const search = url.searchParams.get("search") || url.searchParams.get("q") || "";
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const items = await etrade.lookupProduct(search);
+        return Response.json({ count: items.length, items });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to lookup products" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Option Chains
+    if (path.endsWith("/etrade/options/chains") && request.method === "GET") {
+      try {
+        const symbol = (url.searchParams.get("symbol") || "NVDA").toUpperCase().trim();
+        const expiryYear = url.searchParams.get("expiryYear") ? Number(url.searchParams.get("expiryYear")) : undefined;
+        const expiryMonth = url.searchParams.get("expiryMonth") ? Number(url.searchParams.get("expiryMonth")) : undefined;
+        const expiryDay = url.searchParams.get("expiryDay") ? Number(url.searchParams.get("expiryDay")) : undefined;
+        const strikePrice = url.searchParams.get("strikePrice") ? Number(url.searchParams.get("strikePrice")) : undefined;
+        const noOfStrikes = url.searchParams.get("noOfStrikes") ? Number(url.searchParams.get("noOfStrikes")) : undefined;
+        const chainType = (url.searchParams.get("chainType") as "CALL" | "PUT" | "CALLPUT") || undefined;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const chain = await etrade.getOptionChains({
+          symbol,
+          expiryYear,
+          expiryMonth,
+          expiryDay,
+          strikePrice,
+          noOfStrikes,
+          chainType,
+        });
+        return Response.json(chain || { symbol, underlyingPrice: 0, pairs: [] });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch option chains" }, { status: 500 });
+      }
+    }
+
+    // Real E*TRADE REST API: Option Expire Dates
+    if (path.endsWith("/etrade/options/expire-dates") && request.method === "GET") {
+      try {
+        const symbol = (url.searchParams.get("symbol") || "NVDA").toUpperCase().trim();
+        const expiryType = url.searchParams.get("expiryType") || undefined;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const dates = await etrade.getOptionExpireDates(symbol, expiryType);
+        return Response.json({ count: dates.length, dates });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch option expire dates" }, { status: 500 });
       }
     }
 

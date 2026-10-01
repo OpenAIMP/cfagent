@@ -79,6 +79,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("matches_found");
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
+  // E*TRADE Live Diagnostics state
+  const [diagnostics, setDiagnostics] = useState<any>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
+
   // E*TRADE 3-Legged OAuth 1.0a state
   const [oauthStatus, setOauthStatus] = useState<{
     authenticated: boolean;
@@ -316,6 +321,31 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       // Ignore
     } finally {
       setPositionsLoading(false);
+    }
+  };
+
+  const runDiagnostics = async (override?: string) => {
+    const envToUse = override || activeEnv;
+    setDiagnosticsLoading(true);
+    try {
+      const resp = await fetch("/api/etrade/diagnostics", {
+        headers: { "x-environment": envToUse },
+      });
+      const data = (await resp.json()) as any;
+      setDiagnostics(data);
+      setShowDiagnosticsModal(true);
+      if (data?.upstreamAccounts?.count > 0 || (data?.upstreamAccounts?.accounts && data.upstreamAccounts.accounts.length > 0)) {
+        await Promise.all([
+          fetchBrokerStatus(envToUse),
+          fetchPositions(envToUse),
+          fetchOAuthStatus(envToUse),
+        ]);
+      }
+    } catch (err: any) {
+      setDiagnostics({ error: err.message || "Failed to run diagnostics" });
+      setShowDiagnosticsModal(true);
+    } finally {
+      setDiagnosticsLoading(false);
     }
   };
 
@@ -654,6 +684,15 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           <span className="env-trust-item">
             <strong>Prices As Of:</strong> {lastSyncTime || "Real-time"} ET
           </span>
+          <button
+            type="button"
+            className="btn-sync-diagnostics"
+            disabled={diagnosticsLoading}
+            onClick={() => runDiagnostics()}
+            title="Inspect upstream E*TRADE API connectivity, credentials, and live account sync"
+          >
+            {diagnosticsLoading ? "⏳ Testing..." : "⚡ Test & Sync"}
+          </button>
         </div>
       </div>
 
@@ -755,6 +794,15 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             </div>
           </div>
           <div className="oauth-actions">
+            <button
+              type="button"
+              className="btn-oauth-test"
+              disabled={diagnosticsLoading}
+              onClick={() => runDiagnostics()}
+              title="Inspect upstream E*TRADE live connection and raw account data"
+            >
+              {diagnosticsLoading ? "⏳ Testing..." : "⚡ Test Connection"}
+            </button>
             {oauthStatus.renewable && (
               <button
                 type="button"
@@ -788,6 +836,15 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             </div>
           </div>
           <div className="oauth-actions">
+            <button
+              type="button"
+              className="btn-oauth-test"
+              disabled={diagnosticsLoading}
+              onClick={() => runDiagnostics()}
+              title="Test API credentials and connectivity"
+            >
+              {diagnosticsLoading ? "⏳ Testing..." : "🔍 Check Status"}
+            </button>
             <button
               type="button"
               className="btn-oauth-connect"
@@ -2301,6 +2358,146 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               >
                 Close Discrepancy Panel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* E*TRADE Live REST Diagnostics Modal */}
+      {showDiagnosticsModal && (
+        <div className="modal-backdrop" onClick={() => setShowDiagnosticsModal(false)}>
+          <div className="etrade-pin-modal diagnostics-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "680px" }}>
+            <div className="modal-header">
+              <h3>⚡ E*TRADE Live REST Diagnostics [{diagnostics?.environment || activeEnv}]</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setShowDiagnosticsModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              {diagnostics ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <span className={`status-pill status-${diagnostics.status || "unknown"}`} style={{
+                      padding: "0.35rem 0.75rem",
+                      borderRadius: "6px",
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      background: diagnostics.status === "healthy" ? "rgba(16, 185, 129, 0.2)" : (diagnostics.status === "auth_required" ? "rgba(245, 158, 11, 0.2)" : "rgba(239, 68, 68, 0.2)"),
+                      color: diagnostics.status === "healthy" ? "#34d399" : (diagnostics.status === "auth_required" ? "#fbbf24" : "#f87171"),
+                      border: `1px solid ${diagnostics.status === "healthy" ? "rgba(16, 185, 129, 0.4)" : (diagnostics.status === "auth_required" ? "rgba(245, 158, 11, 0.4)" : "rgba(239, 68, 68, 0.4)")}`
+                    }}>
+                      {diagnostics.status === "healthy" ? "🟢 Live REST Upstream Connected & Verified" : (diagnostics.status === "auth_required" ? "🟡 OAuth 1.0a Session Required" : "🔴 Upstream Gateway Error")}
+                    </span>
+                    <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                      Gateway: <code>{diagnostics.apiUrl}</code>
+                    </span>
+                  </div>
+
+                  {diagnostics.lastError && (
+                    <div style={{ background: "rgba(239, 68, 68, 0.12)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem", color: "#fca5a5", fontSize: "0.82rem" }}>
+                      <strong>Upstream Message / Error:</strong>
+                      <div style={{ marginTop: "0.35rem", fontFamily: "ui-monospace, monospace", wordBreak: "break-all" }}>
+                        {diagnostics.lastError}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
+                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Key</div>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                        {diagnostics.credentials?.apiKeyMasked || (diagnostics.credentials?.apiKeyConfigured ? "✓ Configured" : "MISSING")}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Secret</div>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                        {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Session Token in KV</div>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: diagnostics.oauthToken?.present ? "#34d399" : "#fbbf24", marginTop: "0.25rem" }}>
+                        {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Upstream Accounts</div>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                        {diagnostics.upstreamAccounts?.count ?? 0} account(s) detected
+                      </div>
+                    </div>
+                  </div>
+
+                  {diagnostics.upstreamAccounts?.accounts && diagnostics.upstreamAccounts.accounts.length > 0 && (
+                    <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem" }}>
+                      <strong style={{ color: "#34d399", fontSize: "0.82rem", display: "block", marginBottom: "0.35rem" }}>
+                        Live Account Details:
+                      </strong>
+                      {diagnostics.upstreamAccounts.accounts.map((acct: any, idx: number) => (
+                        <div key={idx} style={{ fontSize: "0.82rem", color: "#cbd5e1" }}>
+                          • ID: <code>{acct.accountId}</code> | Key: <code>{acct.accountKey}</code> | Type: <strong>{acct.accountType || acct.accountDesc}</strong>
+                        </div>
+                      ))}
+                      {diagnostics.upstreamBalance && (
+                        <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: "0.82rem", color: "#e2e8f0" }}>
+                          • Live Balance Fetched: Net Value: <strong>${Number(diagnostics.upstreamBalance.netAccountValue || diagnostics.upstreamBalance.computed?.realTimeValues?.totalAccountValue || 0).toFixed(2)}</strong> | Cash: <strong>${Number(diagnostics.upstreamBalance.cashAvailableForInvestment || diagnostics.upstreamBalance.computed?.cashAvailableForInvestment || 0).toFixed(2)}</strong>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <details style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "0.5rem 0.75rem", marginBottom: "1rem" }}>
+                    <summary style={{ cursor: "pointer", color: "#94a3b8", fontSize: "0.78rem", fontWeight: 600 }}>
+                      🔍 View Raw Upstream Diagnostic Payload (JSON)
+                    </summary>
+                    <pre style={{ margin: "0.5rem 0 0 0", fontSize: "0.75rem", color: "#38bdf8", overflowX: "auto", maxHeight: "200px" }}>
+                      {JSON.stringify(diagnostics, null, 2)}
+                    </pre>
+                  </details>
+
+                  <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                    {(!diagnostics.oauthToken?.present || diagnostics.status === "auth_required") && (
+                      <button
+                        type="button"
+                        className="btn-oauth-connect"
+                        style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
+                        onClick={() => {
+                          setShowDiagnosticsModal(false);
+                          handleStartOAuth();
+                        }}
+                      >
+                        ⚡ Connect E*TRADE Account
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-sync-diagnostics"
+                      disabled={diagnosticsLoading}
+                      onClick={() => runDiagnostics()}
+                      style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
+                    >
+                      {diagnosticsLoading ? "⏳ Testing..." : "🔄 Re-run Diagnostics"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-cancel-modal"
+                      onClick={() => setShowDiagnosticsModal(false)}
+                      style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>
+                  Running diagnostics against E*TRADE upstream API...
+                </div>
+              )}
             </div>
           </div>
         </div>

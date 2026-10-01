@@ -22,9 +22,19 @@ export class ETradeTradingPlatform implements ITradingPlatform {
   private client: ETradeRestClient;
   private screener: DynamicMarketScreener;
 
-  constructor(private env: Env, private orm?: DatabaseORM, private userLogin: string = "default_trader", private overrideEnv?: string) {
-    this.client = new ETradeRestClient(env, userLogin, overrideEnv);
+  constructor(
+    private env: Env,
+    private orm?: DatabaseORM,
+    private userLogin: string = "default_trader",
+    private overrideEnv?: string,
+    existingClient?: ETradeRestClient
+  ) {
+    this.client = existingClient || new ETradeRestClient(env, userLogin, overrideEnv);
     this.screener = new DynamicMarketScreener();
+  }
+
+  public getLastError(): string | undefined {
+    return this.client.getLastError();
   }
 
   public getEnvConfig() {
@@ -342,9 +352,5 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
   async placeOrderRemote(params: any): Promise<ETradeOrderExecutionResult> {
     return this.client.placeOrder(params);
-  }
-
-  getLastError(): string | undefined {
-    return this.client.getLastError();
   }
 }

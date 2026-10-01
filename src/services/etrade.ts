@@ -20,6 +20,15 @@ import type {
   ETradePosition,
   ETradeAccount,
   ETradeBrokerStatus,
+  ETradeTransaction,
+  ETradeTransactionDetails,
+  ETradeAlert,
+  ETradeAlertDetails,
+  ETradeProductLookup,
+  ETradeOptionChain,
+  ETradeOptionExpireDate,
+  ETradeRemoteOrder,
+  ETradeCancelOrderResult,
 } from "../types";
 import {
   DynamicMarketScreener,
@@ -58,9 +67,9 @@ export class ETradeService {
       this.overrideEnv = overrideEnv;
     }
 
-    this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin, this.overrideEnv);
-    this.screener = new DynamicMarketScreener();
     this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv);
+    this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin, this.overrideEnv, this.client);
+    this.screener = new DynamicMarketScreener();
   }
 
   /**
@@ -398,6 +407,149 @@ export class ETradeService {
       return res;
     }
     return this.getPositions();
+  }
+
+  /**
+   * Real E*TRADE REST API: Fetch live transactions list with OAuth 1.0a
+   */
+  async fetchTransactions(
+    accountKey?: string,
+    params?: { startDate?: string; endDate?: string; sortOrder?: "ASC" | "DESC"; marker?: string; count?: number }
+  ): Promise<ETradeTransaction[]> {
+    return this.client.fetchTransactions(accountKey, params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Fetch transaction details with OAuth 1.0a
+   */
+  async fetchTransactionDetails(
+    transactionId: string,
+    accountKey?: string,
+    storeId?: string
+  ): Promise<ETradeTransactionDetails | null> {
+    const key = accountKey || (await this.fetchAccountsRemote())[0]?.accountKey || "";
+    return this.client.fetchTransactionDetails(key, transactionId, storeId);
+  }
+
+  /**
+   * Real E*TRADE REST API: Fetch user alerts inbox with OAuth 1.0a
+   */
+  async fetchAlerts(params?: {
+    count?: number;
+    category?: string;
+    status?: "READ" | "UNREAD" | "DELETED";
+    direction?: "ASC" | "DESC";
+    search?: string;
+    unfiltered?: boolean;
+  }): Promise<ETradeAlert[]> {
+    return this.client.fetchAlerts(params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Fetch alert details with OAuth 1.0a
+   */
+  async fetchAlertDetails(alertId: string | number): Promise<ETradeAlertDetails | null> {
+    return this.client.fetchAlertDetails(alertId);
+  }
+
+  /**
+   * Real E*TRADE REST API: Delete alert with OAuth 1.0a
+   */
+  async deleteAlert(alertId: string | number): Promise<{ success: boolean; message: string }> {
+    return this.client.deleteAlert(alertId);
+  }
+
+  /**
+   * Real E*TRADE REST API: Product Lookup with OAuth 1.0a
+   */
+  async lookupProduct(search: string): Promise<ETradeProductLookup[]> {
+    return this.client.lookupProduct(search);
+  }
+
+  /**
+   * Real E*TRADE REST API: Get Option Chains with OAuth 1.0a
+   */
+  async getOptionChains(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+  }): Promise<ETradeOptionChain | null> {
+    return this.client.getOptionChains(params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Get Option Expire Dates with OAuth 1.0a
+   */
+  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+    return this.client.getOptionExpireDates(symbol, expiryType);
+  }
+
+  /**
+   * Real E*TRADE REST API: Fetch live orders from exchange with OAuth 1.0a
+   */
+  async fetchOrdersRemote(
+    accountKey?: string,
+    params?: { marker?: string; count?: number; status?: string; fromDate?: string; toDate?: string; symbol?: string }
+  ): Promise<ETradeRemoteOrder[]> {
+    return this.client.fetchOrders(accountKey, params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Cancel order on exchange with OAuth 1.0a
+   */
+  async cancelOrderRemote(orderId: string | number, accountKey?: string): Promise<ETradeCancelOrderResult> {
+    return this.client.cancelOrder(accountKey, orderId);
+  }
+
+  /**
+   * Real E*TRADE REST API: Preview Changed Order with OAuth 1.0a
+   */
+  async changeOrderPreviewRemote(
+    accountKey: string | undefined,
+    params: {
+      orderId: string | number;
+      clientOrderId?: string;
+      symbol: string;
+      action: string;
+      quantity: number;
+      orderType?: string;
+      limitPrice?: number;
+      stopPrice?: number;
+    }
+  ): Promise<any> {
+    return this.client.changeOrderPreview(accountKey, params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Place Changed Order with OAuth 1.0a
+   */
+  async changeOrderPlaceRemote(
+    accountKey: string | undefined,
+    params: {
+      orderId: string | number;
+      previewId: string;
+      clientOrderId?: string;
+      symbol: string;
+      action: string;
+      quantity: number;
+      orderType?: string;
+      limitPrice?: number;
+      stopPrice?: number;
+    }
+  ): Promise<any> {
+    return this.client.changeOrderPlace(accountKey, params);
+  }
+
+  /**
+   * Real E*TRADE REST API: Revoke Access Token Remote
+   */
+  async revokeRemoteAccessToken(): Promise<{ success: boolean; message: string }> {
+    return this.client.revokeRemoteAccessToken();
   }
 
   getLastError(): string | undefined {
