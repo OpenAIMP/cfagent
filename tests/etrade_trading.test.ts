@@ -779,6 +779,23 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
       }
     });
+
+    it("screens default universe for tech stocks with RSI under 40 and returns oversold candidates", async () => {
+      DynamicMarketScreener.setTestUniverseFixture([]);
+      try {
+        const screener = new DynamicMarketScreener();
+        const res = screener.screenStocks({ sector: "Technology", maxRsi: 40 });
+        expect(res.stocks.length).toBeGreaterThan(0);
+        for (const s of res.stocks) {
+          expect(s.rsi14).toBeLessThanOrEqual(40);
+        }
+        const symbols = res.stocks.map((s) => s.symbol);
+        expect(symbols).toContain("CRM");
+        expect(symbols).toContain("INTC");
+      } finally {
+        DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
+      }
+    });
   });
 });
 

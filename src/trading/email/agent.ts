@@ -309,10 +309,13 @@ export class ETradeEmailTradingService {
       if (domain === "trading" && action === "screen") {
         const stocks = nlqRes.rows || [];
         const respSub = `🔍 E*TRADE Screener: ${stocks.length} Stocks Matched`;
-        let textRows = stocks.slice(0, 8).map((s: any) => `• ${s.symbol} (${s.sector}): ${s.price} (${s.change}) | RSI(14): ${s.rsi14} | Signal: ${s.signal}`).join("\n");
+        let textRows = stocks.length > 0
+          ? stocks.slice(0, 8).map((s: any) => `• ${s.symbol} (${s.sector}): ${s.price} (${s.change}) | RSI(14): ${s.rsi14} | Signal: ${s.signal}`).join("\n")
+          : "No equities matched the requested screener criteria. Try broadening your filter.";
         const respText = `${nlqRes.summary}\n\n${textRows}\n\nReply with "Quote <SYMBOL>" for deep details or "Buy <QTY> <SYMBOL>" to preview an order.`;
 
-        let htmlRows = stocks.slice(0, 10).map((s: any) => `
+        let htmlRows = stocks.length > 0
+          ? stocks.slice(0, 10).map((s: any) => `
           <tr style="border-bottom: 1px solid #334155;">
             <td style="padding: 8px; font-weight: bold; color: #38bdf8;">${s.symbol}</td>
             <td style="padding: 8px; color: #cbd5e1;">${s.sector}</td>
@@ -321,7 +324,8 @@ export class ETradeEmailTradingService {
             <td style="padding: 8px; text-align: right; color: #f1f5f9;">${s.rsi14 || "N/A"}</td>
             <td style="padding: 8px; text-align: right; color: #a78bfa;">${s.signal || "N/A"}</td>
           </tr>
-        `).join("");
+        `).join("")
+          : `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #94a3b8;">No equities matched the requested screener criteria.</td></tr>`;
 
         const respHtml = this.renderEmailContainer(
           `Market Screener Results (${stocks.length} Equities)`,

@@ -183,6 +183,56 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.proposerDid).toBe("did:agent:openaimp:trading");
     });
 
+    it("handles verbal market screener with RSI filter: 'Screen tech stocks with RSI under 40'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Screen tech stocks with RSI under 40",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("screener");
+      expect(res.screenedStocks).toBeDefined();
+      expect(res.screenedStocks!.length).toBeGreaterThan(0);
+
+      // Verify all matched stocks strictly satisfy RSI <= 40 and sector Technology
+      for (const stock of res.screenedStocks!) {
+        const effectiveRsi = stock.rsi14 ?? stock.rsi ?? 50;
+        expect(effectiveRsi).toBeLessThanOrEqual(40);
+        expect(stock.sector.toLowerCase()).toMatch(/technology|semiconductors/);
+      }
+
+      expect(res.spokenText).toContain("screened");
+      expect(res.spokenText).toContain("R-S-I");
+      expect(res.spokenText).not.toContain("equities in the universe");
+      expect(res.displayMarkdown).toContain("Screener");
+      expect(res.displayMarkdown).toContain("AAPL");
+    });
+
+    it("gracefully guides trader when zero equities match extreme criteria: 'Screen tech stocks with RSI under 15'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Screen tech stocks with RSI under 15",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("screener");
+      expect(res.screenedStocks).toBeDefined();
+      expect(res.screenedStocks!.length).toBe(0);
+
+      // Must NOT utter nonsensical fallback 'Top results include equities in the universe'
+      expect(res.spokenText).not.toContain("Top results include equities in the universe");
+      expect(res.spokenText).toContain("no Technology stocks with an R-S-I under 15 currently meet that threshold");
+      expect(res.spokenText).toContain("lowest R-S-I in that sector is");
+      expect(res.displayMarkdown).toContain("No Matches Found");
+      expect(res.displayMarkdown).toContain("Closest Candidate in Sector");
+    });
+
     it("handles verbal portfolio and balance queries", async () => {
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
       const req: VoiceTradingTurnRequest = {
@@ -196,6 +246,70 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.actionType).toBe("portfolio");
       expect(res.spokenText).toContain("reconciled");
       expect(res.displayMarkdown).toContain("Portfolio");
+    });
+
+    it("verbally schedules a reminder task: 'Remind me to check apple in ten minutes'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Remind me to check apple in ten minutes",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("schedule");
+      expect(res.spokenText).toContain("scheduled a reminder to check AAPL in 10 minutes");
+      expect(res.spokenText).toContain("Schedule ID is");
+      expect(res.displayMarkdown).toContain("Scheduled Task Activated");
+      expect(res.displayMarkdown).toContain("check AAPL");
+      expect(res.displayMarkdown).toContain("sendScheduledReminder");
+    });
+
+    it("verbally schedules recurring market screen: 'Schedule market screen every five minutes'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Schedule market screen every five minutes",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("schedule");
+      expect(res.spokenText).toContain("scheduled autonomous market screening every 5 minutes");
+      expect(res.displayMarkdown).toContain("autonomousMarketScreen");
+    });
+
+    it("verbally lists active background tasks: 'Show scheduled tasks'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Show scheduled tasks",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("schedule");
+      expect(res.spokenText).toMatch(/active scheduled tasks|no active background/);
+      expect(res.displayMarkdown).toContain("Active Scheduled Tasks");
+    });
+
+    it("verbally cancels a scheduled task: 'Cancel schedule sched_test_123'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Cancel schedule sched_test_123",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("schedule");
+      expect(res.spokenText).toMatch(/Task schedule sched.*123 has been cancelled successfully/i);
+      expect(res.displayMarkdown).toContain("Task Schedule Cancelled");
+      expect(res.displayMarkdown).toContain("sched_test_123");
     });
 
     it("strictly drafts trade orders in 'previewed' status without moving funds", async () => {

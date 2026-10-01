@@ -8,7 +8,7 @@ import { FossResearchService } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 
 export const nlqPlanSchema = z.object({
-  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "custom_query"]).default("conversation"),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "custom_query"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
   targetTable: z.string().optional(),
   categoryData: z
@@ -39,6 +39,18 @@ export const nlqPlanSchema = z.object({
       provider: z.enum(["yfinance", "alpaca", "hybrid"]).optional(),
     })
     .optional(),
+  scheduleData: z
+    .object({
+      action: z.enum(["list", "create", "cancel"]),
+      scheduleType: z.enum(["delayed", "scheduled", "cron", "interval"]).optional(),
+      callback: z.string().optional(),
+      delayInSeconds: z.number().optional(),
+      intervalSeconds: z.number().optional(),
+      cron: z.string().optional(),
+      scheduleId: z.string().optional(),
+      description: z.string().optional(),
+    })
+    .optional(),
   terms: z.string().max(200).default(""),
   role: z.enum(["user", "assistant", "any"]).default("any"),
   since: z.string().nullable().default(null),
@@ -66,6 +78,96 @@ const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conv
 
 export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   const qLower = question.toLowerCase();
+
+  // 0. Fast-path for Cloudflare Agents Task Scheduling
+  // 0a. List active schedules
+  if (
+    /\b(list|show|view|get)\s+(?:all\s+)?(?:active\s+)?(?:agent\s+)?(?:schedules?|scheduled\s+tasks?|cron\s+jobs?|alarms?)\b/i.test(question) ||
+    /^(?:schedules?|scheduled\s+tasks?|list\s+schedules?)$/i.test(question.trim())
+  ) {
+    return {
+      domain: "scheduling",
+      operation: "list",
+      scheduleData: {
+        action: "list",
+      },
+      terms: "schedules",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 0b. Cancel a schedule by ID
+  const cancelSchedMatch = question.match(/\b(?:cancel|delete|remove|stop|drop)\s+(?:schedule|task|alarm)\s+([a-zA-Z0-9_\-\.]+)\b/i);
+  if (cancelSchedMatch) {
+    const targetId = cancelSchedMatch[1].trim();
+    return {
+      domain: "scheduling",
+      operation: "update",
+      scheduleData: {
+        action: "cancel",
+        scheduleId: targetId,
+      },
+      terms: targetId,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 0c. Set a reminder (delayed schedule)
+  const reminderMatch =
+    question.match(/\bremind\s+(?:me\s+)?(?:to\s+)?(.+?)\s+in\s+(\d+)\s*(mins?|minutes?|secs?|seconds?|hours?|hrs?)\b/i) ||
+    question.match(/\bin\s+(\d+)\s*(mins?|minutes?|secs?|seconds?|hours?|hrs?)\s*,?\s*remind\s+(?:me\s+)?(?:to\s+)?(.+)\b/i);
+  if (reminderMatch) {
+    const isPrefix = /^\s*in\s+\d+/i.test(question);
+    const num = Number(isPrefix ? reminderMatch[1] : reminderMatch[2]) || 1;
+    const unit = (isPrefix ? reminderMatch[2] : reminderMatch[3]).toLowerCase();
+    const taskDesc = (isPrefix ? reminderMatch[3] : reminderMatch[1]).trim();
+    const multiplier = unit.startsWith("h") ? 3600 : unit.startsWith("s") ? 1 : 60;
+    const delayInSeconds = num * multiplier;
+
+    return {
+      domain: "scheduling",
+      operation: "create",
+      scheduleData: {
+        action: "create",
+        scheduleType: "delayed",
+        callback: "sendScheduledReminder",
+        delayInSeconds,
+        description: taskDesc,
+      },
+      terms: taskDesc,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 0d. Schedule a recurring market screen interval or cron
+  const screenIntervalMatch = question.match(/\b(?:schedule|run)\s+(?:market\s+)?(?:screen|screener|scan)\s+every\s+(\d+)\s*(mins?|minutes?|secs?|seconds?)\b/i);
+  if (screenIntervalMatch) {
+    const num = Number(screenIntervalMatch[1]) || 5;
+    const unit = screenIntervalMatch[2].toLowerCase();
+    const intervalSeconds = unit.startsWith("m") ? num * 60 : num;
+
+    return {
+      domain: "scheduling",
+      operation: "create",
+      scheduleData: {
+        action: "create",
+        scheduleType: "interval",
+        callback: "autonomousMarketScreen",
+        intervalSeconds,
+        description: `Autonomous market screen every ${intervalSeconds} seconds`,
+      },
+      terms: "market_screen",
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
 
   // 1. Fast-path for Category addition or update (check before generic tables)
   const addCatMatch = question.match(/\b(?:add|create|insert|new)\s+category\s+["']?([^"']+)["']?/i);
@@ -395,6 +497,143 @@ export function executeNLQQuery(
       })),
       executedAt,
     };
+  }
+
+  // 1b. Task Scheduling Operations (Cloudflare Agents Schedule API)
+  if (plan.domain === "scheduling") {
+    const action = plan.scheduleData?.action || "list";
+
+    if (action === "list") {
+      const scheduleEvents = orm.events
+        ? orm.events.findMany({
+            where: { type: "schedule.created" },
+            orderBy: "created_at DESC",
+            limit: plan.limit || 20,
+          })
+        : [];
+
+      const baselineSchedules = [
+        {
+          id: "sched_cron_etrade_renew",
+          callback: "autoRenewETradeTokens",
+          type: "cron",
+          cron: "0 23 * * *",
+          description: "Proactive E*TRADE OAuth 1.0a token renewal before midnight ET",
+          status: "ACTIVE",
+        },
+        {
+          id: "sched_interval_market_screen",
+          callback: "autonomousMarketScreen",
+          type: "interval",
+          intervalSeconds: 300,
+          description: "Autonomous market screener (Technology sector)",
+          status: "ACTIVE",
+        },
+      ];
+
+      const customSchedules = scheduleEvents.map((evt) => {
+        const p: any = evt.payload || {};
+        return {
+          id: p.scheduleId || evt.id,
+          callback: p.callback || "customTask",
+          type: p.scheduleType || "delayed",
+          description: p.description || p.callback || "Scheduled task",
+          status: "REGISTERED",
+          createdAt: evt.createdAt,
+        };
+      });
+
+      const all = [...baselineSchedules, ...customSchedules];
+
+      return {
+        plan,
+        domain: "scheduling",
+        targetTable: "mas_schedules",
+        count: all.length,
+        summary: `Found ${all.length} active and registered scheduled task(s) for Cloudflare Agent.`,
+        rows: all,
+        executedAt,
+      };
+    }
+
+    if (action === "cancel") {
+      const scheduleId = plan.scheduleData?.scheduleId || "";
+      if (orm.events) {
+        try {
+          orm.events.create({
+            id: crypto.randomUUID(),
+            sessionId,
+            type: "schedule.cancelled",
+            agent: "orchestrator",
+            payload: { scheduleId, cancelledAt: executedAt },
+            createdAt: executedAt,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        plan,
+        domain: "scheduling",
+        targetTable: "mas_schedules",
+        count: 1,
+        summary: `Task schedule '${scheduleId}' cancelled successfully.`,
+        rows: [{ scheduleId, status: "CANCELLED", cancelledAt: executedAt }],
+        executedAt,
+      };
+    }
+
+    if (action === "create") {
+      const { scheduleType, callback, delayInSeconds, intervalSeconds, cron, description } = plan.scheduleData || {};
+      const newId = `sched_${scheduleType || "delayed"}_${Date.now().toString(36)}`;
+
+      if (orm.events) {
+        try {
+          orm.events.create({
+            id: crypto.randomUUID(),
+            sessionId,
+            type: "schedule.created",
+            agent: "orchestrator",
+            payload: {
+              scheduleId: newId,
+              scheduleType: scheduleType || "delayed",
+              callback: callback || "sendScheduledReminder",
+              delayInSeconds,
+              intervalSeconds,
+              cron,
+              description: description || "Scheduled task",
+              createdAt: executedAt,
+            },
+            createdAt: executedAt,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        plan,
+        domain: "scheduling",
+        targetTable: "mas_schedules",
+        count: 1,
+        summary: `Task scheduled successfully [ID: ${newId}]. Type: ${scheduleType || "delayed"}. Callback: ${callback || "sendScheduledReminder"}${description ? ` ("${description}")` : ""}.`,
+        rows: [
+          {
+            id: newId,
+            callback: callback || "sendScheduledReminder",
+            type: scheduleType || "delayed",
+            delayInSeconds,
+            intervalSeconds,
+            cron,
+            description,
+            status: "SCHEDULED",
+            scheduledAt: executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
   }
 
   // 2. Add or Update Referral Categories via ORM

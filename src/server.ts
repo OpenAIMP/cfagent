@@ -287,6 +287,17 @@ export default {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
+    // --- Cloudflare Agents Task Scheduling Management APIs ---
+    if (path.startsWith("/api/schedules") || path === "/api/schedules") {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || "default_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL(path + url.search, "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
     // --- Omnichannel Trading Agent: Voice WebSocket Session ---
     if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();

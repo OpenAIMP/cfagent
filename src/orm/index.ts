@@ -288,6 +288,7 @@ export class DatabaseORM {
       authorizerDid: "authorizer_did",
       proofSignature: "proof_signature",
       previewNotes: "preview_notes",
+      expirationScheduleId: "expiration_schedule_id",
       createdAt: "created_at",
       updatedAt: "updated_at",
     });
@@ -438,6 +439,7 @@ export class DatabaseORM {
         authorizer_did TEXT,
         proof_signature TEXT NOT NULL,
         preview_notes TEXT,
+        expiration_schedule_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )

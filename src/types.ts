@@ -222,12 +222,13 @@ export interface TradeRecord {
   quantity: number;
   price: number;
   totalValue: number;
-  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled";
+  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled" | "expired";
   orderRef?: string;
   proposerDid: string;
   authorizerDid?: string;
   proofSignature: string;
   previewNotes?: string;
+  expirationScheduleId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -336,13 +337,15 @@ export interface ETradeOrderDraft {
   term: "GOOD_FOR_DAY" | "GOOD_UNTIL_CANCEL";
   estimatedCommission: number;
   estimatedTotal: number;
-  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled";
+  status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled" | "expired";
   proposerDid: string;
   authorizerDid: string;
   proofSignature: string;
   previewMessage: string;
   previewNotes?: string;
   safetyNotice?: string;
+  expirationScheduleId?: string;
+  expiresAt?: string;
   placedAt?: string;
 }
 
@@ -791,7 +794,7 @@ export interface VoiceTradingTurnResponse {
   success: boolean;
   spokenText: string;
   displayMarkdown: string;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "general" | "error";
   orderId?: string;
   orderDraft?: ETradeOrderDraft;
   orderStatus?: "previewed" | "executed" | "rejected" | "not_found";
@@ -817,6 +820,44 @@ export interface VoiceSessionState {
   audioLevel: number;
   isMuted: boolean;
   connected: boolean;
+}
+
+// ==========================================
+// Cloudflare Agents Task Scheduling Models
+// ==========================================
+
+export type ScheduleExecutionType = "scheduled" | "delayed" | "cron" | "interval";
+
+export interface AgentScheduleItem {
+  id: string;
+  callback: string;
+  type: ScheduleExecutionType;
+  time?: number;
+  cron?: string;
+  delayInSeconds?: number;
+  intervalSeconds?: number;
+  payload?: any;
+}
+
+export interface ScheduledTaskPayload {
+  taskType: "etrade_token_renewal" | "market_screen" | "order_expiration" | "reminder" | string;
+  userLogin?: string;
+  orderId?: string;
+  reminderId?: string;
+  message?: string;
+  sector?: string;
+  environment?: string;
+  maxItems?: number;
+  broadcast?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ScheduledTaskResult<T = unknown> {
+  success: boolean;
+  taskType: string;
+  data?: T;
+  error?: string;
+  timestamp: string;
 }
 
 

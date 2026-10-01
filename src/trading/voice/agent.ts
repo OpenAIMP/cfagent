@@ -158,7 +158,10 @@ export class ETradeVoiceTradingService {
     // -----------------------------------------------------------------------
     // 2. Detect Voice Rejection Intent: "Cancel order <id>" or "Discard draft"
     // -----------------------------------------------------------------------
-    const rejectMatch = cleanTranscript.match(/\b(CANCEL|DISCARD|REJECT|ABORT|STOP)\b(?:\s+(?:THE\s+)?(?:ORDER|TRADE|DRAFT))?(?:\s+(ord_[a-zA-Z0-9_-]+|[a-zA-Z0-9]{6,}))?/i);
+    const isScheduleIntent = /\b(schedule|timer|reminder|task)\b/i.test(cleanTranscript);
+    const rejectMatch = !isScheduleIntent && cleanTranscript.match(
+      /\b(CANCEL|DISCARD|REJECT|ABORT|STOP)\b(?:\s+(?:THE\s+)?(?:ORDER|TRADE|DRAFT))?(?:\s+(ord_[a-zA-Z0-9_-]+|[a-zA-Z0-9]{6,}))?/i
+    );
     if (rejectMatch) {
       const rawId = rejectMatch[2];
       const explicitId = rawId ? (rawId.startsWith("ord_") ? rawId : `ord_${rawId}`) : undefined;
@@ -363,16 +366,82 @@ export class ETradeVoiceTradingService {
       // Case B: Market Screener
       if (domain === "trading" && action === "screen") {
         const stocks: any[] = nlqRes.rows || [];
+        const filters = plan.tradingData?.filters || {};
+        const sector = filters.sector;
+        const maxRsi = filters.maxRsi;
+        const minRsi = filters.minRsi;
+
+        if (stocks.length === 0) {
+          // Identify closest candidates from scan ledger or sector rejections
+          const rejections = (nlqRes.scanLedger?.rejections || []) as any[];
+          const sectorRejections = sector
+            ? rejections.filter((r) => !r.reason?.includes("Sector"))
+            : rejections;
+
+          let closestHint = "";
+          let closestSymbol = "";
+          let closestRsi = 0;
+          let closestPrice = 0;
+
+          if (maxRsi !== undefined) {
+            const withRsi = sectorRejections.filter((r) => r.rsi !== undefined);
+            if (withRsi.length > 0) {
+              withRsi.sort((a, b) => (a.rsi || 999) - (b.rsi || 999));
+              const best = withRsi[0];
+              closestSymbol = best.symbol;
+              closestRsi = best.rsi;
+              closestPrice = best.price || 0;
+              closestHint = `The lowest R-S-I in that sector is ${best.symbol} at $${best.price ? best.price.toFixed(2) : "N/A"} with an R-S-I of ${best.rsi.toFixed(1)}.`;
+            }
+          } else if (minRsi !== undefined) {
+            const withRsi = sectorRejections.filter((r) => r.rsi !== undefined);
+            if (withRsi.length > 0) {
+              withRsi.sort((a, b) => (b.rsi || 0) - (a.rsi || 0));
+              const best = withRsi[0];
+              closestSymbol = best.symbol;
+              closestRsi = best.rsi;
+              closestPrice = best.price || 0;
+              closestHint = `The highest R-S-I in that sector is ${best.symbol} with an R-S-I of ${best.rsi.toFixed(1)}.`;
+            }
+          }
+
+          let filterDesc = "";
+          if (sector && maxRsi !== undefined) filterDesc = `${sector} stocks with an R-S-I under ${maxRsi}`;
+          else if (sector && minRsi !== undefined) filterDesc = `${sector} stocks with an R-S-I over ${minRsi}`;
+          else if (sector) filterDesc = `${sector} stocks`;
+          else if (maxRsi !== undefined) filterDesc = `stocks with an R-S-I under ${maxRsi}`;
+          else filterDesc = "equities matching your criteria";
+
+          const spokenRaw = `I screened the universe, but no ${filterDesc} currently meet that threshold. ${closestHint} You can say "Screen all ${sector || "tech"} stocks", or ask for a quote on a specific symbol.`;
+          const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+          const displayMarkdown = `### 🔍 E*TRADE Screener (0 Equities Matched)\n\n` +
+            `> ⚠️ **No Matches Found**: No equities in the universe satisfied the criteria: **${nlqRes.summary || filterDesc}**.\n\n` +
+            (closestSymbol ? `**Closest Candidate in Sector:**\n- **${closestSymbol}**: Price: $${closestPrice.toFixed(2)} | RSI(14): **${closestRsi.toFixed(1)}**\n\n` : "") +
+            `*💡 Voice Desk Tips:* Say *"Screen all ${sector || "tech"} stocks"* to broaden your screen, or say *"Quote ${closestSymbol || "AAPL"}"* for full metrics.`;
+
+          return {
+            success: true,
+            spokenText,
+            displayMarkdown,
+            actionType: "screener",
+            screenedStocks: [],
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
         const top = stocks.slice(0, 3);
         const topSpoken = top
           .map((s) => `${s.symbol} at ${s.price} with an R-S-I of ${s.rsi14 || "neutral"}`)
           .join(", and ");
 
-        const spokenRaw = `I screened ${stocks.length} stocks. Top results include ${topSpoken || "equities in the universe"}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
+        const sectorPrefix = sector ? `${sector} ` : "";
+        const spokenRaw = `I screened ${stocks.length} ${sectorPrefix}stocks. Top results include ${topSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
         const spokenText = tuneFinancialPronunciation(spokenRaw);
 
         let tableRows = stocks.slice(0, 5).map(s => `| **${s.symbol}** | ${s.sector} | ${s.price} | ${s.change} | ${s.rsi14 || "N/A"} | \`${s.signal || "NEUTRAL"}\` |`).join("\n");
-        const displayMarkdown = `### 🔍 E*TRADE Screener (${stocks.length} Equities Matched)\n\n| Symbol | Sector | Price | 24h Change | RSI(14) | Signal |\n|---|---|---|---|---|---|\n${tableRows}`;
+        const displayMarkdown = `### 🔍 E*TRADE Screener (${stocks.length} Equities Matched)\n\n| Symbol | Sector | Price | 24h Change | RSI(14) | Signal |\n|---|---|---|---|---|---|\n${tableRows}\n\n*Say "Quote <symbol>" for detailed technicals, or "Buy <qty> <symbol>" to draft an order.*`;
 
         return {
           success: true,
@@ -450,6 +519,94 @@ export class ETradeVoiceTradingService {
         };
       }
 
+      // Case E: Task Scheduling & Durable Timers
+      if (domain === "scheduling") {
+        const scheduleAction = plan.scheduleData?.action || "list";
+        const row: Record<string, any> = (nlqRes.rows?.[0] || {}) as any;
+
+        if (scheduleAction === "create") {
+          const schedId = String(row.id || "sched_task");
+          const callback = String(row.callback || "sendScheduledReminder");
+          const desc = String(row.description || "Scheduled task");
+          const delaySec = Number(row.delayInSeconds) || 0;
+          const intervalSec = Number(row.intervalSeconds) || 0;
+
+          let timeDesc = "";
+          if (delaySec > 0) {
+            timeDesc = delaySec >= 60 ? `in ${Math.round(delaySec / 60)} minutes` : `in ${delaySec} seconds`;
+          } else if (intervalSec > 0) {
+            timeDesc = intervalSec >= 60 ? `every ${Math.round(intervalSec / 60)} minutes` : `every ${intervalSec} seconds`;
+          }
+
+          let spokenRaw = "";
+          if (callback === "autonomousMarketScreen") {
+            spokenRaw = `I have scheduled autonomous market screening ${timeDesc}. The agent will monitor equities and alert you of opportunities. Schedule ID is ${schedId}.`;
+          } else {
+            spokenRaw = `I have scheduled a reminder to ${desc} ${timeDesc}. Schedule ID is ${schedId}. I will alert your desk when it triggers.`;
+          }
+          const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+          const displayMarkdown = `### ⏰ Scheduled Task Activated\n\n` +
+            `- **Task:** **${desc}**\n` +
+            `- **Type:** \`${row.type || "delayed"}\`\n` +
+            `- **Trigger:** **${timeDesc}**\n` +
+            `- **Callback:** \`${callback}\`\n` +
+            `- **Schedule ID:** \`${schedId}\`\n\n` +
+            `> ⏱️ **Cloudflare Agents Durable Timer**: Persists across worker restarts.\n` +
+            `> *To Cancel:* Say *"Cancel schedule ${schedId}"*`;
+
+          return {
+            success: true,
+            spokenText,
+            displayMarkdown,
+            actionType: "schedule",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
+        if (scheduleAction === "cancel") {
+          const schedId = String(row.scheduleId || "the task");
+          const spokenRaw = `Task schedule ${schedId} has been cancelled successfully.`;
+          const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+          const displayMarkdown = `### 🛑 Task Schedule Cancelled\n\n` +
+            `- **Schedule ID:** \`${schedId}\`\n` +
+            `- **Status:** **CANCELLED**\n\n` +
+            `*The timer has been removed from active Cloudflare durable queues.*`;
+
+          return {
+            success: true,
+            spokenText,
+            displayMarkdown,
+            actionType: "schedule",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
+        // Listing schedules
+        const total = nlqRes.count || (nlqRes.rows?.length ?? 0);
+        const rows = nlqRes.rows || [];
+        const taskDescriptions = rows.slice(0, 3).map((r: any) => `${r.description || r.callback} (${r.status})`).join(", and ");
+        const spokenRaw = total > 0
+          ? `You have ${total} active scheduled tasks, including ${taskDescriptions}. Say "Cancel schedule ID" to remove a timer.`
+          : `You currently have no active background scheduled tasks. Say "Remind me to check symbol in ten minutes" or "Schedule market screen every five minutes" to create one.`;
+        const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+        const tableRows = rows.map((r: any) => `| \`${r.id || r.scheduleId}\` | ${r.callback} | ${r.status} | ${r.description || "N/A"} |`).join("\n");
+        const displayMarkdown = `### ⏱️ Active Scheduled Tasks (${total})\n\n| Schedule ID | Callback | Status | Description |\n|---|---|---|---|\n${tableRows || "| None | - | - | - |"}\n\n*Say "Cancel schedule <id>" to remove a timer.*`;
+
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown,
+          actionType: "schedule",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
       // Default General Voice Assistant Response
       const spokenRaw = nlqRes.summary || "I processed your request on the trading desk.";
       const spokenText = tuneFinancialPronunciation(spokenRaw);
@@ -480,9 +637,9 @@ export class ETradeVoiceTradingService {
    */
   getWelcomeGreeting(): { spokenText: string; displayMarkdown: string } {
     const spokenText =
-      "Welcome to the E*TRADE Voice Trading Desk. You can ask for real-time market quotes, technical screening, portfolio status, or draft order tickets. How can I assist your portfolio today?";
+      "Welcome to the E*TRADE Voice Trading Desk. You can ask for real-time market quotes, technical screening, portfolio status, schedule automated tasks, or draft trade order tickets. How can I assist your portfolio today?";
     const displayMarkdown =
-      "### 🎙️ E*TRADE Voice Trading Desk Connected\n\n*Speak freely to query market data, run screener scans, or propose trade tickets with Human-in-the-Loop protection.*";
+      "### 🎙️ E*TRADE Voice Trading Desk Connected\n\n*Speak freely to query market data, run screener scans, schedule recurring alerts, or propose trade tickets with Human-in-the-Loop protection.*";
     return { spokenText, displayMarkdown };
   }
 }

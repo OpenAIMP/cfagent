@@ -19,6 +19,7 @@ import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
+import { ScheduledTasksService } from "../services/scheduledTasks";
 import type {
   Env,
   AgentName,
@@ -85,6 +86,115 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
 }
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
+  /**
+   * Cloudflare Agents Lifecycle: onStart
+   * Initializes SQLite tables and registers baseline idempotent cron and interval schedules
+   */
+  async onStart(props?: Record<string, unknown>): Promise<void> {
+    this.ensureTables();
+
+    try {
+      // 1. Proactive daily E*TRADE token renewal at 23:00 ET (idempotent by default for cron)
+      if (typeof (this as any).schedule === "function") {
+        await (this as any).schedule(
+          "0 23 * * *",
+          "autoRenewETradeTokens",
+          { userLogin: this.sessionKey() },
+          { idempotent: true }
+        );
+      }
+
+      // 2. Autonomous market screening interval (runs every 300 seconds / 5 min)
+      if (typeof (this as any).scheduleEvery === "function") {
+        await (this as any).scheduleEvery(
+          300,
+          "autonomousMarketScreen",
+          { sector: "Technology", maxItems: 5 }
+        );
+      }
+    } catch (schedErr) {
+      console.warn("[OrchestratorAgent][onStart] Note on schedule registration:", schedErr);
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Proactively renews E*TRADE tokens before midnight ET
+   */
+  async autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void> {
+    const user = payload?.userLogin || this.sessionKey();
+    const service = new ScheduledTasksService(this.env, this.getOrm(), user);
+    const res = await service.autoRenewETradeTokens(user, payload?.env);
+    if (!res.success) {
+      console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Runs periodic market screening
+   * Protected with keepAliveWhile to avoid DO inactivity eviction
+   */
+  async autonomousMarketScreen(payload?: { sector?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
+    const runScreen = async () => {
+      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+      const res = await service.autonomousMarketScreen(payload);
+      if (res.success && res.data?.opportunities && res.data.opportunities.length > 0) {
+        if (typeof (this as any).broadcast === "function") {
+          try {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "market_alert",
+                title: "Autonomous Screener Alert",
+                count: res.data.opportunities.length,
+                opportunities: res.data.opportunities,
+                timestamp: res.timestamp,
+              })
+            );
+          } catch {
+            // Non-critical broadcast error
+          }
+        }
+      }
+    };
+
+    if (typeof (this as any).keepAliveWhile === "function") {
+      await (this as any).keepAliveWhile(runScreen);
+    } else {
+      await runScreen();
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Auto-expires a stale unconfirmed order draft
+   */
+  async expireStaleOrderDraft(payload: { orderId: string; userLogin?: string }): Promise<void> {
+    if (!payload?.orderId) return;
+    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey());
+    await service.expireStaleOrderDraft(payload.orderId);
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Dispatches a user reminder
+   */
+  async sendScheduledReminder(payload: { reminderId: string; message: string; userLogin?: string }): Promise<void> {
+    if (!payload?.reminderId) return;
+    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey());
+    const res = await service.dispatchReminder(payload.reminderId, payload.message);
+    if (typeof (this as any).broadcast === "function") {
+      try {
+        (this as any).broadcast(
+          JSON.stringify({
+            type: "scheduled_reminder",
+            reminderId: payload.reminderId,
+            message: payload.message,
+            timestamp: res.timestamp,
+          })
+        );
+      } catch {
+        // Non-critical broadcast error
+      }
+    }
+  }
+
   private ensureTables() {
     const storage = this.ctx.storage;
     const sql = storage.sql;
@@ -1625,6 +1735,23 @@ Agentic Best Practices & Workflow Rules:
           proposerDid: preview.proposerDid,
         });
 
+        // Schedule a 15-minute expiration timer (900 seconds) for this draft
+        try {
+          if (typeof (this as any).schedule === "function") {
+            const expSchedule = await (this as any).schedule(900, "expireStaleOrderDraft", { orderId: preview.orderId, userLogin });
+            if (expSchedule?.id) {
+              preview.expirationScheduleId = expSchedule.id;
+              preview.expiresAt = new Date(Date.now() + 900 * 1000).toISOString();
+              this.getOrm().trades?.update(preview.orderId, {
+                expirationScheduleId: expSchedule.id,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          }
+        } catch (schedErr) {
+          console.warn("[OrchestratorAgent] Note: could not schedule expiration timer:", schedErr);
+        }
+
         return Response.json(preview);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to preview trade order" }, { status: 500 });
@@ -1665,6 +1792,13 @@ Agentic Best Practices & Workflow Rules:
 
         // Handle user rejection / cancellation immediately
         if (decision === "rejected") {
+          if (existingRecord.expirationScheduleId && typeof (this as any).cancelSchedule === "function") {
+            try {
+              await (this as any).cancelSchedule(existingRecord.expirationScheduleId);
+            } catch {
+              // Ignore cancel error if already triggered
+            }
+          }
           if (this.getOrm().trades) {
             this.getOrm().trades.update(orderId, {
               status: "rejected",
@@ -1735,6 +1869,15 @@ Agentic Best Practices & Workflow Rules:
           }
         } else {
           result = etrade.executeOrder(orderId, userDid, decision);
+        }
+
+        // Cancel the scheduled expiration timer since the order has been executed
+        if (existingRecord.expirationScheduleId && typeof (this as any).cancelSchedule === "function") {
+          try {
+            await (this as any).cancelSchedule(existingRecord.expirationScheduleId);
+          } catch {
+            // Ignore cancel error if already triggered
+          }
         }
 
         this.audit("etrade.order_executed", "trading", {
@@ -2309,6 +2452,134 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to run Yahoo Finance screener" }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // Cloudflare Agents Task Scheduling Management APIs
+    // ==========================================
+
+    // List all schedules (supports ?type=cron|interval|delayed|scheduled)
+    if ((path.endsWith("/schedules") || path.endsWith("/api/schedules")) && request.method === "GET") {
+      try {
+        const type = url.searchParams.get("type") as any;
+        const schedules = typeof (this as any).listSchedules === "function"
+          ? await (this as any).listSchedules(type ? { type } : undefined)
+          : [];
+        return Response.json({
+          count: schedules.length,
+          schedules,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to list schedules" }, { status: 500 });
+      }
+    }
+
+    // Cancel a schedule by ID (POST /api/schedules/cancel or DELETE /api/schedules/:id)
+    if (
+      ((path.endsWith("/schedules/cancel") || path.includes("/schedules/cancel/")) && request.method === "POST") ||
+      (path.includes("/schedules/") && request.method === "DELETE")
+    ) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const scheduleId =
+          body.scheduleId ||
+          body.id ||
+          url.searchParams.get("id") ||
+          path.split("/schedules/cancel/")[1] ||
+          path.split("/schedules/")[1] ||
+          "";
+
+        if (!scheduleId) {
+          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
+        }
+        const cancelled = typeof (this as any).cancelSchedule === "function"
+          ? await (this as any).cancelSchedule(scheduleId)
+          : false;
+        this.audit("schedule.cancelled", "orchestrator", { scheduleId, success: cancelled });
+        return Response.json({ scheduleId, cancelled });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to cancel schedule" }, { status: 500 });
+      }
+    }
+
+    // Get specific schedule by ID (GET /api/schedules/:id)
+    if (path.includes("/schedules/") && request.method === "GET") {
+      try {
+        const scheduleId = path.split("/schedules/").pop() || "";
+        const schedule = typeof (this as any).getScheduleById === "function"
+          ? await (this as any).getScheduleById(scheduleId)
+          : undefined;
+        if (!schedule) {
+          return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
+        }
+        return Response.json(schedule);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to get schedule" }, { status: 500 });
+      }
+    }
+
+    // Create a schedule (delayed, scheduled, cron, or interval)
+    if ((path.endsWith("/schedules/create") || (path.endsWith("/schedules") && request.method === "POST"))) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const { scheduleType, callback, payload, delayInSeconds, intervalSeconds, cron, date } = body;
+
+        if (!callback) {
+          return Response.json({ error: "Callback method name is required" }, { status: 400 });
+        }
+
+        let schedule: any;
+        if (scheduleType === "interval" && intervalSeconds) {
+          schedule = typeof (this as any).scheduleEvery === "function"
+            ? await (this as any).scheduleEvery(Number(intervalSeconds), callback, payload)
+            : { id: `sched_mock_${Date.now()}`, type: "interval", intervalSeconds, callback, payload };
+        } else if (scheduleType === "cron" && cron) {
+          schedule = typeof (this as any).schedule === "function"
+            ? await (this as any).schedule(cron, callback, payload, { idempotent: body.idempotent !== false })
+            : { id: `sched_mock_${Date.now()}`, type: "cron", cron, callback, payload };
+        } else if (scheduleType === "scheduled" && date) {
+          schedule = typeof (this as any).schedule === "function"
+            ? await (this as any).schedule(new Date(date), callback, payload)
+            : { id: `sched_mock_${Date.now()}`, type: "scheduled", date, callback, payload };
+        } else if (delayInSeconds !== undefined) {
+          schedule = typeof (this as any).schedule === "function"
+            ? await (this as any).schedule(Number(delayInSeconds), callback, payload)
+            : { id: `sched_mock_${Date.now()}`, type: "delayed", delayInSeconds, callback, payload };
+        } else {
+          return Response.json(
+            { error: "Invalid schedule parameters: provide intervalSeconds, cron, date, or delayInSeconds" },
+            { status: 400 }
+          );
+        }
+
+        this.audit("schedule.created", "orchestrator", { scheduleId: schedule?.id, callback, scheduleType });
+        return Response.json({ success: true, schedule });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to create schedule" }, { status: 500 });
+      }
+    }
+
+    // Trigger autonomous market screen immediately on demand
+    if (path.endsWith("/schedules/trigger-screen") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        await this.autonomousMarketScreen(body);
+        return Response.json({ success: true, message: "Autonomous market screen triggered" });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
+      }
+    }
+
+    // Trigger E*TRADE token renewal immediately on demand
+    if (path.endsWith("/schedules/trigger-renew") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        await this.autoRenewETradeTokens(body);
+        return Response.json({ success: true, message: "E*TRADE token renewal triggered" });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger token renewal" }, { status: 500 });
       }
     }
 
