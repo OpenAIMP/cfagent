@@ -6937,3 +6937,232 @@ body {
   color: #f87171;
 }
 
+/* =========================================================================
+   Trust, Governance & Reconciliation System
+   ========================================================================= */
+
+.env-trust-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  margin-bottom: 0.5rem;
+}
+
+.env-trust-banner.env-sandbox {
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.18) 0%, rgba(180, 83, 9, 0.15) 100%);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  color: #fef08a;
+}
+
+.env-trust-banner.env-live {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.18) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.env-trust-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.env-trust-badge {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid currentColor;
+}
+
+.env-trust-right {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+}
+
+.env-trust-item code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.btn-mask-toggle {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  margin-left: 0.35rem;
+  font-size: 0.85rem;
+  padding: 0;
+  vertical-align: middle;
+}
+
+/* Reconciliation Alert Banner */
+.reconciliation-alert-banner {
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.2) 0%, rgba(190, 18, 60, 0.15) 100%);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  border-radius: 10px;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: #fda4af;
+  margin-bottom: 0.75rem;
+}
+
+.reconciliation-alert-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.reconciliation-alert-content strong {
+  color: #ffe4e6;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.reconciliation-alert-content p {
+  margin: 0;
+  color: #fecdd3;
+}
+
+.btn-view-discrepancy {
+  background: rgba(244, 63, 94, 0.25);
+  border: 1px solid rgba(244, 63, 94, 0.5);
+  color: #ffffff;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-view-discrepancy:hover {
+  background: rgba(244, 63, 94, 0.4);
+}
+
+.reconciliation-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.reconciliation-tag.reconciled {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+.reconciliation-tag.unreconciled {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+/* NLQ Unverified Warning Banner */
+.nlq-unverified-warning-banner {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.nlq-unverified-warning-banner .warning-title {
+  color: #fca5a5;
+  font-weight: 800;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+  letter-spacing: 0.02em;
+}
+
+.nlq-unverified-warning-banner .warning-desc {
+  color: #fee2e2;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0 0 0.75rem 0;
+}
+
+.discrepancy-breakdown-box {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.discrepancy-breakdown-box h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.03em;
+}
+
+.discrepancy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+}
+
+.discrepancy-grid strong {
+  color: #ffffff;
+}
+
+.variance-highlight {
+  color: #f87171;
+  font-weight: 700;
+}
+
+/* Provenance Tags */
+.provenance-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+
+.provenance-pill {
+  color: #94a3b8;
+}
+
+.provenance-pill strong {
+  color: #38bdf8;
+}
+
+

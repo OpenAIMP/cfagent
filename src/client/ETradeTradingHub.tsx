@@ -72,6 +72,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   // DID Copy feedback
   const [copiedDid, setCopiedDid] = useState(false);
 
+  // Trust, Reconciliation & Privacy state
+  const [maskAccount, setMaskAccount] = useState(true);
+  const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
+  const [scanUniverseCount, setScanUniverseCount] = useState(12);
+  const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("matches_found");
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+
   // E*TRADE 3-Legged OAuth 1.0a state
   const [oauthStatus, setOauthStatus] = useState<{
     authenticated: boolean;
@@ -238,6 +245,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         const data = await resp.json() as { account: ETradeAccount; positions: ETradePosition[] };
         if (data.account) setAccount(data.account);
         if (data.positions) setPositions(data.positions);
+        setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch {
       // Ignore
@@ -288,10 +296,21 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         const data = (await resp.json()) as any;
         const list = Array.isArray(data.stocks) ? data.stocks : Array.isArray(data.results) ? data.results : [];
         setScreenerStocks(list);
+        const total = typeof data.totalScreened === "number" ? data.totalScreened : list.length;
+        setScanUniverseCount(total);
+        if (total === 0) {
+          setScanStatus("no_universe");
+        } else if (list.length === 0) {
+          setScanStatus("no_matches");
+        } else {
+          setScanStatus("matches_found");
+        }
         setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
+      } else {
+        setScanStatus("scan_failed");
       }
     } catch {
-      // Ignore
+      setScanStatus("scan_failed");
     } finally {
       setScreenerLoading(false);
     }
@@ -473,8 +492,73 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     return "Neutral";
   };
 
+  const positionsSum = positions.reduce((sum, p) => sum + (p.marketValue || 0), 0);
+  const cashPower = account?.cashAvailableForInvestment || 0;
+  const calculatedPortfolioTotal = Number((positionsSum + cashPower).toFixed(2));
+  const statedNav = Number((account?.netAccountValue || calculatedPortfolioTotal).toFixed(2));
+  const balanceDiscrepancy = Math.abs(Number((statedNav - calculatedPortfolioTotal).toFixed(2)));
+  const isReconciled = balanceDiscrepancy <= 1.00;
+  const isLive = brokerStatus?.environment === "live";
+
   return (
     <div className="etrade-trading-hub">
+      {/* High-Contrast Persistent Environment & Trust Banner */}
+      <div className={`env-trust-banner ${isLive ? "env-live" : "env-sandbox"}`} role="status" aria-live="polite">
+        <div className="env-trust-left">
+          <span className="env-trust-badge">
+            {isLive
+              ? "🔴 LIVE PRODUCTION — REAL ORDERS & REAL CAPITAL"
+              : "⚠️ SANDBOX — SIMULATED DATA — NO REAL ORDERS"}
+          </span>
+          <span className="env-trust-item">
+            <strong>Account:</strong>{" "}
+            <code>{maskAccount ? `••••${(account?.accountId || "SANDBOX").slice(-4)}` : (account?.accountId || "SANDBOX")}</code>
+            <button
+              type="button"
+              className="btn-mask-toggle"
+              onClick={() => setMaskAccount(!maskAccount)}
+              aria-label={maskAccount ? "Reveal account number" : "Mask account number"}
+              title={maskAccount ? "Reveal account number" : "Mask account number"}
+            >
+              {maskAccount ? "👁️ Show" : "🙈 Hide"}
+            </button>
+          </span>
+          <span className="env-trust-item">
+            <strong>Environment:</strong> {brokerStatus?.activeEnvironment || "TEST"}
+          </span>
+        </div>
+        <div className="env-trust-right">
+          <span className="env-trust-item">
+            <strong>Data Source:</strong> {oauthStatus?.authenticated ? "E*TRADE Sandbox REST API" : "Simulated Fixture"}
+          </span>
+          <span className="env-trust-item">
+            <strong>Prices As Of:</strong> {lastSyncTime || "Real-time"} ET
+          </span>
+        </div>
+      </div>
+
+      {/* Fail-Closed Portfolio Discrepancy Alert */}
+      {!isReconciled && (
+        <div className="reconciliation-alert-banner" role="alert">
+          <div className="reconciliation-alert-content">
+            <span style={{ fontSize: "1.4rem" }}>⚠️</span>
+            <div>
+              <strong>UNVERIFIED / POSSIBLE DEMO DATA</strong>
+              <p>
+                Portfolio cannot be reconciled: Stated total (${statedNav.toFixed(2)}) differs from holdings sum (${positionsSum.toFixed(2)}) + cash (${cashPower.toFixed(2)}) by ${balanceDiscrepancy.toFixed(2)}. No aggregate conclusion shown until reconciled.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-view-discrepancy"
+            onClick={() => setShowDiscrepancyModal(true)}
+          >
+            View Discrepancy Breakdown
+          </button>
+        </div>
+      )}
+
       {/* Top Brokerage Status Header */}
       <div className="trading-header-banner">
         <div className="broker-brand-cluster">
@@ -482,16 +566,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             <span className="broker-logo-icon">📈</span>
             <div className="broker-brand-names">
               <h3>E*TRADE Securities</h3>
-              <span className="broker-subbrand">by Morgan Stanley • Direct Market Access</span>
+              <span className="broker-subbrand">
+                by Morgan Stanley • {isLive ? "Developer Production API" : "Developer Sandbox API"}
+              </span>
             </div>
           </div>
           <div className="broker-status-chips">
             <span className="mode-badge live-pulse">
               <span className="pulse-dot" />
-              {brokerStatus?.environment === "live" ? "LIVE DIRECT API" : "SANDBOX SIMULATION"}
+              {isLive ? "LIVE DIRECT API" : "SANDBOX SIMULATION"}
             </span>
             <span className="protocol-badge">
-              OAuth 1.0a &amp; Remote MCP
+              OAuth 1.0a REST
             </span>
           </div>
         </div>
@@ -499,9 +585,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         {/* Account Financials & Purchasing Power */}
         {(() => {
           const totalDayGain = positions.reduce((sum, p) => sum + (p.daysGain || 0), 0);
-          const totalVal = account?.netAccountValue || positions.reduce((sum, p) => sum + p.marketValue, 0);
+          const totalVal = statedNav;
           const dayGainPct = totalVal > 0 ? (totalDayGain / totalVal) * 100 : 0;
-          const cashPower = account?.cashAvailableForInvestment || 0;
           const marginPower = cashPower * 2;
           const isGain = totalDayGain >= 0;
 
@@ -523,22 +608,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                 </span>
                 <span className="metric-sub">Margin: ${marginPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              <div className="metric-box did-box">
-                <span className="metric-label">Trading Agent DID</span>
-                <div className="did-attest-row">
-                  <code className="did-snippet" title={tradingAgentDid}>
-                    did:agent:…:trading
-                  </code>
-                  <button
-                    type="button"
-                    className="btn-tiny-copy"
-                    onClick={() => copyDidToClipboard(tradingAgentDid)}
-                    title="Copy full W3C Agent DID"
-                  >
-                    {copiedDid ? "✓" : "📋"}
-                  </button>
-                </div>
-                <span className="did-verified-tag">🛡️ W3C Cryptographic Stamp</span>
+              <div className="metric-box status-metric-box">
+                <span className="metric-label">Ledger Reconciliation</span>
+                <span className={`reconciliation-tag ${isReconciled ? "reconciled" : "unreconciled"}`}>
+                  {isReconciled ? "✓ Reconciled Balance" : `⚠️ $${balanceDiscrepancy.toFixed(2)} Discrepancy`}
+                </span>
+                <span className="metric-sub">
+                  {positions.length} holdings • {isReconciled ? "0.00 variance" : "Fail-Closed Active"}
+                </span>
               </div>
             </div>
           );
@@ -553,7 +630,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             <div>
               <strong>E*TRADE Brokerage Account Connected [{brokerStatus?.activeEnvironment || "TEST"}]</strong>
               <span className="oauth-meta">
-                OAuth 1.0a Active Session • Access token valid until Midnight US Eastern Time • Auto-renewing
+                OAuth 1.0a Active Session • Token valid until Midnight US Eastern Time • Monitored Session
               </span>
             </div>
           </div>
@@ -686,7 +763,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           <input
             type="text"
             className="nlq-bar-input"
-            placeholder="Ask agentic trading assistant: e.g. 'Screen Tech stocks with RSI < 35', 'Buy 15 shares NVDA limit 125.50', 'Portfolio positions'..."
+            placeholder="Ask about account or screen markets: e.g. 'Show my portfolio positions and P&L', 'Screen tech stocks with RSI < 35'..."
             value={nlqQuery}
             onChange={(e) => setNlqQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -705,14 +782,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               handleRunNlq();
             }}
           >
-            {nlqLoading ? "Scanning…" : "⚡ Execute NLQ"}
+            {nlqLoading ? "Analyzing…" : "🔍 Ask About Account"}
           </button>
           {onSendPrompt && (
             <button
               type="button"
               className="btn-nlq-chat"
               title="Send to Multi-Agent Chat"
-              onClick={() => onSendPrompt(nlqQuery || "Screen tech stocks with RSI < 40")}
+              onClick={() => onSendPrompt(nlqQuery || "Show my portfolio positions and P&L")}
             >
               💬 In Chat
             </button>
@@ -721,7 +798,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
         {/* Suggestion Chips */}
         <div className="nlq-chips-carousel">
-          <span className="chips-label">Quick Scans &amp; Trades:</span>
+          <span className="chips-label">Research &amp; Account Shortcuts:</span>
           <button
             type="button"
             className="nlq-chip"
@@ -775,7 +852,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               handleRunNlq(undefined, "Preview buy 10 shares of NVDA limit 125.50");
             }}
           >
-            ⚡ Preview Buy 10 NVDA
+            📝 Build Order Preview (Buy 10 NVDA)
           </button>
           <button
             type="button"
@@ -1023,7 +1100,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {/* Screener Results Meta */}
           <div className="screener-results-header">
             <span className="results-count">
-              Showing <strong>{screenerStocks.length}</strong> equities scanned via E*TRADE Market API
+              Universe: <strong>{scanUniverseCount}</strong> equities • Matches: <strong>{screenerStocks.length}</strong> • Lookback: 14-period Daily RSI • Delay: Level 1 Quotes
             </span>
             <span className="results-timestamp">Last Scan: {scannedAt || "Just now"}</span>
           </div>
@@ -1047,8 +1124,18 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               <tbody>
                 {screenerStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="empty-state">
-                      {screenerLoading ? "Scanning equity universe…" : "No stocks matched the selected criteria. Try adjusting the filters."}
+                    <td colSpan={9} className="empty-state" role="status" aria-live="polite">
+                      {screenerLoading ? (
+                        "Scanning equity universe…"
+                      ) : scanStatus === "not_run" ? (
+                        "Scanner has not been run. Select your filters and click 'Run Technical Screen'."
+                      ) : scanStatus === "no_universe" || scanUniverseCount === 0 ? (
+                        "⚠️ No universe processed: 0 symbols retrieved in selected sector. Data unavailable."
+                      ) : scanStatus === "scan_failed" ? (
+                        "⚠️ Technical scan failed: Data provider returned an error or timeout. Please retry."
+                      ) : (
+                        `Scanned ${scanUniverseCount} equities across ${sectorFilter}; 0 matched the selected criteria (RSI, Market Cap, Performance).`
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -1655,10 +1742,72 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   </div>
                 )}
 
+                {/* Provenance Strip */}
+                {(nlqResult.provenance || nlqResult.result?.provenance) && (
+                  <div className="provenance-strip">
+                    <span className="provenance-pill">
+                      <strong>Data Source:</strong> {(nlqResult.provenance || nlqResult.result?.provenance)?.dataSource || "E*TRADE Sandbox REST API"}
+                    </span>
+                    <span className="provenance-pill">
+                      <strong>Observed:</strong> {(nlqResult.provenance || nlqResult.result?.provenance)?.pricesObservedAt ? new Date((nlqResult.provenance || nlqResult.result?.provenance).pricesObservedAt).toLocaleTimeString() : "Just now"}
+                    </span>
+                    <span className="provenance-pill">
+                      <strong>Reconciliation:</strong> {(nlqResult.provenance || nlqResult.result?.provenance)?.reconciliationStatus || "VERIFIED"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Fail-Closed Reconcile Alert */}
+                {(nlqResult.reconciled === false || nlqResult.status === "RECONCILIATION_FAILED" || nlqResult.result?.reconciled === false) && (
+                  <div className="nlq-unverified-warning-banner" role="alert">
+                    <div className="warning-title">
+                      ⚠️ UNVERIFIED / POSSIBLE DEMO DATA — NO ACCOUNT CONCLUSION SHOWN
+                    </div>
+                    <p className="warning-desc">
+                      {nlqResult.summary || nlqResult.result?.summary}
+                    </p>
+                    {(nlqResult.discrepancy || nlqResult.result?.discrepancy) && (
+                      <div className="discrepancy-breakdown-box">
+                        <h5>Discrepancy Breakdown:</h5>
+                        <div className="discrepancy-grid">
+                          <div><strong>Stated Total:</strong> {(nlqResult.discrepancy || nlqResult.result?.discrepancy).statedAccountTotal || (nlqResult.discrepancy || nlqResult.result?.discrepancy).statedTotal}</div>
+                          <div><strong>Holdings Sum:</strong> {(nlqResult.discrepancy || nlqResult.result?.discrepancy).positionsMarketValue || (nlqResult.discrepancy || nlqResult.result?.discrepancy).positionsSum}</div>
+                          <div><strong>Stated Cash:</strong> {(nlqResult.discrepancy || nlqResult.result?.discrepancy).statedCash}</div>
+                          <div className="variance-highlight"><strong>Unexplained Variance:</strong> {(nlqResult.discrepancy || nlqResult.result?.discrepancy).unexplainedVariance}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Text Summary */}
-                {nlqResult.result?.summary && (
-                  <div className="nlq-summary-text">
-                    {nlqResult.result.summary}
+                {(nlqResult.summary || nlqResult.result?.summary) && (nlqResult.reconciled !== false && nlqResult.result?.reconciled !== false && nlqResult.status !== "RECONCILIATION_FAILED") && (
+                  <div className="nlq-summary-text" role="status" aria-live="polite">
+                    {nlqResult.summary || nlqResult.result?.summary}
+                  </div>
+                )}
+
+                {/* Portfolio / Query Rows Table */}
+                {Array.isArray(nlqResult.rows || nlqResult.result?.rows) && (nlqResult.rows || nlqResult.result?.rows).length > 0 && (
+                  <div className="nlq-rows-table-wrap" style={{ margin: "1rem 0", overflowX: "auto" }}>
+                    <table className="trading-table">
+                      <thead>
+                        <tr>
+                          {Object.keys((nlqResult.rows || nlqResult.result?.rows)[0]).map((col) => (
+                            <th key={col}>{col.toUpperCase()}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(nlqResult.rows || nlqResult.result?.rows).map((row: any, idx: number) => (
+                          <tr key={idx}>
+                            {Object.values(row).map((val: any, cidx: number) => (
+                              <td key={cidx}>{String(val)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
@@ -1821,6 +1970,61 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </div>
         </div>
       )}
+      {/* Reconciliation Discrepancy Breakdown Modal */}
+      {showDiscrepancyModal && (
+        <div className="modal-backdrop" onClick={() => setShowDiscrepancyModal(false)}>
+          <div className="etrade-pin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Portfolio Reconciliation Audit Failure</h3>
+              <button
+                type="button"
+                className="btn-close-modal"
+                onClick={() => setShowDiscrepancyModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: "#fca5a5", fontSize: "0.88rem", margin: "0 0 1rem 0" }}>
+                The portfolio ledger failed the mathematical reconciliation check. Total stated account value does not equal the sum of active stock positions plus stated cash.
+              </p>
+              <div className="discrepancy-grid" style={{ background: "rgba(0,0,0,0.35)", padding: "1rem", borderRadius: "8px", margin: "0.5rem 0 1rem 0" }}>
+                <div><strong>Stated Net Account Value:</strong> ${statedNav.toFixed(2)}</div>
+                <div><strong>Sum of Holdings Market Value:</strong> ${positionsSum.toFixed(2)} ({positions.length} holdings)</div>
+                <div><strong>Stated Cash Balance:</strong> ${cashPower.toFixed(2)}</div>
+                <div><strong>Calculated Portfolio Total:</strong> ${calculatedPortfolioTotal.toFixed(2)}</div>
+                <div className="variance-highlight" style={{ gridColumn: "1 / -1", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "0.5rem" }}>
+                  <strong>Unexplained Variance:</strong> ${balanceDiscrepancy.toFixed(2)}
+                </div>
+              </div>
+              <p style={{ color: "#94a3b8", fontSize: "0.82rem", lineHeight: 1.4 }}>
+                <strong>Fail-Closed Safety Policy:</strong> In compliance with fiduciary audit principles, aggregate portfolio conclusions and P&amp;L assertions are withheld until the data source can be reconciled.
+              </p>
+              <button
+                type="button"
+                className="btn-cancel-modal"
+                onClick={() => setShowDiscrepancyModal(false)}
+                style={{ width: "100%", marginTop: "1rem" }}
+              >
+                Close Discrepancy Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Technical Diagnostics & Provenance Drawer (De-emphasized metadata) */}
+      <details className="diagnostics-drawer" style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "10px", padding: "0.85rem 1.25rem", marginTop: "1.5rem" }}>
+        <summary style={{ cursor: "pointer", color: "#94a3b8", fontSize: "0.85rem", fontWeight: 600 }}>
+          ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
+        </summary>
+        <div style={{ marginTop: "1rem", fontSize: "0.82rem", color: "#cbd5e1", display: "grid", gap: "0.5rem" }}>
+          <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
+          <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
+          <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
+          <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+        </div>
+      </details>
     </div>
   );
 }

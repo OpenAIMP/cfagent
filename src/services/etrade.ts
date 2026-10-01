@@ -241,67 +241,73 @@ export class ETradeService {
    * Retrieve active positions and portfolio balances
    */
   getPositions(): { account: ETradeAccount; positions: ETradePosition[] } {
+    const positions: ETradePosition[] = [
+      {
+        symbol: "NVDA",
+        description: "NVIDIA Corporation",
+        quantity: 300,
+        pricePaid: 110.0,
+        costBasis: 33000.0,
+        currentPrice: 150.0,
+        marketPrice: 150.0,
+        marketValue: 45000.0,
+        totalGain: 12000.0,
+        unrealizedGainLoss: 12000.0,
+        totalGainPercent: 36.36,
+        unrealizedGainLossPercent: 36.36,
+        daysGain: 750.0,
+        daysGainPercent: 1.69,
+      },
+      {
+        symbol: "AAPL",
+        description: "Apple Inc.",
+        quantity: 150,
+        pricePaid: 210.0,
+        costBasis: 31500.0,
+        currentPrice: 240.0,
+        marketPrice: 240.0,
+        marketValue: 36000.0,
+        totalGain: 4500.0,
+        unrealizedGainLoss: 4500.0,
+        totalGainPercent: 14.29,
+        unrealizedGainLossPercent: 14.29,
+        daysGain: -180.0,
+        daysGainPercent: -0.5,
+      },
+      {
+        symbol: "MSFT",
+        description: "Microsoft Corporation",
+        quantity: 70,
+        pricePaid: 400.0,
+        costBasis: 28000.0,
+        currentPrice: 420.0,
+        marketPrice: 420.0,
+        marketValue: 29400.0,
+        totalGain: 1400.0,
+        unrealizedGainLoss: 1400.0,
+        totalGainPercent: 5.0,
+        unrealizedGainLossPercent: 5.0,
+        daysGain: 210.0,
+        daysGainPercent: 0.72,
+      },
+    ];
+
+    const cash = 25000.0;
+    const totalPositionsValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
+    const reconciledTotal = totalPositionsValue + cash;
+
     return {
       account: {
-        accountId: "et_acc_001",
-        accountKey: "et_key_001",
-        accountDesc: "E*TRADE Brokerage Account",
+        accountId: "et_acc_fixture",
+        accountKey: "et_key_fixture",
+        accountDesc: "E*TRADE Brokerage Account [Simulated Demo Fixture]",
         accountType: "MARGIN",
-        netAccountValue: 125000.0,
-        totalAccountValue: 125000.0,
-        cashAvailableForInvestment: 25000.0,
+        netAccountValue: reconciledTotal,
+        totalAccountValue: reconciledTotal,
+        cashAvailableForInvestment: cash,
         dayTraderStatus: false,
       },
-      positions: [
-        {
-          symbol: "NVDA",
-          description: "NVIDIA Corporation",
-          quantity: 100,
-          pricePaid: 110.0,
-          costBasis: 11000.0,
-          currentPrice: 138.25,
-          marketPrice: 138.25,
-          marketValue: 13825.0,
-          totalGain: 2825.0,
-          unrealizedGainLoss: 2825.0,
-          totalGainPercent: 25.68,
-          unrealizedGainLossPercent: 25.68,
-          daysGain: 485.0,
-          daysGainPercent: 3.63,
-        },
-        {
-          symbol: "AAPL",
-          description: "Apple Inc.",
-          quantity: 50,
-          pricePaid: 210.0,
-          costBasis: 10500.0,
-          currentPrice: 228.4,
-          marketPrice: 228.4,
-          marketValue: 11420.0,
-          totalGain: 920.0,
-          unrealizedGainLoss: 920.0,
-          totalGainPercent: 8.76,
-          unrealizedGainLossPercent: 8.76,
-          daysGain: -57.5,
-          daysGainPercent: -0.5,
-        },
-        {
-          symbol: "MSFT",
-          description: "Microsoft Corporation",
-          quantity: 40,
-          pricePaid: 400.0,
-          costBasis: 16000.0,
-          currentPrice: 422.9,
-          marketPrice: 422.9,
-          marketValue: 16916.0,
-          totalGain: 916.0,
-          unrealizedGainLoss: 916.0,
-          totalGainPercent: 5.72,
-          unrealizedGainLossPercent: 5.72,
-          daysGain: 136.0,
-          daysGainPercent: 0.81,
-        },
-      ],
+      positions,
     };
   }
 
@@ -348,6 +354,10 @@ export class ETradeService {
    */
   async fetchPortfolioRemote(accountKey?: string): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
     const res = await this.platform.getPositions(accountKey);
+    // If running in live or authenticated sandbox environment, return genuine broker response
+    if (this.env?.ETRADE_CONSUMER_KEY || this.env?.ET_API_KEY || this.env?.ETRADE_MCP_SERVER_URL) {
+      return res;
+    }
     if (res && res.positions.length > 0) return res;
     return this.getPositions();
   }

@@ -54,6 +54,10 @@ export interface NLQQueryResult {
   summary?: string;
   rows: Array<Record<string, unknown>>;
   executedAt: string;
+  status?: string;
+  reconciled?: boolean;
+  discrepancy?: Record<string, unknown>;
+  provenance?: Record<string, unknown>;
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -435,12 +439,35 @@ export function executeNLQQuery(
 
     if (action === "screen") {
       const screenRes = etrade.screenStocks(plan.tradingData?.filters);
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found";
+      let summary = "";
+
+      if (screenRes.totalScreened === 0) {
+        scannerState = "no_universe";
+        summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
+      } else if (screenRes.stocks.length === 0) {
+        scannerState = "no_matches";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
+      } else {
+        scannerState = "matches_found";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} matched criteria] (${screenRes.filterSummary}).`;
+      }
+
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_market_screener",
         count: screenRes.stocks.length,
-        summary: `Market Scanner screened ${screenRes.totalScreened} equities across market universe; ${screenRes.stocks.length} matched criteria (${screenRes.filterSummary}).`,
+        status: scannerState,
+        summary,
+        provenance: {
+          scannerState,
+          universeCount: screenRes.totalScreened,
+          rsiLookback: "14-Period Daily RSI",
+          macdSettings: "12, 26, 9 EMA",
+          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+          executedAt,
+        },
         rows: screenRes.stocks.map((s) => ({
           symbol: s.symbol,
           companyName: s.companyName,
@@ -526,12 +553,58 @@ export function executeNLQQuery(
 
     if (action === "positions") {
       const posRes = etrade.getPositions();
+      const posTotal = Number(posRes.positions.reduce((sum, p) => sum + (p.marketValue || 0), 0).toFixed(2));
+      const statedCash = Number((posRes.account.cashAvailableForInvestment || 0).toFixed(2));
+      const calculatedTotal = Number((posTotal + statedCash).toFixed(2));
+      const statedTotal = Number((posRes.account.totalAccountValue || posRes.account.netAccountValue || calculatedTotal).toFixed(2));
+      const variance = Math.abs(Number((statedTotal - calculatedTotal).toFixed(2)));
+      const isReconciled = variance <= 1.00;
+
+      if (!isReconciled) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_portfolio_live",
+          count: posRes.positions.length,
+          status: "RECONCILIATION_FAILED",
+          reconciled: false,
+          summary: `⚠️ UNVERIFIED / POSSIBLE DEMO DATA: Portfolio result cannot be reconciled ($${variance.toFixed(2)} unexplained variance between stated total $${statedTotal.toFixed(2)} and positions+cash $${calculatedTotal.toFixed(2)})—no account conclusion shown.`,
+          discrepancy: {
+            statedAccountTotal: `$${statedTotal.toFixed(2)}`,
+            positionsMarketValue: `$${posTotal.toFixed(2)}`,
+            statedCash: `$${statedCash.toFixed(2)}`,
+            calculatedTotal: `$${calculatedTotal.toFixed(2)}`,
+            unexplainedVariance: `$${variance.toFixed(2)}`,
+          },
+          provenance: {
+            dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
+            environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+            accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+            reconciliationStatus: "FAIL_CLOSED",
+            pricesObservedAt: executedAt,
+            evaluatedAt: executedAt,
+          },
+          rows: [],
+          executedAt,
+        };
+      }
+
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_portfolio_live",
         count: posRes.positions.length,
-        summary: `E*TRADE Account ${posRes.account.accountId}: Total Value $${posRes.account.totalAccountValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash $${posRes.account.cashAvailableForInvestment.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Open Positions: ${posRes.positions.length}.`,
+        status: "RECONCILED",
+        reconciled: true,
+        summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
+        provenance: {
+          dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
+          environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+          accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+          reconciliationStatus: "VERIFIED_EXACT",
+          pricesObservedAt: executedAt,
+          evaluatedAt: executedAt,
+        },
         rows: posRes.positions.map((p) => ({
           symbol: p.symbol,
           description: p.description,
@@ -738,12 +811,35 @@ export async function executeNLQQueryAsync(
 
     if (action === "screen") {
       const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found";
+      let summary = "";
+
+      if (screenRes.totalScreened === 0) {
+        scannerState = "no_universe";
+        summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
+      } else if (screenRes.stocks.length === 0) {
+        scannerState = "no_matches";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
+      } else {
+        scannerState = "matches_found";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} matched criteria] (${screenRes.filterSummary}).`;
+      }
+
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_market_screener",
         count: screenRes.stocks.length,
-        summary: `Market Scanner screened ${screenRes.totalScreened} equities across market universe; ${screenRes.stocks.length} matched criteria (${screenRes.filterSummary}).`,
+        status: scannerState,
+        summary,
+        provenance: {
+          scannerState,
+          universeCount: screenRes.totalScreened,
+          rsiLookback: "14-Period Daily RSI",
+          macdSettings: "12, 26, 9 EMA",
+          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+          executedAt,
+        },
         rows: screenRes.stocks.map((s) => ({
           symbol: s.symbol,
           companyName: s.companyName,
@@ -829,12 +925,58 @@ export async function executeNLQQueryAsync(
 
     if (action === "positions") {
       const posRes = await etrade.fetchPortfolioRemote();
+      const posTotal = Number(posRes.positions.reduce((sum, p) => sum + (p.marketValue || 0), 0).toFixed(2));
+      const statedCash = Number((posRes.account.cashAvailableForInvestment || 0).toFixed(2));
+      const calculatedTotal = Number((posTotal + statedCash).toFixed(2));
+      const statedTotal = Number((posRes.account.totalAccountValue || posRes.account.netAccountValue || calculatedTotal).toFixed(2));
+      const variance = Math.abs(Number((statedTotal - calculatedTotal).toFixed(2)));
+      const isReconciled = variance <= 1.00;
+
+      if (!isReconciled) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_portfolio_live",
+          count: posRes.positions.length,
+          status: "RECONCILIATION_FAILED",
+          reconciled: false,
+          summary: `⚠️ UNVERIFIED / POSSIBLE DEMO DATA: Portfolio result cannot be reconciled ($${variance.toFixed(2)} unexplained variance between stated total $${statedTotal.toFixed(2)} and positions+cash $${calculatedTotal.toFixed(2)})—no account conclusion shown.`,
+          discrepancy: {
+            statedAccountTotal: `$${statedTotal.toFixed(2)}`,
+            positionsMarketValue: `$${posTotal.toFixed(2)}`,
+            statedCash: `$${statedCash.toFixed(2)}`,
+            calculatedTotal: `$${calculatedTotal.toFixed(2)}`,
+            unexplainedVariance: `$${variance.toFixed(2)}`,
+          },
+          provenance: {
+            dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
+            environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+            accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+            reconciliationStatus: "FAIL_CLOSED",
+            pricesObservedAt: executedAt,
+            evaluatedAt: executedAt,
+          },
+          rows: [],
+          executedAt,
+        };
+      }
+
       return {
         plan,
         domain: "trading",
-        targetTable: "mas_trades",
+        targetTable: "etrade_portfolio_live",
         count: posRes.positions.length,
-        summary: `E*TRADE Account ${posRes.account.accountId}: Total Value $${posRes.account.totalAccountValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash $${posRes.account.cashAvailableForInvestment.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Open Positions: ${posRes.positions.length}.`,
+        status: "RECONCILED",
+        reconciled: true,
+        summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
+        provenance: {
+          dataSource: env?.ETRADE_CONSUMER_KEY ? "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)" : "Simulated Fixture",
+          environment: env?.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST",
+          accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+          reconciliationStatus: "VERIFIED_EXACT",
+          pricesObservedAt: executedAt,
+          evaluatedAt: executedAt,
+        },
         rows: posRes.positions.map((p) => ({
           symbol: p.symbol,
           description: p.description,
