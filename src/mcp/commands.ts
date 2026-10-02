@@ -41,6 +41,16 @@ import {
   PaidMarketResearchCommand,
   AgenticWalletStatusCommand,
 } from "./agenticPaymentCommands";
+import {
+  BrowserInspectCommand,
+  BrowserScreenshotCommand,
+  DispatchTradingWebhookCommand,
+  SandboxRunCommand,
+  QuantBacktestCommand,
+  ThinkTradeValidationCommand,
+  AISearchFinancialDocsCommand,
+  DurableTWAPOrderCommand,
+} from "./cloudflareAgentCommands";
 
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
@@ -884,6 +894,16 @@ export class McpToolFactory {
     this.registerTool(new PaidOptionsScreenerCommand());
     this.registerTool(new PaidMarketResearchCommand());
     this.registerTool(new AgenticWalletStatusCommand());
+
+    // Cloudflare Agents Advanced Capabilities (Browser, Webhooks, Sandbox, Think, AI Search, Fibers)
+    this.registerTool(new BrowserInspectCommand());
+    this.registerTool(new BrowserScreenshotCommand());
+    this.registerTool(new DispatchTradingWebhookCommand());
+    this.registerTool(new SandboxRunCommand());
+    this.registerTool(new QuantBacktestCommand());
+    this.registerTool(new ThinkTradeValidationCommand());
+    this.registerTool(new AISearchFinancialDocsCommand());
+    this.registerTool(new DurableTWAPOrderCommand());
   }
 
   /**

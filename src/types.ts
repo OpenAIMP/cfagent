@@ -72,6 +72,15 @@ export interface Env {
   X402_AUTO_APPROVE_LIMIT?: string;
   X402_AGENT_WALLET_KEY?: string;
   MPP_SECRET_KEY?: string;
+  // Cloudflare Browser Rendering & Puppeteer
+  BROWSER?: Fetcher;
+  // Webhooks Configuration (TradingView, E*TRADE Alerts, Outbound)
+  TRADINGVIEW_WEBHOOK_SECRET?: string;
+  ETRADE_WEBHOOK_SECRET?: string;
+  OUTBOUND_WEBHOOK_URL?: string;
+  OUTBOUND_WEBHOOK_SECRET?: string;
+  // Cloudflare Vectorize & AI Search
+  VECTORIZE?: any;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   ETRADE_KV?: KVNamespace;
@@ -107,7 +116,7 @@ export interface SessionData {
   createdAt: number;
 }
 
-export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading" | "research";
+export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading" | "research" | "browser" | "sandbox" | "think" | "webhook" | "broker_webhook" | "durable_execution";
 
 export interface AuditEvent {
   id: string;
@@ -1069,6 +1078,168 @@ export interface PaidTradingServiceTier {
 }
 
 export type PaymentRequiredCallback = (challenge: X402PaymentChallenge | MppChallenge) => Promise<boolean>;
+
+// =========================================================================
+// 1. Cloudflare Browser Agent & Rendering Models
+// =========================================================================
+
+export interface BrowserInspectOptions {
+  url: string;
+  selector?: string;
+  waitForTimeoutMs?: number;
+  screenshot?: boolean;
+}
+
+export interface BrowserInspectResult {
+  success: boolean;
+  url: string;
+  title?: string;
+  text?: string;
+  tables?: Array<Array<string>>;
+  screenshotBase64?: string;
+  error?: string;
+  timestamp: string;
+}
+
+// =========================================================================
+// 2. Trading Webhook Channels (TradingView, E*TRADE, Generic)
+// =========================================================================
+
+export interface TradingViewWebhookPayload {
+  ticker: string;
+  action: "BUY" | "SELL";
+  orderType?: "MARKET" | "LIMIT";
+  quantity: number;
+  price?: number;
+  strategyName?: string;
+  alertMessage?: string;
+  passphrase?: string;
+  timestamp?: string;
+}
+
+export interface ETradeWebhookPayload {
+  eventType: "ORDER_FILLED" | "ORDER_CANCELLED" | "ORDER_REJECTED" | "ACCOUNT_UPDATE";
+  orderId?: string;
+  symbol?: string;
+  filledQuantity?: number;
+  avgPrice?: number;
+  accountId?: string;
+  timestamp: string;
+}
+
+export interface TradingWebhookEvent {
+  id: string;
+  provider: "tradingview" | "etrade" | "stripe" | "generic";
+  eventType: string;
+  payload: any;
+  signature?: string;
+  status: "received" | "processed" | "failed" | "rejected";
+  receivedAt: string;
+  processedAt?: string;
+  orderRef?: string;
+}
+
+export interface OutboundWebhookConfig {
+  url: string;
+  secret?: string;
+  events: string[];
+  enabled: boolean;
+}
+
+// =========================================================================
+// 3. Cloudflare Sandbox (Containers & Quantitative Code Execution)
+// =========================================================================
+
+export interface SandboxExecutionRequest {
+  command: string;
+  timeoutMs?: number;
+  envVars?: Record<string, string>;
+  workingDir?: string;
+}
+
+export interface SandboxExecutionResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  error?: string;
+}
+
+export interface QuantBacktestRequest {
+  symbol: string;
+  strategy: "sma_crossover" | "rsi_reversal" | "mean_reversion" | "breakout";
+  startBars?: number;
+  params?: Record<string, number>;
+}
+
+export interface QuantBacktestResult {
+  symbol: string;
+  strategy: string;
+  totalTrades: number;
+  winRate: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  maxDrawdownPct: number;
+  netReturnPct: number;
+  codeExecuted: string;
+  logs: string;
+}
+
+// =========================================================================
+// 4. Think Harness for Deep Trade Validation
+// =========================================================================
+
+export type ThinkValidationPhase =
+  | "market_condition"
+  | "risk_limits"
+  | "regulatory_rules"
+  | "execution_feasibility"
+  | "attestation";
+
+export interface ThinkStepLog {
+  phase: ThinkValidationPhase;
+  status: "PASS" | "WARN" | "FAIL";
+  reasoning: string;
+  metricName?: string;
+  metricValue?: any;
+  threshold?: any;
+}
+
+export interface ThinkTradeValidationResult {
+  approved: boolean;
+  overallConfidence: number;
+  recommendation: "PROCEED_TO_HITL" | "REVISE_PARAMETERS" | "REJECT_RISK_LIMIT";
+  steps: ThinkStepLog[];
+  proposedDraft?: any;
+  reason: string;
+  attestationDid: string;
+  timestamp: string;
+}
+
+// =========================================================================
+// 5. Durable Execution & Fibers
+// =========================================================================
+
+export interface FiberExecutionRecord {
+  fiberId: string;
+  name: string;
+  status: "running" | "completed" | "failed" | "recovered";
+  currentStep: number;
+  totalSteps: number;
+  stashedData: Record<string, any>;
+  startedAt: string;
+  updatedAt: string;
+  error?: string;
+}
+
+export interface TWAPOrderConfig {
+  symbol: string;
+  action: "BUY" | "SELL";
+  totalQuantity: number;
+  slices: number;
+  intervalSeconds: number;
+  maxPrice?: number;
+}
 
 
 
