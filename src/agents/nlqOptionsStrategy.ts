@@ -5,6 +5,7 @@
  */
 
 import { OptionsAgentPipeline } from "../trading/options";
+import { defaultRegistry } from "../trading/options/strategies/catalog";
 import { MAX_SCAN_SYMBOLS, OpportunityScanner, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
@@ -32,6 +33,7 @@ export interface OptionsStrategyIntent {
     targetPriceInferred: boolean;
     thesisInferred: boolean;
     scope?: OpportunityScope;
+    showEvaluations?: boolean;
   };
 }
 
@@ -78,7 +80,7 @@ const NOT_TICKERS = new Set([
 const OPTIONS_CONTEXT = /\b(options?|calls?|puts?|spreads?|straddles?|strangles?|condors?|debit|credit|iv|dte|delta|strike)\b/i;
 const BEST_TRADE = /\b(?:best|top)\s+(?:\w+\s+){0,2}(?:trade|play|strategy|spread|setup)\b/i;
 const PICK_TRADE = /\b(?:pick|choose|recommend|suggest|find)\s+(?:me\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+){0,2}(?:trade|strateg(?:y|ies)|spread)\b/i;
-const STRATEGY_SCREEN = /\b(?:options?\s+strateg(?:y|ies)|strateg(?:y|ies)\s+(?:screen|scan|screener)|(?:debit|credit|vertical)\s+spreads?|straddles?|strangles?|iron\s+condors?)\b/i;
+const STRATEGY_SCREEN = /\b(?:options?\s+strateg(?:y|ies)|(?:all|every)\s+strateg(?:y|ies)|strateg(?:y|ies)\s+(?:evaluated|ledger)|strateg(?:y|ies)\s+(?:screen|scan|screener)|(?:debit|credit|vertical)\s+spreads?|straddles?|strangles?|iron\s+condors?)\b/i;
 
 const THESIS_DEFAULTS: Record<OptionThesis, OptionStrategyType[]> = {
   bullish: ["long_call", "call_debit_spread", "put_credit_spread"],
@@ -101,9 +103,28 @@ function detectSymbol(question: string): string | undefined {
   return undefined;
 }
 
+function registryPhrases(): Array<{ phrase: string; id: string }> {
+  const out: Array<{ phrase: string; id: string }> = [];
+  for (const def of defaultRegistry.list()) {
+    for (const name of [def.label, ...def.aliases]) {
+      const phrase = name.toLowerCase().replace(/[’']/g, "").trim();
+      if (phrase.split(/\s+/).length >= 2 || phrase.length >= 6) out.push({ phrase, id: def.id });
+    }
+  }
+  return out.sort((a, b) => b.phrase.length - a.phrase.length);
+}
+
 function detectStrategies(question: string): OptionStrategyType[] {
   const found = new Set<OptionStrategyType>();
-  const q = question.toLowerCase();
+  let q = question.toLowerCase().replace(/[’']/g, "");
+  if (/\b(all|every|each)\s+(?:option\s+)?strateg(?:y|ies)\b|\ball\s+strategy\s+types\b/.test(q)) return ["all"];
+  for (const { phrase, id } of registryPhrases()) {
+    const re = new RegExp(`(?<![a-z])${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")}(?![a-z])`, "g");
+    if (re.test(q)) {
+      found.add(id);
+      q = q.replace(re, " ");
+    }
+  }
   if (/call\s+debit\s+spread/.test(q)) found.add("call_debit_spread");
   if (/put\s+debit\s+spread/.test(q)) found.add("put_debit_spread");
   if (/call\s+credit\s+spread/.test(q)) found.add("call_credit_spread");
@@ -163,7 +184,7 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
       : /\biv\s+(?:rise|rising|expan\w*|increase)|volatility\s+(?:rises?|expands?)/i.test(question)
         ? "rise"
         : "unchanged" as ExpectedIvDirection,
-    allowedStrategies: detected.length > 0 ? detected : THESIS_DEFAULTS[thesis],
+    allowedStrategies: detected.length > 0 ? detected : ["all"],
     maxPlannedLoss: 500,
     minRewardRisk: 1.5,
     minDte: 14,
@@ -222,7 +243,10 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
 
   return {
     action: scope ? "options_opportunities" : isBest ? "options_best_trade" : "options_strategies",
-    filters: { request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined },
+    filters: {
+      request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined,
+      showEvaluations: /\b(evaluated|ledger|accept(?:ed|ance)|reject(?:ed|ion)|why)\b/i.test(question) && /strateg/i.test(question),
+    },
   };
 }
 
@@ -245,7 +269,7 @@ export async function runOptionsStrategyAction(
   },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[] }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities") return runOpportunityScan(etrade, filters);
   if (!filters?.request?.symbol) {
@@ -301,15 +325,26 @@ export async function runOptionsStrategyAction(
     quoteFreshness: r.candidate.dataFreshness,
   }));
 
+  const evaluationRows = result.strategies.evaluations.map((e) => ({
+    strategy: e.label,
+    category: e.category,
+    status: e.status.toUpperCase(),
+    generated: e.generated,
+    accepted: e.accepted,
+    reason: e.summary,
+  }));
+
   if (action === "options_strategies") {
     return {
       count: rankedRows.length,
       status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
       summary: `Options Strategy Screener (${request.symbol}, ${request.thesis}, ${filters.riskProfile} ranking): ${scan}${freshness}${note}`,
-      rows: rankedRows,
+      rows: filters.showEvaluations ? evaluationRows : rankedRows,
       rejections: result.snapshot.rejections.slice(0, 15),
       quoteQuality: result.snapshot.screen.quoteQuality,
       validationError: result.snapshot.validationError,
+      evaluations: result.strategies.evaluations,
+      nameLedger: result.strategies.nameLedger,
     };
   }
 
@@ -332,6 +367,8 @@ export async function runOptionsStrategyAction(
     status: pick.status,
     summary: `${headline}${pick.blockers.length ? ` Blockers: ${pick.blockers.join(" ")}` : ""} ${scan}${freshness}${note} ${pick.disclaimer}`,
     rows: planRows.length > 0 ? planRows : rankedRows,
+    evaluations: result.strategies.evaluations,
+    nameLedger: result.strategies.nameLedger,
     rejections: result.snapshot.rejections.slice(0, 15),
     quoteQuality: result.snapshot.screen.quoteQuality,
     bestTrade: pick,

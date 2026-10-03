@@ -2399,7 +2399,7 @@ Agentic Best Practices & Workflow Rules:
         });
         const common = { screen: result.snapshot.screen, contractRejections: result.snapshot.rejections };
         if (path.endsWith("/best-trade")) {
-          return Response.json({ bestTrade: result.bestTrade, ...common });
+          return Response.json({ bestTrade: result.bestTrade, evaluations: result.strategies.evaluations, nameLedger: result.strategies.nameLedger, ...common });
         }
         return Response.json({
           status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",

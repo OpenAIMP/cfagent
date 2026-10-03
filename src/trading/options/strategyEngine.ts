@@ -1,17 +1,14 @@
 import type { ScreenedOptionContractItem } from "../../types";
+import { defaultRegistry, buildNameLedger } from "./strategies/catalog";
+import { contractKey, MULTIPLIER } from "./strategies/legs";
+import { EvaluationLedger, runAcceptanceRules } from "./strategies/ledger";
+import type { ChainView, NameLedgerEntry, StrategyContext, StrategyDefinition, StrategyEvaluation } from "./strategies/types";
+
+export { contractKey };
 
 export type OptionThesis = "bullish" | "bearish" | "range_bound" | "large_move";
 export type ExpectedIvDirection = "rise" | "unchanged" | "fall";
-export type OptionStrategyType =
-  | "long_call"
-  | "long_put"
-  | "call_debit_spread"
-  | "put_debit_spread"
-  | "long_straddle"
-  | "long_strangle"
-  | "iron_condor"
-  | "call_credit_spread"
-  | "put_credit_spread";
+export type OptionStrategyType = string;
 
 export interface StrategyRequest {
   symbol: string;
@@ -40,11 +37,12 @@ export interface StrategyRequest {
 
 export interface StrategyLeg {
   symbol: string;
-  optionType: "CALL" | "PUT";
+  optionType: "CALL" | "PUT" | "STOCK";
   side: "BUY" | "SELL";
   quantity: number;
   strike: number;
   expirationDate: string;
+  daysToExpiration?: number;
   entryPrice: number;
   bid: number;
   ask: number;
@@ -119,9 +117,15 @@ export interface StrategyRecommendationResult {
   scoreWeights: StrategyScoreBreakdown["weights"];
   candidates: StrategyCandidate[];
   excluded: Array<{ reason: string; count: number }>;
+  evaluations: StrategyEvaluation[];
+  nameLedger: NameLedgerEntry[];
 }
 
-const MULTIPLIER = 100;
+const DEFAULT_RATE = 0.04;
+const DEFAULT_FEE_PER_CONTRACT = 0.65;
+const DEFAULT_MAX_COMBINATIONS = 150;
+const DETAIL_LIMIT = 50;
+const MAX_LEGS = 6;
 const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = {
   thesisAlignment: 0.30,
   targetRewardRisk: 0.20,
@@ -131,53 +135,14 @@ const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = {
   freshness: 0.15,
 };
 
-const STRATEGY_LABELS: Record<OptionStrategyType, string> = {
-  long_call: "Long Call",
-  long_put: "Long Put",
-  call_debit_spread: "Call Debit Spread",
-  put_debit_spread: "Put Debit Spread",
-  long_straddle: "Long Straddle",
-  long_strangle: "Long Strangle",
-  iron_condor: "Iron Condor",
-  call_credit_spread: "Call Credit Spread",
-  put_credit_spread: "Put Credit Spread",
-};
+export const ALL_STRATEGY_TYPES: OptionStrategyType[] = defaultRegistry.ids();
 
-export const ALL_STRATEGY_TYPES: OptionStrategyType[] = Object.keys(STRATEGY_LABELS) as OptionStrategyType[];
-
-export function contractKey(contract: { osiKey?: string; symbol: string; optionType: string; strikePrice: number; expirationDate?: string }): string {
-  return contract.osiKey || `${contract.symbol}|${contract.expirationDate ?? ""}|${contract.optionType}|${contract.strikePrice}`;
+export function strategyLabel(type: OptionStrategyType): string {
+  return defaultRegistry.get(type)?.label ?? type;
 }
 
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
-}
-
-function toLeg(contract: ScreenedOptionContractItem, side: "BUY" | "SELL"): StrategyLeg {
-  const entryPrice = side === "BUY" ? contract.ask : contract.bid;
-  return {
-    symbol: contractKey(contract),
-    optionType: contract.optionType,
-    side,
-    quantity: 1,
-    strike: contract.strikePrice,
-    expirationDate: contract.expirationDate,
-    entryPrice,
-    bid: contract.bid,
-    ask: contract.ask,
-    impliedVolatility: contract.impliedVolatility ?? 0,
-    delta: contract.delta ?? 0,
-    gamma: contract.gamma ?? 0,
-    theta: contract.theta ?? 0,
-    vega: contract.vega ?? 0,
-    openInterest: contract.openInterest ?? 0,
-    volume: contract.volume ?? 0,
-    spreadPct: contract.spreadPct,
-    quoteTimestamp: contract.quoteTimestamp || "",
-    quoteAgeSeconds: contract.quoteAgeSeconds,
-    quoteFreshness: contract.quoteFreshness || "UNKNOWN",
-    multiplier: MULTIPLIER,
-  };
 }
 
 function netDebit(legs: StrategyLeg[], fees: number): number {
@@ -188,29 +153,48 @@ function netDebit(legs: StrategyLeg[], fees: number): number {
   return signedEntry + fees;
 }
 
-function expiryPnl(legs: StrategyLeg[], spot: number, fees: number): number {
-  const intrinsic = legs.reduce((sum, leg) => {
-    const amount = leg.optionType === "CALL"
-      ? Math.max(spot - leg.strike, 0)
-      : Math.max(leg.strike - spot, 0);
-    const signedQuantity = leg.side === "BUY" ? leg.quantity : -leg.quantity;
-    return sum + signedQuantity * amount * leg.multiplier;
-  }, 0);
-  return intrinsic - netDebit(legs, fees);
+function sideSign(leg: StrategyLeg): number {
+  return leg.side === "BUY" ? 1 : -1;
 }
 
-function riskProfile(legs: StrategyLeg[], fees: number, underlyingPrice: number) {
-  const strikes = Array.from(new Set(legs.map((leg) => leg.strike))).sort((a, b) => a - b);
+/** Days until the earliest option leg expires; the payoff horizon for single- and multi-expiry structures. */
+function horizonDays(legs: StrategyLeg[]): number {
+  const days = legs.filter((leg) => leg.optionType !== "STOCK").map((leg) => leg.daysToExpiration ?? 0);
+  return days.length ? Math.min(...days) : 0;
+}
+
+function legValue(leg: StrategyLeg, spot: number, elapsedDays: number, rate: number, dividend: number, ivMultiplier: number): number {
+  if (leg.optionType === "STOCK") return spot;
+  const remaining = Math.max(0, (leg.daysToExpiration ?? 0) - elapsedDays);
+  return blackScholes(leg, spot, remaining, rate, dividend, leg.impliedVolatility * ivMultiplier);
+}
+
+/** P/L at the nearest expiry; later-dated legs are valued with Black-Scholes. */
+function expiryPnl(legs: StrategyLeg[], spot: number, fees: number, rate = DEFAULT_RATE, dividend = 0): number {
+  const elapsed = horizonDays(legs);
+  const value = legs.reduce((sum, leg) =>
+    sum + sideSign(leg) * leg.quantity * leg.multiplier * legValue(leg, spot, elapsed, rate, dividend, 1), 0);
+  return value - netDebit(legs, fees);
+}
+
+function riskProfile(legs: StrategyLeg[], fees: number, underlyingPrice: number, rate: number, dividend: number) {
+  const optionLegs = legs.filter((leg) => leg.optionType !== "STOCK");
+  const strikes = Array.from(new Set(optionLegs.map((leg) => leg.strike))).sort((a, b) => a - b);
   const upper = Math.max(underlyingPrice * 2, (strikes[strikes.length - 1] || underlyingPrice) * 2, 1);
-  const points = Array.from(new Set([0, ...strikes, upper])).sort((a, b) => a - b);
-  const values = points.map((spot) => ({ spot, pnl: expiryPnl(legs, spot, fees) }));
+  const horizon = horizonDays(legs);
+  const curved = optionLegs.some((leg) => (leg.daysToExpiration ?? 0) > horizon);
+  const grid = curved ? Array.from({ length: 119 }, (_, index) => (upper * (index + 1)) / 120) : [];
+  const points = Array.from(new Set([0, ...strikes, ...grid, upper])).sort((a, b) => a - b);
+  const values = points.map((spot) => ({ spot, pnl: expiryPnl(legs, spot, fees, rate, dividend) }));
   const callSlope = legs.reduce((sum, leg) => {
-    if (leg.optionType !== "CALL") return sum;
-    return sum + (leg.side === "BUY" ? 1 : -1) * leg.quantity * leg.multiplier;
+    if (leg.optionType === "PUT") return sum;
+    return sum + sideSign(leg) * leg.quantity * leg.multiplier;
   }, 0);
-  const maxLoss = callSlope < 0 ? Infinity : Math.max(0, -Math.min(...values.map((point) => point.pnl)));
+  const pnls = values.map((point) => point.pnl);
+  const flat = Math.max(...pnls) - Math.min(...pnls) < 0.01;
+  const maxLoss = callSlope < 0 ? Infinity : Math.max(0, -Math.min(...pnls));
   const maxProfitUnbounded = callSlope > 0;
-  const maxProfit = maxProfitUnbounded ? null : Math.max(0, ...values.map((point) => point.pnl));
+  const maxProfit = maxProfitUnbounded ? null : Math.max(0, ...pnls);
   const breakevens: number[] = [];
 
   for (let index = 0; index < values.length - 1; index++) {
@@ -232,6 +216,7 @@ function riskProfile(legs: StrategyLeg[], fees: number, underlyingPrice: number)
     maxLoss,
     maxProfit,
     maxProfitUnbounded,
+    flat,
     breakevens: Array.from(new Set(breakevens.map((point) => Number(point.toFixed(2))))).sort((a, b) => a - b),
   };
 }
@@ -257,13 +242,14 @@ function impliedProbabilityOfProfit(
   legs: StrategyLeg[],
   breakEvenPoints: number[],
   underlying: number,
-  dte: number,
   fees: number,
   rate: number,
   dividend: number
 ): number {
-  if (dte <= 0) return expiryPnl(legs, underlying, fees) > 0 ? 1 : 0;
-  const volatility = legs.reduce((sum, leg) => sum + leg.impliedVolatility, 0) / legs.length;
+  const dte = horizonDays(legs);
+  if (dte <= 0) return expiryPnl(legs, underlying, fees, rate, dividend) > 0 ? 1 : 0;
+  const optionLegs = legs.filter((leg) => leg.optionType !== "STOCK");
+  const volatility = optionLegs.reduce((sum, leg) => sum + leg.impliedVolatility, 0) / Math.max(1, optionLegs.length);
   const boundaries = [0, ...breakEvenPoints.filter((point) => point > 0), Infinity].sort((a, b) => a - b);
   let probability = 0;
   for (let index = 0; index < boundaries.length - 1; index++) {
@@ -272,7 +258,7 @@ function impliedProbabilityOfProfit(
     const testSpot = Number.isFinite(upper)
       ? (lower + upper) / 2
       : lower + Math.max(underlying, 1);
-    if (expiryPnl(legs, testSpot, fees) > 0) {
+    if (expiryPnl(legs, testSpot, fees, rate, dividend) > 0) {
       probability += terminalPriceCdf(upper, underlying, dte, rate, dividend, volatility) -
         terminalPriceCdf(lower, underlying, dte, rate, dividend, volatility);
     }
@@ -298,17 +284,14 @@ function blackScholes(leg: StrategyLeg, spot: number, daysToExpiry: number, rate
 function modeledPnl(
   legs: StrategyLeg[],
   spot: number,
-  daysToExpiry: number,
+  elapsedDays: number,
   fees: number,
   rate: number,
   dividend: number,
   ivMultiplier: number
 ): number {
-  const value = legs.reduce((sum, leg) => {
-    const mark = blackScholes(leg, spot, daysToExpiry, rate, dividend, leg.impliedVolatility * ivMultiplier);
-    const signedQuantity = leg.side === "BUY" ? leg.quantity : -leg.quantity;
-    return sum + signedQuantity * mark * leg.multiplier;
-  }, 0);
+  const value = legs.reduce((sum, leg) =>
+    sum + sideSign(leg) * leg.quantity * leg.multiplier * legValue(leg, spot, elapsedDays, rate, dividend, ivMultiplier), 0);
   return value - netDebit(legs, fees);
 }
 
@@ -316,13 +299,6 @@ function daysUntil(date: string): number {
   const target = new Date(`${date}T00:00:00Z`);
   if (!Number.isFinite(target.getTime())) throw new Error("targetDate must be an ISO date");
   return Math.max(0, Math.ceil((target.getTime() - Date.now()) / 86_400_000));
-}
-
-function isThesisCompatible(type: OptionStrategyType, thesis: OptionThesis): boolean {
-  if (thesis === "bullish") return ["long_call", "call_debit_spread", "put_credit_spread"].includes(type);
-  if (thesis === "bearish") return ["long_put", "put_debit_spread", "call_credit_spread"].includes(type);
-  if (thesis === "range_bound") return type === "iron_condor";
-  return ["long_straddle", "long_strangle"].includes(type);
 }
 
 function makeScenarioGrid(
@@ -343,63 +319,87 @@ function makeScenarioGrid(
       underlyingPrice: Number((underlying * (1 + priceShock)).toFixed(2)),
       daysToExpiry: remaining,
       ivChangePct: ivShock * 100,
-      pnl: Number(modeledPnl(legs, underlying * (1 + priceShock), remaining, fees, rate, dividend, 1 + ivShock).toFixed(2)),
+      pnl: Number(modeledPnl(
+        legs,
+        underlying * (1 + priceShock),
+        Math.min(elapsedDays, dte),
+        fees,
+        rate,
+        dividend,
+        1 + ivShock
+      ).toFixed(2)),
     };
   })));
 }
 
+type BuildOutcome = { candidate: StrategyCandidate } | { reason: string };
+
 function buildCandidate(
-  type: OptionStrategyType,
+  def: StrategyDefinition,
   legs: StrategyLeg[],
   contractMap: Map<string, ScreenedOptionContractItem>,
   request: StrategyRequest,
   targetDays: number
-): StrategyCandidate | null {
-  if (legs.length < 1 || legs.length > 4) return null;
-  if (new Set(legs.map((leg) => leg.expirationDate)).size !== 1) return null;
-  if (legs.some((leg) => !leg.entryPrice || leg.entryPrice <= 0 || leg.impliedVolatility <= 0)) return null;
+): BuildOutcome {
+  const label = def.label;
+  if (legs.length < 1 || legs.length > MAX_LEGS) return { reason: `${label} has an unsupported number of legs (${legs.length})` };
+  const optionLegs = legs.filter((leg) => leg.optionType !== "STOCK");
+  if (optionLegs.some((leg) => !leg.entryPrice || leg.entryPrice <= 0)) {
+    return { reason: `${label} has incomplete or unsupported contract data (a leg has no usable bid/ask)` };
+  }
+  if (optionLegs.some((leg) => leg.impliedVolatility <= 0)) {
+    return { reason: `${label} has incomplete or unsupported contract data (a leg has no implied volatility)` };
+  }
 
-  const contracts = legs.map((leg) => contractMap.get(leg.symbol)).filter((item): item is ScreenedOptionContractItem => Boolean(item));
-  if (contracts.length !== legs.length) return null;
+  const contracts = optionLegs.map((leg) => contractMap.get(leg.symbol)).filter((item): item is ScreenedOptionContractItem => Boolean(item));
+  if (contracts.length !== optionLegs.length || contracts.length === 0) {
+    return { reason: `${label} has incomplete or unsupported contract data (leg not found in the chain)` };
+  }
   const freshnessStates = contracts.map((contract) => contract.quoteFreshness || "UNKNOWN");
   const dataFreshness = freshnessStates.includes("STALE")
     ? "STALE" as const
     : freshnessStates.includes("UNKNOWN") ? "UNKNOWN" as const : "FRESH" as const;
   const underlying = contracts[0].underlyingPrice;
-  const dte = contracts[0].daysToExpiration;
-  const fees = legs.reduce((sum, leg) => sum + leg.quantity * (request.feesPerContract ?? 0.65), 0);
+  const dte = horizonDays(legs);
+  const feePerContract = request.feesPerContract ?? DEFAULT_FEE_PER_CONTRACT;
+  const fees = optionLegs.reduce((sum, leg) => sum + leg.quantity * feePerContract, 0);
   const debit = netDebit(legs, fees);
-  const risk = riskProfile(legs, fees, underlying);
-  if (!Number.isFinite(risk.maxLoss) || risk.maxLoss <= 0) return null;
-
-  const rate = request.riskFreeRate ?? 0.04;
+  const rate = request.riskFreeRate ?? DEFAULT_RATE;
   const dividend = request.dividendYield ?? 0;
+  const risk = riskProfile(legs, fees, underlying, rate, dividend);
+  if (risk.flat) {
+    const locked = expiryPnl(legs, underlying, fees, rate, dividend);
+    return {
+      reason: locked > 0
+        ? `${label} shows an apparent riskless profit of $${locked.toFixed(2)}; this almost always means stale/crossed quotes or ignored carry, dividends, borrow and assignment risk`
+        : `${label} has a locked payoff (constant $${locked.toFixed(2)} at every price): it only expresses a financing/carry rate, not a trade thesis`,
+    };
+  }
+  if (!Number.isFinite(risk.maxLoss)) {
+    return { reason: `${label} has unlimited loss potential (net short upside exposure) and is excluded from defined-risk ranking` };
+  }
+  if (risk.maxLoss <= 0) return { reason: `${label} shows no modeled downside, which indicates stale or crossed quotes` };
+  if (request.eventPolicy === "exclude") return { reason: `${label} withheld because event risk cannot be verified` };
+
   const targetElapsed = Math.min(targetDays, dte);
   const ivMultiplier = request.expectedIvDirection === "rise" ? 1.15 : request.expectedIvDirection === "fall" ? 0.85 : 1;
-  const targetPnl = modeledPnl(legs, request.targetPrice, Math.max(0, dte - targetElapsed), fees, rate, dividend, ivMultiplier);
+  const targetPnl = modeledPnl(legs, request.targetPrice, targetElapsed, fees, rate, dividend, ivMultiplier);
   const targetRewardRisk = targetPnl / risk.maxLoss;
-  const modelImpliedProbabilityOfProfit = impliedProbabilityOfProfit(
-    legs,
-    risk.breakevens,
-    underlying,
-    dte,
-    fees,
-    rate,
-    dividend
-  );
-  const thesisAlignment = targetPnl > 0 && isThesisCompatible(type, request.thesis)
+  const modelImpliedProbabilityOfProfit = impliedProbabilityOfProfit(legs, risk.breakevens, underlying, fees, rate, dividend);
+  const aligned = def.theses.includes(request.thesis);
+  const thesisAlignment = targetPnl > 0 && aligned
     ? clamp(50 + 25 * Math.log2(1 + Math.max(0, targetRewardRisk)))
-    : isThesisCompatible(type, request.thesis) ? clamp(25 + targetRewardRisk * 10) : 10;
+    : aligned ? clamp(25 + targetRewardRisk * 10) : 10;
   const liquidityScore = contracts.reduce((sum, contract) => {
     const spread = clamp(100 - contract.spreadPct * 5);
     const activity = clamp(40 + 12 * Math.log10(Math.max(1, contract.volume ?? 0)) + 8 * Math.log10(Math.max(1, contract.openInterest ?? 0)));
     return sum + (spread * 0.7 + activity * 0.3) / contracts.length;
   }, 0);
-  const netVega = legs.reduce((sum, leg) => sum + (leg.side === "BUY" ? 1 : -1) * leg.vega * leg.multiplier * leg.quantity, 0);
+  const netVega = legs.reduce((sum, leg) => sum + sideSign(leg) * leg.vega * leg.multiplier * leg.quantity, 0);
   const volatilityAlignment = request.expectedIvDirection === "unchanged"
     ? 70
     : (request.expectedIvDirection === "rise" ? netVega : -netVega) >= 0 ? 100 : 20;
-  const netTheta = legs.reduce((sum, leg) => sum + (leg.side === "BUY" ? 1 : -1) * leg.theta * leg.multiplier * leg.quantity, 0);
+  const netTheta = legs.reduce((sum, leg) => sum + sideSign(leg) * leg.theta * leg.multiplier * leg.quantity, 0);
   const thetaBurden = clamp(100 - Math.max(0, -netTheta) / Math.max(1, risk.maxLoss) * 10_000);
   const freshness = dataFreshness === "FRESH" ? 100 : dataFreshness === "STALE" ? 25 : 0;
   const rewardRiskScore = clamp(targetRewardRisk / Math.max(request.minRewardRisk, 0.25) * 70);
@@ -414,67 +414,88 @@ function buildCandidate(
   };
   const score = Object.entries(SCORE_WEIGHTS).reduce((sum, [key, weight]) =>
     sum + scoreBreakdown[key as keyof typeof SCORE_WEIGHTS] * weight, 0);
-  const priceRange = Array.from({ length: 41 }, (_, index) => underlying * (0.5 + index * 0.025));
-  const payoffCurve = priceRange.map((spot) => ({
-    underlyingPrice: Number(spot.toFixed(2)),
-    pnl: Number(expiryPnl(legs, spot, fees).toFixed(2)),
-  }));
   const warnings = [
     "Pre-expiry P/L is a Black-Scholes estimate, not a forecast or executable quote.",
     "Earnings and dividend dates are not connected; event risk is unverified.",
     "Early exercise, assignment, margin, and execution slippage are not modeled.",
   ];
+  if (def.usesStock) {
+    const shares = legs.find((leg) => leg.optionType === "STOCK")?.quantity ?? 0;
+    warnings.unshift(`Includes ${shares} hypothetical shares at $${underlying.toFixed(2)}; verify actual holdings, margin and borrow availability.`);
+  }
+  if (def.multiExpiry) {
+    warnings.unshift("Multi-expiry structure: payoff is shown at the nearest expiry with later legs valued by Black-Scholes; results are sensitive to the IV assumption.");
+  }
   if (dataFreshness === "STALE") {
     const age = Math.max(...contracts.map((contract) => contract.quoteAgeSeconds ?? 0));
     warnings.unshift(`Stale quote data: oldest leg is ${Math.round(age).toLocaleString()}s old. Candidate is indicative research only.`);
   } else if (dataFreshness === "UNKNOWN") {
     warnings.unshift("Quote timestamp is unavailable for at least one leg. Freshness cannot be verified; research only.");
   }
-  if (request.eventPolicy === "exclude") return null;
 
   const explanations = [
-    `${STRATEGY_LABELS[type]} matches the ${request.thesis.replaceAll("_", " ")} thesis.`,
+    `${label} matches the ${request.thesis.replaceAll("_", " ")} thesis. ${def.description}`,
     `Conservative entry uses asks for buys and bids for sells; estimated fees are $${fees.toFixed(2)}.`,
     `Target-date modeled P/L is $${targetPnl.toFixed(2)} (${targetRewardRisk.toFixed(2)}x max loss).`,
   ];
+  const nearest = optionLegs.reduce((best, leg) => ((leg.daysToExpiration ?? 0) < (best.daysToExpiration ?? 0) ? leg : best), optionLegs[0]);
 
   return {
-    id: `${type}:${legs.map((leg) => leg.symbol).join("+")}`,
-    rank: 0,
-    type,
-    label: STRATEGY_LABELS[type],
-    symbol: request.symbol.toUpperCase(),
-    underlyingPrice: underlying,
-    expirationDate: legs[0].expirationDate,
-    dataFreshness,
-    legs,
-    netDebit: Number(debit.toFixed(2)),
-    estimatedFees: Number(fees.toFixed(2)),
-    maxProfit: risk.maxProfit === null ? null : Number(risk.maxProfit.toFixed(2)),
-    maxProfitUnbounded: risk.maxProfitUnbounded,
-    maxLoss: Number(risk.maxLoss.toFixed(2)),
-    breakevens: risk.breakevens,
-    targetPnl: Number(targetPnl.toFixed(2)),
-    targetRewardRisk: Number(targetRewardRisk.toFixed(2)),
-    modelImpliedProbabilityOfProfit: Number(modelImpliedProbabilityOfProfit.toFixed(4)),
-    netGreeks: {
-      delta: legs.reduce((sum, leg) => sum + (leg.side === "BUY" ? 1 : -1) * leg.delta * leg.multiplier * leg.quantity, 0),
-      gamma: legs.reduce((sum, leg) => sum + (leg.side === "BUY" ? 1 : -1) * leg.gamma * leg.multiplier * leg.quantity, 0),
-      theta: netTheta,
-      vega: netVega,
+    candidate: {
+      id: `${def.id}:${legs.map((leg) => leg.symbol).join("+")}`,
+      rank: 0,
+      type: def.id,
+      label,
+      symbol: request.symbol.toUpperCase(),
+      underlyingPrice: underlying,
+      expirationDate: nearest.expirationDate,
+      dataFreshness,
+      legs,
+      netDebit: Number(debit.toFixed(2)),
+      estimatedFees: Number(fees.toFixed(2)),
+      maxProfit: risk.maxProfit === null ? null : Number(risk.maxProfit.toFixed(2)),
+      maxProfitUnbounded: risk.maxProfitUnbounded,
+      maxLoss: Number(risk.maxLoss.toFixed(2)),
+      breakevens: risk.breakevens,
+      targetPnl: Number(targetPnl.toFixed(2)),
+      targetRewardRisk: Number(targetRewardRisk.toFixed(2)),
+      modelImpliedProbabilityOfProfit: Number(modelImpliedProbabilityOfProfit.toFixed(4)),
+      netGreeks: {
+        delta: legs.reduce((sum, leg) => sum + sideSign(leg) * leg.delta * leg.multiplier * leg.quantity, 0),
+        gamma: legs.reduce((sum, leg) => sum + sideSign(leg) * leg.gamma * leg.multiplier * leg.quantity, 0),
+        theta: netTheta,
+        vega: netVega,
+      },
+      liquidityScore: Number(liquidityScore.toFixed(1)),
+      score: Number(score.toFixed(1)),
+      scoreBreakdown,
+      payoffCurve: [],
+      scenarios: [],
+      explanations,
+      warnings,
+      assumptions: [
+        `Risk-free rate ${(rate * 100).toFixed(2)}%; dividend yield ${(dividend * 100).toFixed(2)}%.`,
+        `Multiplier ${MULTIPLIER}; ${feePerContract} estimated fees per option contract.`,
+        `Option marks use conservative bid/ask-side entry; scenario marks use Black-Scholes.`,
+      ],
     },
-    liquidityScore: Number(liquidityScore.toFixed(1)),
-    score: Number(score.toFixed(1)),
-    scoreBreakdown,
-    payoffCurve,
-    scenarios: makeScenarioGrid(legs, underlying, dte, targetDays, fees, rate, dividend),
-    explanations,
-    warnings,
-    assumptions: [
-      `Risk-free rate ${(rate * 100).toFixed(2)}%; dividend yield ${(dividend * 100).toFixed(2)}%.`,
-      `Multiplier ${MULTIPLIER}; ${request.feesPerContract ?? 0.65} estimated fees per contract.`,
-      `Option marks use conservative bid/ask-side entry; scenario marks use Black-Scholes.`,
-    ],
+  };
+}
+
+/** Payoff curve and scenario grid are costly, so they are computed only for the candidates that are returned. */
+function attachDetail(candidate: StrategyCandidate, request: StrategyRequest, targetDays: number): StrategyCandidate {
+  const rate = request.riskFreeRate ?? DEFAULT_RATE;
+  const dividend = request.dividendYield ?? 0;
+  const underlying = candidate.underlyingPrice;
+  const fees = candidate.estimatedFees;
+  const priceRange = Array.from({ length: 41 }, (_, index) => underlying * (0.5 + index * 0.025));
+  return {
+    ...candidate,
+    payoffCurve: priceRange.map((spot) => ({
+      underlyingPrice: Number(spot.toFixed(2)),
+      pnl: Number(expiryPnl(candidate.legs, spot, fees, rate, dividend).toFixed(2)),
+    })),
+    scenarios: makeScenarioGrid(candidate.legs, underlying, horizonDays(candidate.legs), targetDays, fees, rate, dividend),
   };
 }
 
@@ -499,18 +520,27 @@ export function recommendOptionStrategies(
   if (!Number.isInteger(minDte) || minDte < 0 || !Number.isInteger(maxDte) || maxDte < minDte) {
     throw new Error("DTE range must use whole days with a maximum greater than or equal to minimum");
   }
+  const registry = defaultRegistry;
+  const ledger = new EvaluationLedger(registry.list());
+  const wanted = new Set(registry.resolveMany(request.allowedStrategies).ids);
+  const finish = (partial: Omit<StrategyRecommendationResult, "evaluations" | "nameLedger">): StrategyRecommendationResult => {
+    const evaluations = ledger.report();
+    return { ...partial, evaluations, nameLedger: buildNameLedger(evaluations) };
+  };
+
   if (request.eventPolicy === "exclude") {
-    return {
+    registry.list().forEach((def) => ledger.onSkipped(def, "Skipped: event-risk exclusion cannot be verified without an event calendar."));
+    return finish({
       status: "no_candidates",
       request,
       generatedAt: new Date().toISOString(),
-      modelVersion: "options-risk-v1",
+      modelVersion: "options-risk-v2",
       dataSource: "E*TRADE option-chain snapshot",
       assumptions: ["Candidates were withheld because earnings/dividend calendar verification is unavailable."],
       scoreWeights: SCORE_WEIGHTS,
       candidates: [],
       excluded: [{ reason: "Event-risk exclusion cannot be verified without an event calendar", count: contracts.length }],
-    };
+    });
   }
   const targetDays = daysUntil(request.targetDate);
   const normalized = contracts.filter((contract) =>
@@ -521,113 +551,88 @@ export function recommendOptionStrategies(
   for (const contract of normalized) {
     byExpiry.set(contract.expirationDate, [...(byExpiry.get(contract.expirationDate) || []), contract]);
   }
+  const closest = (items: ScreenedOptionContractItem[]) => items
+    .sort((a, b) => Math.abs(a.strikePrice - a.underlyingPrice) - Math.abs(b.strikePrice - b.underlyingPrice))
+    .slice(0, request.maxStrikesPerSide ?? items.length);
+  const chains: ChainView[] = Array.from(byExpiry.entries()).map(([expiration, items]) => ({
+    expiration,
+    dte: items[0].daysToExpiration,
+    calls: new Map(closest(items.filter((item) => item.optionType === "CALL")).map((item) => [item.strikePrice, item])),
+    puts: new Map(closest(items.filter((item) => item.optionType === "PUT")).map((item) => [item.strikePrice, item])),
+  })).sort((a, b) => a.dte - b.dte);
+  const context: StrategyContext = {
+    request,
+    symbol: request.symbol.toUpperCase(),
+    underlying: normalized[0]?.underlyingPrice ?? 0,
+    chains,
+    stockShares: 100,
+  };
 
   const contractMap = new Map(normalized.map((contract) => [contractKey(contract), contract]));
   const rejected = new Map<string, number>();
   const candidates: StrategyCandidate[] = [];
-  const wanted = new Set(request.allowedStrategies);
-  const add = (type: OptionStrategyType, legs: StrategyLeg[]) => {
-    if (!wanted.has(type)) return;
-    if (!isThesisCompatible(type, request.thesis)) {
-      addRejected(rejected, `${STRATEGY_LABELS[type]} conflicts with the selected ${request.thesis.replaceAll("_", " ")} thesis`);
-      return;
-    }
-    const candidate = buildCandidate(type, legs, contractMap, request, targetDays);
-    if (!candidate) {
-      addRejected(rejected, `${STRATEGY_LABELS[type]} has incomplete or unsupported contract data`);
-      return;
-    }
-    if (candidate.maxLoss > request.maxPlannedLoss) {
-      addRejected(rejected, `${candidate.label} exceeds the max planned loss`);
-      return;
-    }
-    if (candidate.targetPnl <= 0) {
-      addRejected(rejected, `${candidate.label} is not profitable at the stated target under the selected assumptions`);
-      return;
-    }
-    if (candidate.targetRewardRisk < request.minRewardRisk) {
-      addRejected(rejected, `${candidate.label} is below the minimum target reward/risk`);
-      return;
-    }
-    candidates.push(candidate);
-  };
 
-  for (const expiryContracts of byExpiry.values()) {
-    const nearest = (items: ScreenedOptionContractItem[]) => items
-      .sort((a, b) => Math.abs(a.strikePrice - a.underlyingPrice) - Math.abs(b.strikePrice - b.underlyingPrice))
-      .slice(0, request.maxStrikesPerSide ?? items.length)
-      .sort((a, b) => a.strikePrice - b.strikePrice);
-    const calls = nearest(expiryContracts.filter((contract) => contract.optionType === "CALL"));
-    const puts = nearest(expiryContracts.filter((contract) => contract.optionType === "PUT"));
-    for (const contract of calls) add("long_call", [toLeg(contract, "BUY")]);
-    for (const contract of puts) add("long_put", [toLeg(contract, "BUY")]);
-
-    if (wanted.has("call_debit_spread")) {
-      for (const long of calls) for (const short of calls) {
-        if (long.strikePrice < short.strikePrice) add("call_debit_spread", [toLeg(long, "BUY"), toLeg(short, "SELL")]);
-      }
+  for (const def of registry.list()) {
+    if (!wanted.has(def.id)) {
+      ledger.onSkipped(def, "Skipped: not selected in this request.");
+      continue;
     }
-    if (wanted.has("put_debit_spread")) {
-      for (const long of puts) for (const short of puts) {
-        if (long.strikePrice > short.strikePrice) add("put_debit_spread", [toLeg(long, "BUY"), toLeg(short, "SELL")]);
-      }
+    if (!def.theses.includes(request.thesis)) {
+      const reason = `${def.label} conflicts with the selected ${request.thesis.replaceAll("_", " ")} thesis`;
+      ledger.onSkipped(def, `Skipped: ${reason}.`);
+      addRejected(rejected, reason);
+      continue;
     }
-    if (wanted.has("call_credit_spread")) {
-      for (const short of calls) for (const long of calls) {
-        if (short.strikePrice < long.strikePrice) add("call_credit_spread", [toLeg(short, "SELL"), toLeg(long, "BUY")]);
-      }
+    if (chains.length === 0) {
+      ledger.onSkipped(def, `Skipped: no ${context.symbol} option contracts are available inside the DTE window.`);
+      continue;
     }
-    if (wanted.has("put_credit_spread")) {
-      for (const short of puts) for (const long of puts) {
-        if (short.strikePrice > long.strikePrice) add("put_credit_spread", [toLeg(short, "SELL"), toLeg(long, "BUY")]);
-      }
+    if (def.id === "iron_condor" && request.maxIronCondors === 0) {
+      ledger.onSkipped(def, "Skipped: iron condor generation is disabled (maxIronCondors = 0).");
+      continue;
     }
-    if (wanted.has("long_straddle")) {
-      for (const call of calls) {
-        const put = puts.find((item) => item.strikePrice === call.strikePrice);
-        if (put) add("long_straddle", [toLeg(call, "BUY"), toLeg(put, "BUY")]);
+    const cap = def.id === "iron_condor" && request.maxIronCondors !== undefined ? request.maxIronCondors : DEFAULT_MAX_COMBINATIONS;
+    const generated = def.generate(context, cap);
+    ledger.onGenerated(def, generated.sets.length, generated.truncated, generated.skipReason);
+    for (const legs of generated.sets) {
+      const outcome = buildCandidate(def, legs, contractMap, request, targetDays);
+      const reason = "candidate" in outcome ? runAcceptanceRules(outcome.candidate, request) : outcome.reason;
+      if (reason) {
+        ledger.onRejected(def, reason);
+        addRejected(rejected, reason);
+        continue;
       }
-    }
-    if (wanted.has("long_strangle")) {
-      for (const put of puts) for (const call of calls) {
-        if (put.strikePrice < call.strikePrice) add("long_strangle", [toLeg(put, "BUY"), toLeg(call, "BUY")]);
-      }
-    }
-    if (wanted.has("iron_condor") && request.maxIronCondors !== 0) {
-      const putSpreads: Array<[ScreenedOptionContractItem, ScreenedOptionContractItem]> = [];
-      const callSpreads: Array<[ScreenedOptionContractItem, ScreenedOptionContractItem]> = [];
-      for (const long of puts) for (const short of puts) if (long.strikePrice < short.strikePrice) putSpreads.push([long, short]);
-      for (const short of calls) for (const long of calls) if (short.strikePrice < long.strikePrice) callSpreads.push([long, short]);
-      let generated = 0;
-      condors: for (const [longPut, shortPut] of putSpreads) for (const [longCall, shortCall] of callSpreads) {
-        if (shortPut.strikePrice >= shortCall.strikePrice) continue;
-        add("iron_condor", [toLeg(longPut, "BUY"), toLeg(shortPut, "SELL"), toLeg(shortCall, "SELL"), toLeg(longCall, "BUY")]);
-        generated++;
-        if (request.maxIronCondors !== undefined && generated >= request.maxIronCondors) break condors;
+      if ("candidate" in outcome) {
+        ledger.onAccepted(def, outcome.candidate);
+        candidates.push(outcome.candidate);
       }
     }
   }
 
   candidates.sort((a, b) => b.score - a.score || b.liquidityScore - a.liquidityScore || a.id.localeCompare(b.id));
   const selectedCandidates = limit === undefined ? candidates : candidates.slice(0, limit);
-  const ranked = selectedCandidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  const ranked = selectedCandidates.map((candidate, index) => {
+    const withRank = { ...candidate, rank: index + 1 };
+    return index < DETAIL_LIMIT ? attachDetail(withRank, request, targetDays) : withRank;
+  });
   const assumptions = [
     "Research ranking only; it is not a prediction, personalized advice, or an order instruction.",
     "Pre-expiry values use Black-Scholes with the supplied IV, risk-free rate, and dividend yield.",
     "Probability of profit is model-implied under a risk-neutral lognormal terminal-price distribution using average leg IV; it is not a forecast.",
+    "Stock-based strategies assume 100 hypothetical shares; actual holdings, margin and borrow are not connected.",
     "No point-in-time earnings/dividend calendar or portfolio positions are connected.",
     "Event risk is unverified and should be checked before acting.",
   ];
 
-  return {
+  return finish({
     status: ranked.length > 0 ? "ranked_candidates" : "no_candidates",
     request,
     generatedAt: new Date().toISOString(),
-    modelVersion: "options-risk-v1",
+    modelVersion: "options-risk-v2",
     dataSource: "E*TRADE option-chain snapshot",
     assumptions,
     scoreWeights: SCORE_WEIGHTS,
     candidates: ranked,
     excluded: Array.from(rejected, ([reason, count]) => ({ reason, count })),
-  };
+  });
 }

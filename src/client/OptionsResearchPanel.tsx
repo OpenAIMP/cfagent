@@ -6,6 +6,8 @@ import type {
   StrategyCandidate,
   StrategyRecommendationResult,
 } from "../trading/options/strategyEngine";
+import type { StrategyEvaluation } from "../trading/options/strategies/types";
+import { defaultRegistry } from "../trading/options/strategies/catalog";
 import "./optionsResearch.css";
 
 interface OptionsResearchPanelProps {
@@ -13,17 +15,10 @@ interface OptionsResearchPanelProps {
   userLogin?: string;
 }
 
-const strategyChoices: Array<{ id: OptionStrategyType; label: string }> = [
-  { id: "long_call", label: "Long call" },
-  { id: "long_put", label: "Long put" },
-  { id: "call_debit_spread", label: "Call debit spread" },
-  { id: "put_debit_spread", label: "Put debit spread" },
-  { id: "long_straddle", label: "Long straddle" },
-  { id: "long_strangle", label: "Long strangle" },
-  { id: "iron_condor", label: "Iron condor" },
-  { id: "call_credit_spread", label: "Call credit spread" },
-  { id: "put_credit_spread", label: "Put credit spread" },
-];
+const strategyGroups = defaultRegistry.list().reduce<Record<string, Array<{ id: OptionStrategyType; label: string }>>>((groups, def) => {
+  (groups[def.category] ||= []).push({ id: def.id, label: def.label });
+  return groups;
+}, {});
 
 type RiskProfile = "conservative" | "balanced" | "aggressive";
 
@@ -249,9 +244,10 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [maxStrikesPerSide, setMaxStrikesPerSide] = useState("12");
   const [maxIronCondors, setMaxIronCondors] = useState("100");
   const [eventPolicy, setEventPolicy] = useState<"warn" | "exclude">("warn");
-  const [allowedStrategies, setAllowedStrategies] = useState<OptionStrategyType[]>(["long_call", "call_debit_spread"]);
+  const [allowedStrategies, setAllowedStrategies] = useState<OptionStrategyType[]>(["all"]);
   const [riskProfile, setRiskProfile] = useState<RiskProfile>("balanced");
   const [bestTrade, setBestTrade] = useState<BestTradeData | null>(null);
+  const [evaluations, setEvaluations] = useState<StrategyEvaluation[]>([]);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
   const [screenMeta, setScreenMeta] = useState<any>(null);
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
@@ -265,9 +261,10 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [nlqError, setNlqError] = useState("");
 
   const toggleStrategy = (strategy: OptionStrategyType) => {
-    setAllowedStrategies((current) => current.includes(strategy)
-      ? current.filter((item) => item !== strategy)
-      : [...current, strategy]);
+    setAllowedStrategies((current) => {
+      const base = current.filter((item) => item !== "all");
+      return base.includes(strategy) ? base.filter((item) => item !== strategy) : [...base, strategy];
+    });
   };
 
   const run = async (mode: "rank" | "best") => {
@@ -275,6 +272,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
     setError("");
     setResult(null);
     setBestTrade(null);
+    setEvaluations([]);
     try {
       const response = await fetch(mode === "best" ? "/api/trading/options/best-trade" : "/api/trading/options/recommend", {
         method: "POST",
@@ -308,7 +306,10 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
       });
       const data = await response.json() as any;
       if (!response.ok) throw new Error(data.error || "Strategy research request failed");
-      if (mode === "best") setBestTrade(data.bestTrade as BestTradeData);
+      if (mode === "best") {
+        setBestTrade(data.bestTrade as BestTradeData);
+        setEvaluations((data.evaluations || []) as StrategyEvaluation[]);
+      }
       else setResult(data as StrategyRecommendationResult);
       setScreenMeta(data.screen);
       setExcludedContracts(data.contractRejections || []);
@@ -539,14 +540,23 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
         <fieldset className="options-strategy-picker">
           <legend>Allowed strategy templates</legend>
-          <div className="options-strategy-options">
-            {strategyChoices.map((choice) => (
-              <label key={choice.id}>
-                <input type="checkbox" checked={allowedStrategies.includes(choice.id)} onChange={() => toggleStrategy(choice.id)} />
-                <span>{choice.label}</span>
-              </label>
-            ))}
-          </div>
+          <label>
+            <input type="checkbox" checked={allowedStrategies.includes("all")} onChange={() => setAllowedStrategies(allowedStrategies.includes("all") ? [] : ["all"])} />
+            <span><strong>All strategies ({defaultRegistry.ids().length})</strong></span>
+          </label>
+          {!allowedStrategies.includes("all") && Object.entries(strategyGroups).map(([category, choices]) => (
+            <details key={category}>
+              <summary>{category.replace(/_/g, " ")} ({choices.length})</summary>
+              <div className="options-strategy-options">
+                {choices.map((choice) => (
+                  <label key={choice.id}>
+                    <input type="checkbox" checked={allowedStrategies.includes(choice.id)} onChange={() => toggleStrategy(choice.id)} />
+                    <span>{choice.label}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          ))}
         </fieldset>
 
         <label className="options-field">
@@ -571,6 +581,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
       {error && <div className="options-error" role="alert">{error}</div>}
       {bestTrade && <BestTradeCard pick={bestTrade} />}
+      {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
         <div className="options-results">
           <div className="options-results-header">
@@ -605,5 +616,28 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         </div>
       )}
     </section>
+  );
+}
+
+function EvaluationTable({ evaluations }: { evaluations: StrategyEvaluation[] }) {
+  const counts = evaluations.reduce((acc, e) => ({ ...acc, [e.status]: (acc[e.status] || 0) + 1 }), {} as Record<string, number>);
+  return (
+    <details className="options-excluded" open>
+      <summary>
+        Strategies evaluated: {evaluations.length} ({counts.accepted || 0} accepted, {counts.rejected || 0} rejected, {counts.skipped || 0} skipped)
+      </summary>
+      <div className="options-table-scroll">
+        <table>
+          <thead><tr><th>Strategy</th><th>Category</th><th>Status</th><th>Built</th><th>Accepted</th><th>Reason</th></tr></thead>
+          <tbody>
+            {evaluations.map((e) => (
+              <tr key={e.id}>
+                <td>{e.label}</td><td>{e.category}</td><td>{e.status.toUpperCase()}</td><td>{e.generated}</td><td>{e.accepted}</td><td>{e.summary}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }

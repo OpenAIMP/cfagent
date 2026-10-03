@@ -32,7 +32,7 @@ export interface BestTradePick {
   confidence: "HIGH" | "MEDIUM" | "LOW";
   best?: RankedStrategy;
   alternatives: RankedStrategy[];
-  tradePlan?: Array<{ action: "BUY" | "SELL"; quantity: number; contract: string; optionType: "CALL" | "PUT"; strike: number; expiration: string; limitPrice: number }>;
+  tradePlan?: Array<{ action: "BUY" | "SELL"; quantity: number; contract: string; optionType: "CALL" | "PUT" | "STOCK"; strike: number; expiration: string; limitPrice: number }>;
   rationale: string[];
   blockers: string[];
   humanApprovalRequired: true;

@@ -9,13 +9,13 @@
 
 import type { ScreenedOptionContractItem } from "../../types";
 import {
-  ALL_STRATEGY_TYPES,
   recommendOptionStrategies,
   type OptionStrategyType,
   type StrategyCandidate,
   type StrategyRecommendationResult,
   type StrategyRequest,
 } from "./strategyEngine";
+import { defaultRegistry } from "./strategies/catalog";
 
 export interface StrategyScreenFilter {
   strategyTypes?: OptionStrategyType[];
@@ -48,7 +48,6 @@ const THESES = ["bullish", "bearish", "range_bound", "large_move"];
 const IV_DIRECTIONS = ["rise", "unchanged", "fall"];
 
 export function validateStrategyRequest(body: Partial<StrategyRequest> | null | undefined): string | null {
-  const allowed = new Set<string>(ALL_STRATEGY_TYPES);
   if (
     !body ||
     typeof body.symbol !== "string" ||
@@ -71,7 +70,7 @@ export function validateStrategyRequest(body: Partial<StrategyRequest> | null | 
     (body.maxIronCondors !== undefined && (!Number.isInteger(body.maxIronCondors) || body.maxIronCondors < 0)) ||
     !Array.isArray(body.allowedStrategies) ||
     body.allowedStrategies.length === 0 ||
-    body.allowedStrategies.some((strategy) => !allowed.has(strategy as string))
+    defaultRegistry.resolveMany(body.allowedStrategies as string[]).unknown.length > 0
   ) {
     return "Invalid strategy request. Supply a thesis, target, date, risk cap, reward/risk minimum, and allowed strategies.";
   }
