@@ -7274,4 +7274,31 @@ body {
   color: #38bdf8;
 }
 
+/* Horizontal scrolling for wide result tables */
+.nlq-results-wrapper,
+.nlq-response-card,
+.options-nlq-result,
+.options-results {
+  min-width: 0;
+  max-width: 100%;
+}
 
+.nlq-rows-table-wrap,
+.options-scenario-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nlq-rows-table-wrap .trading-table,
+.options-scenario-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.nlq-rows-table-wrap .trading-table th,
+.nlq-rows-table-wrap .trading-table td,
+.options-scenario-table th,
+.options-scenario-table td {
+  white-space: nowrap;
+}

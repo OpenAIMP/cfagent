@@ -35,6 +35,7 @@ export const nlqPlanSchema = z.object({
           "options_screen",
           "options_strategies",
           "options_best_trade",
+          "options_opportunities",
           "watchlist_save",
           "watchlist_list",
           "watchlist_details",
@@ -1815,12 +1816,12 @@ export async function executeNLQQueryAsync(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined);
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,

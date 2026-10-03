@@ -5,6 +5,7 @@
  */
 
 import { OptionsAgentPipeline } from "../trading/options";
+import { MAX_SCAN_SYMBOLS, OpportunityScanner, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
   ExpectedIvDirection,
@@ -15,7 +16,12 @@ import type {
 import type { RiskProfile } from "../trading/options/recommendationAgent";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading/options/strategyRiskAgent";
 
-export type OptionsStrategyAction = "options_strategies" | "options_best_trade";
+export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities";
+
+export type OpportunityScope =
+  | { kind: "watchlist"; name?: string }
+  | { kind: "symbols"; symbols: string[] }
+  | { kind: "universe"; filters: Record<string, unknown>; maxSymbols: number };
 
 export interface OptionsStrategyIntent {
   action: OptionsStrategyAction;
@@ -25,7 +31,43 @@ export interface OptionsStrategyIntent {
     strategyFilter: StrategyScreenFilter;
     targetPriceInferred: boolean;
     thesisInferred: boolean;
+    scope?: OpportunityScope;
   };
+}
+
+const WATCHLIST_STOP = new Set(["MY", "THE", "A", "AN", "THIS", "EACH", "ANY", "ALL", "SAVED", "ONE"]);
+
+function detectScope(question: string): OpportunityScope | null {
+  if (/\bwatch\s?lists?\b/i.test(question)) {
+    const quoted = question.match(/["'`]([^"'`]{1,40})["'`]/);
+    const named = question.match(/\bwatch\s?lists?\s+(?:named\s+|called\s+)?([A-Za-z][\w-]*)/i);
+    const prefixed = question.match(/\b([A-Za-z][\w-]*)\s+watch\s?lists?\b/i);
+    const candidate = quoted?.[1] ?? [prefixed?.[1], named?.[1]].find((n) => n && !WATCHLIST_STOP.has(n.toUpperCase()) && !/^(for|in|on|from|across|scan|best|top|options?|trade|trades|with|max|bullish|bearish|conservative|aggressive)$/i.test(n));
+    return { kind: "watchlist", name: candidate?.trim() };
+  }
+  const list = question.match(/\b[A-Z]{2,5}(?:\s*(?:,|and|&)\s*[A-Z]{2,5})+\b/);
+  if (list) {
+    const symbols = list[0].split(/\s*(?:,|and|&)\s*/).filter((s) => !NOT_TICKERS.has(s));
+    if (symbols.length >= 2) return { kind: "symbols", symbols };
+  }
+  if (/\b(?:across|entire|whole|full)\b[^.]*\b(?:stocks?|market|universe|spectrum|listings)\b|\b(?:large|mega)[- ]?cap\b|\bmarket[- ]wide\b|\bacross\s+(?:the\s+)?(?:nasdaq|nyse|amex)\b/i.test(question)) {
+    const filters: Record<string, unknown> = {};
+    const cap = question.match(/market\s*cap(?:italization)?\s*(?:>|over|above|at least)\s*\$?([\d,.]+)\s*(t|b|m)?/i);
+    if (cap) {
+      const amount = parseNumber(cap[1]);
+      const unit = (cap[2] || "b").toLowerCase();
+      filters.minMarketCap = unit === "t" ? amount * 1000 : unit === "m" ? amount / 1000 : amount;
+    } else if (/\bmega[- ]?cap\b/i.test(question)) filters.minMarketCap = 200;
+    else filters.minMarketCap = 50;
+    const price = question.match(/\b(?:price|priced|trading)\s+(?:between|from)\s*\$?([\d,.]+)\s*(?:and|to|-)\s*\$?([\d,.]+)/i);
+    if (price) { filters.minPrice = parseNumber(price[1]); filters.maxPrice = parseNumber(price[2]); }
+    const ex = question.match(/\b(nasdaq|nyse|amex)\b/i);
+    if (ex) filters.exchange = ex[1].toUpperCase();
+    if (/\b(gainers?|momentum)\b/i.test(question)) filters.gainersOnly = true;
+    const top = question.match(/\b(?:top|first|up to|max(?:imum)?)\s*(\d+)\b/i);
+    return { kind: "universe", filters, maxSymbols: Math.min(top ? Number(top[1]) : 10, MAX_SCAN_SYMBOLS) };
+  }
+  return null;
 }
 
 const NOT_TICKERS = new Set([
@@ -103,7 +145,11 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
     || /\bbest\s+(?:options?\s+)?(?:trade|play)\b/i.test(question)
     || (PICK_TRADE.test(question) && OPTIONS_CONTEXT.test(question));
   const isStrategies = STRATEGY_SCREEN.test(question);
-  if (!isBest && !isStrategies) return null;
+  const scope = detectScope(question);
+  const isScan = scope !== null
+    && /\b(opportunit\w*|trade\s+ideas?|spreads?|strateg\w*|options?|best\s+trades?|condors?|straddles?|strangles?)\b/i.test(question)
+    && !/\b(buy|sell)\s+\d+\b/i.test(question);
+  if (!isBest && !isStrategies && !isScan) return null;
   if (/\b(buy|sell)\s+\d+\s+(?:shares?\s+of\s+)?[A-Za-z]{1,5}\b/i.test(question) && !OPTIONS_CONTEXT.test(question)) return null;
 
   const detected = detectStrategies(question);
@@ -175,8 +221,8 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
       : "balanced";
 
   return {
-    action: isBest ? "options_best_trade" : "options_strategies",
-    filters: { request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred },
+    action: scope ? "options_opportunities" : isBest ? "options_best_trade" : "options_strategies",
+    filters: { request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined },
   };
 }
 
@@ -184,16 +230,24 @@ export const OPTIONS_STRATEGY_EXAMPLES = [
   "Screen call options for NVDA with delta above 0.35, 20 to 45 DTE, volume over 50, open interest above 500, spread under 10%",
   "Rank bullish NVDA call debit spreads and put credit spreads target $260 in 30 days max loss $500 reward/risk at least 1.5",
   "What is the best trade for NVDA bullish target $260 by 2026-11-20 max loss $500 conservative",
+  "Find the best bullish option trades across my Semis watchlist max loss $500",
+  "Find best bullish option opportunities across large cap stocks top 10 max loss $500 conservative",
 ];
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? "Unlimited" : `$${n.toFixed(2)}`);
 
 export async function runOptionsStrategyAction(
-  etrade: { client: ConstructorParameters<typeof DynamicOptionsScreener>[0]; fetchQuoteRemote(symbol: string): Promise<{ lastPrice: number }> },
+  etrade: {
+    client: ConstructorParameters<typeof DynamicOptionsScreener>[0];
+    fetchQuoteRemote(symbol: string): Promise<{ lastPrice: number }>;
+    getWatchlists(): Promise<Array<{ name: string; symbols: string[] }>>;
+    screenMarketsAsync(filter?: any): Promise<{ stocks: Array<{ symbol: string; marketCap?: number }> }>;
+  },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
 ): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  if (action === "options_opportunities") return runOpportunityScan(etrade, filters);
   if (!filters?.request?.symbol) {
     return fail("I could not find an underlying ticker. Example: \"best trade for NVDA bullish target $260 max loss $500\".");
   }
@@ -282,5 +336,68 @@ export async function runOptionsStrategyAction(
     quoteQuality: result.snapshot.screen.quoteQuality,
     bestTrade: pick,
     validationError: result.snapshot.validationError,
+  };
+}
+
+async function runOpportunityScan(
+  etrade: Parameters<typeof runOptionsStrategyAction>[0],
+  filters: OptionsStrategyIntent["filters"] | undefined,
+) {
+  const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  const scope = filters?.scope;
+  if (!filters || !scope) return fail("Say where to look, e.g. \"across my Semis watchlist\" or \"across large cap stocks\".");
+
+  let symbols: string[] = [];
+  let scopeLabel = "";
+  if (scope.kind === "symbols") {
+    symbols = scope.symbols;
+    scopeLabel = `${symbols.length} listed symbols`;
+  } else if (scope.kind === "watchlist") {
+    const lists = await etrade.getWatchlists();
+    const chosen = scope.name ? lists.filter((l) => l.name.toLowerCase().includes(scope.name!.toLowerCase())) : lists;
+    if (chosen.length === 0) {
+      return fail(scope.name ? `No watchlist matching "${scope.name}". Say "list watchlists" to see yours.` : "You have no saved watchlists. Save one first, e.g. \"save these as watchlist Semis NVDA AMD AVGO\".");
+    }
+    symbols = chosen.flatMap((l) => l.symbols);
+    scopeLabel = `watchlist ${chosen.map((l) => l.name).join(", ")}`;
+  } else {
+    const screened = await etrade.screenMarketsAsync(scope.filters);
+    symbols = [...screened.stocks].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, scope.maxSymbols).map((s) => s.symbol);
+    scopeLabel = `top ${symbols.length} stocks from the screened universe (${screened.stocks.length} matches)`;
+  }
+  if (symbols.length === 0) return fail("The selected scope contained no symbols.");
+
+  const { symbol: _omit, targetPrice, ...rest } = filters.request;
+  const template = { ...rest, targetPrice } as ScanRequestTemplate;
+  const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
+  const result = await scanner.scan(symbols, template, { riskProfile: filters.riskProfile, strategyFilter: filters.strategyFilter });
+
+  const rows = result.opportunities.map((o, i) => {
+    const c = o.pick.best!.candidate;
+    return {
+      rank: i + 1,
+      symbol: o.symbol,
+      underlyingPrice: money(o.underlyingPrice),
+      strategy: c.label,
+      legs: c.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+      expiry: c.expirationDate,
+      netDebitCredit: c.netDebit >= 0 ? `${money(c.netDebit)} debit` : `${money(-c.netDebit)} credit`,
+      maxLoss: money(c.maxLoss),
+      maxProfit: c.maxProfitUnbounded ? "Unlimited" : money(c.maxProfit),
+      probabilityOfProfit: `${(c.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%`,
+      targetRewardRisk: `${c.targetRewardRisk.toFixed(2)}x`,
+      score: o.score,
+      status: o.pick.status.replace("_", " "),
+      confidence: o.pick.confidence,
+      quoteFreshness: c.dataFreshness,
+    };
+  });
+  const skippedNote = result.skipped.length ? ` ${result.skipped.length} skipped (${result.skipped.slice(0, 3).map((s) => `${s.symbol}: ${s.reason}`).join("; ")}${result.skipped.length > 3 ? "; ..." : ""}).` : "";
+  const truncNote = result.truncatedSymbols ? ` Only the first ${MAX_SCAN_SYMBOLS} symbols were scanned (${result.truncatedSymbols} not scanned) to stay within request limits.` : "";
+  return {
+    count: rows.length,
+    status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
+    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.`,
+    rows,
   };
 }

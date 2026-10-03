@@ -27,11 +27,34 @@ const strategyChoices: Array<{ id: OptionStrategyType; label: string }> = [
 
 type RiskProfile = "conservative" | "balanced" | "aggressive";
 
-const nlqExamples = [
-  "Screen call options for NVDA with delta above 0.35, 20 to 45 DTE, volume over 50, open interest above 500, spread under 10%",
-  "Rank bullish NVDA call debit spreads and put credit spreads target $260 in 30 days max loss $500",
-  "What is the best trade for NVDA bullish target $260 by 2026-11-20 max loss $500 conservative",
+const workflowSteps = [
+  {
+    step: 1,
+    title: "Options data and screener",
+    blurb: "Find liquid single contracts (delta, DTE, volume, open interest, spread, quote age).",
+    examples: ["Screen call options for NVDA with delta above 0.35, 20 to 45 DTE, volume over 50, open interest above 500, spread under 10%"],
+  },
+  {
+    step: 2,
+    title: "Strategy and risk screener",
+    blurb: "Build multi-leg strategies and rank them by max loss, breakevens and probability of profit.",
+    examples: [
+      "Rank bullish NVDA call debit spreads and put credit spreads target $260 in 30 days max loss $500",
+      "Show iron condors on SPY 20 to 45 DTE max loss $400 pop above 50%",
+    ],
+  },
+  {
+    step: 3,
+    title: "Best-trade picker",
+    blurb: "Rank by risk profile and pick one trade with a trade plan, confidence and blockers. Add a watchlist or a market-cap scope to scan many stocks.",
+    examples: [
+      "What is the best trade for NVDA bullish target $260 by 2026-11-20 max loss $500 conservative",
+      "Find the best bullish option trades across my Semis watchlist max loss $500",
+      "Find best bullish option opportunities across large cap stocks top 10 max loss $500 conservative",
+    ],
+  },
 ];
+const nlqExamples = workflowSteps.flatMap((s) => s.examples);
 
 interface BestTradeData {
   status: "recommended" | "research_only" | "no_trade";
@@ -376,12 +399,21 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
           {nlqLoading ? "Screening…" : "Ask"}
         </button>
-        <div className="options-nlq-examples">
-          {nlqExamples.map((example) => (
-            <button type="button" key={example} onClick={() => setNlqQuery(example)}>{example}</button>
-          ))}
-        </div>
       </form>
+      <div className="options-workflow" aria-label="Three-step options workflow">
+        {workflowSteps.map((s) => (
+          <div className="options-workflow-step" key={s.step}>
+            <h4><span className="options-workflow-num">{s.step}</span> {s.title}</h4>
+            <p>{s.blurb}</p>
+            <div className="options-nlq-examples">
+              {s.examples.map((example) => (
+                <button type="button" key={example} onClick={() => setNlqQuery(example)}>{example}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="options-workflow-hint">Click an example to load it, then press Ask. Or use the form below: <b>Rank research candidates</b> (step 2) or <b>Pick best trade</b> (step 3).</p>
+      </div>
       {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
       {nlqResult && (
         <div className="options-nlq-result" role="status">

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseOptionsStrategyIntent } from "../src/agents/nlqOptionsStrategy";
 
 describe("options strategy NLQ parsing", () => {
@@ -23,5 +23,16 @@ describe("options strategy NLQ parsing", () => {
     expect(parseOptionsStrategyIntent("Show iron condors on SPY")?.filters.request.thesis).toBe("range_bound");
     expect(parseOptionsStrategyIntent("Screen call options for NVDA with delta above 0.35")).toBeNull();
     expect(parseOptionsStrategyIntent("Buy 10 NVDA")).toBeNull();
+  });
+
+  it("routes watchlist, symbol-list and universe questions to the opportunity scanner", () => {
+    const w = parseOptionsStrategyIntent("Find the best bullish option trades across my Semis watchlist max loss $500");
+    expect(w?.action).toBe("options_opportunities");
+    expect(w?.filters.scope).toEqual({ kind: "watchlist", name: "Semis" });
+    const s = parseOptionsStrategyIntent("Best bullish option trades for NVDA, AMD and AVGO");
+    expect(s?.filters.scope).toEqual({ kind: "symbols", symbols: ["NVDA", "AMD", "AVGO"] });
+    const u = parseOptionsStrategyIntent("Find best bullish option opportunities across large cap stocks top 8 conservative");
+    expect(u?.filters.scope).toMatchObject({ kind: "universe", maxSymbols: 8 });
+    expect(u?.filters.riskProfile).toBe("conservative");
   });
 });
