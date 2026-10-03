@@ -260,6 +260,54 @@ export const OPTIONS_STRATEGY_EXAMPLES = [
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? "Unlimited" : `$${n.toFixed(2)}`);
 
+interface LedgerEvaluation {
+  id: string;
+  label: string;
+  category: string;
+  status: "accepted" | "rejected" | "skipped";
+  generated: number;
+  accepted: number;
+  summary: string;
+  reasons: Array<{ reason: string; count: number }>;
+}
+
+/** One row per strategy category; candidateStrategies lists every strategy evaluated with its verdict and why. */
+export function buildStrategyLedgerRows(
+  evaluations: LedgerEvaluation[],
+  bestScoreByStrategy: Map<string, number>,
+  descriptions: Map<string, string>,
+): Array<Record<string, unknown>> {
+  const groups = new Map<string, LedgerEvaluation[]>();
+  for (const e of evaluations) groups.set(e.category, [...(groups.get(e.category) ?? []), e]);
+  return [...groups.entries()].map(([category, items]) => {
+    const passed = items.filter((e) => e.status === "accepted");
+    const failed = items.filter((e) => e.status !== "accepted");
+    const scores = items.map((e) => bestScoreByStrategy.get(e.id)).filter((s): s is number => s !== undefined);
+    const topReasons = new Map<string, number>();
+    for (const e of failed) for (const r of e.reasons) topReasons.set(r.reason, (topReasons.get(r.reason) ?? 0) + r.count);
+    const reason = passed.length === items.length
+      ? `All ${items.length} ${category} strategies produced passing candidates.`
+      : [...topReasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([text, count]) => `${text} (${count})`).join("; ")
+        || failed[0]?.summary
+        || "No candidates built.";
+    return {
+      category,
+      score: scores.length ? Math.max(...scores) : 0,
+      passed: passed.length,
+      failed: failed.length,
+      reason,
+      candidateStrategies: items.map((e) => ({
+        id: e.id,
+        name: e.label,
+        status: e.status,
+        why: e.status === "accepted" ? `${e.accepted} of ${e.generated} built candidates passed. ${e.summary}` : e.summary,
+        description: descriptions.get(e.id) ?? "",
+        score: bestScoreByStrategy.get(e.id),
+      })),
+    };
+  });
+}
+
 export async function runOptionsStrategyAction(
   etrade: {
     client: ConstructorParameters<typeof DynamicOptionsScreener>[0];
@@ -325,14 +373,12 @@ export async function runOptionsStrategyAction(
     quoteFreshness: r.candidate.dataFreshness,
   }));
 
-  const evaluationRows = result.strategies.evaluations.map((e) => ({
-    strategy: e.label,
-    category: e.category,
-    status: e.status.toUpperCase(),
-    generated: e.generated,
-    accepted: e.accepted,
-    reason: e.summary,
-  }));
+  const bestScoreByStrategy = new Map<string, number>();
+  for (const r of result.ranked) {
+    bestScoreByStrategy.set(r.candidate.type, Math.max(bestScoreByStrategy.get(r.candidate.type) ?? 0, r.compositeScore));
+  }
+  const strategyDescriptions = new Map(defaultRegistry.list().map((def) => [def.id, def.description]));
+  const evaluationRows = buildStrategyLedgerRows(result.strategies.evaluations, bestScoreByStrategy, strategyDescriptions);
 
   if (action === "options_strategies") {
     return {

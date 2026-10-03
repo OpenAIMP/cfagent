@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "wrangler deploy",
+    "strategy-pages": "node scripts/generate-strategy-pages.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run --reporter=verbose",

@@ -41,6 +41,12 @@ const workflowSteps = [
   },
   {
     step: 3,
+    title: "Strategy universe",
+    blurb: "See every strategy in the catalog that was evaluated, as a sortable ledger with passed/failed verdicts and reasons.",
+    examples: ["list all strategies evaluated for NVDA bullish target $260"],
+  },
+  {
+    step: 4,
     title: "Best-trade picker",
     blurb: "Rank by risk profile and pick one trade with a trade plan, confidence and blockers. Add a watchlist or a market-cap scope to scan many stocks.",
     examples: [
@@ -558,7 +564,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           {nlqLoading ? "Screening…" : "Ask"}
         </button>
       </form>
-      <div className="options-workflow" aria-label="Three-step options workflow">
+      <div className="options-workflow" aria-label="Options research workflow">
         {workflowSteps.map((s) => (
           <div className="options-workflow-step" key={s.step}>
             <h4><span className="options-workflow-num">{s.step}</span> {s.title}</h4>
@@ -577,9 +583,12 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         <div className="options-nlq-result" role="status">
           <strong>{nlqResult.count ?? 0} result rows</strong>
           <p>{nlqResult.validationError || nlqResult.summary}</p>
-          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && (
-            <div className="options-scenario-table-wrap">
-              <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
+          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
+            <StrategyLedgerTable rows={nlqResult.rows} />
+          )}
+          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && !Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
+                      <div className="options-scenario-table-wrap">
+                        <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
                 <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
                 <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
                   <tr key={`${row.contractSymbol || row.symbol || "contract"}:${index}`}>
@@ -807,6 +816,93 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         ]}
       />
     </section>
+  );
+}
+
+interface LedgerCandidate {
+  id: string;
+  name: string;
+  status: "accepted" | "rejected" | "skipped";
+  why: string;
+  description?: string;
+  score?: number;
+}
+
+type LedgerSortKey = "category" | "score" | "passed" | "failed" | "reason" | "candidateStrategies";
+
+const ledgerColumns: Array<{ key: LedgerSortKey; label: string }> = [
+  { key: "category", label: "Category" },
+  { key: "score", label: "Score" },
+  { key: "passed", label: "Passed" },
+  { key: "failed", label: "Failed" },
+  { key: "reason", label: "Reason" },
+  { key: "candidateStrategies", label: "Candidate strategies" },
+];
+
+function StrategyLedgerTable({ rows }: { rows: Array<Record<string, any>> }) {
+  const [sortKey, setSortKey] = useState<LedgerSortKey>("score");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+
+  const sorted = [...rows].sort((a, b) => {
+    const left = sortKey === "candidateStrategies" ? (a[sortKey] as LedgerCandidate[]).length : a[sortKey];
+    const right = sortKey === "candidateStrategies" ? (b[sortKey] as LedgerCandidate[]).length : b[sortKey];
+    const order = typeof left === "number" && typeof right === "number" ? left - right : String(left ?? "").localeCompare(String(right ?? ""));
+    return direction === "asc" ? order : -order;
+  });
+
+  const sortBy = (key: LedgerSortKey) => {
+    if (key === sortKey) setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setDirection(key === "category" || key === "reason" ? "asc" : "desc");
+    }
+  };
+
+  return (
+    <div className="options-scenario-table-wrap">
+      <table className="options-scenario-table options-evaluation-ledger-table strategy-ledger-table">
+        <thead>
+          <tr>
+            {ledgerColumns.map((column) => (
+              <th key={column.key} aria-sort={sortKey === column.key ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+                <button type="button" className="ledger-sort" onClick={() => sortBy(column.key)}>
+                  {column.label}{sortKey === column.key ? (direction === "asc" ? " ▲" : " ▼") : ""}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row) => (
+            <tr key={String(row.category)}>
+              <td>{String(row.category)}</td>
+              <td>{Number(row.score ?? 0).toFixed(1)}</td>
+              <td>{String(row.passed)}</td>
+              <td>{String(row.failed)}</td>
+              <td>{String(row.reason)}</td>
+              <td>
+                <ul className="ledger-candidates">
+                  {(row.candidateStrategies as LedgerCandidate[]).map((candidate) => (
+                    <li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}>
+                      <a
+                        href={`/strategies/${candidate.id}.html`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={candidate.description || candidate.name}
+                      >
+                        {candidate.name}
+                      </a>
+                      <span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>
+                      <span className="ledger-why">{candidate.why}</span>
+                    </li>
+                  ))}
+                </ul>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
