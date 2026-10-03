@@ -566,3 +566,8 @@
     grid-column: span 1;
   }
 }
+.options-nlq-examples { display: flex; flex-wrap: wrap; gap: 0.4rem; grid-column: 1 / -1; }
+.options-nlq-examples button { font-size: 0.75rem; padding: 0.25rem 0.5rem; opacity: 0.85; text-align: left; }
+.options-best-trade { border: 1px solid #38bdf8; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+.options-best-trade-no_trade { border-color: #f87171; }
+.options-best-trade-research_only { border-color: #fbbf24; }

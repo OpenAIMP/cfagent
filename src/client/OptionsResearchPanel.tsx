@@ -21,7 +21,76 @@ const strategyChoices: Array<{ id: OptionStrategyType; label: string }> = [
   { id: "long_straddle", label: "Long straddle" },
   { id: "long_strangle", label: "Long strangle" },
   { id: "iron_condor", label: "Iron condor" },
+  { id: "call_credit_spread", label: "Call credit spread" },
+  { id: "put_credit_spread", label: "Put credit spread" },
 ];
+
+type RiskProfile = "conservative" | "balanced" | "aggressive";
+
+const nlqExamples = [
+  "Screen call options for NVDA with delta above 0.35, 20 to 45 DTE, volume over 50, open interest above 500, spread under 10%",
+  "Rank bullish NVDA call debit spreads and put credit spreads target $260 in 30 days max loss $500",
+  "What is the best trade for NVDA bullish target $260 by 2026-11-20 max loss $500 conservative",
+];
+
+interface BestTradeData {
+  status: "recommended" | "research_only" | "no_trade";
+  riskProfile: RiskProfile;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  best?: { candidate: StrategyCandidate; compositeScore: number };
+  alternatives: Array<{ rank: number; candidate: StrategyCandidate; compositeScore: number }>;
+  tradePlan?: Array<{ action: string; quantity: number; contract: string; optionType: string; strike: number; expiration: string; limitPrice: number }>;
+  rationale: string[];
+  blockers: string[];
+  disclaimer: string;
+}
+
+function BestTradeCard({ pick }: { pick: BestTradeData }) {
+  return (
+    <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
+      <header className="options-results-header">
+        <h2>{pick.status === "no_trade" ? "No qualifying trade" : `Best trade: ${pick.best?.candidate.label}`}</h2>
+        <span>{pick.status.replace("_", " ").toUpperCase()} · {pick.confidence} confidence · {pick.riskProfile} profile</span>
+      </header>
+      <ul className="options-explanations">{pick.rationale.map((line) => <li key={line}>{line}</li>)}</ul>
+      {pick.blockers.length > 0 && <ul className="options-warnings">{pick.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+      {pick.tradePlan && pick.tradePlan.length > 0 && (
+        <div className="options-scenario-table-wrap">
+          <h4>Trade plan (preview only, requires your approval)</h4>
+          <table className="options-scenario-table">
+            <thead><tr><th>Action</th><th>Qty</th><th>Contract</th><th>Type</th><th>Strike</th><th>Expiration</th><th>Limit</th></tr></thead>
+            <tbody>{pick.tradePlan.map((leg) => (
+              <tr key={`${leg.contract}:${leg.action}`}>
+                <td>{leg.action}</td><td>{leg.quantity}</td><td>{leg.contract}</td><td>{leg.optionType}</td>
+                <td>${leg.strike}</td><td>{leg.expiration}</td><td>${leg.limitPrice.toFixed(2)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} />}
+      {pick.alternatives.length > 0 && (
+        <details className="options-excluded">
+          <summary>{pick.alternatives.length} runner-up trades</summary>
+          <div className="options-scenario-table-wrap">
+            <table className="options-scenario-table">
+              <thead><tr><th>#</th><th>Strategy</th><th>Expiry</th><th>Max loss</th><th>POP</th><th>Score</th></tr></thead>
+              <tbody>{pick.alternatives.map((alt) => (
+                <tr key={alt.candidate.id}>
+                  <td>{alt.rank}</td><td>{alt.candidate.label}</td><td>{alt.candidate.expirationDate}</td>
+                  <td>{dollars(alt.candidate.maxLoss)}</td>
+                  <td>{(alt.candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%</td>
+                  <td>{alt.compositeScore.toFixed(1)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
+      <p className="options-assumptions">{pick.disclaimer}</p>
+    </section>
+  );
+}
 
 function defaultTargetDate(): string {
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -158,6 +227,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [maxIronCondors, setMaxIronCondors] = useState("100");
   const [eventPolicy, setEventPolicy] = useState<"warn" | "exclude">("warn");
   const [allowedStrategies, setAllowedStrategies] = useState<OptionStrategyType[]>(["long_call", "call_debit_spread"]);
+  const [riskProfile, setRiskProfile] = useState<RiskProfile>("balanced");
+  const [bestTrade, setBestTrade] = useState<BestTradeData | null>(null);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
   const [screenMeta, setScreenMeta] = useState<any>(null);
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
@@ -176,13 +247,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
       : [...current, strategy]);
   };
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const run = async (mode: "rank" | "best") => {
     setLoading(true);
     setError("");
     setResult(null);
+    setBestTrade(null);
     try {
-      const response = await fetch("/api/trading/options/recommend", {
+      const response = await fetch(mode === "best" ? "/api/trading/options/best-trade" : "/api/trading/options/recommend", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -209,11 +280,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           maxIronCondors: Number(maxIronCondors),
           allowedStrategies,
           eventPolicy,
+          ...(mode === "best" ? { riskProfile, alternatives: 3 } : {}),
         }),
       });
       const data = await response.json() as any;
       if (!response.ok) throw new Error(data.error || "Strategy research request failed");
-      setResult(data as StrategyRecommendationResult);
+      if (mode === "best") setBestTrade(data.bestTrade as BestTradeData);
+      else setResult(data as StrategyRecommendationResult);
       setScreenMeta(data.screen);
       setExcludedContracts(data.contractRejections || []);
     } catch (cause) {
@@ -221,6 +294,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
     } finally {
       setLoading(false);
     }
+  };
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void run("rank");
   };
 
   const submitNaturalLanguage = async (event: React.FormEvent) => {
@@ -268,7 +346,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
             value={nlqQuery}
             onChange={(event) => setNlqQuery(event.target.value)}
             placeholder="Screen call options with 20 to 45 DTE"
+            list="options-nlq-examples"
           />
+          <datalist id="options-nlq-examples">{nlqExamples.map((example) => <option key={example} value={example} />)}</datalist>
         </label>
         <label className="options-field">
           <span>Maximum underlyings to scan</span>
@@ -294,13 +374,18 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           />
         </label>
         <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
-          {nlqLoading ? "Screening…" : "Screen contracts"}
+          {nlqLoading ? "Screening…" : "Ask"}
         </button>
+        <div className="options-nlq-examples">
+          {nlqExamples.map((example) => (
+            <button type="button" key={example} onClick={() => setNlqQuery(example)}>{example}</button>
+          ))}
+        </div>
       </form>
       {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
       {nlqResult && (
         <div className="options-nlq-result" role="status">
-          <strong>{nlqResult.count ?? 0} option contracts matched</strong>
+          <strong>{nlqResult.count ?? 0} result rows</strong>
           <p>{nlqResult.validationError || nlqResult.summary}</p>
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && (
             <div className="options-scenario-table-wrap">
@@ -432,15 +517,28 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           </div>
         </fieldset>
 
+        <label className="options-field">
+          <span>Best-trade risk profile</span>
+          <select value={riskProfile} onChange={(event) => setRiskProfile(event.target.value as RiskProfile)}>
+            <option value="conservative">Conservative (favor probability and capital safety)</option>
+            <option value="balanced">Balanced</option>
+            <option value="aggressive">Aggressive (favor reward/risk)</option>
+          </select>
+        </label>
+
         <div className="options-form-footer">
           <p>All thresholds and search/result limits are set above. Stale/unknown quote ages are labeled and scored, not excluded on age alone. Zero-bid, crossed, and adjusted contracts are excluded as invalid/non-standard instruments.</p>
           <button type="submit" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice}>
             {loading ? "Evaluating candidates…" : "Rank research candidates"}
           </button>
+          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("best")}>
+            {loading ? "Evaluating…" : "Pick best trade"}
+          </button>
         </div>
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
+      {bestTrade && <BestTradeCard pick={bestTrade} />}
       {result && (
         <div className="options-results">
           <div className="options-results-header">

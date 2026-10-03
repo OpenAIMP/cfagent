@@ -7,6 +7,7 @@ import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 
 export const nlqPlanSchema = z.object({
@@ -32,6 +33,8 @@ export const nlqPlanSchema = z.object({
           "execute_order",
           "positions",
           "options_screen",
+          "options_strategies",
+          "options_best_trade",
           "watchlist_save",
           "watchlist_list",
           "watchlist_details",
@@ -390,6 +393,24 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
         action: "watchlist_list",
       },
       terms: "watchlists",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 3b2. Multi-leg strategy screener and best-trade picker (options agents 2 and 3)
+  const strategyIntent = parseOptionsStrategyIntent(question);
+  if (strategyIntent) {
+    return {
+      domain: "trading",
+      operation: "search",
+      tradingData: {
+        action: strategyIntent.action,
+        symbol: strategyIntent.filters.request.symbol,
+        filters: strategyIntent.filters as unknown as Record<string, any>,
+      },
+      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
       role: "any",
       since: null,
       limit: 25,
@@ -1790,6 +1811,24 @@ export async function executeNLQQueryAsync(
           marketValue: `$${p.marketValue.toFixed(2)}`,
           unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
         })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_strategies" || action === "options_best_trade") {
+      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : "etrade_options_strategies",
+        count: res.count,
+        status: res.status,
+        summary: res.summary,
+        validationError: res.validationError,
+        quoteQuality: res.quoteQuality as NLQQueryResult["quoteQuality"],
+        rejections: res.rejections as NLQQueryResult["rejections"],
+        provenance: res.bestTrade ? { bestTrade: res.bestTrade } : undefined,
+        rows: res.rows,
         executedAt,
       };
     }
