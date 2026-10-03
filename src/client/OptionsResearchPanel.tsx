@@ -63,6 +63,39 @@ interface BestTradeData {
   disclaimer: string;
 }
 
+interface ComparisonData {
+  quant: {
+    ranked: Array<{ rank: number; compositeScore: number; candidate: StrategyCandidate }>;
+    scoreWeights: StrategyRecommendationResult["scoreWeights"];
+    candidateCount: number;
+  };
+  llm: {
+    status: "complete" | "error";
+    model?: string;
+    error?: string;
+    ranked?: Array<{ candidateId: string; rank?: number; score: number; rationale: string; risks: string[] }>;
+  };
+}
+
+interface LlmIdeasData {
+  mode: "validated_candidate_ideas";
+  llm: {
+    status: "complete" | "error";
+    model?: string;
+    error?: string;
+    ideas?: Array<{
+      candidateId: string;
+      rank?: number;
+      score: number;
+      rationale: string;
+      risks: string[];
+      candidate?: StrategyCandidate;
+    }>;
+  };
+  quantCandidatePoolCount: number;
+  ideaPoolCount: number;
+}
+
 function BestTradeCard({ pick }: { pick: BestTradeData }) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
@@ -106,6 +139,81 @@ function BestTradeCard({ pick }: { pick: BestTradeData }) {
         </details>
       )}
       <p className="options-assumptions">{pick.disclaimer}</p>
+    </section>
+  );
+}
+
+function RecommendationComparison({ data }: { data: ComparisonData }) {
+  const llmById = new Map((data.llm.ranked || []).map((item) => [item.candidateId, item]));
+
+  return (
+    <section className="options-comparison" aria-label="Quant and LLM recommendation comparison">
+      <header className="options-results-header">
+        <h2>Quant vs. LLM ranking</h2>
+        <span>{data.llm.model || "Configured Workers AI model"} · {data.quant.candidateCount} shared candidates</span>
+      </header>
+      <p className="options-comparison-note">
+        Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The LLM score is a subjective assessment, not a pricing model or forecast.
+      </p>
+      {data.llm.status === "error" && <div className="options-error" role="alert">Quant results are available, but the LLM ranking failed: {data.llm.error}</div>}
+      {data.quant.ranked.length === 0 ? <p>No quant candidates passed the request constraints.</p> : (
+        <div className="options-table-scroll">
+          <table className="options-comparison-table">
+            <thead><tr><th>Strategy</th><th>Quant rank</th><th>Quant score</th><th>LLM rank</th><th>LLM score</th><th>LLM rationale</th><th>LLM risks</th></tr></thead>
+            <tbody>{data.quant.ranked.map((item) => {
+              const judgment = llmById.get(item.candidate.id);
+              return (
+                <tr key={item.candidate.id}>
+                  <td>{item.candidate.label}</td>
+                  <td>{item.rank}</td>
+                  <td>{item.compositeScore.toFixed(2)}</td>
+                  <td>{judgment?.rank ?? "—"}</td>
+                  <td>{judgment ? judgment.score.toFixed(0) : "—"}</td>
+                  <td>{judgment?.rationale || "—"}</td>
+                  <td>{judgment?.risks.join("; ") || "—"}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+      )}
+      {data.llm.status === "complete" && (data.llm.ranked || []).length === 0 && data.quant.ranked.length > 0 && (
+        <p>The LLM returned no ranking for this candidate set.</p>
+      )}
+      <p className="options-assumptions">Research comparison only; neither ranking is personalized financial advice or an instruction to trade. Verify live quotes and all assumptions before acting.</p>
+    </section>
+  );
+}
+
+function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
+  return (
+    <section className="options-comparison" aria-label="Validated LLM strategy ideas">
+      <header className="options-results-header">
+        <h2>LLM idea-generation experiment</h2>
+        <span>{data.llm.model || "Configured Workers AI model"} · {data.ideaPoolCount} candidates considered</span>
+      </header>
+      <p className="options-comparison-note">
+        Ideas are selected from quant-generated candidates and validated against their available contracts and risk calculations. This experiment does not allow the LLM to invent legs or override quant risk filters.
+      </p>
+      {data.llm.status === "error" && <div className="options-error" role="alert">LLM idea generation failed: {data.llm.error}</div>}
+      {data.llm.ideas?.length ? (
+        <div className="options-table-scroll">
+          <table className="options-comparison-table">
+            <thead><tr><th>Rank</th><th>Strategy</th><th>LLM score</th><th>Quant score</th><th>Legs</th><th>Rationale</th><th>Risks</th></tr></thead>
+            <tbody>{data.llm.ideas.map((idea) => (
+              <tr key={idea.candidateId}>
+                <td>{idea.rank}</td>
+                <td>{idea.candidate?.label || idea.candidateId}</td>
+                <td>{idea.score.toFixed(0)}</td>
+                <td>{idea.candidate?.score.toFixed(2) ?? "—"}</td>
+                <td>{idea.candidate?.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol}`).join(" / ") || "—"}</td>
+                <td>{idea.rationale}</td>
+                <td>{idea.risks.join("; ") || "—"}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : data.llm.status === "complete" ? <p>No validated ideas were selected from {data.quantCandidatePoolCount} quant-generated candidates.</p> : null}
     </section>
   );
 }
@@ -249,6 +357,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [bestTrade, setBestTrade] = useState<BestTradeData | null>(null);
   const [evaluations, setEvaluations] = useState<StrategyEvaluation[]>([]);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
+  const [comparison, setComparison] = useState<ComparisonData | null>(null);
+  const [llmIdeas, setLlmIdeas] = useState<LlmIdeasData | null>(null);
   const [screenMeta, setScreenMeta] = useState<any>(null);
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
   const [error, setError] = useState("");
@@ -267,14 +377,23 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
     });
   };
 
-  const run = async (mode: "rank" | "best") => {
+  const run = async (mode: "rank" | "best" | "compare" | "ideas") => {
     setLoading(true);
     setError("");
     setResult(null);
     setBestTrade(null);
     setEvaluations([]);
+    setComparison(null);
+    setLlmIdeas(null);
     try {
-      const response = await fetch(mode === "best" ? "/api/trading/options/best-trade" : "/api/trading/options/recommend", {
+      const endpoint = mode === "best"
+        ? "/api/trading/options/best-trade"
+        : mode === "compare"
+          ? "/api/trading/options/compare"
+          : mode === "ideas"
+            ? "/api/trading/options/llm-ideas"
+            : "/api/trading/options/recommend";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -301,11 +420,21 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           maxIronCondors: Number(maxIronCondors),
           allowedStrategies,
           eventPolicy,
-          ...(mode === "best" ? { riskProfile, alternatives: 3 } : {}),
+          ...(mode === "best" || mode === "compare" || mode === "ideas" ? { riskProfile, alternatives: 3 } : {}),
         }),
       });
       const data = await response.json() as any;
       if (!response.ok) throw new Error(data.error || "Strategy research request failed");
+      if (mode === "compare") {
+        setComparison(data as ComparisonData);
+        setScreenMeta(data.screen);
+        return;
+      }
+      if (mode === "ideas") {
+        setLlmIdeas(data as LlmIdeasData);
+        setScreenMeta(data.screen);
+        return;
+      }
       if (mode === "best") {
         setBestTrade(data.bestTrade as BestTradeData);
         setEvaluations((data.evaluations || []) as StrategyEvaluation[]);
@@ -576,11 +705,19 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("best")}>
             {loading ? "Evaluating…" : "Pick best trade"}
           </button>
+          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("compare")}>
+            {loading ? "Comparing…" : "Compare Quant vs LLM"}
+          </button>
+          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("ideas")}>
+            {loading ? "Testing ideas…" : "LLM idea experiment"}
+          </button>
         </div>
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
       {bestTrade && <BestTradeCard pick={bestTrade} />}
+      {comparison && <RecommendationComparison data={comparison} />}
+      {llmIdeas && <LlmIdeasExperiment data={llmIdeas} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
         <div className="options-results">

@@ -1,6 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
-import { getWorkersAIModel } from "./model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "./nlq";
 import { DatabaseORM } from "../orm";
@@ -14,6 +14,7 @@ import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
+import { generateLlmCandidateIdeas, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2334,6 +2335,117 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
+    if ((path.endsWith("/trading/options/compare") || path.endsWith("/trading/options/llm-ideas")) && request.method === "POST") {
+      const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
+        riskProfile?: RiskProfile;
+        alternatives?: number;
+      }) | null;
+      const validationError = validateStrategyRequest(body);
+      if (validationError || !body) {
+        return Response.json({ error: validationError || "Invalid strategy request." }, { status: 400 });
+      }
+      if (body.riskProfile !== undefined && !["conservative", "balanced", "aggressive"].includes(body.riskProfile)) {
+        return Response.json({ error: "riskProfile must be conservative, balanced, or aggressive." }, { status: 400 });
+      }
+
+      try {
+        const strategyRequest = body as StrategyRequest;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+        const result = await pipeline.run(strategyRequest, {
+          riskProfile: body.riskProfile,
+          alternatives: body.alternatives,
+        });
+        const common = { screen: result.snapshot.screen, contractRejections: result.snapshot.rejections };
+
+        if (path.endsWith("/trading/options/compare")) {
+          const candidates = result.ranked.slice(0, 20);
+          try {
+            const llm = await rankCandidatesWithLlm(
+              this.env,
+              strategyRequest,
+              body.riskProfile || "balanced",
+              result.snapshot.contracts,
+              candidates.map((ranked) => ranked.candidate),
+            );
+            return Response.json({
+              mode: "same_candidate_ranking",
+              quant: {
+                ranked: candidates,
+                scoreWeights: result.strategies.scoreWeights,
+                candidateCount: candidates.length,
+              },
+              llm: { status: "complete", ...llm },
+              ...common,
+            });
+          } catch (err) {
+            return Response.json({
+              mode: "same_candidate_ranking",
+              quant: {
+                ranked: candidates,
+                scoreWeights: result.strategies.scoreWeights,
+                candidateCount: candidates.length,
+              },
+              llm: {
+                status: "error",
+                model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
+                error: err instanceof Error ? err.message : "LLM ranking failed.",
+              },
+              ...common,
+            });
+          }
+        }
+
+        const bestByStrategy = new Map<string, typeof result.strategies.candidates[number]>();
+        for (const candidate of result.strategies.candidates) {
+          const current = bestByStrategy.get(candidate.type);
+          if (!current || candidate.score > current.score) bestByStrategy.set(candidate.type, candidate);
+        }
+        const ideaPool = [...bestByStrategy.values()]
+          .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+          .slice(0, 50);
+        try {
+          const llm = await generateLlmCandidateIdeas(
+            this.env,
+            strategyRequest,
+            body.riskProfile || "balanced",
+            result.snapshot.contracts,
+            ideaPool,
+          );
+          const byId = new Map(ideaPool.map((candidate) => [candidate.id, candidate]));
+          return Response.json({
+            mode: "validated_candidate_ideas",
+            llm: {
+              status: "complete",
+              model: llm.model,
+              ideas: llm.ranked.map((judgment) => ({
+                ...judgment,
+                candidate: byId.get(judgment.candidateId),
+              })),
+            },
+            quantCandidatePoolCount: result.strategies.candidates.length,
+            ideaPoolCount: ideaPool.length,
+            ...common,
+          });
+        } catch (err) {
+          return Response.json({
+            mode: "validated_candidate_ideas",
+            llm: {
+              status: "error",
+              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
+              error: err instanceof Error ? err.message : "LLM idea generation failed.",
+            },
+            quantCandidatePoolCount: result.strategies.candidates.length,
+            ideaPoolCount: ideaPool.length,
+            ...common,
+          });
+        }
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options candidate generation failed." }, { status: 500 });
+      }
+    }
+
     if (path.endsWith("/trading/options/recommend") && request.method === "POST") {
       const body = await request.json().catch(() => null) as Partial<StrategyRequest> | null;
       const validationError = validateStrategyRequest(body);
