@@ -36,7 +36,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [exchangeFilter, setExchangeFilter] = useState<"ALL" | "NASDAQ" | "NYSE" | "AMEX">("ALL");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-  const [stockResultLimit, setStockResultLimit] = useState("100");
+  const [stockResultLimit, setStockResultLimit] = useState("");
   const [marketCapPreset, setMarketCapPreset] = useState<string>("all");
   const [perfFilter, setPerfFilter] = useState<"all" | "gainers" | "losers">("all");
   const [screenerSearch, setScreenerSearch] = useState("");
@@ -643,7 +643,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setScreenerLoading(true);
     setScanMessage("");
     try {
-      const body: Record<string, any> = { limit: Number(stockResultLimit) };
+      const body: Record<string, any> = {};
+      if (stockResultLimit.trim()) body.limit = Number(stockResultLimit);
       body.exchange = exchangeFilter;
       if (minPrice.trim()) body.minPrice = Number(minPrice);
       if (maxPrice.trim()) body.maxPrice = Number(maxPrice);
@@ -1700,11 +1701,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             </div>
 
             <div className="control-item">
-              <label>Maximum results</label>
+              <label>Maximum results (blank = all matches)</label>
               <input
                 type="number"
                 min="1"
-                max="5000"
                 step="1"
                 value={stockResultLimit}
                 onChange={(event) => setStockResultLimit(event.target.value)}

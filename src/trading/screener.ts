@@ -572,8 +572,9 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
     }
 
-    const limit = filter.limit || 25;
-    const finalStocks = passedStocks.slice(0, limit);
+    const finalStocks = filter.limit !== undefined && filter.limit > 0
+      ? passedStocks.slice(0, filter.limit)
+      : passedStocks;
 
     return {
       totalScanned: universe.length,
@@ -710,9 +711,23 @@ export class DynamicMarketScreener implements IMarketScreener {
 
     if (unsupported.length > 0) {
       const message = `The dynamic listing feed does not provide ${unsupported.join(", ")} data. Those criteria were not applied; use only price, daily change, market cap, and ticker/company search.`;
-      const screened = this.screenWithQuotes(quotes, filter, false);
+      const scannedAt = new Date().toISOString();
       return {
-        ...screened,
+        totalScanned: quotes.length,
+        totalScreened: quotes.length,
+        matchedCount: 0,
+        filterApplied: filter,
+        filterSummary: message,
+        stocks: [],
+        scannedAt,
+        status: "no_matches",
+        ledger: {
+          universeSymbols: quotes.map((quote) => quote.symbol),
+          totalEvaluated: quotes.length,
+          passedCount: 0,
+          rejectedCount: quotes.length,
+          rejections: quotes.map((quote) => ({ symbol: quote.symbol, reason: message })),
+        },
         validationError: message,
         discovery: {
           mode: "all_us_listings",

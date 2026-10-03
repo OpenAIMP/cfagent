@@ -413,14 +413,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <input type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
         </label>
         <label className="options-field">
-          <span>Strike candidates per side</span>
-          <input type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Iron condor combinations</span>
-          <input type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
-        </label>
-        <label className="options-field">
           <span>Earnings/dividend policy</span>
           <select value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
             <option value="warn">Warn if event data unavailable</option>
