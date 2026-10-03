@@ -51,6 +51,36 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
   // 1. Cloudflare Email Trading Agent Tests
   // =========================================================================
   describe("ETradeEmailTradingService", () => {
+    it("sends report workbooks as MIME attachments", async () => {
+      let sentMessage = "";
+      const emailEnv: Env = {
+        ...mockEnv,
+        EMAIL: {
+          send: vi.fn(async (message: ReadableStream<Uint8Array>) => {
+            sentMessage = await new Response(message).text();
+          }),
+        },
+      };
+      const emailService = new ETradeEmailTradingService(emailEnv, orm, sessionId);
+
+      const sent = await emailService.sendOutboundEmail(
+        "analyst@example.com",
+        "Research report: NVDA",
+        "<p>Attached</p>",
+        "Attached",
+        {
+          fileName: "nvda.xlsx",
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          contentBase64: "UEsDBA==",
+        },
+      );
+
+      expect(sent).toBe(true);
+      expect(sentMessage).toContain("multipart/mixed");
+      expect(sentMessage).toContain('filename="nvda.xlsx"');
+      expect(sentMessage).toContain("UEsDBA==");
+    });
+
     it("handles real-time stock quote inquiries via email", async () => {
       const emailService = new ETradeEmailTradingService(mockEnv, orm, sessionId);
       const payload: InboundEmailPayload = {

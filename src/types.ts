@@ -914,7 +914,7 @@ export interface SlackBlockKitPayload {
 
 export interface SlackEventResult {
   handled: boolean;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored";
+  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored";
   response?: SlackBlockKitPayload;
   orderId?: string;
   challenge?: string;
@@ -960,7 +960,7 @@ export interface VoiceTradingTurnResponse {
   success: boolean;
   spokenText: string;
   displayMarkdown: string;
-  actionType: "quote" | "screener" | "options_screener" | "watchlist" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "agentic_payment" | "general" | "error";
+  actionType: "quote" | "screener" | "options_screener" | "options_research" | "watchlist" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "agentic_payment" | "general" | "error";
   orderId?: string;
   orderDraft?: ETradeOrderDraft;
   orderStatus?: "previewed" | "executed" | "rejected" | "not_found";
@@ -1283,6 +1283,5 @@ export interface TWAPOrderConfig {
   intervalSeconds: number;
   maxPrice?: number;
 }
-
 
 

@@ -21,6 +21,7 @@ import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeVoiceTradingService } from "../trading/voice/agent";
+import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import { ScheduledTasksService } from "../services/scheduledTasks";
@@ -645,6 +646,74 @@ Agentic Best Practices & Workflow Rules:
     const path = url.pathname;
     const sql = this.ensureTables();
     const sessionId = this.sessionKey();
+
+    if (path.endsWith("/trading/reports/email") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as {
+        to?: string;
+        fileName?: string;
+        attachmentBase64?: string;
+        title?: string;
+      } | null;
+      const recipient = typeof body?.to === "string" ? body.to.trim() : "";
+      const fileName = typeof body?.fileName === "string" ? body.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") : "";
+      const attachmentBase64 = typeof body?.attachmentBase64 === "string" ? body.attachmentBase64 : "";
+      if (!body || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(recipient)) {
+        return Response.json({ error: "A valid email recipient is required." }, { status: 400 });
+      }
+      if (!fileName.toLowerCase().endsWith(".xlsx") || !/^[A-Za-z0-9+/]+={0,2}$/.test(attachmentBase64) || attachmentBase64.length > 7_000_000) {
+        return Response.json({ error: "A valid .xlsx workbook under 5 MB is required." }, { status: 400 });
+      }
+      let workbookBytes: Uint8Array;
+      try {
+        const binary = atob(attachmentBase64);
+        workbookBytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      } catch {
+        return Response.json({ error: "The workbook attachment is not valid base64." }, { status: 400 });
+      }
+      if (workbookBytes.length > 5 * 1024 * 1024 || workbookBytes[0] !== 0x50 || workbookBytes[1] !== 0x4b) {
+        return Response.json({ error: "The attachment must be a valid .xlsx workbook under 5 MB." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
+      const title = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+      const sent = await emailService.sendOutboundEmail(
+        recipient,
+        `Research report: ${title}`,
+        "<p>Your requested research workbook is attached.</p><p>Research only; no trades were placed.</p>",
+        "Your requested research workbook is attached.\nResearch only; no trades were placed.",
+        {
+          fileName,
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          contentBase64: attachmentBase64,
+        },
+      );
+      if (!sent) return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
+      this.audit("research_report.emailed", "trading", { recipient, fileName });
+      return Response.json({ success: true });
+    }
+
+    if (path.endsWith("/trading/reports/webhook") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as {
+        title?: string;
+        query?: string;
+        sheets?: Array<{ name: string; rows: Array<Record<string, unknown>> }>;
+      } | null;
+      if (!body || !Array.isArray(body.sheets) || body.sheets.length === 0 ||
+        body.sheets.some((sheet) => !sheet || typeof sheet.name !== "string" || !Array.isArray(sheet.rows))) {
+        return Response.json({ error: "A research report with named data sheets is required." }, { status: 400 });
+      }
+      const reportData = JSON.stringify({ title: body.title || "Research report", query: body.query || "", sheets: body.sheets });
+      if (reportData.length > 512_000) return Response.json({ error: "The recommendation report exceeds the 512 KB webhook limit." }, { status: 413 });
+      if (!this.env.OUTBOUND_WEBHOOK_URL || !this.env.OUTBOUND_WEBHOOK_SECRET) {
+        return Response.json({ error: "Configure OUTBOUND_WEBHOOK_URL and OUTBOUND_WEBHOOK_SECRET to publish recommendations." }, { status: 503 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const webhook = new ETradeWebhookService(this.getOrm(), this.env, userLogin);
+      const result = await webhook.dispatchOutboundWebhook("research.recommendations", JSON.parse(reportData));
+      if (!result.success) return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status: 502 });
+      this.audit("research_report.webhook_dispatched", "trading", { status: result.status, sheets: body.sheets.length });
+      return Response.json({ success: true, status: result.status });
+    }
 
     // Model Context Protocol (MCP) Server Endpoint (JSON-RPC 2.0 & Discovery)
     if (path.endsWith("/mcp")) {
@@ -2357,7 +2426,11 @@ Agentic Best Practices & Workflow Rules:
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
-        const common = { screen: result.snapshot.screen, contractRejections: result.snapshot.rejections };
+        const common = {
+          screen: result.snapshot.screen,
+          contracts: result.snapshot.contracts,
+          contractRejections: result.snapshot.rejections,
+        };
 
         if (path.endsWith("/trading/options/compare")) {
           const candidates = result.ranked.slice(0, 20);
@@ -2472,6 +2545,7 @@ Agentic Best Practices & Workflow Rules:
         const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
         return Response.json({
           ...recommendations,
+          contracts: screened.contracts,
           screen: {
             scannedAt: screened.scannedAt,
             underlyingsScanned: screened.totalUnderlyingsScanned,
@@ -2509,7 +2583,11 @@ Agentic Best Practices & Workflow Rules:
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
-        const common = { screen: result.snapshot.screen, contractRejections: result.snapshot.rejections };
+        const common = {
+          screen: result.snapshot.screen,
+          contracts: result.snapshot.contracts,
+          contractRejections: result.snapshot.rejections,
+        };
         if (path.endsWith("/best-trade")) {
           return Response.json({ bestTrade: result.bestTrade, evaluations: result.strategies.evaluations, nameLedger: result.strategies.nameLedger, ...common });
         }

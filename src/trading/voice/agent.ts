@@ -330,6 +330,56 @@ export class ETradeVoiceTradingService {
       const domain = plan.domain;
       const action = plan.tradingData?.action || "query";
 
+      if (domain === "research") {
+        const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        const topResults = rows.slice(0, 3).map((row) => {
+          const symbol = String(row.symbol || row.company || row.companyName || "Research result");
+          const price = row.currentPrice || row.price || row.lastPrice;
+          const rating = row.analystRating || row.recommendation || row.recommendationKey;
+          return `${symbol}${price ? ` at ${price}` : ""}${rating ? `, rating ${rating}` : ""}`;
+        }).join("; ");
+        const spokenText = tuneFinancialPronunciation(
+          `${nlqRes.summary || "Market research completed."}${topResults ? ` Key results: ${topResults}.` : ""}`
+        );
+        const details = rows.slice(0, 10).map((row) =>
+          `| ${String(row.symbol || row.company || row.companyName || "Research result")} | ${String(row.currentPrice || row.price || row.lastPrice || "—")} | ${String(row.analystRating || row.recommendation || row.recommendationKey || "—")} |`
+        ).join("\n");
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown: `### Market Research Results\n\n${nlqRes.summary || "Market research completed."}\n\n` +
+            (details ? `| Symbol / Company | Price | Rating |\n|---|---:|---|\n${details}` : ""),
+          actionType: "general",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      if (domain === "trading" && ["options_screen", "options_strategies", "options_best_trade", "options_opportunities"].includes(action)) {
+        const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        const topResults = rows.slice(0, 3).map((row, index) => {
+          const label = String(row.label || row.strategy || row.contractSymbol || row.symbol || `result ${index + 1}`);
+          const score = row.score ?? row.compositeScore;
+          return `${label}${score !== undefined ? `, score ${score}` : ""}`;
+        }).join("; ");
+        const spokenRaw = `${nlqRes.summary || "Options research completed."}${topResults ? ` Top results: ${topResults}.` : ""} This is research only; no orders were placed.`;
+        const spokenText = tuneFinancialPronunciation(spokenRaw);
+        const displayRows = rows.slice(0, 10).map((row) =>
+          `| ${String(row.label || row.strategy || row.contractSymbol || row.symbol || "Result")} | ${String(row.rank ?? "—")} | ${String(row.score ?? row.compositeScore ?? "—")} | ${String(row.reason || row.summary || row.status || "—")} |`
+        ).join("\n");
+        const displayMarkdown = `### Options Research Results\n\n${nlqRes.summary || "Options research completed."}\n\n` +
+          (displayRows ? `| Strategy / Contract | Rank | Score | Reason |\n|---|---:|---:|---|\n${displayRows}\n\n` : "") +
+          `> Research only — no orders were placed.`;
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown,
+          actionType: "options_research",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
       // Case A: Real-Time Stock Quote
       if (domain === "trading" && action === "quote") {
         const q: Record<string, any> = (nlqRes.rows?.[0] || {}) as any;

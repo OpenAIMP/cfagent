@@ -508,34 +508,67 @@ export class ETradeEmailTradingService {
   /**
    * Send outbound reply email via Cloudflare Email binding if available
    */
-  async sendOutboundEmail(to: string, subject: string, html: string, text: string): Promise<boolean> {
+  async sendOutboundEmail(
+    to: string,
+    subject: string,
+    html: string,
+    text: string,
+    attachment?: { fileName: string; contentType: string; contentBase64: string }
+  ): Promise<boolean> {
+    if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(to) || /[\r\n]/.test(subject)) {
+      throw new Error("Invalid outbound email recipient or subject.");
+    }
     if (this.env.EMAIL && typeof this.env.EMAIL.send === "function") {
       try {
         const fromAddress = this.env.EMAIL_AGENT_ADDRESS || "trade@agent.openaimp.com";
-        // Create standard MIME message using PostalMime / MimeText or raw RFC-822 stream
-        const boundary = `----=_Part_${Date.now()}`;
-        const rawMime = [
+        const alternativeBoundary = `----=_Alternative_${crypto.randomUUID()}`;
+        const mixedBoundary = `----=_Mixed_${crypto.randomUUID()}`;
+        const rawParts = [
           `From: "E*TRADE Agentic Trading Hub" <${fromAddress}>`,
           `To: <${to}>`,
           `Subject: ${subject}`,
           `MIME-Version: 1.0`,
-          `Content-Type: multipart/alternative; boundary="${boundary}"`,
+          `Content-Type: ${attachment ? `multipart/mixed; boundary="${mixedBoundary}"` : `multipart/alternative; boundary="${alternativeBoundary}"`}`,
           `X-Agent-DID: ${AGENT_DIDS.TRADING}`,
           ``,
-          `--${boundary}`,
+        ];
+        if (attachment) {
+          rawParts.push(
+            `--${mixedBoundary}`,
+            `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
+            ``,
+          );
+        }
+        rawParts.push(
+          `--${alternativeBoundary}`,
           `Content-Type: text/plain; charset=UTF-8`,
           `Content-Transfer-Encoding: 7bit`,
           ``,
           text,
           ``,
-          `--${boundary}`,
+          `--${alternativeBoundary}`,
           `Content-Type: text/html; charset=UTF-8`,
           `Content-Transfer-Encoding: 7bit`,
           ``,
           html,
           ``,
-          `--${boundary}--`,
-        ].join("\r\n");
+          `--${alternativeBoundary}--`,
+        );
+        if (attachment) {
+          const safeFileName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "research.xlsx";
+          rawParts.push(
+            ``,
+            `--${mixedBoundary}`,
+            `Content-Type: ${attachment.contentType}; name="${safeFileName}"`,
+            `Content-Disposition: attachment; filename="${safeFileName}"`,
+            `Content-Transfer-Encoding: base64`,
+            ``,
+            attachment.contentBase64.match(/.{1,76}/g)?.join("\r\n") || "",
+            ``,
+            `--${mixedBoundary}--`,
+          );
+        }
+        const rawMime = rawParts.join("\r\n");
 
         await this.env.EMAIL.send(new Response(rawMime).body);
         return true;

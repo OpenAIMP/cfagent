@@ -10,6 +10,7 @@ import {
   TradeRecord,
 } from "../types";
 import { OptionsResearchPanel } from "./OptionsResearchPanel";
+import { ResearchReportActions } from "./ResearchReportActions";
 
 export interface User {
   login: string;
@@ -1752,6 +1753,20 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             <span className="results-timestamp">Last Scan: {scannedAt || "Just now"}</span>
           </div>
           {scanMessage && <div className="stock-screener-source-note" role="status">{scanMessage}</div>}
+          <ResearchReportActions
+            title="E-TRADE stock research"
+            query={nlqQuery || `Screen E*TRADE stocks using the current filters`}
+            userLogin={user?.login}
+            sheets={[
+              { name: "Stock data", rows: screenerStocks as unknown as Array<Record<string, unknown>> },
+              { name: "Screen evaluation", rows: [{
+                scannedAt, status: scanStatus, message: scanMessage, universeCount: scanUniverseCount,
+                matchedCount: screenerStocks.length, exchange: exchangeFilter, minPrice, maxPrice,
+                marketCapPreset, performance: perfFilter, search: screenerSearch,
+              }] },
+              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
+            ]}
+          />
 
           {/* Screener Cards / Table Grid */}
           <div className="screener-table-wrap">

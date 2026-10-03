@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { ResearchReportActions } from "./ResearchReportActions";
 import type {
   FossQuote,
   FossCompanyFundamentals,
@@ -727,6 +728,26 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               Data Source: <strong>Yahoo Finance FOSS Engine</strong> {screenerLastScanned ? `• ${screenerLastScanned}` : ""}
             </span>
           </div>
+          <ResearchReportActions
+            title={`${activeSymbol} stock research`}
+            query={nlqQuery || `Run full FOSS market research on ${activeSymbol} using yfinance and Alpaca`}
+            userLogin={user?.login}
+            sheets={[
+              { name: "Stock screen data", rows: screenerStocks as Array<Record<string, unknown>> },
+              { name: "Screen evaluation", rows: [{
+                scannedAt: screenerLastScanned, summary: screenerSummary, matchedCount: screenerStocks.length,
+                search: screenerSearch, sector: screenerSector, gainersOnly: screenerGainersOnly,
+                losersOnly: screenerLosersOnly, minRsi: screenerMinRsi, maxRsi: screenerMaxRsi,
+              }] },
+              { name: "Research report", rows: report ? [report as unknown as Record<string, unknown>] : [] },
+              { name: "Quotes", rows: [activeQuote, yfinanceQuote, alpacaQuote].filter(Boolean) as unknown as Array<Record<string, unknown>> },
+              { name: "Fundamentals", rows: fundamentals ? [fundamentals as unknown as Record<string, unknown>] : [] },
+              { name: "Historical bars", rows: bars as unknown as Array<Record<string, unknown>> },
+              { name: "Market snapshot", rows: snapshot ? [snapshot as unknown as Record<string, unknown>] : [] },
+              { name: "Stock comparison", rows: comparisonResults as unknown as Array<Record<string, unknown>> },
+              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
+            ]}
+          />
 
           {/* Table */}
           {screenerLoading ? (

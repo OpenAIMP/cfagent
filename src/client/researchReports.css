@@ -1,0 +1,67 @@
+.research-report-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.research-report-actions h3,
+.research-report-actions p {
+  margin: 0;
+}
+
+.research-report-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.research-report-controls label,
+.research-report-query {
+  display: grid;
+  flex: 1 1 15rem;
+  gap: 0.35rem;
+}
+
+.research-report-controls input,
+.research-report-query textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0.4rem;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.research-report-actions button {
+  min-height: 2.35rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #38bdf8;
+  border-radius: 0.4rem;
+  background: rgba(14, 165, 233, 0.15);
+  color: #e0f2fe;
+  cursor: pointer;
+}
+
+.research-report-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.research-report-status {
+  color: #86efac;
+}
+
+.research-report-error {
+  color: #fca5a5;
+}
+
+.research-report-disclaimer {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}

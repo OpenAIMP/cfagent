@@ -1382,6 +1382,24 @@ export function Chat({ user }: { user: User }) {
         {/* Navigation Tabs */}
         <nav className="tab-nav">
           <button
+            className={`tab-btn ${tab === "trading" ? "active" : ""}`}
+            onClick={() => setTab("trading")}
+          >
+            📈 E*TRADE Brokerage
+          </button>
+          <button
+            className={`tab-btn ${tab === "research" ? "active" : ""}`}
+            onClick={() => setTab("research")}
+          >
+            🔬 Yahoo Finance Screener
+          </button>
+          <button
+            className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
+            onClick={() => setTab("endpoints")}
+          >
+            🔌 API &amp; MCP Endpoints
+          </button>
+          <button
             className={`tab-btn ${tab === "chat" ? "active" : ""}`}
             onClick={() => setTab("chat")}
           >
@@ -1422,24 +1440,6 @@ export function Chat({ user }: { user: User }) {
             onClick={() => setTab("revenue")}
           >
             💰 Revenue & Ads
-          </button>
-          <button
-            className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
-            onClick={() => setTab("endpoints")}
-          >
-            🔌 API &amp; MCP Endpoints
-          </button>
-          <button
-            className={`tab-btn ${tab === "trading" ? "active" : ""}`}
-            onClick={() => setTab("trading")}
-          >
-            📈 E*TRADE Brokerage
-          </button>
-          <button
-            className={`tab-btn ${tab === "research" ? "active" : ""}`}
-            onClick={() => setTab("research")}
-          >
-            🔬 Yahoo Finance Screener
           </button>
         </nav>
 

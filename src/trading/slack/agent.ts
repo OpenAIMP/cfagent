@@ -359,6 +359,71 @@ export class ETradeSlackTradingService {
         };
       }
 
+      if (domain === "research") {
+        const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        const details = rows.slice(0, 5).map((row) => {
+          const label = String(row.symbol || row.company || row.companyName || "Research result");
+          const fields = Object.entries(row)
+            .filter(([key]) => !["symbol", "company", "companyName"].includes(key))
+            .slice(0, 6)
+            .map(([key, value]) => `${key}: ${String(value)}`)
+            .join(" · ");
+          return `• *${label}*${fields ? ` — ${fields}` : ""}`;
+        }).join("\n");
+        const reportText = `${nlqRes.summary || "Market research completed."}${details ? `\n\n${details}` : ""}`;
+        blockKitMessage = {
+          channel,
+          thread_ts: threadTs,
+          text: reportText.slice(0, 3000),
+          blocks: [
+            { type: "header", text: { type: "plain_text", text: "Market Research Results", emoji: true } },
+            { type: "section", text: { type: "mrkdwn", text: reportText.slice(0, 2900) } },
+          ],
+        };
+        await this.postSlackMessage(blockKitMessage);
+        return {
+          handled: true,
+          actionType: "general",
+          response: blockKitMessage,
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      if (domain === "trading" && ["options_screen", "options_strategies", "options_best_trade", "options_opportunities"].includes(action)) {
+        const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        const details = rows.slice(0, 5).map((row, index) => {
+          const label = String(row.label || row.strategy || row.contractSymbol || row.symbol || `Result ${index + 1}`);
+          const score = row.score ?? row.compositeScore;
+          const reason = row.reason || row.summary || row.status;
+          return `• *${label}*${score !== undefined ? ` — score ${score}` : ""}${reason ? `\n  ${String(reason).slice(0, 250)}` : ""}`;
+        }).join("\n");
+        const reportText = `${nlqRes.summary || "Options research completed."}${details ? `\n\n${details}` : ""}\n\nResearch only — no orders were placed.`;
+        blockKitMessage = {
+          channel,
+          thread_ts: threadTs,
+          text: reportText.slice(0, 3000),
+          blocks: [
+            {
+              type: "header",
+              text: { type: "plain_text", text: "Options Research Results", emoji: true },
+            },
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: reportText.slice(0, 2900) },
+            },
+          ],
+        };
+        await this.postSlackMessage(blockKitMessage);
+        return {
+          handled: true,
+          actionType: "options_research",
+          response: blockKitMessage,
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
       // Default Response
       blockKitMessage = {
         channel,
