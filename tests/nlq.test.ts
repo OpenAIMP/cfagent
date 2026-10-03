@@ -68,6 +68,21 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(plan.targetTable).toBe("mas_categories");
     });
 
+    it("routes strategy evaluation ledger requests ahead of generic table queries", async () => {
+      const plan = await planNLQ(
+        mockEnv,
+        "list all strategies evaluated for NVDA bullish target $260 to get the ledger as a table"
+      );
+
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("options_strategies");
+      expect(plan.tradingData?.symbol).toBe("NVDA");
+      expect(plan.tradingData?.filters).toMatchObject({
+        showEvaluations: true,
+        request: { symbol: "NVDA", thesis: "bullish", targetPrice: 260 },
+      });
+    });
+
     it("classifies conversation questions into domain 'conversation'", async () => {
       const plan = await planNLQ(mockEnv, "How many questions did the user ask?");
       expect(plan.domain).toBe("conversation");

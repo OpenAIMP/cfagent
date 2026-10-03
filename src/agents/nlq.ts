@@ -301,6 +301,24 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
+  // Strategy-ledger requests must win over generic "table" and "ledger" queries.
+  const strategyIntent = parseOptionsStrategyIntent(question);
+  if (strategyIntent) {
+    return {
+      domain: "trading",
+      operation: "search",
+      tradingData: {
+        action: strategyIntent.action,
+        symbol: strategyIntent.filters.request.symbol,
+        filters: strategyIntent.filters as unknown as Record<string, any>,
+      },
+      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
   // 2. Fast-path intent detection for database tables & schema
   if (/\b(tables?|schema|databases?|columns?|catalog)\b/i.test(question) && !/\b(messages?|chats?|categories)\b/i.test(question)) {
     return {
@@ -394,24 +412,6 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
         action: "watchlist_list",
       },
       terms: "watchlists",
-      role: "any",
-      since: null,
-      limit: 25,
-    };
-  }
-
-  // 3b2. Multi-leg strategy screener and best-trade picker (options agents 2 and 3)
-  const strategyIntent = parseOptionsStrategyIntent(question);
-  if (strategyIntent) {
-    return {
-      domain: "trading",
-      operation: "search",
-      tradingData: {
-        action: strategyIntent.action,
-        symbol: strategyIntent.filters.request.symbol,
-        filters: strategyIntent.filters as unknown as Record<string, any>,
-      },
-      terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
       role: "any",
       since: null,
       limit: 25,
