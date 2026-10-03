@@ -97,8 +97,9 @@ export interface NLQQueryResult {
   scanLedger?: StockScreenLedger | Record<string, unknown>;
   quoteQuality?: {
     maxAgeSeconds?: number;
-    staleContractsRejected: number;
-    freshestRejectedAgeSeconds?: number;
+    staleContractsReturned: number;
+    unknownFreshnessContracts: number;
+    freshestStaleQuoteAgeSeconds?: number;
   };
   rejections?: OptionScreenRejection[];
 }
@@ -1751,8 +1752,8 @@ export async function executeNLQQueryAsync(
     if (action === "options_screen") {
       const screener = new DynamicOptionsScreener(etrade.client);
       const res = await screener.screenOptions(plan.tradingData?.filters);
-      const freshnessNote = res.quoteQuality?.staleContractsRejected
-        ? ` Freshness gate: ${res.quoteQuality.staleContractsRejected} contracts were rejected as stale; freshest quote was ${Math.round(res.quoteQuality.freshestRejectedAgeSeconds || 0)}s old (limit ${res.quoteQuality.maxAgeSeconds || 60}s).`
+      const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
+        ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.maxAgeSeconds || 60}s).`
         : "";
       return {
         plan,
@@ -1771,7 +1772,8 @@ export async function executeNLQQueryAsync(
           strike: `$${c.strikePrice.toFixed(2)}`,
           bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
           spreadPercent: `${c.spreadPct.toFixed(2)}%`,
-          quoteAgeSeconds: `${c.quoteAgeSeconds.toFixed(1)}s`,
+          quoteAgeSeconds: c.quoteAgeSeconds !== undefined ? `${c.quoteAgeSeconds.toFixed(1)}s` : "N/A",
+          quoteFreshness: c.quoteFreshness || "UNKNOWN",
           delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
           iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
           volume: (c.volume || 0).toLocaleString(),

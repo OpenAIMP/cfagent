@@ -22,6 +22,7 @@ function makeContracts(): ScreenedOptionContractItem[] {
       spreadPct: 8,
       quoteAgeSeconds: 0,
       quoteTimestamp: new Date(quoteTimestamp).toISOString(),
+      quoteFreshness: "FRESH" as const,
       bidSize: 10,
       askSize: 10,
       lastPrice: 2.5,
@@ -92,7 +93,7 @@ describe("Options strategy and recommendation engine", () => {
     expect(candidate.scenarios.length).toBeGreaterThan(25);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeGreaterThanOrEqual(0);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeLessThanOrEqual(1);
-    expect(candidate.scoreBreakdown.weights.thesisAlignment).toBeCloseTo(0.35);
+    expect(candidate.scoreBreakdown.weights.thesisAlignment).toBeCloseTo(0.30);
   });
 
   it("generates same-expiration defined-risk debit spreads and ranks them deterministically", () => {
@@ -116,6 +117,23 @@ describe("Options strategy and recommendation engine", () => {
 
     expect(result.status).toBe("no_candidates");
     expect(result.excluded.some((entry) => entry.reason.includes("max planned loss"))).toBe(true);
+  });
+
+  it("returns stale-quote research candidates with a freshness score penalty and warning", () => {
+    const staleContracts = makeContracts().map((contract) => ({
+      ...contract,
+      quoteFreshness: "STALE" as const,
+      quoteAgeSeconds: 14_971,
+    }));
+    const result = recommendOptionStrategies(
+      staleContracts,
+      request({ allowedStrategies: ["long_call"] })
+    );
+    const candidate = result.candidates[0];
+
+    expect(candidate?.dataFreshness).toBe("STALE");
+    expect(candidate?.scoreBreakdown.freshness).toBe(25);
+    expect(candidate?.warnings.some((warning) => warning.includes("Stale quote data"))).toBe(true);
   });
 
   it("builds a same-expiration iron condor with finite defined risk", () => {

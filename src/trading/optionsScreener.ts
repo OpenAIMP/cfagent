@@ -276,19 +276,10 @@ export class DynamicOptionsScreener {
           const quoteAgeSeconds = quoteTimestampMs === undefined
             ? undefined
             : (Date.now() - quoteTimestampMs) / 1000;
-          if (
-            quoteAgeSeconds === undefined ||
-            quoteAgeSeconds < 0 ||
-            (filter.maxQuoteAgeSeconds !== undefined && quoteAgeSeconds > filter.maxQuoteAgeSeconds)
-          ) {
-            rejections.push({
-              contractSymbol: contractSym,
-              underlyingSymbol: sym,
-              reason: `Quote is missing, future-dated, or stale (${quoteAgeSeconds?.toFixed(1) ?? "N/A"}s)`,
-              quoteAgeSeconds,
-            });
-            continue;
-          }
+          const maxQuoteAgeSeconds = filter.maxQuoteAgeSeconds ?? DEFAULT_OPTION_FILTERS.maxQuoteAgeSeconds;
+          const quoteFreshness = quoteAgeSeconds === undefined || quoteAgeSeconds < 0
+            ? "UNKNOWN" as const
+            : quoteAgeSeconds > maxQuoteAgeSeconds ? "STALE" as const : "FRESH" as const;
 
           if (c.bid <= 0 || c.ask <= 0 || c.ask < c.bid) {
             rejections.push({
@@ -486,7 +477,10 @@ export class DynamicOptionsScreener {
             strikeDistancePct: strikeDistPct,
             spreadPct,
             quoteAgeSeconds,
-            quoteTimestamp: new Date(quoteTimestampMs as number).toISOString(),
+            quoteFreshness,
+            ...(quoteTimestampMs !== undefined && quoteAgeSeconds !== undefined && quoteAgeSeconds >= 0
+              ? { quoteTimestamp: new Date(quoteTimestampMs).toISOString() }
+              : {}),
             volumeOiRatio: volOiRatio,
             technicalSignal,
             highlightReason: `${sym} $${strike} ${c.optionType} | ${daysToExpiration}d DTE | IV: ${iv === undefined ? "N/A" : `${(iv * 100).toFixed(0)}%`}`,
@@ -501,9 +495,10 @@ export class DynamicOptionsScreener {
 
     const limit = filter.limit || 25;
     const finalContracts = passedContracts.slice(0, limit);
-    const staleRejections = rejections.filter((rejection) => rejection.reason.startsWith("Quote is missing, future-dated, or stale"));
-    const rejectedQuoteAges = staleRejections
-      .map((rejection) => rejection.quoteAgeSeconds)
+    const staleReturned = finalContracts.filter((contract) => contract.quoteFreshness === "STALE");
+    const unknownFreshness = finalContracts.filter((contract) => contract.quoteFreshness === "UNKNOWN");
+    const staleQuoteAges = staleReturned
+      .map((contract) => contract.quoteAgeSeconds)
       .filter((age): age is number => age !== undefined && Number.isFinite(age));
 
     return {
@@ -516,8 +511,9 @@ export class DynamicOptionsScreener {
       scannedAt: new Date().toISOString(),
       quoteQuality: {
         maxAgeSeconds: filter.maxQuoteAgeSeconds,
-        staleContractsRejected: staleRejections.length,
-        ...(rejectedQuoteAges.length > 0 ? { freshestRejectedAgeSeconds: Math.min(...rejectedQuoteAges) } : {}),
+        staleContractsReturned: staleReturned.length,
+        unknownFreshnessContracts: unknownFreshness.length,
+        ...(staleQuoteAges.length > 0 ? { freshestStaleQuoteAgeSeconds: Math.min(...staleQuoteAges) } : {}),
       },
       status: finalContracts.length > 0 ? "matches_found" : "no_matches",
       rejections: rejections.slice(0, 50),

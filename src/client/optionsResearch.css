@@ -243,6 +243,35 @@
   font-size: 0.76rem;
 }
 
+.options-candidate-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.45rem;
+}
+
+.options-freshness-tag {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.options-freshness-tag.fresh {
+  color: #6ee7b7;
+}
+
+.options-freshness-tag.stale {
+  color: #fcd34d;
+}
+
+.options-freshness-tag.unknown {
+  color: #fda4af;
+}
+
 .options-leg-list {
   display: flex;
   flex-direction: column;

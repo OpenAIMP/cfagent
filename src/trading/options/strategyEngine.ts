@@ -47,6 +47,8 @@ export interface StrategyLeg {
   volume: number;
   spreadPct: number;
   quoteTimestamp: string;
+  quoteAgeSeconds?: number;
+  quoteFreshness: "FRESH" | "STALE" | "UNKNOWN";
   multiplier: number;
 }
 
@@ -63,7 +65,8 @@ export interface StrategyScoreBreakdown {
   liquidity: number;
   volatilityAlignment: number;
   thetaBurden: number;
-  weights: Record<"thesisAlignment" | "targetRewardRisk" | "liquidity" | "volatilityAlignment" | "thetaBurden", number>;
+  freshness: number;
+  weights: Record<"thesisAlignment" | "targetRewardRisk" | "liquidity" | "volatilityAlignment" | "thetaBurden" | "freshness", number>;
 }
 
 export interface StrategyCandidate {
@@ -73,6 +76,7 @@ export interface StrategyCandidate {
   label: string;
   symbol: string;
   expirationDate: string;
+  dataFreshness: "FRESH" | "STALE" | "UNKNOWN";
   legs: StrategyLeg[];
   netDebit: number;
   estimatedFees: number;
@@ -108,11 +112,12 @@ export interface StrategyRecommendationResult {
 
 const MULTIPLIER = 100;
 const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = {
-  thesisAlignment: 0.35,
-  targetRewardRisk: 0.25,
+  thesisAlignment: 0.30,
+  targetRewardRisk: 0.20,
   liquidity: 0.20,
-  volatilityAlignment: 0.15,
+  volatilityAlignment: 0.10,
   thetaBurden: 0.05,
+  freshness: 0.15,
 };
 
 const STRATEGY_LABELS: Record<OptionStrategyType, string> = {
@@ -149,7 +154,9 @@ function toLeg(contract: ScreenedOptionContractItem, side: "BUY" | "SELL"): Stra
     openInterest: contract.openInterest ?? 0,
     volume: contract.volume ?? 0,
     spreadPct: contract.spreadPct,
-    quoteTimestamp: contract.quoteTimestamp,
+    quoteTimestamp: contract.quoteTimestamp || "",
+    quoteAgeSeconds: contract.quoteAgeSeconds,
+    quoteFreshness: contract.quoteFreshness || "UNKNOWN",
     multiplier: MULTIPLIER,
   };
 }
@@ -335,6 +342,10 @@ function buildCandidate(
 
   const contracts = legs.map((leg) => contractMap.get(leg.symbol)).filter((item): item is ScreenedOptionContractItem => Boolean(item));
   if (contracts.length !== legs.length) return null;
+  const freshnessStates = contracts.map((contract) => contract.quoteFreshness || "UNKNOWN");
+  const dataFreshness = freshnessStates.includes("STALE")
+    ? "STALE" as const
+    : freshnessStates.includes("UNKNOWN") ? "UNKNOWN" as const : "FRESH" as const;
   const underlying = contracts[0].underlyingPrice;
   const dte = contracts[0].daysToExpiration;
   const fees = legs.reduce((sum, leg) => sum + leg.quantity * (request.feesPerContract ?? 0.65), 0);
@@ -371,6 +382,7 @@ function buildCandidate(
     : (request.expectedIvDirection === "rise" ? netVega : -netVega) >= 0 ? 100 : 20;
   const netTheta = legs.reduce((sum, leg) => sum + (leg.side === "BUY" ? 1 : -1) * leg.theta * leg.multiplier * leg.quantity, 0);
   const thetaBurden = clamp(100 - Math.max(0, -netTheta) / Math.max(1, risk.maxLoss) * 10_000);
+  const freshness = dataFreshness === "FRESH" ? 100 : dataFreshness === "STALE" ? 25 : 0;
   const rewardRiskScore = clamp(targetRewardRisk / Math.max(request.minRewardRisk, 0.25) * 70);
   const scoreBreakdown: StrategyScoreBreakdown = {
     thesisAlignment,
@@ -378,6 +390,7 @@ function buildCandidate(
     liquidity: liquidityScore,
     volatilityAlignment,
     thetaBurden,
+    freshness,
     weights: SCORE_WEIGHTS,
   };
   const score = Object.entries(SCORE_WEIGHTS).reduce((sum, [key, weight]) =>
@@ -392,6 +405,12 @@ function buildCandidate(
     "Earnings and dividend dates are not connected; event risk is unverified.",
     "Early exercise, assignment, margin, and execution slippage are not modeled.",
   ];
+  if (dataFreshness === "STALE") {
+    const age = Math.max(...contracts.map((contract) => contract.quoteAgeSeconds ?? 0));
+    warnings.unshift(`Stale quote data: oldest leg is ${Math.round(age).toLocaleString()}s old. Candidate is indicative research only.`);
+  } else if (dataFreshness === "UNKNOWN") {
+    warnings.unshift("Quote timestamp is unavailable for at least one leg. Freshness cannot be verified; research only.");
+  }
   if (request.eventPolicy === "exclude") return null;
 
   const explanations = [
@@ -407,6 +426,7 @@ function buildCandidate(
     label: STRATEGY_LABELS[type],
     symbol: request.symbol.toUpperCase(),
     expirationDate: legs[0].expirationDate,
+    dataFreshness,
     legs,
     netDebit: Number(debit.toFixed(2)),
     estimatedFees: Number(fees.toFixed(2)),

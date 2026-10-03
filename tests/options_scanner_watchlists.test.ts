@@ -326,7 +326,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       });
     });
 
-    it("rejects stale, adjusted, crossed, and wide-spread option quotes", () => {
+    it("returns stale quotes marked stale while rejecting adjusted, crossed, zero-bid, and wide quotes", () => {
       const screener = new DynamicOptionsScreener();
       const chain = screener.fetchChainForSymbolSync("NVDA")!;
       const baseCall = chain.pairs[0].call!;
@@ -348,13 +348,14 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         contractType: "CALL",
       });
 
-      expect(result.contracts).toHaveLength(0);
+      expect(result.contracts).toHaveLength(1);
+      expect(result.contracts[0].symbol).toBe("STALE");
+      expect(result.contracts[0].quoteFreshness).toBe("STALE");
       expect(result.rejections?.map((item) => item.reason).join(" ")).toMatch(/Invalid bid\/ask/);
       expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Spread");
       expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Adjusted");
-      expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("stale");
-      expect(result.quoteQuality?.staleContractsRejected).toBe(1);
-      expect(result.quoteQuality?.freshestRejectedAgeSeconds).toBeGreaterThanOrEqual(120);
+      expect(result.quoteQuality?.staleContractsReturned).toBe(1);
+      expect(result.quoteQuality?.freshestStaleQuoteAgeSeconds).toBeGreaterThanOrEqual(120);
     });
 
     it("filters contracts by live Gamma and Theta values", async () => {

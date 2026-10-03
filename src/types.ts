@@ -388,8 +388,9 @@ export interface ScreenedOptionContractItem extends ETradeOptionChainContract {
   moneyness: "ITM" | "OTM" | "ATM";
   strikeDistancePct: number;
   spreadPct: number;
-  quoteAgeSeconds: number;
-  quoteTimestamp: string;
+  quoteAgeSeconds?: number;
+  quoteTimestamp?: string;
+  quoteFreshness?: "FRESH" | "STALE" | "UNKNOWN";
   volumeOiRatio?: number;
   ivRankEstimated?: number;
   technicalSignal: string;
@@ -422,8 +423,9 @@ export interface OptionScreenResult {
   scannedAt: string;
   quoteQuality?: {
     maxAgeSeconds?: number;
-    staleContractsRejected: number;
-    freshestRejectedAgeSeconds?: number;
+    staleContractsReturned: number;
+    unknownFreshnessContracts: number;
+    freshestStaleQuoteAgeSeconds?: number;
   };
   status: "matches_found" | "no_matches" | "error";
   rejections?: OptionScreenRejection[];

@@ -67,7 +67,12 @@ function StrategyCard({ candidate }: { candidate: StrategyCandidate }) {
           <h3>{candidate.symbol} · {candidate.label}</h3>
           <p>Expiry {candidate.expirationDate} · Ranked score {candidate.score.toFixed(1)}/100</p>
         </div>
-        <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
+        <div className="options-candidate-badges">
+          <span className={`options-freshness-tag ${candidate.dataFreshness.toLowerCase()}`}>
+            {candidate.dataFreshness === "FRESH" ? "Fresh quotes" : candidate.dataFreshness === "STALE" ? "Stale quotes" : "Quote age unknown"}
+          </span>
+          <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
+        </div>
       </header>
 
       <div className="options-leg-list">
@@ -108,6 +113,7 @@ function StrategyCard({ candidate }: { candidate: StrategyCandidate }) {
             <span>Liquidity <b>{candidate.scoreBreakdown.liquidity.toFixed(0)}</b></span>
             <span>IV alignment <b>{candidate.scoreBreakdown.volatilityAlignment.toFixed(0)}</b></span>
             <span>Theta burden <b>{candidate.scoreBreakdown.thetaBurden.toFixed(0)}</b></span>
+            <span>Quote freshness <b>{candidate.scoreBreakdown.freshness.toFixed(0)}</b></span>
           </div>
           {targetScenarios.length > 0 && (
             <div className="options-scenario-table-wrap">
@@ -359,13 +365,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
             <span>{result.modelVersion} · {new Date(result.generatedAt).toLocaleString()}</span>
           </div>
           <div className="options-score-policy">
-            Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}%
+            Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}% · freshness {result.scoreWeights.freshness * 100}%
           </div>
-          {result.candidates.length === 0 && screenMeta?.quoteQuality?.staleContractsRejected > 0 && (
+          {(screenMeta?.quoteQuality?.staleContractsReturned > 0 || screenMeta?.quoteQuality?.unknownFreshnessContracts > 0) && (
             <div className="options-stale-banner" role="alert">
-              <strong>No fresh contracts passed the quote-age gate.</strong>
+              <strong>Quote freshness warning: returned contracts remain visible.</strong>
               <span>
-                {screenMeta.quoteQuality.staleContractsRejected} contracts were rejected as stale. The freshest was {Math.round(screenMeta.quoteQuality.freshestRejectedAgeSeconds || 0).toLocaleString()} seconds old; the limit is {screenMeta.quoteQuality.maxAgeSeconds ?? 60} seconds. Stale quotes are not used for strategy ranking. Retry when the market data feed updates.
+                {screenMeta.quoteQuality.staleContractsReturned} stale and {screenMeta.quoteQuality.unknownFreshnessContracts} timestamp-unknown contracts are shown. The freshest stale quote is {Math.round(screenMeta.quoteQuality.freshestStaleQuoteAgeSeconds || 0).toLocaleString()} seconds old; {screenMeta.quoteQuality.maxAgeSeconds ?? 60}s is the freshness reference. Strategy scores are reduced for stale or unknown data; verify current quotes before acting.
               </span>
             </div>
           )}
