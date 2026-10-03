@@ -107,6 +107,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
     } as any;
 
     const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const quoteTimestamp = Date.now();
     DynamicOptionsScreener.setTestChainsFixture({
       NVDA: {
         symbol: "NVDA",
@@ -118,6 +119,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         },
         pairs: [{
           call: {
+            timeStamp: quoteTimestamp,
+            adjustedFlag: false,
             optionType: "CALL",
             strikePrice: 100,
             symbol: "NVDATESTC100",
@@ -132,6 +135,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
             impliedVolatility: 0.38,
           },
           put: {
+            timeStamp: quoteTimestamp,
+            adjustedFlag: false,
             optionType: "PUT",
             strikePrice: 100,
             symbol: "NVDATESTP100",
@@ -168,12 +173,15 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         month: expiryDate.getUTCMonth() + 1,
         day: expiryDate.getUTCDate(),
       };
+      const quoteTimestamp = Date.now();
       const chains = Object.fromEntries(["NVDA", "TSLA", "AAPL", "MSFT"].map((symbol) => [symbol, {
         symbol,
         underlyingPrice: 100,
         selectedExpiry: expiry,
         pairs: [{
           call: {
+            timeStamp: quoteTimestamp,
+            adjustedFlag: false,
             optionType: "CALL" as const,
             strikePrice: 100,
             symbol: `${symbol}TESTC100`,
@@ -188,6 +196,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
             impliedVolatility: 0.38,
           },
           put: {
+            timeStamp: quoteTimestamp,
+            adjustedFlag: false,
             optionType: "PUT" as const,
             strikePrice: 100,
             symbol: `${symbol}TESTP100`,
@@ -260,7 +270,89 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       for (const contract of result.contracts) {
         expect(contract.daysToExpiration).toBeGreaterThanOrEqual(5);
         expect(contract.daysToExpiration).toBeLessThanOrEqual(90);
+        expect(contract.spreadPct).toBeLessThanOrEqual(10);
+        expect(contract.quoteAgeSeconds).toBeLessThanOrEqual(60);
       }
+    });
+
+    it("fetches every expiration inside the default 14-60 DTE window", async () => {
+      const expirationFor = (days: number) => {
+        const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+      };
+      const eligibleExpiry = expirationFor(30);
+      const chain: ETradeOptionChain = {
+        symbol: "MULTI",
+        underlyingPrice: 100,
+        selectedExpiry: eligibleExpiry,
+        pairs: [{
+          call: {
+            timeStamp: Date.now(),
+            adjustedFlag: false,
+            optionType: "CALL",
+            strikePrice: 100,
+            symbol: "MULTITESTC100",
+            bid: 2,
+            ask: 2.2,
+            lastPrice: 2.1,
+            volume: 500,
+            openInterest: 1000,
+            delta: 0.5,
+            impliedVolatility: 0.3,
+          },
+        }],
+      };
+      const client = {
+        getOptionExpireDates: vi.fn(async () => [expirationFor(10), eligibleExpiry, expirationFor(70)]),
+        getOptionChains: vi.fn(async () => chain),
+      } as unknown as ETradeRestClient;
+
+      const result = await new DynamicOptionsScreener(client).screenOptions({
+        underlyingSymbols: ["MULTI"],
+        contractType: "CALL",
+      });
+
+      expect(result.status).toBe("matches_found");
+      expect(result.totalUnderlyingsScanned).toBe(1);
+      expect(result.contracts[0].daysToExpiration).toBeGreaterThanOrEqual(14);
+      expect(result.contracts[0].daysToExpiration).toBeLessThanOrEqual(60);
+      expect(client.getOptionChains).toHaveBeenCalledTimes(1);
+      expect(client.getOptionChains).toHaveBeenCalledWith({
+        symbol: "MULTI",
+        expiryYear: eligibleExpiry.year,
+        expiryMonth: eligibleExpiry.month,
+        expiryDay: eligibleExpiry.day,
+        includeWeekly: true,
+      });
+    });
+
+    it("rejects stale, adjusted, crossed, and wide-spread option quotes", () => {
+      const screener = new DynamicOptionsScreener();
+      const chain = screener.fetchChainForSymbolSync("NVDA")!;
+      const baseCall = chain.pairs[0].call!;
+      DynamicOptionsScreener.setTestChainsFixture({
+        NVDA: {
+          ...chain,
+          pairs: [
+            { call: { ...baseCall, symbol: "ZERO_BID", bid: 0 } },
+            { call: { ...baseCall, symbol: "CROSSED", bid: 2.3, ask: 2.2 } },
+            { call: { ...baseCall, symbol: "WIDE", bid: 1, ask: 1.5 } },
+            { call: { ...baseCall, symbol: "ADJUSTED", adjustedFlag: true } },
+            { call: { ...baseCall, symbol: "STALE", timeStamp: Date.now() - 120_000 } },
+          ],
+        },
+      });
+
+      const result = screener.screenOptionsSync({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+      });
+
+      expect(result.contracts).toHaveLength(0);
+      expect(result.rejections?.map((item) => item.reason).join(" ")).toMatch(/Invalid bid\/ask/);
+      expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Spread");
+      expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Adjusted");
+      expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("stale");
     });
 
     it("filters contracts by live Gamma and Theta values", async () => {
@@ -319,14 +411,16 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         },
         pairs: [{
           call: {
+            timeStamp: Date.now(),
+            adjustedFlag: false,
             optionType: "CALL",
             strikePrice: 100,
             symbol: "LIVETESTC100",
             bid: 2,
             ask: 2.2,
             lastPrice: 2.1,
-            volume: 100,
-            openInterest: 250,
+            volume: 500,
+            openInterest: 1000,
             delta: 0.5,
             impliedVolatility: 0.3,
           },
@@ -358,6 +452,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         pairs: [
           {
             call: {
+              timeStamp: Date.now(),
+              adjustedFlag: false,
               optionType: "CALL",
               strikePrice: 105,
               symbol: "CUSTOM261120C105000",

@@ -20,7 +20,7 @@
     "@ai-sdk/react": "latest",
     "@cloudflare/ai-chat": "latest",
     "@cloudflare/voice": "^0.5.0",
-    "@modelcontextprotocol/sdk": "^1.32.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "agents": "latest",
     "ai": "latest",
     "mppx": "^0.13.1",

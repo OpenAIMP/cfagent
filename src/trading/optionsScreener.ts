@@ -18,6 +18,18 @@ import type {
 } from "../types";
 import type { ETradeRestClient } from "./etrade/client";
 
+const DEFAULT_OPTION_FILTERS: Required<Pick<
+  OptionScreenerFilter,
+  "minDte" | "maxDte" | "minVolume" | "minOpenInterest" | "maxSpreadPct" | "maxQuoteAgeSeconds"
+>> = {
+  minDte: 14,
+  maxDte: 60,
+  minVolume: 50,
+  minOpenInterest: 500,
+  maxSpreadPct: 10,
+  maxQuoteAgeSeconds: 60,
+};
+
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
   private static testChainsFixture: Record<string, ETradeOptionChain> = {};
@@ -97,6 +109,48 @@ export class DynamicOptionsScreener {
     return null;
   }
 
+  private async fetchChainsForSymbol(
+    symbol: string,
+    filter: OptionScreenerFilter
+  ): Promise<ETradeOptionChain[]> {
+    const fixture = DynamicOptionsScreener.testChainsFixture[symbol];
+    if (fixture) return [fixture];
+    if (!this.client) return [];
+
+    let expirations: Array<{ year: number; month: number; day: number }> = [];
+    try {
+      expirations = await this.client.getOptionExpireDates(symbol);
+    } catch {
+      expirations = [];
+    }
+
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const eligibleExpirations = expirations.filter((expiry) => {
+      const expirationUtc = Date.UTC(expiry.year, expiry.month - 1, expiry.day);
+      const dte = Math.ceil((expirationUtc - todayUtc) / (24 * 60 * 60 * 1000));
+      return dte >= (filter.minDte ?? DEFAULT_OPTION_FILTERS.minDte) &&
+        dte <= (filter.maxDte ?? DEFAULT_OPTION_FILTERS.maxDte);
+    });
+
+    if (eligibleExpirations.length === 0) {
+      if (expirations.length > 0) return [];
+      const chain = await this.client.getOptionChains({ symbol }).catch(() => null);
+      return chain ? [chain] : [];
+    }
+
+    const chains = await Promise.all(eligibleExpirations.map((expiry) =>
+      this.client!.getOptionChains({
+        symbol,
+        expiryYear: expiry.year,
+        expiryMonth: expiry.month,
+        expiryDay: expiry.day,
+        includeWeekly: true,
+      }).catch(() => null)
+    ));
+    return chains.filter((chain): chain is ETradeOptionChain => Boolean(chain));
+  }
+
   fetchChainForSymbolSync(symbol: string): ETradeOptionChain | null {
     const cleanSym = symbol.toUpperCase().trim();
     if (DynamicOptionsScreener.testChainsFixture[cleanSym]) {
@@ -109,12 +163,13 @@ export class DynamicOptionsScreener {
   * Synchronous options screening for explicit symbols with injected test fixtures only.
    */
   screenOptionsSync(filter: OptionScreenerFilter = {}): OptionScreenResult {
+    const appliedFilter = { ...DEFAULT_OPTION_FILTERS, ...filter };
     const symbols = filter.underlyingSymbols?.map((symbol) => symbol.toUpperCase().trim()).filter(Boolean) || [];
     const chains = symbols.flatMap((sym) => {
       const chain = this.fetchChainForSymbolSync(sym);
       return chain ? [{ symbol: sym, chain }] : [];
     });
-    return this.evaluateChains(chains, filter);
+    return this.evaluateChains(chains, appliedFilter, symbols.length);
   }
 
   /**
@@ -122,17 +177,21 @@ export class DynamicOptionsScreener {
    */
   async screenOptions(filter: OptionScreenerFilter = {}): Promise<OptionScreenResult> {
     const symbols = await this.resolveUnderlyings(filter);
-    const chains: Array<{ symbol: string; chain: ETradeOptionChain }> = [];
-    const fetched = await Promise.all(symbols.map(async (sym) => ({ symbol: sym, chain: await this.fetchChainForSymbol(sym) })));
-    for (const item of fetched) if (item.chain) chains.push({ symbol: item.symbol, chain: item.chain });
-    return this.evaluateChains(chains, filter);
+    const appliedFilter = { ...DEFAULT_OPTION_FILTERS, ...filter };
+    const fetched = await Promise.all(symbols.map(async (symbol) => ({
+      symbol,
+      chains: await this.fetchChainsForSymbol(symbol, appliedFilter),
+    })));
+    const chains = fetched.flatMap((item) => item.chains.map((chain) => ({ symbol: item.symbol, chain })));
+    return this.evaluateChains(chains, appliedFilter, symbols.length);
   }
 
   private evaluateChains(
     chains: Array<{ symbol: string; chain: ETradeOptionChain }>,
-    filter: OptionScreenerFilter = {}
+    filter: OptionScreenerFilter = {},
+    totalUnderlyingsScanned = new Set(chains.map((chain) => chain.symbol)).size
   ): OptionScreenResult {
-    const symbols = chains.map((c) => c.symbol);
+    const symbols = Array.from(new Set(chains.map((c) => c.symbol)));
     const summaryParts: string[] = [];
 
     if (symbols.length <= 5) {
@@ -153,6 +212,8 @@ export class DynamicOptionsScreener {
     if (filter.maxImpliedVolatility !== undefined) summaryParts.push(`IV <= ${(filter.maxImpliedVolatility * 100).toFixed(0)}%`);
     if (filter.minVolume !== undefined) summaryParts.push(`Min Vol >= ${filter.minVolume}`);
     if (filter.minOpenInterest !== undefined) summaryParts.push(`Min OI >= ${filter.minOpenInterest}`);
+    if (filter.maxSpreadPct !== undefined) summaryParts.push(`Max spread <= ${filter.maxSpreadPct}%`);
+    if (filter.maxQuoteAgeSeconds !== undefined) summaryParts.push(`Quote age <= ${filter.maxQuoteAgeSeconds}s`);
     if (filter.minDte !== undefined || filter.maxDte !== undefined) {
       summaryParts.push(`DTE: ${filter.minDte ?? 0}d - ${filter.maxDte ?? 365}d`);
     }
@@ -199,6 +260,56 @@ export class DynamicOptionsScreener {
           const vol = c.volume;
           const oi = c.openInterest;
           const strike = c.strikePrice;
+
+          if (c.adjustedFlag) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: "Adjusted/non-standard contract is excluded",
+            });
+            continue;
+          }
+
+          const quoteTimestampMs = c.timeStamp
+            ? c.timeStamp < 1_000_000_000_000 ? c.timeStamp * 1000 : c.timeStamp
+            : undefined;
+          const quoteAgeSeconds = quoteTimestampMs === undefined
+            ? undefined
+            : (Date.now() - quoteTimestampMs) / 1000;
+          if (
+            quoteAgeSeconds === undefined ||
+            quoteAgeSeconds < 0 ||
+            (filter.maxQuoteAgeSeconds !== undefined && quoteAgeSeconds > filter.maxQuoteAgeSeconds)
+          ) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Quote is missing, future-dated, or stale (${quoteAgeSeconds?.toFixed(1) ?? "N/A"}s)`,
+              quoteAgeSeconds,
+            });
+            continue;
+          }
+
+          if (c.bid <= 0 || c.ask <= 0 || c.ask < c.bid) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Invalid bid/ask quote (bid ${c.bid}, ask ${c.ask})`,
+            });
+            continue;
+          }
+
+          const midpoint = (c.bid + c.ask) / 2;
+          const spreadPct = ((c.ask - c.bid) / midpoint) * 100;
+          if (filter.maxSpreadPct !== undefined && spreadPct > filter.maxSpreadPct) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Spread (${spreadPct.toFixed(2)}%) exceeds maximum ${filter.maxSpreadPct}%`,
+              spreadPct,
+            });
+            continue;
+          }
 
           // 1. DTE check
           if (filter.minDte !== undefined && daysToExpiration < filter.minDte) {
@@ -373,6 +484,9 @@ export class DynamicOptionsScreener {
             expirationDate: expDateStr,
             moneyness,
             strikeDistancePct: strikeDistPct,
+            spreadPct,
+            quoteAgeSeconds,
+            quoteTimestamp: new Date(quoteTimestampMs as number).toISOString(),
             volumeOiRatio: volOiRatio,
             technicalSignal,
             highlightReason: `${sym} $${strike} ${c.optionType} | ${daysToExpiration}d DTE | IV: ${iv === undefined ? "N/A" : `${(iv * 100).toFixed(0)}%`}`,
@@ -389,7 +503,7 @@ export class DynamicOptionsScreener {
     const finalContracts = passedContracts.slice(0, limit);
 
     return {
-      totalUnderlyingsScanned: symbols.length,
+      totalUnderlyingsScanned,
       totalContractsEvaluated,
       matchedCount: finalContracts.length,
       filterApplied: filter,

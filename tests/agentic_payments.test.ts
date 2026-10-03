@@ -538,6 +538,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
 
     it("executes paid options screen via executeNLQQueryAsync with simulated receipt", async () => {
       const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const quoteTimestamp = Date.now();
       DynamicOptionsScreener.setTestChainsFixture({
         NVDA: {
           symbol: "NVDA",
@@ -549,6 +550,8 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
           },
           pairs: [{
             call: {
+              timeStamp: quoteTimestamp,
+              adjustedFlag: false,
               optionType: "CALL",
               strikePrice: 100,
               symbol: "NVDATESTC100",

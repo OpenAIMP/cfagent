@@ -2036,13 +2036,17 @@ export class ETradeRestClient {
       const mapContract = (c: any, type: "CALL" | "PUT") => {
         if (!c) return undefined;
         return {
+          timeStamp: Number(c.timeStamp || 0) || undefined,
+          adjustedFlag: c.adjustedFlag === true || String(c.adjustedFlag).toLowerCase() === "true",
+          optionCategory: c.optionCategory ? String(c.optionCategory) : undefined,
+          optionRootSymbol: c.optionRootSymbol ? String(c.optionRootSymbol) : undefined,
           optionType: type,
           strikePrice: Number(c.strikePrice || 0),
           symbol: String(c.symbol || ""),
           bid: Number(c.bid || 0),
           ask: Number(c.ask || 0),
-          bidSize: c.bidSize ? Number(c.bidSize) : undefined,
-          askSize: c.askSize ? Number(c.askSize) : undefined,
+          bidSize: c.bidSize !== undefined ? Number(c.bidSize) : undefined,
+          askSize: c.askSize !== undefined ? Number(c.askSize) : undefined,
           lastPrice: Number(c.lastPrice || 0),
           volume: c.volume ? Number(c.volume) : undefined,
           openInterest: c.openInterest ? Number(c.openInterest) : undefined,

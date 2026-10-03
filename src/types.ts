@@ -355,6 +355,8 @@ export interface OptionScreenerFilter {
   contractType?: "CALL" | "PUT" | "BOTH";
   minVolume?: number;
   minOpenInterest?: number;
+  maxSpreadPct?: number;
+  maxQuoteAgeSeconds?: number;
   minDelta?: number;
   maxDelta?: number;
   minGamma?: number;
@@ -377,6 +379,9 @@ export interface ScreenedOptionContractItem extends ETradeOptionChainContract {
   expirationDate: string; // YYYY-MM-DD
   moneyness: "ITM" | "OTM" | "ATM";
   strikeDistancePct: number;
+  spreadPct: number;
+  quoteAgeSeconds: number;
+  quoteTimestamp: string;
   volumeOiRatio?: number;
   ivRankEstimated?: number;
   technicalSignal: string;
@@ -395,6 +400,8 @@ export interface OptionScreenRejection {
   iv?: number;
   volume?: number;
   daysToExpiration?: number;
+  spreadPct?: number;
+  quoteAgeSeconds?: number;
 }
 
 export interface OptionScreenResult {

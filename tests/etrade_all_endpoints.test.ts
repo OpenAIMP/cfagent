@@ -389,7 +389,17 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
               nearPrice: 142.50,
               OptionPair: [
                 {
-                  Call: { symbol: "NVDA--261016C00145000", strikePrice: 145, bid: 5.20, ask: 5.40, lastPrice: 5.30 },
+                  Call: {
+                    symbol: "NVDA--261016C00145000",
+                    strikePrice: 145,
+                    bid: 5.20,
+                    ask: 5.40,
+                    bidSize: 12,
+                    askSize: 15,
+                    lastPrice: 5.30,
+                    timeStamp: Date.now(),
+                    adjustedFlag: false,
+                  },
                   Put: { symbol: "NVDA--261016P00145000", strikePrice: 145, bid: 6.10, ask: 6.30, lastPrice: 6.20 },
                 },
               ],
@@ -402,6 +412,10 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       const chain = await client.getOptionChains({ symbol: "NVDA", strikePrice: 145 });
       expect(chain?.symbol).toBe("NVDA");
       expect(chain?.pairs[0].call?.strikePrice).toBe(145);
+      expect(chain?.pairs[0].call?.timeStamp).toBeDefined();
+      expect(chain?.pairs[0].call?.adjustedFlag).toBe(false);
+      expect(chain?.pairs[0].call?.bidSize).toBe(12);
+      expect(chain?.pairs[0].call?.askSize).toBe(15);
       expect(fetchSpy.mock.calls[0][0]).toContain("/market/optionchains?symbol=NVDA&strikePrice=145");
     });
 
