@@ -22,6 +22,13 @@ export interface ETradeTradingHubProps {
   onSendPrompt?: (prompt: string) => void;
 }
 
+const NLQ_ROW_RENDER_LIMIT = 500;
+
+function formatNlqColumn(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  return spaced.replace(/\bOi\b/g, "OI").replace(/\bIv\b/g, "IV").replace(/\bDte\b/g, "DTE").toUpperCase();
+}
+
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
   const [subTab, setSubTab] = useState<"scanner" | "options" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
@@ -2521,40 +2528,25 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       </div>
                     </div>
 
-                    {/* Universe Evaluated Badges */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.75rem" }}>
-                      <span style={{ fontSize: "0.8rem", color: "#94a3b8", alignSelf: "center", marginRight: "0.25rem" }}>Universe:</span>
-                      {((nlqResult.scanLedger || nlqResult.result?.scanLedger).universeSymbols || []).map((sym: string) => {
-                        const isRejected = ((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).some((r: any) => r.symbol === sym);
-                        return (
-                          <span key={sym} style={{
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            fontSize: "0.75rem",
-                            fontFamily: "monospace",
-                            background: !isRejected ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                            color: !isRejected ? "#4ade80" : "#fca5a5",
-                            border: `1px solid ${!isRejected ? "#16a34a" : "#dc2626"}`
-                          }}>
-                            {sym} {!isRejected ? "✓" : "✗"}
-                          </span>
-                        );
-                      })}
-                    </div>
-
                     {/* Rejection Details */}
                     {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length > 0 && (
                       <details style={{ fontSize: "0.8rem", color: "#cbd5e1", marginTop: "0.5rem" }}>
                         <summary style={{ cursor: "pointer", color: "#f87171" }}>
-                          View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (Filter Enforcement)
+                          View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (showing first 200)
                         </summary>
-                        <ul style={{ margin: "0.5rem 0 0 1rem", padding: 0 }}>
-                          {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).map((rej: any, rIdx: number) => (
-                            <li key={rIdx} style={{ margin: "0.25rem 0", color: "#94a3b8" }}>
-                              <strong style={{ color: "#f87171" }}>{rej.symbol}</strong>: {rej.reason}
-                            </li>
-                          ))}
-                        </ul>
+                        <table className="trading-table" style={{ marginTop: "0.5rem" }}>
+                          <thead>
+                            <tr><th>SYMBOL</th><th>REASON</th></tr>
+                          </thead>
+                          <tbody>
+                            {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).slice(0, 200).map((rej: any, rIdx: number) => (
+                              <tr key={rIdx}>
+                                <td><strong style={{ color: "#f87171" }}>{rej.symbol}</strong></td>
+                                <td>{rej.reason}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </details>
                     )}
                   </div>
@@ -2574,12 +2566,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       <thead>
                         <tr>
                           {Object.keys((nlqResult.rows || nlqResult.result?.rows)[0]).map((col) => (
-                            <th key={col}>{col.toUpperCase()}</th>
+                            <th key={col}>{formatNlqColumn(col)}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {(nlqResult.rows || nlqResult.result?.rows).map((row: any, idx: number) => (
+                        {(nlqResult.rows || nlqResult.result?.rows).slice(0, NLQ_ROW_RENDER_LIMIT).map((row: any, idx: number) => (
                           <tr key={idx}>
                             {Object.entries(row).map(([key, val]: [string, any], cidx: number) => {
                               if (key === "actionAvailable") {
@@ -2611,44 +2603,49 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         ))}
                       </tbody>
                     </table>
+                    {(nlqResult.rows || nlqResult.result?.rows).length > NLQ_ROW_RENDER_LIMIT && (
+                      <p className="nlq-rows-truncated" role="status">
+                        Showing first {NLQ_ROW_RENDER_LIMIT} of {(nlqResult.rows || nlqResult.result?.rows).length.toLocaleString()} rows. Narrow the query or use the scanner filters to see the rest.
+                      </p>
+                    )}
                   </div>
                 )}
 
                 {/* Stock Screener Results */}
                 {nlqResult.result?.screener?.stocks && (
-                  <div className="nlq-screener-cards-grid">
-                    {nlqResult.result.screener.stocks.map((stock: ScreenedStockItem) => (
-                      <div key={stock.symbol} className="nlq-stock-card">
-                        <div className="card-top">
-                          <span className="ticker-badge">{stock.symbol}</span>
-                          <span className="price">${stock.price.toFixed(2)}</span>
-                        </div>
-                        <div className="card-company">{stock.companyName}</div>
-                        <div className="card-technicals">
-                          <span className={`rsi-badge ${getRsiBadgeClass(stock.rsi14)}`}>
-                            RSI: {stock.rsi14 === undefined ? "N/A" : stock.rsi14.toFixed(1)}
-                          </span>
-                          <span className="signal-badge">{stock.technicalSignal}</span>
-                        </div>
-                        <div className="card-reason">{stock.highlightReason}</div>
-                        <div className="card-actions">
-                          <button
-                            type="button"
-                            className="btn-card-quote"
-                            onClick={() => handleOpenInspectQuote(stock.symbol, stock)}
-                          >
-                            Quote
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-card-trade"
-                            onClick={() => handleQuickTrade(stock, "BUY")}
-                          >
-                            ⚡ Trade
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="nlq-rows-table-wrap" style={{ margin: "1rem 0", overflowX: "auto" }}>
+                    <table className="trading-table">
+                      <thead>
+                        <tr>
+                          <th>SYMBOL &amp; COMPANY</th>
+                          <th>PRICE</th>
+                          <th>RSI</th>
+                          <th>SIGNAL</th>
+                          <th>REASON</th>
+                          <th>ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {nlqResult.result.screener.stocks.slice(0, NLQ_ROW_RENDER_LIMIT).map((stock: ScreenedStockItem) => (
+                          <tr key={stock.symbol}>
+                            <td>
+                              <div className="ticker-company">
+                                <span className="ticker-badge">{stock.symbol}</span>
+                                <span className="company-title">{stock.companyName}</span>
+                              </div>
+                            </td>
+                            <td>${stock.price.toFixed(2)}</td>
+                            <td><span className={`rsi-badge ${getRsiBadgeClass(stock.rsi14)}`}>{stock.rsi14 === undefined ? "N/A" : stock.rsi14.toFixed(1)}</span></td>
+                            <td><span className="signal-badge">{stock.technicalSignal}</span></td>
+                            <td>{stock.highlightReason}</td>
+                            <td>
+                              <button type="button" className="btn-card-quote" onClick={() => handleOpenInspectQuote(stock.symbol, stock)}>Quote</button>{" "}
+                              <button type="button" className="btn-card-trade" onClick={() => handleQuickTrade(stock, "BUY")}>⚡ Trade</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
