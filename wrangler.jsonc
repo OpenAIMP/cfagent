@@ -12,8 +12,7 @@
       { "name": "SEARCH_AGENT", "class_name": "SearchAgent" },
       {
         "name": "OPTIONS_SCANNER_MCP",
-        "class_name": "OptionsScannerMCP",
-        "comment": "Cloudflare Wallets pay-per-use options scanner — withX402 paidTool"
+        "class_name": "OptionsScannerMCP"
       }
     ]
   },
