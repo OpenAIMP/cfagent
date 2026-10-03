@@ -422,7 +422,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <p>{nlqResult.validationError || nlqResult.summary}</p>
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && (
             <div className="options-scenario-table-wrap">
-              <table className="options-scenario-table">
+              <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
                 <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
                 <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
                   <tr key={`${row.contractSymbol || row.symbol || "contract"}:${index}`}>

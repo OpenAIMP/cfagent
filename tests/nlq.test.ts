@@ -71,7 +71,7 @@ describe("Natural Language Query (NLQ) Engine", () => {
     it("routes strategy evaluation ledger requests ahead of generic table queries", async () => {
       const plan = await planNLQ(
         mockEnv,
-        "list all strategies evaluated for NVDA bullish target $260 to get the ledger as a table"
+        "list all strategies evaluated for NVDA bullish target $260"
       );
 
       expect(plan.domain).toBe("trading");

@@ -435,6 +435,12 @@
   text-align: left;
 }
 
+.options-evaluation-ledger-table th:last-child,
+.options-evaluation-ledger-table td:last-child {
+  min-width: 24rem;
+  text-align: left;
+}
+
 .options-explanations,
 .options-warnings,
 .options-result-assumptions,
