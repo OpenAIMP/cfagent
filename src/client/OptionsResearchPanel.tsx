@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   ExpectedIvDirection,
   OptionStrategyType,
@@ -14,6 +14,66 @@ import "./optionsResearch.css";
 interface OptionsResearchPanelProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
+  onPreviewTrade?: (ctx: OptionsTradeContext) => void;
+  onJobStateChange?: (state: "idle" | "running" | "ready") => void;
+}
+
+export interface OptionsTradeContext {
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  quantity: number;
+  underlyingPrice?: number;
+  label: string;
+  legs: string[];
+}
+
+function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, underlyingPrice?: number): OptionsTradeContext {
+  return {
+    symbol: candidate.symbol,
+    action: thesis === "bearish" ? "SELL_SHORT" : "BUY",
+    quantity: 1,
+    underlyingPrice,
+    label: `${candidate.label} (${candidate.expirationDate}), max loss ${candidate.maxLoss === null ? "unlimited" : `$${candidate.maxLoss}`}`,
+    legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+  };
+}
+
+type PreviewTrade = (candidate: StrategyCandidate) => void;
+
+function legsText(candidate?: StrategyCandidate): string {
+  return candidate?.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol}`).join(" / ") || "—";
+}
+
+interface LlmInputPreview {
+  objective: string;
+  system: string;
+  instruction: string;
+  request: Record<string, unknown>;
+  contractCount: number;
+  candidateCount: number;
+  promptCharacters: number;
+  contractsSample: Array<Record<string, unknown>>;
+  candidatesSent: Array<Record<string, unknown>>;
+}
+
+function LlmInputPanel({ input }: { input?: LlmInputPreview }) {
+  if (!input) return null;
+  return (
+    <div className="options-llm-input">
+      <p><b>Objective:</b> {input.objective}</p>
+      <details>
+        <summary>Input sent to the LLM ({input.contractCount} contracts, {input.candidateCount} candidate trades, ~{input.promptCharacters.toLocaleString()} characters)</summary>
+        <p><b>System prompt:</b> {input.system}</p>
+        <p><b>Instruction:</b> {input.instruction}</p>
+        <p><b>Request:</b></p>
+        <pre>{JSON.stringify(input.request, null, 2)}</pre>
+        <p><b>Candidate trades sent (all):</b></p>
+        <pre>{JSON.stringify(input.candidatesSent, null, 2)}</pre>
+        <p><b>Contract sample (first {input.contractsSample.length} of {input.contractCount}; full set is sent):</b></p>
+        <pre>{JSON.stringify(input.contractsSample, null, 2)}</pre>
+      </details>
+    </div>
+  );
 }
 
 const strategyGroups = defaultRegistry.list().reduce<Record<string, Array<{ id: OptionStrategyType; label: string }>>>((groups, def) => {
@@ -71,6 +131,8 @@ interface BestTradeData {
 }
 
 interface ComparisonData {
+  llmInput?: LlmInputPreview;
+  quantStrategyPool?: Array<{ type: string; label: string; generated: number; bestScore: number }>;
   quant: {
     ranked: Array<{ rank: number; compositeScore: number; candidate: StrategyCandidate }>;
     scoreWeights: StrategyRecommendationResult["scoreWeights"];
@@ -85,6 +147,8 @@ interface ComparisonData {
 }
 
 interface LlmIdeasData {
+  llmInput?: LlmInputPreview;
+  quantStrategyPool?: Array<{ type: string; label: string; generated: number; bestScore: number }>;
   mode: "validated_candidate_ideas";
   llm: {
     status: "complete" | "error";
@@ -103,12 +167,13 @@ interface LlmIdeasData {
   ideaPoolCount: number;
 }
 
-function BestTradeCard({ pick }: { pick: BestTradeData }) {
+function BestTradeCard({ pick, onPreview }: { pick: BestTradeData; onPreview?: PreviewTrade }) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
       <header className="options-results-header">
         <h2>{pick.status === "no_trade" ? "No qualifying trade" : `Best trade: ${pick.best?.candidate.label}`}</h2>
         <span>{pick.status.replace("_", " ").toUpperCase()} · {pick.confidence} confidence · {pick.riskProfile} profile</span>
+        {pick.best && onPreview && <button type="button" onClick={() => onPreview(pick.best!.candidate)}>⚡ Open in Fast Order Ticket</button>}
       </header>
       <ul className="options-explanations">{pick.rationale.map((line) => <li key={line}>{line}</li>)}</ul>
       {pick.blockers.length > 0 && <ul className="options-warnings">{pick.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
@@ -126,7 +191,7 @@ function BestTradeCard({ pick }: { pick: BestTradeData }) {
           </table>
         </div>
       )}
-      {pick.best && <StrategyCard candidate={pick.best.candidate} />}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} />}
       {pick.alternatives.length > 0 && (
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
@@ -134,7 +199,7 @@ function BestTradeCard({ pick }: { pick: BestTradeData }) {
             <table className="options-scenario-table">
               <thead><tr><th>#</th><th>Strategy</th><th>Expiry</th><th>Max loss</th><th>POP</th><th>Score</th></tr></thead>
               <tbody>{pick.alternatives.map((alt) => (
-                <tr key={alt.candidate.id}>
+                <tr key={alt.candidate.id} className={onPreview ? "options-clickable-row" : undefined} onClick={() => onPreview?.(alt.candidate)} title="Open in Fast Order Ticket">
                   <td>{alt.rank}</td><td>{alt.candidate.label}</td><td>{alt.candidate.expirationDate}</td>
                   <td>{dollars(alt.candidate.maxLoss)}</td>
                   <td>{(alt.candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%</td>
@@ -150,7 +215,7 @@ function BestTradeCard({ pick }: { pick: BestTradeData }) {
   );
 }
 
-function RecommendationComparison({ data }: { data: ComparisonData }) {
+function RecommendationComparison({ data, onPreview }: { data: ComparisonData; onPreview?: PreviewTrade }) {
   const llmById = new Map((data.llm.ranked || []).map((item) => [item.candidateId, item]));
 
   return (
@@ -159,6 +224,13 @@ function RecommendationComparison({ data }: { data: ComparisonData }) {
         <h2>Quant vs. LLM ranking</h2>
         <span>{data.llm.model || "Configured Workers AI model"} · {data.quant.candidateCount} shared candidates</span>
       </header>
+      <LlmInputPanel input={data.llmInput} />
+      {data.quantStrategyPool && data.quantStrategyPool.length > 0 && (
+        <details className="options-excluded">
+          <summary>{data.quantStrategyPool.length} strategy types evaluated by the quant engine</summary>
+          <ul>{data.quantStrategyPool.map((s) => <li key={s.type}>{s.label}: {s.generated} trades generated, best score {s.bestScore.toFixed(1)}</li>)}</ul>
+        </details>
+      )}
       <p className="options-comparison-note">
         Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The LLM score is a subjective assessment, not a pricing model or forecast.
       </p>
@@ -166,12 +238,13 @@ function RecommendationComparison({ data }: { data: ComparisonData }) {
       {data.quant.ranked.length === 0 ? <p>No quant candidates passed the request constraints.</p> : (
         <div className="options-table-scroll">
           <table className="options-comparison-table">
-            <thead><tr><th>Strategy</th><th>Quant rank</th><th>Quant score</th><th>LLM rank</th><th>LLM score</th><th>LLM rationale</th><th>LLM risks</th></tr></thead>
+            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>LLM rank</th><th>LLM score</th><th>LLM rationale</th><th>LLM risks</th></tr></thead>
             <tbody>{data.quant.ranked.map((item) => {
               const judgment = llmById.get(item.candidate.id);
               return (
-                <tr key={item.candidate.id}>
+                <tr key={item.candidate.id} className={onPreview ? "options-clickable-row" : undefined} onClick={() => onPreview?.(item.candidate)} title="Open in Fast Order Ticket">
                   <td>{item.candidate.label}</td>
+                  <td>{legsText(item.candidate)}</td>
                   <td>{item.rank}</td>
                   <td>{item.compositeScore.toFixed(2)}</td>
                   <td>{judgment?.rank ?? "—"}</td>
@@ -192,13 +265,14 @@ function RecommendationComparison({ data }: { data: ComparisonData }) {
   );
 }
 
-function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
+function LlmIdeasExperiment({ data, onPreview }: { data: LlmIdeasData; onPreview?: PreviewTrade }) {
   return (
     <section className="options-comparison" aria-label="Validated LLM strategy ideas">
       <header className="options-results-header">
         <h2>LLM idea-generation experiment</h2>
         <span>{data.llm.model || "Configured Workers AI model"} · {data.ideaPoolCount} candidates considered</span>
       </header>
+      <LlmInputPanel input={data.llmInput} />
       <p className="options-comparison-note">
         Ideas are selected from quant-generated candidates and validated against their available contracts and risk calculations. This experiment does not allow the LLM to invent legs or override quant risk filters.
       </p>
@@ -208,7 +282,7 @@ function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
           <table className="options-comparison-table">
             <thead><tr><th>Rank</th><th>Strategy</th><th>LLM score</th><th>Quant score</th><th>Legs</th><th>Rationale</th><th>Risks</th></tr></thead>
             <tbody>{data.llm.ideas.map((idea) => (
-              <tr key={idea.candidateId}>
+              <tr key={idea.candidateId} className={onPreview && idea.candidate ? "options-clickable-row" : undefined} onClick={() => idea.candidate && onPreview?.(idea.candidate)} title="Open in Fast Order Ticket">
                 <td>{idea.rank}</td>
                 <td>{idea.candidate?.label || idea.candidateId}</td>
                 <td>{idea.score.toFixed(0)}</td>
@@ -256,7 +330,7 @@ function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
   );
 }
 
-function StrategyCard({ candidate }: { candidate: StrategyCandidate }) {
+function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; onPreview?: PreviewTrade }) {
   const scenarioValues = candidate.scenarios.filter((scenario) => scenario.ivChangePct === 0);
   const valuationDays = Math.min(...scenarioValues.map((scenario) => scenario.daysToExpiry));
   const targetScenarios = scenarioValues.filter((scenario) => scenario.daysToExpiry === valuationDays);
@@ -274,6 +348,7 @@ function StrategyCard({ candidate }: { candidate: StrategyCandidate }) {
             {candidate.dataFreshness === "FRESH" ? "Fresh quotes" : candidate.dataFreshness === "STALE" ? "Stale quotes" : "Quote age unknown"}
           </span>
           <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
+          {onPreview && <button type="button" onClick={() => onPreview(candidate)}>⚡ Open in Fast Order Ticket</button>}
         </div>
       </header>
 
@@ -340,7 +415,7 @@ function StrategyCard({ candidate }: { candidate: StrategyCandidate }) {
   );
 }
 
-export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPanelProps) {
+export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange }: OptionsResearchPanelProps) {
   const [symbol, setSymbol] = useState("");
   const [thesis, setThesis] = useState<OptionThesis>("bullish");
   const [targetPrice, setTargetPrice] = useState("");
@@ -378,7 +453,39 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [nlqResult, setNlqResult] = useState<any>(null);
   const [nlqError, setNlqError] = useState("");
 
-  const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice);
+  const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
+  const [interpreted, setInterpreted] = useState<string[]>([]);
+
+  const hasResults = Boolean(bestTrade || comparison || llmIdeas || result || nlqResult);
+  useEffect(() => {
+    onJobStateChange?.(loading || nlqLoading ? "running" : hasResults ? "ready" : "idle");
+  }, [loading, nlqLoading, hasResults, onJobStateChange]);
+
+  const previewTrade: PreviewTrade | undefined = onPreviewTrade
+    ? (candidate) => onPreviewTrade(toTradeContext(
+      candidate,
+      thesis,
+      Number(screenedContracts.find((c) => typeof c.underlyingPrice === "number")?.underlyingPrice) || undefined,
+    ))
+    : undefined;
+
+  const applyInterpretation = (plan: any) => {
+    const filters = plan?.tradingData?.filters;
+    const req = filters?.request;
+    if (!req) return;
+    const chips: string[] = [];
+    if (req.symbol) { setSymbol(String(req.symbol)); chips.push(`Underlying: ${req.symbol}`); }
+    if (req.thesis) { setThesis(req.thesis); chips.push(`Thesis: ${req.thesis}`); }
+    if (req.targetPrice) { setTargetPrice(String(req.targetPrice)); chips.push(`Target price: $${req.targetPrice}`); }
+    if (req.targetDate) { setTargetDate(String(req.targetDate)); chips.push(`Target date: ${req.targetDate}`); }
+    if (req.maxPlannedLoss) { setMaxPlannedLoss(String(req.maxPlannedLoss)); chips.push(`Max loss: $${req.maxPlannedLoss}`); }
+    if (req.minDte !== undefined) { setMinDte(String(req.minDte)); setMaxDte(String(req.maxDte ?? maxDte)); chips.push(`DTE: ${req.minDte}–${req.maxDte}`); }
+    if (req.expectedIvDirection) { setExpectedIvDirection(req.expectedIvDirection); chips.push(`IV: ${req.expectedIvDirection}`); }
+    if (filters.riskProfile) { setRiskProfile(filters.riskProfile); chips.push(`Ranking: ${filters.riskProfile}`); }
+    const types = filters.strategyFilter?.strategyTypes;
+    if (Array.isArray(types) && types.length) { setAllowedStrategies(types); chips.push(`Strategies: ${types.join(", ")}`); }
+    setInterpreted(chips);
+  };
 
   const loadExample = (example: string) => {
     setNlqQuery(example);
@@ -509,6 +616,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
       const data = await response.json() as any;
       if (!response.ok) throw new Error(data.error || "Natural-language options screen failed");
       setNlqResult(data);
+      applyInterpretation(data.plan);
     } catch (cause) {
       setNlqError(cause instanceof Error ? cause.message : "Natural-language options screen failed");
     } finally {
@@ -579,6 +687,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         <p className="options-workflow-hint">Click an example to load it (it also fills the thesis form below). Press Ask for a plain-English answer, or use the action buttons below the form: <b>Rank research candidates</b>, <b>Pick best trade</b>, <b>Compare Quant vs LLM</b>.</p>
       </div>
       {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
+      {interpreted.length > 0 && (
+        <div className="options-interpreted" aria-label="How your question was interpreted">
+          <b>Interpreted as (form below updated):</b>{interpreted.map((chip) => <span key={chip}>{chip}</span>)}
+        </div>
+      )}
       {nlqResult && (
         <div className="options-nlq-result" role="status">
           <strong>{nlqResult.count ?? 0} result rows</strong>
@@ -635,8 +748,19 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <input required type="number" min="0.01" step="0.01" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="Price at target date" />
         </label>
         <label className="options-field">
-          <span>Target date</span>
-          <input required type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} />
+          <span>Target date (type YYYY-MM-DD or pick)</span>
+          <div className="options-date-row">
+            <input
+              required
+              type="text"
+              inputMode="numeric"
+              pattern="\d{4}-\d{2}-\d{2}"
+              placeholder="YYYY-MM-DD"
+              value={targetDate}
+              onChange={(event) => setTargetDate(event.target.value)}
+            />
+            <input type="date" aria-label="Pick target date" value={/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : ""} onChange={(event) => event.target.value && setTargetDate(event.target.value)} />
+          </div>
         </label>
         <label className="options-field">
           <span>Expected IV</span>
@@ -755,9 +879,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
-      {bestTrade && <BestTradeCard pick={bestTrade} />}
-      {comparison && <RecommendationComparison data={comparison} />}
-      {llmIdeas && <LlmIdeasExperiment data={llmIdeas} />}
+      {bestTrade && <BestTradeCard pick={bestTrade} onPreview={previewTrade} />}
+      {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
+      {llmIdeas && <LlmIdeasExperiment data={llmIdeas} onPreview={previewTrade} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
         <div className="options-results">
@@ -776,7 +900,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
               </span>
             </div>
           )}
-          {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} />)}
+          {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} onPreview={previewTrade} />)}
           {result.excluded.length > 0 && (
             <details className="options-excluded">
               <summary>{result.excluded.reduce((sum, entry) => sum + entry.count, 0)} strategy combinations excluded</summary>

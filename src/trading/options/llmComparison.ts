@@ -18,6 +18,8 @@ export interface LlmCandidateResponse {
   ranked: LlmCandidateJudgment[];
 }
 
+const LLM_SYSTEM_PROMPT = "You are a cautious options research analyst. You may select only from the supplied quant-generated candidate list. Never construct an order.";
+
 const selectionSchema = z.object({
   selections: z.array(z.object({
     candidateId: z.string().min(1),
@@ -142,6 +144,33 @@ export function parseLlmCandidateSelections(
   return parsed.selections.map((selection, index) => ({ ...selection, rank: index + 1 }));
 }
 
+export function describeLlmInput(
+  request: StrategyRequest,
+  riskProfile: RiskProfile,
+  contracts: ScreenedOptionContractItem[],
+  candidates: StrategyCandidate[],
+  mode: "rank" | "ideas",
+) {
+  const objective = mode === "rank"
+    ? "Test whether an LLM, given exactly the same screened contracts and quant-generated candidates, ranks trades similarly to the deterministic quant score."
+    : "Test whether an LLM can pick varied, interesting trades from the quant-generated pool. It can only select existing candidates; legs and risk math are never invented.";
+  const prompt = comparisonPrompt(request, riskProfile, contracts, candidates, mode);
+  return {
+    objective,
+    system: LLM_SYSTEM_PROMPT,
+    instruction: prompt.split("\n\nReturn only valid JSON")[0],
+    request: { symbol: request.symbol, thesis: request.thesis, targetPrice: request.targetPrice, targetDate: request.targetDate, riskProfile, maxPlannedLoss: request.maxPlannedLoss },
+    contractCount: contracts.length,
+    candidateCount: candidates.length,
+    promptCharacters: prompt.length,
+    contractsSample: compactContracts(contracts.slice(0, 8)),
+    candidatesSent: compactCandidates(candidates.slice(0, 50)).map((c) => ({
+      candidateId: c.candidateId, strategy: c.strategy, expiration: c.expiration, legs: c.legs,
+      maxLoss: c.maxLoss, maxProfit: c.maxProfit, quantScore: c.quantScore,
+    })),
+  };
+}
+
 async function generateSelections(
   env: Env,
   request: StrategyRequest,
@@ -154,7 +183,7 @@ async function generateSelections(
   const { text } = await generateText({
     model: getWorkersAIModel(env),
     temperature: 0,
-    system: "You are a cautious options research analyst. You may select only from the supplied quant-generated candidate list. Never construct an order.",
+    system: LLM_SYSTEM_PROMPT,
     prompt: comparisonPrompt(request, riskProfile, contracts, candidates, mode),
   });
   return {

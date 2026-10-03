@@ -727,3 +727,18 @@
 }
 .options-table-scroll table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
 .options-table-scroll th, .options-table-scroll td { padding: 4px 8px; text-align: left; border-bottom: 1px solid rgba(128,128,128,0.25); vertical-align: top; }
+
+.trading-view[hidden], .research-view[hidden] { display: none !important; }
+.workflow-guide { margin: 2rem auto 1rem; max-width: 1100px; padding: 1rem 1.25rem; border: 1px solid rgba(148,163,184,.3); border-radius: 8px; font-size: .85rem; text-align: left; }
+.workflow-guide h3 { margin: 0 0 .5rem; }
+.workflow-guide dt { font-weight: 600; margin-top: .5rem; }
+.workflow-guide dd { margin: 0 0 0 1rem; opacity: .85; }
+.options-interpreted { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .5rem 0; font-size: .8rem; }
+.options-interpreted span { padding: .15rem .5rem; border-radius: 999px; background: rgba(56,189,248,.15); border: 1px solid rgba(56,189,248,.3); }
+.options-job-badge { margin-left: .4rem; font-size: .68rem; padding: .1rem .4rem; border-radius: 4px; background: rgba(245,158,11,.2); }
+.options-job-badge.ready { background: rgba(16,185,129,.2); }
+.options-clickable-row { cursor: pointer; }
+.options-clickable-row:hover { background: rgba(56,189,248,.08); }
+.options-llm-input pre { max-height: 260px; overflow: auto; font-size: .72rem; text-align: left; white-space: pre-wrap; }
+.options-date-row { display: flex; gap: .4rem; }
+.options-order-context { padding: .6rem .8rem; margin-bottom: .75rem; border-left: 3px solid #38bdf8; background: rgba(56,189,248,.08); font-size: .8rem; text-align: left; }

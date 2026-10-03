@@ -5,6 +5,7 @@ import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
+import { WorkflowGuide } from "./WorkflowGuide";
 
 interface User {
   login: string;
@@ -676,6 +677,10 @@ function ToolResultView({
 
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("trading");
+  const [researchVisited, setResearchVisited] = useState(false);
+  useEffect(() => {
+    if (tab === "research") setResearchVisited(true);
+  }, [tab]);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -3624,21 +3629,20 @@ export function Chat({ user }: { user: User }) {
         )}
 
         {/* E*TRADE Agentic Trading Hub */}
-        {tab === "trading" && (
-          <div className="trading-view">
-            <ETradeTradingHub
-              user={user}
-              onSendPrompt={(prompt) => {
-                setTab("chat");
-                handleChipClick(prompt);
-              }}
-            />
-          </div>
-        )}
+        {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
+        <div className="trading-view" hidden={tab !== "trading"}>
+          <ETradeTradingHub
+            user={user}
+            onSendPrompt={(prompt) => {
+              setTab("chat");
+              handleChipClick(prompt);
+            }}
+          />
+        </div>
 
         {/* FOSS Market Research & Quoting Hub (Yahoo Finance & Alpaca) */}
-        {tab === "research" && (
-          <div className="research-view">
+        {(tab === "research" || researchVisited) && (
+          <div className="research-view" hidden={tab !== "research"}>
             <FossResearchHub
               user={user}
               onSendPrompt={(prompt) => {
@@ -3651,6 +3655,8 @@ export function Chat({ user }: { user: User }) {
             />
           </div>
         )}
+
+        {(tab === "trading" || tab === "research" || tab === "endpoints") && <WorkflowGuide />}
       </main>
     </div>
   );

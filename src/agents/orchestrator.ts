@@ -14,7 +14,7 @@ import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
-import { generateLlmCandidateIdeas, rankCandidatesWithLlm } from "../trading/options/llmComparison";
+import { describeLlmInput, generateLlmCandidateIdeas, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2425,7 +2425,27 @@ Agentic Best Practices & Workflow Rules:
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
+        const isCompare = path.endsWith("/trading/options/compare");
+        const llmCandidates = isCompare
+          ? result.ranked.slice(0, 20).map((ranked) => ranked.candidate)
+          : (() => {
+              const best = new Map<string, typeof result.strategies.candidates[number]>();
+              for (const c of result.strategies.candidates) {
+                const cur = best.get(c.type);
+                if (!cur || c.score > cur.score) best.set(c.type, c);
+              }
+              return [...best.values()].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 50);
+            })();
+        const poolByType = new Map<string, { type: string; label: string; generated: number; bestScore: number }>();
+        for (const c of result.strategies.candidates) {
+          const e = poolByType.get(c.type) || { type: c.type, label: c.label, generated: 0, bestScore: 0 };
+          e.generated += 1;
+          e.bestScore = Math.max(e.bestScore, c.score);
+          poolByType.set(c.type, e);
+        }
         const common = {
+          llmInput: describeLlmInput(strategyRequest, body.riskProfile || "balanced", result.snapshot.contracts, llmCandidates, isCompare ? "rank" : "ideas"),
+          quantStrategyPool: [...poolByType.values()],
           screen: result.snapshot.screen,
           contracts: result.snapshot.contracts,
           contractRejections: result.snapshot.rejections,

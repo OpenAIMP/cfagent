@@ -9,7 +9,11 @@ import {
   ETradeBrokerStatus,
   TradeRecord,
 } from "../types";
-import { OptionsResearchPanel } from "./OptionsResearchPanel";
+import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
+
+function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
+  return <div hidden={hidden}>{children}</div>;
+}
 import { ResearchReportActions } from "./ResearchReportActions";
 
 export interface User {
@@ -65,6 +69,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [executingDraft, setExecutingDraft] = useState(false);
   const [lastExecutionResult, setLastExecutionResult] = useState<ETradeOrderExecutionResult | null>(null);
   const [orderError, setOrderError] = useState("");
+  const [orderContext, setOrderContext] = useState<OptionsTradeContext | null>(null);
+  const [autoPreview, setAutoPreview] = useState(false);
+  const [optionsJob, setOptionsJob] = useState<"idle" | "running" | "ready">("idle");
 
   // Orders Ledger state
   const [orders, setOrders] = useState<TradeRecord[]>([]);
@@ -756,6 +763,27 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       setInspectLoading(false);
     }
   };
+
+  const handleOptionsTrade = (ctx: OptionsTradeContext) => {
+    setOrderContext(ctx);
+    setOrderSymbol(ctx.symbol);
+    setOrderAction(ctx.action);
+    setOrderType(ctx.underlyingPrice ? "LIMIT" : "MARKET");
+    setOrderQuantity(ctx.quantity);
+    if (ctx.underlyingPrice) setOrderLimitPrice(ctx.underlyingPrice.toFixed(2));
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOrderError("");
+    setSubTab("order");
+    setAutoPreview(true);
+  };
+
+  useEffect(() => {
+    if (!autoPreview) return;
+    setAutoPreview(false);
+    void handlePreviewOrder({ preventDefault() {} } as React.FormEvent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPreview]);
 
   const handleQuickTrade = (stock: ScreenedStockItem | ETradePosition | ETradeQuote, defaultAction: "BUY" | "SELL" = "BUY") => {
     setOrderSymbol(stock.symbol);
@@ -1449,6 +1477,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           onClick={() => setSubTab("options")}
         >
           🤖 Auto Options Research
+          {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
         </button>
         <button
           className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
@@ -1863,7 +1892,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         </div>
       )}
 
-      {subTab === "options" && <OptionsResearchPanel activeEnv={activeEnv} userLogin={user?.login} />}
+      <OptionsResearchPanelHost hidden={subTab !== "options"}>
+        <OptionsResearchPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleOptionsTrade} onJobStateChange={setOptionsJob} />
+      </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
       {subTab === "order" && (
@@ -1877,6 +1908,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               </div>
 
               {orderError && <div className="form-error-alert">⚠️ {orderError}</div>}
+              {orderContext && (
+                <div className="options-order-context">
+                  <strong>From Auto Options Research:</strong> {orderContext.label}
+                  <ul>{orderContext.legs.map((leg) => <li key={leg}>{leg}</li>)}</ul>
+                  <em>The ticket previews the underlying stock position; option legs are shown for reference. Nothing is placed until you approve.</em>
+                </div>
+              )}
 
               <form onSubmit={handlePreviewOrder} className="order-ticket-form">
                 {/* Symbol and Instant Quote */}
