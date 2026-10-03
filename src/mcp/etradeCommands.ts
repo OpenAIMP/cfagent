@@ -16,36 +16,39 @@ import { getUserDid } from "../agents/did";
  * 1. E*TRADE Market Scan & Screener Command
  */
 export class ETradeMarketScanCommand implements IMcpToolCommand<{
-  sector?: string;
+  exchange?: "ALL" | "NASDAQ" | "NYSE" | "AMEX";
+  minPrice?: number;
+  maxPrice?: number;
   minMarketCap?: number;
-  rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
-  momentum?: "bullish_breakout" | "bearish_pullback" | "high_relative_volume" | "any";
-  gainersLosers?: "gainers" | "losers" | "active" | "all";
+  gainersOnly?: boolean;
+  losersOnly?: boolean;
   search?: string;
   limit?: number;
 }> {
   readonly name = "etrade_market_scan";
-  readonly description = "Screen live E*TRADE market movers and watchlist equities using quote, liquidity, valuation, sector, and momentum criteria.";
+  readonly description = "Screen all current Nasdaq, NYSE, and AMEX listings using price, exchange, market cap, daily change, and ticker/company search filters.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
-      sector: { type: "string", description: "Market sector (e.g. Semiconductors, Technology, Financials, Consumer Discretionary)" },
-      minMarketCap: { type: "number", description: "Minimum market capitalization in billions of dollars (e.g. 50)" },
-      rsiFilter: { type: "string", enum: ["oversold", "overbought", "neutral", "any"], description: "RSI momentum filter: oversold (<35), overbought (>70), neutral" },
-      momentum: { type: "string", enum: ["bullish_breakout", "bearish_pullback", "high_relative_volume", "any"], description: "Quote-based 52-week breakout, intraday pullback, or 1.5x relative volume" },
-      gainersLosers: { type: "string", enum: ["gainers", "losers", "active", "all"], description: "Filter by top daily percentage gainers, losers, or most active" },
+      exchange: { type: "string", enum: ["ALL", "NASDAQ", "NYSE", "AMEX"], description: "Listing exchange; defaults to all three" },
+      minPrice: { type: "number", description: "Minimum last-sale price in USD" },
+      maxPrice: { type: "number", description: "Maximum last-sale price in USD" },
+      minMarketCap: { type: "number", description: "Minimum market capitalization in billions of USD" },
+      gainersOnly: { type: "boolean", description: "Only listings with positive daily change" },
+      losersOnly: { type: "boolean", description: "Only listings with negative daily change" },
       search: { type: "string", description: "Search term or keyword to match symbol or company name" },
-      limit: { type: "number", description: "Maximum stocks to return (default: 10)" },
+      limit: { type: "number", description: "Maximum rows to return; omit to return all matches" },
     },
   };
   readonly zodSchema = z.object({
-    sector: z.string().optional().describe("Market sector (e.g. Semiconductors, Technology)"),
-    minMarketCap: z.number().optional().describe("Minimum market cap in billions"),
-    rsiFilter: z.enum(["oversold", "overbought", "neutral", "any"]).optional().describe("RSI filter"),
-    momentum: z.enum(["bullish_breakout", "bearish_pullback", "high_relative_volume", "any"]).optional().describe("Technical chart pattern"),
-    gainersLosers: z.enum(["gainers", "losers", "active", "all"]).optional().describe("Gainers, losers, active"),
+    exchange: z.enum(["ALL", "NASDAQ", "NYSE", "AMEX"]).optional().describe("Listing exchange"),
+    minPrice: z.number().nonnegative().optional().describe("Minimum last-sale price"),
+    maxPrice: z.number().positive().optional().describe("Maximum last-sale price"),
+    minMarketCap: z.number().nonnegative().optional().describe("Minimum market cap in billions"),
+    gainersOnly: z.boolean().optional().describe("Only positive daily change"),
+    losersOnly: z.boolean().optional().describe("Only negative daily change"),
     search: z.string().optional().describe("Ticker or company name search"),
-    limit: z.number().optional().default(10).describe("Max stocks to return"),
+    limit: z.number().int().positive().optional().describe("Maximum rows to return; omitted means all matches"),
   });
 
   async execute(input: any, context: McpToolContext) {
@@ -54,9 +57,9 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
 
     context.audit("etrade.market_scanned", "trading", {
       matchedCount: result.matchedCount,
-      sector: input.sector,
-      rsiFilter: input.rsiFilter,
-      momentum: input.momentum,
+      exchange: input.exchange,
+      minPrice: input.minPrice,
+      maxPrice: input.maxPrice,
     });
 
     return result;

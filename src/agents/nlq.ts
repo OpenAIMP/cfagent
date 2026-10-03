@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { getWorkersAIModel } from "./model";
 import { z } from "zod";
-import type { Env, OptionScreenRejection, StockScreenLedger } from "../types";
+import type { Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
@@ -72,6 +72,8 @@ export const nlqPlanSchema = z.object({
       action: z.enum(["wallet_status", "micropayments_list", "set_limit", "paid_scan", "paid_research"]),
       limitUSD: z.number().optional(),
       symbol: z.string().optional(),
+      maxUnderlyings: z.number().int().positive().optional(),
+      contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
     })
     .optional(),
   terms: z.string().max(200).default(""),
@@ -95,6 +97,8 @@ export interface NLQQueryResult {
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
+  discovery?: StockScreenResult["discovery"];
+  validationError?: string;
   quoteQuality?: {
     maxAgeSeconds?: number;
     staleContractsReturned: number;
@@ -250,15 +254,23 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   if (/\b(paid\s+options?\s+screen|premium\s+options?\s+screen|paid\s+research|premium\s+market\s+research)\b/i.test(question)) {
     const isResearch = /\b(research)\b/i.test(question);
     const symMatch = question.match(/\b(?:for|on|symbol|ticker)\s+([a-zA-Z]{1,5})\b/i);
-    const symbol = symMatch ? symMatch[1].toUpperCase() : "NVDA";
+    const symbol = symMatch ? symMatch[1].toUpperCase() : undefined;
+    const underlyingLimitMatch = question.match(/(?:up to|max(?:imum)?|limit to)\s*(\d+)\s*(?:underlyings|symbols|stocks|tickers)\b/i);
+    const contractType = /\bputs?\b/i.test(question) && !/\bcalls?\b/i.test(question)
+      ? "PUT" as const
+      : /\bcalls?\b/i.test(question) && !/\bputs?\b/i.test(question)
+      ? "CALL" as const
+      : "BOTH" as const;
     return {
       domain: "agentic_payments",
       operation: "create",
       agenticPaymentsData: {
         action: isResearch ? "paid_research" : "paid_scan",
-        symbol,
+        ...(symbol ? { symbol } : {}),
+        ...(underlyingLimitMatch ? { maxUnderlyings: Number(underlyingLimitMatch[1]) } : {}),
+        contractType,
       },
-      terms: symbol,
+      terms: symbol || "paid_options_screen",
       role: "any",
       since: null,
       limit: 10,
@@ -431,6 +443,19 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
       if (maxDteMatch) optFilters.maxDte = Number(maxDteMatch[1]);
     }
 
+    const minVolumeMatch = question.match(/volume\s*(?:>|over|greater than|above)\s*(\d[\d,]*)/i);
+    if (minVolumeMatch) optFilters.minVolume = Number(minVolumeMatch[1].replace(/,/g, ""));
+    const minOiMatch = question.match(/(?:open\s*interest|oi)\s*(?:>|over|greater than|above)\s*(\d[\d,]*)/i);
+    if (minOiMatch) optFilters.minOpenInterest = Number(minOiMatch[1].replace(/,/g, ""));
+    const maxSpreadMatch = question.match(/spread\s*(?:<|under|below|at most)\s*(\d+(?:\.\d+)?)\s*%?/i);
+    if (maxSpreadMatch) optFilters.maxSpreadPct = Number(maxSpreadMatch[1]);
+    const quoteAgeMatch = question.match(/quote\s*age\s*(?:<|under|below|at most)\s*(\d+)\s*(?:s|seconds?)/i);
+    if (quoteAgeMatch) optFilters.maxQuoteAgeSeconds = Number(quoteAgeMatch[1]);
+    const maxUnderlyingsMatch = question.match(/(?:up to|max(?:imum)?|limit to)\s*(\d+)\s*(?:underlyings|symbols|stocks|tickers)\b/i);
+    if (maxUnderlyingsMatch) optFilters.maxUnderlyings = Number(maxUnderlyingsMatch[1]);
+    const contractLimitMatch = question.match(/(?:top|limit(?: to)?|up to)\s*(\d+)\s*(?:contracts|options)\b/i);
+    if (contractLimitMatch) optFilters.limit = Number(contractLimitMatch[1]);
+
     // IV filters
     const ivOverMatch = question.match(/iv\s*(?:>|over|above|greater than)\s*(\d+)%?/i) || question.match(/implied\s+volatility\s*(?:>|over|above)\s*(\d+)%?/i);
     if (ivOverMatch) optFilters.minImpliedVolatility = Number(ivOverMatch[1]) / 100;
@@ -458,9 +483,10 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
   // 4. Fast-path for E*TRADE Stock Screening / Market Scanning
   if (
     /\b(screen|screener|scan|scanning|scanned|breakout|oversold|overbought|gainers?|losers?|momentum)\b/i.test(question) ||
-    (/\b(stocks?|equities)\b/i.test(question) && /\b(tech|semiconductor|rsi|macd|pe|p\/e|cap|volume|dividend|growth)\b/i.test(question))
+    ( /\b(stocks?|equities|listings)\b/i.test(question) && /\b(tech|semiconductor|rsi|macd|pe|p\/e|cap|volume|dividend|growth|price|priced|exchange|nasdaq|nyse|amex)\b/i.test(question))
   ) {
     const filters: Record<string, any> = {};
+    // Keep unsupported filters in the plan so the listing provider can explain why they cannot be applied.
     if (/\b(tech|technology)\b/i.test(question)) filters.sector = "Technology";
     if (/\b(semiconductor|semis|chips)\b/i.test(question)) filters.sector = "Semiconductors";
     if (/\b(cloud|enterprise|software)\b/i.test(question)) filters.sector = "Enterprise Software";
@@ -471,8 +497,31 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     const rsiOverMatch = question.match(/rsi\s*(?:>|over|greater than|above)\s*(\d+)/i);
     if (rsiOverMatch) filters.minRsi = Number(rsiOverMatch[1]);
 
+    const priceRangeMatch = question.match(/\b(?:price|priced|trading)\s+(?:between|from)\s*\$?([\d,.]+)\s*(?:and|to|-)\s*\$?([\d,.]+)/i);
+    if (priceRangeMatch) {
+      filters.minPrice = Number(priceRangeMatch[1].replace(/,/g, ""));
+      filters.maxPrice = Number(priceRangeMatch[2].replace(/,/g, ""));
+    } else {
+      const minPriceMatch = question.match(/\b(?:price|priced|trading)\s*(?:>|over|above|at least|greater than)\s*\$?([\d,.]+)/i);
+      const maxPriceMatch = question.match(/\b(?:price|priced|trading)\s*(?:<|under|below|at most|less than)\s*\$?([\d,.]+)/i);
+      if (minPriceMatch) filters.minPrice = Number(minPriceMatch[1].replace(/,/g, ""));
+      if (maxPriceMatch) filters.maxPrice = Number(maxPriceMatch[1].replace(/,/g, ""));
+    }
+
+    const marketCapMatch = question.match(/market\s*cap(?:italization)?\s*(?:>|over|above|at least|greater than)\s*\$?([\d,.]+)\s*(t|trillion|b|billion|m|million)?/i);
+    if (marketCapMatch) {
+      const amount = Number(marketCapMatch[1].replace(/,/g, ""));
+      const unit = (marketCapMatch[2] || "b").toLowerCase();
+      filters.minMarketCap = unit.startsWith("t") ? amount * 1000 : unit.startsWith("m") ? amount / 1000 : amount;
+    }
+    const exchangeMatch = question.match(/\b(nasdaq|nyse|amex)\b/i);
+    if (exchangeMatch) filters.exchange = exchangeMatch[1].toUpperCase();
+
     if (/\b(gainer|gainers|up|green)\b/i.test(question)) filters.gainersOnly = true;
     if (/\b(loser|losers|down|red)\b/i.test(question)) filters.losersOnly = true;
+
+    const resultLimitMatch = question.match(/\b(?:top|limit(?: to)?|show)\s+(\d+)\s+(?:stocks?|equities|listings)\b/i);
+    if (resultLimitMatch) filters.limit = Number(resultLimitMatch[1]);
 
     return {
       domain: "trading",
@@ -1529,12 +1578,15 @@ export async function executeNLQQueryAsync(
         return false;
       });
 
-      if (hasMismatch) {
+      if (screenRes.validationError) {
+        scannerState = "data_unavailable";
+        summary = screenRes.validationError;
+      } else if (hasMismatch) {
         scannerState = "SCAN_INVALID_DATA_MISMATCH";
         summary = `🚨 SCAN INVALID — DATA MISMATCH: One or more returned rows contradicted requested screen filter (${screenRes.filterSummary}). Action shortcuts disabled.`;
       } else if (screenRes.totalScreened === 0) {
         scannerState = "no_universe";
-        summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
+        summary = screenRes.discovery?.message || "Dynamic all-exchange listings returned no equities.";
       } else if (screenRes.stocks.length === 0) {
         scannerState = "no_matches";
         summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
@@ -1550,15 +1602,16 @@ export async function executeNLQQueryAsync(
         count: screenRes.stocks.length,
         status: scannerState,
         summary,
+        validationError: screenRes.validationError,
+        discovery: screenRes.discovery,
         scanLedger: screenRes.ledger,
         provenance: {
           scannerState,
           universeCount: screenRes.totalScreened,
           passedCount: screenRes.stocks.length,
           rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
-          rsiLookback: "14-Period Daily RSI",
-          macdSettings: "12, 26, 9 EMA",
-          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+          dataSource: "Dynamic Nasdaq / NYSE / AMEX stock listings",
+          quoteTimestamp: "Not provided by the listing endpoint",
           executedAt,
         },
         rows: screenRes.stocks.map((s) => {
@@ -1568,19 +1621,11 @@ export async function executeNLQQueryAsync(
           return {
             symbol: s.symbol,
             companyName: s.companyName,
-            sector: s.sector,
+            exchange: s.listingExchange || "N/A",
             price: `$${s.price.toFixed(2)}`,
             change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
-            changePeriod: s.changePeriod || "1D (Regular Trading Day)",
-            priorClose: `$${(s.previousClose ?? (s.price - s.change)).toFixed(2)}`,
-            rsi14: s.rsi14,
-            rsiLookback: s.rsiLookback || "14-Period Daily RSI",
-            macdSignal: s.macdSignal,
-            calculationVersion: s.macdIndicatorVersion || "MACD (12, 26, 9 EMA)",
             marketCap: formatMarketCap(s.marketCap),
-            peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
-            signal: s.signal,
-            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+            source: s.source || "Dynamic stock listing",
             quoteTimestamp: s.timestamp || executedAt,
             validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
             actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
@@ -1762,6 +1807,7 @@ export async function executeNLQQueryAsync(
         count: res.contracts.length,
         status: res.status,
         summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).${freshnessNote}`,
+        validationError: res.validationError,
         quoteQuality: res.quoteQuality,
         rejections: (res.rejections || []).slice(0, 15),
         rows: res.contracts.map((c) => ({
@@ -1845,11 +1891,15 @@ export async function executeNLQQueryAsync(
     const action = plan.agenticPaymentsData?.action || "wallet_status";
 
     if (action === "paid_scan") {
-      const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
+      const sym = plan.agenticPaymentsData?.symbol;
       const login = userLogin || sessionId || "default_trader";
       const etrade = new ETradeService(orm, env, login);
       const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions({ underlyingSymbols: [sym], contractType: "CALL" });
+      const res = await screener.screenOptions({
+        underlyingSymbols: sym ? [sym] : undefined,
+        maxUnderlyings: plan.agenticPaymentsData?.maxUnderlyings,
+        contractType: plan.agenticPaymentsData?.contractType,
+      });
 
       const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
       const receipt: any = {
@@ -1872,7 +1922,7 @@ export async function executeNLQQueryAsync(
         domain: "agentic_payments",
         targetTable: "etrade_premium_options",
         count: res.contracts.length,
-        summary: `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${sym} options chain. Found ${res.contracts.length} qualified contracts. Receipt: ${receipt.receiptId}.`,
+        summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}.`,
         rows: res.contracts.slice(0, 10).map((c) => ({
           contract: c.displaySymbol || c.symbol,
           strike: `$${c.strikePrice.toFixed(2)}`,

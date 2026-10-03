@@ -25,6 +25,7 @@ import { withX402, type X402Config } from "agents/x402";
 import { z } from "zod";
 import type { Env } from "../types";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { ETradeRestClient } from "../trading/etrade/client";
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 
@@ -73,31 +74,42 @@ export class OptionsScannerMCP extends McpAgent<Env> {
         underlying: z
           .string()
           .optional()
-          .default("NVDA")
-          .describe("Underlying ticker (e.g. NVDA, AAPL, TSLA)"),
+          .describe("Optional underlying ticker; omit to dynamically discover current U.S. stock listings"),
+        maxUnderlyings: z.number().int().positive().optional().describe("Maximum underlying symbols for a broad scan"),
         contractType: z
           .enum(["CALL", "PUT", "BOTH"])
           .optional()
-          .default("CALL")
-          .describe("Option contract type"),
+          .describe("Option contract type; omitted screens calls and puts"),
         minDelta: z.number().min(0).max(1).optional().describe("Minimum absolute delta"),
         maxDelta: z.number().min(0).max(1).optional().describe("Maximum absolute delta"),
         minOpenInterest: z.number().optional().describe("Minimum open interest"),
         maxDTE: z.number().optional().describe("Maximum days-to-expiry"),
+        minDTE: z.number().optional().describe("Minimum days-to-expiry"),
+        minVolume: z.number().int().nonnegative().optional().describe("Minimum daily contract volume"),
+        maxSpreadPct: z.number().nonnegative().optional().describe("Maximum bid/ask spread as percent of midpoint"),
+        maxQuoteAgeSeconds: z.number().nonnegative().optional().describe("Quote-age freshness reference; stale rows remain labeled, not excluded"),
+        limit: z.number().int().positive().optional().describe("Maximum contracts to return"),
       },
       { readOnlyHint: true, title: "Options Screener (Pay-Per-Use via Cloudflare Wallets)" },
-      async ({ underlying, contractType, minDelta, maxDelta, minOpenInterest, maxDTE }) => {
-        const screener = new DynamicOptionsScreener();
-        const result = await screener.screenOptionsSync({
-          underlyingSymbols: [underlying ?? "NVDA"],
-          contractType: contractType ?? "CALL",
+      async ({ underlying, maxUnderlyings, contractType, minDelta, maxDelta, minOpenInterest, maxDTE, minDTE, minVolume, maxSpreadPct, maxQuoteAgeSeconds, limit }) => {
+        const client = new ETradeRestClient(this.env, "default_trader");
+        const screener = new DynamicOptionsScreener(client);
+        const result = await screener.screenOptions({
+          underlyingSymbols: underlying ? [underlying.toUpperCase().trim()] : undefined,
+          maxUnderlyings,
+          contractType,
           minDelta,
           maxDelta,
-          minOpenInterest,
+          minDte: minDTE,
           maxDte: maxDTE,
+          minOpenInterest,
+          minVolume,
+          maxSpreadPct,
+          maxQuoteAgeSeconds,
+          limit,
         });
 
-        this.persistAudit(underlying ?? "NVDA", result.matchedCount);
+        this.persistAudit(underlying?.toUpperCase().trim() || "all_exchange_listings", result.matchedCount);
 
         return {
           content: [
@@ -110,7 +122,7 @@ export class OptionsScannerMCP extends McpAgent<Env> {
                   paymentProtocol: "x402 / Cloudflare Wallets",
                   network: this.env?.CF_WALLET_NETWORK ?? "base-sepolia",
                   proposerDid: AGENT_DIDS.PAYMENTS,
-                  underlying: underlying ?? "NVDA",
+                  underlying: underlying?.toUpperCase().trim() || "all_exchange_listings",
                   matchedCount: result.matchedCount,
                   contracts: result.contracts,
                   scannedAt: new Date().toISOString(),
@@ -143,7 +155,7 @@ export class OptionsScannerMCP extends McpAgent<Env> {
                 paymentProtocol: "x402 (Cloudflare Wallets)",
                 network: this.env?.CF_WALLET_NETWORK ?? "base-sepolia",
                 recipient: this.env?.CF_WALLET_RECIPIENT ?? "(not configured - set CF_WALLET_RECIPIENT)",
-                supportedUnderlyings: ["NVDA", "AAPL", "TSLA", "MSFT", "AMD", "SPY", "QQQ"],
+                underlyingDiscovery: "Dynamic current Nasdaq, NYSE, and AMEX stock listings; specify an explicit maximum for broad scans.",
                 supportedContractTypes: ["CALL", "PUT", "BOTH"],
                 agentDid: AGENT_DIDS.PAYMENTS,
                 docs: "https://developers.cloudflare.com/agents/tools/payments/x402/charge-for-mcp-tools/",

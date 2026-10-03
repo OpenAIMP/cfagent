@@ -5,6 +5,7 @@ import { ETradeService } from "../src/services/etrade";
 import { AGENT_DIDS } from "../src/agents/did";
 import { McpToolFactory } from "../src/mcp/commands";
 import { DynamicMarketScreener } from "../src/trading/screener";
+import type { NasdaqStockListing } from "../src/services/nasdaqListings";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { planNLQ, executeNLQQuery } from "../src/agents/nlq";
 import type { Env } from "../src/types";
@@ -25,6 +26,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
 
   beforeEach(() => {
     DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
+    DynamicMarketScreener.setTestListingsFixture(null);
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
@@ -224,14 +226,28 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       audit: auditMock,
     };
 
-    it("etrade_market_scan: reports unavailable live data without fabricating results", async () => {
+    it("etrade_market_scan: reports unsupported sector/RSI criteria for listing data", async () => {
       const cmd = McpToolFactory.getTool("etrade_market_scan");
       expect(cmd).toBeDefined();
 
-      const res = await cmd.execute({ sector: "Semiconductors", minRsi: 50 }, mcpContext);
-      expect(res.stocks).toHaveLength(0);
-      expect(res.status).toBe("no_universe");
-      expect(auditMock).toHaveBeenCalledWith("etrade.market_scanned", "trading", expect.any(Object));
+      DynamicMarketScreener.setTestListingsFixture([{
+        symbol: "LIVE",
+        companyName: "Live Corp",
+        exchange: "nasdaq",
+        lastPrice: 50,
+        change: 1,
+        changePercent: 2,
+        marketCap: 1_000_000_000,
+      }]);
+      try {
+        const res = await cmd.execute({ sector: "Semiconductors", minRsi: 50 }, mcpContext);
+        expect(res.stocks).toHaveLength(0);
+        expect(res.validationError).toContain("sector, RSI");
+        expect(res.discovery.candidateCount).toBe(1);
+        expect(auditMock).toHaveBeenCalledWith("etrade.market_scanned", "trading", expect.any(Object));
+      } finally {
+        DynamicMarketScreener.setTestListingsFixture(null);
+      }
     });
 
     it("etrade_get_quote: retrieves real-time quote", async () => {
@@ -378,35 +394,53 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("DynamicMarketScreener.screenMarkets enriches stocks with real-time quotes", async () => {
-      vi.spyOn(etrade.client, "getMarketMovers").mockResolvedValue(["NVDA", "AMD"]);
-      vi.spyOn(etrade.client, "getWatchlists").mockResolvedValue([]);
-      vi.spyOn(etrade.client, "fetchQuotes").mockResolvedValue(
-        MOCK_TEST_UNIVERSE.filter((stock) => stock.sector === "Semiconductors").slice(0, 3)
-      );
-      const result = await etrade.screenMarketsAsync({ sector: "Semiconductors", limit: 3 });
+      const listings: NasdaqStockListing[] = MOCK_TEST_UNIVERSE.filter((stock) => stock.sector === "Semiconductors").map((stock) => ({
+        symbol: stock.symbol,
+        companyName: stock.companyName,
+        exchange: "nasdaq",
+        lastPrice: stock.lastPrice,
+        change: stock.change,
+        changePercent: stock.changePercent,
+        marketCap: (stock.marketCap || 0) * 1e9,
+      }));
+      DynamicMarketScreener.setTestListingsFixture(listings);
+      const result = await etrade.screenMarketsAsync({ exchange: "NASDAQ", minPrice: 1, limit: 3 });
       expect(result.stocks.length).toBeGreaterThan(0);
       expect(result.stocks[0].price).toBeGreaterThan(0);
       expect(result.stocks[0].marketCap).toBeGreaterThan(0);
+      expect(result.stocks.every((stock) => stock.listingExchange === "NASDAQ")).toBe(true);
+    });
+
+    it("screens the dynamic listings universe using visible exchange and price filters", async () => {
+      const listings: NasdaqStockListing[] = [
+        { symbol: "PASS", companyName: "Pass Corp", exchange: "nasdaq", lastPrice: 40, change: 2, changePercent: 5, marketCap: 100_000_000_000 },
+        { symbol: "OTHER_EXCHANGE", companyName: "Other Corp", exchange: "nyse", lastPrice: 40, change: 2, changePercent: 5, marketCap: 100_000_000_000 },
+        { symbol: "TOO_CHEAP", companyName: "Cheap Corp", exchange: "nasdaq", lastPrice: 5, change: 2, changePercent: 5, marketCap: 100_000_000_000 },
+        { symbol: "LOSER", companyName: "Down Corp", exchange: "nasdaq", lastPrice: 40, change: -2, changePercent: -5, marketCap: 100_000_000_000 },
+      ];
+      DynamicMarketScreener.setTestListingsFixture(listings);
+
+      const result = await etrade.screenMarketsAsync({
+        exchange: "NASDAQ",
+        minPrice: 20,
+        maxPrice: 100,
+        minMarketCap: 50,
+        gainersOnly: true,
+        limit: 20,
+      });
+
+      expect(result.discovery?.candidateCount).toBe(3);
+      expect(result.stocks.map((stock) => stock.symbol)).toEqual(["PASS"]);
+      expect(result.stocks[0].source).toContain("Nasdaq all-exchange stock listings");
     });
 
     it("explains an empty live candidate universe with mover and watchlist counts", async () => {
-      const configuredService = new ETradeService(orm, {
-        ...mockEnv,
-        ETRADE_API_KEY: "test-consumer-key",
-        ETRADE_API_SECRET: "test-consumer-secret",
-      } as Env);
-      vi.spyOn(configuredService.client, "getMarketMovers").mockResolvedValue([]);
-      vi.spyOn(configuredService.client, "getWatchlists").mockResolvedValue([]);
-      const quotesSpy = vi.spyOn(configuredService.client, "fetchQuotes");
-
-      const result = await configuredService.screenMarketsAsync({});
+      DynamicMarketScreener.setTestListingsFixture([]);
+      const result = await etrade.screenMarketsAsync({});
 
       expect(result.status).toBe("no_universe");
       expect(result.discovery?.candidateCount).toBe(0);
-      expect(result.discovery?.sourceCounts.movers_active).toBe(0);
-      expect(result.discovery?.sourceCounts.watchlists).toBe(0);
-      expect(result.discovery?.message).toContain("outside market hours");
-      expect(quotesSpy).not.toHaveBeenCalled();
+      expect(result.discovery?.message).toContain("Dynamic all-exchange listing request returned no rows");
     });
 
     it("NLQ classifies 'Preview buy 10 shares of NVDA at market' and executeNLQQueryAsync drafts order with live quote", async () => {
@@ -809,35 +843,23 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(defaultUni).toEqual([]);
     });
 
-    it("discovers searched tickers and screens only returned live quotes", async () => {
-      DynamicMarketScreener.setTestUniverseFixture([]);
+    it("searches the dynamic listings table by ticker and company name", async () => {
       try {
-        const tradingService = new ETradeService(orm);
-        vi.spyOn(tradingService.client, "lookupProduct").mockResolvedValue([
-          { symbol: "DELL", description: "Dell Technologies Inc.", type: "EQ" },
-        ]);
-        vi.spyOn(tradingService.client, "fetchQuotes").mockResolvedValue([{
+        DynamicMarketScreener.setTestListingsFixture([{
           symbol: "DELL",
           companyName: "Dell Technologies Inc.",
+          exchange: "nasdaq",
           lastPrice: 120,
-          price: 120,
           change: 1,
           changePercent: 0.84,
-          bid: 119.9,
-          ask: 120.1,
-          volume: 1_000_000,
-          open: 119,
-          high: 121,
-          low: 118,
-          week52High: 150,
-          week52Low: 80,
-          timestamp: new Date().toISOString(),
+          marketCap: 50_000_000_000,
         }]);
+        const tradingService = new ETradeService(orm, mockEnv);
         const res = await tradingService.screenMarketsAsync({ search: "DELL" });
         expect(res.ledger.universeSymbols).toContain("DELL");
         expect(res.stocks[0].companyName).toBe("Dell Technologies Inc.");
       } finally {
-        DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
+        DynamicMarketScreener.setTestListingsFixture(null);
       }
     });
 

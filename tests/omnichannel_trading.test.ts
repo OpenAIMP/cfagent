@@ -3,7 +3,6 @@ import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
-import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
 import {
   ETradeSlackTradingService,
@@ -29,11 +28,15 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
 
   beforeEach(() => {
     DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
-    vi.spyOn(ETradeRestClient.prototype, "getMarketMovers").mockResolvedValue(MOCK_TEST_UNIVERSE.map((stock) => stock.symbol));
-    vi.spyOn(ETradeRestClient.prototype, "getWatchlists").mockResolvedValue([]);
-    vi.spyOn(ETradeRestClient.prototype, "fetchQuotes").mockImplementation(async (symbols) =>
-      MOCK_TEST_UNIVERSE.filter((stock) => symbols.includes(stock.symbol))
-    );
+    DynamicMarketScreener.setTestListingsFixture(MOCK_TEST_UNIVERSE.map((stock) => ({
+      symbol: stock.symbol,
+      companyName: stock.companyName,
+      exchange: "nasdaq" as const,
+      lastPrice: stock.lastPrice,
+      change: stock.change,
+      changePercent: stock.changePercent,
+      marketCap: (stock.marketCap || 0) * 1e9,
+    })));
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
@@ -41,6 +44,7 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
 
   afterEach(() => {
     vi.restoreAllMocks();
+    DynamicMarketScreener.setTestListingsFixture(null);
   });
 
   // =========================================================================
@@ -75,7 +79,7 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
         from: "portfolio-manager@fund.com",
         to: "trade@agent.openaimp.com",
         subject: "Market Screener",
-        text: "Please screen technology stocks",
+         text: "Please screen stocks priced between $20 and $200",
       };
 
       const result = await emailService.processInboundEmail(payload);
@@ -83,9 +87,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(result.success).toBe(true);
       expect(result.actionType).toBe("screener");
       expect(result.responseSubject).toContain("E*TRADE Screener");
-      expect(result.responseText).toContain("RSI");
+      expect(result.responseText).toContain("Market cap");
       expect(result.responseHtml).toContain("<table");
-      expect(result.responseHtml).toContain("Symbol");
+      expect(result.responseHtml).toContain("Exchange");
     });
 
     it("handles portfolio balance inquiries via email", async () => {
@@ -344,7 +348,7 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(result.response?.blocks).toBeDefined();
 
       const headerBlock = result.response?.blocks?.find((b: any) => b.type === "header");
-      expect(headerBlock?.text?.text).toContain("Screener");
+      expect(headerBlock?.text?.text).toContain("Live Stock Listings");
     });
 
     it("drafts order and sends Slack Block Kit card with interactive approval buttons", async () => {

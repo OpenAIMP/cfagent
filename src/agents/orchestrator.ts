@@ -1626,10 +1626,18 @@ Agentic Best Practices & Workflow Rules:
             filter = (await request.json().catch(() => ({}))) as any;
           } else {
             filter = {
-              underlyingSymbols: url.searchParams.get("symbol") ? [url.searchParams.get("symbol")!.toUpperCase().trim()] : ["NVDA"],
-              contractType: url.searchParams.get("contractType") || "CALL",
+              underlyingSymbols: url.searchParams.get("symbol") ? [url.searchParams.get("symbol")!.toUpperCase().trim()] : undefined,
+              maxUnderlyings: url.searchParams.get("maxUnderlyings") ? Number(url.searchParams.get("maxUnderlyings")) : undefined,
+              contractType: url.searchParams.get("contractType") || "BOTH",
               minDelta: url.searchParams.get("minDelta") ? Number(url.searchParams.get("minDelta")) : undefined,
               maxDelta: url.searchParams.get("maxDelta") ? Number(url.searchParams.get("maxDelta")) : undefined,
+              minVolume: url.searchParams.get("minVolume") ? Number(url.searchParams.get("minVolume")) : undefined,
+              minOpenInterest: url.searchParams.get("minOpenInterest") ? Number(url.searchParams.get("minOpenInterest")) : undefined,
+              maxSpreadPct: url.searchParams.get("maxSpreadPct") ? Number(url.searchParams.get("maxSpreadPct")) : undefined,
+              maxQuoteAgeSeconds: url.searchParams.get("maxQuoteAgeSeconds") ? Number(url.searchParams.get("maxQuoteAgeSeconds")) : undefined,
+              minDte: url.searchParams.get("minDte") ? Number(url.searchParams.get("minDte")) : undefined,
+              maxDte: url.searchParams.get("maxDte") ? Number(url.searchParams.get("maxDte")) : undefined,
+              limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
             };
           }
           const userLogin = request.headers.get("x-user-login") || sessionId || "premium_subscriber";
@@ -2341,7 +2349,15 @@ Agentic Best Practices & Workflow Rules:
         !Number.isFinite(body.maxPlannedLoss) ||
         !Number.isFinite(body.minRewardRisk) ||
         (body.minDte !== undefined && (!Number.isInteger(body.minDte) || body.minDte < 1)) ||
-        (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 14))) ||
+        (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 0))) ||
+        (body.minVolume !== undefined && (!Number.isInteger(body.minVolume) || body.minVolume < 0)) ||
+        (body.minOpenInterest !== undefined && (!Number.isInteger(body.minOpenInterest) || body.minOpenInterest < 0)) ||
+        (body.maxSpreadPct !== undefined && (!Number.isFinite(body.maxSpreadPct) || body.maxSpreadPct <= 0)) ||
+        (body.maxQuoteAgeSeconds !== undefined && (!Number.isFinite(body.maxQuoteAgeSeconds) || body.maxQuoteAgeSeconds < 0)) ||
+        (body.contractLimit !== undefined && (!Number.isInteger(body.contractLimit) || body.contractLimit < 1)) ||
+        (body.candidateLimit !== undefined && (!Number.isInteger(body.candidateLimit) || body.candidateLimit < 1)) ||
+        (body.maxStrikesPerSide !== undefined && (!Number.isInteger(body.maxStrikesPerSide) || body.maxStrikesPerSide < 1)) ||
+        (body.maxIronCondors !== undefined && (!Number.isInteger(body.maxIronCondors) || body.maxIronCondors < 0)) ||
         !Array.isArray(body.allowedStrategies) ||
         body.allowedStrategies.length === 0 ||
         body.allowedStrategies.some((strategy) => !allowedTypes.has(strategy as OptionStrategyType))
@@ -2357,11 +2373,15 @@ Agentic Best Practices & Workflow Rules:
         const screened = await screener.screenOptions({
           underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
           contractType: "BOTH",
-          minDte: strategyRequest.minDte ?? 14,
-          maxDte: strategyRequest.maxDte ?? 60,
-          limit: 250,
+          minDte: strategyRequest.minDte,
+          maxDte: strategyRequest.maxDte,
+          minVolume: strategyRequest.minVolume,
+          minOpenInterest: strategyRequest.minOpenInterest,
+          maxSpreadPct: strategyRequest.maxSpreadPct,
+          maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
+          limit: strategyRequest.contractLimit,
         });
-        const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest);
+        const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
         return Response.json({
           ...recommendations,
           screen: {
@@ -2390,14 +2410,21 @@ Agentic Best Practices & Workflow Rules:
             contractType: url.searchParams.get("contractType") || undefined,
             minDelta: url.searchParams.get("minDelta") ? Number(url.searchParams.get("minDelta")) : undefined,
             maxDelta: url.searchParams.get("maxDelta") ? Number(url.searchParams.get("maxDelta")) : undefined,
+            minGamma: url.searchParams.get("minGamma") ? Number(url.searchParams.get("minGamma")) : undefined,
+            maxGamma: url.searchParams.get("maxGamma") ? Number(url.searchParams.get("maxGamma")) : undefined,
+            minTheta: url.searchParams.get("minTheta") ? Number(url.searchParams.get("minTheta")) : undefined,
+            maxTheta: url.searchParams.get("maxTheta") ? Number(url.searchParams.get("maxTheta")) : undefined,
             minImpliedVolatility: url.searchParams.get("minIv") ? Number(url.searchParams.get("minIv")) : undefined,
             maxImpliedVolatility: url.searchParams.get("maxIv") ? Number(url.searchParams.get("maxIv")) : undefined,
             minVolume: url.searchParams.get("minVolume") ? Number(url.searchParams.get("minVolume")) : undefined,
             minOpenInterest: url.searchParams.get("minOi") ? Number(url.searchParams.get("minOi")) : undefined,
+            maxSpreadPct: url.searchParams.get("maxSpreadPct") ? Number(url.searchParams.get("maxSpreadPct")) : undefined,
+            maxQuoteAgeSeconds: url.searchParams.get("maxQuoteAgeSeconds") ? Number(url.searchParams.get("maxQuoteAgeSeconds")) : undefined,
             minDte: url.searchParams.get("minDte") ? Number(url.searchParams.get("minDte")) : undefined,
             maxDte: url.searchParams.get("maxDte") ? Number(url.searchParams.get("maxDte")) : undefined,
             moneyness: url.searchParams.get("moneyness") || undefined,
             underlyingSymbols: url.searchParams.get("symbols") ? url.searchParams.get("symbols")!.split(",").map((s) => s.trim()) : undefined,
+            maxUnderlyings: url.searchParams.get("maxUnderlyings") ? Number(url.searchParams.get("maxUnderlyings")) : undefined,
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
           };
         }

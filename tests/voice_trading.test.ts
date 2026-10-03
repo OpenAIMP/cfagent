@@ -3,7 +3,6 @@ import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
-import { ETradeRestClient } from "../src/trading/etrade/client";
 import {
   normalizeVoiceTradingTranscript,
   tuneFinancialPronunciation,
@@ -61,11 +60,15 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
 
   beforeEach(() => {
     DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
-    vi.spyOn(ETradeRestClient.prototype, "getMarketMovers").mockResolvedValue(MOCK_TEST_UNIVERSE.map((stock) => stock.symbol));
-    vi.spyOn(ETradeRestClient.prototype, "getWatchlists").mockResolvedValue([]);
-    vi.spyOn(ETradeRestClient.prototype, "fetchQuotes").mockImplementation(async (symbols) =>
-      MOCK_TEST_UNIVERSE.filter((stock) => symbols.includes(stock.symbol))
-    );
+    DynamicMarketScreener.setTestListingsFixture(MOCK_TEST_UNIVERSE.map((stock) => ({
+      symbol: stock.symbol,
+      companyName: stock.companyName,
+      exchange: "nasdaq" as const,
+      lastPrice: stock.lastPrice,
+      change: stock.change,
+      changePercent: stock.changePercent,
+      marketCap: (stock.marketCap || 0) * 1e9,
+    })));
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
@@ -73,6 +76,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    DynamicMarketScreener.setTestListingsFixture(null);
   });
 
   // =========================================================================
@@ -177,7 +181,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     it("handles verbal market screener requests", async () => {
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
       const req: VoiceTradingTurnRequest = {
-        transcript: "Screen tech stocks",
+        transcript: "Screen stocks priced between $20 and $500",
         sessionId,
       };
 
@@ -188,15 +192,15 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.screenedStocks).toBeDefined();
       expect(res.screenedStocks!.length).toBeGreaterThan(0);
       expect(res.spokenText).toContain("screened");
-      expect(res.spokenText).toContain("R-S-I");
-      expect(res.displayMarkdown).toContain("Screener");
+      expect(res.spokenText).toContain("daily change");
+      expect(res.displayMarkdown).toContain("Market Listings");
       expect(res.proposerDid).toBe("did:agent:openaimp:trading");
     });
 
-    it("handles verbal market screener with RSI filter: 'Screen tech stocks with RSI under 40'", async () => {
+    it("handles verbal market screener with a supported price range", async () => {
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
       const req: VoiceTradingTurnRequest = {
-        transcript: "Screen tech stocks with RSI under 40",
+        transcript: "Screen stocks priced between $20 and $500",
         sessionId,
       };
 
@@ -207,18 +211,17 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.screenedStocks).toBeDefined();
       expect(res.screenedStocks!.length).toBeGreaterThan(0);
 
-      // Verify all matched stocks strictly satisfy RSI <= 40 and sector Technology
+      // Verify all returned live listing prices satisfy the requested range.
       for (const stock of res.screenedStocks!) {
-        const effectiveRsi = stock.rsi14 ?? stock.rsi ?? 50;
-        expect(effectiveRsi).toBeLessThanOrEqual(40);
-        expect(stock.sector.toLowerCase()).toMatch(/technology|semiconductors/);
+        const price = Number(String(stock.price).replace(/[^0-9.]/g, ""));
+        expect(price).toBeGreaterThanOrEqual(20);
+        expect(price).toBeLessThanOrEqual(500);
       }
 
       expect(res.spokenText).toContain("screened");
-      expect(res.spokenText).toContain("R-S-I");
       expect(res.spokenText).not.toContain("equities in the universe");
-      expect(res.displayMarkdown).toContain("Screener");
-      expect(res.displayMarkdown).toContain("AAPL");
+      expect(res.displayMarkdown).toContain("Market Listings");
+      expect(res.displayMarkdown).toContain("Exchange");
     });
 
     it("gracefully guides trader when zero equities match extreme criteria: 'Screen tech stocks with RSI under 15'", async () => {
@@ -234,13 +237,8 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.actionType).toBe("screener");
       expect(res.screenedStocks).toBeDefined();
       expect(res.screenedStocks!.length).toBe(0);
-
-      // Must NOT utter nonsensical fallback 'Top results include equities in the universe'
-      expect(res.spokenText).not.toContain("Top results include equities in the universe");
-      expect(res.spokenText).toContain("no Technology stocks with an R-S-I under 15 currently meet that threshold");
-      expect(res.spokenText).toContain("lowest R-S-I in that sector is");
-      expect(res.displayMarkdown).toContain("No Matches Found");
-      expect(res.displayMarkdown).toContain("Closest Candidate in Sector");
+      expect(res.spokenText).toContain("does not provide sector, R-S-I data");
+      expect(res.displayMarkdown).toContain("Stock Screen Unavailable");
     });
 
     it("handles verbal portfolio and balance queries", async () => {

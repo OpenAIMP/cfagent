@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import { ETradeRestClient } from "../src/trading/etrade/client";
+import type { NasdaqStockListing } from "../src/services/nasdaqListings";
 import { ETradeService } from "../src/services/etrade";
 import { DatabaseORM } from "../src/orm";
 import { planNLQ, executeNLQQueryAsync } from "../src/agents/nlq";
@@ -158,6 +159,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
     DynamicOptionsScreener.clearTestChainsFixture();
+    DynamicOptionsScreener.setTestListingsFixture(null);
     vi.restoreAllMocks();
     globalThis.fetch = originalFetch;
   });
@@ -310,6 +312,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       const result = await new DynamicOptionsScreener(client).screenOptions({
         underlyingSymbols: ["MULTI"],
         contractType: "CALL",
+        minDte: 14,
+        maxDte: 60,
       });
 
       expect(result.status).toBe("matches_found");
@@ -346,6 +350,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       const result = screener.screenOptionsSync({
         underlyingSymbols: ["NVDA"],
         contractType: "CALL",
+        maxSpreadPct: 10,
+        maxQuoteAgeSeconds: 60,
       });
 
       expect(result.contracts).toHaveLength(1);
@@ -401,7 +407,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(result.totalUnderlyingsScanned).toBe(0);
     });
 
-    it("screens live mover underlyings with chains returned by E*TRADE", async () => {
+    it("discovers option underlyings from all live listings and applies the visible cap", async () => {
       DynamicOptionsScreener.clearTestChainsFixture();
       const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const chain: ETradeOptionChain = {
@@ -430,21 +436,24 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         }],
       };
       const client = {
-        getMarketMovers: vi.fn(async (category: string) => category === "active" ? ["LIVE", "BANK"] : []),
-        getWatchlists: vi.fn(async () => []),
-        fetchQuotes: vi.fn(async () => [
-          { symbol: "LIVE", sector: "Technology" },
-          { symbol: "BANK", sector: "Financial" },
-        ] as any),
         getOptionChains: vi.fn(async () => chain),
       } as unknown as ETradeRestClient;
+      const listings: NasdaqStockListing[] = [
+        { symbol: "LIVE", companyName: "Live Corp", exchange: "nasdaq", lastPrice: 100, change: 1, changePercent: 1 },
+        { symbol: "BANK", companyName: "Bank Corp", exchange: "nyse", lastPrice: 100, change: -1, changePercent: -1 },
+      ];
+      DynamicOptionsScreener.setTestListingsFixture(listings);
 
-      const result = await new DynamicOptionsScreener(client).screenOptions({ sector: "Technology", contractType: "CALL" });
+      const result = await new DynamicOptionsScreener(client).screenOptions({
+        maxUnderlyings: 1,
+        contractType: "CALL",
+        minDte: 14,
+        maxDte: 60,
+      });
       expect(result.status).toBe("matches_found");
       expect(result.totalUnderlyingsScanned).toBe(1);
       expect(result.contracts[0].underlyingSymbol).toBe("LIVE");
       expect(client.getOptionChains).toHaveBeenCalledWith({ symbol: "LIVE" });
-      expect(client.fetchQuotes).toHaveBeenCalledWith(["LIVE", "BANK"], { overrideSymbolCount: true });
     });
 
     it("uses deterministic test fixtures when injected via setTestChainsFixture", async () => {
@@ -683,6 +692,24 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(plan.tradingData?.filters?.maxTheta).toBe(-0.05);
       expect(plan.tradingData?.filters?.minDte).toBe(5);
       expect(plan.tradingData?.filters?.maxDte).toBe(30);
+    });
+
+    it("parses visible liquidity, spread, quote-age, underlying, and result limits", async () => {
+      const plan = await planNLQ(
+        mockEnv,
+        "Screen call options with 20 to 45 DTE, volume over 100, open interest above 500, spread under 8%, quote age under 90 seconds, scan up to 7 underlyings, top 40 contracts"
+      );
+
+      expect(plan.tradingData?.action).toBe("options_screen");
+      expect(plan.tradingData?.filters?.minDte).toBe(20);
+      expect(plan.tradingData?.filters?.maxDte).toBe(45);
+      expect(plan.tradingData?.filters?.minVolume).toBe(100);
+      expect(plan.tradingData?.filters?.minOpenInterest).toBe(500);
+      expect(plan.tradingData?.filters?.maxSpreadPct).toBe(8);
+      expect(plan.tradingData?.filters?.maxQuoteAgeSeconds).toBe(90);
+      expect(plan.tradingData?.filters?.maxUnderlyings).toBe(7);
+      expect(plan.tradingData?.filters?.limit).toBe(40);
+      expect(plan.tradingData?.filters?.underlyingSymbols).toBeUndefined();
     });
 
     it("plans and executes options screening query via NLQ", async () => {

@@ -59,7 +59,7 @@
 
 .options-nlq-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.3fr) minmax(160px, 0.35fr) auto;
   align-items: end;
   gap: 0.8rem;
   padding: 0.9rem 1rem;

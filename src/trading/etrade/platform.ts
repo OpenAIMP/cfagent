@@ -77,8 +77,8 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       oauthRenewable: authStatus.renewable,
       capabilities: [
         "Natural Language Market Screener (NLQ)",
-        "Live Market-Mover and Watchlist Discovery",
-        "Quote-Based Stock and Options Screening",
+        "Dynamic All-Exchange Stock Listings (Nasdaq, NYSE, AMEX)",
+        "Listing-Based Stock Screening with Explicit Price/Cap/Change Filters",
         "Real-Time Level 1 Quotes & Order Depth",
         "Agent DID Attestation Order Stamping",
         "Human-in-the-Loop (HITL) Execution Safety Guarantee",
@@ -142,7 +142,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
   }
 
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.screener.screenLive(this.client, filter);
+    return this.screener.screenLive(filter);
   }
 
   async getAccounts(): Promise<ETradeAccount[]> {

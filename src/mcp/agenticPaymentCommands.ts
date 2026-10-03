@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 
 /**
@@ -15,38 +16,70 @@ import { FossResearchService } from "../services/fossResearch";
  */
 export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
   underlying?: string;
+  maxUnderlyings?: number;
   contractType?: "CALL" | "PUT" | "BOTH";
   minDelta?: number;
   maxDelta?: number;
+  minDte?: number;
+  maxDte?: number;
+  minVolume?: number;
+  minOpenInterest?: number;
+  maxSpreadPct?: number;
+  maxQuoteAgeSeconds?: number;
+  limit?: number;
   paymentSignature?: string;
 }> {
   readonly name = "paid_options_screener";
   readonly description =
-    "Execute institutional options screening with greeks, IV, and DTE filters. Requires Cloudflare Agentic Payment ($0.05 USDC). Supply paymentSignature or call without to receive 402 challenge.";
+    "Screen live option chains with explicit DTE, Greeks, liquidity, spread, and quote-age inputs. Supply an underlying or a maximum-underlyings limit. Requires Cloudflare Agentic Payment ($0.05 USDC).";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
-      underlying: { type: "string", description: "Underlying stock ticker (default: NVDA)" },
-      contractType: { type: "string", enum: ["CALL", "PUT", "BOTH"], description: "Contract type" },
+      underlying: { type: "string", description: "Optional underlying ticker; omit to discover from current all-exchange listings" },
+      maxUnderlyings: { type: "number", description: "Required for broad scans; maximum underlying symbols to query" },
+      contractType: { type: "string", enum: ["CALL", "PUT", "BOTH"], description: "Optional option type; omitted screens both" },
       minDelta: { type: "number", description: "Minimum absolute delta (0.0 to 1.0)" },
       maxDelta: { type: "number", description: "Maximum absolute delta (0.0 to 1.0)" },
+      minDte: { type: "number", description: "Minimum days to expiration" },
+      maxDte: { type: "number", description: "Maximum days to expiration" },
+      minVolume: { type: "number", description: "Minimum daily contract volume" },
+      minOpenInterest: { type: "number", description: "Minimum open interest" },
+      maxSpreadPct: { type: "number", description: "Maximum bid/ask spread as percent of midpoint" },
+      maxQuoteAgeSeconds: { type: "number", description: "Quote age reference for freshness labels; does not discard stale rows" },
+      limit: { type: "number", description: "Maximum contracts to return; omitted returns all matches" },
       paymentSignature: { type: "string", description: "x402 PAYMENT-SIGNATURE proof (base64 JSON or hex)" },
     },
   };
   readonly zodSchema = z.object({
-    underlying: z.string().optional().default("NVDA"),
-    contractType: z.enum(["CALL", "PUT", "BOTH"]).optional().default("CALL"),
+    underlying: z.string().optional(),
+    maxUnderlyings: z.number().int().positive().optional(),
+    contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
     minDelta: z.number().optional(),
     maxDelta: z.number().optional(),
+    minDte: z.number().int().nonnegative().optional(),
+    maxDte: z.number().int().positive().optional(),
+    minVolume: z.number().int().nonnegative().optional(),
+    minOpenInterest: z.number().int().nonnegative().optional(),
+    maxSpreadPct: z.number().nonnegative().optional(),
+    maxQuoteAgeSeconds: z.number().nonnegative().optional(),
+    limit: z.number().int().positive().optional(),
     paymentSignature: z.string().optional(),
   });
 
   async execute(
     input: {
       underlying?: string;
+      maxUnderlyings?: number;
       contractType?: "CALL" | "PUT" | "BOTH";
       minDelta?: number;
       maxDelta?: number;
+      minDte?: number;
+      maxDte?: number;
+      minVolume?: number;
+      minOpenInterest?: number;
+      maxSpreadPct?: number;
+      maxQuoteAgeSeconds?: number;
+      limit?: number;
       paymentSignature?: string;
     },
     context: McpToolContext
@@ -86,12 +119,21 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     }
 
     // Payment verified: execute options screen
-    const screener = new DynamicOptionsScreener();
-    const result = await screener.screenOptionsSync({
-      underlyingSymbols: [input.underlying || "NVDA"],
-      contractType: input.contractType || "CALL",
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId || "default_trader");
+    const screener = new DynamicOptionsScreener(etrade.client);
+    const result = await screener.screenOptions({
+      underlyingSymbols: input.underlying ? [input.underlying.toUpperCase().trim()] : undefined,
+      maxUnderlyings: input.maxUnderlyings,
+      contractType: input.contractType,
       minDelta: input.minDelta,
       maxDelta: input.maxDelta,
+      minDte: input.minDte,
+      maxDte: input.maxDte,
+      minVolume: input.minVolume,
+      minOpenInterest: input.minOpenInterest,
+      maxSpreadPct: input.maxSpreadPct,
+      maxQuoteAgeSeconds: input.maxQuoteAgeSeconds,
+      limit: input.limit,
     });
 
     context.audit("agentic_payment.tool_executed", "trading", {

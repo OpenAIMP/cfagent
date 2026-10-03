@@ -33,8 +33,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [positionsLoading, setPositionsLoading] = useState(false);
 
   // Screener state
-  const [sectorFilter, setSectorFilter] = useState<string>("All");
-  const [rsiFilterPreset, setRsiFilterPreset] = useState<"all" | "oversold" | "neutral" | "overbought">("all");
+  const [exchangeFilter, setExchangeFilter] = useState<"ALL" | "NASDAQ" | "NYSE" | "AMEX">("ALL");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [stockResultLimit, setStockResultLimit] = useState("100");
   const [marketCapPreset, setMarketCapPreset] = useState<string>("all");
   const [perfFilter, setPerfFilter] = useState<"all" | "gainers" | "losers">("all");
   const [screenerSearch, setScreenerSearch] = useState("");
@@ -641,14 +643,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setScreenerLoading(true);
     setScanMessage("");
     try {
-      const body: Record<string, any> = { limit: 12 };
-      if (sectorFilter !== "All") body.sector = sectorFilter;
-      if (rsiFilterPreset === "oversold") body.maxRsi = 35;
-      if (rsiFilterPreset === "overbought") body.minRsi = 70;
-      if (rsiFilterPreset === "neutral") {
-        body.minRsi = 35;
-        body.maxRsi = 70;
-      }
+      const body: Record<string, any> = { limit: Number(stockResultLimit) };
+      body.exchange = exchangeFilter;
+      if (minPrice.trim()) body.minPrice = Number(minPrice);
+      if (maxPrice.trim()) body.maxPrice = Number(maxPrice);
       if (marketCapPreset === "mega") body.minMarketCap = 200;
       if (marketCapPreset === "large") body.minMarketCap = 50;
       if (perfFilter === "gainers") body.gainersOnly = true;
@@ -667,12 +665,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         setScreenerStocks(list);
         const total = typeof data.totalScreened === "number" ? data.totalScreened : list.length;
         const candidateCount = typeof data.discovery?.candidateCount === "number" ? data.discovery.candidateCount : total;
-        const quoteCount = typeof data.discovery?.quoteCount === "number" ? data.discovery.quoteCount : total;
+        const listingCount = typeof data.discovery?.listingCount === "number" ? data.discovery.listingCount : total;
         setScanUniverseCount(candidateCount);
-        setScanMessage(data.discovery?.message || "");
-        if (candidateCount === 0) {
+        setScanMessage(data.validationError || data.discovery?.message || "");
+        if (data.validationError) {
+          setScanStatus("data_unavailable");
+        } else if (candidateCount === 0) {
           setScanStatus("no_universe");
-        } else if (quoteCount === 0) {
+        } else if (listingCount === 0) {
           setScanStatus("data_unavailable");
         } else if (list.length === 0) {
           setScanStatus("no_matches");
@@ -1324,7 +1324,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           <input
             type="text"
             className="nlq-bar-input"
-            placeholder="Ask about account or screen markets: e.g. 'Show my portfolio positions and P&L', 'Screen tech stocks with RSI < 35'..."
+            placeholder="Ask about your account or screen listings by price, exchange, market cap, or daily change"
             value={nlqQuery}
             onChange={(e) => setNlqQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -1364,23 +1364,23 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             type="button"
             className="nlq-chip"
             onClick={() => {
-              setNlqQuery("Screen Tech stocks with RSI < 40");
+              setNlqQuery("Find stocks priced between $20 and $200");
               setSubTab("nlq");
-              handleRunNlq(undefined, "Screen Tech stocks with RSI < 40");
+              handleRunNlq(undefined, "Find stocks priced between $20 and $200");
             }}
           >
-            🚀 Tech RSI &lt; 40
+            💵 Price Range $20–$200
           </button>
           <button
             type="button"
             className="nlq-chip"
             onClick={() => {
-              setNlqQuery("Find oversold stocks with RSI under 35");
+              setNlqQuery("Find stocks with market cap above $200B");
               setSubTab("nlq");
-              handleRunNlq(undefined, "Find oversold stocks with RSI under 35");
+              handleRunNlq(undefined, "Find stocks with market cap above $200B");
             }}
           >
-            📉 Oversold Stocks (RSI &lt; 35)
+            🏦 Large Market Cap
           </button>
           <button
             type="button"
@@ -1643,7 +1643,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               id="stock-screener-nlq"
               value={nlqQuery}
               onChange={(event) => setNlqQuery(event.target.value)}
-              placeholder="Find technology stocks with RSI below 40"
+              placeholder="Find stocks priced between $20 and $200"
             />
             <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
               {nlqLoading ? "Running…" : "Run NLQ screen"}
@@ -1653,32 +1653,26 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {/* Controls Bar */}
           <div className="screener-controls-bar">
             <div className="control-item">
-              <label>Sector</label>
+              <label>Exchange</label>
               <select
-                value={sectorFilter}
-                onChange={(e) => setSectorFilter(e.target.value)}
+                value={exchangeFilter}
+                onChange={(e) => setExchangeFilter(e.target.value as typeof exchangeFilter)}
               >
-                <option value="All">All Sectors</option>
-                <option value="Technology">Technology</option>
-                <option value="Financial">Financial</option>
-                <option value="Consumer Discretionary">Consumer Discretionary</option>
-                <option value="Communication Services">Communication Services</option>
-                <option value="Healthcare">Healthcare</option>
-                <option value="Energy">Energy</option>
+                <option value="ALL">All U.S. listings</option>
+                <option value="NASDAQ">Nasdaq</option>
+                <option value="NYSE">NYSE</option>
+                <option value="AMEX">AMEX</option>
               </select>
             </div>
 
             <div className="control-item">
-              <label>RSI-14 Strategy</label>
-              <select
-                value={rsiFilterPreset}
-                onChange={(e) => setRsiFilterPreset(e.target.value as any)}
-              >
-                <option value="all">Any RSI</option>
-                <option value="oversold">Oversold (RSI &lt; 35)</option>
-                <option value="neutral">Neutral Range (35 - 70)</option>
-                <option value="overbought">Overbought (RSI &gt; 70)</option>
-              </select>
+              <label>Minimum price ($)</label>
+              <input type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} />
+            </div>
+
+            <div className="control-item">
+              <label>Maximum price ($)</label>
+              <input type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} />
             </div>
 
             <div className="control-item">
@@ -1705,11 +1699,23 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               </select>
             </div>
 
+            <div className="control-item">
+              <label>Maximum results</label>
+              <input
+                type="number"
+                min="1"
+                max="5000"
+                step="1"
+                value={stockResultLimit}
+                onChange={(event) => setStockResultLimit(event.target.value)}
+              />
+            </div>
+
             <div className="control-item search-item">
-              <label>Search Ticker</label>
+              <label>Search ticker or company</label>
               <input
                 type="text"
-                placeholder="NVDA, Apple, AI..."
+                placeholder="Ticker or company name"
                 value={screenerSearch}
                 onChange={(e) => setScreenerSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -1734,10 +1740,11 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {/* Screener Results Meta */}
           <div className="screener-results-header">
             <span className="results-count">
-              Live candidates: <strong>{scanUniverseCount}</strong> • Matches: <strong>{screenerStocks.length}</strong> • Metrics: E*TRADE quote data
+              Live listings: <strong>{scanUniverseCount.toLocaleString()}</strong> • Matches: <strong>{screenerStocks.length}</strong> • Source: Nasdaq / NYSE / AMEX listings
             </span>
             <span className="results-timestamp">Last Scan: {scannedAt || "Just now"}</span>
           </div>
+          {scanMessage && <div className="stock-screener-source-note" role="status">{scanMessage}</div>}
 
           {/* Screener Cards / Table Grid */}
           <div className="screener-table-wrap">
@@ -1745,38 +1752,34 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               <thead>
                 <tr>
                   <th>Symbol &amp; Company</th>
-                  <th>Sector</th>
-                  <th>Price</th>
-                  <th>24h Change</th>
-                  <th>RSI (14)</th>
-                  <th>Technical Signal</th>
+                  <th>Exchange</th>
+                  <th>Last sale</th>
+                  <th>Daily change</th>
                   <th>Market Cap</th>
-                  <th>Volume</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {screenerStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="empty-state" role="status" aria-live="polite">
+                    <td colSpan={6} className="empty-state" role="status" aria-live="polite">
                       {screenerLoading ? (
                         "Scanning equity universe…"
                       ) : scanStatus === "not_run" ? (
                         "Scanner has not been run. Select your filters and click 'Run Technical Screen'."
                       ) : scanStatus === "no_universe" ? (
-                        scanMessage || "E*TRADE returned no live market movers or remote watchlist symbols. Try market hours or search for a ticker."
+                        scanMessage || "The all-exchange listings request returned no securities. Retry the listing source or search a ticker."
                       ) : scanStatus === "data_unavailable" ? (
-                        scanMessage || `Found ${scanUniverseCount} candidates but received no live quotes. Check E*TRADE OAuth/API access and retry.`
+                        scanMessage || "One or more selected criteria are unavailable from the dynamic listing feed."
                       ) : scanStatus === "scan_failed" ? (
                         scanMessage || "E*TRADE screening request failed. Check OAuth/API access and retry."
                       ) : (
-                        `Scanned ${scanUniverseCount} live candidates across ${sectorFilter}; 0 matched the selected filters.`
+                        `Scanned ${scanUniverseCount.toLocaleString()} live listings; 0 matched the selected filters.`
                       )}
                     </td>
                   </tr>
                 ) : (
                   screenerStocks.map((stock) => {
-                    const rsi = stock.rsi14 ?? stock.rsi;
                     const isPositive = stock.change >= 0;
                     return (
                       <tr key={stock.symbol} className="stock-row">
@@ -1786,9 +1789,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                             <span className="company-title">{stock.companyName}</span>
                           </div>
                         </td>
-                        <td>
-                          <span className="sector-tag">{stock.sector || "Equities"}</span>
-                        </td>
+                        <td><span className="sector-tag">{stock.listingExchange || "N/A"}</span></td>
                         <td>
                           <span className="price-tag">${(stock.lastPrice || stock.price || 0).toFixed(2)}</span>
                         </td>
@@ -1798,33 +1799,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                           </span>
                         </td>
                         <td>
-                          <div className="rsi-cell">
-                            <span className={`rsi-badge ${getRsiBadgeClass(rsi)}`}>
-                              {rsi === undefined ? "N/A" : rsi.toFixed(1)} • {getRsiLabel(rsi)}
-                            </span>
-                            <div className="rsi-meter-bar">
-                              <div
-                                className={`rsi-fill ${getRsiBadgeClass(rsi)}`}
-                                style={{ width: `${rsi === undefined ? 0 : Math.min(100, Math.max(0, rsi))}%` }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="tech-signal-pill" title={stock.highlightReason}>
-                            {stock.technicalSignal || stock.signal || "ACTIVE"}
-                          </span>
-                        </td>
-                        <td>
                           <span className="mcap-tag">
                             {stock.marketCap
                               ? `$${(stock.marketCap > 1e11 ? stock.marketCap / 1e12 : stock.marketCap / 1e9).toFixed(2)}${stock.marketCap > 1e11 ? "T" : "B"}`
                               : "N/A"}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="vol-tag">
-                            {stock.volume ? `${(stock.volume / 1e6).toFixed(1)}M` : "N/A"}
                           </span>
                         </td>
                         <td>
@@ -2730,7 +2708,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   <strong>Security Guarantee:</strong> Stamped with Trading DID (<code>did:agent:openaimp:trading</code>).
                 </div>
                 <div>
-                  <strong>Commands:</strong> <code>Quote &lt;SYMBOL&gt;</code>, <code>Screen tech stocks</code>, <code>Preview Buy 10 NVDA limit 125</code>, <code>APPROVE &lt;orderId&gt;</code>.
+                  <strong>Commands:</strong> <code>Quote &lt;SYMBOL&gt;</code>, <code>Screen stocks priced between $20 and $200</code>, <code>Preview Buy 10 NVDA limit 125</code>, <code>APPROVE &lt;orderId&gt;</code>.
                 </div>
               </div>
 
@@ -2779,10 +2757,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setEmailSubject("Screen Oversold Tech"); setEmailBody("Show tech stocks with RSI < 35"); }}
+                      onClick={() => { setEmailSubject("Screen stock price range"); setEmailBody("Show stocks priced between $20 and $200"); }}
                       style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
                     >
-                      🔍 Screen Tech
+                      🔍 Screen Price Range
                     </button>
                     <button
                       type="button"
@@ -2889,10 +2867,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleSimulateSlack("@ETradeAgent screen tech stocks with RSI < 35")}
+                      onClick={() => handleSimulateSlack("@ETradeAgent screen stocks priced between $20 and $200")}
                       style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
                     >
-                      🔍 Screen Tech RSI &lt; 35
+                      🔍 Screen Price Range
                     </button>
                     <button
                       type="button"
@@ -3122,10 +3100,10 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleVoiceTurn("Screen tech stocks with RSI under 40")}
+                  onClick={() => handleVoiceTurn("Screen stocks priced between $20 and $200")}
                   style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
                 >
-                  🔍 "Screen tech stocks"
+                  🔍 "Screen price range"
                 </button>
                 <button
                   type="button"

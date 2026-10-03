@@ -382,6 +382,19 @@ export class ETradeVoiceTradingService {
         const maxRsi = filters.maxRsi;
         const minRsi = filters.minRsi;
 
+        if (nlqRes.validationError) {
+          const spokenText = tuneFinancialPronunciation(`I could not apply that stock screen. ${nlqRes.validationError}`);
+          return {
+            success: true,
+            spokenText,
+            displayMarkdown: `### Stock Screen Unavailable\n\n${nlqRes.validationError}\n\nAvailable live listing fields: ticker, company, exchange, last sale, daily change, and market capitalization.`,
+            actionType: "screener",
+            screenedStocks: [],
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
         if (stocks.length === 0) {
           // Identify closest candidates from scan ledger or sector rejections
           const rejections = (nlqRes.scanLedger?.rejections || []) as any[];
@@ -444,15 +457,16 @@ export class ETradeVoiceTradingService {
 
         const top = stocks.slice(0, 3);
         const topSpoken = top
-          .map((s) => `${s.symbol} at ${s.price} with an R-S-I of ${s.rsi14 || "neutral"}`)
+          .map((s) => `${s.symbol} at ${s.price}, daily change ${s.change}`)
           .join(", and ");
 
-        const sectorPrefix = sector ? `${sector} ` : "";
-        const spokenRaw = `I screened ${stocks.length} ${sectorPrefix}stocks. Top results include ${topSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
+        const spokenRaw = `I screened ${stocks.length} listed stocks. Top results include ${topSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
         const spokenText = tuneFinancialPronunciation(spokenRaw);
 
-        let tableRows = stocks.slice(0, 5).map(s => `| **${s.symbol}** | ${s.sector} | ${s.price} | ${s.change} | ${s.rsi14 || "N/A"} | \`${s.signal || "NEUTRAL"}\` |`).join("\n");
-        const displayMarkdown = `### 🔍 E*TRADE Screener (${stocks.length} Equities Matched)\n\n| Symbol | Sector | Price | 24h Change | RSI(14) | Signal |\n|---|---|---|---|---|---|\n${tableRows}\n\n*Say "Quote <symbol>" for detailed technicals, or "Buy <qty> <symbol>" to draft an order.*`;
+        const tableRows = stocks.slice(0, 5).map((stock) =>
+          `| **${stock.symbol}** | ${stock.exchange || "N/A"} | ${stock.price} | ${stock.change} | ${stock.marketCap || "N/A"} |`
+        ).join("\n");
+        const displayMarkdown = `### 🔍 Market Listings (${stocks.length} Matched)\n\n| Symbol | Exchange | Price | Daily Change | Market Cap |\n|---|---|---|---|---|\n${tableRows}\n\n*Say "Quote <symbol>" for detailed quote data, or "Buy <qty> <symbol>" to draft an order.*`;
 
         return {
           success: true,

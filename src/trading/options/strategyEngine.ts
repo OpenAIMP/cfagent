@@ -21,6 +21,14 @@ export interface StrategyRequest {
   minRewardRisk: number;
   minDte?: number;
   maxDte?: number;
+    minVolume?: number; // User-visible option-screen thresholds
+    minOpenInterest?: number; // User-visible option-screen thresholds
+    maxSpreadPct?: number; // User-visible option-screen thresholds
+    maxQuoteAgeSeconds?: number; // User-visible option-screen thresholds
+    contractLimit?: number; // User-visible option-screen thresholds
+    candidateLimit?: number; // User-visible option-screen thresholds
+      maxStrikesPerSide?: number; // User-visible option-screen thresholds
+      maxIronCondors?: number; // User-visible option-screen thresholds
   allowedStrategies: OptionStrategyType[];
   eventPolicy?: "warn" | "exclude";
   riskFreeRate?: number;
@@ -465,16 +473,19 @@ function addRejected(reasons: Map<string, number>, reason: string): void {
 export function recommendOptionStrategies(
   contracts: ScreenedOptionContractItem[],
   request: StrategyRequest,
-  limit = 10
+  limit?: number
 ): StrategyRecommendationResult {
   if (!request.symbol.trim()) throw new Error("symbol is required");
   if (!Number.isFinite(request.targetPrice) || request.targetPrice <= 0) throw new Error("targetPrice must be positive");
   if (!Number.isFinite(request.maxPlannedLoss) || request.maxPlannedLoss <= 0) throw new Error("maxPlannedLoss must be positive");
   if (!Number.isFinite(request.minRewardRisk) || request.minRewardRisk < 0) throw new Error("minRewardRisk must be non-negative");
-  const minDte = request.minDte ?? 14;
-  const maxDte = request.maxDte ?? 60;
-  if (!Number.isInteger(minDte) || minDte < 1 || !Number.isInteger(maxDte) || maxDte < minDte) {
-    throw new Error("DTE range must be positive whole days with maximum greater than or equal to minimum");
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new Error("candidate limit must be a positive whole number");
+  if (request.maxStrikesPerSide !== undefined && (!Number.isInteger(request.maxStrikesPerSide) || request.maxStrikesPerSide < 1)) throw new Error("maxStrikesPerSide must be a positive whole number");
+  if (request.maxIronCondors !== undefined && (!Number.isInteger(request.maxIronCondors) || request.maxIronCondors < 0)) throw new Error("maxIronCondors must be a non-negative whole number");
+  const minDte = request.minDte ?? 0;
+  const maxDte = request.maxDte ?? Number.MAX_SAFE_INTEGER;
+  if (!Number.isInteger(minDte) || minDte < 0 || !Number.isInteger(maxDte) || maxDte < minDte) {
+    throw new Error("DTE range must use whole days with a maximum greater than or equal to minimum");
   }
   if (request.eventPolicy === "exclude") {
     return {
@@ -532,7 +543,7 @@ export function recommendOptionStrategies(
   for (const expiryContracts of byExpiry.values()) {
     const nearest = (items: ScreenedOptionContractItem[]) => items
       .sort((a, b) => Math.abs(a.strikePrice - a.underlyingPrice) - Math.abs(b.strikePrice - b.underlyingPrice))
-      .slice(0, 12)
+      .slice(0, request.maxStrikesPerSide ?? items.length)
       .sort((a, b) => a.strikePrice - b.strikePrice);
     const calls = nearest(expiryContracts.filter((contract) => contract.optionType === "CALL"));
     const puts = nearest(expiryContracts.filter((contract) => contract.optionType === "PUT"));
@@ -560,7 +571,7 @@ export function recommendOptionStrategies(
         if (put.strikePrice < call.strikePrice) add("long_strangle", [toLeg(put, "BUY"), toLeg(call, "BUY")]);
       }
     }
-    if (wanted.has("iron_condor")) {
+    if (wanted.has("iron_condor") && request.maxIronCondors !== 0) {
       const putSpreads: Array<[ScreenedOptionContractItem, ScreenedOptionContractItem]> = [];
       const callSpreads: Array<[ScreenedOptionContractItem, ScreenedOptionContractItem]> = [];
       for (const long of puts) for (const short of puts) if (long.strikePrice < short.strikePrice) putSpreads.push([long, short]);
@@ -569,13 +580,15 @@ export function recommendOptionStrategies(
       condors: for (const [longPut, shortPut] of putSpreads) for (const [longCall, shortCall] of callSpreads) {
         if (shortPut.strikePrice >= shortCall.strikePrice) continue;
         add("iron_condor", [toLeg(longPut, "BUY"), toLeg(shortPut, "SELL"), toLeg(shortCall, "SELL"), toLeg(longCall, "BUY")]);
-        if (++generated >= 100) break condors;
+        generated++;
+        if (request.maxIronCondors !== undefined && generated >= request.maxIronCondors) break condors;
       }
     }
   }
 
   candidates.sort((a, b) => b.score - a.score || b.liquidityScore - a.liquidityScore || a.id.localeCompare(b.id));
-  const ranked = candidates.slice(0, limit).map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  const selectedCandidates = limit === undefined ? candidates : candidates.slice(0, limit);
+  const ranked = selectedCandidates.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
   const assumptions = [
     "Research ranking only; it is not a prediction, personalized advice, or an order instruction.",
     "Pre-expiry values use Black-Scholes with the supplied IV, risk-free rate, and dividend yield.",

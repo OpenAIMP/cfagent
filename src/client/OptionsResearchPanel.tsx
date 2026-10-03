@@ -148,6 +148,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [minRewardRisk, setMinRewardRisk] = useState("1.5");
   const [minDte, setMinDte] = useState("14");
   const [maxDte, setMaxDte] = useState("60");
+  const [minVolume, setMinVolume] = useState("50");
+  const [minOpenInterest, setMinOpenInterest] = useState("500");
+  const [maxSpreadPct, setMaxSpreadPct] = useState("10");
+  const [maxQuoteAgeSeconds, setMaxQuoteAgeSeconds] = useState("60");
+  const [contractLimit, setContractLimit] = useState("500");
+  const [candidateLimit, setCandidateLimit] = useState("10");
+  const [maxStrikesPerSide, setMaxStrikesPerSide] = useState("12");
+  const [maxIronCondors, setMaxIronCondors] = useState("100");
   const [eventPolicy, setEventPolicy] = useState<"warn" | "exclude">("warn");
   const [allowedStrategies, setAllowedStrategies] = useState<OptionStrategyType[]>(["long_call", "call_debit_spread"]);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
@@ -156,6 +164,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [nlqQuery, setNlqQuery] = useState("");
+  const [nlqMaxUnderlyings, setNlqMaxUnderlyings] = useState("25");
+  const [nlqQuoteAgeSeconds, setNlqQuoteAgeSeconds] = useState("60");
   const [nlqLoading, setNlqLoading] = useState(false);
   const [nlqResult, setNlqResult] = useState<any>(null);
   const [nlqError, setNlqError] = useState("");
@@ -189,6 +199,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           minRewardRisk: Number(minRewardRisk),
           minDte: Number(minDte),
           maxDte: Number(maxDte),
+          minVolume: minVolume.trim() ? Number(minVolume) : undefined,
+          minOpenInterest: minOpenInterest.trim() ? Number(minOpenInterest) : undefined,
+          maxSpreadPct: maxSpreadPct.trim() ? Number(maxSpreadPct) : undefined,
+          maxQuoteAgeSeconds: Number(maxQuoteAgeSeconds),
+          contractLimit: Number(contractLimit),
+          candidateLimit: Number(candidateLimit),
+          maxStrikesPerSide: Number(maxStrikesPerSide),
+          maxIronCondors: Number(maxIronCondors),
           allowedStrategies,
           eventPolicy,
         }),
@@ -219,7 +237,17 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           "x-environment": activeEnv,
           ...(userLogin ? { "x-user-login": userLogin } : {}),
         },
-        body: JSON.stringify({ query: nlqQuery.trim() }),
+        body: JSON.stringify({
+          query: [
+            nlqQuery.trim(),
+            nlqMaxUnderlyings.trim() && !/\bunderlyings?\b/i.test(nlqQuery)
+              ? `scan up to ${Number(nlqMaxUnderlyings)} underlyings`
+              : "",
+            nlqQuoteAgeSeconds.trim() && !/\bquote\s*age\b/i.test(nlqQuery)
+              ? `quote age under ${Number(nlqQuoteAgeSeconds)} seconds`
+              : "",
+          ].filter(Boolean).join(" "),
+        }),
       });
       const data = await response.json() as any;
       if (!response.ok) throw new Error(data.error || "Natural-language options screen failed");
@@ -239,7 +267,30 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <input
             value={nlqQuery}
             onChange={(event) => setNlqQuery(event.target.value)}
-            placeholder="Screen liquid call options with delta above 0.35 and 20 to 45 DTE"
+            placeholder="Screen call options with 20 to 45 DTE"
+          />
+        </label>
+        <label className="options-field">
+          <span>Maximum underlyings to scan</span>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={nlqMaxUnderlyings}
+            onChange={(event) => setNlqMaxUnderlyings(event.target.value)}
+            placeholder="No cap"
+          />
+        </label>
+        <label className="options-field">
+          <span>Quote-age reference (seconds; older quotes are marked stale)</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            required
+            value={nlqQuoteAgeSeconds}
+            onChange={(event) => setNlqQuoteAgeSeconds(event.target.value)}
+            placeholder="No limit"
           />
         </label>
         <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
@@ -250,7 +301,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
       {nlqResult && (
         <div className="options-nlq-result" role="status">
           <strong>{nlqResult.count ?? 0} option contracts matched</strong>
-          <p>{nlqResult.summary}</p>
+          <p>{nlqResult.validationError || nlqResult.summary}</p>
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && (
             <div className="options-scenario-table-wrap">
               <table className="options-scenario-table">
@@ -330,6 +381,46 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <input required type="number" min={minDte || 1} step="1" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} />
         </label>
         <label className="options-field">
+          <span>Minimum contract volume</span>
+          <input type="number" min="0" step="1" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Minimum open interest</span>
+          <input type="number" min="0" step="1" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Maximum bid/ask spread (%)</span>
+          <input type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Quote-age reference (seconds)</span>
+          <input required type="number" min="0" step="1" value={maxQuoteAgeSeconds} onChange={(event) => setMaxQuoteAgeSeconds(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Contracts to evaluate</span>
+          <input type="number" min="1" step="1" value={contractLimit} onChange={(event) => setContractLimit(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Ranked candidates to show</span>
+          <input type="number" min="1" step="1" value={candidateLimit} onChange={(event) => setCandidateLimit(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Strike candidates per side</span>
+          <input type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Iron condor combinations</span>
+          <input type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Strike candidates per side</span>
+          <input type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
+        </label>
+        <label className="options-field">
+          <span>Iron condor combinations</span>
+          <input type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
+        </label>
+        <label className="options-field">
           <span>Earnings/dividend policy</span>
           <select value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
             <option value="warn">Warn if event data unavailable</option>
@@ -350,7 +441,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
         </fieldset>
 
         <div className="options-form-footer">
-          <p>Uses your DTE range with minimum 50 volume, 500 open interest, ≤10% spread, and ≤60s quote age.</p>
+          <p>All thresholds and search/result limits are set above. Stale/unknown quote ages are labeled and scored, not excluded on age alone. Zero-bid, crossed, and adjusted contracts are excluded as invalid/non-standard instruments.</p>
           <button type="submit" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice}>
             {loading ? "Evaluating candidates…" : "Rank research candidates"}
           </button>

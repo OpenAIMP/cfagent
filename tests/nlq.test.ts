@@ -24,6 +24,31 @@ describe("Natural Language Query (NLQ) Engine", () => {
   });
 
   describe("NLQ Planner Fast-paths", () => {
+    it("parses stock listing price, exchange, market-cap, and result-limit filters", async () => {
+      const plan = await planNLQ(
+        mockEnv,
+        "Screen Nasdaq stocks priced between $20 and $200 with market cap above $50B; show 30 stocks"
+      );
+
+      expect(plan.tradingData?.action).toBe("screen");
+      expect(plan.tradingData?.filters?.exchange).toBe("NASDAQ");
+      expect(plan.tradingData?.filters?.minPrice).toBe(20);
+      expect(plan.tradingData?.filters?.maxPrice).toBe(200);
+      expect(plan.tradingData?.filters?.minMarketCap).toBe(50);
+      expect(plan.tradingData?.filters?.limit).toBe(30);
+    });
+
+    it("parses the stock price-range shortcut without adding sector or RSI constraints", async () => {
+      const plan = await planNLQ(mockEnv, "Find stocks priced between $20 and $200");
+
+      expect(plan.tradingData?.action).toBe("screen");
+      expect(plan.tradingData?.filters?.minPrice).toBe(20);
+      expect(plan.tradingData?.filters?.maxPrice).toBe(200);
+      expect(plan.tradingData?.filters?.sector).toBeUndefined();
+      expect(plan.tradingData?.filters?.minRsi).toBeUndefined();
+      expect(plan.tradingData?.filters?.maxRsi).toBeUndefined();
+    });
+
     it("classifies schema and table queries into domain 'tables'", async () => {
       const plan = await planNLQ(mockEnv, "List all database tables and schema");
       expect(plan.domain).toBe("tables");

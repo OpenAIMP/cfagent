@@ -279,6 +279,7 @@ export interface ETradeQuote {
   low52?: number;
   rsi?: number;
   sector?: string;
+  listingExchange?: string;
   source?: string;
   quoteStatus?: string;
   dateTime?: string;
@@ -287,6 +288,9 @@ export interface ETradeQuote {
 
 export interface StockScreenerFilter {
   sector?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  exchange?: "ALL" | "NASDAQ" | "NYSE" | "AMEX";
   minMarketCap?: number; // in billions or absolute
   maxPeRatio?: number;
   maxRsi?: number;
@@ -344,9 +348,9 @@ export interface StockScreenResult {
   ledger?: StockScreenLedger;
   validationError?: string;
   discovery?: {
-    mode: "search" | "market_movers_and_watchlists";
+    mode: "all_us_listings";
     candidateCount: number;
-    quoteCount: number;
+    listingCount: number;
     sourceCounts: Record<string, number>;
     message: string;
     error?: string;
@@ -359,6 +363,7 @@ export interface StockScreenResult {
 
 export interface OptionScreenerFilter {
   underlyingSymbols?: string[];
+  maxUnderlyings?: number;
   sector?: string;
   contractType?: "CALL" | "PUT" | "BOTH";
   minVolume?: number;
@@ -371,6 +376,8 @@ export interface OptionScreenerFilter {
   maxGamma?: number;
   minTheta?: number;
   maxTheta?: number;
+  minPrice?: number;
+  maxPrice?: number;
   minImpliedVolatility?: number; // decimal e.g. 0.35 = 35%
   maxImpliedVolatility?: number; // decimal e.g. 1.20 = 120%
   minDte?: number; // Days to expiration min
@@ -428,6 +435,7 @@ export interface OptionScreenResult {
     freshestStaleQuoteAgeSeconds?: number;
   };
   status: "matches_found" | "no_matches" | "error";
+  validationError?: string;
   rejections?: OptionScreenRejection[];
 }
 

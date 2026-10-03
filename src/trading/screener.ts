@@ -3,13 +3,13 @@
  *
  * Implements:
  * - Dynamic screening across multi-sector universes without reliance on static hardcoded values.
- * - Live candidate discovery from E*TRADE market movers and user watchlists.
- * - Quote-based filtering with missing provider metrics treated as unavailable.
+ * - Dynamic all-exchange U.S. equity listing discovery; no embedded ticker universe.
+ * - Local filtering only against fields supplied by the listing feed.
  */
 
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
-import type { ETradeRestClient } from "./etrade/client";
+import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
 
 export interface YFinanceSecurityDefinition {
   symbol: string;
@@ -194,6 +194,7 @@ export function calculateDynamicRsi(
 
 export class DynamicMarketScreener implements IMarketScreener {
   private static testUniverseFixture: ScreenedStockItem[] = [];
+  private static testListingsFixture: NasdaqStockListing[] | null = null;
   private universeCache: ScreenedStockItem[] = [];
 
   /**
@@ -206,6 +207,10 @@ export class DynamicMarketScreener implements IMarketScreener {
 
   static getTestUniverseFixture(): ScreenedStockItem[] {
     return DynamicMarketScreener.testUniverseFixture;
+  }
+
+  static setTestListingsFixture(fixture: NasdaqStockListing[] | null): void {
+    DynamicMarketScreener.testListingsFixture = fixture;
   }
 
   getDefaultUniverse(): ScreenedStockItem[] {
@@ -247,6 +252,8 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
       summaryParts.push(`Sector: ${filter.sector}`);
     }
+    if (filter.minPrice !== undefined) summaryParts.push(`Min price: $${filter.minPrice}`);
+    if (filter.maxPrice !== undefined) summaryParts.push(`Max price: $${filter.maxPrice}`);
     if (filter.minMarketCap !== undefined && filter.minMarketCap > 0) {
       summaryParts.push(
         `Min Cap: >= $${filter.minMarketCap >= 1e9 ? (filter.minMarketCap / 1e12).toFixed(1) + "T" : filter.minMarketCap + "B"}`
@@ -314,6 +321,25 @@ export class DynamicMarketScreener implements IMarketScreener {
           });
           continue;
         }
+      }
+
+      if (filter.minPrice !== undefined && stock.lastPrice < filter.minPrice) {
+        rejections.push({
+          symbol: stock.symbol,
+          reason: `Price ($${stock.lastPrice.toFixed(2)}) below minimum $${filter.minPrice.toFixed(2)}`,
+          price: stock.lastPrice,
+          changePercent: stock.changePercent,
+        });
+        continue;
+      }
+      if (filter.maxPrice !== undefined && stock.lastPrice > filter.maxPrice) {
+        rejections.push({
+          symbol: stock.symbol,
+          reason: `Price ($${stock.lastPrice.toFixed(2)}) above maximum $${filter.maxPrice.toFixed(2)}`,
+          price: stock.lastPrice,
+          changePercent: stock.changePercent,
+        });
+        continue;
       }
 
       // 2. Sector check
@@ -571,7 +597,7 @@ export class DynamicMarketScreener implements IMarketScreener {
   /**
    * Evaluates screener filters against real quotes provided directly (e.g. from E*TRADE REST API)
    */
-  screenWithQuotes(quotes: ETradeQuote[], filter: StockScreenerFilter = {}): StockScreenResult {
+  screenWithQuotes(quotes: ETradeQuote[], filter: StockScreenerFilter = {}, cacheResult = true): StockScreenResult {
     const universe = quotes.map((q) => {
       const rsi14 = calculateDynamicRsi(
         q.symbol,
@@ -586,15 +612,15 @@ export class DynamicMarketScreener implements IMarketScreener {
         price: q.lastPrice,
         sector: q.sector || "Equities",
         rsi14,
-        macdSignal: "MACD unavailable from E*TRADE quote data",
+        macdSignal: "MACD unavailable from listing feed",
         signal: (rsi14 !== undefined && rsi14 > 70 ? "OVERBOUGHT" : rsi14 !== undefined && rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
         technicalSignal: rsi14 === undefined ? "Daily quote momentum; RSI unavailable" : rsi14 < 35 ? "Oversold" : rsi14 > 70 ? "Overbought" : "RSI neutral",
         momentumScore: Math.round(50 + q.changePercent * 5),
-        highlightReason: `${q.companyName} Level 1 Quote`,
+        highlightReason: `${q.companyName} ${q.source || "market listing"}`,
       } as ScreenedStockItem;
     });
 
-    this.universeCache = universe;
+    if (cacheResult) this.universeCache = universe;
     return this.evaluateUniverse(universe, filter);
   }
 
@@ -612,98 +638,103 @@ export class DynamicMarketScreener implements IMarketScreener {
     return this.evaluateUniverse(this.getUniverse(), filter);
   }
 
-  async screenLive(client: ETradeRestClient, filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    const symbols = new Set<string>();
-    const descriptions = new Map<string, string>();
+  async screenLive(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    const unsupported: string[] = [];
+    if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) unsupported.push("sector");
+    if (filter.minRsi !== undefined || filter.maxRsi !== undefined || (filter.rsiFilter && filter.rsiFilter !== "any")) unsupported.push("RSI");
+    if (filter.minVolume !== undefined) unsupported.push("volume");
+    if (filter.maxPeRatio !== undefined) unsupported.push("P/E");
+    if (filter.momentum && filter.momentum !== "any") unsupported.push("technical momentum");
+
     const sourceCounts: Record<string, number> = {};
-
-    if (filter.search?.trim()) {
-      const terms = filter.search.trim().split(/[,\s]+/).filter(Boolean);
-      let lookupMatches = 0;
-      let explicitSymbols = 0;
-      for (const term of terms) {
-        const products = await client.lookupProduct(term);
-        for (const product of products) {
-          if (product.type && product.type !== "EQ") continue;
-          const symbol = product.symbol.toUpperCase().trim();
-          if (symbol) {
-            lookupMatches++;
-            symbols.add(symbol);
-            if (product.description) descriptions.set(symbol, product.description);
-          }
-        }
-        if (/^[A-Z0-9.\/-]+$/i.test(term)) {
-          explicitSymbols++;
-          symbols.add(term.toUpperCase());
-        }
-      }
-      sourceCounts.productLookup = lookupMatches;
-      sourceCounts.explicitTickerTerms = explicitSymbols;
-    } else {
-      const categories = filter.gainersOnly || filter.gainersLosers === "gainers"
-        ? ["gainers"] as const
-        : filter.losersOnly || filter.gainersLosers === "losers"
-        ? ["losers"] as const
-        : filter.gainersLosers === "active"
-        ? ["active"] as const
-        : ["active", "gainers", "losers"] as const;
-      const discovered = await Promise.all(categories.map(async (category) => ({
-        category,
-        symbols: await client.getMarketMovers(category),
-      })));
-      for (const result of discovered) {
-        sourceCounts[`movers_${result.category}`] = result.symbols.length;
-        for (const symbol of result.symbols) symbols.add(symbol);
-      }
-
-      const watchlists = await client.getWatchlists();
-      let watchlistSymbolCount = 0;
-      for (const watchlist of watchlists) {
-        for (const symbol of watchlist.symbols || []) {
-          watchlistSymbolCount++;
-          symbols.add(symbol.toUpperCase().trim());
-        }
-      }
-      sourceCounts.watchlists = watchlistSymbolCount;
-    }
-
-    sourceCounts.uniqueCandidates = symbols.size;
-    const config = client.getEnvConfig();
-    const configured = Boolean(config.etrade.apiKey && config.etrade.apiSecret);
-    const mode = filter.search?.trim() ? "search" as const : "market_movers_and_watchlists" as const;
-    const sourceSummary = Object.entries(sourceCounts)
-      .filter(([source]) => source !== "uniqueCandidates")
-      .map(([source, count]) => `${source}=${count}`)
-      .join(", ");
-    if (symbols.size === 0) {
-      const error = client.getLastError();
-      const emptySourceMessage = mode === "search"
-        ? `E*TRADE product lookup returned no equity matches (${sourceSummary || "no lookup matches"}). Verify the ticker/company name and API access.`
-        : `E*TRADE returned no live symbols (${sourceSummary || "no discovery counts"}). Movers may be empty outside market hours; try searching for a ticker or company name.`;
-      const message = !configured
-        ? "E*TRADE consumer credentials are not configured; no live symbols could be discovered."
-        : error
-        ? `E*TRADE discovery request failed: ${error}`
-        : emptySourceMessage;
+    let listings: NasdaqStockListing[];
+    try {
+      listings = DynamicMarketScreener.testListingsFixture ?? await fetchAllUsStockListings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       return {
-        ...this.screenWithQuotes([], filter),
-        discovery: { mode, candidateCount: 0, quoteCount: 0, sourceCounts, message, error },
+        ...this.screenWithQuotes([], filter, false),
+        discovery: {
+          mode: "all_us_listings",
+          candidateCount: 0,
+          listingCount: 0,
+          sourceCounts,
+          message: `Dynamic all-exchange listing request failed: ${message}`,
+          error: message,
+        },
       };
     }
 
-    const liveQuotes = await client.fetchQuotes(Array.from(symbols), { overrideSymbolCount: true });
-    sourceCounts.quotes = liveQuotes.length;
-    const quotes = liveQuotes.map((quote) => ({
-      ...quote,
-      companyName: descriptions.get(quote.symbol) || quote.companyName,
+    for (const listing of listings) sourceCounts[listing.exchange] = (sourceCounts[listing.exchange] || 0) + 1;
+    sourceCounts.uniqueListings = listings.length;
+    const selectedListings = filter.exchange && filter.exchange !== "ALL"
+      ? listings.filter((listing) => listing.exchange.toUpperCase() === filter.exchange)
+      : listings;
+    sourceCounts.selectedListings = selectedListings.length;
+    if (selectedListings.length === 0) {
+      const message = listings.length === 0
+        ? "Dynamic all-exchange listing request returned no rows from Nasdaq, NYSE, or AMEX."
+        : `No dynamic listings were returned for ${filter.exchange}; ${listings.length.toLocaleString()} rows were loaded across all exchanges.`;
+      return {
+        ...this.screenWithQuotes([], filter, false),
+        discovery: {
+          mode: "all_us_listings",
+          candidateCount: 0,
+          listingCount: 0,
+          sourceCounts,
+          message,
+        },
+      };
+    }
+    const quotes: ETradeQuote[] = selectedListings.map((listing) => ({
+      symbol: listing.symbol,
+      companyName: listing.companyName,
+      listingExchange: listing.exchange.toUpperCase(),
+      lastPrice: listing.lastPrice,
+      price: listing.lastPrice,
+      change: listing.change,
+      changePercent: listing.changePercent,
+      bid: 0,
+      ask: 0,
+      volume: 0,
+      open: 0,
+      high: 0,
+      low: 0,
+      marketCap: listing.marketCap,
+      week52High: 0,
+      week52Low: 0,
+      quoteStatus: "AS_OF_UNKNOWN",
+      source: "Nasdaq all-exchange stock listings (source quote time unavailable)",
+      timestamp: "",
     }));
-    const error = client.getLastError();
-    const message = quotes.length > 0
-      ? `Fetched live E*TRADE quotes for ${quotes.length} of ${symbols.size} candidate symbols and applied the selected filters (${sourceSummary}).`
-      : `Discovered ${symbols.size} symbols (${sourceSummary}), but E*TRADE returned no quotes${error ? `: ${error}` : ". Check OAuth/API access or symbol eligibility."}`;
+
+    if (unsupported.length > 0) {
+      const message = `The dynamic listing feed does not provide ${unsupported.join(", ")} data. Those criteria were not applied; use only price, daily change, market cap, and ticker/company search.`;
+      const screened = this.screenWithQuotes(quotes, filter, false);
+      return {
+        ...screened,
+        validationError: message,
+        discovery: {
+          mode: "all_us_listings",
+          candidateCount: selectedListings.length,
+          listingCount: quotes.length,
+          sourceCounts,
+          message,
+        },
+      };
+    }
+
+    const result = this.screenWithQuotes(quotes, filter, false);
+    const message = `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
     return {
-      ...this.screenWithQuotes(quotes, filter),
-      discovery: { mode, candidateCount: symbols.size, quoteCount: quotes.length, sourceCounts, message, error },
+      ...result,
+      discovery: {
+        mode: "all_us_listings",
+        candidateCount: selectedListings.length,
+        listingCount: quotes.length,
+        sourceCounts,
+        message,
+      },
     };
   }
 

@@ -17,22 +17,13 @@ import type {
   ETradeOptionChainContract,
 } from "../types";
 import type { ETradeRestClient } from "./etrade/client";
+import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
 
-const DEFAULT_OPTION_FILTERS: Required<Pick<
-  OptionScreenerFilter,
-  "minDte" | "maxDte" | "minVolume" | "minOpenInterest" | "maxSpreadPct" | "maxQuoteAgeSeconds"
->> = {
-  minDte: 14,
-  maxDte: 60,
-  minVolume: 50,
-  minOpenInterest: 500,
-  maxSpreadPct: 10,
-  maxQuoteAgeSeconds: 60,
-};
 
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
   private static testChainsFixture: Record<string, ETradeOptionChain> = {};
+  private static testListingsFixture: NasdaqStockListing[] | null = null;
 
   constructor(client?: ETradeRestClient) {
     this.client = client;
@@ -49,42 +40,23 @@ export class DynamicOptionsScreener {
     DynamicOptionsScreener.testChainsFixture = {};
   }
 
+  static setTestListingsFixture(fixture: NasdaqStockListing[] | null): void {
+    DynamicOptionsScreener.testListingsFixture = fixture;
+  }
+
   /**
-  * Resolve explicit underlyings or discover candidates from live movers and user watchlists.
+  * Resolve explicit underlyings or discover from all current U.S. exchange listings.
    */
   async resolveUnderlyings(filter: OptionScreenerFilter): Promise<string[]> {
     if (filter.underlyingSymbols && filter.underlyingSymbols.length > 0) {
       return Array.from(new Set(filter.underlyingSymbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
     }
 
-    if (!this.client) return [];
-    const [active, gainers, losers, watchlists] = await Promise.all([
-      this.client.getMarketMovers("active"),
-      this.client.getMarketMovers("gainers"),
-      this.client.getMarketMovers("losers"),
-      this.client.getWatchlists(),
-    ]);
-    const symbols = [
-      ...active,
-      ...gainers,
-      ...losers,
-      ...watchlists.flatMap((watchlist) => watchlist.symbols || []),
-    ].map((symbol) => symbol.toUpperCase().trim()).filter(Boolean);
-    const candidates = Array.from(new Set(symbols)).slice(0, 50);
-    if (!filter.sector || ["all", "any"].includes(filter.sector.toLowerCase())) return candidates;
-
-    const quotes = await this.client.fetchQuotes(candidates, { overrideSymbolCount: true });
-    const sector = filter.sector.toLowerCase().trim();
-    return quotes
-      .filter((quote) => {
-        const quoteSector = (quote.sector || "").toLowerCase().trim();
-        if (!quoteSector) return false;
-        if (sector === "tech" || sector === "technology") {
-          return quoteSector.includes("tech") || quoteSector.includes("semiconductor");
-        }
-        return quoteSector === sector || quoteSector.includes(sector) || sector.includes(quoteSector);
-      })
-      .map((quote) => quote.symbol);
+    const listings = DynamicOptionsScreener.testListingsFixture ?? await fetchAllUsStockListings();
+    const discovered = Array.from(new Set(listings.map((listing) => listing.symbol.toUpperCase())));
+    return filter.maxUnderlyings && filter.maxUnderlyings > 0
+      ? discovered.slice(0, filter.maxUnderlyings)
+      : discovered;
   }
 
   /**
@@ -129,8 +101,8 @@ export class DynamicOptionsScreener {
     const eligibleExpirations = expirations.filter((expiry) => {
       const expirationUtc = Date.UTC(expiry.year, expiry.month - 1, expiry.day);
       const dte = Math.ceil((expirationUtc - todayUtc) / (24 * 60 * 60 * 1000));
-      return dte >= (filter.minDte ?? DEFAULT_OPTION_FILTERS.minDte) &&
-        dte <= (filter.maxDte ?? DEFAULT_OPTION_FILTERS.maxDte);
+      return (filter.minDte === undefined || dte >= filter.minDte) &&
+        (filter.maxDte === undefined || dte <= filter.maxDte);
     });
 
     if (eligibleExpirations.length === 0) {
@@ -163,7 +135,7 @@ export class DynamicOptionsScreener {
   * Synchronous options screening for explicit symbols with injected test fixtures only.
    */
   screenOptionsSync(filter: OptionScreenerFilter = {}): OptionScreenResult {
-    const appliedFilter = { ...DEFAULT_OPTION_FILTERS, ...filter };
+    const appliedFilter = filter;
     const symbols = filter.underlyingSymbols?.map((symbol) => symbol.toUpperCase().trim()).filter(Boolean) || [];
     const chains = symbols.flatMap((sym) => {
       const chain = this.fetchChainForSymbolSync(sym);
@@ -176,8 +148,16 @@ export class DynamicOptionsScreener {
    * Evaluates options filters across one or more underlyings (async with live upstream fetch)
    */
   async screenOptions(filter: OptionScreenerFilter = {}): Promise<OptionScreenResult> {
+    if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) {
+      const result = this.evaluateChains([], filter, 0);
+      return { ...result, validationError: "The dynamic all-listings feed does not include sector classifications; remove the sector filter or specify underlying symbols." };
+    }
+    if ((!filter.underlyingSymbols || filter.underlyingSymbols.length === 0) && filter.maxUnderlyings === undefined) {
+      const result = this.evaluateChains([], filter, 0);
+      return { ...result, validationError: "Specify underlying symbols or set the visible maximum-underlyings limit before scanning option chains." };
+    }
     const symbols = await this.resolveUnderlyings(filter);
-    const appliedFilter = { ...DEFAULT_OPTION_FILTERS, ...filter };
+    const appliedFilter = filter;
     const fetched = await Promise.all(symbols.map(async (symbol) => ({
       symbol,
       chains: await this.fetchChainsForSymbol(symbol, appliedFilter),
@@ -276,10 +256,11 @@ export class DynamicOptionsScreener {
           const quoteAgeSeconds = quoteTimestampMs === undefined
             ? undefined
             : (Date.now() - quoteTimestampMs) / 1000;
-          const maxQuoteAgeSeconds = filter.maxQuoteAgeSeconds ?? DEFAULT_OPTION_FILTERS.maxQuoteAgeSeconds;
           const quoteFreshness = quoteAgeSeconds === undefined || quoteAgeSeconds < 0
             ? "UNKNOWN" as const
-            : quoteAgeSeconds > maxQuoteAgeSeconds ? "STALE" as const : "FRESH" as const;
+            : filter.maxQuoteAgeSeconds === undefined
+            ? "UNKNOWN" as const
+            : quoteAgeSeconds > filter.maxQuoteAgeSeconds ? "STALE" as const : "FRESH" as const;
 
           if (c.bid <= 0 || c.ask <= 0 || c.ask < c.bid) {
             rejections.push({
@@ -493,8 +474,9 @@ export class DynamicOptionsScreener {
     // Sort by volume descending by default
     passedContracts.sort((a, b) => (b.volume || 0) - (a.volume || 0));
 
-    const limit = filter.limit || 25;
-    const finalContracts = passedContracts.slice(0, limit);
+    const finalContracts = filter.limit && filter.limit > 0
+      ? passedContracts.slice(0, filter.limit)
+      : passedContracts;
     const staleReturned = finalContracts.filter((contract) => contract.quoteFreshness === "STALE");
     const unknownFreshness = finalContracts.filter((contract) => contract.quoteFreshness === "UNKNOWN");
     const staleQuoteAges = staleReturned

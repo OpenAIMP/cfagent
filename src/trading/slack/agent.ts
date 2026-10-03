@@ -178,20 +178,20 @@ export class ETradeSlackTradingService {
         const topStocks = stocks.slice(0, 5);
 
         const stockFields = topStocks.flatMap((s: any) => [
-          { type: "mrkdwn", text: `*${s.symbol}* (${s.sector})\n${s.price} (${s.change})` },
-          { type: "mrkdwn", text: `*RSI(14):* ${s.rsi14 || "N/A"}\n*Signal:* \`${s.signal || "NEUTRAL"}\`` },
+          { type: "mrkdwn", text: `*${s.symbol}* (${s.exchange || "N/A"})\n${s.price} (${s.change})` },
+          { type: "mrkdwn", text: `*Market cap:* ${s.marketCap || "N/A"}` },
         ]);
 
         blockKitMessage = {
           channel,
           thread_ts: threadTs,
-          text: `E*TRADE Screener: ${stocks.length} equities matched`,
+              text: `Live Stock Listings: ${stocks.length} equities matched`,
           blocks: [
             {
               type: "header",
               text: {
                 type: "plain_text",
-                text: `🔍 E*TRADE Screener: ${stocks.length} Stocks Matched`,
+                text: `🔍 Live Stock Listings: ${stocks.length} Stocks Matched`,
                 emoji: true,
               },
             },

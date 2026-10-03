@@ -310,7 +310,7 @@ export class ETradeEmailTradingService {
         const stocks = nlqRes.rows || [];
         const respSub = `🔍 E*TRADE Screener: ${stocks.length} Stocks Matched`;
         let textRows = stocks.length > 0
-          ? stocks.slice(0, 8).map((s: any) => `• ${s.symbol} (${s.sector}): ${s.price} (${s.change}) | RSI(14): ${s.rsi14} | Signal: ${s.signal}`).join("\n")
+          ? stocks.slice(0, 8).map((s: any) => `• ${s.symbol} (${s.exchange || "N/A"}): ${s.price} (${s.change}) | Market cap: ${s.marketCap || "N/A"}`).join("\n")
           : "No equities matched the requested screener criteria. Try broadening your filter.";
         const respText = `${nlqRes.summary}\n\n${textRows}\n\nReply with "Quote <SYMBOL>" for deep details or "Buy <QTY> <SYMBOL>" to preview an order.`;
 
@@ -318,14 +318,13 @@ export class ETradeEmailTradingService {
           ? stocks.slice(0, 10).map((s: any) => `
           <tr style="border-bottom: 1px solid #334155;">
             <td style="padding: 8px; font-weight: bold; color: #38bdf8;">${s.symbol}</td>
-            <td style="padding: 8px; color: #cbd5e1;">${s.sector}</td>
+            <td style="padding: 8px; color: #cbd5e1;">${s.exchange || "N/A"}</td>
             <td style="padding: 8px; text-align: right; color: #f8fafc;">${s.price}</td>
             <td style="padding: 8px; text-align: right; color: ${(s.change || "").includes("-") ? "#ef4444" : "#22c55e"};">${s.change}</td>
-            <td style="padding: 8px; text-align: right; color: #f1f5f9;">${s.rsi14 || "N/A"}</td>
-            <td style="padding: 8px; text-align: right; color: #a78bfa;">${s.signal || "N/A"}</td>
+            <td style="padding: 8px; text-align: right; color: #f1f5f9;">${s.marketCap || "N/A"}</td>
           </tr>
         `).join("")
-          : `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #94a3b8;">No equities matched the requested screener criteria.</td></tr>`;
+          : `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #94a3b8;">No equities matched the requested screener criteria.</td></tr>`;
 
         const respHtml = this.renderEmailContainer(
           `Market Screener Results (${stocks.length} Equities)`,
@@ -335,11 +334,10 @@ export class ETradeEmailTradingService {
             <thead>
               <tr style="background: #1e293b; color: #94a3b8; text-align: left; border-bottom: 2px solid #475569;">
                 <th style="padding: 8px;">Symbol</th>
-                <th style="padding: 8px;">Sector</th>
+                <th style="padding: 8px;">Exchange</th>
                 <th style="padding: 8px; text-align: right;">Price</th>
-                <th style="padding: 8px; text-align: right;">24h Change</th>
-                <th style="padding: 8px; text-align: right;">RSI(14)</th>
-                <th style="padding: 8px; text-align: right;">Signal</th>
+                <th style="padding: 8px; text-align: right;">Daily Change</th>
+                <th style="padding: 8px; text-align: right;">Market Cap</th>
               </tr>
             </thead>
             <tbody>
