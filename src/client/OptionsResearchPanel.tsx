@@ -149,6 +149,10 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [nlqQuery, setNlqQuery] = useState("");
+  const [nlqLoading, setNlqLoading] = useState(false);
+  const [nlqResult, setNlqResult] = useState<any>(null);
+  const [nlqError, setNlqError] = useState("");
 
   const toggleStrategy = (strategy: OptionStrategyType) => {
     setAllowedStrategies((current) => current.includes(strategy)
@@ -195,8 +199,75 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
     }
   };
 
+  const submitNaturalLanguage = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!nlqQuery.trim() || nlqLoading) return;
+    setNlqLoading(true);
+    setNlqError("");
+    setNlqResult(null);
+    try {
+      const response = await fetch("/api/nlq", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify({ query: nlqQuery.trim() }),
+      });
+      const data = await response.json() as any;
+      if (!response.ok) throw new Error(data.error || "Natural-language options screen failed");
+      setNlqResult(data);
+    } catch (cause) {
+      setNlqError(cause instanceof Error ? cause.message : "Natural-language options screen failed");
+    } finally {
+      setNlqLoading(false);
+    }
+  };
+
   return (
     <section className="trading-section options-research-section">
+      <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
+        <label className="options-field">
+          <span>Natural-language options screen</span>
+          <input
+            value={nlqQuery}
+            onChange={(event) => setNlqQuery(event.target.value)}
+            placeholder="Screen liquid call options with delta above 0.35 and 20 to 45 DTE"
+          />
+        </label>
+        <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
+          {nlqLoading ? "Screening…" : "Screen contracts"}
+        </button>
+      </form>
+      {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
+      {nlqResult && (
+        <div className="options-nlq-result" role="status">
+          <strong>{nlqResult.count ?? 0} option contracts matched</strong>
+          <p>{nlqResult.summary}</p>
+          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && (
+            <div className="options-scenario-table-wrap">
+              <table className="options-scenario-table">
+                <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
+                <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
+                  <tr key={`${row.contractSymbol || row.symbol || "contract"}:${index}`}>
+                    {Object.values(row).map((value, column) => <td key={column}>{String(value ?? "N/A")}</td>)}
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          {Array.isArray(nlqResult.rejections) && nlqResult.rejections.length > 0 && (
+            <details className="options-excluded">
+              <summary>View quote and filter rejections</summary>
+              <ul>{nlqResult.rejections.slice(0, 8).map((rejection: any, index: number) => (
+                <li key={`${rejection.contractSymbol}:${index}`}>{rejection.contractSymbol}: {rejection.reason}</li>
+              ))}</ul>
+            </details>
+          )}
+        </div>
+      )}
+
       <header className="options-research-heading">
         <div>
           <p className="options-eyebrow">DETERMINISTIC RESEARCH · PAPER ONLY</p>
@@ -290,6 +361,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <div className="options-score-policy">
             Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}%
           </div>
+          {result.candidates.length === 0 && screenMeta?.quoteQuality?.staleContractsRejected > 0 && (
+            <div className="options-stale-banner" role="alert">
+              <strong>No fresh contracts passed the quote-age gate.</strong>
+              <span>
+                {screenMeta.quoteQuality.staleContractsRejected} contracts were rejected as stale. The freshest was {Math.round(screenMeta.quoteQuality.freshestRejectedAgeSeconds || 0).toLocaleString()} seconds old; the limit is {screenMeta.quoteQuality.maxAgeSeconds ?? 60} seconds. Stale quotes are not used for strategy ranking. Retry when the market data feed updates.
+              </span>
+            </div>
+          )}
           {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} />)}
           {result.excluded.length > 0 && (
             <details className="options-excluded">

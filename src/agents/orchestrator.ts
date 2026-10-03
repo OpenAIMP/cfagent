@@ -2369,6 +2369,7 @@ Agentic Best Practices & Workflow Rules:
             underlyingsScanned: screened.totalUnderlyingsScanned,
             contractsEvaluated: screened.totalContractsEvaluated,
             contractsMatched: screened.matchedCount,
+            quoteQuality: screened.quoteQuality,
           },
           contractRejections: (screened.rejections || []).slice(0, 50),
         });

@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { getWorkersAIModel } from "./model";
 import { z } from "zod";
-import type { Env, StockScreenLedger } from "../types";
+import type { Env, OptionScreenRejection, StockScreenLedger } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
@@ -95,6 +95,12 @@ export interface NLQQueryResult {
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
+  quoteQuality?: {
+    maxAgeSeconds?: number;
+    staleContractsRejected: number;
+    freshestRejectedAgeSeconds?: number;
+  };
+  rejections?: OptionScreenRejection[];
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -1745,13 +1751,18 @@ export async function executeNLQQueryAsync(
     if (action === "options_screen") {
       const screener = new DynamicOptionsScreener(etrade.client);
       const res = await screener.screenOptions(plan.tradingData?.filters);
+      const freshnessNote = res.quoteQuality?.staleContractsRejected
+        ? ` Freshness gate: ${res.quoteQuality.staleContractsRejected} contracts were rejected as stale; freshest quote was ${Math.round(res.quoteQuality.freshestRejectedAgeSeconds || 0)}s old (limit ${res.quoteQuality.maxAgeSeconds || 60}s).`
+        : "";
       return {
         plan,
         domain: "trading",
         targetTable: "etrade_options_screener",
         count: res.contracts.length,
         status: res.status,
-        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).`,
+        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).${freshnessNote}`,
+        quoteQuality: res.quoteQuality,
+        rejections: (res.rejections || []).slice(0, 15),
         rows: res.contracts.map((c) => ({
           contractSymbol: c.symbol,
           underlying: c.underlyingSymbol,
@@ -1759,6 +1770,8 @@ export async function executeNLQQueryAsync(
           type: c.optionType,
           strike: `$${c.strikePrice.toFixed(2)}`,
           bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
+          spreadPercent: `${c.spreadPct.toFixed(2)}%`,
+          quoteAgeSeconds: `${c.quoteAgeSeconds.toFixed(1)}s`,
           delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
           iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
           volume: (c.volume || 0).toLocaleString(),

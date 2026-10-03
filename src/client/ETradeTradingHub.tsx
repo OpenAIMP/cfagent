@@ -1621,6 +1621,25 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
       {subTab === "scanner" && (
         <div className="trading-section screener-section">
+          <form
+            className="stock-screener-nlq-form"
+            onSubmit={(event) => {
+              setSubTab("nlq");
+              void handleRunNlq(event);
+            }}
+          >
+            <label htmlFor="stock-screener-nlq">Natural-language stock screen</label>
+            <input
+              id="stock-screener-nlq"
+              value={nlqQuery}
+              onChange={(event) => setNlqQuery(event.target.value)}
+              placeholder="Find technology stocks with RSI below 40"
+            />
+            <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
+              {nlqLoading ? "Running…" : "Run NLQ screen"}
+            </button>
+          </form>
+
           {/* Controls Bar */}
           <div className="screener-controls-bar">
             <div className="control-item">

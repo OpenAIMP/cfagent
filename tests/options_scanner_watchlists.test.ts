@@ -353,6 +353,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Spread");
       expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("Adjusted");
       expect(result.rejections?.map((item) => item.reason).join(" ")).toContain("stale");
+      expect(result.quoteQuality?.staleContractsRejected).toBe(1);
+      expect(result.quoteQuality?.freshestRejectedAgeSeconds).toBeGreaterThanOrEqual(120);
     });
 
     it("filters contracts by live Gamma and Theta values", async () => {
@@ -656,6 +658,20 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
   // 4. Natural Language Queries (NLQ) for Options & Watchlists
   // =========================================================================
   describe("NLQ Engine: Options Scanning & Watchlist Commands", () => {
+    it("routes broad natural-language option screens to dynamic discovery", async () => {
+      const plan = await planNLQ(
+        mockEnv,
+        "Screen liquid call options with delta above 0.35 and 20 to 45 DTE"
+      );
+
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("options_screen");
+      expect(plan.tradingData?.filters?.underlyingSymbols).toBeUndefined();
+      expect(plan.tradingData?.filters?.minDelta).toBe(0.35);
+      expect(plan.tradingData?.filters?.minDte).toBe(20);
+      expect(plan.tradingData?.filters?.maxDte).toBe(45);
+    });
+
     it("parses Gamma, Theta, and DTE bounds from options scan requests", async () => {
       const plan = await planNLQ(
         mockEnv,

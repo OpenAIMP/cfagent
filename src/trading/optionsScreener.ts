@@ -501,6 +501,10 @@ export class DynamicOptionsScreener {
 
     const limit = filter.limit || 25;
     const finalContracts = passedContracts.slice(0, limit);
+    const staleRejections = rejections.filter((rejection) => rejection.reason.startsWith("Quote is missing, future-dated, or stale"));
+    const rejectedQuoteAges = staleRejections
+      .map((rejection) => rejection.quoteAgeSeconds)
+      .filter((age): age is number => age !== undefined && Number.isFinite(age));
 
     return {
       totalUnderlyingsScanned,
@@ -510,6 +514,11 @@ export class DynamicOptionsScreener {
       filterSummary: summaryParts.join(", ") || "Live E*TRADE option chains",
       contracts: finalContracts,
       scannedAt: new Date().toISOString(),
+      quoteQuality: {
+        maxAgeSeconds: filter.maxQuoteAgeSeconds,
+        staleContractsRejected: staleRejections.length,
+        ...(rejectedQuoteAges.length > 0 ? { freshestRejectedAgeSeconds: Math.min(...rejectedQuoteAges) } : {}),
+      },
       status: finalContracts.length > 0 ? "matches_found" : "no_matches",
       rejections: rejections.slice(0, 50),
     };

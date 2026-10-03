@@ -412,6 +412,11 @@ export interface OptionScreenResult {
   filterSummary: string;
   contracts: ScreenedOptionContractItem[];
   scannedAt: string;
+  quoteQuality?: {
+    maxAgeSeconds?: number;
+    staleContractsRejected: number;
+    freshestRejectedAgeSeconds?: number;
+  };
   status: "matches_found" | "no_matches" | "error";
   rejections?: OptionScreenRejection[];
 }
