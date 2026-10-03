@@ -72,6 +72,11 @@ export interface Env {
   X402_AUTO_APPROVE_LIMIT?: string;
   X402_AGENT_WALLET_KEY?: string;
   MPP_SECRET_KEY?: string;
+  // Cloudflare Wallets — native paidTool / withX402 binding for OptionsScannerMCP
+  // https://blog.cloudflare.com/wallets/
+  CF_WALLET_RECIPIENT?: string;    // 0x... USDC recipient address
+  CF_WALLET_NETWORK?: string;      // "base-sepolia" (test) | "base" (prod)
+  CF_WALLET_FACILITATOR?: string;  // https://x402.org/facilitator (default)
   // Cloudflare Browser Rendering & Puppeteer
   BROWSER?: Fetcher;
   // Webhooks Configuration (TradingView, E*TRADE Alerts, Outbound)

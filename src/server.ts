@@ -17,6 +17,8 @@ import { handleCloudflareEmailMessage } from "./trading/email/agent";
 import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
+export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
+
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get("Origin");
@@ -233,6 +235,45 @@ export default {
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-id");
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
+    // --- Cloudflare Wallets / x402 Pay-Per-Use Options Scanner MCP Endpoint ---
+    // No session auth required — payment IS the access control (x402 paidTool).
+    // MCP clients connect to /mcp/scanner and pay $0.05 USDC via Cloudflare Wallets.
+    if (path === "/mcp/scanner" || path.startsWith("/mcp/scanner/")) {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers":
+              "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED",
+            "Access-Control-Expose-Headers":
+              "PAYMENT-REQUIRED, PAYMENT-RESPONSE, Payment-Receipt",
+          },
+        });
+      }
+
+      // Each unique scanner session gets its own DO instance.
+      const scannerSessionId =
+        request.headers.get("x-scanner-session") ||
+        request.headers.get("x-user-id") ||
+        "public_scanner";
+      const scannerId = (env as any).OPTIONS_SCANNER_MCP.idFromName(scannerSessionId);
+      const scannerUrl = new URL(
+        path.replace("/mcp/scanner", "") || "/" + url.search,
+        "https://scanner.internal",
+      );
+
+      const resp = await (env as any).OPTIONS_SCANNER_MCP.get(scannerId).fetch(
+        new Request(scannerUrl, request),
+      );
+      const headers = new Headers(resp.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE");
+      headers.set("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE");
       return new Response(resp.body, { status: resp.status, headers });
     }
 

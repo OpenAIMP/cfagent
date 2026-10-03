@@ -7,12 +7,33 @@
   "routes": [{ "pattern": "agent.openaimp.com", "custom_domain": true }],
   "assets": { "directory": "./dist/", "binding": "ASSETS", "run_worker_first": true },
   "ai": { "binding": "AI" },
-  "durable_objects": { "bindings": [{ "name": "SEARCH_AGENT", "class_name": "SearchAgent" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SearchAgent"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SEARCH_AGENT", "class_name": "SearchAgent" },
+      {
+        "name": "OPTIONS_SCANNER_MCP",
+        "class_name": "OptionsScannerMCP",
+        "comment": "Cloudflare Wallets pay-per-use options scanner — withX402 paidTool"
+      }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SearchAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["OptionsScannerMCP"] }
+  ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
     { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
   ],
   "observability": { "enabled": true },
-  "vars": { "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com", "APP_NAME": "AI Search Agent", "MAS_MAX_STEPS": "4", "AI_MODEL": "@cf/zai-org/glm-4.7-flash" }
+  "vars": {
+    "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com",
+    "APP_NAME": "AI Search Agent",
+    "MAS_MAX_STEPS": "4",
+    "AI_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "CF_WALLET_NETWORK": "base-sepolia",
+    "CF_WALLET_FACILITATOR": "https://x402.org/facilitator",
+    "_comment_wallet": "Set CF_WALLET_RECIPIENT via: wrangler secret put CF_WALLET_RECIPIENT"
+  }
 }
+
