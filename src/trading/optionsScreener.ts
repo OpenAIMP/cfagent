@@ -19,6 +19,19 @@ import type {
 import type { ETradeRestClient } from "./etrade/client";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
 
+function buildOsiSymbol(
+  root: string,
+  expiry: { year: number; month: number; day: number },
+  type: "CALL" | "PUT",
+  strike: number
+): string {
+  const yy = String(expiry.year % 100).padStart(2, "0");
+  const mm = String(expiry.month).padStart(2, "0");
+  const dd = String(expiry.day).padStart(2, "0");
+  const strikeCode = String(Math.round(strike * 1000)).padStart(8, "0");
+  return `${root.toUpperCase()}${yy}${mm}${dd}${type === "CALL" ? "C" : "P"}${strikeCode}`;
+}
+
 
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
@@ -232,7 +245,8 @@ export class DynamicOptionsScreener {
 
         for (const c of candidates) {
           totalContractsEvaluated++;
-          const contractSym = c.symbol || `${sym}_${c.strikePrice}_${c.optionType}`;
+          const contractSym = c.osiKey
+            || buildOsiSymbol(c.optionRootSymbol || c.symbol || sym, expiry, c.optionType, c.strikePrice);
           const delta = c.delta !== undefined ? Math.abs(c.delta) : undefined;
           const gamma = c.gamma;
           const theta = c.theta;
@@ -450,6 +464,7 @@ export class DynamicOptionsScreener {
 
           passedContracts.push({
             ...c,
+            osiKey: contractSym,
             underlyingSymbol: sym,
             underlyingPrice,
             daysToExpiration,

@@ -2056,6 +2056,8 @@ export class ETradeRestClient {
           adjustedFlag: c.adjustedFlag === true || String(c.adjustedFlag).toLowerCase() === "true",
           optionCategory: c.optionCategory ? String(c.optionCategory) : undefined,
           optionRootSymbol: c.optionRootSymbol ? String(c.optionRootSymbol) : undefined,
+          displaySymbol: c.displaySymbol ? String(c.displaySymbol) : undefined,
+          osiKey: c.osiKey ? String(c.osiKey) : undefined,
           optionType: type,
           strikePrice: Number(c.strikePrice || 0),
           symbol: String(c.symbol || ""),

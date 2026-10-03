@@ -814,6 +814,7 @@ export interface ETradeOptionChainContract {
   timeStamp?: number;
   adjustedFlag?: boolean;
   displaySymbol?: string;
+  osiKey?: string;
   optionType: "CALL" | "PUT";
   strikePrice: number;
   symbol: string;

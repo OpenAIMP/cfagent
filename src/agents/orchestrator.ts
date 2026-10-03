@@ -12,7 +12,8 @@ import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
-import { recommendOptionStrategies, type StrategyRequest, type OptionStrategyType } from "../trading/options/strategyEngine";
+import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
+import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2335,34 +2336,9 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
     if (path.endsWith("/trading/options/recommend") && request.method === "POST") {
       const body = await request.json().catch(() => null) as Partial<StrategyRequest> | null;
-      const allowedTypes = new Set<OptionStrategyType>([
-        "long_call", "long_put", "call_debit_spread", "put_debit_spread",
-        "long_straddle", "long_strangle", "iron_condor",
-      ]);
-      if (
-        !body ||
-        typeof body.symbol !== "string" ||
-        !["bullish", "bearish", "range_bound", "large_move"].includes(body.thesis || "") ||
-        !Number.isFinite(body.targetPrice) ||
-        typeof body.targetDate !== "string" ||
-        !["rise", "unchanged", "fall"].includes(body.expectedIvDirection || "") ||
-        !Number.isFinite(body.maxPlannedLoss) ||
-        !Number.isFinite(body.minRewardRisk) ||
-        (body.minDte !== undefined && (!Number.isInteger(body.minDte) || body.minDte < 1)) ||
-        (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 0))) ||
-        (body.minVolume !== undefined && (!Number.isInteger(body.minVolume) || body.minVolume < 0)) ||
-        (body.minOpenInterest !== undefined && (!Number.isInteger(body.minOpenInterest) || body.minOpenInterest < 0)) ||
-        (body.maxSpreadPct !== undefined && (!Number.isFinite(body.maxSpreadPct) || body.maxSpreadPct <= 0)) ||
-        (body.maxQuoteAgeSeconds !== undefined && (!Number.isFinite(body.maxQuoteAgeSeconds) || body.maxQuoteAgeSeconds < 0)) ||
-        (body.contractLimit !== undefined && (!Number.isInteger(body.contractLimit) || body.contractLimit < 1)) ||
-        (body.candidateLimit !== undefined && (!Number.isInteger(body.candidateLimit) || body.candidateLimit < 1)) ||
-        (body.maxStrikesPerSide !== undefined && (!Number.isInteger(body.maxStrikesPerSide) || body.maxStrikesPerSide < 1)) ||
-        (body.maxIronCondors !== undefined && (!Number.isInteger(body.maxIronCondors) || body.maxIronCondors < 0)) ||
-        !Array.isArray(body.allowedStrategies) ||
-        body.allowedStrategies.length === 0 ||
-        body.allowedStrategies.some((strategy) => !allowedTypes.has(strategy as OptionStrategyType))
-      ) {
-        return Response.json({ error: "Invalid strategy request. Supply a thesis, target, date, risk cap, reward/risk minimum, and allowed strategies." }, { status: 400 });
+      const validationError = validateStrategyRequest(body);
+      if (validationError) {
+        return Response.json({ error: validationError }, { status: 400 });
       }
 
       try {
@@ -2395,6 +2371,46 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options recommendation failed" }, { status: 400 });
+      }
+    }
+
+    // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)
+    if ((path.endsWith("/trading/options/strategies") || path.endsWith("/trading/options/best-trade")) && request.method === "POST") {
+      const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
+        strategyFilter?: StrategyScreenFilter;
+        riskProfile?: RiskProfile;
+        alternatives?: number;
+      }) | null;
+      const validationError = validateStrategyRequest(body);
+      if (validationError || !body) {
+        return Response.json({ error: validationError }, { status: 400 });
+      }
+      if (body.riskProfile !== undefined && !["conservative", "balanced", "aggressive"].includes(body.riskProfile)) {
+        return Response.json({ error: "riskProfile must be conservative, balanced, or aggressive." }, { status: 400 });
+      }
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+        const result = await pipeline.run(body as StrategyRequest, {
+          strategyFilter: body.strategyFilter,
+          riskProfile: body.riskProfile,
+          alternatives: body.alternatives,
+        });
+        const common = { screen: result.snapshot.screen, contractRejections: result.snapshot.rejections };
+        if (path.endsWith("/best-trade")) {
+          return Response.json({ bestTrade: result.bestTrade, ...common });
+        }
+        return Response.json({
+          status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
+          ranked: result.ranked,
+          riskReports: result.riskReports,
+          screenedOut: result.screenedOut.slice(0, 50),
+          excluded: result.strategies.excluded,
+          ...common,
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options strategy pipeline failed" }, { status: 400 });
       }
     }
 

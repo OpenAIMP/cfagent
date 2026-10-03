@@ -9,7 +9,9 @@ export type OptionStrategyType =
   | "put_debit_spread"
   | "long_straddle"
   | "long_strangle"
-  | "iron_condor";
+  | "iron_condor"
+  | "call_credit_spread"
+  | "put_credit_spread";
 
 export interface StrategyRequest {
   symbol: string;
@@ -83,6 +85,7 @@ export interface StrategyCandidate {
   type: OptionStrategyType;
   label: string;
   symbol: string;
+  underlyingPrice: number;
   expirationDate: string;
   dataFreshness: "FRESH" | "STALE" | "UNKNOWN";
   legs: StrategyLeg[];
@@ -136,7 +139,15 @@ const STRATEGY_LABELS: Record<OptionStrategyType, string> = {
   long_straddle: "Long Straddle",
   long_strangle: "Long Strangle",
   iron_condor: "Iron Condor",
+  call_credit_spread: "Call Credit Spread",
+  put_credit_spread: "Put Credit Spread",
 };
+
+export const ALL_STRATEGY_TYPES: OptionStrategyType[] = Object.keys(STRATEGY_LABELS) as OptionStrategyType[];
+
+export function contractKey(contract: { osiKey?: string; symbol: string; optionType: string; strikePrice: number; expirationDate?: string }): string {
+  return contract.osiKey || `${contract.symbol}|${contract.expirationDate ?? ""}|${contract.optionType}|${contract.strikePrice}`;
+}
 
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
@@ -145,7 +156,7 @@ function clamp(value: number, min = 0, max = 100): number {
 function toLeg(contract: ScreenedOptionContractItem, side: "BUY" | "SELL"): StrategyLeg {
   const entryPrice = side === "BUY" ? contract.ask : contract.bid;
   return {
-    symbol: contract.symbol,
+    symbol: contractKey(contract),
     optionType: contract.optionType,
     side,
     quantity: 1,
@@ -308,8 +319,8 @@ function daysUntil(date: string): number {
 }
 
 function isThesisCompatible(type: OptionStrategyType, thesis: OptionThesis): boolean {
-  if (thesis === "bullish") return ["long_call", "call_debit_spread"].includes(type);
-  if (thesis === "bearish") return ["long_put", "put_debit_spread"].includes(type);
+  if (thesis === "bullish") return ["long_call", "call_debit_spread", "put_credit_spread"].includes(type);
+  if (thesis === "bearish") return ["long_put", "put_debit_spread", "call_credit_spread"].includes(type);
   if (thesis === "range_bound") return type === "iron_condor";
   return ["long_straddle", "long_strangle"].includes(type);
 }
@@ -433,6 +444,7 @@ function buildCandidate(
     type,
     label: STRATEGY_LABELS[type],
     symbol: request.symbol.toUpperCase(),
+    underlyingPrice: underlying,
     expirationDate: legs[0].expirationDate,
     dataFreshness,
     legs,
@@ -510,7 +522,7 @@ export function recommendOptionStrategies(
     byExpiry.set(contract.expirationDate, [...(byExpiry.get(contract.expirationDate) || []), contract]);
   }
 
-  const contractMap = new Map(normalized.map((contract) => [contract.symbol, contract]));
+  const contractMap = new Map(normalized.map((contract) => [contractKey(contract), contract]));
   const rejected = new Map<string, number>();
   const candidates: StrategyCandidate[] = [];
   const wanted = new Set(request.allowedStrategies);
@@ -558,6 +570,16 @@ export function recommendOptionStrategies(
     if (wanted.has("put_debit_spread")) {
       for (const long of puts) for (const short of puts) {
         if (long.strikePrice > short.strikePrice) add("put_debit_spread", [toLeg(long, "BUY"), toLeg(short, "SELL")]);
+      }
+    }
+    if (wanted.has("call_credit_spread")) {
+      for (const short of calls) for (const long of calls) {
+        if (short.strikePrice < long.strikePrice) add("call_credit_spread", [toLeg(short, "SELL"), toLeg(long, "BUY")]);
+      }
+    }
+    if (wanted.has("put_credit_spread")) {
+      for (const short of puts) for (const long of puts) {
+        if (short.strikePrice > long.strikePrice) add("put_credit_spread", [toLeg(short, "SELL"), toLeg(long, "BUY")]);
       }
     }
     if (wanted.has("long_straddle")) {

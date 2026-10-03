@@ -83,6 +83,9 @@ export class ETradeTradingPlatform implements ITradingPlatform {
         "Agent DID Attestation Order Stamping",
         "Human-in-the-Loop (HITL) Execution Safety Guarantee",
         "Portfolio Positions & Purchasing Power",
+        "Options Data Agent: Chain Screener with Freshness-Tagged OSI Contracts",
+        "Strategy & Risk Agent: Multi-Leg Builder, Risk Engine & Strategy Screener",
+        "Recommendation Agent: Risk-Profile Ranking & Best-Trade Picker",
         "Dynamic Multi-Broker Capability Architecture",
       ],
     };

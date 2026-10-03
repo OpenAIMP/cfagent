@@ -1292,7 +1292,7 @@ export function executeNLQQuery(
         status: res.status,
         summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).`,
         rows: res.contracts.map((c) => ({
-          contractSymbol: c.symbol,
+          contractSymbol: c.osiKey || c.symbol,
           underlying: c.underlyingSymbol,
           underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
           type: c.optionType,
@@ -1811,7 +1811,7 @@ export async function executeNLQQueryAsync(
         quoteQuality: res.quoteQuality,
         rejections: (res.rejections || []).slice(0, 15),
         rows: res.contracts.map((c) => ({
-          contractSymbol: c.symbol,
+          contractSymbol: c.osiKey || c.symbol,
           underlying: c.underlyingSymbol,
           underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
           type: c.optionType,
@@ -1924,7 +1924,7 @@ export async function executeNLQQueryAsync(
         count: res.contracts.length,
         summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}.`,
         rows: res.contracts.slice(0, 10).map((c) => ({
-          contract: c.displaySymbol || c.symbol,
+          contract: c.osiKey || c.displaySymbol || c.symbol,
           strike: `$${c.strikePrice.toFixed(2)}`,
           type: c.optionType,
           delta: c.delta?.toFixed(2) || "N/A",
