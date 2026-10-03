@@ -357,6 +357,21 @@ export class ETradeVoiceTradingService {
 
       if (domain === "trading" && ["options_screen", "options_strategies", "options_best_trade", "options_opportunities"].includes(action)) {
         const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        if (action === "options_screen") {
+          const spokenRaw = `I screened ${nlqRes.count} option contracts. ${nlqRes.summary || ""} No orders were placed.`;
+          const tableRows = rows.slice(0, 10).map((row) =>
+            `| ${String(row.contractSymbol || row.symbol || "Contract")} | ${String(row.optionType || row.type || "—")} | ${String(row.strike ?? "—")} | ${String(row.expiration || row.expirationDate || "—")} | ${String(row.delta ?? "—")} |`
+          ).join("\n");
+          return {
+            success: true,
+            spokenText: tuneFinancialPronunciation(spokenRaw),
+            displayMarkdown: `### E*TRADE Options Screener (${nlqRes.count} Contracts)\n\n${nlqRes.summary || "Options screen completed."}\n\n` +
+              (tableRows ? `| Contract | Type | Strike | Expiration | Delta |\n|---|---|---:|---|---:|\n${tableRows}` : ""),
+            actionType: "options_screener",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
         const topResults = rows.slice(0, 3).map((row, index) => {
           const label = String(row.label || row.strategy || row.contractSymbol || row.symbol || `result ${index + 1}`);
           const score = row.score ?? row.compositeScore;
