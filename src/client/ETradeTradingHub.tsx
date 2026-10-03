@@ -78,6 +78,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
   const [scanUniverseCount, setScanUniverseCount] = useState(0);
   const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("not_run");
+  const [scanMessage, setScanMessage] = useState("");
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
   // E*TRADE Live Diagnostics state
@@ -638,6 +639,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const runScreener = async (envOverride?: unknown) => {
     const envToUse = typeof envOverride === "string" ? envOverride : activeEnv;
     setScreenerLoading(true);
+    setScanMessage("");
     try {
       const body: Record<string, any> = { limit: 12 };
       if (sectorFilter !== "All") body.sector = sectorFilter;
@@ -649,8 +651,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       }
       if (marketCapPreset === "mega") body.minMarketCap = 200;
       if (marketCapPreset === "large") body.minMarketCap = 50;
-      if (perfFilter === "gainers") body.onlyGainers = true;
-      if (perfFilter === "losers") body.onlyLosers = true;
+      if (perfFilter === "gainers") body.gainersOnly = true;
+      if (perfFilter === "losers") body.losersOnly = true;
       if (screenerSearch.trim()) body.search = screenerSearch.trim();
 
       const resp = await fetch("/api/etrade/screen", {
@@ -664,9 +666,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         const list = Array.isArray(data.stocks) ? data.stocks : Array.isArray(data.results) ? data.results : [];
         setScreenerStocks(list);
         const total = typeof data.totalScreened === "number" ? data.totalScreened : list.length;
-        setScanUniverseCount(total);
-        if (total === 0) {
+        const candidateCount = typeof data.discovery?.candidateCount === "number" ? data.discovery.candidateCount : total;
+        const quoteCount = typeof data.discovery?.quoteCount === "number" ? data.discovery.quoteCount : total;
+        setScanUniverseCount(candidateCount);
+        setScanMessage(data.discovery?.message || "");
+        if (candidateCount === 0) {
           setScanStatus("no_universe");
+        } else if (quoteCount === 0) {
+          setScanStatus("data_unavailable");
         } else if (list.length === 0) {
           setScanStatus("no_matches");
         } else {
@@ -674,9 +681,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         }
         setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
       } else {
+        const data = await resp.json().catch(() => ({})) as any;
+        setScanMessage(data.error || `E*TRADE screening request failed [HTTP ${resp.status}].`);
         setScanStatus("scan_failed");
       }
-    } catch {
+    } catch (error) {
+      setScanMessage(error instanceof Error ? error.message : "Unable to reach the E*TRADE screening API.");
       setScanStatus("scan_failed");
     } finally {
       setScreenerLoading(false);
@@ -1753,10 +1763,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         "Scanning equity universe…"
                       ) : scanStatus === "not_run" ? (
                         "Scanner has not been run. Select your filters and click 'Run Technical Screen'."
-                      ) : scanStatus === "no_universe" || scanUniverseCount === 0 ? (
-                        "⚠️ No universe processed: 0 symbols retrieved in selected sector. Data unavailable."
+                      ) : scanStatus === "no_universe" ? (
+                        scanMessage || "E*TRADE returned no live market movers or remote watchlist symbols. Try market hours or search for a ticker."
+                      ) : scanStatus === "data_unavailable" ? (
+                        scanMessage || `Found ${scanUniverseCount} candidates but received no live quotes. Check E*TRADE OAuth/API access and retry.`
                       ) : scanStatus === "scan_failed" ? (
-                        "⚠️ Technical scan failed: Data provider returned an error or timeout. Please retry."
+                        scanMessage || "E*TRADE screening request failed. Check OAuth/API access and retry."
                       ) : (
                         `Scanned ${scanUniverseCount} live candidates across ${sectorFilter}; 0 matched the selected filters.`
                       )}

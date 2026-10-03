@@ -343,6 +343,14 @@ export interface StockScreenResult {
   status?: "matches_found" | "no_matches" | "SCAN_INVALID_DATA_MISMATCH" | "no_universe";
   ledger?: StockScreenLedger;
   validationError?: string;
+  discovery?: {
+    mode: "search" | "market_movers_and_watchlists";
+    candidateCount: number;
+    quoteCount: number;
+    sourceCounts: Record<string, number>;
+    message: string;
+    error?: string;
+  };
 }
 
 // =========================================================================

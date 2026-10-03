@@ -615,21 +615,30 @@ export class DynamicMarketScreener implements IMarketScreener {
   async screenLive(client: ETradeRestClient, filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     const symbols = new Set<string>();
     const descriptions = new Map<string, string>();
+    const sourceCounts: Record<string, number> = {};
 
     if (filter.search?.trim()) {
       const terms = filter.search.trim().split(/[,\s]+/).filter(Boolean);
+      let lookupMatches = 0;
+      let explicitSymbols = 0;
       for (const term of terms) {
         const products = await client.lookupProduct(term);
         for (const product of products) {
           if (product.type && product.type !== "EQ") continue;
           const symbol = product.symbol.toUpperCase().trim();
           if (symbol) {
+            lookupMatches++;
             symbols.add(symbol);
             if (product.description) descriptions.set(symbol, product.description);
           }
         }
-        if (/^[A-Z0-9.\/-]+$/i.test(term)) symbols.add(term.toUpperCase());
+        if (/^[A-Z0-9.\/-]+$/i.test(term)) {
+          explicitSymbols++;
+          symbols.add(term.toUpperCase());
+        }
       }
+      sourceCounts.productLookup = lookupMatches;
+      sourceCounts.explicitTickerTerms = explicitSymbols;
     } else {
       const categories = filter.gainersOnly || filter.gainersLosers === "gainers"
         ? ["gainers"] as const
@@ -638,22 +647,64 @@ export class DynamicMarketScreener implements IMarketScreener {
         : filter.gainersLosers === "active"
         ? ["active"] as const
         : ["active", "gainers", "losers"] as const;
-      const discovered = await Promise.all(categories.map((category) => client.getMarketMovers(category)));
-      for (const batch of discovered) for (const symbol of batch) symbols.add(symbol);
+      const discovered = await Promise.all(categories.map(async (category) => ({
+        category,
+        symbols: await client.getMarketMovers(category),
+      })));
+      for (const result of discovered) {
+        sourceCounts[`movers_${result.category}`] = result.symbols.length;
+        for (const symbol of result.symbols) symbols.add(symbol);
+      }
 
       const watchlists = await client.getWatchlists();
+      let watchlistSymbolCount = 0;
       for (const watchlist of watchlists) {
-        for (const symbol of watchlist.symbols || []) symbols.add(symbol.toUpperCase().trim());
+        for (const symbol of watchlist.symbols || []) {
+          watchlistSymbolCount++;
+          symbols.add(symbol.toUpperCase().trim());
+        }
       }
+      sourceCounts.watchlists = watchlistSymbolCount;
     }
 
-    if (symbols.size === 0) return this.screenWithQuotes([], filter);
+    sourceCounts.uniqueCandidates = symbols.size;
+    const config = client.getEnvConfig();
+    const configured = Boolean(config.etrade.apiKey && config.etrade.apiSecret);
+    const mode = filter.search?.trim() ? "search" as const : "market_movers_and_watchlists" as const;
+    const sourceSummary = Object.entries(sourceCounts)
+      .filter(([source]) => source !== "uniqueCandidates")
+      .map(([source, count]) => `${source}=${count}`)
+      .join(", ");
+    if (symbols.size === 0) {
+      const error = client.getLastError();
+      const emptySourceMessage = mode === "search"
+        ? `E*TRADE product lookup returned no equity matches (${sourceSummary || "no lookup matches"}). Verify the ticker/company name and API access.`
+        : `E*TRADE returned no live symbols (${sourceSummary || "no discovery counts"}). Movers may be empty outside market hours; try searching for a ticker or company name.`;
+      const message = !configured
+        ? "E*TRADE consumer credentials are not configured; no live symbols could be discovered."
+        : error
+        ? `E*TRADE discovery request failed: ${error}`
+        : emptySourceMessage;
+      return {
+        ...this.screenWithQuotes([], filter),
+        discovery: { mode, candidateCount: 0, quoteCount: 0, sourceCounts, message, error },
+      };
+    }
+
     const liveQuotes = await client.fetchQuotes(Array.from(symbols), { overrideSymbolCount: true });
+    sourceCounts.quotes = liveQuotes.length;
     const quotes = liveQuotes.map((quote) => ({
       ...quote,
       companyName: descriptions.get(quote.symbol) || quote.companyName,
     }));
-    return this.screenWithQuotes(quotes, filter);
+    const error = client.getLastError();
+    const message = quotes.length > 0
+      ? `Fetched live E*TRADE quotes for ${quotes.length} of ${symbols.size} candidate symbols and applied the selected filters (${sourceSummary}).`
+      : `Discovered ${symbols.size} symbols (${sourceSummary}), but E*TRADE returned no quotes${error ? `: ${error}` : ". Check OAuth/API access or symbol eligibility."}`;
+    return {
+      ...this.screenWithQuotes(quotes, filter),
+      discovery: { mode, candidateCount: symbols.size, quoteCount: quotes.length, sourceCounts, message, error },
+    };
   }
 
   /**

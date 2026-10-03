@@ -236,6 +236,7 @@ export class ETradeRestClient {
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for live quote requests.";
       return [];
     }
 
@@ -254,6 +255,7 @@ export class ETradeRestClient {
     }
 
     if (!token || !tokenSecret) {
+      this.lastError = "E*TRADE OAuth access token is missing for live quote requests.";
       return [];
     }
 
@@ -299,7 +301,12 @@ export class ETradeRestClient {
           });
         }
 
-        if (!res.ok) return [];
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => "");
+          this.handleUpstreamAuthError(res.status, "market/quote", errorText);
+          this.lastError = `E*TRADE quote request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
+          return [];
+        }
 
         const data = (await res.json().catch(() => ({}))) as any;
         const rawList = data?.QuoteResponse?.QuoteData;
@@ -367,7 +374,10 @@ export class ETradeRestClient {
 
   async getMarketMovers(category: ETradeMarketMoverCategory): Promise<string[]> {
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for market-mover discovery.";
+      return [];
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/market/movers/${category}`;
     const fallbackUrl = `${primaryUrl}.json`;
@@ -389,7 +399,12 @@ export class ETradeRestClient {
           headers: { Authorization: authHeader, Accept: "application/json" },
         });
       }
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.handleUpstreamAuthError(res.status, `market/movers/${category}`, errorText);
+        this.lastError = `E*TRADE market-movers request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
+        return [];
+      }
 
       const data = (await res.json().catch(() => ({}))) as any;
       let movers = data?.MarketMoversResponse?.MarketMover || data?.MarketMoversResponse?.Mover || data?.MarketMover;
@@ -398,7 +413,8 @@ export class ETradeRestClient {
       return Array.from(new Set(movers
         .map((mover: any) => String(mover?.Product?.symbol || mover?.symbol || "").toUpperCase().trim())
         .filter((symbol: string) => /^[A-Z0-9.\/-]+$/.test(symbol))));
-    } catch {
+    } catch (err) {
+      this.lastError = `E*TRADE market-movers request failed: ${err instanceof Error ? err.message : String(err)}`;
       return [];
     }
   }
@@ -2539,7 +2555,10 @@ export class ETradeRestClient {
    */
   async getWatchlists(): Promise<ETradeWatchlist[]> {
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for watchlist discovery.";
+      return [];
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist.json`;
@@ -2570,7 +2589,12 @@ export class ETradeRestClient {
         });
       }
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.handleUpstreamAuthError(res.status, "user/watchlist", errorText);
+        this.lastError = `E*TRADE watchlist request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
+        return [];
+      }
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.WatchlistResponse || data?.WatchlistDetailResponse;
@@ -2592,6 +2616,7 @@ export class ETradeRestClient {
       });
     } catch (err) {
       console.warn("[ETradeClient] getWatchlists error:", err);
+      this.lastError = `E*TRADE watchlist request failed: ${err instanceof Error ? err.message : String(err)}`;
       return [];
     }
   }

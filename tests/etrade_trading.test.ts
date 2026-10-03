@@ -389,6 +389,26 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(result.stocks[0].marketCap).toBeGreaterThan(0);
     });
 
+    it("explains an empty live candidate universe with mover and watchlist counts", async () => {
+      const configuredService = new ETradeService(orm, {
+        ...mockEnv,
+        ETRADE_API_KEY: "test-consumer-key",
+        ETRADE_API_SECRET: "test-consumer-secret",
+      } as Env);
+      vi.spyOn(configuredService.client, "getMarketMovers").mockResolvedValue([]);
+      vi.spyOn(configuredService.client, "getWatchlists").mockResolvedValue([]);
+      const quotesSpy = vi.spyOn(configuredService.client, "fetchQuotes");
+
+      const result = await configuredService.screenMarketsAsync({});
+
+      expect(result.status).toBe("no_universe");
+      expect(result.discovery?.candidateCount).toBe(0);
+      expect(result.discovery?.sourceCounts.movers_active).toBe(0);
+      expect(result.discovery?.sourceCounts.watchlists).toBe(0);
+      expect(result.discovery?.message).toContain("outside market hours");
+      expect(quotesSpy).not.toHaveBeenCalled();
+    });
+
     it("NLQ classifies 'Preview buy 10 shares of NVDA at market' and executeNLQQueryAsync drafts order with live quote", async () => {
       const { executeNLQQueryAsync } = await import("../src/agents/nlq");
       const plan = await planNLQ(mockEnv, "Preview buy 10 shares of NVDA at market");
