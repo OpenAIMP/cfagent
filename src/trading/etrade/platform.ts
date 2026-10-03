@@ -7,11 +7,11 @@
  * - Human-in-the-Loop (HITL) Execution Safety with W3C Agent DID Attestations.
  */
 
-import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus } from "../../types";
+import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { ETradeRestClient } from "./client";
-import { DynamicMarketScreener, EXPANDED_MARKET_UNIVERSE } from "../screener";
+import { DynamicMarketScreener } from "../screener";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getETradeAuthStatus } from "../../security/etradeOAuth";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
@@ -77,7 +77,8 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       oauthRenewable: authStatus.renewable,
       capabilities: [
         "Natural Language Market Screener (NLQ)",
-        "Technical Indicator Signals (RSI, Breakout, MACD)",
+        "Live Market-Mover and Watchlist Discovery",
+        "Quote-Based Stock and Options Screening",
         "Real-Time Level 1 Quotes & Order Depth",
         "Agent DID Attestation Order Stamping",
         "Human-in-the-Loop (HITL) Execution Safety Guarantee",
@@ -118,11 +119,10 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       };
     }
 
-    const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
     const envConfig = this.getEnvConfig();
     return {
       symbol: cleanSym,
-      companyName: def?.companyName || `${cleanSym} Inc.`,
+      companyName: `${cleanSym} Inc.`,
       lastPrice: 0.0,
       price: 0.0,
       change: 0,
@@ -139,6 +139,10 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       source: `E*TRADE REST API [${envConfig.name}]`,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    return this.screener.screenLive(this.client, filter);
   }
 
   async getAccounts(): Promise<ETradeAccount[]> {

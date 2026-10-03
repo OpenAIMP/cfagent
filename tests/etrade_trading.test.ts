@@ -78,6 +78,21 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(megaCaps.stocks.every((s) => s.marketCap >= 1_000_000_000_000)).toBe(true);
       expect(megaCaps.stocks.some((s) => s.symbol === "MSFT" || s.symbol === "AAPL" || s.symbol === "NVDA")).toBe(true);
     });
+
+    it("applies relative-volume screening only when average volume is available", () => {
+      const quote = {
+        ...MOCK_TEST_UNIVERSE[0],
+        volume: 20_000_000,
+        averageVolume: 10_000_000,
+      };
+      const screener = new DynamicMarketScreener();
+      const matched = screener.screenWithQuotes([quote], { momentum: "high_relative_volume" });
+      expect(matched.stocks).toHaveLength(1);
+
+      const unavailable = screener.screenWithQuotes([MOCK_TEST_UNIVERSE[0]], { momentum: "high_relative_volume" });
+      expect(unavailable.stocks).toHaveLength(0);
+      expect(unavailable.ledger?.rejections[0].reason).toContain("N/A");
+    });
   });
 
   // =========================================================================
@@ -209,13 +224,13 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       audit: auditMock,
     };
 
-    it("etrade_market_scan: screens market and returns structured results", async () => {
+    it("etrade_market_scan: reports unavailable live data without fabricating results", async () => {
       const cmd = McpToolFactory.getTool("etrade_market_scan");
       expect(cmd).toBeDefined();
 
       const res = await cmd.execute({ sector: "Semiconductors", minRsi: 50 }, mcpContext);
-      expect(res.stocks.length).toBeGreaterThan(0);
-      expect(res.totalScreened).toBeGreaterThan(0);
+      expect(res.stocks).toHaveLength(0);
+      expect(res.status).toBe("no_universe");
       expect(auditMock).toHaveBeenCalledWith("etrade.market_scanned", "trading", expect.any(Object));
     });
 
@@ -363,6 +378,11 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("DynamicMarketScreener.screenMarkets enriches stocks with real-time quotes", async () => {
+      vi.spyOn(etrade.client, "getMarketMovers").mockResolvedValue(["NVDA", "AMD"]);
+      vi.spyOn(etrade.client, "getWatchlists").mockResolvedValue([]);
+      vi.spyOn(etrade.client, "fetchQuotes").mockResolvedValue(
+        MOCK_TEST_UNIVERSE.filter((stock) => stock.sector === "Semiconductors").slice(0, 3)
+      );
       const result = await etrade.screenMarketsAsync({ sector: "Semiconductors", limit: 3 });
       expect(result.stocks.length).toBeGreaterThan(0);
       expect(result.stocks[0].price).toBeGreaterThan(0);
@@ -763,35 +783,67 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(draft.previewNotes).toContain("Proposed limit price $43.30 is outside prevailing market collar");
     });
 
-    it("scans expanded 100+ liquid securities universe across all sectors", async () => {
+    it("does not provide a hard-coded default securities universe", async () => {
       const screener = new DynamicMarketScreener();
       const defaultUni = screener.getDefaultUniverse();
-      expect(defaultUni.length).toBeGreaterThanOrEqual(100);
+      expect(defaultUni).toEqual([]);
     });
 
-    it("dynamically injects searched ticker into screener universe", async () => {
+    it("discovers searched tickers and screens only returned live quotes", async () => {
       DynamicMarketScreener.setTestUniverseFixture([]);
       try {
         const tradingService = new ETradeService(orm);
+        vi.spyOn(tradingService.client, "lookupProduct").mockResolvedValue([
+          { symbol: "DELL", description: "Dell Technologies Inc.", type: "EQ" },
+        ]);
+        vi.spyOn(tradingService.client, "fetchQuotes").mockResolvedValue([{
+          symbol: "DELL",
+          companyName: "Dell Technologies Inc.",
+          lastPrice: 120,
+          price: 120,
+          change: 1,
+          changePercent: 0.84,
+          bid: 119.9,
+          ask: 120.1,
+          volume: 1_000_000,
+          open: 119,
+          high: 121,
+          low: 118,
+          week52High: 150,
+          week52Low: 80,
+          timestamp: new Date().toISOString(),
+        }]);
         const res = await tradingService.screenMarketsAsync({ search: "DELL" });
         expect(res.ledger.universeSymbols).toContain("DELL");
+        expect(res.stocks[0].companyName).toBe("Dell Technologies Inc.");
       } finally {
         DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
       }
     });
 
-    it("screens default universe for tech stocks with RSI under 40 and returns oversold candidates", async () => {
+    it("does not assign fake RSI values when the provider omits indicators", async () => {
       DynamicMarketScreener.setTestUniverseFixture([]);
       try {
         const screener = new DynamicMarketScreener();
-        const res = screener.screenStocks({ sector: "Technology", maxRsi: 40 });
-        expect(res.stocks.length).toBeGreaterThan(0);
-        for (const s of res.stocks) {
-          expect(s.rsi14).toBeLessThanOrEqual(40);
-        }
-        const symbols = res.stocks.map((s) => s.symbol);
-        expect(symbols).toContain("CRM");
-        expect(symbols).toContain("INTC");
+        const res = screener.screenWithQuotes([{
+          symbol: "CUSTOM",
+          companyName: "Custom Corp",
+          lastPrice: 100,
+          price: 100,
+          change: 1,
+          changePercent: 1,
+          bid: 99.9,
+          ask: 100.1,
+          volume: 1000,
+          open: 99,
+          high: 101,
+          low: 98,
+          week52High: 120,
+          week52Low: 80,
+          timestamp: new Date().toISOString(),
+        }], { maxRsi: 40 });
+        expect(res.stocks).toHaveLength(0);
+        expect(res.ledger.rejections[0].reason).toContain("N/A");
       } finally {
         DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
       }

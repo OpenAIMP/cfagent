@@ -266,6 +266,7 @@ export interface ETradeQuote {
   bidSize?: number;
   askSize?: number;
   volume: number;
+  averageVolume?: number;
   open: number;
   high: number;
   low: number;
@@ -318,7 +319,7 @@ export interface StockScreenLedger {
 
 export interface ScreenedStockItem extends ETradeQuote {
   price: number;
-  rsi14: number;
+  rsi14?: number;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;
@@ -356,6 +357,10 @@ export interface OptionScreenerFilter {
   minOpenInterest?: number;
   minDelta?: number;
   maxDelta?: number;
+  minGamma?: number;
+  maxGamma?: number;
+  minTheta?: number;
+  maxTheta?: number;
   minImpliedVolatility?: number; // decimal e.g. 0.35 = 35%
   maxImpliedVolatility?: number; // decimal e.g. 1.20 = 120%
   minDte?: number; // Days to expiration min
@@ -385,6 +390,8 @@ export interface OptionScreenRejection {
   reason: string;
   strikePrice?: number;
   delta?: number;
+  gamma?: number;
+  theta?: number;
   iv?: number;
   volume?: number;
   daysToExpiration?: number;

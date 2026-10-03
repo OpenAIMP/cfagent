@@ -4,8 +4,10 @@
       "command": "uvx",
       "args": ["alpaca-mcp-server"],
       "env": {
-        "ALPACA_API_KEY": "your_alpaca_api_key",
-        "ALPACA_SECRET_KEY": "your_alpaca_secret_key"
+        "APCA_API_KEY_ID": "PKD5IG5MBKQ4YOVVCQMHOOZIP3",
+        "APCA_API_SECRET_KEY": "E1E6YhVgHCqsUDYEH2bF1WrzyS5DA5RRChM96dtG7JFs",
+        "ALPACA_API_KEY": "PKD5IG5MBKQ4YOVVCQMHOOZIP3",
+        "ALPACA_SECRET_KEY": "E1E6YhVgHCqsUDYEH2bF1WrzyS5DA5RRChM96dtG7JFs"
       }
     }
   }

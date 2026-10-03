@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   ETradeAgenticPaymentService,
   TRADING_PAID_SERVICES,
@@ -15,6 +15,7 @@ import {
 import { McpToolFactory } from "../src/mcp/commands";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "../src/agents/nlq";
 import { ETradeVoiceTradingService } from "../src/trading/voice/agent";
+import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 
 describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
   let sql: MockSqlStorage;
@@ -40,6 +41,10 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
     };
 
     paymentService = new ETradeAgenticPaymentService(orm, mockEnv, "trader_session_1");
+  });
+
+  afterEach(() => {
+    DynamicOptionsScreener.clearTestChainsFixture();
   });
 
   describe("1. HTTP 402 Protocol Engine & Challenge Generation", () => {
@@ -532,6 +537,32 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
     });
 
     it("executes paid options screen via executeNLQQueryAsync with simulated receipt", async () => {
+      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      DynamicOptionsScreener.setTestChainsFixture({
+        NVDA: {
+          symbol: "NVDA",
+          underlyingPrice: 100,
+          selectedExpiry: {
+            year: expiryDate.getUTCFullYear(),
+            month: expiryDate.getUTCMonth() + 1,
+            day: expiryDate.getUTCDate(),
+          },
+          pairs: [{
+            call: {
+              optionType: "CALL",
+              strikePrice: 100,
+              symbol: "NVDATESTC100",
+              bid: 2,
+              ask: 2.2,
+              lastPrice: 2.1,
+              volume: 500,
+              openInterest: 1000,
+              delta: 0.52,
+              impliedVolatility: 0.38,
+            },
+          }],
+        },
+      });
       const plan = {
         domain: "agentic_payments" as const,
         operation: "create" as const,

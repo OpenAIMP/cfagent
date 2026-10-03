@@ -42,7 +42,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [scannedAt, setScannedAt] = useState<string>("");
 
   // Order Ticket state
-  const [orderSymbol, setOrderSymbol] = useState("NVDA");
+  const [orderSymbol, setOrderSymbol] = useState("");
   const [orderAction, setOrderAction] = useState<"BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT">("BUY");
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT">("LIMIT");
   const [orderQuantity, setOrderQuantity] = useState(10);
@@ -75,8 +75,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   // Trust, Reconciliation & Privacy state
   const [maskAccount, setMaskAccount] = useState(true);
   const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
-  const [scanUniverseCount, setScanUniverseCount] = useState(12);
-  const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("matches_found");
+  const [scanUniverseCount, setScanUniverseCount] = useState(0);
+  const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("not_run");
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
   // E*TRADE Live Diagnostics state
@@ -101,12 +101,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
   // Omnichannel Email & Slack Simulator states
   const [emailFrom, setEmailFrom] = useState("trader@example.com");
-  const [emailSubject, setEmailSubject] = useState("Quote NVDA");
+  const [emailSubject, setEmailSubject] = useState("E*TRADE market update");
   const [emailBody, setEmailBody] = useState("What is the current market price and technical signal?");
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailResult, setEmailResult] = useState<any>(null);
 
-  const [slackPrompt, setSlackPrompt] = useState("@ETradeAgent preview buy 10 NVDA limit 125.00");
+  const [slackPrompt, setSlackPrompt] = useState("@ETradeAgent preview buy <quantity> <symbol> limit <price>");
   const [slackLoading, setSlackLoading] = useState(false);
   const [slackResult, setSlackResult] = useState<any>(null);
   const [slackActionLoading, setSlackActionLoading] = useState(false);
@@ -912,13 +912,15 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const tradingAgentDid = "did:agent:openaimp:trading";
   const userDid = user?.login ? `did:user:github:${user.login}` : "did:user:github:authorized_trader";
 
-  const getRsiBadgeClass = (rsi: number) => {
+  const getRsiBadgeClass = (rsi?: number) => {
+    if (rsi === undefined) return "rsi-neutral";
     if (rsi <= 35) return "rsi-oversold";
     if (rsi >= 70) return "rsi-overbought";
     return "rsi-neutral";
   };
 
-  const getRsiLabel = (rsi: number) => {
+  const getRsiLabel = (rsi?: number) => {
+    if (rsi === undefined) return "Unavailable";
     if (rsi <= 35) return "Oversold";
     if (rsi >= 70) return "Overbought";
     return "Neutral";
@@ -1696,7 +1698,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {/* Screener Results Meta */}
           <div className="screener-results-header">
             <span className="results-count">
-              Universe: <strong>{scanUniverseCount}</strong> equities • Matches: <strong>{screenerStocks.length}</strong> • Lookback: 14-period Daily RSI • Delay: Level 1 Quotes
+              Live candidates: <strong>{scanUniverseCount}</strong> • Matches: <strong>{screenerStocks.length}</strong> • Metrics: E*TRADE quote data
             </span>
             <span className="results-timestamp">Last Scan: {scannedAt || "Just now"}</span>
           </div>
@@ -1730,13 +1732,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       ) : scanStatus === "scan_failed" ? (
                         "⚠️ Technical scan failed: Data provider returned an error or timeout. Please retry."
                       ) : (
-                        `Scanned ${scanUniverseCount} equities across ${sectorFilter}; 0 matched the selected criteria (RSI, Market Cap, Performance).`
+                        `Scanned ${scanUniverseCount} live candidates across ${sectorFilter}; 0 matched the selected filters.`
                       )}
                     </td>
                   </tr>
                 ) : (
                   screenerStocks.map((stock) => {
-                    const rsi = stock.rsi14 || stock.rsi || 50;
+                    const rsi = stock.rsi14 ?? stock.rsi;
                     const isPositive = stock.change >= 0;
                     return (
                       <tr key={stock.symbol} className="stock-row">
@@ -1760,12 +1762,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         <td>
                           <div className="rsi-cell">
                             <span className={`rsi-badge ${getRsiBadgeClass(rsi)}`}>
-                              {rsi.toFixed(1)} • {getRsiLabel(rsi)}
+                              {rsi === undefined ? "N/A" : rsi.toFixed(1)} • {getRsiLabel(rsi)}
                             </span>
                             <div className="rsi-meter-bar">
                               <div
                                 className={`rsi-fill ${getRsiBadgeClass(rsi)}`}
-                                style={{ width: `${Math.min(100, Math.max(0, rsi))}%` }}
+                                style={{ width: `${rsi === undefined ? 0 : Math.min(100, Math.max(0, rsi))}%` }}
                               />
                             </div>
                           </div>
@@ -2606,7 +2608,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                         <div className="card-company">{stock.companyName}</div>
                         <div className="card-technicals">
                           <span className={`rsi-badge ${getRsiBadgeClass(stock.rsi14)}`}>
-                            RSI: {stock.rsi14.toFixed(1)}
+                            RSI: {stock.rsi14 === undefined ? "N/A" : stock.rsi14.toFixed(1)}
                           </span>
                           <span className="signal-badge">{stock.technicalSignal}</span>
                         </div>
@@ -3299,8 +3301,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   </div>
                   <div className="grid-item">
                     <span className="label">RSI (14)</span>
-                    <span className={`val ${getRsiBadgeClass(inspectQuote.rsi || 50)}`}>
-                      {inspectQuote.rsi?.toFixed(1) || "50.0"}
+                    <span className={`val ${getRsiBadgeClass(inspectQuote.rsi)}`}>
+                      {inspectQuote.rsi?.toFixed(1) || "N/A"}
                     </span>
                   </div>
                 </div>

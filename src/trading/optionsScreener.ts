@@ -16,16 +16,7 @@ import type {
   ETradeOptionChain,
   ETradeOptionChainContract,
 } from "../types";
-import { ETRADE_MARKET_UNIVERSE } from "./screener";
 import type { ETradeRestClient } from "./etrade/client";
-
-// Canonical liquid benchmark underlyings for options screening
-export const LIQUID_OPTIONS_UNIVERSE = [
-  "NVDA", "AAPL", "MSFT", "TSLA", "AMD",
-  "AMZN", "GOOGL", "META", "AVGO", "PLTR",
-  "SPY", "QQQ", "IWM", "COIN", "INTC",
-  "JPM", "XOM", "LLY", "NFLX", "CRM",
-];
 
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
@@ -47,33 +38,45 @@ export class DynamicOptionsScreener {
   }
 
   /**
-   * Resolve target underlying symbols based on filter (explicit symbols, sector, or default liquid universe)
+  * Resolve explicit underlyings or discover candidates from live movers and user watchlists.
    */
-  resolveUnderlyings(filter: OptionScreenerFilter): string[] {
+  async resolveUnderlyings(filter: OptionScreenerFilter): Promise<string[]> {
     if (filter.underlyingSymbols && filter.underlyingSymbols.length > 0) {
       return Array.from(new Set(filter.underlyingSymbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
     }
 
-    if (filter.sector && filter.sector.toLowerCase() !== "all" && filter.sector.toLowerCase() !== "any") {
-      const sec = filter.sector.toLowerCase().trim();
-      const matched = ETRADE_MARKET_UNIVERSE.filter((def) => {
-        const itemSec = def.sector.toLowerCase();
-        if (sec === "tech" || sec === "technology") {
-          return itemSec === "technology" || itemSec === "semiconductors";
+    if (!this.client) return [];
+    const [active, gainers, losers, watchlists] = await Promise.all([
+      this.client.getMarketMovers("active"),
+      this.client.getMarketMovers("gainers"),
+      this.client.getMarketMovers("losers"),
+      this.client.getWatchlists(),
+    ]);
+    const symbols = [
+      ...active,
+      ...gainers,
+      ...losers,
+      ...watchlists.flatMap((watchlist) => watchlist.symbols || []),
+    ].map((symbol) => symbol.toUpperCase().trim()).filter(Boolean);
+    const candidates = Array.from(new Set(symbols)).slice(0, 50);
+    if (!filter.sector || ["all", "any"].includes(filter.sector.toLowerCase())) return candidates;
+
+    const quotes = await this.client.fetchQuotes(candidates, { overrideSymbolCount: true });
+    const sector = filter.sector.toLowerCase().trim();
+    return quotes
+      .filter((quote) => {
+        const quoteSector = (quote.sector || "").toLowerCase().trim();
+        if (!quoteSector) return false;
+        if (sector === "tech" || sector === "technology") {
+          return quoteSector.includes("tech") || quoteSector.includes("semiconductor");
         }
-        return itemSec.includes(sec) || sec.includes(itemSec);
-      });
-
-      if (matched.length > 0) {
-        return matched.slice(0, 15).map((m) => m.symbol);
-      }
-    }
-
-    return LIQUID_OPTIONS_UNIVERSE.slice(0, 10);
+        return quoteSector === sector || quoteSector.includes(sector) || sector.includes(quoteSector);
+      })
+      .map((quote) => quote.symbol);
   }
 
   /**
-   * Generates or fetches option chain for a given symbol
+  * Fetch a real E*TRADE option chain or a test-only injected fixture.
    */
   async fetchChainForSymbol(symbol: string): Promise<ETradeOptionChain | null> {
     const cleanSym = symbol.toUpperCase().trim();
@@ -91,24 +94,26 @@ export class DynamicOptionsScreener {
       }
     }
 
-    // 3. Fallback: generate realistic deterministic chain model for standard liquid universe
-    return this.generateSyntheticChainModel(cleanSym);
+    return null;
   }
 
-  fetchChainForSymbolSync(symbol: string): ETradeOptionChain {
+  fetchChainForSymbolSync(symbol: string): ETradeOptionChain | null {
     const cleanSym = symbol.toUpperCase().trim();
     if (DynamicOptionsScreener.testChainsFixture[cleanSym]) {
       return DynamicOptionsScreener.testChainsFixture[cleanSym];
     }
-    return this.generateSyntheticChainModel(cleanSym);
+    return null;
   }
 
   /**
-   * Synchronous options screening (using test fixtures or synthetic market model)
+  * Synchronous options screening for explicit symbols with injected test fixtures only.
    */
   screenOptionsSync(filter: OptionScreenerFilter = {}): OptionScreenResult {
-    const symbols = this.resolveUnderlyings(filter);
-    const chains = symbols.map((sym) => ({ symbol: sym, chain: this.fetchChainForSymbolSync(sym) }));
+    const symbols = filter.underlyingSymbols?.map((symbol) => symbol.toUpperCase().trim()).filter(Boolean) || [];
+    const chains = symbols.flatMap((sym) => {
+      const chain = this.fetchChainForSymbolSync(sym);
+      return chain ? [{ symbol: sym, chain }] : [];
+    });
     return this.evaluateChains(chains, filter);
   }
 
@@ -116,12 +121,10 @@ export class DynamicOptionsScreener {
    * Evaluates options filters across one or more underlyings (async with live upstream fetch)
    */
   async screenOptions(filter: OptionScreenerFilter = {}): Promise<OptionScreenResult> {
-    const symbols = this.resolveUnderlyings(filter);
+    const symbols = await this.resolveUnderlyings(filter);
     const chains: Array<{ symbol: string; chain: ETradeOptionChain }> = [];
-    for (const sym of symbols) {
-      const chain = await this.fetchChainForSymbol(sym);
-      if (chain) chains.push({ symbol: sym, chain });
-    }
+    const fetched = await Promise.all(symbols.map(async (sym) => ({ symbol: sym, chain: await this.fetchChainForSymbol(sym) })));
+    for (const item of fetched) if (item.chain) chains.push({ symbol: item.symbol, chain: item.chain });
     return this.evaluateChains(chains, filter);
   }
 
@@ -142,6 +145,10 @@ export class DynamicOptionsScreener {
     if (filter.contractType && filter.contractType !== "BOTH") summaryParts.push(`Type: ${filter.contractType}`);
     if (filter.minDelta !== undefined) summaryParts.push(`Delta >= ${filter.minDelta}`);
     if (filter.maxDelta !== undefined) summaryParts.push(`Delta <= ${filter.maxDelta}`);
+    if (filter.minGamma !== undefined) summaryParts.push(`Gamma >= ${filter.minGamma}`);
+    if (filter.maxGamma !== undefined) summaryParts.push(`Gamma <= ${filter.maxGamma}`);
+    if (filter.minTheta !== undefined) summaryParts.push(`Theta >= ${filter.minTheta}`);
+    if (filter.maxTheta !== undefined) summaryParts.push(`Theta <= ${filter.maxTheta}`);
     if (filter.minImpliedVolatility !== undefined) summaryParts.push(`IV >= ${(filter.minImpliedVolatility * 100).toFixed(0)}%`);
     if (filter.maxImpliedVolatility !== undefined) summaryParts.push(`IV <= ${(filter.maxImpliedVolatility * 100).toFixed(0)}%`);
     if (filter.minVolume !== undefined) summaryParts.push(`Min Vol >= ${filter.minVolume}`);
@@ -160,18 +167,16 @@ export class DynamicOptionsScreener {
       const chain = item.chain;
       if (!chain || !chain.pairs || chain.pairs.length === 0) continue;
 
-      const underlyingPrice = chain.underlyingPrice || 100.0;
-      const expiry = chain.selectedExpiry || {
-        year: new Date().getFullYear(),
-        month: new Date().getMonth() + 2,
-        day: 20,
-      };
+      const underlyingPrice = chain.underlyingPrice;
+      const expiry = chain.selectedExpiry;
+      if (!underlyingPrice || underlyingPrice <= 0 || !expiry) continue;
 
       const expDateStr = `${expiry.year}-${String(expiry.month).padStart(2, "0")}-${String(expiry.day).padStart(2, "0")}`;
       const expiryDateObj = new Date(Date.UTC(expiry.year, expiry.month - 1, expiry.day));
       const nowObj = new Date();
       const diffMs = expiryDateObj.getTime() - nowObj.getTime();
-      const daysToExpiration = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      const daysToExpiration = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (daysToExpiration < 0) continue;
 
       for (const pair of chain.pairs) {
         const candidates: ETradeOptionChainContract[] = [];
@@ -187,10 +192,12 @@ export class DynamicOptionsScreener {
         for (const c of candidates) {
           totalContractsEvaluated++;
           const contractSym = c.symbol || `${sym}_${c.strikePrice}_${c.optionType}`;
-          const delta = c.delta !== undefined ? Math.abs(c.delta) : 0.5;
-          const iv = c.impliedVolatility !== undefined ? c.impliedVolatility : 0.45;
-          const vol = c.volume || 0;
-          const oi = c.openInterest || 1;
+          const delta = c.delta !== undefined ? Math.abs(c.delta) : undefined;
+          const gamma = c.gamma;
+          const theta = c.theta;
+          const iv = c.impliedVolatility;
+          const vol = c.volume;
+          const oi = c.openInterest;
           const strike = c.strikePrice;
 
           // 1. DTE check
@@ -214,62 +221,99 @@ export class DynamicOptionsScreener {
           }
 
           // 2. Delta check
-          if (filter.minDelta !== undefined && delta < filter.minDelta) {
+          if (filter.minDelta !== undefined && (delta === undefined || delta < filter.minDelta)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `Delta (${delta.toFixed(2)}) below minimum ${filter.minDelta}`,
+              reason: `Delta (${delta?.toFixed(2) ?? "N/A"}) below minimum ${filter.minDelta}`,
               delta,
             });
             continue;
           }
-          if (filter.maxDelta !== undefined && delta > filter.maxDelta) {
+          if (filter.maxDelta !== undefined && (delta === undefined || delta > filter.maxDelta)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `Delta (${delta.toFixed(2)}) exceeds maximum ${filter.maxDelta}`,
+              reason: `Delta (${delta?.toFixed(2) ?? "N/A"}) exceeds maximum ${filter.maxDelta}`,
               delta,
             });
             continue;
           }
 
-          // 3. Implied Volatility check
-          if (filter.minImpliedVolatility !== undefined && iv < filter.minImpliedVolatility) {
+          if (filter.minGamma !== undefined && (gamma === undefined || gamma < filter.minGamma)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `IV (${(iv * 100).toFixed(1)}%) below minimum ${(filter.minImpliedVolatility * 100).toFixed(1)}%`,
+              reason: `Gamma (${gamma?.toFixed(4) ?? "N/A"}) below minimum ${filter.minGamma}`,
+              gamma,
+            });
+            continue;
+          }
+          if (filter.maxGamma !== undefined && (gamma === undefined || gamma > filter.maxGamma)) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Gamma (${gamma?.toFixed(4) ?? "N/A"}) exceeds maximum ${filter.maxGamma}`,
+              gamma,
+            });
+            continue;
+          }
+          if (filter.minTheta !== undefined && (theta === undefined || theta < filter.minTheta)) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Theta (${theta?.toFixed(4) ?? "N/A"}) below minimum ${filter.minTheta}`,
+              theta,
+            });
+            continue;
+          }
+          if (filter.maxTheta !== undefined && (theta === undefined || theta > filter.maxTheta)) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `Theta (${theta?.toFixed(4) ?? "N/A"}) exceeds maximum ${filter.maxTheta}`,
+              theta,
+            });
+            continue;
+          }
+
+          // 3. Implied Volatility check
+          if (filter.minImpliedVolatility !== undefined && (iv === undefined || iv < filter.minImpliedVolatility)) {
+            rejections.push({
+              contractSymbol: contractSym,
+              underlyingSymbol: sym,
+              reason: `IV (${iv === undefined ? "N/A" : `${(iv * 100).toFixed(1)}%`}) below minimum ${(filter.minImpliedVolatility * 100).toFixed(1)}%`,
               iv,
             });
             continue;
           }
-          if (filter.maxImpliedVolatility !== undefined && iv > filter.maxImpliedVolatility) {
+          if (filter.maxImpliedVolatility !== undefined && (iv === undefined || iv > filter.maxImpliedVolatility)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `IV (${(iv * 100).toFixed(1)}%) exceeds maximum ${(filter.maxImpliedVolatility * 100).toFixed(1)}%`,
+              reason: `IV (${iv === undefined ? "N/A" : `${(iv * 100).toFixed(1)}%`}) exceeds maximum ${(filter.maxImpliedVolatility * 100).toFixed(1)}%`,
               iv,
             });
             continue;
           }
 
           // 4. Volume check
-          if (filter.minVolume !== undefined && vol < filter.minVolume) {
+          if (filter.minVolume !== undefined && (vol === undefined || vol < filter.minVolume)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `Volume (${vol.toLocaleString()}) below minimum ${filter.minVolume.toLocaleString()}`,
+              reason: `Volume (${vol?.toLocaleString() ?? "N/A"}) below minimum ${filter.minVolume.toLocaleString()}`,
               volume: vol,
             });
             continue;
           }
 
           // 5. Open Interest check
-          if (filter.minOpenInterest !== undefined && oi < filter.minOpenInterest) {
+          if (filter.minOpenInterest !== undefined && (oi === undefined || oi < filter.minOpenInterest)) {
             rejections.push({
               contractSymbol: contractSym,
               underlyingSymbol: sym,
-              reason: `Open Interest (${oi.toLocaleString()}) below minimum ${filter.minOpenInterest.toLocaleString()}`,
+              reason: `Open Interest (${oi?.toLocaleString() ?? "N/A"}) below minimum ${filter.minOpenInterest.toLocaleString()}`,
             });
             continue;
           }
@@ -309,15 +353,15 @@ export class DynamicOptionsScreener {
           }
 
           // Passed all checks! Compute signals
-          const volOiRatio = oi > 0 ? Number((vol / oi).toFixed(2)) : undefined;
+          const volOiRatio = oi && oi > 0 && vol !== undefined ? Number((vol / oi).toFixed(2)) : undefined;
           let technicalSignal = "Liquid Standard Option";
           if (volOiRatio && volOiRatio >= 1.5) {
             technicalSignal = `Unusual Volume Spike (Vol/OI: ${volOiRatio}x)`;
-          } else if (delta >= 0.65) {
+          } else if (delta !== undefined && delta >= 0.65) {
             technicalSignal = "High Delta Trending Momentum";
-          } else if (iv >= 0.70) {
+          } else if (iv !== undefined && iv >= 0.70) {
             technicalSignal = "High Implied Volatility Expansion";
-          } else if (iv <= 0.30) {
+          } else if (iv !== undefined && iv <= 0.30) {
             technicalSignal = "Low IV Value Opportunity";
           }
 
@@ -330,9 +374,8 @@ export class DynamicOptionsScreener {
             moneyness,
             strikeDistancePct: strikeDistPct,
             volumeOiRatio: volOiRatio,
-            ivRankEstimated: Math.round(Math.min(99, Math.max(10, iv * 100))),
             technicalSignal,
-            highlightReason: `${sym} $${strike} ${c.optionType} | ${daysToExpiration}d DTE | IV: ${(iv * 100).toFixed(0)}%`,
+            highlightReason: `${sym} $${strike} ${c.optionType} | ${daysToExpiration}d DTE | IV: ${iv === undefined ? "N/A" : `${(iv * 100).toFixed(0)}%`}`,
             validationStatus: "PASS_CONFIRMED",
           });
         }
@@ -350,7 +393,7 @@ export class DynamicOptionsScreener {
       totalContractsEvaluated,
       matchedCount: finalContracts.length,
       filterApplied: filter,
-      filterSummary: summaryParts.join(", ") || "Liquid Options Universe",
+      filterSummary: summaryParts.join(", ") || "Live E*TRADE option chains",
       contracts: finalContracts,
       scannedAt: new Date().toISOString(),
       status: finalContracts.length > 0 ? "matches_found" : "no_matches",
@@ -358,97 +401,4 @@ export class DynamicOptionsScreener {
     };
   }
 
-  /**
-   * Helper model providing realistic deterministic options data for common liquid equities
-   */
-  private generateSyntheticChainModel(symbol: string): ETradeOptionChain {
-    const basePrices: Record<string, number> = {
-      NVDA: 135.5,
-      AAPL: 228.0,
-      MSFT: 425.0,
-      TSLA: 245.0,
-      AMD: 155.0,
-      AMZN: 185.0,
-      GOOGL: 165.0,
-      META: 580.0,
-      SPY: 575.0,
-      QQQ: 490.0,
-    };
-
-    const underlyingPrice = basePrices[symbol] || 150.0;
-    const strikes = [
-      Number((underlyingPrice * 0.90).toFixed(1)),
-      Number((underlyingPrice * 0.95).toFixed(1)),
-      Number((underlyingPrice * 0.98).toFixed(1)),
-      Number(underlyingPrice.toFixed(1)),
-      Number((underlyingPrice * 1.02).toFixed(1)),
-      Number((underlyingPrice * 1.05).toFixed(1)),
-      Number((underlyingPrice * 1.10).toFixed(1)),
-    ];
-
-    const today = new Date();
-    const expiryYear = today.getFullYear();
-    const expiryMonth = (today.getMonth() + 2) > 12 ? 1 : today.getMonth() + 2;
-    const expiryDay = 21;
-
-    const pairs = strikes.map((strike) => {
-      const isCallItm = strike < underlyingPrice;
-      const isPutItm = strike > underlyingPrice;
-      const distPct = Math.abs(strike - underlyingPrice) / underlyingPrice;
-
-      // Realistic Greeks
-      const callDelta = Number(Math.max(0.05, Math.min(0.95, isCallItm ? 0.5 + distPct : 0.5 - distPct)).toFixed(2));
-      const putDelta = Number(Math.max(0.05, Math.min(0.95, isPutItm ? 0.5 + distPct : 0.5 - distPct)).toFixed(2));
-      const baseIv = 0.42 + (symbol === "NVDA" || symbol === "TSLA" ? 0.15 : 0);
-
-      const callBid = Number(Math.max(0.25, isCallItm ? (underlyingPrice - strike) + 2.5 : 3.0 - distPct * 10).toFixed(2));
-      const callAsk = Number((callBid + 0.15).toFixed(2));
-      const putBid = Number(Math.max(0.25, isPutItm ? (strike - underlyingPrice) + 2.5 : 3.0 - distPct * 10).toFixed(2));
-      const putAsk = Number((putBid + 0.15).toFixed(2));
-
-      return {
-        call: {
-          optionType: "CALL" as const,
-          strikePrice: strike,
-          symbol: `${symbol}${expiryYear}${String(expiryMonth).padStart(2, "0")}${expiryDay}C${Math.round(strike * 1000)}`,
-          bid: callBid,
-          ask: callAsk,
-          lastPrice: callBid,
-          volume: Math.round(1500 + Math.random() * 8000),
-          openInterest: Math.round(2500 + Math.random() * 5000),
-          delta: callDelta,
-          gamma: 0.04,
-          theta: -0.06,
-          vega: 0.18,
-          impliedVolatility: baseIv,
-        },
-        put: {
-          optionType: "PUT" as const,
-          strikePrice: strike,
-          symbol: `${symbol}${expiryYear}${String(expiryMonth).padStart(2, "0")}${expiryDay}P${Math.round(strike * 1000)}`,
-          bid: putBid,
-          ask: putAsk,
-          lastPrice: putBid,
-          volume: Math.round(1000 + Math.random() * 6000),
-          openInterest: Math.round(2000 + Math.random() * 4000),
-          delta: putDelta,
-          gamma: 0.04,
-          theta: -0.05,
-          vega: 0.17,
-          impliedVolatility: baseIv + 0.02,
-        },
-      };
-    });
-
-    return {
-      symbol,
-      underlyingPrice,
-      selectedExpiry: {
-        year: expiryYear,
-        month: expiryMonth,
-        day: expiryDay,
-      },
-      pairs,
-    };
-  }
 }

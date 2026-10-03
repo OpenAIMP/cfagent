@@ -3,21 +3,22 @@
  *
  * Implements:
  * - Dynamic screening across multi-sector universes without reliance on static hardcoded values.
- * - Technical indicator calculations: RSI-14, MACD momentum divergence, 52-week relative range.
- * - Real-time quotes enrichment via authentic E*TRADE REST API feeds.
+ * - Live candidate discovery from E*TRADE market movers and user watchlists.
+ * - Quote-based filtering with missing provider metrics treated as unavailable.
  */
 
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
+import type { ETradeRestClient } from "./etrade/client";
 
-export interface MarketSecurityDefinition {
+export interface YFinanceSecurityDefinition {
   symbol: string;
   companyName: string;
   sector: string;
 }
 
-// Canonical liquid security universe for E*TRADE market screening & quoting (identities only — no hardcoded prices)
-export const ETRADE_MARKET_UNIVERSE: MarketSecurityDefinition[] = [
+// Yahoo Finance-only ticker metadata; E*TRADE scans use live market discovery below.
+export const YFINANCE_MARKET_UNIVERSE: YFinanceSecurityDefinition[] = [
   // Financials & Fintech (18)
   { symbol: "JPM", companyName: "JPMorgan Chase & Co.", sector: "Financial" },
   { symbol: "MS", companyName: "Morgan Stanley", sector: "Financial" },
@@ -177,15 +178,6 @@ export const ETRADE_MARKET_UNIVERSE: MarketSecurityDefinition[] = [
   { symbol: "SPG", companyName: "Simon Property Group, Inc.", sector: "Real Estate" },
 ];
 
-export const EXPANDED_MARKET_UNIVERSE: MarketSecurityDefinition[] = ETRADE_MARKET_UNIVERSE;
-
-import { FOSS_MARKET_UNIVERSE } from "../services/fossResearch";
-
-/**
- * Dynamic technical RSI-14 calculation across equities universe.
- * Evaluates explicit provider RSI, known benchmark setups, or derives
- * stochastic-momentum oscillation from 52-week price channels and daily momentum.
- */
 export function calculateDynamicRsi(
   symbol: string,
   price: number,
@@ -193,71 +185,11 @@ export function calculateDynamicRsi(
   low52?: number,
   changePercent: number = 0,
   explicitRsi?: number
-): number {
-  if (explicitRsi !== undefined && explicitRsi > 0) {
+): number | undefined {
+  if (explicitRsi !== undefined && Number.isFinite(explicitRsi) && explicitRsi >= 0 && explicitRsi <= 100) {
     return explicitRsi;
   }
-
-  // Realistic baseline technical mapping for benchmark symbols across sectors
-  const KNOWN_BENCHMARK_RSI: Record<string, number> = {
-    // Technology Oversold / Value / Pullbacks (RSI < 40)
-    INTC: 28.5,
-    SNOW: 32.4,
-    CRM: 34.2,
-    ADBE: 36.8,
-    CSCO: 38.4,
-    CRWD: 39.2,
-    AAPL: 38.5,
-
-    // Technology Neutral / Consolidating (RSI 40 - 60)
-    ORCL: 44.5,
-    IBM: 47.2,
-    DELL: 48.0,
-    NET: 52.5,
-    MSFT: 54.8,
-    NOW: 56.0,
-    PANW: 57.5,
-
-    // Technology Overbought / Momentum (RSI > 60)
-    AMD: 58.6,
-    AVGO: 64.2,
-    NVDA: 68.4,
-    PLTR: 74.2,
-    ARM: 71.0,
-    TSM: 65.5,
-
-    // Non-tech Oversold (< 40)
-    TSLA: 38.5,
-    PFE: 32.8,
-    NKE: 31.5,
-    OXY: 35.6,
-    PYPL: 36.8,
-
-    // Non-tech Neutral
-    GOOGL: 48.7,
-    AMZN: 56.4,
-    XOM: 52.0,
-    JNJ: 49.5,
-
-    // Non-tech Momentum
-    META: 61.8,
-    LLY: 67.2,
-    JPM: 62.5,
-  };
-
-  const clean = symbol.toUpperCase().trim();
-  if (KNOWN_BENCHMARK_RSI[clean]) {
-    return KNOWN_BENCHMARK_RSI[clean];
-  }
-
-  // If 52-week channel exists, compute stochastic position + momentum drift
-  const hi = high52 && high52 > price ? high52 : price * 1.25;
-  const lo = low52 && low52 < price ? low52 : price * 0.75;
-  const range = hi - lo;
-  const stoch = range > 0 ? ((price - lo) / range) * 100 : 50;
-  const momAdj = changePercent * 2;
-  const blended = Math.round(stoch * 0.65 + (50 + momAdj) * 0.35);
-  return Math.max(18, Math.min(85, blended));
+  return undefined;
 }
 
 export class DynamicMarketScreener implements IMarketScreener {
@@ -277,49 +209,7 @@ export class DynamicMarketScreener implements IMarketScreener {
   }
 
   getDefaultUniverse(): ScreenedStockItem[] {
-    return ETRADE_MARKET_UNIVERSE.map((def) => {
-      const prof = FOSS_MARKET_UNIVERSE[def.symbol];
-      const price = prof?.price || 150.0;
-      const change = prof?.change || 0.5;
-      const changePercent = prof?.changePercent || 0.35;
-      const rsi14 = calculateDynamicRsi(
-        def.symbol,
-        price,
-        prof?.high52,
-        prof?.low52,
-        changePercent,
-        (prof as any)?.rsi
-      );
-
-      return {
-        symbol: def.symbol,
-        companyName: def.companyName,
-        sector: def.sector,
-        price,
-        lastPrice: price,
-        change,
-        changePercent,
-        bid: prof?.bid || price,
-        ask: prof?.ask || price,
-        volume: prof?.volume || 10000000,
-        open: prof?.open || price,
-        high: prof?.high || price,
-        low: prof?.low || price,
-        week52High: prof?.high52 || price * 1.2,
-        week52Low: prof?.low52 || price * 0.8,
-        marketCap: prof?.marketCap || 1e11,
-        peRatio: prof?.peTrailing || 25.0,
-        rsi14,
-        rsi: rsi14,
-        macdSignal: changePercent > 1 ? "Bullish MACD Momentum" : changePercent < -1 ? "Bearish Pullback" : "Neutral Centerline",
-        signal: rsi14 > 70 ? "OVERBOUGHT" : rsi14 < 35 ? "OVERSOLD_BOUNCE" : changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND",
-        technicalSignal: rsi14 < 35 ? "Oversold Bounce Candidate" : rsi14 > 70 ? "Overbought Momentum Extension" : changePercent > 0 ? "Positive Momentum" : "Consolidation",
-        momentumScore: Math.round(50 + changePercent * 5),
-        highlightReason: `${def.companyName} Liquid Equities Universe`,
-        source: "Market Universe Baseline",
-        timestamp: new Date().toISOString(),
-      } as ScreenedStockItem;
-    });
+    return [];
   }
 
   constructor(initialUniverse?: ScreenedStockItem[]) {
@@ -333,11 +223,11 @@ export class DynamicMarketScreener implements IMarketScreener {
   }
 
   setUniverse(universe: ScreenedStockItem[]): void {
-    this.universeCache = universe && universe.length > 0 ? universe : this.getDefaultUniverse();
+    this.universeCache = universe || [];
   }
 
   getUniverse(): ScreenedStockItem[] {
-    return this.universeCache.length > 0 ? this.universeCache : this.getDefaultUniverse();
+    return this.universeCache;
   }
 
   /**
@@ -377,6 +267,9 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.losersOnly) {
       summaryParts.push("Losers Only");
     }
+    if (filter.momentum && filter.momentum !== "any") {
+      summaryParts.push(`Momentum: ${filter.momentum}`);
+    }
     if (filter.minVolume !== undefined && filter.minVolume > 0) {
       summaryParts.push(`Min Vol: >= ${filter.minVolume.toLocaleString()}`);
     }
@@ -391,9 +284,9 @@ export class DynamicMarketScreener implements IMarketScreener {
         totalScanned: 0,
         totalScreened: 0,
         matchedCount: 0,
-        status: "no_matches",
+        status: "no_universe",
         filterApplied: filter,
-        filterSummary: summaryParts.join(", ") || "All Equities Universe",
+        filterSummary: summaryParts.join(", ") || "Live E*TRADE Candidate Universe",
         ledger: {
           universeSymbols: [],
           totalEvaluated: 0,
@@ -407,7 +300,7 @@ export class DynamicMarketScreener implements IMarketScreener {
     }
 
     for (const stock of universe) {
-      const effectiveRsi = stock.rsi14 ?? stock.rsi ?? 50;
+      const effectiveRsi = stock.rsi14 ?? stock.rsi;
 
       // 1. Search term check
       if (filter.search && filter.search.trim()) {
@@ -484,10 +377,10 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 5. Min RSI
-      if (filter.minRsi !== undefined && effectiveRsi < filter.minRsi) {
+      if (filter.minRsi !== undefined && (effectiveRsi === undefined || effectiveRsi < filter.minRsi)) {
         rejections.push({
           symbol: stock.symbol,
-          reason: `RSI-14 (${effectiveRsi.toFixed(1)}) below minimum ${filter.minRsi}`,
+          reason: `RSI-14 (${effectiveRsi?.toFixed(1) ?? "N/A"}) below minimum ${filter.minRsi}`,
           rsi: effectiveRsi,
           price: stock.price,
           changePercent: stock.changePercent,
@@ -496,10 +389,10 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 6. Max RSI
-      if (filter.maxRsi !== undefined && effectiveRsi > filter.maxRsi) {
+      if (filter.maxRsi !== undefined && (effectiveRsi === undefined || effectiveRsi > filter.maxRsi)) {
         rejections.push({
           symbol: stock.symbol,
-          reason: `RSI-14 (${effectiveRsi.toFixed(1)}) exceeds maximum ${filter.maxRsi}`,
+          reason: `RSI-14 (${effectiveRsi?.toFixed(1) ?? "N/A"}) exceeds maximum ${filter.maxRsi}`,
           rsi: effectiveRsi,
           price: stock.price,
           changePercent: stock.changePercent,
@@ -508,7 +401,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 7. Gainers Only: STRICT POSITIVE DAILY CHANGE REQUIRED
-      if (filter.gainersOnly) {
+      if (filter.gainersOnly || filter.gainersLosers === "gainers") {
         if (stock.changePercent <= 0) {
           rejections.push({
             symbol: stock.symbol,
@@ -522,7 +415,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 8. Losers Only: STRICT NEGATIVE DAILY CHANGE REQUIRED
-      if (filter.losersOnly) {
+      if (filter.losersOnly || filter.gainersLosers === "losers") {
         if (stock.changePercent >= 0) {
           rejections.push({
             symbol: stock.symbol,
@@ -546,28 +439,64 @@ export class DynamicMarketScreener implements IMarketScreener {
         continue;
       }
 
+      if (filter.momentum === "bullish_breakout") {
+        const high52 = stock.week52High || stock.high52 || 0;
+        if (high52 <= 0 || stock.lastPrice < high52 || stock.changePercent <= 0) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "Price is not making a positive 52-week high breakout",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      } else if (filter.momentum === "bearish_pullback") {
+        if (stock.changePercent >= 0 || stock.lastPrice >= stock.open) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "Price is not pulling back below the open",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      } else if (filter.momentum === "high_relative_volume") {
+        const relativeVolume = stock.averageVolume && stock.averageVolume > 0
+          ? stock.volume / stock.averageVolume
+          : undefined;
+        if (relativeVolume === undefined || relativeVolume < 1.5) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `Relative volume (${relativeVolume?.toFixed(2) ?? "N/A"}x) is below 1.5x`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
+
       // 10. RSI Filter presets
       if (filter.rsiFilter) {
-        if (filter.rsiFilter === "oversold" && effectiveRsi >= 35) {
+        if (filter.rsiFilter === "oversold" && (effectiveRsi === undefined || effectiveRsi >= 35)) {
           rejections.push({
             symbol: stock.symbol,
-            reason: `RSI (${effectiveRsi.toFixed(1)}) not oversold (< 35)`,
+            reason: `RSI (${effectiveRsi?.toFixed(1) ?? "N/A"}) not oversold (< 35)`,
             rsi: effectiveRsi,
             changePercent: stock.changePercent,
           });
           continue;
-        } else if (filter.rsiFilter === "overbought" && effectiveRsi <= 70) {
+        } else if (filter.rsiFilter === "overbought" && (effectiveRsi === undefined || effectiveRsi <= 70)) {
           rejections.push({
             symbol: stock.symbol,
-            reason: `RSI (${effectiveRsi.toFixed(1)}) not overbought (> 70)`,
+            reason: `RSI (${effectiveRsi?.toFixed(1) ?? "N/A"}) not overbought (> 70)`,
             rsi: effectiveRsi,
             changePercent: stock.changePercent,
           });
           continue;
-        } else if (filter.rsiFilter === "neutral" && (effectiveRsi < 35 || effectiveRsi > 70)) {
+        } else if (filter.rsiFilter === "neutral" && (effectiveRsi === undefined || effectiveRsi < 35 || effectiveRsi > 70)) {
           rejections.push({
             symbol: stock.symbol,
-            reason: `RSI (${effectiveRsi.toFixed(1)}) not in neutral range [35, 70]`,
+            reason: `RSI (${effectiveRsi?.toFixed(1) ?? "N/A"}) not in neutral range [35, 70]`,
             rsi: effectiveRsi,
             changePercent: stock.changePercent,
           });
@@ -587,9 +516,9 @@ export class DynamicMarketScreener implements IMarketScreener {
         rsiLookback: "14-Period Daily RSI",
         macdIndicatorVersion: "MACD (12, 26, 9 EMA)",
         validationStatus: "PASS_CONFIRMED",
-        signal: effectiveRsi > 70
+        signal: effectiveRsi !== undefined && effectiveRsi > 70
           ? "OVERBOUGHT"
-          : effectiveRsi < 35
+          : effectiveRsi !== undefined && effectiveRsi < 35
           ? "OVERSOLD_BOUNCE"
           : stock.changePercent > 0.5
           ? "BULLISH_MOMENTUM"
@@ -626,7 +555,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       matchedCount: finalStocks.length,
       status,
       filterApplied: filter,
-      filterSummary: summaryParts.join(", ") || "All Equities Universe",
+      filterSummary: summaryParts.join(", ") || "Live E*TRADE Candidate Universe",
       ledger: {
         universeSymbols: universe.map((s) => s.symbol),
         totalEvaluated: universe.length,
@@ -644,7 +573,6 @@ export class DynamicMarketScreener implements IMarketScreener {
    */
   screenWithQuotes(quotes: ETradeQuote[], filter: StockScreenerFilter = {}): StockScreenResult {
     const universe = quotes.map((q) => {
-      const found = ETRADE_MARKET_UNIVERSE.find((u) => u.symbol === q.symbol);
       const rsi14 = calculateDynamicRsi(
         q.symbol,
         q.lastPrice,
@@ -656,11 +584,11 @@ export class DynamicMarketScreener implements IMarketScreener {
       return {
         ...q,
         price: q.lastPrice,
-        sector: q.sector || found?.sector || "Equities",
+        sector: q.sector || "Equities",
         rsi14,
-        macdSignal: q.changePercent > 1 ? "Bullish MACD Momentum" : q.changePercent < -1 ? "Bearish Pullback" : "Neutral Centerline",
-        signal: (rsi14 > 70 ? "OVERBOUGHT" : rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
-        technicalSignal: rsi14 < 35 ? "Oversold Bounce Candidate" : rsi14 > 70 ? "Overbought Momentum Extension" : q.changePercent > 0 ? "Positive Momentum" : "Consolidation",
+        macdSignal: "MACD unavailable from E*TRADE quote data",
+        signal: (rsi14 !== undefined && rsi14 > 70 ? "OVERBOUGHT" : rsi14 !== undefined && rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
+        technicalSignal: rsi14 === undefined ? "Daily quote momentum; RSI unavailable" : rsi14 < 35 ? "Oversold" : rsi14 > 70 ? "Overbought" : "RSI neutral",
         momentumScore: Math.round(50 + q.changePercent * 5),
         highlightReason: `${q.companyName} Level 1 Quote`,
       } as ScreenedStockItem;
@@ -682,6 +610,50 @@ export class DynamicMarketScreener implements IMarketScreener {
    */
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     return this.evaluateUniverse(this.getUniverse(), filter);
+  }
+
+  async screenLive(client: ETradeRestClient, filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    const symbols = new Set<string>();
+    const descriptions = new Map<string, string>();
+
+    if (filter.search?.trim()) {
+      const terms = filter.search.trim().split(/[,\s]+/).filter(Boolean);
+      for (const term of terms) {
+        const products = await client.lookupProduct(term);
+        for (const product of products) {
+          if (product.type && product.type !== "EQ") continue;
+          const symbol = product.symbol.toUpperCase().trim();
+          if (symbol) {
+            symbols.add(symbol);
+            if (product.description) descriptions.set(symbol, product.description);
+          }
+        }
+        if (/^[A-Z0-9.\/-]+$/i.test(term)) symbols.add(term.toUpperCase());
+      }
+    } else {
+      const categories = filter.gainersOnly || filter.gainersLosers === "gainers"
+        ? ["gainers"] as const
+        : filter.losersOnly || filter.gainersLosers === "losers"
+        ? ["losers"] as const
+        : filter.gainersLosers === "active"
+        ? ["active"] as const
+        : ["active", "gainers", "losers"] as const;
+      const discovered = await Promise.all(categories.map((category) => client.getMarketMovers(category)));
+      for (const batch of discovered) for (const symbol of batch) symbols.add(symbol);
+
+      const watchlists = await client.getWatchlists();
+      for (const watchlist of watchlists) {
+        for (const symbol of watchlist.symbols || []) symbols.add(symbol.toUpperCase().trim());
+      }
+    }
+
+    if (symbols.size === 0) return this.screenWithQuotes([], filter);
+    const liveQuotes = await client.fetchQuotes(Array.from(symbols), { overrideSymbolCount: true });
+    const quotes = liveQuotes.map((quote) => ({
+      ...quote,
+      companyName: descriptions.get(quote.symbol) || quote.companyName,
+    }));
+    return this.screenWithQuotes(quotes, filter);
   }
 
   /**

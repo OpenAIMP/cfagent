@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
+import { ETradeRestClient } from "../src/trading/etrade/client";
 import {
   normalizeVoiceTradingTranscript,
   tuneFinancialPronunciation,
@@ -60,9 +61,18 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
 
   beforeEach(() => {
     DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
+    vi.spyOn(ETradeRestClient.prototype, "getMarketMovers").mockResolvedValue(MOCK_TEST_UNIVERSE.map((stock) => stock.symbol));
+    vi.spyOn(ETradeRestClient.prototype, "getWatchlists").mockResolvedValue([]);
+    vi.spyOn(ETradeRestClient.prototype, "fetchQuotes").mockImplementation(async (symbols) =>
+      MOCK_TEST_UNIVERSE.filter((stock) => symbols.includes(stock.symbol))
+    );
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   // =========================================================================

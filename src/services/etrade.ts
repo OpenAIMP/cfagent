@@ -34,15 +34,11 @@ import type {
 } from "../types";
 import {
   DynamicMarketScreener,
-  EXPANDED_MARKET_UNIVERSE,
   ETradeTradingPlatform,
   ETradeRestClient,
   OrderPreviewParams,
 } from "../trading";
 import { resolveEnvironmentConfig } from "../config/environment";
-
-// Re-export the market universe definition for backward compatibility
-export const MARKET_UNIVERSE = EXPANDED_MARKET_UNIVERSE;
 
 export class ETradeService {
   private platform: ETradeTradingPlatform;
@@ -96,7 +92,8 @@ export class ETradeService {
       oauthAuthenticated: false,
       capabilities: [
         "Natural Language Market Screener (NLQ)",
-        "Technical Indicator Signals (RSI, Breakout, MACD)",
+        "Live Market-Mover and Watchlist Discovery",
+        "Quote-Based Stock and Options Screening",
         "Real-Time Level 1 Quotes & Order Depth",
         "Agent DID Attestation Order Stamping",
         "Human-in-the-Loop (HITL) Execution Safety Guarantee",
@@ -128,60 +125,7 @@ export class ETradeService {
   }
 
   async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    let symbols = EXPANDED_MARKET_UNIVERSE.map((s) => s.symbol);
-
-    if (filter.search && filter.search.trim()) {
-      const searchTerms = filter.search.trim().toUpperCase().split(/[,\s]+/);
-      for (const t of searchTerms) {
-        if (t && /^[A-Z0-9.\/-]+$/.test(t) && !symbols.includes(t)) {
-          symbols.unshift(t);
-        }
-      }
-    }
-
-    if (filter.sector && filter.sector.toLowerCase() !== "all" && filter.sector.toLowerCase() !== "any") {
-      const sec = filter.sector.toLowerCase().trim();
-      const sectorSymbols = EXPANDED_MARKET_UNIVERSE.filter((def) => {
-        const itemSec = (def.sector || "").toLowerCase().trim();
-        return (sec === "tech" || sec === "technology" || sec === "semiconductors")
-          ? (itemSec === "technology" || itemSec === "semiconductors" || itemSec.includes("tech") || itemSec.includes("semiconductor"))
-          : (sec === "financial" || sec === "financials" || sec === "finance" || sec === "financial services")
-          ? (itemSec === "financial" || itemSec === "financials" || itemSec === "financial services" || itemSec.includes("finan"))
-          : (sec === "consumer discretionary" || sec === "consumer")
-          ? (itemSec === "consumer discretionary" || itemSec.includes("consumer"))
-          : (sec === "communication services" || sec === "communication")
-          ? (itemSec === "communication services" || itemSec.includes("communication"))
-          : (sec === "healthcare" || sec === "health")
-          ? (itemSec === "healthcare" || itemSec.includes("health"))
-          : (sec === "energy")
-          ? (itemSec === "energy" || itemSec.includes("energy"))
-          : (sec === "industrials" || sec === "industrial")
-          ? (itemSec === "industrials" || itemSec.includes("industrial"))
-          : (sec === "materials" || sec === "material")
-          ? (itemSec === "materials" || itemSec.includes("material"))
-          : (sec === "consumer staples" || sec === "staples")
-          ? (itemSec === "consumer staples" || itemSec.includes("staple"))
-          : (sec === "utilities" || sec === "utility")
-          ? (itemSec === "utilities" || itemSec.includes("utilit"))
-          : (sec === "real estate" || sec === "reit")
-          ? (itemSec === "real estate" || itemSec.includes("estate"))
-          : (itemSec === sec || itemSec.includes(sec) || sec.includes(itemSec));
-      }).map((s) => s.symbol);
-
-      if (sectorSymbols.length > 0) {
-        symbols = [...sectorSymbols, ...symbols.filter((sym) => !sectorSymbols.includes(sym))];
-      }
-    }
-
-    try {
-      const liveQuotes = await this.client.fetchQuotes(symbols, { overrideSymbolCount: true });
-      if (liveQuotes.length > 0) {
-        return this.screener.screenWithQuotes(liveQuotes, filter);
-      }
-    } catch {
-      // Fall through to screener base
-    }
-    return this.screener.screenStocks(filter);
+    return this.screener.screenLive(this.client, filter);
   }
 
   /**
@@ -206,10 +150,9 @@ export class ETradeService {
         source: "E*TRADE Market Data Feed",
       };
     }
-    const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
     return {
       symbol: cleanSym,
-      companyName: def?.companyName || `${cleanSym} Inc.`,
+      companyName: `${cleanSym} Inc.`,
       lastPrice: 0.0,
       price: 0.0,
       change: 0,
@@ -342,7 +285,6 @@ export class ETradeService {
         let totalMarketVal = 0;
         for (const [sym, data] of positionsMap.entries()) {
           const q = this.screener.getUniverse().find((s) => s.symbol === sym);
-          const def = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
           const price = q?.lastPrice || (data.quantity > 0 ? Number((data.costBasis / data.quantity).toFixed(2)) : 0);
           const marketValue = Number((price * data.quantity).toFixed(2));
           const totalGain = Number((marketValue - data.costBasis).toFixed(2));
@@ -350,7 +292,7 @@ export class ETradeService {
           totalMarketVal += marketValue;
           positions.push({
             symbol: sym,
-            description: q?.companyName || def?.companyName || `${sym} Equity`,
+            description: q?.companyName || `${sym} Equity`,
             quantity: data.quantity,
             pricePaid: Number((data.costBasis / data.quantity).toFixed(2)),
             costBasis: Number(data.costBasis.toFixed(2)),

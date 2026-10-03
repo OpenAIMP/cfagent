@@ -404,6 +404,26 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     const deltaUnderMatch = question.match(/delta\s*(?:<|under|less than|below)\s*(0?\.\d+|\d+)/i);
     if (deltaUnderMatch) optFilters.maxDelta = Number(deltaUnderMatch[1]) > 1 ? Number(deltaUnderMatch[1]) / 100 : Number(deltaUnderMatch[1]);
 
+    const gammaOverMatch = question.match(/gamma\s*(?:>|over|greater than|above)\s*(-?\d*\.?\d+)/i);
+    if (gammaOverMatch) optFilters.minGamma = Number(gammaOverMatch[1]);
+    const gammaUnderMatch = question.match(/gamma\s*(?:<|under|less than|below)\s*(-?\d*\.?\d+)/i);
+    if (gammaUnderMatch) optFilters.maxGamma = Number(gammaUnderMatch[1]);
+    const thetaOverMatch = question.match(/theta\s*(?:>|over|greater than|above)\s*(-?\d*\.?\d+)/i);
+    if (thetaOverMatch) optFilters.minTheta = Number(thetaOverMatch[1]);
+    const thetaUnderMatch = question.match(/theta\s*(?:<|under|less than|below)\s*(-?\d*\.?\d+)/i);
+    if (thetaUnderMatch) optFilters.maxTheta = Number(thetaUnderMatch[1]);
+
+    const dteRangeMatch = question.match(/(\d+)\s*(?:to|-)\s*(\d+)\s*(?:dte|days? to expiration)/i);
+    if (dteRangeMatch) {
+      optFilters.minDte = Number(dteRangeMatch[1]);
+      optFilters.maxDte = Number(dteRangeMatch[2]);
+    } else {
+      const minDteMatch = question.match(/(?:dte\s*(?:>|over|greater than|above)|(?:over|above|at least)\s*)(\d+)\s*(?:dte|days? to expiration)?/i);
+      const maxDteMatch = question.match(/(?:dte\s*(?:<|under|less than|below)|(?:under|below|within|at most)\s*)(\d+)\s*(?:dte|days? to expiration)?/i);
+      if (minDteMatch) optFilters.minDte = Number(minDteMatch[1]);
+      if (maxDteMatch) optFilters.maxDte = Number(maxDteMatch[1]);
+    }
+
     // IV filters
     const ivOverMatch = question.match(/iv\s*(?:>|over|above|greater than)\s*(\d+)%?/i) || question.match(/implied\s+volatility\s*(?:>|over|above)\s*(\d+)%?/i);
     if (ivOverMatch) optFilters.minImpliedVolatility = Number(ivOverMatch[1]) / 100;

@@ -32,6 +32,7 @@ export class TradingMicroAgent {
    * Autonomously screens market for investment opportunities
    */
   async screenOpportunities(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    if (this.platform.screenMarkets) return this.platform.screenMarkets(filter);
     return this.screener.screenStocks(filter);
   }
 

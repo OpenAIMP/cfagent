@@ -25,14 +25,14 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
   limit?: number;
 }> {
   readonly name = "etrade_market_scan";
-  readonly description = "Screen and scan market equities via E*TRADE broker using fundamental & technical criteria (sector, market cap, RSI oversold/overbought, momentum breakouts, gainers/losers).";
+  readonly description = "Screen live E*TRADE market movers and watchlist equities using quote, liquidity, valuation, sector, and momentum criteria.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
       sector: { type: "string", description: "Market sector (e.g. Semiconductors, Technology, Financials, Consumer Discretionary)" },
       minMarketCap: { type: "number", description: "Minimum market capitalization in billions of dollars (e.g. 50)" },
       rsiFilter: { type: "string", enum: ["oversold", "overbought", "neutral", "any"], description: "RSI momentum filter: oversold (<35), overbought (>70), neutral" },
-      momentum: { type: "string", enum: ["bullish_breakout", "bearish_pullback", "high_relative_volume", "any"], description: "Technical chart momentum pattern" },
+      momentum: { type: "string", enum: ["bullish_breakout", "bearish_pullback", "high_relative_volume", "any"], description: "Quote-based 52-week breakout, intraday pullback, or 1.5x relative volume" },
       gainersLosers: { type: "string", enum: ["gainers", "losers", "active", "all"], description: "Filter by top daily percentage gainers, losers, or most active" },
       search: { type: "string", description: "Search term or keyword to match symbol or company name" },
       limit: { type: "number", description: "Maximum stocks to return (default: 10)" },
@@ -68,7 +68,7 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
  */
 export class ETradeGetQuoteCommand implements IMcpToolCommand<{ symbol: string }> {
   readonly name = "etrade_get_quote";
-  readonly description = "Fetch live market quote, bid/ask depth, daily volume, P/E ratio, 52-week range, and technical indicators for any equity ticker symbol.";
+  readonly description = "Fetch a live market quote, bid/ask depth, daily and average volume, valuation fields, and 52-week range for an equity ticker.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {

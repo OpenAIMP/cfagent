@@ -51,6 +51,7 @@ export interface ITradingPlatform {
 
   getStatus(): Promise<ETradeBrokerStatus>;
   getQuote(symbol: string): Promise<ETradeQuote>;
+  screenMarkets?(filter?: StockScreenerFilter): Promise<StockScreenResult>;
   getAccounts(): Promise<ETradeAccount[]>;
   getPositions(accountKey?: string, includeBalance?: boolean): Promise<{ account: ETradeAccount; positions: ETradePosition[] }>;
   getPositionLots?(accountKey: string, positionId: string): Promise<ETradePositionLot[]>;

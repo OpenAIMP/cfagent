@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DynamicOptionsScreener, LIQUID_OPTIONS_UNIVERSE } from "../src/trading/optionsScreener";
+import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
 import { DatabaseORM } from "../src/orm";
@@ -105,6 +105,49 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       ETRADE_ENV: "SANDBOX",
       ETRADE_ACCOUNT_ID: "83321443",
     } as any;
+
+    const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    DynamicOptionsScreener.setTestChainsFixture({
+      NVDA: {
+        symbol: "NVDA",
+        underlyingPrice: 100,
+        selectedExpiry: {
+          year: expiryDate.getUTCFullYear(),
+          month: expiryDate.getUTCMonth() + 1,
+          day: expiryDate.getUTCDate(),
+        },
+        pairs: [{
+          call: {
+            optionType: "CALL",
+            strikePrice: 100,
+            symbol: "NVDATESTC100",
+            bid: 2,
+            ask: 2.2,
+            lastPrice: 2.1,
+            volume: 500,
+            openInterest: 1000,
+            delta: 0.52,
+            gamma: 0.04,
+            theta: -0.06,
+            impliedVolatility: 0.38,
+          },
+          put: {
+            optionType: "PUT",
+            strikePrice: 100,
+            symbol: "NVDATESTP100",
+            bid: 2,
+            ask: 2.2,
+            lastPrice: 2.1,
+            volume: 400,
+            openInterest: 900,
+            delta: 0.48,
+            gamma: 0.04,
+            theta: -0.05,
+            impliedVolatility: 0.40,
+          },
+        }],
+      },
+    });
   });
 
   const originalFetch = globalThis.fetch;
@@ -118,6 +161,51 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
   // 1. Dynamic Options Screener Engine
   // =========================================================================
   describe("DynamicOptionsScreener Engine", () => {
+    beforeEach(() => {
+      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const expiry = {
+        year: expiryDate.getUTCFullYear(),
+        month: expiryDate.getUTCMonth() + 1,
+        day: expiryDate.getUTCDate(),
+      };
+      const chains = Object.fromEntries(["NVDA", "TSLA", "AAPL", "MSFT"].map((symbol) => [symbol, {
+        symbol,
+        underlyingPrice: 100,
+        selectedExpiry: expiry,
+        pairs: [{
+          call: {
+            optionType: "CALL" as const,
+            strikePrice: 100,
+            symbol: `${symbol}TESTC100`,
+            bid: 4.5,
+            ask: 4.7,
+            lastPrice: 4.6,
+            volume: 5000,
+            openInterest: 2000,
+            delta: 0.52,
+            gamma: 0.04,
+            theta: -0.06,
+            impliedVolatility: 0.38,
+          },
+          put: {
+            optionType: "PUT" as const,
+            strikePrice: 100,
+            symbol: `${symbol}TESTP100`,
+            bid: 4.5,
+            ask: 4.7,
+            lastPrice: 4.6,
+            volume: 5000,
+            openInterest: 2000,
+            delta: 0.48,
+            gamma: 0.04,
+            theta: -0.05,
+            impliedVolatility: 0.40,
+          },
+        }],
+      }]));
+      DynamicOptionsScreener.setTestChainsFixture(chains);
+    });
+
     it("screens CALL contracts for a specific underlying with delta and volume filters", async () => {
       const screener = new DynamicOptionsScreener();
       const result = await screener.screenOptions({
@@ -175,6 +263,21 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       }
     });
 
+    it("filters contracts by live Gamma and Theta values", async () => {
+      const result = await new DynamicOptionsScreener().screenOptions({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+        minGamma: 0.03,
+        maxGamma: 0.05,
+        minTheta: -0.1,
+        maxTheta: -0.01,
+      });
+
+      expect(result.status).toBe("matches_found");
+      expect(result.contracts[0].gamma).toBe(0.04);
+      expect(result.contracts[0].theta).toBe(-0.06);
+    });
+
     it("returns 'no_matches' with rejections when criteria are impossibly strict", async () => {
       const screener = new DynamicOptionsScreener();
       const result = await screener.screenOptions({
@@ -189,7 +292,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(result.rejections![0].reason).toContain("below minimum");
     });
 
-    it("screens across multi-symbol sector universe (Technology / Semis)", async () => {
+    it("does not invent a sector universe when E*TRADE discovery is unavailable", async () => {
       const screener = new DynamicOptionsScreener();
       const result = await screener.screenOptions({
         sector: "Technology",
@@ -198,9 +301,53 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         limit: 10,
       });
 
+      expect(result.status).toBe("no_matches");
+      expect(result.contracts).toHaveLength(0);
+      expect(result.totalUnderlyingsScanned).toBe(0);
+    });
+
+    it("screens live mover underlyings with chains returned by E*TRADE", async () => {
+      DynamicOptionsScreener.clearTestChainsFixture();
+      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const chain: ETradeOptionChain = {
+        symbol: "LIVE",
+        underlyingPrice: 100,
+        selectedExpiry: {
+          year: expiryDate.getUTCFullYear(),
+          month: expiryDate.getUTCMonth() + 1,
+          day: expiryDate.getUTCDate(),
+        },
+        pairs: [{
+          call: {
+            optionType: "CALL",
+            strikePrice: 100,
+            symbol: "LIVETESTC100",
+            bid: 2,
+            ask: 2.2,
+            lastPrice: 2.1,
+            volume: 100,
+            openInterest: 250,
+            delta: 0.5,
+            impliedVolatility: 0.3,
+          },
+        }],
+      };
+      const client = {
+        getMarketMovers: vi.fn(async (category: string) => category === "active" ? ["LIVE", "BANK"] : []),
+        getWatchlists: vi.fn(async () => []),
+        fetchQuotes: vi.fn(async () => [
+          { symbol: "LIVE", sector: "Technology" },
+          { symbol: "BANK", sector: "Financial" },
+        ] as any),
+        getOptionChains: vi.fn(async () => chain),
+      } as unknown as ETradeRestClient;
+
+      const result = await new DynamicOptionsScreener(client).screenOptions({ sector: "Technology", contractType: "CALL" });
       expect(result.status).toBe("matches_found");
-      expect(result.contracts.length).toBeLessThanOrEqual(10);
-      expect(result.totalUnderlyingsScanned).toBeGreaterThan(1);
+      expect(result.totalUnderlyingsScanned).toBe(1);
+      expect(result.contracts[0].underlyingSymbol).toBe("LIVE");
+      expect(client.getOptionChains).toHaveBeenCalledWith({ symbol: "LIVE" });
+      expect(client.fetchQuotes).toHaveBeenCalledWith(["LIVE", "BANK"], { overrideSymbolCount: true });
     });
 
     it("uses deterministic test fixtures when injected via setTestChainsFixture", async () => {
@@ -242,6 +389,30 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
   // 2. E*TRADE Watchlist API Client Endpoints
   // =========================================================================
   describe("ETradeRestClient Watchlist API", () => {
+    it("parses symbols from the live market-movers endpoint", async () => {
+      const client = new ETradeRestClient(mockEnv, "test_user");
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          MarketMoversResponse: {
+            MarketMover: [
+              { Product: { symbol: "abc" } },
+              { Product: { symbol: "XYZ" } },
+              { Product: { symbol: "ABC" } },
+            ],
+          },
+        }),
+      } as any);
+
+      const symbols = await client.getMarketMovers("active");
+      expect(symbols).toEqual(["ABC", "XYZ"]);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/market/movers/active"),
+        expect.any(Object)
+      );
+    });
+
     it("handles getWatchlists via authentic E*TRADE REST endpoints", async () => {
       const client = new ETradeRestClient(mockEnv, "test_user");
       const mockWatchlists = {
@@ -389,6 +560,18 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
   // 4. Natural Language Queries (NLQ) for Options & Watchlists
   // =========================================================================
   describe("NLQ Engine: Options Scanning & Watchlist Commands", () => {
+    it("parses Gamma, Theta, and DTE bounds from options scan requests", async () => {
+      const plan = await planNLQ(
+        mockEnv,
+        "Screen call options for NVDA with gamma above 0.04 and theta below -0.05 within 5 to 30 DTE"
+      );
+
+      expect(plan.tradingData?.filters?.minGamma).toBe(0.04);
+      expect(plan.tradingData?.filters?.maxTheta).toBe(-0.05);
+      expect(plan.tradingData?.filters?.minDte).toBe(5);
+      expect(plan.tradingData?.filters?.maxDte).toBe(30);
+    });
+
     it("plans and executes options screening query via NLQ", async () => {
       const query = "Screen call options for NVDA with delta over 0.40";
       const plan = await planNLQ(mockEnv, query);

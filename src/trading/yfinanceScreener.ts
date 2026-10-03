@@ -10,7 +10,7 @@
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
 import { YahooFinanceProvider } from "../services/fossResearch";
-import { EXPANDED_MARKET_UNIVERSE } from "./screener";
+import { YFINANCE_MARKET_UNIVERSE } from "./screener";
 
 export class YFinanceMarketScreener implements IMarketScreener {
   private yfProvider: YahooFinanceProvider;
@@ -211,7 +211,7 @@ export class YFinanceMarketScreener implements IMarketScreener {
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     const enrichedUniverse: ScreenedStockItem[] = (
       await Promise.all(
-        EXPANDED_MARKET_UNIVERSE.map(async (baseStock) => {
+        YFINANCE_MARKET_UNIVERSE.map(async (baseStock) => {
           try {
             const live = await this.yfProvider.getQuote(baseStock.symbol);
             if (live && live.price > 0) {
@@ -268,7 +268,7 @@ export class YFinanceMarketScreener implements IMarketScreener {
    */
   async getQuote(symbol: string): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
-    const found = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
+    const found = YFINANCE_MARKET_UNIVERSE.find((s) => s.symbol === cleanSym);
 
     try {
       const live = await this.yfProvider.getQuote(cleanSym);

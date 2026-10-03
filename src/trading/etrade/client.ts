@@ -33,7 +33,7 @@ import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
-import { EXPANDED_MARKET_UNIVERSE } from "../screener";
+export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 
 export class ETradeRestClient {
   public lastError?: string;
@@ -192,10 +192,9 @@ export class ETradeRestClient {
       const quoteStatus = String(quoteItem?.quoteStatus || quoteData?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
       const dateTime = String(quoteItem?.dateTime || quoteData?.dateTime || new Date().toISOString());
 
-      const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
       let companyName = rawCompanyName;
       if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
-        companyName = knownStock?.companyName || `${sym} Inc.`;
+        companyName = `${sym} Inc.`;
       }
 
       return {
@@ -208,6 +207,8 @@ export class ETradeRestClient {
         bid: Number(quoteData.bid || price),
         ask: Number(quoteData.ask || price),
         volume: Number(quoteData.totalVolume || 0),
+        averageVolume: Number(quoteData.averageVolume || quoteData.averageDailyVolume || 0) || undefined,
+        sector: String(quoteData.sector || "").trim() || undefined,
         open: Number(quoteData.open || price),
         high: Number(quoteData.high || price),
         low: Number(quoteData.low || price),
@@ -217,7 +218,6 @@ export class ETradeRestClient {
         week52Low: Number(quoteData.low52 || 0),
         high52: Number(quoteData.high52 || 0),
         low52: Number(quoteData.low52 || 0),
-        rsi: 50.0,
         quoteStatus,
         dateTime,
         source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
@@ -311,10 +311,9 @@ export class ETradeRestClient {
             const sym = String(item?.Product?.symbol || qd?.symbol || "").toUpperCase().trim();
             const price = Number(qd?.lastTrade || qd?.price || qd?.close || qd?.previousClose || qd?.bid || 0);
             const rawCompany = String(qd?.companyName || "").trim();
-            const knownStock = EXPANDED_MARKET_UNIVERSE.find((s) => s.symbol === sym);
             let companyName = rawCompany;
             if (!companyName || (companyName.toUpperCase().includes("GOOGLE INC") && sym !== "GOOG" && sym !== "GOOGL")) {
-              companyName = knownStock?.companyName || `${sym} Inc.`;
+              companyName = `${sym} Inc.`;
             }
             const quoteStatus = String(item?.quoteStatus || qd?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
             const dateTime = String(item?.dateTime || qd?.dateTime || new Date().toISOString());
@@ -329,6 +328,8 @@ export class ETradeRestClient {
               bid: Number(qd?.bid || price),
               ask: Number(qd?.ask || price),
               volume: Number(qd?.totalVolume || 0),
+              averageVolume: Number(qd?.averageVolume || qd?.averageDailyVolume || 0) || undefined,
+              sector: String(qd?.sector || "").trim() || undefined,
               open: Number(qd?.open || price),
               high: Number(qd?.high || price),
               low: Number(qd?.low || price),
@@ -338,7 +339,6 @@ export class ETradeRestClient {
               week52Low: Number(qd?.low52 || 0),
               high52: Number(qd?.high52 || 0),
               low52: Number(qd?.low52 || 0),
-              rsi: 50.0,
               quoteStatus,
               dateTime,
               source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
@@ -363,6 +363,44 @@ export class ETradeRestClient {
 
     const results = await Promise.all(batches.map((b) => fetchBatch(b)));
     return results.flat();
+  }
+
+  async getMarketMovers(category: ETradeMarketMoverCategory): Promise<string[]> {
+    const envConfig = this.getEnvConfig();
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+
+    const primaryUrl = `${envConfig.etrade.baseUrl}/market/movers/${category}`;
+    const fallbackUrl = `${primaryUrl}.json`;
+    let url = primaryUrl;
+    assertSandboxUrlSafety(url, envConfig.isLive);
+    let authHeader = await this.generateOAuthHeader("GET", url);
+
+    try {
+      let res = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: authHeader, Accept: "application/json" },
+      });
+      if (!res.ok && (res.status === 404 || res.status === 400)) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: { Authorization: authHeader, Accept: "application/json" },
+        });
+      }
+      if (!res.ok) return [];
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      let movers = data?.MarketMoversResponse?.MarketMover || data?.MarketMoversResponse?.Mover || data?.MarketMover;
+      if (!movers) return [];
+      if (!Array.isArray(movers)) movers = [movers];
+      return Array.from(new Set(movers
+        .map((mover: any) => String(mover?.Product?.symbol || mover?.symbol || "").toUpperCase().trim())
+        .filter((symbol: string) => /^[A-Z0-9.\/-]+$/.test(symbol))));
+    } catch {
+      return [];
+    }
   }
 
   /**
