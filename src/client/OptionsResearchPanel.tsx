@@ -372,6 +372,20 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
   const [nlqResult, setNlqResult] = useState<any>(null);
   const [nlqError, setNlqError] = useState("");
 
+  const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice);
+
+  const loadExample = (example: string) => {
+    setNlqQuery(example);
+    const ticker = example.match(/\b(?:for|on)\s+([A-Z]{1,5})\b/)?.[1];
+    const target = example.match(/target\s+\$?(\d+(?:\.\d+)?)/i)?.[1];
+    const loss = example.match(/max loss\s+\$?(\d+)/i)?.[1];
+    if (ticker) setSymbol(ticker);
+    if (target) setTargetPrice(target);
+    if (loss) setMaxPlannedLoss(loss);
+    if (/\bbearish\b/i.test(example)) setThesis("bearish");
+    else if (/\bbullish\b/i.test(example)) setThesis("bullish");
+  };
+
   const toggleStrategy = (strategy: OptionStrategyType) => {
     setAllowedStrategies((current) => {
       const base = current.filter((item) => item !== "all");
@@ -498,6 +512,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
   return (
     <section className="trading-section options-research-section">
+      <header className="options-research-heading">
+        <div>
+          <p className="options-eyebrow">AUTO OPTIONS RESEARCH · PAPER ONLY</p>
+          <h2>Auto Options Research</h2>
+          <p>One flow: <b>1)</b> describe what you want (ask in plain English or fill the thesis below), <b>2)</b> run a screen, rank, best-trade or Quant-vs-LLM action, <b>3)</b> export or share the result. No orders are placed.</p>
+        </div>
+        {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
+      </header>
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
           <span>Natural-language options screen</span>
@@ -543,12 +565,12 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
             <p>{s.blurb}</p>
             <div className="options-nlq-examples">
               {s.examples.map((example) => (
-                <button type="button" key={example} onClick={() => setNlqQuery(example)}>{example}</button>
+                <button type="button" key={example} onClick={() => loadExample(example)}>{example}</button>
               ))}
             </div>
           </div>
         ))}
-        <p className="options-workflow-hint">Click an example to load it, then press Ask. Or use the form below: <b>Rank research candidates</b> (step 2) or <b>Pick best trade</b> (step 3).</p>
+        <p className="options-workflow-hint">Click an example to load it (it also fills the thesis form below). Press Ask for a plain-English answer, or use the action buttons below the form: <b>Rank research candidates</b>, <b>Pick best trade</b>, <b>Compare Quant vs LLM</b>.</p>
       </div>
       {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
       {nlqResult && (
@@ -580,11 +602,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
       <header className="options-research-heading">
         <div>
-          <p className="options-eyebrow">DETERMINISTIC RESEARCH · PAPER ONLY</p>
-          <h2>Options Strategy Research</h2>
-          <p>Declare a thesis and constraints. Candidates are ranked with visible assumptions; no orders are placed.</p>
+          <h3>Or declare a thesis and constraints</h3>
+          <p>Underlying, thesis, target price and at least one strategy are required before the action buttons unlock. Candidates are ranked with visible assumptions.</p>
         </div>
-        {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
       </header>
 
       <form className="options-request-form" onSubmit={submit}>
@@ -705,16 +725,21 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
         <div className="options-form-footer">
           <p>All thresholds and search/result limits are set above. Stale/unknown quote ages are labeled and scored, not excluded on age alone. Zero-bid, crossed, and adjusted contracts are excluded as invalid/non-standard instruments.</p>
-          <button type="submit" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice}>
+          {!canRun && (
+            <p className="options-error" role="status">
+              Buttons unlock once you enter: {[!symbol.trim() && "Underlying", !targetPrice && "Target price", allowedStrategies.length === 0 && "at least one strategy"].filter(Boolean).join(", ")}.
+            </p>
+          )}
+          <button type="submit" disabled={loading || !canRun}>
             {loading ? "Evaluating candidates…" : "Rank research candidates"}
           </button>
-          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("best")}>
+          <button type="button" disabled={loading || !canRun} onClick={() => void run("best")}>
             {loading ? "Evaluating…" : "Pick best trade"}
           </button>
-          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("compare")}>
+          <button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
             {loading ? "Comparing…" : "Compare Quant vs LLM"}
           </button>
-          <button type="button" disabled={loading || allowedStrategies.length === 0 || !symbol.trim() || !targetPrice} onClick={() => void run("ideas")}>
+          <button type="button" disabled={loading || !canRun} onClick={() => void run("ideas")}>
             {loading ? "Testing ideas…" : "LLM idea experiment"}
           </button>
         </div>

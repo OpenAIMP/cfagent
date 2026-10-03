@@ -406,7 +406,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       fetchBrokerStatus(target),
       fetchPositions(target),
     ]);
-    runScreener(target);
     fetchSymbolQuote(orderSymbol, target);
   };
 
@@ -415,7 +414,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     fetchOAuthStatus(activeEnv);
     fetchBrokerStatus(activeEnv);
     fetchPositions(activeEnv);
-    runScreener();
     fetchOrders();
     fetchSymbolQuote(orderSymbol);
 
@@ -1450,7 +1448,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
           onClick={() => setSubTab("options")}
         >
-          Options Research
+          🤖 Auto Options Research
         </button>
         <button
           className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
@@ -1788,7 +1786,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       {screenerLoading ? (
                         "Scanning equity universe…"
                       ) : scanStatus === "not_run" ? (
-                        "Scanner has not been run. Select your filters and click 'Run Technical Screen'."
+                        "Scanner has not been run. Select your filters and click '⚡ Run Market Scan'. Nothing is scanned until you do."
                       ) : scanStatus === "no_universe" ? (
                         scanMessage || "The all-exchange listings request returned no securities. Retry the listing source or search a ticker."
                       ) : scanStatus === "data_unavailable" ? (
