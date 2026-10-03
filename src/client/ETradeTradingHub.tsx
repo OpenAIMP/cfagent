@@ -9,6 +9,7 @@ import {
   ETradeBrokerStatus,
   TradeRecord,
 } from "../types";
+import { OptionsResearchPanel } from "./OptionsResearchPanel";
 
 export interface User {
   login: string;
@@ -23,7 +24,7 @@ export interface ETradeTradingHubProps {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
+  const [subTab, setSubTab] = useState<"scanner" | "options" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -1427,6 +1428,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           🔍 Market Screener &amp; Scanner
         </button>
         <button
+          className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
+          onClick={() => setSubTab("options")}
+        >
+          Options Research
+        </button>
+        <button
           className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
           onClick={() => setSubTab("order")}
         >
@@ -1826,6 +1833,8 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </div>
         </div>
       )}
+
+      {subTab === "options" && <OptionsResearchPanel activeEnv={activeEnv} userLogin={user?.login} />}
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
       {subTab === "order" && (

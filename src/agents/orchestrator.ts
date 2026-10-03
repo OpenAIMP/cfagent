@@ -12,6 +12,7 @@ import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { recommendOptionStrategies, type StrategyRequest, type OptionStrategyType } from "../trading/options/strategyEngine";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2324,6 +2325,58 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
+    if (path.endsWith("/trading/options/recommend") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as Partial<StrategyRequest> | null;
+      const allowedTypes = new Set<OptionStrategyType>([
+        "long_call", "long_put", "call_debit_spread", "put_debit_spread",
+        "long_straddle", "long_strangle", "iron_condor",
+      ]);
+      if (
+        !body ||
+        typeof body.symbol !== "string" ||
+        !["bullish", "bearish", "range_bound", "large_move"].includes(body.thesis || "") ||
+        !Number.isFinite(body.targetPrice) ||
+        typeof body.targetDate !== "string" ||
+        !["rise", "unchanged", "fall"].includes(body.expectedIvDirection || "") ||
+        !Number.isFinite(body.maxPlannedLoss) ||
+        !Number.isFinite(body.minRewardRisk) ||
+        (body.minDte !== undefined && (!Number.isInteger(body.minDte) || body.minDte < 1)) ||
+        (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 14))) ||
+        !Array.isArray(body.allowedStrategies) ||
+        body.allowedStrategies.length === 0 ||
+        body.allowedStrategies.some((strategy) => !allowedTypes.has(strategy as OptionStrategyType))
+      ) {
+        return Response.json({ error: "Invalid strategy request. Supply a thesis, target, date, risk cap, reward/risk minimum, and allowed strategies." }, { status: 400 });
+      }
+
+      try {
+        const strategyRequest = body as StrategyRequest;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const screener = new DynamicOptionsScreener(etrade.client);
+        const screened = await screener.screenOptions({
+          underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
+          contractType: "BOTH",
+          minDte: strategyRequest.minDte ?? 14,
+          maxDte: strategyRequest.maxDte ?? 60,
+          limit: 250,
+        });
+        const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest);
+        return Response.json({
+          ...recommendations,
+          screen: {
+            scannedAt: screened.scannedAt,
+            underlyingsScanned: screened.totalUnderlyingsScanned,
+            contractsEvaluated: screened.totalContractsEvaluated,
+            contractsMatched: screened.matchedCount,
+          },
+          contractRejections: (screened.rejections || []).slice(0, 50),
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options recommendation failed" }, { status: 400 });
+      }
+    }
+
     if (path.endsWith("/trading/options/screen") && (request.method === "POST" || request.method === "GET")) {
       try {
         let filter: any = {};
