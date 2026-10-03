@@ -36,6 +36,18 @@ Browser (React 19 + Vite)
 
 ## Setup & Deployment
 
+### Shared NLQ channel routing
+
+Web chat (`/api/nlq`), Slack messages, voice transcripts, and inbound email use the same NLQ planner and executor. A Slack message can request an email copy by including an explicit recipient, for example `@ETradeAgent screen stocks; email results to analyst@example.com`. Slack replies in the originating channel/thread; when configured, the same structured result is also sent to `OUTBOUND_WEBHOOK_URL` with an HMAC signature. State-changing order actions are not copied to these report destinations.
+
+Signed external NLQ requests can POST JSON to `/nlq/webhook` with an `X-Signature-256: sha256=<hex>` header computed as HMAC-SHA256 over the exact request body using `INBOUND_NLQ_WEBHOOK_SECRET`:
+
+```json
+{ "query": "list all strategies evaluated for NVDA bullish target $260", "emailTo": "analyst@example.com", "timestamp": "2026-10-03T15:00:00.000Z" }
+```
+
+Sign the exact JSON request body with HMAC-SHA256 and send its hex digest as `X-Signature-256: sha256=<hex>`. The signed `timestamp` must be within five minutes of receipt. `emailTo` is optional and must be supplied explicitly. Webhook requests receive the shared NLQ result as JSON; email delivery requires the existing Cloudflare `EMAIL` binding.
+
 ### 1. Add GitHub Secrets
 Set the following in **Settings → Secrets and variables → Actions**:
 

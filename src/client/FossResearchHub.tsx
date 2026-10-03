@@ -89,6 +89,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [screenerMaxRsi, setScreenerMaxRsi] = useState<number | undefined>(undefined);
   const [screenerSummary, setScreenerSummary] = useState("All Equities (Yahoo Finance Feed)");
   const [screenerLastScanned, setScreenerLastScanned] = useState<string>("");
+  const [screenerError, setScreenerError] = useState("");
 
   const researchAgentDid = "did:agent:openaimp:research";
 
@@ -108,6 +109,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     maxRsi?: number;
   }) => {
     setScreenerLoading(true);
+    setScreenerError("");
     try {
       const search = override?.search !== undefined ? override.search : screenerSearch;
       const sector = override?.sector !== undefined ? override.sector : screenerSector;
@@ -125,14 +127,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
       if (maxRsi !== undefined) params.set("maxRsi", String(maxRsi));
 
       const resp = await fetch(`/api/foss/screen?${params.toString()}`);
-      if (resp.ok) {
-        const data = (await resp.json()) as any;
-        setScreenerStocks(data.stocks || data.results || []);
-        if (data.filterSummary) setScreenerSummary(data.filterSummary);
-        setScreenerLastScanned(new Date().toLocaleTimeString());
-      }
-    } catch {
-      // Ignore
+      const data = (await resp.json()) as any;
+      if (!resp.ok) throw new Error(data.error || `Stock screening failed [HTTP ${resp.status}].`);
+      setScreenerStocks(data.stocks || data.results || []);
+      if (data.filterSummary) setScreenerSummary(data.filterSummary);
+      setScreenerLastScanned(new Date().toLocaleTimeString());
+    } catch (cause) {
+      setScreenerStocks([]);
+      setScreenerError(cause instanceof Error ? cause.message : "Unable to reach the stock screening API.");
     } finally {
       setScreenerLoading(false);
     }
@@ -728,26 +730,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               Data Source: <strong>Yahoo Finance FOSS Engine</strong> {screenerLastScanned ? `• ${screenerLastScanned}` : ""}
             </span>
           </div>
-          <ResearchReportActions
-            title={`${activeSymbol} stock research`}
-            query={nlqQuery || `Run full FOSS market research on ${activeSymbol} using yfinance and Alpaca`}
-            userLogin={user?.login}
-            sheets={[
-              { name: "Stock screen data", rows: screenerStocks as Array<Record<string, unknown>> },
-              { name: "Screen evaluation", rows: [{
-                scannedAt: screenerLastScanned, summary: screenerSummary, matchedCount: screenerStocks.length,
-                search: screenerSearch, sector: screenerSector, gainersOnly: screenerGainersOnly,
-                losersOnly: screenerLosersOnly, minRsi: screenerMinRsi, maxRsi: screenerMaxRsi,
-              }] },
-              { name: "Research report", rows: report ? [report as unknown as Record<string, unknown>] : [] },
-              { name: "Quotes", rows: [activeQuote, yfinanceQuote, alpacaQuote].filter(Boolean) as unknown as Array<Record<string, unknown>> },
-              { name: "Fundamentals", rows: fundamentals ? [fundamentals as unknown as Record<string, unknown>] : [] },
-              { name: "Historical bars", rows: bars as unknown as Array<Record<string, unknown>> },
-              { name: "Market snapshot", rows: snapshot ? [snapshot as unknown as Record<string, unknown>] : [] },
-              { name: "Stock comparison", rows: comparisonResults as unknown as Array<Record<string, unknown>> },
-              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
-            ]}
-          />
+          {screenerError && <div className="options-error" role="alert">{screenerError}</div>}
 
           {/* Table */}
           {screenerLoading ? (
@@ -856,6 +839,26 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </table>
             </div>
           )}
+          <ResearchReportActions
+            title={`${activeSymbol} stock research`}
+            query={nlqQuery || `Run full FOSS market research on ${activeSymbol} using yfinance and Alpaca`}
+            userLogin={user?.login}
+            sheets={[
+              { name: "Stock screen data", rows: screenerStocks as Array<Record<string, unknown>> },
+              { name: "Screen evaluation", rows: [{
+                scannedAt: screenerLastScanned, summary: screenerSummary, matchedCount: screenerStocks.length,
+                search: screenerSearch, sector: screenerSector, gainersOnly: screenerGainersOnly,
+                losersOnly: screenerLosersOnly, minRsi: screenerMinRsi, maxRsi: screenerMaxRsi,
+              }] },
+              { name: "Research report", rows: report ? [report as unknown as Record<string, unknown>] : [] },
+              { name: "Quotes", rows: [activeQuote, yfinanceQuote, alpacaQuote].filter(Boolean) as unknown as Array<Record<string, unknown>> },
+              { name: "Fundamentals", rows: fundamentals ? [fundamentals as unknown as Record<string, unknown>] : [] },
+              { name: "Historical bars", rows: bars as unknown as Array<Record<string, unknown>> },
+              { name: "Market snapshot", rows: snapshot ? [snapshot as unknown as Record<string, unknown>] : [] },
+              { name: "Stock comparison", rows: comparisonResults as unknown as Array<Record<string, unknown>> },
+              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
+            ]}
+          />
         </div>
       )}
 

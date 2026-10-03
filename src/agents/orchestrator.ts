@@ -2,7 +2,7 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery } from "./nlq";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
@@ -763,8 +763,7 @@ Agentic Best Practices & Workflow Rules:
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const userDid = getUserDid(sessionId);
         const orm = this.getOrm();
-        const plan = await planNLQ(this.env, query);
-        const result = await executeNLQQueryAsync(orm, sessionId, plan, this.env, userLogin, userDid);
+        const { plan, result } = await executeNaturalLanguageQuery(orm, sessionId, query, this.env, userLogin, userDid);
         this.audit("nlq.executed", "nlq", {
           query,
           domain: result.domain,

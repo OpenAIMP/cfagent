@@ -381,6 +381,43 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(headerBlock?.text?.text).toContain("Live Stock Listings");
     });
 
+    it("runs Slack NLQ through shared execution and delivers the same result to email, Slack, and the signed webhook", async () => {
+      let emailBody = "";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })
+      );
+      const deliveryEnv: Env = {
+        ...mockEnv,
+        OUTBOUND_WEBHOOK_URL: "https://reports.example.test/nlq",
+        OUTBOUND_WEBHOOK_SECRET: "outbound-test-secret",
+        EMAIL: {
+          send: vi.fn(async (stream: ReadableStream<Uint8Array>) => {
+            emailBody = await new Response(stream).text();
+          }),
+        },
+      };
+      const slackService = new ETradeSlackTradingService(deliveryEnv, orm, sessionId);
+      const result = await slackService.processSlackEvent({
+        type: "event_callback",
+        event: {
+          type: "app_mention",
+          user: "U998877",
+          text: "<@U0ETRADE> screen stocks email results to analyst@example.com",
+          channel: "C12345",
+          ts: "1727800000.000250",
+        },
+      });
+
+      expect(result.handled).toBe(true);
+      expect(result.response?.text).toContain("Email: sent to analyst@example.com");
+      expect(result.response?.text).toContain("Signed webhook: sent");
+      expect(emailBody).toContain("Market Scanner");
+      expect(emailBody).toContain("analyst@example.com");
+      const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+      expect(urls).toContain("https://slack.com/api/chat.postMessage");
+      expect(urls).toContain("https://reports.example.test/nlq");
+    });
+
     it("drafts order and sends Slack Block Kit card with interactive approval buttons", async () => {
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {

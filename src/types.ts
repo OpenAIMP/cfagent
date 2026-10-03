@@ -84,6 +84,7 @@ export interface Env {
   ETRADE_WEBHOOK_SECRET?: string;
   OUTBOUND_WEBHOOK_URL?: string;
   OUTBOUND_WEBHOOK_SECRET?: string;
+  INBOUND_NLQ_WEBHOOK_SECRET?: string;
   // Cloudflare Vectorize & AI Search
   VECTORIZE?: any;
   // Optional / backward-compatible bindings
@@ -1283,5 +1284,4 @@ export interface TWAPOrderConfig {
   intervalSeconds: number;
   maxPrice?: number;
 }
-
 

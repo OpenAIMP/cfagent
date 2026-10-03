@@ -2024,3 +2024,16 @@ export async function executeNLQQueryAsync(
 
   return executeNLQQuery(orm, sessionId, plan, env, effectiveUserDid);
 }
+
+export async function executeNaturalLanguageQuery(
+  orm: DatabaseORM,
+  sessionId: string,
+  query: string,
+  env: Env,
+  userLogin?: string,
+  userDid?: string
+): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
+  const plan = await planNLQ(env, query);
+  const result = await executeNLQQueryAsync(orm, sessionId, plan, env, userLogin, userDid);
+  return { plan, result };
+}

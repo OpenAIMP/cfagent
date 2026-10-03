@@ -87,6 +87,7 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
         channel: slackChannel.trim(),
         user: userLogin || "research_report",
         ts: String(Date.now() / 1000),
+        ...(email.trim() ? { email_to: email.trim() } : {}),
       },
     });
     if (!response.handled) throw new Error("Slack did not handle the research query.");
@@ -120,7 +121,7 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
           {busy === "download" ? "Preparing…" : "Download .xlsx"}
         </button>
         <label>
-          Email workbook
+          Email recipient (workbook or NLQ response)
           <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
         </label>
         <button type="button" disabled={Boolean(busy) || !rowsAvailable || !email.trim()} onClick={() => void sendEmail()}>

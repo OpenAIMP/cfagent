@@ -14,7 +14,7 @@
 import type { Env, InboundEmailPayload, EmailTradingResult, ETradeOrderDraft } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { planNLQ, executeNLQQueryAsync } from "../../agents/nlq";
+import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import PostalMime from "postal-mime";
 
@@ -241,9 +241,15 @@ export class ETradeEmailTradingService {
     const prompt = (subject.trim() + " " + body.trim()).trim();
 
     try {
-      const plan = await planNLQ(this.env, prompt);
       const orm = this.orm || new DatabaseORM({ exec: () => [] });
-      const nlqRes = await executeNLQQueryAsync(orm, this.sessionId, plan, this.env, this.sessionId);
+      const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
+        orm,
+        this.sessionId,
+        prompt,
+        this.env,
+        this.sessionId,
+        `did:user:email:${from}`,
+      );
 
       const domain = plan.domain;
       const action = plan.tradingData?.action || "query";

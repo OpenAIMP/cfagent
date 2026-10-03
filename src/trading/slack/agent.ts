@@ -19,8 +19,20 @@ import type {
 } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { planNLQ, executeNLQQueryAsync } from "../../agents/nlq";
+import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
+import { ETradeEmailTradingService } from "../email/agent";
+import { ETradeWebhookService } from "../../services/tradingWebhooks";
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character] || character);
+}
 
 /**
  * Timing-safe string comparison
@@ -109,16 +121,67 @@ export class ETradeSlackTradingService {
       }
 
       const rawText = (event.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+      const emailMatch = rawText.match(/\bemail(?:\s+(?:the\s+)?(?:results?|response))?\s+(?:to\s+)?<?([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>?/i);
+      const emailTo = typeof event.email_to === "string" ? event.email_to.trim() : emailMatch?.[1];
+      const queryText = emailMatch ? rawText.replace(emailMatch[0], "").trim() : rawText;
       const channel = event.channel;
       const threadTs = event.thread_ts || event.ts;
 
-      // Execute through Natural Language Trading Engine
-      const plan = await planNLQ(this.env, rawText);
       const orm = this.orm || new DatabaseORM({ exec: () => [] });
-      const nlqRes = await executeNLQQueryAsync(orm, this.sessionId, plan, this.env, this.sessionId);
+      const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
+        orm,
+        this.sessionId,
+        queryText,
+        this.env,
+        this.sessionId,
+        `did:user:slack:${event.user || "unknown"}`,
+      );
 
       const domain = plan.domain;
       const action = plan.tradingData?.action || "query";
+      const rowText = nlqRes.rows.slice(0, 50).map((row) => JSON.stringify(row)).join("\n");
+      const responseText = [nlqRes.summary || "NLQ request processed.", rowText].filter(Boolean).join("\n\n");
+      const responseHtml = `<h2>NLQ research response</h2><p>${escapeHtml(nlqRes.summary || "NLQ request processed.")}</p>` +
+        (nlqRes.rows.length > 0
+          ? `<pre style="white-space:pre-wrap">${escapeHtml(nlqRes.rows.slice(0, 50).map((row) => JSON.stringify(row, null, 2)).join("\n\n"))}</pre>`
+          : "");
+      const deliveryAllowed = !["preview_order", "execute_order"].includes(action) &&
+        !["create", "update", "delete"].includes(plan.operation);
+      const emailRequested = Boolean(emailTo) || /\bemail\b/i.test(rawText);
+      let emailStatus = emailRequested ? "not sent (add `email results to you@example.com`)" : "not requested";
+      if (deliveryAllowed && emailTo) {
+        if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(emailTo)) {
+          emailStatus = "failed (invalid recipient)";
+        } else {
+          const emailAgent = new ETradeEmailTradingService(this.env, orm, this.sessionId);
+          emailStatus = await emailAgent.sendOutboundEmail(
+            emailTo,
+            "NLQ response",
+            responseHtml,
+            responseText,
+          ) ? `sent to ${emailTo}` : `failed for ${emailTo}`;
+        }
+      }
+      const webhook = new ETradeWebhookService(this.orm, this.env, this.sessionId);
+      const webhookResult: { success: boolean; error?: string; status?: number } =
+        deliveryAllowed && this.env.OUTBOUND_WEBHOOK_URL && this.env.OUTBOUND_WEBHOOK_SECRET
+        ? await webhook.dispatchOutboundWebhook("nlq.response", {
+          query: queryText,
+          domain: nlqRes.domain,
+          action,
+          result: {
+            count: nlqRes.count,
+            status: nlqRes.status,
+            summary: nlqRes.summary,
+            rows: nlqRes.rows.slice(0, 50),
+            executedAt: nlqRes.executedAt,
+          },
+          source: "slack",
+          channel,
+          user: event.user,
+        })
+        : { success: false, error: deliveryAllowed ? "Outbound webhook is not configured." : "Not sent for a state-changing action." };
+      const deliveryStatus = `Email: ${emailStatus}. Signed webhook: ${webhookResult.success ? "sent" : webhookResult.error || `HTTP ${webhookResult.status}`}.`;
 
       let blockKitMessage: SlackBlockKitPayload;
 
@@ -161,7 +224,7 @@ export class ETradeSlackTradingService {
           ],
         };
 
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
 
         return {
           handled: true,
@@ -218,7 +281,7 @@ export class ETradeSlackTradingService {
           ],
         };
 
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
 
         return {
           handled: true,
@@ -302,7 +365,7 @@ export class ETradeSlackTradingService {
           ],
         };
 
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
 
         return {
           handled: true,
@@ -348,7 +411,7 @@ export class ETradeSlackTradingService {
           ],
         };
 
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
 
         return {
           handled: true,
@@ -380,7 +443,7 @@ export class ETradeSlackTradingService {
             { type: "section", text: { type: "mrkdwn", text: reportText.slice(0, 2900) } },
           ],
         };
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
         return {
           handled: true,
           actionType: "general",
@@ -414,7 +477,7 @@ export class ETradeSlackTradingService {
             },
           ],
         };
-        await this.postSlackMessage(blockKitMessage);
+        await this.postSlackMessage(blockKitMessage, deliveryStatus);
         return {
           handled: true,
           actionType: "options_research",
@@ -440,7 +503,7 @@ export class ETradeSlackTradingService {
         ],
       };
 
-      await this.postSlackMessage(blockKitMessage);
+      await this.postSlackMessage(blockKitMessage, deliveryStatus);
 
       return {
         handled: true,
@@ -655,7 +718,17 @@ export class ETradeSlackTradingService {
   /**
    * Post message to Slack using chat.postMessage API
    */
-  async postSlackMessage(payload: SlackBlockKitPayload): Promise<boolean> {
+  async postSlackMessage(payload: SlackBlockKitPayload, deliveryStatus?: string): Promise<boolean> {
+    if (deliveryStatus) {
+      payload.text = `${payload.text}\n\n${deliveryStatus}`;
+      payload.blocks = [
+        ...(payload.blocks || []),
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: deliveryStatus }],
+        },
+      ];
+    }
     const token = this.env.SLACK_BOT_TOKEN;
     if (!token) {
       // In local or test mode, message is returned in result

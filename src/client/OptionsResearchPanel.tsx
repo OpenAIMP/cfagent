@@ -498,29 +498,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
 
   return (
     <section className="trading-section options-research-section">
-      <ResearchReportActions
-        title={`${symbol || "options"} strategy research`}
-        query={nlqQuery || `Rank ${thesis} ${symbol || "NVDA"} option strategies${targetPrice ? ` target $${targetPrice}` : ""} by ${targetDate} max loss $${maxPlannedLoss} ${riskProfile}`}
-        userLogin={userLogin}
-        sheets={[
-          { name: "Options data", rows: screenedContracts },
-          { name: "Options screen", rows: screenMeta ? [{ ...screenMeta, symbol: symbol.toUpperCase(), excludedContracts: excludedContracts.length }] : [] },
-          { name: "Option rejections", rows: excludedContracts as Array<Record<string, unknown>> },
-          { name: "Strategy evaluations", rows: (result?.evaluations || evaluations) as unknown as Array<Record<string, unknown>> },
-          { name: "Strategy candidates", rows: (result?.candidates || []).map((candidate) => ({ ...candidate })) },
-          { name: "Recommendations", rows: [
-            ...(bestTrade?.best ? [{ ...bestTrade.best.candidate, rank: 1, score: bestTrade.best.compositeScore, status: bestTrade.status }] : []),
-            ...(bestTrade?.alternatives || []).map((item) => ({ ...item.candidate, rank: item.rank + 1, score: item.compositeScore })),
-            ...(result?.candidates || []).map((candidate) => ({ ...candidate, rank: candidate.rank, score: candidate.score })),
-          ] },
-          { name: "Quant LLM ranking", rows: (comparison?.quant.ranked || []).map((item) => ({
-            quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
-            llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
-          })) },
-          { name: "Validated LLM ideas", rows: (llmIdeas?.llm.ideas || []) as unknown as Array<Record<string, unknown>> },
-          { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
-        ]}
-      />
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
           <span>Natural-language options screen</span>
@@ -781,6 +758,29 @@ export function OptionsResearchPanel({ activeEnv, userLogin }: OptionsResearchPa
           <ul className="options-result-assumptions">{result.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul>
         </div>
       )}
+      <ResearchReportActions
+        title={`${symbol || "options"} strategy research`}
+        query={nlqQuery || `Rank ${thesis} ${symbol || "NVDA"} option strategies${targetPrice ? ` target $${targetPrice}` : ""} by ${targetDate} max loss $${maxPlannedLoss} ${riskProfile}`}
+        userLogin={userLogin}
+        sheets={[
+          { name: "Options data", rows: screenedContracts },
+          { name: "Options screen", rows: screenMeta ? [{ ...screenMeta, symbol: symbol.toUpperCase(), excludedContracts: excludedContracts.length }] : [] },
+          { name: "Option rejections", rows: excludedContracts as Array<Record<string, unknown>> },
+          { name: "Strategy evaluations", rows: (result?.evaluations || evaluations) as unknown as Array<Record<string, unknown>> },
+          { name: "Strategy candidates", rows: (result?.candidates || []).map((candidate) => ({ ...candidate })) },
+          { name: "Recommendations", rows: [
+            ...(bestTrade?.best ? [{ ...bestTrade.best.candidate, rank: 1, score: bestTrade.best.compositeScore, status: bestTrade.status }] : []),
+            ...(bestTrade?.alternatives || []).map((item) => ({ ...item.candidate, rank: item.rank + 1, score: item.compositeScore })),
+            ...(result?.candidates || []).map((candidate) => ({ ...candidate, rank: candidate.rank, score: candidate.score })),
+          ] },
+          { name: "Quant LLM ranking", rows: (comparison?.quant.ranked || []).map((item) => ({
+            quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
+            llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
+          })) },
+          { name: "Validated LLM ideas", rows: (llmIdeas?.llm.ideas || []) as unknown as Array<Record<string, unknown>> },
+          { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
+        ]}
+      />
     </section>
   );
 }

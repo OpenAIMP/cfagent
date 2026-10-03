@@ -23,7 +23,7 @@ import type {
 } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { planNLQ, executeNLQQueryAsync } from "../../agents/nlq";
+import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 
 /**
@@ -323,9 +323,15 @@ export class ETradeVoiceTradingService {
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
     try {
-      const plan = await planNLQ(this.env, cleanTranscript);
       const orm = this.orm || new DatabaseORM({ exec: () => [] });
-      const nlqRes = await executeNLQQueryAsync(orm, this.sessionId, plan, this.env, this.sessionId);
+      const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
+        orm,
+        this.sessionId,
+        cleanTranscript,
+        this.env,
+        this.sessionId,
+        authorizerDid,
+      );
 
       const domain = plan.domain;
       const action = plan.tradingData?.action || "query";
