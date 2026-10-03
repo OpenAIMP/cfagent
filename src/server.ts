@@ -1,6 +1,7 @@
 import type { Env, SessionData } from "./types";
 import { getSessionId, getSession, setSessionCookie } from "./session";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
+import { renderLandingPage } from "./landing";
 import { routeAgentRequest } from "agents";
 import {
   getETradeRequestToken,
@@ -146,6 +147,9 @@ export default {
 
     // --- Authentication endpoints ---
     if (path === "/auth/login") return handleLogin(env);
+    if (path === "/login" && request.method === "GET") {
+      return new Response(renderLoginPage(env), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
     if (path === "/auth/callback") return handleOAuthCallback(env, request);
     if (path === "/auth/logout") return handleLogout(env, request);
 
@@ -663,7 +667,7 @@ export default {
     const session = await requireAuth(request, env);
     if (path === "/" || path === "/index.html") {
       if (!session) {
-        return new Response(renderLoginPage(env), {
+        return new Response(renderLandingPage(env.APP_NAME), {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
