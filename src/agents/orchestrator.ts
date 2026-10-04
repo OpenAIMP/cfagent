@@ -968,11 +968,17 @@ Agentic Best Practices & Workflow Rules:
         },
         onError: ({ error }: { error: unknown }) => {
           const errMsg = error instanceof Error ? error.message : String(error);
+          console.error("[OrchestratorAgent] Chat stream error:", error);
           this.audit("stream.error", "orchestrator", { error: errMsg });
         },
       });
 
-      return result.toUIMessageStreamResponse();
+      return result.toUIMessageStreamResponse({
+        onError: (error: unknown) => {
+          console.error("[OrchestratorAgent] UI stream error:", error);
+          return error instanceof Error ? error.message : "Agent stream error.";
+        },
+      });
     } catch (streamErr) {
       const errorMsg = streamErr instanceof Error ? streamErr.message : "Error initializing agent stream";
       this.audit("stream.error", "orchestrator", { error: errorMsg });
