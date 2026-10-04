@@ -514,6 +514,9 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Safely retrieve last user question
     const lastUserMsg = [...this.messages].reverse().find((m: unknown) => (m as { role?: string })?.role === "user");
     const userText = this.extractMessageText(lastUserMsg);
+    const messageMetadata = (lastUserMsg as { metadata?: { sourceTab?: string; userLogin?: string } } | undefined)?.metadata;
+    const isAutoOptionsResearchRequest = messageMetadata?.sourceTab === "E*TRADE · Auto Options Research";
+    const userLogin = messageMetadata?.userLogin || sessionId;
 
     if (userText) {
       this.recordMessage("user", userText, "orchestrator");
@@ -526,7 +529,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     }));
 
     const judge = new LLMJudge(this.env);
-    const route = await judge.route(userText, recentTurns);
+    const route = isAutoOptionsResearchRequest
+      ? {
+        agent: "trading" as const,
+        confidence: 1,
+        reason: "Source-tagged Auto Options Research request; executing its options NLQ workflow directly",
+        needsConfirmation: false,
+      }
+      : await judge.route(userText, recentTurns);
     this.audit("route.decided", "judge", {
       route: route.agent,
       confidence: route.confidence,
@@ -537,6 +547,53 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Instantiate GoF Facade & GRASP Controller
     const orm = this.getOrm();
     const facade = new McpSystemFacade(this.env, orm, sessionId);
+    let optionsResearchContext = "";
+    if (isAutoOptionsResearchRequest) {
+      try {
+        const { plan, result } = await executeNaturalLanguageQuery(
+          orm,
+          sessionId,
+          userText,
+          this.env,
+          userLogin,
+          getUserDid(sessionId),
+        );
+        const action = plan.tradingData?.action;
+        if (result.domain !== "trading" || action !== "options_strategies") {
+          throw new Error(`The options research request was not classified as a strategy evaluation (domain=${result.domain}, action=${action || "none"}).`);
+        }
+        optionsResearchContext = [
+          "AUTO_OPTIONS_RESEARCH_EXECUTION_JSON:",
+          JSON.stringify({
+            query: userText,
+            status: result.status,
+            summary: result.summary,
+            validationError: result.validationError,
+            quoteQuality: result.quoteQuality,
+            rejections: result.rejections,
+            rows: result.rows,
+            evaluatedAt: result.executedAt,
+          }),
+        ].join("\n");
+        this.audit("options_research.chat_query_executed", "nlq", {
+          query: userText,
+          sourceTab: messageMetadata?.sourceTab,
+          action,
+          status: result.status,
+          count: result.count,
+        });
+      } catch (error) {
+        optionsResearchContext = [
+          "AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR:",
+          error instanceof Error ? error.message : "The Auto Options Research workflow failed.",
+        ].join("\n");
+        this.audit("options_research.chat_query_failed", "nlq", {
+          query: userText,
+          sourceTab: messageMetadata?.sourceTab,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     // Provide unified toolset adapting all 14 MCP commands directly into the AI SDK agent (GoF Adapter Pattern)
     const tools = createAgentMcpTools({
@@ -577,6 +634,9 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         model,
         system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
 Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}
+${optionsResearchContext ? `\n${optionsResearchContext}\n${isAutoOptionsResearchRequest
+    ? "The Auto Options Research workflow has already been executed for this message. Report its returned rows and evaluation reasons directly; do not substitute a conversational answer or run a different workflow. Include every returned strategy evaluation, including failures and rejection reasons. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that failure clearly and do not invent results."
+    : ""}` : ""}
 
 Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Architecture):
 - 'knowledge_search' / 'searchKnowledge': Retrieve facts from Cloudflare AI Search knowledge base.
@@ -608,7 +668,7 @@ Agentic Best Practices & Workflow Rules:
 5. E*TRADE Trading & Market Screening: When user asks to scan, screen, quote, or trade stocks, invoke 'etrade_market_scan' or 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
 6. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
         messages: modelMessages,
-        tools,
+        tools: isAutoOptionsResearchRequest ? {} : tools,
         stopWhen: stepCountIs(maxSteps),
         onFinish: async ({ text }: { text?: string }) => {
           if (text) {

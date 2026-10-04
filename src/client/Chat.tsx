@@ -1323,7 +1323,7 @@ export function Chat({ user }: { user: User }) {
     sendMessage({
       role: "user",
       parts: [{ type: "text", text: input.trim() }],
-      metadata: { sourceTab: "Chat & Agents" },
+      metadata: { sourceTab: "Chat & Agents", userLogin: user.login },
     });
     setInput("");
   };
@@ -1333,7 +1333,7 @@ export function Chat({ user }: { user: User }) {
     sendMessage({
       role: "user",
       parts: [{ type: "text", text: prompt }],
-      metadata: { sourceTab },
+      metadata: { sourceTab, userLogin: user.login },
     });
   };
 
