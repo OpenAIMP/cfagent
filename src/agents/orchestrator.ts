@@ -2513,6 +2513,7 @@ Agentic Best Practices & Workflow Rules:
               model: llm.model,
               answer: llm.answer,
               contractSymbols: llm.contractSymbols,
+              contractWarnings: llm.contractWarnings,
               expirationCount: group.expirations.length,
               contractCount: groupContractCount,
               sentContractCount: limited.includedContractCount,

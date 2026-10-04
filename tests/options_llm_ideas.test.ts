@@ -41,15 +41,54 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(input.userPrompt).not.toContain("quantScore");
   });
 
-  it("accepts answers tailored to arbitrary questions and validates referenced contract symbols", () => {
+  it("accepts exact contract references and reports unverifiable model references without losing the answer", () => {
     const parsed = parseRawOptionsIdeas(llmResponse(
       "The listed call has a 0.5 delta. Explain what additional information is needed to compare strategies.",
       ["NVDA260120C00180000"],
     ), chains);
     expect(parsed.answer).toContain("0.5 delta");
     expect(parsed.contractSymbols).toEqual(["NVDA260120C00180000"]);
-    expect(() => parseRawOptionsIdeas(llmResponse("Invented contract.", ["INVENTED"]), chains))
-      .toThrow("not present in E*TRADE data");
+    const invalidReference = parseRawOptionsIdeas(llmResponse("Invented contract.", ["INVENTED"]), chains);
+    expect(invalidReference.contractSymbols).toEqual([]);
+    expect(invalidReference.contractWarnings[0]).toContain("Omitted unverified contract reference");
+  });
+
+  it("maps human-readable LLM contract labels to one exact E*TRADE contract", () => {
+    const expiringChains: ETradeOptionChain[] = [{
+      ...chains[0],
+      selectedExpiry: { year: 2026, month: 10, day: 5 },
+      pairs: [{
+        call: { ...chains[0].pairs[0].call!, symbol: "NVDA261005C00220000", strikePrice: 220 },
+      }],
+    }];
+    const parsed = parseRawOptionsIdeas(
+      llmResponse("The call is a possible fit.", ["NVDA Oct 05 '26 $220 Call"]),
+      expiringChains,
+    );
+    expect(parsed.contractSymbols).toEqual(["NVDA261005C00220000"]);
+    expect(parsed.contractWarnings).toEqual([]);
+  });
+
+  it("does not map ambiguous human-readable contract references", () => {
+    const duplicateExpiry = {
+      ...chains[0],
+      selectedExpiry: { year: 2026, month: 10, day: 5 },
+      pairs: [{
+        call: { ...chains[0].pairs[0].call!, symbol: "NVDA261005C00220000", strikePrice: 220 },
+      }],
+    };
+    const anotherChain = {
+      ...duplicateExpiry,
+      pairs: [{
+        call: { ...chains[0].pairs[0].call!, symbol: "NVDA261005C00220001", strikePrice: 220 },
+      }],
+    };
+    const parsed = parseRawOptionsIdeas(
+      llmResponse("Possible call idea.", ["NVDA Oct 05 '26 $220 Call"]),
+      [duplicateExpiry, anotherChain],
+    );
+    expect(parsed.contractSymbols).toEqual([]);
+    expect(parsed.contractWarnings[0]).toContain("Omitted unverified contract reference");
   });
 
   it("groups chains by expiry horizon for independent LLM analysis", () => {

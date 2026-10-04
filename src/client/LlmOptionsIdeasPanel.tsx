@@ -229,6 +229,9 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               {(group.contractSymbols || []).length > 0 && (
                 <p><b>Referenced E*TRADE contracts:</b> {group.contractSymbols?.join(", ")}</p>
               )}
+              {(group.contractWarnings || []).map((warning) => (
+                <p className="options-comparison-note" role="note" key={warning}>{warning}</p>
+              ))}
               {group.inputTruncated && (
                 <p className="options-comparison-note">Input was sampled to fit the model context ({group.sentContractCount} of {group.contractCount} group contracts sent).</p>
               )}

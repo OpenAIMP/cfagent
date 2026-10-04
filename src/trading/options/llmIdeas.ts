@@ -4,11 +4,11 @@ import type { Env, ETradeOptionChain, ETradeOptionExpireDate } from "../../types
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "../../agents/model";
 
 const responseSchema = z.object({
-  answer: z.string().min(1).max(12000),
-  contractSymbols: z.array(z.string().min(1)).max(500),
+  answer: z.string().min(1).max(5000),
+  contractSymbols: z.array(z.string().min(1)).max(500).default([]),
 });
 const rankingSchema = z.object({
-  answer: z.string().min(1).max(12000),
+  answer: z.string().min(1).max(5000),
   rankings: z.array(z.object({
     rank: z.number().int().positive(),
     groupId: z.string().min(1),
@@ -56,6 +56,7 @@ export interface RawOptionsIdeasResponse {
   model: string;
   answer: string;
   contractSymbols: string[];
+  contractWarnings: string[];
 }
 
 export interface RawOptionsIdeasGroup {
@@ -286,16 +287,65 @@ export function buildContextLimitedRawOptionsIdeasInput(
 function validateIdeaContracts(
   referencedSymbols: string[],
   optionChains: ETradeOptionChain[],
-): void {
-  const availableSymbols = new Set(
-    optionChains.flatMap((chain) => chain.pairs.flatMap((pair) => [pair.call?.symbol, pair.put?.symbol]))
-      .filter((value): value is string => Boolean(value)),
+): { contractSymbols: string[]; contractWarnings: string[] } {
+  const availableContracts = optionChains.flatMap((chain) =>
+    chain.pairs.flatMap((pair) => [
+      ...(pair.call ? [{ contract: pair.call, expiry: chain.selectedExpiry }] : []),
+      ...(pair.put ? [{ contract: pair.put, expiry: chain.selectedExpiry }] : []),
+    ]),
   );
+  const bySymbol = new Map(availableContracts.map(({ contract }) => [contract.symbol.toUpperCase(), contract.symbol]));
+  const contractSymbols = new Set<string>();
+  const contractWarnings: string[] = [];
+
   for (const symbol of referencedSymbols) {
-    if (!availableSymbols.has(symbol)) {
-      throw new Error(`LLM returned a contract not present in E*TRADE data: ${symbol}`);
+    const exact = bySymbol.get(symbol.trim().toUpperCase());
+    if (exact) {
+      contractSymbols.add(exact);
+      continue;
+    }
+
+    const parsed = parseHumanContractReference(symbol);
+    const matches = parsed
+      ? availableContracts.filter(({ contract, expiry }) =>
+        contract.optionType === parsed.optionType &&
+        contract.strikePrice === parsed.strikePrice &&
+        expiry?.year === parsed.year &&
+        expiry.month === parsed.month &&
+        expiry.day === parsed.day)
+      : [];
+    if (matches.length === 1) {
+      contractSymbols.add(matches[0].contract.symbol);
+    } else {
+      contractWarnings.push(`Omitted unverified contract reference from LLM output: ${symbol}`);
     }
   }
+  return { contractSymbols: [...contractSymbols], contractWarnings };
+}
+
+function parseHumanContractReference(value: string): {
+  year: number;
+  month: number;
+  day: number;
+  strikePrice: number;
+  optionType: "CALL" | "PUT";
+} | null {
+  const match = /^(?:[A-Z0-9.-]+\s+)?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+'?(\d{2,4})\s+\$?([\d,]+(?:\.\d+)?)\s+(Call|Put)$/i.exec(value.trim());
+  if (!match) return null;
+  const yearValue = Number(match[3]);
+  const year = yearValue < 100 ? 2000 + yearValue : yearValue;
+  const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    .indexOf(match[1].slice(0, 3).toLowerCase()) + 1;
+  const day = Number(match[2]);
+  const strikePrice = Number(match[4].replace(/,/g, ""));
+  if (!month || !Number.isFinite(strikePrice)) return null;
+  return {
+    year,
+    month,
+    day,
+    strikePrice,
+    optionType: match[5].toUpperCase() as "CALL" | "PUT",
+  };
 }
 
 export function parseRawOptionsIdeasRanking(
@@ -343,24 +393,30 @@ export function buildRawOptionsIdeasRankingPrompt(
 export function parseRawOptionsIdeas(
   text: string,
   optionChains: ETradeOptionChain[],
-): Pick<RawOptionsIdeasResponse, "answer" | "contractSymbols"> {
+): Pick<RawOptionsIdeasResponse, "answer" | "contractSymbols" | "contractWarnings"> {
   const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = responseSchema.parse(JSON.parse(unwrapped));
-  validateIdeaContracts(parsed.contractSymbols, optionChains);
-  return parsed;
+  const validated = validateIdeaContracts(parsed.contractSymbols, optionChains);
+  const answer = validated.contractWarnings.length
+    ? `${parsed.answer}\n\nContract verification note: ${validated.contractWarnings.join("; ")}.`
+    : parsed.answer;
+  return { answer, ...validated };
 }
 
 export async function generateRawOptionsIdeas(
   env: Env,
   input: RawOptionsIdeasInput,
 ): Promise<RawOptionsIdeasResponse> {
-  let prompt = input.userPrompt;
+  let prompt = [
+    input.userPrompt,
+    "Keep the answer concise (under 2,000 characters). contractSymbols must contain only exact E*TRADE symbols copied verbatim from the supplied JSON; do not put formatted descriptions or explanations in this array.",
+  ].join("\n");
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const { text } = await generateText({
       model: getWorkersAIModel(env),
       temperature: 0,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 4096,
       system: input.systemPrompt,
       prompt,
     });
@@ -371,8 +427,11 @@ export async function generateRawOptionsIdeas(
       };
     } catch (error) {
       lastError = error;
-      if (attempt === 0 && error instanceof Error && error.message.includes("not present in E*TRADE data")) {
-        prompt = `${input.userPrompt}\nCORRECTION: Your previous response cited an option contract that is not in the supplied chain. Re-answer using only exact symbols copied from the input; if no valid contract supports a recommendation, say so and return no symbols.`;
+      if (attempt < 2) {
+        prompt = [
+          input.userPrompt,
+          "RETRY REQUIREMENTS: Return one complete, valid JSON object only. Keep answer under 1,500 characters. contractSymbols must contain only exact E*TRADE symbols copied verbatim from the supplied JSON; use [] rather than inventing, formatting, or guessing symbols. Do not truncate the JSON.",
+        ].join("\n");
         continue;
       }
       throw error;
@@ -388,15 +447,26 @@ export async function generateRawOptionsIdeasRanking(
 ): Promise<RawOptionsIdeasRankingResponse> {
   const prompt = buildRawOptionsIdeasRankingPrompt(question, groups);
   if (prompt.completedGroupIds.length === 0) throw new Error("No completed expiration-group analyses are available to rank.");
-  const { text } = await generateText({
-    model: getWorkersAIModel(env),
-    temperature: 0,
-    maxOutputTokens: 4096,
-    system: prompt.systemPrompt,
-    prompt: prompt.userPrompt,
-  });
-  return {
-    model: env.AI_MODEL || DEFAULT_AI_MODEL,
-    ...parseRawOptionsIdeasRanking(text, prompt.completedGroupIds),
-  };
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { text } = await generateText({
+      model: getWorkersAIModel(env),
+      temperature: 0,
+      maxOutputTokens: 2048,
+      system: prompt.systemPrompt,
+      prompt: attempt === 0
+        ? prompt.userPrompt
+        : `${prompt.userPrompt}\nRETRY: Return a complete valid JSON object only, with a concise answer and exactly one ranking entry for each completed group id. Do not truncate the response.`,
+    });
+    try {
+      return {
+        model: env.AI_MODEL || DEFAULT_AI_MODEL,
+        ...parseRawOptionsIdeasRanking(text, prompt.completedGroupIds),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Final cross-group ranking failed.");
 }

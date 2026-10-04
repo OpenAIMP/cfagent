@@ -57,6 +57,7 @@ export interface OptionsIdeasReportExport {
     answer?: string;
     error?: string;
     contractSymbols?: string[];
+    contractWarnings?: string[];
     expirationCount: number;
     contractCount: number;
     sentContractCount: number;
@@ -202,7 +203,7 @@ export async function createOptionsIdeasReportXls(report: OptionsIdeasReportExpo
       group.inputTruncated ? "Yes" : "No",
       group.model || "",
       (group.contractSymbols || []).join(", "),
-      group.answer || group.error || "",
+      [group.answer || group.error || "", ...(group.contractWarnings || [])].join("\n"),
     ]);
   }
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(groupRows), "Group Evaluations");
