@@ -5,6 +5,7 @@ import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
+import adDisplayConfig from "./ad-display.config.json";
 
 interface User {
   login: string;
@@ -1461,7 +1462,7 @@ export function Chat({ user }: { user: User }) {
       </header>
 
       {/* External Ad Network Monetization Strip */}
-      {externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+      {adDisplayConfig[tab] && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
         <div className="external-ad-banner-strip">
           <div className="ext-ad-badge-group">
             <span className="ext-network-badge">
@@ -2846,7 +2847,7 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             {/* Google Ads Display Banner on Referrals Page */}
-            {googleAdsEnabled && (
+            {googleAdsEnabled && adDisplayConfig.referrals && (
               <div className="referral-ad-slot">
                 <GoogleAdUnit
                   format="responsive"
@@ -3605,16 +3606,18 @@ export function Chat({ user }: { user: User }) {
                   </div>
                 </div>
 
-                <div className="live-ad-preview-card">
-                  <h5>Live Google Ads Preview</h5>
-                  <GoogleAdUnit
-                    format={googleAdFormat}
-                    publisherId={googlePublisherId}
-                    slot={googleSlotId}
-                    ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
-                    onTrackClick={handleExternalAdClick}
-                  />
-                </div>
+                {adDisplayConfig.ads && googleAdsEnabled && (
+                  <div className="live-ad-preview-card">
+                    <h5>Live Google Ads Preview</h5>
+                    <GoogleAdUnit
+                      format={googleAdFormat}
+                      publisherId={googlePublisherId}
+                      slot={googleSlotId}
+                      ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
+                      onTrackClick={handleExternalAdClick}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -1,0 +1,12 @@
+{
+  "chat": true,
+  "nlq": true,
+  "audit": true,
+  "payments": true,
+  "referrals": true,
+  "ads": true,
+  "revenue": true,
+  "endpoints": true,
+  "trading": false,
+  "research": false
+}

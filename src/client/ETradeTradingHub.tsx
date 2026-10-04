@@ -10,6 +10,7 @@ import {
   TradeRecord,
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
+import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 
 function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
   return <div hidden={hidden}>{children}</div>;
@@ -36,7 +37,7 @@ function formatNlqColumn(key: string): string {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "options" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
+  const [subTab, setSubTab] = useState<"scanner" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -1480,6 +1481,12 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
         </button>
         <button
+          className={`subnav-btn ${subTab === "llm-ideas" ? "active" : ""}`}
+          onClick={() => setSubTab("llm-ideas")}
+        >
+          ✨ LLM Idea Experiment
+        </button>
+        <button
           className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
           onClick={() => setSubTab("order")}
         >
@@ -1894,6 +1901,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
       <OptionsResearchPanelHost hidden={subTab !== "options"}>
         <OptionsResearchPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleOptionsTrade} onJobStateChange={setOptionsJob} />
+      </OptionsResearchPanelHost>
+      <OptionsResearchPanelHost hidden={subTab !== "llm-ideas"}>
+        <LlmOptionsIdeasPanel activeEnv={activeEnv} userLogin={user?.login} />
       </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}

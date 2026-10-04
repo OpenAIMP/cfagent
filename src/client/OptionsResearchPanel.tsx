@@ -8,7 +8,6 @@ import type {
 } from "../trading/options/strategyEngine";
 import type { StrategyEvaluation } from "../trading/options/strategies/types";
 import { ResearchReportActions } from "./ResearchReportActions";
-import { downloadRawOptionsIdeasXls, type RawOptionsIdeasExport } from "./optionsIdeasExport";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
 import "./optionsResearch.css";
 
@@ -116,12 +115,6 @@ const workflowSteps = [
       "Find best bullish option opportunities across large cap stocks top 10 max loss $500 conservative",
     ],
   },
-  {
-    step: 5,
-    title: "Raw-data LLM strategy ideas",
-    blurb: "Ask an NLQ across the complete E*TRADE option chains for bullish, bearish, neutral, and directional ideas—without quant analytics.",
-    examples: ["For NVDA, find the best option strategies for bullish, bearish, neutral, and directional scenarios and explain the fit and risks"],
-  },
 ];
 const nlqExamples = workflowSteps.flatMap((s) => s.examples);
 
@@ -150,19 +143,6 @@ interface ComparisonData {
     model?: string;
     error?: string;
     ranked?: Array<{ candidateId: string; rank?: number; score: number; rationale: string; risks: string[] }>;
-  };
-}
-
-interface LlmIdeasData {
-  llmInput?: RawOptionsIdeasExport;
-  mode: "raw_etrade_options_ideas";
-  dataCoverage: { expirationCount: number; chainCount: number; contractCount: number };
-  llm: {
-    status: "complete" | "error";
-    model?: string;
-    error?: string;
-    answer?: string;
-    contractSymbols?: string[];
   };
 }
 
@@ -260,48 +240,6 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
         <p>The LLM returned no ranking for this candidate set.</p>
       )}
       <p className="options-assumptions">Research comparison only; neither ranking is personalized financial advice or an instruction to trade. Verify live quotes and all assumptions before acting.</p>
-    </section>
-  );
-}
-
-function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
-  const [exportError, setExportError] = useState("");
-  const downloadInput = async () => {
-    if (!data.llmInput) return;
-    setExportError("");
-    try {
-      await downloadRawOptionsIdeasXls(data.llmInput);
-    } catch (cause) {
-      setExportError(cause instanceof Error ? cause.message : "Could not create the .xls input export.");
-    }
-  };
-
-  return (
-    <section className="options-comparison" aria-label="Raw E*TRADE data LLM strategy ideas">
-      <header className="options-results-header">
-        <h2>Raw-data LLM strategy ideas</h2>
-        <span>{data.llm.model || "Configured Workers AI model"} · {data.dataCoverage.contractCount} contracts · {data.dataCoverage.expirationCount} expirations</span>
-      </header>
-      <p className="options-comparison-note">
-        The LLM answers your question using the complete raw E*TRADE expiration/option-chain JSON only—no quant candidates, scores, or modeled analytics.
-      </p>
-      <button type="button" onClick={() => void downloadInput()} disabled={!data.llmInput}>
-        Download exact LLM input (.xls)
-      </button>
-      {exportError && <div className="options-error" role="alert">Export failed: {exportError}</div>}
-      <p className="options-comparison-note">
-        Data coverage: {data.dataCoverage.chainCount} complete E*TRADE chain responses. Recommendations are research ideas, not verified pricing models or instructions to trade.
-      </p>
-      {data.llm.status === "error" && <div className="options-error" role="alert">LLM idea generation failed: {data.llm.error}</div>}
-      {data.llm.answer && (
-        <article className="options-llm-answer">
-          <h3>Answer</h3>
-          <p>{data.llm.answer}</p>
-          {(data.llm.contractSymbols || []).length > 0 && (
-            <p><b>Referenced E*TRADE contracts:</b> {data.llm.contractSymbols?.join(", ")}</p>
-          )}
-        </article>
-      )}
     </section>
   );
 }
@@ -447,7 +385,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [evaluations, setEvaluations] = useState<StrategyEvaluation[]>([]);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
   const [comparison, setComparison] = useState<ComparisonData | null>(null);
-  const [llmIdeas, setLlmIdeas] = useState<LlmIdeasData | null>(null);
   const [screenMeta, setScreenMeta] = useState<any>(null);
   const [screenedContracts, setScreenedContracts] = useState<Array<Record<string, unknown>>>([]);
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
@@ -463,7 +400,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
   const [interpreted, setInterpreted] = useState<string[]>([]);
 
-  const hasResults = Boolean(bestTrade || comparison || llmIdeas || result || nlqResult);
+  const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
   useEffect(() => {
     onJobStateChange?.(loading || nlqLoading ? "running" : hasResults ? "ready" : "idle");
   }, [loading, nlqLoading, hasResults, onJobStateChange]);
@@ -520,7 +457,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     setBestTrade(null);
     setEvaluations([]);
     setComparison(null);
-    setLlmIdeas(null);
     setScreenedContracts([]);
     try {
       const endpoint = mode === "best"
@@ -581,35 +517,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     }
   };
 
-  const runRawLlmIdeas = async () => {
-    if (!symbol.trim() || !nlqQuery.trim() || loading) return;
-    setLoading(true);
-    setError("");
-    setLlmIdeas(null);
-    setResult(null);
-    setBestTrade(null);
-    setComparison(null);
-    setEvaluations([]);
-    try {
-      const response = await fetch("/api/trading/options/llm-ideas", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          ...(userLogin ? { "x-user-login": userLogin } : {}),
-        },
-        body: JSON.stringify({ symbol: symbol.trim().toUpperCase(), question: nlqQuery.trim() }),
-      });
-      const data = await response.json() as LlmIdeasData | { error?: string };
-      if (!response.ok) throw new Error("error" in data ? data.error || "Raw-data LLM idea request failed." : "Raw-data LLM idea request failed.");
-      setLlmIdeas(data as LlmIdeasData);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Raw-data LLM idea request failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     void run("rank");
@@ -664,11 +571,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       </header>
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
-          <span>Natural-language options request</span>
+          <span>Natural-language options screen</span>
           <input
             value={nlqQuery}
             onChange={(event) => setNlqQuery(event.target.value)}
-            placeholder="For NVDA, suggest strategies for bullish, bearish, neutral, and directional scenarios"
+            placeholder="Screen call options with 20 to 45 DTE"
             list="options-nlq-examples"
           />
           <datalist id="options-nlq-examples">{nlqExamples.map((example) => <option key={example} value={example} />)}</datalist>
@@ -696,15 +603,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             placeholder="No limit"
           />
         </label>
-        <div className="options-nlq-actions">
-          <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
-            {nlqLoading ? "Screening…" : "Ask"}
-          </button>
-          <button type="button" disabled={loading || nlqLoading || !symbol.trim() || !nlqQuery.trim()} onClick={() => void runRawLlmIdeas()}>
-            {loading ? "Analyzing raw chains…" : "Ask LLM using raw E*TRADE data"}
-          </button>
-        </div>
-        <p className="options-assumptions">Set the underlying in the form below. This separate experiment sends the complete option chains and your NLQ directly to the LLM; it does not run or include quant strategy analytics.</p>
+        <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
+          {nlqLoading ? "Screening…" : "Ask"}
+        </button>
       </form>
       <div className="options-workflow" aria-label="Options research workflow">
         {workflowSteps.map((s) => (
@@ -718,7 +619,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             </div>
           </div>
         ))}
-        <p className="options-workflow-hint">Click an example to load it (it also fills the thesis form below). Press Ask for a plain-English answer, or use the action buttons below the form: <b>Rank research candidates</b>, <b>Pick best trade</b>, <b>Compare Quant vs LLM</b>.</p>
+        <p className="options-workflow-hint">Click an example to load it (it also fills the thesis form below). Press Ask to screen options, or use the action buttons below the form to rank and compare candidates.</p>
       </div>
       {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
       {interpreted.length > 0 && (
@@ -912,7 +813,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       {error && <div className="options-error" role="alert">{error}</div>}
       {bestTrade && <BestTradeCard pick={bestTrade} onPreview={previewTrade} />}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
-      {llmIdeas && <LlmIdeasExperiment data={llmIdeas} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
         <div className="options-results">
@@ -966,11 +866,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
             llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
           })) },
-          { name: "Raw-data LLM answer", rows: llmIdeas?.llm.answer ? [{
-            question: llmIdeas.llmInput?.question,
-            answer: llmIdeas.llm.answer,
-            contractSymbols: llmIdeas.llm.contractSymbols,
-          }] : [] },
           { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
         ]}
       />

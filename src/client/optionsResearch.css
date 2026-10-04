@@ -87,17 +87,6 @@
   opacity: 0.55;
 }
 
-.options-nlq-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.options-nlq-form > p {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
 .options-nlq-result {
   display: flex;
   flex-direction: column;
@@ -260,6 +249,32 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.llm-options-ideas-form {
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.llm-options-question {
+  grid-column: 2;
+}
+
+.llm-options-question textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-base);
+  color: var(--text-main);
+  font: inherit;
+  resize: vertical;
+}
+
+.llm-options-ideas-form > button[type="submit"] {
+  min-height: 38px;
+  padding: 0.55rem 0.85rem;
 }
 
 .options-comparison-table {
@@ -697,6 +712,10 @@
   .options-nlq-form,
   .options-risk-grid {
     grid-template-columns: 1fr;
+  }
+
+  .llm-options-question {
+    grid-column: 1;
   }
 
   .stock-screener-nlq-form {
