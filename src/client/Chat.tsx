@@ -677,6 +677,8 @@ function ToolResultView({
 
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("trading");
+  const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
+  const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
   const [researchVisited, setResearchVisited] = useState(false);
   useEffect(() => {
     if (tab === "research") setResearchVisited(true);
@@ -1376,64 +1378,53 @@ export function Chat({ user }: { user: User }) {
         <nav className="tab-nav">
           <button
             className={`tab-btn ${tab === "trading" ? "active" : ""}`}
-            onClick={() => setTab("trading")}
+            onClick={() => {
+              setTab("trading");
+              setTbdMenuOpen(false);
+            }}
           >
             📈 E*TRADE Brokerage
           </button>
           <button
             className={`tab-btn ${tab === "research" ? "active" : ""}`}
-            onClick={() => setTab("research")}
+            onClick={() => {
+              setTab("research");
+              setTbdMenuOpen(false);
+            }}
           >
             🔬 Yahoo Finance Screener
           </button>
           <button
             className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
-            onClick={() => setTab("endpoints")}
+            onClick={() => {
+              setTab("endpoints");
+              setTbdMenuOpen(false);
+            }}
           >
             🔌 API &amp; MCP Endpoints
           </button>
-          <button
-            className={`tab-btn ${tab === "chat" ? "active" : ""}`}
-            onClick={() => setTab("chat")}
-          >
-            💬 Chat & Agents
-          </button>
-          <button
-            className={`tab-btn ${tab === "nlq" ? "active" : ""}`}
-            onClick={() => setTab("nlq")}
-          >
-            🗄️ Database Explorer
-          </button>
-          <button
-            className={`tab-btn ${tab === "audit" ? "active" : ""}`}
-            onClick={() => setTab("audit")}
-          >
-            🛡️ Inspector & Memory
-          </button>
-          <button
-            className={`tab-btn ${tab === "payments" ? "active" : ""}`}
-            onClick={() => setTab("payments")}
-          >
-            💳 Payments & DIDs
-          </button>
-          <button
-            className={`tab-btn ${tab === "referrals" ? "active" : ""}`}
-            onClick={() => setTab("referrals")}
-          >
-            🎁 Referrals & Earn
-          </button>
-          <button
-            className={`tab-btn ${tab === "ads" ? "active" : ""}`}
-            onClick={() => setTab("ads")}
-          >
-            🚀 Sponsored Deals
-          </button>
-          <button
-            className={`tab-btn ${tab === "revenue" ? "active" : ""}`}
-            onClick={() => setTab("revenue")}
-          >
-            💰 Revenue & Ads
-          </button>
+          <div className="tab-menu">
+            <button
+              type="button"
+              className={`tab-btn ${isTbdTab ? "active" : ""}`}
+              aria-haspopup="menu"
+              aria-expanded={tbdMenuOpen}
+              onClick={() => setTbdMenuOpen((open) => !open)}
+            >
+              TBD ▾
+            </button>
+            {tbdMenuOpen && (
+              <div className="tab-menu-items" role="menu" aria-label="Other areas">
+                <button type="button" role="menuitem" className={tab === "chat" ? "active" : ""} onClick={() => { setTab("chat"); setTbdMenuOpen(false); }}>💬 Chat &amp; Agents</button>
+                <button type="button" role="menuitem" className={tab === "nlq" ? "active" : ""} onClick={() => { setTab("nlq"); setTbdMenuOpen(false); }}>🗄️ Database Explorer</button>
+                <button type="button" role="menuitem" className={tab === "audit" ? "active" : ""} onClick={() => { setTab("audit"); setTbdMenuOpen(false); }}>🛡️ Inspector &amp; Memory</button>
+                <button type="button" role="menuitem" className={tab === "payments" ? "active" : ""} onClick={() => { setTab("payments"); setTbdMenuOpen(false); }}>💳 Payments &amp; DIDs</button>
+                <button type="button" role="menuitem" className={tab === "referrals" ? "active" : ""} onClick={() => { setTab("referrals"); setTbdMenuOpen(false); }}>🎁 Referrals &amp; Earn</button>
+                <button type="button" role="menuitem" className={tab === "ads" ? "active" : ""} onClick={() => { setTab("ads"); setTbdMenuOpen(false); }}>🚀 Sponsored Deals</button>
+                <button type="button" role="menuitem" className={tab === "revenue" ? "active" : ""} onClick={() => { setTab("revenue"); setTbdMenuOpen(false); }}>💰 Revenue &amp; Ads</button>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* User Badge */}

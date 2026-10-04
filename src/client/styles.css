@@ -157,7 +157,7 @@ body {
   padding: 0.25rem;
   border-radius: 10px;
   border: 1px solid var(--border-subtle);
-  overflow-x: auto;
+  overflow: visible;
   max-width: 100%;
   scrollbar-width: thin;
 }
@@ -186,6 +186,42 @@ body {
   color: #ffffff;
   background: var(--accent-primary);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+}
+
+.tab-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tab-menu-items {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  display: grid;
+  min-width: 220px;
+  padding: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.tab-menu-items button {
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab-menu-items button:hover,
+.tab-menu-items button.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
 }
 
 /* User Badge */

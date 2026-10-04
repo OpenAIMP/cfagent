@@ -6,7 +6,7 @@
   "referrals": true,
   "ads": true,
   "revenue": true,
-  "endpoints": true,
+  "endpoints": false,
   "trading": false,
   "research": false
 }

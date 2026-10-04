@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import adDisplayConfig from "../src/client/ad-display.config.json";
 
 describe("per-tab ad display configuration", () => {
-  it("disables ad banners on Trading and Research tabs", () => {
+  it("disables ad banners on Trading, Research, and API/MCP tabs", () => {
     expect(adDisplayConfig.trading).toBe(false);
     expect(adDisplayConfig.research).toBe(false);
+    expect(adDisplayConfig.endpoints).toBe(false);
   });
 
   it("defines an explicit ad visibility flag for every top-level tab", () => {
