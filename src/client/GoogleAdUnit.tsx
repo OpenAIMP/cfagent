@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 
 export interface GoogleAdUnitProps {
   format?: "leaderboard" | "rectangle" | "responsive" | "mobile";

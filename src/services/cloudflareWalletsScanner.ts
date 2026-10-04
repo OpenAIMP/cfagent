@@ -11,7 +11,7 @@
  *    containing price ($0.05 USDC), recipient wallet, and network.
  * 3. The client auto-pays via its Cloudflare Wallet and retries with PAYMENT-SIGNATURE.
  * 4. withX402 verifies payment via x402.org facilitator then invokes the handler.
- * 5. An audit event is written to mas_events with the tx details.
+ * 5. The handler queues the shared async options capability and returns its job ID.
  *
  * Environment variables (wrangler.jsonc vars / secrets):
  *   CF_WALLET_RECIPIENT   - 0x... USDC recipient (your Cloudflare Wallet address)
@@ -24,8 +24,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withX402, type X402Config } from "agents/x402";
 import { z } from "zod";
 import type { Env } from "../types";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
-import { ETradeRestClient } from "../trading/etrade/client";
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 
@@ -92,9 +90,7 @@ export class OptionsScannerMCP extends McpAgent<Env> {
       },
       { readOnlyHint: true, title: "Options Screener (Pay-Per-Use via Cloudflare Wallets)" },
       async ({ underlying, maxUnderlyings, contractType, minDelta, maxDelta, minOpenInterest, maxDTE, minDTE, minVolume, maxSpreadPct, maxQuoteAgeSeconds, limit }) => {
-        const client = new ETradeRestClient(this.env, "default_trader");
-        const screener = new DynamicOptionsScreener(client);
-        const result = await screener.screenOptions({
+        const input = {
           underlyingSymbols: underlying ? [underlying.toUpperCase().trim()] : undefined,
           maxUnderlyings,
           contractType,
@@ -107,10 +103,19 @@ export class OptionsScannerMCP extends McpAgent<Env> {
           maxSpreadPct,
           maxQuoteAgeSeconds,
           limit,
-        });
+        };
+        const queued = await this.forwardToOrchestrator(
+          "/api/trading/options/screen",
+          "POST",
+          input,
+          "default_trader",
+        ) as { jobId: string; status: "queued"; statusUrl: string };
+        if (!queued.jobId || queued.status !== "queued") {
+          throw new Error("Paid screening request was not accepted as a background job.");
+        }
 
-        this.persistAudit(underlying?.toUpperCase().trim() || "all_exchange_listings", result.matchedCount);
-
+        const normalizedUnderlying = underlying?.toUpperCase().trim() || "all_exchange_listings";
+        this.persistAudit(normalizedUnderlying, undefined, queued.jobId);
         return {
           content: [
             {
@@ -122,10 +127,11 @@ export class OptionsScannerMCP extends McpAgent<Env> {
                   paymentProtocol: "x402 / Cloudflare Wallets",
                   network: this.env?.CF_WALLET_NETWORK ?? "base-sepolia",
                   proposerDid: AGENT_DIDS.PAYMENTS,
-                  underlying: underlying?.toUpperCase().trim() || "all_exchange_listings",
-                  matchedCount: result.matchedCount,
-                  contracts: result.contracts,
-                  scannedAt: new Date().toISOString(),
+                  underlying: normalizedUnderlying,
+                  jobId: queued.jobId,
+                  status: queued.status,
+                  statusTool: "get_scan_job",
+                  message: "Payment was accepted and the scan is running asynchronously. Retrieve the result with get_scan_job.",
                 },
                 null,
                 2,
@@ -167,13 +173,60 @@ export class OptionsScannerMCP extends McpAgent<Env> {
         ],
       }),
     );
+
+    this.server.tool(
+      "get_scan_job",
+      "Get the status or completed result of a paid asynchronous options scan.",
+      { jobId: z.string().uuid().describe("Job ID returned by screen_options") },
+      async ({ jobId }) => ({
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(await this.forwardToOrchestrator(`/api/jobs/${jobId}`, "GET"), null, 2),
+        }],
+      }),
+    );
+
+    this.server.tool(
+      "list_scan_jobs",
+      "List recent paid options scans submitted by this scanner session.",
+      {},
+      async () => ({
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(await this.forwardToOrchestrator("/api/jobs?limit=30", "GET"), null, 2),
+        }],
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
-  private persistAudit(underlying: string, matchedCount: number): void {
+  private async forwardToOrchestrator(
+    path: string,
+    method: "GET" | "POST",
+    body?: Record<string, unknown>,
+    userLogin = "default_trader",
+  ): Promise<unknown> {
+    const id = this.env.SEARCH_AGENT.idFromName(this.ctx.id.toString());
+    const headers = new Headers({ "x-user-login": userLogin });
+    if (body) headers.set("Content-Type", "application/json");
+    const response = await this.env.SEARCH_AGENT.get(id).fetch(
+      new Request(new URL(path, "https://agent.internal"), {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+    );
+    const data = await response.json() as { error?: string };
+    if (!response.ok) {
+      throw new Error(data.error || `Async options service returned HTTP ${response.status}.`);
+    }
+    return data;
+  }
+
+  private persistAudit(underlying: string, matchedCount?: number, jobId?: string): void {
     try {
       const orm = new DatabaseORM(this.ctx.storage as any);
       orm.events.create({
@@ -183,7 +236,8 @@ export class OptionsScannerMCP extends McpAgent<Env> {
         agent: "payments",
         payload: {
           underlying,
-          matchedCount,
+          matchedCount: matchedCount ?? null,
+          jobId,
           pricePaid: SCANNER_PRICE_USD,
           protocol: "x402",
           proposerDid: AGENT_DIDS.PAYMENTS,

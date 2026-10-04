@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
+import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import adDisplayConfig from "./ad-display.config.json";
 
 interface User {
@@ -1426,6 +1428,7 @@ export function Chat({ user }: { user: User }) {
             )}
           </div>
         </nav>
+        <AsyncJobsPanel />
 
         {/* User Badge */}
         <div className="user-profile">

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 import { createResearchWorkbook, encodeBase64, type ResearchReportSheet } from "./researchReports";
 import "./researchReports.css";
 

@@ -103,13 +103,31 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   {
     name: "execute_nlq",
     category: "Natural Language SQL",
-    description: "Convert natural language queries into secure read-only SQL plans and execute them over SQLite tables and message history.",
+    description: "Submit natural language database, market-data, or options-strategy work as a background job; retrieve its result with get_async_job.",
     schema: {
       type: "object",
       properties: { query: { type: "string", description: "Natural language query against database or message history" } },
       required: ["query"],
     },
     sampleArgs: { query: "List all database tables and schema" },
+  },
+  {
+    name: "get_async_job",
+    category: "Async Jobs",
+    description: "Get the status and completed result for a background capability job.",
+    schema: {
+      type: "object",
+      properties: { jobId: { type: "string", description: "Job ID returned on submission" } },
+      required: ["jobId"],
+    },
+    sampleArgs: { jobId: "00000000-0000-4000-8000-000000000000" },
+  },
+  {
+    name: "list_async_jobs",
+    category: "Async Jobs",
+    description: "List recent background jobs for the current session.",
+    schema: { type: "object", properties: {} },
+    sampleArgs: {},
   },
   {
     name: "list_database_tables",
@@ -819,5 +837,25 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     description: "Inspects connectivity, configuration, API credentials, and capabilities of Yahoo Finance and Alpaca integrations.",
     authRequired: true,
     sampleCurl: `curl -X GET https://agent.openaimp.com/api/foss/providers`,
+  },
+  {
+    id: "api_async_jobs",
+    category: "System & Audit",
+    method: "GET",
+    path: "/api/jobs?limit=30",
+    title: "List Async Jobs",
+    description: "Lists recent background work for the authenticated session; this control-plane endpoint responds immediately.",
+    authRequired: true,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/jobs?limit=30"`,
+  },
+  {
+    id: "api_async_job_status",
+    category: "System & Audit",
+    method: "GET",
+    path: "/api/jobs/{jobId}",
+    title: "Get Async Job Status and Result",
+    description: "Retrieves queued/running status or the completed result/error for one session-scoped asynchronous job.",
+    authRequired: true,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/jobs/00000000-0000-4000-8000-000000000000"`,
   },
 ];

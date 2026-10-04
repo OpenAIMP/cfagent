@@ -1277,6 +1277,55 @@ export interface FiberExecutionRecord {
   error?: string;
 }
 
+export type AsyncJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface AsyncJobRecord {
+  jobId: string;
+  sessionId: string;
+  capability: string;
+  label: string;
+  status: AsyncJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  result?: unknown;
+  responseStatus?: number;
+}
+
+export interface AsyncJobPayload {
+  jobId: string;
+}
+
+export type AsyncJobSubmission =
+  | {
+      capability: "http.request";
+      payload: {
+        pathAndQuery: string;
+        method: string;
+        headers: Record<string, string>;
+        body: string;
+      };
+    }
+  | {
+      capability: "mcp.tool";
+      payload: { toolName: string; arguments: Record<string, unknown> };
+    }
+  | {
+      capability: "nlq.execute";
+      payload: { query: string; userLogin: string };
+    }
+  | {
+      capability: "task.draft";
+      payload: {
+        title: string;
+        dueDate?: string;
+        priority?: "low" | "medium" | "high" | "urgent";
+        assignee?: string;
+      };
+    };
+
 export interface TWAPOrderConfig {
   symbol: string;
   action: "BUY" | "SELL";

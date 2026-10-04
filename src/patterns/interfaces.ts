@@ -11,7 +11,7 @@
  */
 
 import type { z } from "zod";
-import type { Env, FossQuote, FossCompanyFundamentals, FossHistoricalBar, AlpacaMarketSnapshot } from "../types";
+import type { AsyncJobSubmission, Env, FossQuote, FossCompanyFundamentals, FossHistoricalBar, AlpacaMarketSnapshot } from "../types";
 import type { DatabaseORM } from "../orm";
 import type { SupportedGateway, CreateCheckoutParams, CheckoutResult, RefundParams, RefundResult, GatewayStatus } from "../services/payments";
 import type { DidAttestationProof } from "../agents/did";
@@ -26,6 +26,13 @@ export interface McpToolContext {
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
+  submitJob?: (job: AsyncJobSubmission) => Promise<{
+    jobId: string;
+    status: "queued";
+    statusUrl: string;
+  }>;
+  getJob?: (jobId: string) => unknown;
+  listJobs?: () => unknown[];
 }
 
 /**

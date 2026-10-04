@@ -1427,6 +1427,124 @@ body {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.async-jobs-panel {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.async-jobs-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.async-jobs-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.async-jobs-panel[open] > summary,
+.async-jobs-panel > summary:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.async-jobs-count {
+  display: inline-block;
+  margin-left: 0.45rem;
+  min-width: 1.2rem;
+  text-align: center;
+  color: var(--text-main);
+  background: var(--accent-primary);
+  border-radius: 999px;
+  padding: 0.08rem 0.32rem;
+}
+
+.async-jobs-content {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: min(32rem, 85vw);
+  max-height: min(70vh, 40rem);
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+
+.async-jobs-heading,
+.async-jobs-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.async-jobs-heading {
+  margin-bottom: 0.75rem;
+}
+
+.async-jobs-heading button,
+.async-jobs-list button {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+}
+
+.async-jobs-list {
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+}
+
+.async-jobs-list li {
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.async-jobs-list li > span {
+  min-width: 0;
+}
+
+.async-jobs-list strong,
+.async-jobs-list small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.async-jobs-list small,
+.async-jobs-empty {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.async-jobs-result {
+  max-height: 18rem;
+  overflow: auto;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  font-size: 0.72rem;
+}
+
+.async-jobs-error {
+  color: var(--accent-rose);
+  font-size: 0.82rem;
+}
+
 /* Referrals & Sponsored Deals (Layout & Hero Header inherit universal content tab styles) */
 
 /* ==========================================================================

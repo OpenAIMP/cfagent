@@ -14,7 +14,7 @@ import type { IMcpSystemFacade, IAuditPublisher } from "./interfaces";
 import { AuditEventPublisher, SqliteAuditObserver } from "./observer";
 import { PaymentGatewayService, type CreateCheckoutParams, type CheckoutResult, type RefundParams, type RefundResult, type GatewayStatus, type SupportedGateway } from "../services/payments";
 import { createDidAttestation, getUserDid, type DidAttestationProof, AGENT_DIDS } from "../agents/did";
-import { planNLQ, executeNLQQuery } from "../agents/nlq";
+import { planNLQ, executeNLQQueryAsync } from "../agents/nlq";
 
 export class McpSystemFacade implements IMcpSystemFacade {
   public readonly auditPublisher: IAuditPublisher;
@@ -37,7 +37,7 @@ export class McpSystemFacade implements IMcpSystemFacade {
 
   async executeNlq(query: string): Promise<any> {
     const plan = await planNLQ(this.env, query);
-    const result = executeNLQQuery(this.orm, this.sessionId, plan);
+    const result = await executeNLQQueryAsync(this.orm, this.sessionId, plan, this.env, this.sessionId);
     this.publishAudit("nlq.executed", "nlq", {
       query,
       domain: result.domain,

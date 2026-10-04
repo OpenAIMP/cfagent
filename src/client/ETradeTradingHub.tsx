@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 import {
   ETradeQuote,
   ScreenedStockItem,

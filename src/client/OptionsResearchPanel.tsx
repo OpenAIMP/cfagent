@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 import type {
   ExpectedIvDirection,
   OptionStrategyType,

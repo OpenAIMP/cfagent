@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import type { SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "../agents/did";
-import { planNLQ, executeNLQQuery } from "../agents/nlq";
+import { executeNaturalLanguageQuery } from "../agents/nlq";
 import {
   ETradeMarketScanCommand,
   ETradeGetQuoteCommand,
@@ -384,7 +384,7 @@ export class GetTransactionsCommand implements IMcpToolCommand<{ limit?: number;
  */
 export class ExecuteNlqCommand implements IMcpToolCommand<{ query: string }> {
   readonly name = "execute_nlq";
-  readonly description = "Execute a natural language query over SQLite database tables, schema metadata, categories taxonomy, or conversation transcripts.";
+  readonly description = "Submit a natural-language database, market-data, or options-strategy query as an asynchronous job.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -403,10 +403,47 @@ export class ExecuteNlqCommand implements IMcpToolCommand<{ query: string }> {
     if (context.facade) {
       return context.facade.executeNlq(query);
     }
-    const plan = await planNLQ(context.env, query);
-    const result = executeNLQQuery(context.orm, context.sessionId, plan);
+
+    const { plan, result } = await executeNaturalLanguageQuery(
+      context.orm,
+      context.sessionId,
+      query,
+      context.env,
+      context.sessionId,
+    );
     context.audit("nlq.executed", "nlq", { query, domain: result.domain, operation: plan.operation, count: result.count });
     return result;
+  }
+}
+
+export class GetAsyncJobCommand implements IMcpToolCommand<{ jobId: string }> {
+  readonly name = "get_async_job";
+  readonly description = "Get status and completed result for an asynchronous platform job by its job ID.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: { jobId: { type: "string", description: "Async job ID returned when work was submitted" } },
+    required: ["jobId"],
+  };
+  readonly zodSchema = z.object({ jobId: z.string().uuid() });
+
+  async execute(input: { jobId: string }, context: McpToolContext) {
+    if (!context.getJob) throw new Error("Async job status is unavailable in this MCP context.");
+    const job = context.getJob(input.jobId);
+    if (!job) throw new Error("Async job not found.");
+    return job;
+  }
+}
+
+export class ListAsyncJobsCommand implements IMcpToolCommand<{}> {
+  readonly name = "list_async_jobs";
+  readonly description = "List recent asynchronous jobs and their status for this session.";
+  readonly jsonSchema = { type: "object" as const, properties: {} };
+  readonly zodSchema = z.object({});
+
+  async execute(_input: {}, context: McpToolContext) {
+    if (!context.listJobs) throw new Error("Async job listing is unavailable in this MCP context.");
+    const jobs = context.listJobs();
+    return { count: jobs.length, jobs };
   }
 }
 
@@ -854,13 +891,15 @@ export class McpToolFactory {
   private static tools: Map<string, IMcpToolCommand> = new Map();
 
   static {
-    // Register all default 14 MCP commands
+    // Register platform, async-job, and domain capability commands.
     this.registerTool(new KnowledgeSearchCommand());
     this.registerTool(new DraftPaymentCommand());
     this.registerTool(new ConfirmPaymentDraftCommand());
     this.registerTool(new GetPaymentGatewaysCommand());
     this.registerTool(new GetTransactionsCommand());
     this.registerTool(new ExecuteNlqCommand());
+    this.registerTool(new GetAsyncJobCommand());
+    this.registerTool(new ListAsyncJobsCommand());
     this.registerTool(new ListDatabaseTablesCommand());
     this.registerTool(new QueryTableDataCommand());
     this.registerTool(new ManageCategoriesCommand());

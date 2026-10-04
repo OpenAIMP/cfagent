@@ -30,7 +30,7 @@ import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
-import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
+import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import { ScheduledTasksService } from "../services/scheduledTasks";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
@@ -45,6 +45,10 @@ import type {
   RevenueSummary,
   ETradeOptionChain,
   ETradeOptionExpireDate,
+  AsyncJobPayload,
+  AsyncJobRecord,
+  AsyncJobSubmission,
+  AsyncJobStatus,
 } from "../types";
 
 /**
@@ -107,6 +111,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    */
   async onStart(props?: Record<string, unknown>): Promise<void> {
     this.ensureTables();
+
+    try {
+      await this.recoverQueuedAsyncJobs();
+    } catch (error) {
+      console.error("[OrchestratorAgent][onStart] Could not reschedule queued async jobs:", error);
+    }
 
     try {
       // 1. Proactive daily E*TRADE token renewal at 23:00 ET (idempotent by default for cron)
@@ -223,6 +233,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         created_at TEXT NOT NULL
       )
     `);
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_async_jobs (
+        job_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        result_json TEXT,
+        response_status INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT
+      )
+    `);
+    sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_session_created ON mas_async_jobs(session_id, created_at DESC)");
     sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_events (
         id TEXT PRIMARY KEY,
@@ -425,6 +453,271 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return sql;
   }
 
+  private async submitAsyncJob(
+    job: AsyncJobSubmission,
+  ): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
+    const sql = this.ensureTables();
+    const payloadJson = JSON.stringify(job.payload);
+    if (new TextEncoder().encode(payloadJson).byteLength > 17_000_000) {
+      throw new Error("Async job payload exceeds the 17 MB serialized storage limit.");
+    }
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    sql.exec(
+      "DELETE FROM mas_async_jobs WHERE session_id = ? AND status IN ('completed', 'failed') AND created_at < ?",
+      this.sessionKey(),
+      cutoff,
+    );
+    sql.exec(
+      `DELETE FROM mas_async_jobs WHERE job_id IN (
+        SELECT job_id FROM mas_async_jobs WHERE session_id = ?
+        AND status IN ('completed', 'failed') ORDER BY created_at DESC LIMIT -1 OFFSET 500
+      )`,
+      this.sessionKey(),
+    );
+    const jobId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const displayName = job.capability === "http.request"
+      ? `${job.payload.method} ${job.payload.pathAndQuery.split("?")[0]}`
+      : job.capability === "mcp.tool"
+        ? `MCP: ${job.payload.toolName}`
+        : job.capability === "nlq.execute"
+          ? `NLQ: ${job.payload.query.slice(0, 100)}`
+          : `Task: ${job.payload.title}`;
+    sql.exec(
+      `INSERT INTO mas_async_jobs
+        (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)`,
+      jobId,
+      this.sessionKey(),
+      job.capability,
+      displayName,
+      payloadJson,
+      now,
+      now,
+    );
+
+    try {
+      await this.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+        idempotent: true,
+        retry: { maxAttempts: 1 },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sql.exec(
+        "UPDATE mas_async_jobs SET status = 'failed', error = ?, updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'queued'",
+        `Could not schedule async work: ${message}`,
+        new Date().toISOString(),
+        new Date().toISOString(),
+        jobId,
+      );
+      throw error;
+    }
+
+    this.audit("async_job.queued", "orchestrator", { jobId, capability: job.capability });
+    return { jobId, status: "queued", statusUrl: `/api/jobs/${jobId}` };
+  }
+
+  private async recoverQueuedAsyncJobs(): Promise<void> {
+    const pending = Array.from(this.ensureTables().exec(
+      "SELECT job_id FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
+      this.sessionKey(),
+    )) as Array<{ job_id: string }>;
+    for (const { job_id: jobId } of pending) {
+      try {
+        await this.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+          idempotent: true,
+          retry: { maxAttempts: 1 },
+        });
+      } catch (error) {
+        console.error(`[OrchestratorAgent] Could not reschedule queued async job ${jobId}:`, error);
+      }
+    }
+  }
+
+  private getAsyncJob(jobId: string): AsyncJobRecord | undefined {
+    const sql = this.ensureTables();
+    const rows = Array.from(sql.exec(
+      `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
+              error, created_at, updated_at, started_at, completed_at
+       FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
+      jobId,
+      this.sessionKey(),
+    )) as Array<Record<string, unknown>>;
+    const row = rows[0];
+    if (!row) return undefined;
+    if (row.status === "running" && typeof row.started_at === "string" &&
+      Date.now() - Date.parse(row.started_at) > 2 * 60 * 60 * 1000) {
+      const completedAt = new Date().toISOString();
+      sql.exec(
+        `UPDATE mas_async_jobs SET status = 'failed',
+         error = 'Execution stopped before a result was recorded; the outcome may be unknown. Verify external side effects before submitting again.',
+         updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'running'`,
+        completedAt,
+        completedAt,
+        jobId,
+      );
+      return this.getAsyncJob(jobId);
+    }
+    let result: unknown;
+    if (typeof row.result_json === "string") {
+      try {
+        result = JSON.parse(row.result_json);
+      } catch (error) {
+        throw new Error(`Stored result for async job ${jobId} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return {
+      jobId: String(row.job_id),
+      sessionId: String(row.session_id),
+      capability: String(row.capability),
+      label: String(row.display_name),
+      status: row.status as AsyncJobStatus,
+      result,
+      responseStatus: typeof row.response_status === "number" ? row.response_status : undefined,
+      error: typeof row.error === "string" ? row.error : undefined,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      startedAt: typeof row.started_at === "string" ? row.started_at : undefined,
+      completedAt: typeof row.completed_at === "string" ? row.completed_at : undefined,
+    };
+  }
+
+  private listAsyncJobs(limit = 50): AsyncJobRecord[] {
+    const rows = Array.from(this.ensureTables().exec(
+      `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at
+       FROM mas_async_jobs WHERE session_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+      this.sessionKey(),
+      Math.max(1, Math.min(100, Math.floor(limit))),
+    )) as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      if (row.status === "running") {
+        const updated = this.getAsyncJob(String(row.job_id));
+        if (updated?.status === "failed") return updated;
+      }
+      return {
+        jobId: String(row.job_id),
+        sessionId: String(row.session_id),
+        capability: String(row.capability),
+        label: String(row.display_name),
+        status: row.status as AsyncJobStatus,
+        error: typeof row.error === "string" ? row.error : undefined,
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        startedAt: typeof row.started_at === "string" ? row.started_at : undefined,
+        completedAt: typeof row.completed_at === "string" ? row.completed_at : undefined,
+      };
+    });
+  }
+
+  async executeAsyncJob({ jobId }: AsyncJobPayload): Promise<void> {
+    const sql = this.ensureTables();
+    const now = new Date().toISOString();
+    const claimed = sql.exec(
+      `UPDATE mas_async_jobs SET status = 'running', started_at = ?, updated_at = ?
+       WHERE job_id = ? AND session_id = ? AND status = 'queued'`,
+      now,
+      now,
+      jobId,
+      this.sessionKey(),
+    );
+    if (claimed.rowsWritten !== 1) return;
+
+    const rows = Array.from(sql.exec(
+      "SELECT capability, payload_json FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
+      jobId,
+      this.sessionKey(),
+    )) as Array<{ capability: string; payload_json: string }>;
+    const job = rows[0];
+    if (!job) throw new Error(`Async job ${jobId} disappeared after it was claimed.`);
+
+    try {
+      const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
+      let result: unknown;
+      let responseStatus: number | undefined;
+
+      if (job.capability === "http.request") {
+        const pathAndQuery = String(payload.pathAndQuery || "");
+        const method = String(payload.method || "GET");
+        const headers = new Headers(payload.headers as HeadersInit);
+        const body = typeof payload.body === "string" ? payload.body : undefined;
+        const response = await this.routeRequest(new Request(new URL(pathAndQuery, "https://agent.internal"), {
+          method,
+          headers,
+          body: method === "GET" || method === "HEAD" ? undefined : body,
+        }));
+        const responseBody = await response.text();
+        if (new TextEncoder().encode(responseBody).byteLength > 5_000_000) {
+          throw new Error("Async API response exceeds the 5 MB job-result limit.");
+        }
+        responseStatus = response.status;
+        result = {
+          body: responseBody,
+          headers: Object.fromEntries(response.headers.entries()),
+        };
+      } else if (job.capability === "mcp.tool") {
+        const toolName = String(payload.toolName || "");
+        const args = (payload.arguments || {}) as Record<string, unknown>;
+        result = await executeMCPTool(toolName, args, {
+          env: this.env,
+          orm: this.getOrm(),
+          sessionId: this.sessionKey(),
+          audit: (type, agent, detail) => this.audit(type, agent, detail),
+        });
+      } else if (job.capability === "task.draft") {
+        result = {
+          taskId: `task_${crypto.randomUUID().slice(0, 8)}`,
+          status: "draft",
+          requiresConfirmation: true,
+          ...payload,
+          message: "Task draft created. Awaiting human confirmation.",
+        };
+      } else if (job.capability === "nlq.execute") {
+        const query = String(payload.query || "").trim();
+        if (!query) throw new Error("NLQ job requires a non-empty query.");
+        result = await executeNaturalLanguageQuery(
+          this.getOrm(),
+          this.sessionKey(),
+          query,
+          this.env,
+          typeof payload.userLogin === "string" ? payload.userLogin : this.sessionKey(),
+          getUserDid(this.sessionKey()),
+        );
+      } else {
+        throw new Error(`Unsupported async capability: ${job.capability}`);
+      }
+
+      const serializedResult = JSON.stringify(result);
+      if (new TextEncoder().encode(serializedResult).byteLength > 12_000_000) {
+        throw new Error("Async job result exceeds the 12 MB serialized result limit.");
+      }
+      const completedAt = new Date().toISOString();
+      sql.exec(
+        `UPDATE mas_async_jobs SET status = 'completed', result_json = ?, response_status = ?,
+         updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'running'`,
+        serializedResult,
+        responseStatus ?? null,
+        completedAt,
+        completedAt,
+        jobId,
+      );
+      this.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const completedAt = new Date().toISOString();
+      sql.exec(
+        `UPDATE mas_async_jobs SET status = 'failed', error = ?, updated_at = ?, completed_at = ?
+         WHERE job_id = ? AND status = 'running'`,
+        message,
+        completedAt,
+        completedAt,
+        jobId,
+      );
+      this.audit("async_job.failed", "orchestrator", { jobId, capability: job.capability, error: message });
+      console.error(`[OrchestratorAgent] Async job ${jobId} failed:`, error);
+    }
+  }
+
   private sessionKey(): string {
     return this.ctx.id.toString();
   }
@@ -550,37 +843,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     let optionsResearchContext = "";
     if (isAutoOptionsResearchRequest) {
       try {
-        const { plan, result } = await executeNaturalLanguageQuery(
-          orm,
-          sessionId,
-          userText,
-          this.env,
-          userLogin,
-          getUserDid(sessionId),
-        );
-        const action = plan.tradingData?.action;
-        if (result.domain !== "trading" || action !== "options_strategies") {
-          throw new Error(`The options research request was not classified as a strategy evaluation (domain=${result.domain}, action=${action || "none"}).`);
-        }
+        const job = await this.submitAsyncJob({
+          capability: "nlq.execute",
+          payload: { query: userText, userLogin },
+        });
         optionsResearchContext = [
-          "AUTO_OPTIONS_RESEARCH_EXECUTION_JSON:",
+          "AUTO_OPTIONS_RESEARCH_JOB_SUBMITTED:",
           JSON.stringify({
             query: userText,
-            status: result.status,
-            summary: result.summary,
-            validationError: result.validationError,
-            quoteQuality: result.quoteQuality,
-            rejections: result.rejections,
-            rows: result.rows,
-            evaluatedAt: result.executedAt,
+            ...job,
           }),
         ].join("\n");
         this.audit("options_research.chat_query_executed", "nlq", {
           query: userText,
           sourceTab: messageMetadata?.sourceTab,
-          action,
-          status: result.status,
-          count: result.count,
+          jobId: job.jobId,
+          status: job.status,
         });
       } catch (error) {
         optionsResearchContext = [
@@ -602,6 +880,9 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       sessionId,
       requestId,
       facade,
+      submitJob: (job) => this.submitAsyncJob(job),
+      getJob: (jobId) => this.getAsyncJob(jobId),
+      listJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
       audit: (type: string, agent: any, payload: Record<string, unknown>) =>
         this.audit(type, agent, payload),
     });
@@ -635,7 +916,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         system: `You are the master orchestrator for an enterprise multi-agent assistant powered by Cloudflare Agents and SQLite.
 Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}
 ${optionsResearchContext ? `\n${optionsResearchContext}\n${isAutoOptionsResearchRequest
-    ? "The Auto Options Research workflow has already been executed for this message. Report its returned rows and evaluation reasons directly; do not substitute a conversational answer or run a different workflow. Include every returned strategy evaluation, including failures and rejection reasons. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that failure clearly and do not invent results."
+    ? "If AUTO_OPTIONS_RESEARCH_JOB_SUBMITTED is present, tell the user it was accepted and include its job ID; do not claim analysis results yet. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that queueing failure clearly."
     : ""}` : ""}
 
 Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Architecture):
@@ -659,6 +940,7 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'etrade_preview_order': Prepare an order proposal draft with cryptographic Agent DID attestation ('did:agent:openaimp:trading'). NEVER execute without human confirmation.
 - 'etrade_execute_order': Submit and execute a confirmed order draft after explicit human authorization.
 - 'etrade_get_positions': Retrieve broker account balances, equity holdings, and real-time unrealized P&L.
+- 'get_async_job' / 'list_async_jobs': Retrieve the state and result of submitted background work.
 
 Agentic Best Practices & Workflow Rules:
 1. Direct MCP Tool Self-Consumption: You have direct access to database tables, revenue analytics, categories, ads, transactions, and trading. Always invoke these tools when answering user questions about data, finances, or system state.
@@ -666,7 +948,8 @@ Agentic Best Practices & Workflow Rules:
 3. Human-in-the-Loop (HITL) Execution: For financial operations or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirm_payment_draft' with decision: 'approved'.
 4. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'manage_session_memory' with action: 'remember'.
 5. E*TRADE Trading & Market Screening: When user asks to scan, screen, quote, or trade stocks, invoke 'etrade_market_scan' or 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
-6. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.`,
+6. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.
+7. Background execution: MCP capabilities return queued job IDs instead of final results. Tell the user the job ID, and use 'get_async_job' or 'list_async_jobs' only when they ask for status or results. Never imply queued work is already complete.`,
         messages: modelMessages,
         tools: isAutoOptionsResearchRequest ? {} : tools,
         stopWhen: stepCountIs(maxSteps),
@@ -711,6 +994,76 @@ Agentic Best Practices & Workflow Rules:
   }
 
   async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    this.ensureTables();
+
+    if (path.endsWith("/api/jobs") && request.method === "GET") {
+      const jobs = this.listAsyncJobs(Number(url.searchParams.get("limit")) || 50).map((job) => {
+        const { result: _result, ...summary } = job;
+        return summary;
+      });
+      return Response.json({ jobs });
+    }
+
+    const jobMatch = path.match(/\/api\/jobs\/([0-9a-f-]{36})$/i);
+    if (jobMatch && request.method === "GET") {
+      const job = this.getAsyncJob(jobMatch[1]);
+      return job
+        ? Response.json(job)
+        : Response.json({ error: "Async job not found." }, { status: 404 });
+    }
+
+    const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
+    if (path.startsWith("/api/") && !path.includes("/api/jobs") && !isMcpEndpoint) {
+      return this.enqueueHttpRequest(request, url);
+    }
+
+    return this.routeRequest(request);
+  }
+
+  private async enqueueHttpRequest(request: Request, url: URL): Promise<Response> {
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (contentLength > 8_000_000) {
+      return Response.json({ error: "Async API request exceeds the 8 MB request limit." }, { status: 413 });
+    }
+
+    const body = request.method === "GET" || request.method === "HEAD" ? "" : await request.text();
+    if (new TextEncoder().encode(body).length > 8_000_000) {
+      return Response.json({ error: "Async API request exceeds the 8 MB request limit." }, { status: 413 });
+    }
+
+    const headers: Record<string, string> = {};
+    for (const name of ["content-type", "accept", "x-environment"]) {
+      const value = request.headers.get(name);
+      if (value) headers[name] = value;
+    }
+    const userLogin = request.headers.get("x-user-login");
+    headers["x-user-login"] = userLogin && /^[A-Za-z0-9._-]{1,80}$/.test(userLogin)
+      ? userLogin
+      : this.sessionKey();
+    try {
+      const job = await this.submitAsyncJob({
+        capability: "http.request",
+        payload: {
+          pathAndQuery: `${url.pathname}${url.search}`,
+          method: request.method,
+          headers,
+          body,
+        },
+      });
+      return Response.json(job, {
+        status: 202,
+        headers: { "Location": job.statusUrl, "Retry-After": "1" },
+      });
+    } catch (error) {
+      return Response.json({
+        error: error instanceof Error ? error.message : "Could not queue API request.",
+      }, { status: 503 });
+    }
+  }
+
+  private async routeRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     const sql = this.ensureTables();
@@ -809,6 +1162,9 @@ Agentic Best Practices & Workflow Rules:
             orm,
             sessionId,
             audit: (type, agent, payload) => this.audit(type, agent, payload),
+            submitJob: (job) => this.submitAsyncJob(job),
+            getJob: (jobId) => this.getAsyncJob(jobId),
+            listJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
           });
           return Response.json(response);
         } catch (err: any) {

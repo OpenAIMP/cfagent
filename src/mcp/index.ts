@@ -10,7 +10,7 @@
  * - GoF Facade Pattern: Subsystems accessed through McpSystemFacade.
  */
 
-import type { Env } from "../types";
+import type { AsyncJobSubmission, Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { McpToolFactory } from "./commands";
 import { McpSystemFacade } from "../patterns/facade";
@@ -64,7 +64,7 @@ export const MCP_SERVER_INFO = {
   name: "multi-agent-studio-mcp",
   title: "Multi-Agent Studio Enterprise MCP Server",
   version: "1.0.0",
-  description: "Exposes autonomous agent orchestration, SQLite ORM, HITL payments with DIDs, NLQ database querying, referral categories taxonomy, and revenue monetization engines via Model Context Protocol.",
+  description: "Exposes asynchronous agent capabilities, SQLite ORM, HITL payments with DIDs, NLQ, trading, and platform operations via MCP. Tool calls return job IDs; use get_async_job or list_async_jobs to retrieve results.",
   protocolVersion: "2024-11-05",
 };
 
@@ -186,6 +186,13 @@ export async function executeMCPTool(
     orm: DatabaseORM;
     sessionId: string;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
+    submitJob?: (job: AsyncJobSubmission) => Promise<{
+      jobId: string;
+      status: "queued";
+      statusUrl: string;
+    }>;
+    getJob?: (jobId: string) => unknown;
+    listJobs?: () => unknown[];
   }
 ): Promise<any> {
   const facade = new McpSystemFacade(context.env, context.orm, context.sessionId);
@@ -319,6 +326,13 @@ export async function handleMCPRequest(
     orm: DatabaseORM;
     sessionId: string;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
+    submitJob?: (job: AsyncJobSubmission) => Promise<{
+      jobId: string;
+      status: "queued";
+      statusUrl: string;
+    }>;
+    getJob?: (jobId: string) => unknown;
+    listJobs?: () => unknown[];
   }
 ): Promise<MCPResponse> {
   const id = request.id ?? null;
@@ -369,7 +383,13 @@ export async function handleMCPRequest(
           };
         }
 
-        const data = await executeMCPTool(name, toolArgs || {}, context);
+        const data = context.submitJob && McpToolFactory.getTool(name) &&
+          name !== "get_async_job" && name !== "list_async_jobs"
+          ? await context.submitJob({
+            capability: "mcp.tool",
+            payload: { toolName: name, arguments: toolArgs || {} },
+          })
+          : await executeMCPTool(name, toolArgs || {}, context);
         return {
           jsonrpc: "2.0",
           id,

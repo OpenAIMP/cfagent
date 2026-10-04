@@ -26,6 +26,15 @@ export class McpAgentToolAdapter {
       description: command.description,
       inputSchema: command.zodSchema,
       execute: async (input: any) => {
+        if (context.submitJob && command.name !== "get_async_job" && command.name !== "list_async_jobs") {
+          return context.submitJob({
+            capability: "mcp.tool",
+            payload: {
+              toolName: command.name,
+              arguments: input,
+            },
+          });
+        }
         return command.execute(input, context);
       },
     });
@@ -39,7 +48,7 @@ export class McpAgentToolAdapter {
 export function createAgentMcpTools(context: McpToolContext) {
   const tools: Record<string, any> = {};
 
-  // 1. Dogfood all 14 MCP commands directly into the AI agent toolset
+  // 1. Dogfood every registered MCP command into the AI agent toolset.
   for (const command of McpToolFactory.getAllTools()) {
     // Register by canonical MCP name (e.g. 'execute_nlq', 'list_database_tables', 'get_revenue_summary')
     tools[command.name] = McpAgentToolAdapter.adapt(command, context);
@@ -66,6 +75,7 @@ export function createAgentMcpTools(context: McpToolContext) {
       assignee: z.string().optional().describe("Assignee name or role"),
     }),
     execute: async (input) => {
+      if (context.submitJob) return context.submitJob({ capability: "task.draft", payload: input });
       const taskId = `task_${crypto.randomUUID().slice(0, 8)}`;
       const payload = {
         taskId,
@@ -87,6 +97,12 @@ export function createAgentMcpTools(context: McpToolContext) {
       value: z.string().min(1).describe("The information to store"),
     }),
     execute: async ({ key, value }) => {
+      if (context.submitJob) {
+        return context.submitJob({
+          capability: "mcp.tool",
+          payload: { toolName: "manage_session_memory", arguments: { action: "remember", key, value } },
+        });
+      }
       const command = McpToolFactory.getTool("manage_session_memory");
       if (!command) throw new Error("Memory command missing");
       return command.execute({ action: "remember", key, value }, context);
@@ -99,6 +115,12 @@ export function createAgentMcpTools(context: McpToolContext) {
       filter: z.string().optional().describe("Optional keyword to filter stored memories"),
     }),
     execute: async () => {
+      if (context.submitJob) {
+        return context.submitJob({
+          capability: "mcp.tool",
+          payload: { toolName: "manage_session_memory", arguments: { action: "list" } },
+        });
+      }
       const command = McpToolFactory.getTool("manage_session_memory");
       if (!command) throw new Error("Memory command missing");
       return command.execute({ action: "list" }, context);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../src/mcp";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
@@ -65,6 +65,8 @@ describe("Model Context Protocol (MCP) Server", () => {
       expect(names).toContain("draft_payment");
       expect(names).toContain("confirm_payment_draft");
       expect(names).toContain("execute_nlq");
+      expect(names).toContain("get_async_job");
+      expect(names).toContain("list_async_jobs");
       expect(names).toContain("list_database_tables");
       expect(names).toContain("manage_categories");
       expect(names).toContain("manage_external_ads");
@@ -88,6 +90,63 @@ describe("Model Context Protocol (MCP) Server", () => {
       expect(parsed.count).toBe(9);
       expect(parsed.tables.some((t: any) => t.name === "mas_categories")).toBe(true);
       expect(parsed.tables.some((t: any) => t.name === "mas_trades")).toBe(true);
+    });
+
+    it("returns a job ticket immediately for production MCP tool execution", async () => {
+      const submitJob = vi.fn().mockResolvedValue({
+        jobId: "d9643325-6195-4c4a-bc5a-9d9348070e5d",
+        status: "queued",
+        statusUrl: "/api/jobs/d9643325-6195-4c4a-bc5a-9d9348070e5d",
+      });
+      const response = await handleMCPRequest(
+        {
+          jsonrpc: "2.0",
+          id: 30,
+          method: "tools/call",
+          params: { name: "list_database_tables", arguments: {} },
+        },
+        { env: mockEnv, orm, sessionId: "session_1", audit: auditMock, submitJob }
+      );
+
+      expect(submitJob).toHaveBeenCalledWith({
+        capability: "mcp.tool",
+        payload: {
+          toolName: "list_database_tables",
+          arguments: {},
+        },
+      });
+      expect(JSON.parse(response.result?.content[0].text)).toMatchObject({
+        jobId: "d9643325-6195-4c4a-bc5a-9d9348070e5d",
+        status: "queued",
+      });
+    });
+
+    it("keeps async job status tools immediate", async () => {
+      const submitJob = vi.fn();
+      const getJob = vi.fn().mockReturnValue({
+        jobId: "d9643325-6195-4c4a-bc5a-9d9348070e5d",
+        status: "completed",
+        result: { answer: 42 },
+      });
+      const response = await handleMCPRequest(
+        {
+          jsonrpc: "2.0",
+          id: 31,
+          method: "tools/call",
+          params: {
+            name: "get_async_job",
+            arguments: { jobId: "d9643325-6195-4c4a-bc5a-9d9348070e5d" },
+          },
+        },
+        { env: mockEnv, orm, sessionId: "session_1", audit: auditMock, submitJob, getJob }
+      );
+
+      expect(submitJob).not.toHaveBeenCalled();
+      expect(getJob).toHaveBeenCalledWith("d9643325-6195-4c4a-bc5a-9d9348070e5d");
+      expect(JSON.parse(response.result?.content[0].text)).toMatchObject({
+        status: "completed",
+        result: { answer: 42 },
+      });
     });
 
     it("executes tool: manage_categories (create, list, delete)", async () => {

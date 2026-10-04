@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiFetch as fetch } from "./apiFetch";
 import {
   MCP_TOOLS_CATALOG,
   MCP_RESOURCES_CATALOG,
