@@ -730,6 +730,9 @@
 
 .trading-view[hidden], .research-view[hidden] { display: none !important; }
 .workflow-guide { margin: 2rem auto 1rem; max-width: 1100px; padding: 1rem 1.25rem; border: 1px solid rgba(148,163,184,.3); border-radius: 8px; font-size: .85rem; text-align: left; }
+.workflow-guide { position: relative; }
+.workflow-guide-close { position: absolute; top: .4rem; right: .6rem; background: none; border: 0; color: inherit; font-size: 1.3rem; line-height: 1; cursor: pointer; opacity: .7; }
+.workflow-guide-close:hover { opacity: 1; }
 .workflow-guide h3 { margin: 0 0 .5rem; }
 .workflow-guide dt { font-weight: 600; margin-top: .5rem; }
 .workflow-guide dd { margin: 0 0 0 1rem; opacity: .85; }

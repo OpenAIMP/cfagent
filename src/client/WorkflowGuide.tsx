@@ -1,4 +1,11 @@
+import { useState } from "react";
 import "./optionsResearch.css";
+
+const DISMISS_KEY = "workflowGuideDismissed";
+
+function readDismissed(): boolean {
+  try { return localStorage.getItem(DISMISS_KEY) === "1"; } catch { return false; }
+}
 
 const tabs: Array<{ name: string; purpose: string; next: string }> = [
   { name: "E*TRADE", purpose: "Broker hub: market scan, Auto Options Research, order ticket, portfolio, ledger, NLQ, omnichannel and voice sub-tabs.", next: "Starting point. Scan the market, research options, then preview an order." },
