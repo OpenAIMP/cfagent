@@ -7,7 +7,16 @@ import {
   type ScreeningAssetClass,
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
+import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "./x402Pay";
 import "./optionsResearch.css";
+
+const PAID_OPTIONS_ENDPOINT = "/api/premium/options-scan";
+
+interface PendingPayment {
+  challenge: X402Challenge;
+  filters: Record<string, unknown>;
+  paid?: PaidTransfer;
+}
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
@@ -47,6 +56,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<PendingPayment | null>(null);
+  const [payStatus, setPayStatus] = useState("");
 
   useEffect(() => {
     if (!providers.some((provider) => provider.id === providerId)) {
@@ -57,6 +68,70 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const activeProvider = providers.find((provider) => provider.id === providerId);
   const endpoint = activeProvider?.endpointByAssetClass[assetClass];
 
+  const callScreen = async (filters: Record<string, unknown>, paymentSignature?: string) => {
+    const paid = assetClass === "options";
+    const response = await fetch(paid ? PAID_OPTIONS_ENDPOINT : endpoint!, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-environment": activeEnv,
+        ...(userLogin ? { "x-user-login": userLogin } : {}),
+        ...(paymentSignature ? { "PAYMENT-SIGNATURE": paymentSignature } : {}),
+      },
+      body: JSON.stringify(filters),
+    });
+    const body = await response.json() as Record<string, any>;
+    if (paid && response.status === 402) {
+      const challenge = body.protocols?.x402?.challenge as X402Challenge | undefined;
+      if (!challenge) throw new Error(body.error || "Payment required, but no payment challenge was returned.");
+      return { challenge, reason: paymentSignature ? (body.reason as string | undefined) : undefined, retryable: /not yet visible/i.test(String(body.reason || "")) };
+    }
+    const data = (paid ? body.screenResult ?? body : body) as {
+      error?: string;
+      stocks?: ScreenedStockItem[];
+      contracts?: ScreenRow[];
+      filterSummary?: string;
+      validationError?: string;
+      totalScanned?: number;
+      totalContractsEvaluated?: number;
+      matchedCount?: number;
+    };
+    if (!response.ok) throw new Error(body.error || data.error || `Screening request failed [HTTP ${response.status}].`);
+    if (data.validationError) throw new Error(data.validationError);
+    const results = assetClass === "stocks" ? data.stocks || [] : data.contracts || [];
+    setRows(results.map((row) => Object.fromEntries(Object.entries(row))));
+    setSummary(data.filterSummary || `${data.totalScanned ?? data.totalContractsEvaluated ?? 0} scanned · ${data.matchedCount ?? results.length} matched`);
+    if (assetClass === "stocks") onStocksLoaded?.(data.stocks || []);
+    setPending(null);
+    return null;
+  };
+
+  const payAndRun = async () => {
+    if (!pending || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      let current = pending;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const paid = current.paid ?? await sendUsdcPayment(current.challenge, setPayStatus);
+        current = { ...current, paid };
+        setPending(current);
+        setPayStatus("Verifying payment…");
+        const signature = await buildPaymentSignature(current.challenge, paid);
+        const outcome = await callScreen(current.filters, signature);
+        if (!outcome) return;
+        if (!outcome.retryable) throw new Error(outcome.reason || "Payment could not be verified.");
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      }
+      throw new Error("Payment sent but not yet visible to the server. Press the button again to retry; you will not be charged twice.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Payment failed.");
+    } finally {
+      setLoading(false);
+      setPayStatus("");
+    }
+  };
+
   const runScreen = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!endpoint || loading) return;
@@ -64,6 +139,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     setError("");
     setRows([]);
     setSummary("");
+    setPending(null);
     try {
       const filters = assetClass === "stocks"
         ? {
@@ -94,31 +170,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
             ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
           };
 
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          ...(userLogin ? { "x-user-login": userLogin } : {}),
-        },
-        body: JSON.stringify(filters),
-      });
-      const data = await response.json() as {
-        error?: string;
-        stocks?: ScreenedStockItem[];
-        contracts?: ScreenRow[];
-        filterSummary?: string;
-        validationError?: string;
-        totalScanned?: number;
-        totalContractsEvaluated?: number;
-        matchedCount?: number;
-      };
-      if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
-      if (data.validationError) throw new Error(data.validationError);
-      const results = assetClass === "stocks" ? data.stocks || [] : data.contracts || [];
-      setRows(results.map((row) => Object.fromEntries(Object.entries(row))));
-      setSummary(data.filterSummary || `${data.totalScanned ?? data.totalContractsEvaluated ?? 0} scanned · ${data.matchedCount ?? results.length} matched`);
-      if (assetClass === "stocks") onStocksLoaded?.(data.stocks || []);
+      const outcome = await callScreen(filters);
+      if (outcome) setPending({ challenge: outcome.challenge, filters });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Screening request failed.");
     } finally {
@@ -222,6 +275,18 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         <p className="options-comparison-note">This instrument class is a registered extension point, but no provider adapter is connected yet.</p>
       )}
 
+      {pending && (
+        <div className="options-error" role="status">
+          <p>
+            <strong>Payment required.</strong> The options screener costs ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label}.
+            {pending.paid ? " Your payment was sent; retry verification below." : " You will be asked to confirm the transfer in your wallet."}
+          </p>
+          <p>Recipient: <code>{pending.challenge.recipient}</code></p>
+          <button type="button" disabled={loading} onClick={() => void payAndRun()}>
+            {loading ? payStatus || "Working…" : pending.paid ? "Retry verification" : `Pay $${pending.challenge.amount.toFixed(2)} & run screen`}
+          </button>
+        </div>
+      )}
       {error && <div className="options-error" role="alert">{error}</div>}
       {summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
       {(rows.length > 0 || summary) && (

@@ -17,6 +17,15 @@ import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "../src/agents/nl
 import { ETradeVoiceTradingService } from "../src/trading/voice/agent";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 
+// On-chain verification is covered in x402_verifier.test.ts; here the verifier accepts any claim except from a known-bad payer.
+vi.mock("../src/services/x402Verifier", () => ({
+  verifyOnChainClaim: vi.fn(async ({ proof }: any) =>
+    proof.payer === "0xBadPayer"
+      ? { ok: false, reason: "No matching USDC transfer" }
+      : { ok: true, payer: proof.payer, txHash: proof.txHash },
+  ),
+}));
+
 describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
   let sql: MockSqlStorage;
   let orm: DatabaseORM;
@@ -131,6 +140,22 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       expect(verification.receipt).toBeUndefined();
       expect(verification.reason).toContain("mppx");
     });
+    it("rejects a failed on-chain claim and a replayed transaction hash", async () => {
+      const challenge = paymentService.createX402Challenge("/api/premium/stock-signals", 0.02);
+      const mk = (payer: string, txHash: string) => ({
+        "PAYMENT-SIGNATURE": JSON.stringify({ payer, signature: "0xsig", txHash, nonce: challenge.nonce, timestamp: Date.now() }),
+      });
+
+      const bad = await paymentService.verifyPayment(mk("0xBadPayer", "0xreplay1"), challenge);
+      expect(bad.valid).toBe(false);
+      expect(bad.reason).toContain("USDC transfer");
+
+      expect((await paymentService.verifyPayment(mk("0xGood", "0xreplay2"), challenge)).valid).toBe(true);
+      const replay = await paymentService.verifyPayment(mk("0xGood", "0xreplay2"), challenge);
+      expect(replay.valid).toBe(false);
+      expect(replay.reason).toContain("already been used");
+    });
+
     it("rejects PAYMENT-SIGNATURE with mismatched challenge nonce", async () => {
       const challenge = paymentService.createX402Challenge("/api/premium/options-scan", 0.05);
       const proof: X402PaymentProof = {
@@ -460,6 +485,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       const proof: X402PaymentProof = {
         payer: "0xMcpSubscriber",
         signature: "0x_sig_mcp_options",
+        txHash: "0xmcpoptions",
         nonce: challenge.nonce,
         timestamp: Date.now(),
       };
@@ -494,6 +520,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       const proof: X402PaymentProof = {
         payer: "0xMcpResearchSubscriber",
         signature: "0x_sig_mcp_research",
+        txHash: "0xmcpresearch",
         nonce: challenge.nonce,
         timestamp: Date.now(),
       };

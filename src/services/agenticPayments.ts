@@ -34,6 +34,10 @@ import type {
 import { Mppx, tempo } from "mppx/server";
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
+import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
+
+// Fallback replay guard used only when no KV namespace is bound.
+const consumedTxHashes = new Set<string>();
 
 /**
  * Catalogue of Paid Trading Services offered by E*TRADE Trading Agent
@@ -76,7 +80,8 @@ export class ETradeAgenticPaymentService {
   constructor(
     private orm?: DatabaseORM,
     private env?: Env,
-    private sessionId: string = "default_trader"
+    private sessionId: string = "default_trader",
+    private claimVerifier: X402ClaimVerifier = verifyOnChainClaim
   ) {
     this.network = this.env?.X402_NETWORK || "base-sepolia";
     this.recipient =
@@ -186,7 +191,8 @@ export class ETradeAgenticPaymentService {
    */
   createPaymentRequiredResponse(
     challenge: X402PaymentChallenge,
-    mppChallenge?: MppChallenge
+    mppChallenge?: MppChallenge,
+    reason?: string
   ): Response {
     const mpp = mppChallenge || this.createMppChallenge(challenge.resource, challenge.amount, challenge.description);
     const x402HeaderVal = this.formatX402ChallengeHeader(challenge);
@@ -225,6 +231,7 @@ export class ETradeAgenticPaymentService {
           challenge: mpp,
         },
       },
+      ...(reason ? { reason } : {}),
       facilitator: challenge.facilitator,
       timestamp: new Date().toISOString(),
     };
@@ -235,10 +242,30 @@ export class ETradeAgenticPaymentService {
       headers: {
         "Content-Type": "application/json",
         "PAYMENT-REQUIRED": x402HeaderVal,
+        ...(reason ? { "X-Payment-Error": reason.replace(/[^\x20-\x7e]/g, " ").slice(0, 200) } : {}),
         "WWW-Authenticate": mppHeaderVal,
-        "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt",
+        "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt, X-Payment-Error",
       },
     });
+  }
+
+  private async consumeTxHash(txHash: string): Promise<boolean> {
+    const key = `x402tx:${txHash.toLowerCase()}`;
+    const kv = this.env?.SESSIONS;
+    if (kv) {
+      if (await kv.get(key)) return false;
+      await kv.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 365 });
+      return true;
+    }
+    if (consumedTxHashes.has(key)) return false;
+    consumedTxHashes.add(key);
+    return true;
+  }
+
+  private async releaseTxHash(txHash: string): Promise<void> {
+    const key = `x402tx:${txHash.toLowerCase()}`;
+    if (this.env?.SESSIONS) await this.env.SESSIONS.delete(key);
+    else consumedTxHashes.delete(key);
   }
 
   /**
@@ -270,22 +297,35 @@ export class ETradeAgenticPaymentService {
           return { valid: false, reason: "Malformed PAYMENT-SIGNATURE: missing signature or payer address." };
         }
 
-        const isX402Challenge = "nonce" in challenge;
-        if (isX402Challenge && proof.nonce && proof.nonce !== challenge.nonce) {
-          return { valid: false, reason: "Invalid nonce in PAYMENT-SIGNATURE: challenge mismatch or replay." };
+        if (!("resource" in challenge) || !("nonce" in challenge)) {
+          return { valid: false, reason: "x402 payments require an x402 challenge." };
+        }
+        if (proof.nonce !== challenge.nonce) {
+          return { valid: false, reason: "Invalid nonce in PAYMENT-SIGNATURE: challenge mismatch." };
         }
 
-        const txHash = proof.txHash || `0x${crypto.randomUUID().replace(/-/g, "")}`;
-        const receiptId = `rcpt_x402_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`;
-        const amount = "amount" in challenge ? (typeof challenge.amount === "number" ? challenge.amount : parseFloat(challenge.amount)) : 0.05;
+        const claim = await this.claimVerifier({
+          proof,
+          resource: challenge.resource,
+          amountUSD: challenge.amount,
+          recipient: challenge.recipient,
+          network: challenge.network,
+        });
+        if (!claim.ok) return { valid: false, reason: claim.reason };
+
+        const txHash = claim.txHash;
+        if (!(await this.consumeTxHash(txHash))) {
+          return { valid: false, reason: "This payment transaction has already been used." };
+        }        const receiptId = `rcpt_x402_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`;
+        const amount = challenge.amount;
 
         const receipt: AgenticPaymentReceipt = {
           receiptId,
           protocol: "x402",
-          resource: "resource" in challenge ? challenge.resource : challenge.realm || "/api/premium",
+          resource: challenge.resource,
           amount,
-          currency: "currency" in challenge ? challenge.currency : "USDC",
-          network: "network" in challenge ? challenge.network : this.network,
+          currency: challenge.currency,
+          network: challenge.network,
           payer: proof.payer,
           recipient: this.recipient,
           status: "verified",
@@ -294,11 +334,16 @@ export class ETradeAgenticPaymentService {
           timestamp: new Date().toISOString(),
           proposerDid: AGENT_DIDS.TRADING,
           authorizerDid: `did:pkh:eip155:${proof.payer}`,
-          note: `Verified via Cloudflare Agentic Payments x402 facilitator. Settled on ${this.network}.`,
+          note: `Verified on-chain: USDC transfer to recipient confirmed on ${challenge.network}.`,
         };
 
         // Persist transaction in SQLite
-        await this.recordPaymentTransaction(receipt, "inbound");
+        try {
+          await this.recordPaymentTransaction(receipt, "inbound");
+        } catch (error) {
+          await this.releaseTxHash(txHash);
+          throw error;
+        }
 
         return { valid: true, receipt };
       } catch (err: any) {
@@ -336,14 +381,20 @@ export class ETradeAgenticPaymentService {
     const verification = await this.verifyPayment(req.headers, challenge);
 
     if (!verification.valid || !verification.receipt) {
-      const required = this.createPaymentRequiredResponse(challenge);
+      const required = this.createPaymentRequiredResponse(challenge, undefined, hasX402 ? verification.reason : undefined);
       const mppChallenge = await this.issueMppChallenge(req, priceUSD, description);
       if (mppChallenge) required.headers.set("WWW-Authenticate", mppChallenge);
       return required;
     }
 
     // Payment is valid: Fulfill the premium data
-    const result = await fulfill(verification.receipt);
+    let result: any;
+    try {
+      result = await fulfill(verification.receipt);
+    } catch (error) {
+      if (verification.receipt.txHash) await this.releaseTxHash(verification.receipt.txHash);
+      throw error;
+    }
 
     // Attach x402 and MPP receipt headers
     const receiptHeader = Buffer.from(JSON.stringify(verification.receipt)).toString("base64");
