@@ -11,6 +11,7 @@ import {
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
+import { ScreenersHub } from "./ScreenersHub";
 
 function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
   return <div hidden={hidden}>{children}</div>;
@@ -37,7 +38,7 @@ function formatNlqColumn(key: string): string {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("scanner");
+  const [subTab, setSubTab] = useState<"scanner" | "screeners" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("screeners");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -1468,10 +1469,16 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       {/* Navigation Sub-Tabs */}
       <div className="trading-subnav-bar">
         <button
+          className={`subnav-btn ${subTab === "screeners" ? "active" : ""}`}
+          onClick={() => setSubTab("screeners")}
+        >
+          🔎 Multi-Asset Screeners
+        </button>
+        <button
           className={`subnav-btn ${subTab === "scanner" ? "active" : ""}`}
           onClick={() => setSubTab("scanner")}
         >
-          🔍 Market Screener &amp; Scanner
+          📈 Equity Universe Scan
         </button>
         <button
           className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
@@ -1669,6 +1676,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             ✕
           </button>
         </div>
+      )}
+
+      {subTab === "screeners" && (
+        <ScreenersHub
+          activeEnv={activeEnv}
+          userLogin={user?.login}
+          onStocksLoaded={setScreenerStocks}
+        />
       )}
 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}

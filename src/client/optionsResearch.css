@@ -57,6 +57,35 @@
   background: var(--bg-surface);
 }
 
+.screeners-hub {
+  gap: 1rem;
+}
+
+.screeners-asset-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.screeners-asset-tabs .subnav-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.screeners-filter-form {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.screeners-filter-form .options-form-footer {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.screeners-filter-form .options-form-footer button {
+  min-height: 38px;
+  padding: 0.55rem 0.85rem;
+}
+
 .options-nlq-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(140px, 0.3fr) minmax(160px, 0.35fr) auto;
