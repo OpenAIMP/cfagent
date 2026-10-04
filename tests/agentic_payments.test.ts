@@ -121,22 +121,16 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       expect(verification.receipt?.status).toBe("verified");
     });
 
-    it("verifies valid MPP Authorization header proof and returns receipt", async () => {
+    it("rejects unverified MPP Authorization headers (fail closed)", async () => {
       const challenge = paymentService.createMppChallenge("/api/premium/market-research", 0.10);
       const authHeader = 'Payment method="tempo", payer="0xMppPayer456", txHash="0x_tx_mpp_789", sig="0x_sig_mpp"';
 
-      const verification = await paymentService.verifyPayment(
-        { Authorization: authHeader },
-        challenge
-      );
+      const verification = await paymentService.verifyPayment({ Authorization: authHeader }, challenge);
 
-      expect(verification.valid).toBe(true);
-      expect(verification.receipt).toBeDefined();
-      expect(verification.receipt?.protocol).toBe("mpp");
-      expect(verification.receipt?.amount).toBe(0.10);
-      expect(verification.receipt?.payer).toBe("0xMppPayer456");
+      expect(verification.valid).toBe(false);
+      expect(verification.receipt).toBeUndefined();
+      expect(verification.reason).toContain("mppx");
     });
-
     it("rejects PAYMENT-SIGNATURE with mismatched challenge nonce", async () => {
       const challenge = paymentService.createX402Challenge("/api/premium/options-scan", 0.05);
       const proof: X402PaymentProof = {
@@ -163,6 +157,43 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
     });
   });
 
+  describe("3b. MPP via mppx", () => {
+    const resource = TRADING_PAID_SERVICES.OPTIONS_SCREENER.resource;
+
+    it("issues a signed mppx WWW-Authenticate challenge when MPP_SECRET_KEY is set", async () => {
+      const service = new ETradeAgenticPaymentService(orm, { ...mockEnv, MPP_SECRET_KEY: "test-secret-key-test-secret-key-0123456789" }, "trader_session_1");
+      const req = new Request("https://agent.openaimp.com/api/premium/options-scan");
+      const res = await service.handleGatedEndpoint(req, resource, 0.05, "Options Screener", async () => ({}));
+
+      expect(res.status).toBe(402);
+      expect(res.headers.get("PAYMENT-REQUIRED")).toBeTruthy();
+      expect(res.headers.get("WWW-Authenticate")).toMatch(/^Payment /);
+      expect(res.headers.get("WWW-Authenticate")).toContain('id="');
+    });
+
+    it("does not fulfill a forged MPP credential", async () => {
+      const service = new ETradeAgenticPaymentService(orm, { ...mockEnv, MPP_SECRET_KEY: "test-secret-key-test-secret-key-0123456789" }, "trader_session_1");
+      const fulfill = vi.fn().mockResolvedValue({ data: "paid" });
+      const req = new Request("https://agent.openaimp.com/api/premium/options-scan", {
+        headers: { Authorization: 'Payment method="tempo", payer="0xForged", txHash="0xabc"' },
+      });
+      const res = await service.handleGatedEndpoint(req, resource, 0.05, "Options Screener", fulfill);
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(fulfill).not.toHaveBeenCalled();
+    });
+
+    it("rejects MPP credentials when MPP_SECRET_KEY is not configured", async () => {
+      const fulfill = vi.fn();
+      const req = new Request("https://agent.openaimp.com/api/premium/options-scan", {
+        headers: { Authorization: 'Payment method="tempo"' },
+      });
+      const res = await paymentService.handleGatedEndpoint(req, resource, 0.05, "Options Screener", fulfill);
+
+      expect(res.status).toBe(402);
+      expect(fulfill).not.toHaveBeenCalled();
+    });
+  });
   describe("3. Server-Side Provider: handleGatedEndpoint", () => {
     it("returns HTTP 402 challenge when request lacks payment header", async () => {
       const req = new Request("https://agent.openaimp.com/api/premium/options-scan", {

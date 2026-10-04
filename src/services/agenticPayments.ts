@@ -31,6 +31,7 @@ import type {
   PaymentRequiredCallback,
   TransactionRecord,
 } from "../types";
+import { Mppx, tempo } from "mppx/server";
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 
@@ -305,52 +306,10 @@ export class ETradeAgenticPaymentService {
       }
     }
 
-    // 2. Process MPP Payment Authorization
+    // 2. MPP credentials are cryptographically verified by mppx in handleGatedEndpoint; never accept them from headers alone.
     if (mppAuth && mppAuth.toLowerCase().startsWith("payment ")) {
-      try {
-        const authPayload = mppAuth.slice(8).trim();
-        let payer = "0xAgentBuyer";
-        let txHash = `0x_mpp_${Date.now()}`;
-
-        // Extract credentials if provided as key=value or JSON
-        if (authPayload.startsWith("{")) {
-          const parsed = JSON.parse(authPayload);
-          payer = parsed.payer || payer;
-          txHash = parsed.txHash || txHash;
-        } else {
-          const payerMatch = authPayload.match(/payer=["']?([^"',\s]+)["']?/);
-          if (payerMatch) payer = payerMatch[1];
-        }
-
-        const receiptId = `rcpt_mpp_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`;
-        const amount = "amount" in challenge ? (typeof challenge.amount === "number" ? challenge.amount : parseFloat(challenge.amount)) : 0.05;
-
-        const receipt: AgenticPaymentReceipt = {
-          receiptId,
-          protocol: "mpp",
-          resource: "resource" in challenge ? challenge.resource : (challenge.realm || ""),
-          amount,
-          currency: "USDC",
-          network: this.network,
-          payer,
-          recipient: this.recipient,
-          status: "verified",
-          txHash,
-          timestamp: new Date().toISOString(),
-          proposerDid: AGENT_DIDS.TRADING,
-          authorizerDid: `did:mpp:${payer}`,
-          note: "Verified via Machine Payments Protocol (MPP).",
-        };
-
-        // Persist transaction in SQLite
-        await this.recordPaymentTransaction(receipt, "inbound");
-
-        return { valid: true, receipt };
-      } catch (err: any) {
-        return { valid: false, reason: `Failed to parse MPP Authorization: ${err.message}` };
-      }
+      return { valid: false, reason: "MPP credentials must be verified through the mppx gateway (handleGatedEndpoint)." };
     }
-
     return { valid: false, reason: "No payment credentials provided. Expected PAYMENT-SIGNATURE or Authorization: Payment." };
   }
 
@@ -367,11 +326,20 @@ export class ETradeAgenticPaymentService {
     const extractedNonce = this.extractNonce(req.headers);
     const challenge = this.createX402Challenge(resource, priceUSD, description, extractedNonce);
 
+    const hasX402 = Boolean(req.headers.get("PAYMENT-SIGNATURE"));
+    const hasMpp = /^payment\s/i.test(req.headers.get("Authorization") || "");
+    if (hasMpp && !hasX402) {
+      return this.handleMppRequest(req, resource, priceUSD, description, fulfill);
+    }
+
     // Verify if payment headers are attached
     const verification = await this.verifyPayment(req.headers, challenge);
 
     if (!verification.valid || !verification.receipt) {
-      return this.createPaymentRequiredResponse(challenge);
+      const required = this.createPaymentRequiredResponse(challenge);
+      const mppChallenge = await this.issueMppChallenge(req, priceUSD, description);
+      if (mppChallenge) required.headers.set("WWW-Authenticate", mppChallenge);
+      return required;
     }
 
     // Payment is valid: Fulfill the premium data
@@ -391,6 +359,68 @@ export class ETradeAgenticPaymentService {
     });
   }
 
+  private createMppx() {
+    if (!this.mppSecretKey) return null;
+    return Mppx.create({
+      methods: [
+        tempo.charge({
+          recipient: this.recipient as `0x${string}`,
+          testnet: this.network.includes("sepolia") || this.network.includes("test"),
+        }),
+      ],
+      secretKey: this.mppSecretKey,
+    });
+  }
+
+  /** Returns the mppx-signed WWW-Authenticate challenge, or null when MPP is not configured. */
+  private async issueMppChallenge(req: Request, priceUSD: number, description: string): Promise<string | null> {
+    const mppx = this.createMppx();
+    if (!mppx) return null;
+    const result = await mppx.charge({ amount: priceUSD.toFixed(2), description })(req.clone() as unknown as Request);
+    return result.status === 402 ? result.challenge.headers.get("WWW-Authenticate") : null;
+  }
+
+  /** Verify an MPP credential with mppx, fulfill the request and attach the MPP receipt. */
+  private async handleMppRequest(
+    req: Request,
+    resource: string,
+    priceUSD: number,
+    description: string,
+    fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>
+  ): Promise<Response> {
+    const mppx = this.createMppx();
+    if (!mppx) {
+      return new Response(JSON.stringify({ error: "MPP payments are not configured (MPP_SECRET_KEY missing)." }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const result = await mppx.charge({ amount: priceUSD.toFixed(2), description })(req.clone() as unknown as Request);
+    if (result.status === 402) return result.challenge;
+
+    const receipt: AgenticPaymentReceipt = {
+      receiptId: `rcpt_mpp_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+      protocol: "mpp",
+      resource,
+      amount: priceUSD,
+      currency: "USDC",
+      network: this.network,
+      payer: "mpp-credential",
+      recipient: this.recipient,
+      status: "verified",
+      txHash: "",
+      timestamp: new Date().toISOString(),
+      proposerDid: AGENT_DIDS.TRADING,
+      authorizerDid: "did:mpp:credential",
+      note: "Verified by the mppx SDK (Machine Payments Protocol).",
+    };
+    await this.recordPaymentTransaction(receipt, "inbound");
+
+    const data = await fulfill(receipt);
+    return result.withReceipt(
+      new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as Response;
+  }
   // =========================================================================
   // 2. Client-Side Buyer: Autonomous Outbound Micropayments with HITL
   // =========================================================================
@@ -421,13 +451,11 @@ export class ETradeAgenticPaymentService {
     };
 
     const x402Header = Buffer.from(JSON.stringify(x402Proof)).toString("base64");
-    const mppHeader = `Payment method="tempo", payer="${payerAddress}", txHash="${txHash}", sig="${signature}"`;
 
     return {
       x402Proof,
       headers: {
         "PAYMENT-SIGNATURE": x402Header,
-        Authorization: mppHeader,
       },
     };
   }

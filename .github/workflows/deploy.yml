@@ -216,6 +216,7 @@ jobs:
           LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
           LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
+          MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
         run: |
           if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
           if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
@@ -225,3 +226,4 @@ jobs:
           if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
           if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
           if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
+          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
