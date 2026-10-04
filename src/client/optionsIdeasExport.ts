@@ -1,3 +1,5 @@
+import type { ETradeOptionChainContract } from "../types";
+
 export interface RawOptionsIdeasExport {
   symbol: string;
   question: string;
@@ -58,6 +60,11 @@ export interface OptionsIdeasReportExport {
     error?: string;
     contractSymbols?: string[];
     contractWarnings?: string[];
+    contractDetails?: Array<{
+      symbol: string;
+      expiration: string;
+      contract: ETradeOptionChainContract;
+    }>;
     expirationCount: number;
     contractCount: number;
     sentContractCount: number;
@@ -207,6 +214,53 @@ export async function createOptionsIdeasReportXls(report: OptionsIdeasReportExpo
     ]);
   }
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(groupRows), "Group Evaluations");
+
+  const verifiedContracts = report.groups.flatMap((group) =>
+    (group.contractDetails || []).map((detail) => ({
+      group: group.label,
+      ...detail,
+    })),
+  );
+  if (verifiedContracts.length) {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      [
+        "Expiration Group",
+        "Expiration",
+        "E*TRADE Contract Symbol",
+        "Option Type",
+        "Strike",
+        "Bid",
+        "Ask",
+        "Last",
+        "Volume",
+        "Open Interest",
+        "Delta",
+        "Gamma",
+        "Theta",
+        "Vega",
+        "Rho",
+        "Implied Volatility",
+      ],
+      ...verifiedContracts.map(({ group, expiration, contract }) => [
+        group,
+        expiration,
+        contract.symbol,
+        contract.optionType,
+        contract.strikePrice,
+        contract.bid,
+        contract.ask,
+        contract.lastPrice,
+        contract.volume,
+        contract.openInterest,
+        contract.delta,
+        contract.gamma,
+        contract.theta,
+        contract.vega,
+        contract.rho,
+        contract.impliedVolatility,
+      ]),
+    ]), "Verified Contracts");
+  }
 
   const rankings = report.finalAnalysis.rankings || [];
   if (rankings.length) {

@@ -69,6 +69,40 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(parsed.contractWarnings).toEqual([]);
   });
 
+  it("normalizes formatting-only symbol differences in the answer and contract list", () => {
+    const chainWithActualExpiry: ETradeOptionChain[] = [{
+      ...chains[0],
+      selectedExpiry: { year: 2026, month: 10, day: 16 },
+      pairs: [{
+        put: { ...chains[0].pairs[0].call!, symbol: "NVDA261016P00230000", optionType: "PUT", strikePrice: 230 },
+        call: { ...chains[0].pairs[0].call!, symbol: "NVDA261016C00230000", strikePrice: 230 },
+      }],
+    }];
+    const parsed = parseRawOptionsIdeas(JSON.stringify({
+      answer: "Sell NVDA--261016P00230000 and buy NVDA--261016C00230000.",
+      contractSymbols: ["NVDA--261016P00230000", "NVDA--261016C00230000"],
+    }), chainWithActualExpiry);
+
+    expect(parsed.answer).toContain("NVDA261016P00230000");
+    expect(parsed.answer).toContain("NVDA261016C00230000");
+    expect(parsed.contractSymbols).toEqual(["NVDA261016P00230000", "NVDA261016C00230000"]);
+    expect(parsed.contractWarnings).toEqual([]);
+  });
+
+  it("extracts verifiable contract symbols from the answer when the model omits them from its list", () => {
+    const parsed = parseRawOptionsIdeas(JSON.stringify({
+      answer: "Consider NVDA--261016C00230000.",
+    }), [{
+      ...chains[0],
+      pairs: [{
+        call: { ...chains[0].pairs[0].call!, symbol: "NVDA261016C00230000" },
+      }],
+    }]);
+
+    expect(parsed.contractSymbols).toEqual(["NVDA261016C00230000"]);
+    expect(parsed.contractWarnings).toEqual([]);
+  });
+
   it("does not map ambiguous human-readable contract references", () => {
     const duplicateExpiry = {
       ...chains[0],
@@ -271,6 +305,11 @@ describe("Raw E*TRADE LLM options ideas", () => {
         status: "complete",
         answer: "A call spread is strongest.",
         contractSymbols: ["NVDA260120C00180000"],
+        contractDetails: [{
+          symbol: "NVDA260120C00180000",
+          expiration: "2026-01-20",
+          contract: chains[0].pairs[0].call!,
+        }],
         expirationCount: 1,
         contractCount: 40,
         sentContractCount: 30,
@@ -284,7 +323,18 @@ describe("Raw E*TRADE LLM options ideas", () => {
     });
     const XLSX = await import("@e965/xlsx");
     const workbook = XLSX.read(bytes, { type: "array" });
-    expect(workbook.SheetNames).toEqual(["Summary", "Group Evaluations", "Cross-Group Ranking"]);
+    expect(workbook.SheetNames).toEqual(["Summary", "Group Evaluations", "Verified Contracts", "Cross-Group Ranking"]);
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets["Verified Contracts"], { header: 1 }))
+      .toContainEqual([
+        "Near-term (0–30 DTE)",
+        "2026-01-20",
+        "NVDA260120C00180000",
+        "CALL",
+        180,
+        3,
+        4,
+        3.5,
+      ]);
     expect(XLSX.utils.sheet_to_json(workbook.Sheets["Cross-Group Ranking"], { header: 1 }))
       .toContainEqual(["1", "Near-term (0–30 DTE)", "Call spread", "Fits the outlook."]);
   });

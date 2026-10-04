@@ -214,7 +214,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             </article>
           ) : (
             <div className="options-error" role="alert">
-              Final cross-group ranking failed: {result.finalAnalysis?.error || result.llm.error || "No completed group analyses were available."}
+              Final cross-group ranking is unavailable: {result.finalAnalysis?.error || result.llm.error || "No completed group analyses were available."} Group-level results below are still available; no overall winner is inferred.
             </div>
           )}
           {(result.groups || []).map((group) => (
@@ -228,6 +228,44 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 : <div className="options-error" role="alert">{group.error}</div>}
               {(group.contractSymbols || []).length > 0 && (
                 <p><b>Referenced E*TRADE contracts:</b> {group.contractSymbols?.join(", ")}</p>
+              )}
+              {(group.contractDetails || []).length > 0 && (
+                <div className="options-table-scroll">
+                  <table className="options-table">
+                    <thead>
+                      <tr>
+                        <th>Expiry</th>
+                        <th>Contract</th>
+                        <th>Type</th>
+                        <th>Strike</th>
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Last</th>
+                        <th>Volume</th>
+                        <th>Open interest</th>
+                        <th>Delta</th>
+                        <th>IV</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.contractDetails?.map(({ symbol: contractSymbol, expiration, contract }) => (
+                        <tr key={contractSymbol}>
+                          <td>{expiration}</td>
+                          <td>{contractSymbol}</td>
+                          <td>{contract.optionType}</td>
+                          <td>{contract.strikePrice}</td>
+                          <td>{contract.bid}</td>
+                          <td>{contract.ask}</td>
+                          <td>{contract.lastPrice}</td>
+                          <td>{contract.volume ?? "—"}</td>
+                          <td>{contract.openInterest ?? "—"}</td>
+                          <td>{contract.delta ?? "—"}</td>
+                          <td>{contract.impliedVolatility ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
               {(group.contractWarnings || []).map((warning) => (
                 <p className="options-comparison-note" role="note" key={warning}>{warning}</p>
