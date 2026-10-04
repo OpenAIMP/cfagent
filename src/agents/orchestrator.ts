@@ -2381,10 +2381,21 @@ Agentic Best Practices & Workflow Rules:
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const results = await etrade.screenMarketsAsync(filters);
         this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
+        // The full-universe ledger lists every listing (thousands of rows); keep only a bounded sample
+        // so the response fits within the async job-result limit.
+        const ledger = results.ledger
+          ? {
+              ...results.ledger,
+              universeSymbols: results.ledger.universeSymbols.slice(0, 200),
+              rejections: results.ledger.rejections.slice(0, 200),
+              truncated: results.ledger.universeSymbols.length > 200 || results.ledger.rejections.length > 200,
+            }
+          : undefined;
         return Response.json({
           ...results,
-          results: results.stocks,
-          stocks: results.stocks,
+          ledger,
+          stocks: results.stocks.slice(0, 1000),
+          stocksTruncated: results.stocks.length > 1000,
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });

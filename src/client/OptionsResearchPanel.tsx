@@ -362,7 +362,14 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
   );
 }
 
-type NlqResultView = { summary?: string; count?: number; rows?: Array<Record<string, unknown>> };
+type NlqResultView = {
+  summary?: string;
+  validationError?: string;
+  count?: number;
+  rows?: Array<Record<string, unknown>>;
+  rejections?: Array<{ contractSymbol?: string; reason?: string }>;
+  provenance?: { bestTrade?: BestTradeData };
+};
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
   const [symbol, setSymbol] = useState("");
@@ -402,7 +409,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [nlqResult, setNlqResult] = useState<NlqResultView | null>(null);
 
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
-  const hasResults = Boolean(bestTrade || comparison || result);
+  const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
   useEffect(() => {
     onJobStateChange?.(loading ? "running" : hasResults ? "ready" : "idle");
   }, [loading, hasResults, onJobStateChange]);
@@ -600,12 +607,33 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       </form>
       {nlqError && <p className="options-error" role="alert">{nlqError}</p>}
       {nlqResult && (
-        <div className="options-nlq-result">
-          {nlqResult.summary && <p>{nlqResult.summary}</p>}
-          <details>
-            <summary>Result rows ({nlqResult.rows?.length ?? 0})</summary>
-            <pre>{JSON.stringify(nlqResult.rows ?? [], null, 2)}</pre>
-          </details>
+        <div className="options-nlq-result" role="status">
+          <strong>{nlqResult.count ?? 0} result rows</strong>
+          <p>{nlqResult.validationError || nlqResult.summary}</p>
+          {nlqResult.provenance?.bestTrade && <BestTradeCard pick={nlqResult.provenance.bestTrade} onPreview={previewTrade} />}
+          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
+            <StrategyLedgerTable rows={nlqResult.rows} />
+          )}
+          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && !Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
+            <div className="options-scenario-table-wrap">
+              <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
+                <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
+                <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
+                  <tr key={`${row.contractSymbol || row.symbol || "row"}:${index}`}>
+                    {Object.values(row).map((value, column) => <td key={column}>{String(value ?? "N/A")}</td>)}
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          {Array.isArray(nlqResult.rejections) && nlqResult.rejections.length > 0 && (
+            <details className="options-excluded">
+              <summary>View quote and filter rejections</summary>
+              <ul>{nlqResult.rejections.slice(0, 8).map((rejection: any, index: number) => (
+                <li key={`${rejection.contractSymbol}:${index}`}>{rejection.contractSymbol}: {rejection.reason}</li>
+              ))}</ul>
+            </details>
+          )}
         </div>
       )}
       <div className="options-workflow" aria-label="Options research workflow">
@@ -831,6 +859,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
             llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
           })) },
+          { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
         ]}
       />
     </section>
