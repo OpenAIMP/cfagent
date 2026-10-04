@@ -87,7 +87,6 @@ function comparisonPrompt(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
-  mode: "rank" | "ideas",
 ): string {
   const payload = {
     request: {
@@ -106,9 +105,7 @@ function comparisonPrompt(
     screenedOptionContracts: compactContracts(contracts),
     quantGeneratedCandidates: compactCandidates(candidates),
   };
-  const instruction = mode === "rank"
-    ? "Rank every supplied quantGeneratedCandidates entry exactly once, from best to worst. Use only their candidateId values. Give each a distinct reasoned score from 0 to 100 and concise rationale and risks. The score is your independent qualitative ranking, not the quantScore."
-    : "Select up to five interesting candidates from quantGeneratedCandidates for a separate idea-generation experiment. Prefer a varied, non-obvious set, but do not invent strategy structures, contracts, prices, metrics, or candidate IDs.";
+  const instruction = "Rank every supplied quantGeneratedCandidates entry exactly once, from best to worst. Use only their candidateId values. Give each a distinct reasoned score from 0 to 100 and concise rationale and risks. The score is your independent qualitative ranking, not the quantScore.";
   return `${instruction}
 
 Return only valid JSON matching:
@@ -123,7 +120,6 @@ ${JSON.stringify(payload)}`;
 export function parseLlmCandidateSelections(
   text: string,
   candidates: StrategyCandidate[],
-  requireEveryCandidate: boolean,
 ): LlmCandidateJudgment[] {
   const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = selectionSchema.parse(JSON.parse(unwrapped));
@@ -138,7 +134,7 @@ export function parseLlmCandidateSelections(
     }
     selectedIds.add(selection.candidateId);
   }
-  if (requireEveryCandidate && selectedIds.size !== candidateIds.size) {
+  if (selectedIds.size !== candidateIds.size) {
     throw new Error("LLM did not rank every quant candidate exactly once.");
   }
   return parsed.selections.map((selection, index) => ({ ...selection, rank: index + 1 }));
@@ -149,12 +145,9 @@ export function describeLlmInput(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
-  mode: "rank" | "ideas",
 ) {
-  const objective = mode === "rank"
-    ? "Test whether an LLM, given exactly the same screened contracts and quant-generated candidates, ranks trades similarly to the deterministic quant score."
-    : "Test whether an LLM can pick varied, interesting trades from the quant-generated pool. It can only select existing candidates; legs and risk math are never invented.";
-  const prompt = comparisonPrompt(request, riskProfile, contracts, candidates, mode);
+  const objective = "Test whether an LLM, given exactly the same screened contracts and quant-generated candidates, ranks trades similarly to the deterministic quant score.";
+  const prompt = comparisonPrompt(request, riskProfile, contracts, candidates);
   return {
     objective,
     system: LLM_SYSTEM_PROMPT,
@@ -177,18 +170,17 @@ async function generateSelections(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
-  mode: "rank" | "ideas",
 ): Promise<LlmCandidateResponse> {
   if (candidates.length === 0) return { model: env.AI_MODEL || DEFAULT_AI_MODEL, ranked: [] };
   const { text } = await generateText({
     model: getWorkersAIModel(env),
     temperature: 0,
     system: LLM_SYSTEM_PROMPT,
-    prompt: comparisonPrompt(request, riskProfile, contracts, candidates, mode),
+    prompt: comparisonPrompt(request, riskProfile, contracts, candidates),
   });
   return {
     model: env.AI_MODEL || DEFAULT_AI_MODEL,
-    ranked: parseLlmCandidateSelections(text, candidates, mode === "rank"),
+    ranked: parseLlmCandidateSelections(text, candidates),
   };
 }
 
@@ -199,15 +191,5 @@ export function rankCandidatesWithLlm(
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
 ): Promise<LlmCandidateResponse> {
-  return generateSelections(env, request, riskProfile, contracts, candidates, "rank");
-}
-
-export function generateLlmCandidateIdeas(
-  env: Env,
-  request: StrategyRequest,
-  riskProfile: RiskProfile,
-  contracts: ScreenedOptionContractItem[],
-  candidates: StrategyCandidate[],
-): Promise<LlmCandidateResponse> {
-  return generateSelections(env, request, riskProfile, contracts, candidates, "ideas");
+  return generateSelections(env, request, riskProfile, contracts, candidates);
 }

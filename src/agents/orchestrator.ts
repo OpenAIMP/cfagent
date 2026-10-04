@@ -14,7 +14,8 @@ import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
-import { describeLlmInput, generateLlmCandidateIdeas, rankCandidatesWithLlm } from "../trading/options/llmComparison";
+import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
+import { buildRawOptionsIdeasInput, generateRawOptionsIdeas } from "../trading/options/llmIdeas";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2403,7 +2404,94 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
-    if ((path.endsWith("/trading/options/compare") || path.endsWith("/trading/options/llm-ideas")) && request.method === "POST") {
+    if (path.endsWith("/trading/options/llm-ideas") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as { symbol?: unknown; question?: unknown } | null;
+      const symbol = typeof body?.symbol === "string" ? body.symbol.trim().toUpperCase() : "";
+      const question = typeof body?.question === "string" ? body.question.trim() : "";
+      if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) {
+        return Response.json({ error: "Provide a valid stock ticker symbol." }, { status: 400 });
+      }
+      if (!question || question.length > 4000) {
+        return Response.json({ error: "Provide a natural-language question up to 4,000 characters." }, { status: 400 });
+      }
+
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const expirations = await etrade.client.getOptionExpireDates(symbol);
+        if (expirations.length === 0) {
+          throw new Error(etrade.client.lastError || `E*TRADE returned no option expirations for ${symbol}.`);
+        }
+
+        const optionChains = [];
+        for (const expiry of expirations) {
+          const chain = await etrade.client.getOptionChains({
+            symbol,
+            expiryYear: expiry.year,
+            expiryMonth: expiry.month,
+            expiryDay: expiry.day,
+            includeWeekly: true,
+            chainType: "CALLPUT",
+            includeRawResponse: true,
+          });
+          if (!chain) {
+            throw new Error(
+              etrade.client.lastError ||
+              `E*TRADE did not return the complete option chain for ${symbol} ${expiry.year}-${expiry.month}-${expiry.day}.`,
+            );
+          }
+          optionChains.push(chain);
+        }
+
+        const contractCount = optionChains.reduce(
+          (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
+          0,
+        );
+        if (contractCount === 0) {
+          throw new Error(`E*TRADE returned no option contracts for ${symbol}; no LLM request was sent.`);
+        }
+
+        const llmInput = buildRawOptionsIdeasInput(symbol, question, expirations, optionChains);
+        try {
+          const llm = await generateRawOptionsIdeas(this.env, llmInput);
+          return Response.json({
+            mode: "raw_etrade_options_ideas",
+            llm: { status: "complete", model: llm.model, scenarios: llm.scenarios },
+            llmInput: {
+              symbol: llmInput.symbol,
+              question: llmInput.question,
+              expirations: llmInput.expirations,
+              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
+              systemPrompt: llmInput.systemPrompt,
+              userPrompt: llmInput.userPrompt,
+            },
+            dataCoverage: { expirationCount: expirations.length, chainCount: optionChains.length, contractCount },
+          });
+        } catch (err) {
+          return Response.json({
+            mode: "raw_etrade_options_ideas",
+            llm: {
+              status: "error",
+              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
+              error: err instanceof Error ? err.message : "Raw-data LLM idea generation failed.",
+            },
+            llmInput: {
+              symbol: llmInput.symbol,
+              question: llmInput.question,
+              expirations: llmInput.expirations,
+              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
+              systemPrompt: llmInput.systemPrompt,
+              userPrompt: llmInput.userPrompt,
+            },
+            dataCoverage: { expirationCount: expirations.length, chainCount: optionChains.length, contractCount },
+          });
+        }
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data." }, { status: 502 });
+      }
+    }
+
+    if (path.endsWith("/trading/options/compare") && request.method === "POST") {
       const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
         riskProfile?: RiskProfile;
         alternatives?: number;
@@ -2425,17 +2513,6 @@ Agentic Best Practices & Workflow Rules:
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
-        const isCompare = path.endsWith("/trading/options/compare");
-        const llmCandidates = isCompare
-          ? result.ranked.slice(0, 20).map((ranked) => ranked.candidate)
-          : (() => {
-              const best = new Map<string, typeof result.strategies.candidates[number]>();
-              for (const c of result.strategies.candidates) {
-                const cur = best.get(c.type);
-                if (!cur || c.score > cur.score) best.set(c.type, c);
-              }
-              return [...best.values()].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 50);
-            })();
         const poolByType = new Map<string, { type: string; label: string; generated: number; bestScore: number }>();
         for (const c of result.strategies.candidates) {
           const e = poolByType.get(c.type) || { type: c.type, label: c.label, generated: 0, bestScore: 0 };
@@ -2444,7 +2521,7 @@ Agentic Best Practices & Workflow Rules:
           poolByType.set(c.type, e);
         }
         const common = {
-          llmInput: describeLlmInput(strategyRequest, body.riskProfile || "balanced", result.snapshot.contracts, llmCandidates, isCompare ? "rank" : "ideas"),
+          llmInput: describeLlmInput(strategyRequest, body.riskProfile || "balanced", result.snapshot.contracts, result.ranked.slice(0, 20).map((ranked) => ranked.candidate)),
           quantStrategyPool: [...poolByType.values()],
           screen: result.snapshot.screen,
           contracts: result.snapshot.contracts,
@@ -2489,50 +2566,6 @@ Agentic Best Practices & Workflow Rules:
           }
         }
 
-        const bestByStrategy = new Map<string, typeof result.strategies.candidates[number]>();
-        for (const candidate of result.strategies.candidates) {
-          const current = bestByStrategy.get(candidate.type);
-          if (!current || candidate.score > current.score) bestByStrategy.set(candidate.type, candidate);
-        }
-        const ideaPool = [...bestByStrategy.values()]
-          .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-          .slice(0, 50);
-        try {
-          const llm = await generateLlmCandidateIdeas(
-            this.env,
-            strategyRequest,
-            body.riskProfile || "balanced",
-            result.snapshot.contracts,
-            ideaPool,
-          );
-          const byId = new Map(ideaPool.map((candidate) => [candidate.id, candidate]));
-          return Response.json({
-            mode: "validated_candidate_ideas",
-            llm: {
-              status: "complete",
-              model: llm.model,
-              ideas: llm.ranked.map((judgment) => ({
-                ...judgment,
-                candidate: byId.get(judgment.candidateId),
-              })),
-            },
-            quantCandidatePoolCount: result.strategies.candidates.length,
-            ideaPoolCount: ideaPool.length,
-            ...common,
-          });
-        } catch (err) {
-          return Response.json({
-            mode: "validated_candidate_ideas",
-            llm: {
-              status: "error",
-              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
-              error: err instanceof Error ? err.message : "LLM idea generation failed.",
-            },
-            quantCandidatePoolCount: result.strategies.candidates.length,
-            ideaPoolCount: ideaPool.length,
-            ...common,
-          });
-        }
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options candidate generation failed." }, { status: 500 });
       }

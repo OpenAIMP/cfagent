@@ -837,6 +837,7 @@ export interface ETradeOptionChainContract {
 export interface ETradeOptionChain {
   symbol: string;
   underlyingPrice: number;
+  raw?: Record<string, unknown>;
   selectedExpiry?: {
     year: number;
     month: number;
@@ -1284,4 +1285,3 @@ export interface TWAPOrderConfig {
   intervalSeconds: number;
   maxPrice?: number;
 }
-

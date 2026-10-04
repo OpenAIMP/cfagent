@@ -1992,6 +1992,7 @@ export class ETradeRestClient {
     noOfStrikes?: number;
     includeWeekly?: boolean;
     chainType?: "CALL" | "PUT" | "CALLPUT";
+    includeRawResponse?: boolean;
   }): Promise<ETradeOptionChain | null> {
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !params.symbol) return null;
@@ -2046,7 +2047,12 @@ export class ETradeRestClient {
       if (!resp) return null;
 
       let rawPairs = resp.OptionPair;
-      if (!rawPairs) return { symbol: params.symbol.toUpperCase(), underlyingPrice: Number(resp.nearPrice || 0), pairs: [] };
+      if (!rawPairs) return {
+        symbol: params.symbol.toUpperCase(),
+        underlyingPrice: Number(resp.nearPrice || 0),
+        ...(params.includeRawResponse ? { raw: resp } : {}),
+        pairs: [],
+      };
       if (!Array.isArray(rawPairs)) rawPairs = [rawPairs];
 
       const mapContract = (c: any, type: "CALL" | "PUT") => {
@@ -2085,6 +2091,7 @@ export class ETradeRestClient {
       return {
         symbol: params.symbol.toUpperCase(),
         underlyingPrice: Number(resp.nearPrice || 0),
+        ...(params.includeRawResponse ? { raw: resp } : {}),
         selectedExpiry: resp.SelectedED ? {
           year: Number(resp.SelectedED.year || 0),
           month: Number(resp.SelectedED.month || 0),
@@ -2912,4 +2919,3 @@ export class ETradeRestClient {
     return revokeRemoteAccessToken(this.env, this.userLogin, this.overrideEnv);
   }
 }
-
