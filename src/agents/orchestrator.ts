@@ -794,6 +794,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Purge any empty assistant messages from prior failed turns in session memory
     this.messages = this.messages.filter((m: any) => {
       if (!m || typeof m !== "object") return false;
+      if (m.metadata?.activity) return true;
       if (m.role === "assistant") {
         const text = typeof m.content === "string" ? m.content.trim() : "";
         const parts = Array.isArray(m.parts) ? m.parts : [];
@@ -901,7 +902,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Safely normalize messages to prevent AI SDK convertToModelMessages crashes
     let modelMessages: any[];
     try {
-      const cleanMessages = normalizeMessagesForSDK(this.messages);
+      const cleanMessages = normalizeMessagesForSDK(this.messages.filter((m: any) => !m?.metadata?.activity));
       modelMessages = await convertToModelMessages(cleanMessages);
       if (!modelMessages || modelMessages.length === 0) {
         modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
@@ -1004,7 +1005,7 @@ Agentic Best Practices & Workflow Rules:
     const path = url.pathname;
     this.ensureTables();
 
-    if (path.endsWith("/api/jobs") && request.method === "GET") {
+    if (/(?:^|\/api)\/jobs$/.test(path) && request.method === "GET") {
       const jobs = this.listAsyncJobs(Number(url.searchParams.get("limit")) || 50).map((job) => {
         const { result: _result, ...summary } = job;
         return summary;
@@ -1012,7 +1013,7 @@ Agentic Best Practices & Workflow Rules:
       return Response.json({ jobs });
     }
 
-    const jobMatch = path.match(/\/api\/jobs\/([0-9a-f-]{36})$/i);
+    const jobMatch = path.match(/(?:^|\/api)\/jobs\/([0-9a-f-]{36})$/i);
     if (jobMatch && request.method === "GET") {
       const job = this.getAsyncJob(jobMatch[1]);
       return job
@@ -1020,12 +1021,46 @@ Agentic Best Practices & Workflow Rules:
         : Response.json({ error: "Async job not found." }, { status: 404 });
     }
 
+    if (/(?:^|\/api)\/chat-activity$/.test(path) && request.method === "POST") {
+      return this.logChatActivity(request);
+    }
+
+    // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
-    if (path.startsWith("/api/") && !path.includes("/api/jobs") && !isMcpEndpoint) {
+    const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
+    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint) {
       return this.enqueueHttpRequest(request, url);
     }
 
     return this.routeRequest(request);
+  }
+
+  /**
+   * Records a request handled by another agent/tab in the shared chat transcript
+   * without invoking the chat model. Entries with the same id are updated in place.
+   */
+  private async logChatActivity(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { id?: unknown; source?: unknown; text?: unknown } | null;
+    const id = typeof body?.id === "string" && /^[A-Za-z0-9_-]{8,80}$/.test(body.id) ? body.id : crypto.randomUUID();
+    const source = typeof body?.source === "string" ? body.source.slice(0, 80) : "";
+    const text = typeof body?.text === "string" ? body.text.trim().slice(0, 4000) : "";
+    if (!source || !text) {
+      return Response.json({ error: "source and text are required." }, { status: 400 });
+    }
+
+    const entry = {
+      id: `activity_${id}`,
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text }],
+      metadata: { sourceTab: source, activity: true },
+    };
+    const existing = this.messages.findIndex((message: any) => message?.id === entry.id);
+    const next = existing >= 0
+      ? this.messages.map((message: any, index: number) => (index === existing ? entry : message))
+      : [...this.messages, entry];
+    await this.persistMessages(next as typeof this.messages);
+    this.recordMessage("system", `[${source}] ${text}`, "orchestrator");
+    return Response.json({ id });
   }
 
   private async enqueueHttpRequest(request: Request, url: URL): Promise<Response> {

@@ -362,6 +362,8 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
   );
 }
 
+type NlqResultView = { summary?: string; count?: number; rows?: Array<Record<string, unknown>> };
+
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
   const [symbol, setSymbol] = useState("");
   const [thesis, setThesis] = useState<OptionThesis>("bullish");
@@ -395,6 +397,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [nlqQuery, setNlqQuery] = useState("");
   const [nlqMaxUnderlyings, setNlqMaxUnderlyings] = useState("25");
   const [nlqQuoteAgeSeconds, setNlqQuoteAgeSeconds] = useState("60");
+  const [nlqLoading, setNlqLoading] = useState(false);
+  const [nlqError, setNlqError] = useState("");
+  const [nlqResult, setNlqResult] = useState<NlqResultView | null>(null);
 
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
   const hasResults = Boolean(bestTrade || comparison || result);
@@ -501,15 +506,48 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     void run("rank");
   };
 
-  const submitNaturalLanguage = (event: React.FormEvent) => {
+  const logChatActivity = (id: string, text: string) => {
+    void fetch("/api/chat-activity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, source: "E*TRADE · Auto Options Research", text }),
+    }).catch(() => undefined);
+  };
+
+  const submitNaturalLanguage = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!nlqQuery.trim()) return;
+    if (!nlqQuery.trim() || nlqLoading) return;
     const prompt = [
       nlqQuery.trim(),
       `scan up to ${Number(nlqMaxUnderlyings)} underlyings`,
       `quote age reference ${Number(nlqQuoteAgeSeconds)} seconds`,
     ].join("; ");
-    onSendPrompt?.(prompt, "E*TRADE · Auto Options Research");
+    const activityId = crypto.randomUUID();
+    setNlqLoading(true);
+    setNlqError("");
+    setNlqResult(null);
+    logChatActivity(activityId, `Request submitted to the options agent: ${prompt}`);
+    try {
+      const response = await fetch("/api/nlq", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify({ query: prompt }),
+      });
+      const data = await response.json() as NlqResultView;
+      if (!response.ok) throw new Error((data as { error?: string }).error || "Options request failed");
+      setNlqResult(data);
+      logChatActivity(activityId, `Options agent completed: ${prompt}\n${data.summary || `${data.count ?? 0} result(s)`}`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Options request failed";
+      setNlqError(message);
+      logChatActivity(activityId, `Options agent failed: ${prompt}\n${message}`);
+    } finally {
+      setNlqLoading(false);
+    }
   };
 
   return (
@@ -518,7 +556,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         <div>
           <p className="options-eyebrow">AUTO OPTIONS RESEARCH · PAPER ONLY</p>
           <h2>Auto Options Research</h2>
-          <p>Ask the shared chat to interpret an options-screening request, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. No orders are placed.</p>
+          <p>Run an options-screening request in the background, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. Requests are logged to the shared Chat without leaving this tab. No orders are placed.</p>
         </div>
         {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
       </header>
@@ -556,10 +594,20 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             placeholder="No limit"
           />
         </label>
-        <button type="submit" disabled={!nlqQuery.trim() || !onSendPrompt}>
-          Ask in Chat
+        <button type="submit" disabled={!nlqQuery.trim() || nlqLoading}>
+          {nlqLoading ? "Running…" : "Run options screen"}
         </button>
       </form>
+      {nlqError && <p className="options-error" role="alert">{nlqError}</p>}
+      {nlqResult && (
+        <div className="options-nlq-result">
+          {nlqResult.summary && <p>{nlqResult.summary}</p>}
+          <details>
+            <summary>Result rows ({nlqResult.rows?.length ?? 0})</summary>
+            <pre>{JSON.stringify(nlqResult.rows ?? [], null, 2)}</pre>
+          </details>
+        </div>
+      )}
       <div className="options-workflow" aria-label="Options research workflow">
         {workflowSteps.map((s) => (
           <div className="options-workflow-step" key={s.step}>

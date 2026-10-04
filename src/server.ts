@@ -603,6 +603,7 @@ export default {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
+      forwardReq.headers.set("x-async-eligible", "1");
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
