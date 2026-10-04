@@ -2286,7 +2286,24 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                                   </td>
                                 );
                               }
-                              return <td key={cidx}>{String(val)}</td>;
+                              if (key === "candidateStrategies" && Array.isArray(val)) {
+                                return (
+                                  <td key={cidx}>
+                                    <ul className="ledger-candidates">
+                                      {val.map((candidate: any) => (
+                                        <li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}>
+                                          <a href={`/strategies/${candidate.id}.html`} target="_blank" rel="noopener noreferrer" title={candidate.description || candidate.name}>
+                                            {candidate.name}
+                                          </a>{" "}
+                                          <span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>{" "}
+                                          <span className="ledger-why">{candidate.why}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </td>
+                                );
+                              }
+                              return <td key={cidx}>{val !== null && typeof val === "object" ? JSON.stringify(val) : String(val)}</td>;
                             })}
                           </tr>
                         ))}
