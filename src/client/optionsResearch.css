@@ -271,6 +271,12 @@
   color: var(--text-main);
 }
 
+.options-llm-answer h4 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
 .options-llm-answer > p {
   margin: 0;
   color: var(--text-muted);
@@ -304,6 +310,77 @@
 .llm-options-ideas-form > button[type="submit"] {
   min-height: 38px;
   padding: 0.55rem 0.85rem;
+}
+
+.llm-ideas-samples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.llm-ideas-samples > strong {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.llm-ideas-samples button {
+  max-width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.72rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.llm-ideas-samples button:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+}
+
+.llm-ideas-samples button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.llm-ideas-group > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+}
+
+.llm-ideas-group > header span,
+.llm-ideas-ranking > p {
+  color: var(--text-muted);
+  font-size: 0.73rem;
+}
+
+.llm-ideas-ranking {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.llm-ideas-ranking > strong {
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
+}
+
+.llm-ideas-ranking > span {
+  color: var(--text-main);
+  font-size: 0.78rem;
+}
+
+.llm-ideas-ranking > p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .options-comparison-table {

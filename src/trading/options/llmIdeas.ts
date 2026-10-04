@@ -7,6 +7,15 @@ const responseSchema = z.object({
   answer: z.string().min(1).max(12000),
   contractSymbols: z.array(z.string().min(1)).max(500),
 });
+const rankingSchema = z.object({
+  answer: z.string().min(1).max(12000),
+  rankings: z.array(z.object({
+    rank: z.number().int().positive(),
+    groupId: z.string().min(1),
+    strategy: z.string().min(1).max(1000),
+    rationale: z.string().min(1).max(3000),
+  })).max(3),
+});
 
 export const RAW_OPTIONS_IDEAS_SYSTEM_PROMPT = [
   "You are an options research analyst. Analyze only the supplied raw E*TRADE option-expiration and option-chain JSON and the user's question.",
@@ -49,6 +58,93 @@ export interface RawOptionsIdeasResponse {
   contractSymbols: string[];
 }
 
+export interface RawOptionsIdeasGroup {
+  id: "near-term" | "mid-term" | "long-term";
+  label: string;
+  expirations: ETradeOptionExpireDate[];
+  optionChains: ETradeOptionChain[];
+}
+
+export interface RawOptionsIdeasRankingInput {
+  id: string;
+  label: string;
+  answer?: string;
+  contractSymbols?: string[];
+  status?: "complete" | "error";
+  error?: string;
+}
+
+export interface RawOptionsIdeasRankingResponse {
+  model: string;
+  answer: string;
+  rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>;
+}
+
+const EXPIRATION_GROUPS: Array<{
+  id: RawOptionsIdeasGroup["id"];
+  label: string;
+  maxDays: number;
+}> = [
+  { id: "near-term", label: "Near-term (0–30 DTE)", maxDays: 30 },
+  { id: "mid-term", label: "Mid-term (31–90 DTE)", maxDays: 90 },
+  { id: "long-term", label: "Long-term (91+ DTE)", maxDays: Number.POSITIVE_INFINITY },
+];
+
+function countContracts(optionChains: ETradeOptionChain[]): number {
+  return optionChains.reduce(
+    (count, chain) => count + chain.pairs.reduce(
+      (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
+      0,
+    ),
+    0,
+  );
+}
+
+export function groupRawOptionsIdeasChains(
+  expirations: ETradeOptionExpireDate[],
+  optionChains: ETradeOptionChain[],
+  asOf = new Date(),
+): RawOptionsIdeasGroup[] {
+  const marketDateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(asOf);
+  const marketDate = Object.fromEntries(
+    marketDateParts.map((part) => [part.type, Number(part.value)]),
+  );
+  const todayUtc = Date.UTC(marketDate.year, marketDate.month - 1, marketDate.day);
+  const grouped = new Map<RawOptionsIdeasGroup["id"], RawOptionsIdeasGroup>();
+
+  optionChains.forEach((chain, chainIndex) => {
+    const selectedExpiry = chain.selectedExpiry;
+    const expiry = selectedExpiry
+      ? expirations.find((item) =>
+        item.year === selectedExpiry.year && item.month === selectedExpiry.month && item.day === selectedExpiry.day)
+      : expirations[chainIndex];
+    if (!expiry) return;
+
+    const expiryUtc = Date.UTC(expiry.year, expiry.month - 1, expiry.day);
+    const daysToExpiration = Math.max(0, Math.ceil((expiryUtc - todayUtc) / 86_400_000));
+    const category = EXPIRATION_GROUPS.find((item) => daysToExpiration <= item.maxDays);
+    if (!category) return;
+
+    let group = grouped.get(category.id);
+    if (!group) {
+      group = { id: category.id, label: category.label, expirations: [], optionChains: [] };
+      grouped.set(category.id, group);
+    }
+    group.expirations.push(expiry);
+    group.optionChains.push(chain);
+  });
+
+  return EXPIRATION_GROUPS
+    .map(({ id }) => grouped.get(id))
+    .filter((group): group is RawOptionsIdeasGroup =>
+      Boolean(group && group.optionChains.length > 0 && countContracts(group.optionChains) > 0));
+}
+
 export function buildRawOptionsIdeasInput(
   symbol: string,
   question: string,
@@ -83,16 +179,6 @@ export function buildRawOptionsIdeasInput(
 function estimateInputTokens(input: RawOptionsIdeasInput): number {
   const bytes = new TextEncoder().encode(input.systemPrompt + input.userPrompt).length;
   return Math.ceil(bytes * 0.8) + 128;
-}
-
-function countContracts(optionChains: ETradeOptionChain[]): number {
-  return optionChains.reduce(
-    (count, chain) => count + chain.pairs.reduce(
-      (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
-      0,
-    ),
-    0,
-  );
 }
 
 function pairPriority(
@@ -212,6 +298,48 @@ function validateIdeaContracts(
   }
 }
 
+export function parseRawOptionsIdeasRanking(
+  text: string,
+  groupIds: string[],
+): Pick<RawOptionsIdeasRankingResponse, "answer" | "rankings"> {
+  const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed = rankingSchema.parse(JSON.parse(unwrapped));
+  const ids = new Set(groupIds);
+  if (
+    parsed.rankings.length !== groupIds.length ||
+    new Set(parsed.rankings.map((item) => item.groupId)).size !== groupIds.length ||
+    parsed.rankings.some((item) => !ids.has(item.groupId)) ||
+    new Set(parsed.rankings.map((item) => item.rank)).size !== groupIds.length ||
+    parsed.rankings.some((item) => item.rank > groupIds.length)
+  ) {
+    throw new Error("The final LLM analysis did not rank every completed expiration group exactly once.");
+  }
+  return {
+    answer: parsed.answer,
+    rankings: [...parsed.rankings].sort((left, right) => left.rank - right.rank),
+  };
+}
+
+export function buildRawOptionsIdeasRankingPrompt(
+  question: string,
+  groups: RawOptionsIdeasRankingInput[],
+): { systemPrompt: string; userPrompt: string; completedGroupIds: string[] } {
+  const completedGroups = groups.filter((group) => group.status !== "error");
+  const systemPrompt = [
+    "You are comparing raw-data LLM options idea analyses from separate E*TRADE expiration groups.",
+    "Use only the supplied group analyses, group statuses, and the user's question. Do not introduce quant analytics, outside data, or unstated assumptions.",
+    "Rank every successfully completed group exactly once, from strongest fit to weakest fit for the requested objective. Failed groups have no winner and must not be ranked; disclose their failure in the comparison answer. Describe each completed group's winning strategy based only on its answer and cite its exact group id.",
+    'Return only JSON shaped like {"answer":"cross-group comparison","rankings":[{"rank":1,"groupId":"near-term","strategy":"...","rationale":"..."}]}.',
+  ].join(" ");
+  const userPrompt = [
+    `User question: ${question}`,
+    "All expiration-group outcomes (including failures):",
+    JSON.stringify(groups),
+    `Rank these completed group IDs exactly once: ${completedGroups.map((group) => group.id).join(", ")}.`,
+  ].join("\n");
+  return { systemPrompt, userPrompt, completedGroupIds: completedGroups.map((group) => group.id) };
+}
+
 export function parseRawOptionsIdeas(
   text: string,
   optionChains: ETradeOptionChain[],
@@ -226,15 +354,49 @@ export async function generateRawOptionsIdeas(
   env: Env,
   input: RawOptionsIdeasInput,
 ): Promise<RawOptionsIdeasResponse> {
+  let prompt = input.userPrompt;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { text } = await generateText({
+      model: getWorkersAIModel(env),
+      temperature: 0,
+      maxOutputTokens: 8192,
+      system: input.systemPrompt,
+      prompt,
+    });
+    try {
+      return {
+        model: env.AI_MODEL || DEFAULT_AI_MODEL,
+        ...parseRawOptionsIdeas(text, input.optionChains),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0 && error instanceof Error && error.message.includes("not present in E*TRADE data")) {
+        prompt = `${input.userPrompt}\nCORRECTION: Your previous response cited an option contract that is not in the supplied chain. Re-answer using only exact symbols copied from the input; if no valid contract supports a recommendation, say so and return no symbols.`;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Raw-data LLM idea generation failed.");
+}
+
+export async function generateRawOptionsIdeasRanking(
+  env: Env,
+  question: string,
+  groups: RawOptionsIdeasRankingInput[],
+): Promise<RawOptionsIdeasRankingResponse> {
+  const prompt = buildRawOptionsIdeasRankingPrompt(question, groups);
+  if (prompt.completedGroupIds.length === 0) throw new Error("No completed expiration-group analyses are available to rank.");
   const { text } = await generateText({
     model: getWorkersAIModel(env),
     temperature: 0,
-    maxOutputTokens: 8192,
-    system: input.systemPrompt,
-    prompt: input.userPrompt,
+    maxOutputTokens: 4096,
+    system: prompt.systemPrompt,
+    prompt: prompt.userPrompt,
   });
   return {
     model: env.AI_MODEL || DEFAULT_AI_MODEL,
-    ...parseRawOptionsIdeas(text, input.optionChains),
+    ...parseRawOptionsIdeasRanking(text, prompt.completedGroupIds),
   };
 }

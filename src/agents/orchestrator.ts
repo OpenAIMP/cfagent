@@ -15,7 +15,13 @@ import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
-import { buildContextLimitedRawOptionsIdeasInput, generateRawOptionsIdeas } from "../trading/options/llmIdeas";
+import {
+  buildRawOptionsIdeasRankingPrompt,
+  buildContextLimitedRawOptionsIdeasInput,
+  generateRawOptionsIdeas,
+  generateRawOptionsIdeasRanking,
+  groupRawOptionsIdeasChains,
+} from "../trading/options/llmIdeas";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -2461,52 +2467,142 @@ Agentic Best Practices & Workflow Rules:
           expirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
         };
-        const limited = buildContextLimitedRawOptionsIdeasInput(symbol, question, expirations, retrievedChains);
-        const llmInput = limited.input;
-        const llmInputExport = {
-          symbol: llmInput.symbol,
-          question: llmInput.question,
-          expirations: llmInput.expirations,
-          optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
-          systemPrompt: llmInput.systemPrompt,
-          userPrompt: llmInput.userPrompt,
-          selection: llmInput.selection,
-        };
+        const groups = groupRawOptionsIdeasChains(expirations, retrievedChains);
+        const groupResults = [];
+        const groupInputs = [];
+        for (const group of groups) {
+          const groupContractCount = group.optionChains.reduce(
+            (count, chain) => count + chain.pairs.reduce(
+              (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
+              0,
+            ),
+            0,
+          );
+          let limitedInput: ReturnType<typeof buildContextLimitedRawOptionsIdeasInput> | undefined;
+          const groupQuestion = [
+            question,
+            `Analyze only the ${group.label} expiration group (${group.expirations.length} expirations).`,
+            "Identify this group's strongest strategy for the user's requested outlook. Explain exact contract legs using only symbols present in this group's supplied chains, why the strategy fits, and its material risks. If no supported strategy is suitable, state that instead of inventing one.",
+          ].join("\n\n");
+          try {
+            const limited = buildContextLimitedRawOptionsIdeasInput(
+              symbol,
+              groupQuestion,
+              group.expirations,
+              group.optionChains,
+            );
+            limitedInput = limited;
+            const llmInput = limited.input;
+            const inputExport = {
+                id: group.id,
+                label: group.label,
+              symbol: llmInput.symbol,
+              question: llmInput.question,
+              expirations: llmInput.expirations,
+              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
+              systemPrompt: llmInput.systemPrompt,
+              userPrompt: llmInput.userPrompt,
+              selection: llmInput.selection,
+            };
+            groupInputs.push(inputExport);
+            const llm = await generateRawOptionsIdeas(this.env, llmInput);
+            groupResults.push({
+              id: group.id,
+              label: group.label,
+              status: "complete" as const,
+              model: llm.model,
+              answer: llm.answer,
+              contractSymbols: llm.contractSymbols,
+              expirationCount: group.expirations.length,
+              contractCount: groupContractCount,
+              sentContractCount: limited.includedContractCount,
+              estimatedInputTokens: limited.estimatedInputTokens,
+              inputTruncated: limited.truncated,
+            });
+          } catch (err) {
+            groupResults.push({
+              id: group.id,
+              label: group.label,
+              status: "error" as const,
+              error: err instanceof Error ? err.message : "Expiration-group analysis failed.",
+              expirationCount: group.expirations.length,
+              contractCount: groupContractCount,
+              sentContractCount: limitedInput?.includedContractCount ?? 0,
+              estimatedInputTokens: limitedInput?.estimatedInputTokens ?? 0,
+              inputTruncated: limitedInput?.truncated ?? false,
+            });
+          }
+        }
+
+        let finalAnalysis:
+          | { status: "complete"; model: string; answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>; systemPrompt: string; userPrompt: string }
+          | { status: "error"; error: string; systemPrompt: string; userPrompt: string };
+        const completedGroups = groupResults.filter((group) => group.status === "complete");
+        const rankingGroups = groupResults.map((group) => ({
+            id: group.id,
+            label: group.label,
+            answer: group.answer,
+            contractSymbols: group.contractSymbols,
+            status: group.status,
+            error: group.error,
+          }));
+        const rankingPrompt = buildRawOptionsIdeasRankingPrompt(question, rankingGroups);
+        try {
+          const ranking = await generateRawOptionsIdeasRanking(
+            this.env,
+            question,
+            rankingGroups,
+          );
+          finalAnalysis = {
+            status: "complete",
+            model: ranking.model,
+            answer: ranking.answer,
+            rankings: ranking.rankings,
+            systemPrompt: rankingPrompt.systemPrompt,
+            userPrompt: rankingPrompt.userPrompt,
+          };
+        } catch (err) {
+          finalAnalysis = {
+            status: "error",
+            error: err instanceof Error ? err.message : "Final cross-group ranking failed.",
+            systemPrompt: rankingPrompt.systemPrompt,
+            userPrompt: rankingPrompt.userPrompt,
+          };
+        }
+
+        const firstInput = groupInputs[0];
+        const llmInputExport = firstInput ? {
+          ...firstInput,
+          question,
+          groupInputs,
+          finalRanking: {
+            systemPrompt: finalAnalysis.systemPrompt,
+            userPrompt: finalAnalysis.userPrompt,
+          },
+        } : undefined;
         const dataCoverage = {
           expirationCount: expirations.length,
           chainCount: retrievedChains.length,
           contractCount,
-          sentContractCount: limited.includedContractCount,
-          estimatedInputTokens: limited.estimatedInputTokens,
-          inputTruncated: limited.truncated,
+          sentContractCount: groupResults.reduce((count, group) => count + group.sentContractCount, 0),
+          estimatedInputTokens: groupResults.reduce((count, group) => count + group.estimatedInputTokens, 0),
+          inputTruncated: groupResults.some((group) => group.inputTruncated),
         };
-        try {
-          const llm = await generateRawOptionsIdeas(this.env, llmInput);
-          return Response.json({
-            mode: "raw_etrade_options_ideas",
-            llm: {
-              status: "complete",
-              model: llm.model,
-              answer: llm.answer,
-              contractSymbols: llm.contractSymbols,
-            },
-            llmInput: llmInputExport,
-            retrievedData: rawData,
-            dataCoverage,
-          });
-        } catch (err) {
-          return Response.json({
-            mode: "raw_etrade_options_ideas",
-            llm: {
-              status: "error",
-              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
-              error: err instanceof Error ? err.message : "Raw-data LLM idea generation failed.",
-            },
-            llmInput: llmInputExport,
-            retrievedData: rawData,
-            dataCoverage,
-          });
-        }
+        return Response.json({
+          mode: "raw_etrade_options_ideas",
+          llm: {
+            status: finalAnalysis.status,
+            model: finalAnalysis.status === "complete" ? finalAnalysis.model : this.env.AI_MODEL || DEFAULT_AI_MODEL,
+            answer: finalAnalysis.status === "complete" ? finalAnalysis.answer : undefined,
+            error: finalAnalysis.status === "error" ? finalAnalysis.error : undefined,
+            contractSymbols: [...new Set(completedGroups.flatMap((group) => group.contractSymbols))],
+          },
+          groups: groupResults,
+          finalAnalysis,
+          llmInput: llmInputExport,
+          retrievedData: rawData,
+          dataCoverage,
+        });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data.";
         return Response.json({

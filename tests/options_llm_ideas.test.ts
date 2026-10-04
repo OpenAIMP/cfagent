@@ -2,10 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { ETradeOptionChain, ETradeOptionExpireDate } from "../src/types";
 import {
   buildContextLimitedRawOptionsIdeasInput,
+  buildRawOptionsIdeasRankingPrompt,
   buildRawOptionsIdeasInput,
   parseRawOptionsIdeas,
+  parseRawOptionsIdeasRanking,
+  groupRawOptionsIdeasChains,
 } from "../src/trading/options/llmIdeas";
-import { createRawOptionsIdeasXls, createRetrievedOptionsDataXls } from "../src/client/optionsIdeasExport";
+import {
+  createOptionsIdeasReportXls,
+  createRawOptionsIdeasXls,
+  createRetrievedOptionsDataXls,
+} from "../src/client/optionsIdeasExport";
 
 const expirations: ETradeOptionExpireDate[] = [{ year: 2026, month: 11, day: 20, expiryType: "REGULAR" }];
 const chains: ETradeOptionChain[] = [{
@@ -45,6 +52,59 @@ describe("Raw E*TRADE LLM options ideas", () => {
       .toThrow("not present in E*TRADE data");
   });
 
+  it("groups chains by expiry horizon for independent LLM analysis", () => {
+    const asOf = new Date("2026-10-01T12:00:00Z");
+    const horizonExpirations: ETradeOptionExpireDate[] = [
+      { year: 2026, month: 10, day: 20 },
+      { year: 2026, month: 12, day: 1 },
+      { year: 2027, month: 2, day: 5 },
+    ];
+    const horizonChains = horizonExpirations.map((expiry) => ({
+      ...chains[0],
+      selectedExpiry: { year: expiry.year, month: expiry.month, day: expiry.day },
+    }));
+    const groups = groupRawOptionsIdeasChains(horizonExpirations, horizonChains, asOf);
+
+    expect(groups.map((group) => group.id)).toEqual(["near-term", "mid-term", "long-term"]);
+    expect(groups.every((group) => group.optionChains.length === 1 && group.expirations.length === 1)).toBe(true);
+
+    const afterMarketDate = groupRawOptionsIdeasChains(
+      [{ year: 2026, month: 11, day: 1 }],
+      [{ ...chains[0], selectedExpiry: { year: 2026, month: 11, day: 1 } }],
+      new Date("2026-10-02T02:00:00Z"),
+    );
+    expect(afterMarketDate.map((group) => group.id)).toEqual(["mid-term"]);
+  });
+
+  it("requires the final cross-group ranking to include each completed group exactly once", () => {
+    const response = {
+      answer: "Near term best fits the requested outlook.",
+      rankings: [
+        { rank: 1, groupId: "near-term", strategy: "Call spread", rationale: "Best fit." },
+        { rank: 2, groupId: "long-term", strategy: "Long call", rationale: "More time." },
+      ],
+    };
+    expect(parseRawOptionsIdeasRanking(JSON.stringify(response), ["near-term", "long-term"]).rankings)
+      .toHaveLength(2);
+    expect(() => parseRawOptionsIdeasRanking(JSON.stringify({
+      ...response,
+      rankings: [response.rankings[0], { ...response.rankings[1], groupId: "invented" }],
+    }), ["near-term", "long-term"])).toThrow("did not rank every completed expiration group");
+  });
+
+  it("includes every group outcome in the final-ranking request but ranks only successful groups", () => {
+    const prompt = buildRawOptionsIdeasRankingPrompt("Find the strongest strategy.", [
+      { id: "near-term", label: "Near-term", status: "complete", answer: "Call spread.", contractSymbols: [] },
+      { id: "mid-term", label: "Mid-term", status: "error", error: "LLM failure." },
+    ]);
+    expect(prompt.userPrompt).toContain('"id":"mid-term"');
+    expect(prompt.userPrompt).toContain('"error":"LLM failure."');
+    expect(prompt.userPrompt).toContain("Rank these completed group IDs exactly once: near-term.");
+    expect(prompt.systemPrompt).toContain("Failed groups have no winner");
+    expect(prompt.userPrompt).not.toContain("quantGeneratedCandidates");
+    expect(prompt.userPrompt).not.toContain("quantScore");
+  });
+
   it("exports the exact system prompt, user prompt, and full JSON payload as legacy .xls", async () => {
     const input = buildRawOptionsIdeasInput("NVDA", "Explain scenario strategies.", expirations, chains);
     const bytes = await createRawOptionsIdeasXls(input);
@@ -66,6 +126,36 @@ describe("Raw E*TRADE LLM options ideas", () => {
       contractsIncluded: 1,
       truncated: false,
     });
+  });
+
+  it("exports every expiration-group LLM input and final-ranking prompt", async () => {
+    const input = buildRawOptionsIdeasInput("NVDA", "Analyze near term.", expirations, chains);
+    const bytes = await createRawOptionsIdeasXls({
+      ...input,
+      question: "Compare expiration groups.",
+      groupInputs: [{
+        id: "near-term",
+        label: "Near-term",
+        symbol: "NVDA",
+        question: "Analyze near term.",
+        expirations,
+        optionChains: chains.map((chain) => chain.raw),
+        systemPrompt: input.systemPrompt,
+        userPrompt: input.userPrompt,
+        selection: input.selection,
+      }],
+      finalRanking: { systemPrompt: "Rank group winners.", userPrompt: "Rank near-term." },
+    });
+    const XLSX = await import("@e965/xlsx");
+    const workbook = XLSX.read(bytes, { type: "array" });
+    const readChunks = (sheetName: string) =>
+      (XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 }) as string[][])
+        .slice(1)
+        .map((row) => row[1])
+        .join("");
+    expect(JSON.parse(readChunks("Complete Input JSON")).groupInputs[0].groupId).toBe("near-term");
+    expect(readChunks("LLM System Prompt")).toContain("Rank group winners.");
+    expect(readChunks("LLM User Prompt")).toContain("Rank near-term.");
   });
 
   it("fits a context budget while preserving expiration coverage and prioritizing near-the-money contracts", () => {
@@ -129,5 +219,34 @@ describe("Raw E*TRADE LLM options ideas", () => {
       .map((row) => row[1])
       .join("");
     expect(JSON.parse(json).etrade.optionChains).toEqual([chains[0].raw]);
+  });
+
+  it("exports group evaluations and final ranking as an Excel report", async () => {
+    const bytes = await createOptionsIdeasReportXls({
+      symbol: "NVDA",
+      question: "Compare expiration groups.",
+      dataCoverage: { expirationCount: 3, chainCount: 3, contractCount: 120, sentContractCount: 80, inputTruncated: true },
+      groups: [{
+        id: "near-term",
+        label: "Near-term (0–30 DTE)",
+        status: "complete",
+        answer: "A call spread is strongest.",
+        contractSymbols: ["NVDA260120C00180000"],
+        expirationCount: 1,
+        contractCount: 40,
+        sentContractCount: 30,
+        inputTruncated: true,
+      }],
+      finalAnalysis: {
+        status: "complete",
+        answer: "Near-term ranks first.",
+        rankings: [{ rank: 1, groupId: "near-term", strategy: "Call spread", rationale: "Fits the outlook." }],
+      },
+    });
+    const XLSX = await import("@e965/xlsx");
+    const workbook = XLSX.read(bytes, { type: "array" });
+    expect(workbook.SheetNames).toEqual(["Summary", "Group Evaluations", "Cross-Group Ranking"]);
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets["Cross-Group Ranking"], { header: 1 }))
+      .toContainEqual(["1", "Near-term (0–30 DTE)", "Call spread", "Fits the outlook."]);
   });
 });
