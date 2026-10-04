@@ -15,7 +15,7 @@ import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
-import { buildRawOptionsIdeasInput, generateRawOptionsIdeas } from "../trading/options/llmIdeas";
+import { buildContextLimitedRawOptionsIdeasInput, generateRawOptionsIdeas } from "../trading/options/llmIdeas";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -37,6 +37,8 @@ import type {
   CategoryRecord,
   ExternalAdRecord,
   RevenueSummary,
+  ETradeOptionChain,
+  ETradeOptionExpireDate,
 } from "../types";
 
 /**
@@ -2415,15 +2417,17 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ error: "Provide a natural-language question up to 4,000 characters." }, { status: 400 });
       }
 
+      let retrievedExpirations: ETradeOptionExpireDate[] = [];
+      const retrievedChains: ETradeOptionChain[] = [];
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const expirations = await etrade.client.getOptionExpireDates(symbol);
+        retrievedExpirations = expirations;
         if (expirations.length === 0) {
           throw new Error(etrade.client.lastError || `E*TRADE returned no option expirations for ${symbol}.`);
         }
 
-        const optionChains = [];
         for (const expiry of expirations) {
           const chain = await etrade.client.getOptionChains({
             symbol,
@@ -2440,10 +2444,10 @@ Agentic Best Practices & Workflow Rules:
               `E*TRADE did not return the complete option chain for ${symbol} ${expiry.year}-${expiry.month}-${expiry.day}.`,
             );
           }
-          optionChains.push(chain);
+          retrievedChains.push(chain);
         }
 
-        const contractCount = optionChains.reduce(
+        const contractCount = retrievedChains.reduce(
           (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
           0,
         );
@@ -2451,7 +2455,31 @@ Agentic Best Practices & Workflow Rules:
           throw new Error(`E*TRADE returned no option contracts for ${symbol}; no LLM request was sent.`);
         }
 
-        const llmInput = buildRawOptionsIdeasInput(symbol, question, expirations, optionChains);
+        const rawData = {
+          symbol,
+          question,
+          expirations,
+          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
+        };
+        const limited = buildContextLimitedRawOptionsIdeasInput(symbol, question, expirations, retrievedChains);
+        const llmInput = limited.input;
+        const llmInputExport = {
+          symbol: llmInput.symbol,
+          question: llmInput.question,
+          expirations: llmInput.expirations,
+          optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
+          systemPrompt: llmInput.systemPrompt,
+          userPrompt: llmInput.userPrompt,
+          selection: llmInput.selection,
+        };
+        const dataCoverage = {
+          expirationCount: expirations.length,
+          chainCount: retrievedChains.length,
+          contractCount,
+          sentContractCount: limited.includedContractCount,
+          estimatedInputTokens: limited.estimatedInputTokens,
+          inputTruncated: limited.truncated,
+        };
         try {
           const llm = await generateRawOptionsIdeas(this.env, llmInput);
           return Response.json({
@@ -2462,15 +2490,9 @@ Agentic Best Practices & Workflow Rules:
               answer: llm.answer,
               contractSymbols: llm.contractSymbols,
             },
-            llmInput: {
-              symbol: llmInput.symbol,
-              question: llmInput.question,
-              expirations: llmInput.expirations,
-              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
-              systemPrompt: llmInput.systemPrompt,
-              userPrompt: llmInput.userPrompt,
-            },
-            dataCoverage: { expirationCount: expirations.length, chainCount: optionChains.length, contractCount },
+            llmInput: llmInputExport,
+            retrievedData: rawData,
+            dataCoverage,
           });
         } catch (err) {
           return Response.json({
@@ -2480,19 +2502,35 @@ Agentic Best Practices & Workflow Rules:
               model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
               error: err instanceof Error ? err.message : "Raw-data LLM idea generation failed.",
             },
-            llmInput: {
-              symbol: llmInput.symbol,
-              question: llmInput.question,
-              expirations: llmInput.expirations,
-              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
-              systemPrompt: llmInput.systemPrompt,
-              userPrompt: llmInput.userPrompt,
-            },
-            dataCoverage: { expirationCount: expirations.length, chainCount: optionChains.length, contractCount },
+            llmInput: llmInputExport,
+            retrievedData: rawData,
+            dataCoverage,
           });
         }
       } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data." }, { status: 502 });
+        const error = err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data.";
+        return Response.json({
+          error,
+          mode: "raw_etrade_options_ideas",
+          llm: { status: "error", model: this.env.AI_MODEL || DEFAULT_AI_MODEL, error },
+          retrievedData: {
+            symbol,
+            question,
+            expirations: retrievedExpirations,
+            optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
+          },
+          dataCoverage: {
+            expirationCount: retrievedExpirations.length,
+            chainCount: retrievedChains.length,
+            contractCount: retrievedChains.reduce(
+              (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
+              0,
+            ),
+            sentContractCount: 0,
+            estimatedInputTokens: 0,
+            inputTruncated: false,
+          },
+        }, { status: 502 });
       }
     }
 

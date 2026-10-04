@@ -3964,6 +3964,135 @@ body {
   gap: 1.25rem;
 }
 
+.etrade-account-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.etrade-account-banner.prod {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.etrade-account-banner.test {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.etrade-banner-identity,
+.etrade-banner-account,
+.etrade-banner-controls,
+.etrade-environment-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.etrade-banner-identity > strong {
+  font-size: 1.05rem;
+  color: #f8fafc;
+}
+
+.etrade-environment {
+  border-radius: 5px;
+  padding: 0.22rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.etrade-environment.prod {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.etrade-environment.test {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
+.etrade-banner-account {
+  margin-left: 0.35rem;
+  gap: 1rem;
+}
+
+.etrade-banner-account > span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.etrade-banner-account small {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.etrade-banner-account b {
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.etrade-environment-controls {
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 7px;
+}
+
+.etrade-environment-controls button {
+  border: 0;
+  border-radius: 5px;
+  padding: 0.38rem 0.55rem;
+  color: #cbd5e1;
+  background: transparent;
+  cursor: pointer;
+}
+
+.etrade-environment-controls button.active {
+  color: #fff;
+  background: rgba(71, 85, 105, 0.8);
+}
+
+.etrade-connection-state {
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+
+.etrade-connection-state.connected {
+  color: #86efac;
+}
+
+.etrade-connection-state.disconnected {
+  color: #fcd34d;
+}
+
+.etrade-banner-message {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  flex-basis: 100%;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.etrade-banner-message button {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.8);
+  cursor: pointer;
+}
+
 /* Header Banner */
 .trading-header-banner {
   background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);

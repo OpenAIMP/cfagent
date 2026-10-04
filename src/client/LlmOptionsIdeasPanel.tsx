@@ -1,11 +1,24 @@
 import { useState } from "react";
-import { downloadRawOptionsIdeasXls, type RawOptionsIdeasExport } from "./optionsIdeasExport";
+import {
+  downloadRawOptionsIdeasXls,
+  downloadRetrievedOptionsDataXls,
+  type RawOptionsIdeasExport,
+  type RetrievedOptionsDataExport,
+} from "./optionsIdeasExport";
 import "./optionsResearch.css";
 
 interface LlmOptionsIdeasResponse {
   mode: "raw_etrade_options_ideas";
   llmInput?: RawOptionsIdeasExport;
-  dataCoverage: { expirationCount: number; chainCount: number; contractCount: number };
+  retrievedData?: RetrievedOptionsDataExport;
+  dataCoverage: {
+    expirationCount: number;
+    chainCount: number;
+    contractCount: number;
+    sentContractCount?: number;
+    estimatedInputTokens?: number;
+    inputTruncated?: boolean;
+  };
   llm: {
     status: "complete" | "error";
     model?: string;
@@ -47,6 +60,10 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
       });
       const data = await response.json() as LlmOptionsIdeasResponse | { error?: string };
       if (!response.ok) {
+        if ("retrievedData" in data && data.retrievedData) {
+          setResult(data as LlmOptionsIdeasResponse);
+          return;
+        }
         throw new Error("error" in data ? data.error || "LLM options research request failed." : "LLM options research request failed.");
       }
       setResult(data as LlmOptionsIdeasResponse);
@@ -67,13 +84,23 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
     }
   };
 
+  const downloadRetrievedData = async () => {
+    if (!result?.retrievedData) return;
+    setExportError("");
+    try {
+      await downloadRetrievedOptionsDataXls(result.retrievedData);
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : "Could not create the raw E*TRADE data export.");
+    }
+  };
+
   return (
     <section className="trading-section options-research-section llm-options-ideas-panel">
       <header className="options-research-heading">
         <div>
           <p className="options-eyebrow">INDEPENDENT RAW-DATA LLM EXPERIMENT</p>
           <h2>LLM Options Idea Experiment</h2>
-          <p>Ask any question about a stock’s option chain in plain English. The LLM receives the complete raw E*TRADE expiration and option-chain JSON, without quant candidates or quant analytics.</p>
+          <p>Ask any question about a stock’s option chain in plain English. The LLM receives raw E*TRADE option data without quant candidates or quant analytics; oversized chains are reduced to fit the model context, while all retrieved chains remain downloadable.</p>
         </div>
       </header>
 
@@ -113,10 +140,14 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
         <section className="options-comparison" aria-label="Raw-data LLM answer">
           <header className="options-results-header">
             <h3>LLM response</h3>
-            <span>{result.llm.model || "Configured model"} · {result.dataCoverage.contractCount} contracts · {result.dataCoverage.expirationCount} expirations</span>
+            <span>
+              {result.llm.model || "Configured model"} ·{" "}
+              {result.dataCoverage.sentContractCount ?? result.dataCoverage.contractCount} of {result.dataCoverage.contractCount} contracts sent ·{" "}
+              {result.dataCoverage.expirationCount} expirations
+            </span>
           </header>
           {result.llm.status === "error" && (
-            <div className="options-error" role="alert">LLM analysis failed: {result.llm.error}</div>
+            <div className="options-error" role="alert">Analysis/request error: {result.llm.error}</div>
           )}
           {result.llm.status === "complete" && (
             <>
@@ -133,9 +164,22 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               Download exact LLM input (.xls)
             </button>
           )}
+          {result.retrievedData && (
+            <button type="button" onClick={() => void downloadRetrievedData()}>
+              Download all retrieved raw data (.xls)
+            </button>
+          )}
           {exportError && <div className="options-error" role="alert">Export failed: {exportError}</div>}
+          {result.dataCoverage.inputTruncated && (
+            <p className="options-comparison-note">
+              The LLM input was reduced to fit its context window, prioritizing near-the-money and more liquid strikes across expirations. The raw-data export includes all retrieved chains.
+              {result.dataCoverage.estimatedInputTokens
+                ? ` Estimated input: ${result.dataCoverage.estimatedInputTokens.toLocaleString()} tokens.`
+                : ""}
+            </p>
+          )}
           <p className="options-comparison-note">
-            Retrieved {result.dataCoverage.chainCount} complete option-chain responses. Contract references are checked against those chains; the LLM response is not an independently verified optimality or execution assessment.
+            Retrieved {result.dataCoverage.chainCount} option-chain responses. Contract references are checked against the data sent to the LLM; its response is not an independently verified optimality or execution assessment.
           </p>
         </section>
       )}

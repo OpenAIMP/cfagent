@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ETradeOptionChain, ETradeOptionExpireDate } from "../src/types";
-import { buildRawOptionsIdeasInput, parseRawOptionsIdeas } from "../src/trading/options/llmIdeas";
-import { createRawOptionsIdeasXls } from "../src/client/optionsIdeasExport";
+import {
+  buildContextLimitedRawOptionsIdeasInput,
+  buildRawOptionsIdeasInput,
+  parseRawOptionsIdeas,
+} from "../src/trading/options/llmIdeas";
+import { createRawOptionsIdeasXls, createRetrievedOptionsDataXls } from "../src/client/optionsIdeasExport";
 
 const expirations: ETradeOptionExpireDate[] = [{ year: 2026, month: 11, day: 20, expiryType: "REGULAR" }];
 const chains: ETradeOptionChain[] = [{
@@ -57,5 +61,73 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(readChunks("LLM User Prompt")).toBe(input.userPrompt);
     const exportedInput = JSON.parse(readChunks("Complete Input JSON"));
     expect(exportedInput.etrade.optionChains[0]).toEqual(chains[0].raw);
+    expect(exportedInput.dataCoverage).toEqual({
+      contractsAvailable: 1,
+      contractsIncluded: 1,
+      truncated: false,
+    });
+  });
+
+  it("fits a context budget while preserving expiration coverage and prioritizing near-the-money contracts", () => {
+    const manyExpirations = Array.from({ length: 4 }, (_, expirationIndex) => ({
+      year: 2026,
+      month: 11 + expirationIndex,
+      day: 20,
+      expiryType: "REGULAR",
+    }));
+    const manyChains: ETradeOptionChain[] = manyExpirations.map((expiry, expirationIndex) => {
+      const optionPairs = Array.from({ length: 24 }, (_, pairIndex) => {
+        const strike = 80 + pairIndex * 2;
+        const callSymbol = `NVDA${String(expiry.month).padStart(2, "0")}${String(pairIndex).padStart(2, "0")}C${String(strike * 1000).padStart(8, "0")}`;
+        const putSymbol = callSymbol.replace("C", "P");
+        return {
+          Call: { symbol: callSymbol, strikePrice: strike, volume: pairIndex, openInterest: pairIndex, description: "x".repeat(80) },
+          Put: { symbol: putSymbol, strikePrice: strike, volume: pairIndex, openInterest: pairIndex, description: "y".repeat(80) },
+        };
+      });
+      return {
+        symbol: "NVDA",
+        underlyingPrice: 102,
+        raw: { SelectedED: expiry, nearPrice: 102, OptionPair: optionPairs },
+        pairs: optionPairs.map((pair) => ({
+          call: { optionType: "CALL" as const, symbol: pair.Call.symbol, strikePrice: pair.Call.strikePrice, bid: 1, ask: 2, lastPrice: 1.5, volume: pair.Call.volume, openInterest: pair.Call.openInterest },
+          put: { optionType: "PUT" as const, symbol: pair.Put.symbol, strikePrice: pair.Put.strikePrice, bid: 1, ask: 2, lastPrice: 1.5, volume: pair.Put.volume, openInterest: pair.Put.openInterest },
+        })),
+      };
+    });
+    const fullInput = buildRawOptionsIdeasInput("NVDA", "Compare ideas.", manyExpirations, manyChains);
+    const fullTokenEstimate = Math.ceil(new TextEncoder().encode(fullInput.systemPrompt + fullInput.userPrompt).length * 0.8);
+    const result = buildContextLimitedRawOptionsIdeasInput(
+      "NVDA",
+      "Compare ideas.",
+      manyExpirations,
+      manyChains,
+      Math.floor(fullTokenEstimate / 2),
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(result.estimatedInputTokens).toBeLessThanOrEqual(Math.floor(fullTokenEstimate / 2));
+    expect(result.input.expirations).toHaveLength(manyExpirations.length);
+    expect(result.input.optionChains).toHaveLength(manyChains.length);
+    expect(result.includedContractCount).toBeLessThan(4 * 24 * 2);
+    for (const chain of result.input.optionChains) expect(chain.pairs.length).toBeGreaterThan(0);
+    expect(result.input.optionChains[0].pairs.some((pair) => pair.call?.strikePrice === 102)).toBe(true);
+  });
+
+  it("exports every retrieved raw chain separately from the context-limited prompt", async () => {
+    const bytes = await createRetrievedOptionsDataXls({
+      symbol: "NVDA",
+      question: "Compare ideas.",
+      expirations,
+      optionChains: chains,
+    });
+    const XLSX = await import("@e965/xlsx");
+    const workbook = XLSX.read(bytes, { type: "array" });
+    expect(workbook.SheetNames).toEqual(["Request", "Retrieved Raw JSON"]);
+    const json = (XLSX.utils.sheet_to_json(workbook.Sheets["Retrieved Raw JSON"], { header: 1 }) as string[][])
+      .slice(1)
+      .map((row) => row[1])
+      .join("");
+    expect(JSON.parse(json).etrade.optionChains).toEqual([chains[0].raw]);
   });
 });

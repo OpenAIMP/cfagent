@@ -94,11 +94,9 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
   // Trust, Reconciliation & Privacy state
   const [maskAccount, setMaskAccount] = useState(true);
-  const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
   const [scanUniverseCount, setScanUniverseCount] = useState(0);
   const [scanStatus, setScanStatus] = useState<"not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found">("not_run");
   const [scanMessage, setScanMessage] = useState("");
-  const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
   // E*TRADE Live Diagnostics state
   const [diagnostics, setDiagnostics] = useState<any>(null);
@@ -604,7 +602,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         if (data.error && (!data.account || data.account.accountId === "unconnected")) {
           setOauthMsg(data.error);
         }
-        setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch {
       // Ignore
@@ -974,317 +971,61 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     return "Neutral";
   };
 
-  const positionsSum = positions.reduce((sum, p) => sum + (p.marketValue || 0), 0);
-  const cashPower = account?.cashAvailableForInvestment || 0;
-  const calculatedPortfolioTotal = Number((positionsSum + cashPower).toFixed(2));
-  const statedNav = Number((account?.netAccountValue || calculatedPortfolioTotal).toFixed(2));
-  const balanceDiscrepancy = Math.abs(Number((statedNav - calculatedPortfolioTotal).toFixed(2)));
-  const isReconciled = balanceDiscrepancy <= 1.00;
+  const accountValue = account?.netAccountValue;
   const isLive = activeEnv === "PROD" || brokerStatus?.environment === "live" || brokerStatus?.activeEnvironment === "PROD";
 
   return (
     <div className="etrade-trading-hub">
-      {/* High-Contrast Persistent Environment & Trust Banner */}
-      <div className={`env-trust-banner ${isLive ? "env-live" : "env-sandbox"}`} role="status" aria-live="polite">
-        <div className="env-trust-left">
-          <span className="env-trust-badge">
-            {isLive
-              ? "🔴 LIVE PRODUCTION — REAL ORDERS & REAL CAPITAL (HITL REQUIRED)"
-              : "⚠️ SANDBOX — SIMULATED DATA — NO REAL ORDERS (HITL REQUIRED)"}
-          </span>
-          <span className="env-trust-item">
-            <strong>Account:</strong>{" "}
-            <code>
-              {account?.accountId && account.accountId !== "unconnected"
-                ? (maskAccount ? `••••${account.accountId.slice(-4)}` : account.accountId)
-                : (isLive ? "Awaiting PROD Sync" : "Awaiting Sandbox Sync")}
-            </code>
+      <section className={`etrade-account-banner ${isLive ? "prod" : "test"}`} aria-label="E*TRADE account and connection controls">
+        <div className="etrade-banner-identity">
+          <strong>E*TRADE</strong>
+          <span className={`etrade-environment ${isLive ? "prod" : "test"}`}>{isLive ? "PROD" : "TEST"}</span>
+          <div className="etrade-banner-account">
+            <span><small>Account value</small><b>{maskAccount ? "••••••" : accountValue === undefined ? "Unavailable" : `$${accountValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</b></span>
+            <span><small>A/C #</small><b>{account?.accountId && account.accountId !== "unconnected" ? (maskAccount ? `••••${account.accountId.slice(-4)}` : account.accountId) : "Unavailable"}</b></span>
             <button
               type="button"
               className="btn-mask-toggle"
               onClick={() => setMaskAccount(!maskAccount)}
-              aria-label={maskAccount ? "Reveal account number" : "Mask account number"}
-              title={maskAccount ? "Reveal account number" : "Mask account number"}
+              aria-label={maskAccount ? "Reveal account value and account number" : "Mask account value and account number"}
+              title={maskAccount ? "Reveal account value and account number" : "Mask account value and account number"}
             >
-              {maskAccount ? "👁️ Show" : "🙈 Hide"}
+              {maskAccount ? "Show" : "Hide"}
             </button>
-          </span>
-          <span className="env-trust-item env-trust-switch-item">
-            <strong>Environment:</strong>{" "}
-            <span className={`env-status-badge ${isLive ? "badge-prod" : "badge-test"}`}>
-              {isLive ? "PROD (Live)" : "TEST (Sandbox)"}
-            </span>
-            <span className="env-switch-toggles">
-              <button
-                type="button"
-                className={`btn-env-toggle ${!isLive ? "active-env" : ""}`}
-                onClick={() => handleSwitchEnvironment("TEST")}
-                title="Switch to E*TRADE Developer Sandbox"
-              >
-                🧪 TEST
-              </button>
-              <button
-                type="button"
-                className={`btn-env-toggle ${isLive ? "active-env" : ""}`}
-                onClick={() => handleSwitchEnvironment("PROD")}
-                title="Switch to E*TRADE Live Production"
-              >
-                🔴 PROD
-              </button>
-            </span>
-          </span>
+          </div>
         </div>
-        <div className="env-trust-right">
-          <span className="env-trust-item">
-            <strong>Data Source:</strong> {oauthStatus?.authenticated ? (isLive ? "E*TRADE Live REST API" : "E*TRADE Sandbox REST API") : (isLive ? "E*TRADE Live (Awaiting OAuth Authentication)" : "E*TRADE Sandbox (Awaiting OAuth)")}
+        <div className="etrade-banner-controls">
+          <div className="etrade-environment-controls" aria-label="E*TRADE environment">
+            <button type="button" className={!isLive ? "active" : ""} onClick={() => handleSwitchEnvironment("TEST")}>TEST</button>
+            <button type="button" className={isLive ? "active" : ""} onClick={() => handleSwitchEnvironment("PROD")}>PROD</button>
+          </div>
+          <span className={`etrade-connection-state ${oauthStatus?.authenticated ? "connected" : "disconnected"}`}>
+            {oauthStatus?.authenticated ? "Connected" : "Not connected"}
           </span>
-          <span className="env-trust-item">
-            <strong>Prices As Of:</strong> {lastSyncTime || "Real-time"} ET
-          </span>
-          <button
-            type="button"
-            className="btn-sync-diagnostics"
-            disabled={diagnosticsLoading}
-            onClick={() => runDiagnostics()}
-            title="Inspect upstream E*TRADE API connectivity, credentials, and live account sync"
-          >
-            {diagnosticsLoading ? "⏳ Testing..." : "⚡ Test & Sync"}
+          <button type="button" className="btn-sync-diagnostics" disabled={diagnosticsLoading} onClick={() => runDiagnostics()}>
+            {diagnosticsLoading ? "Testing…" : "Test & Sync"}
           </button>
-        </div>
-      </div>
-
-      {/* Fail-Closed Portfolio Discrepancy Alert */}
-      {!isReconciled && (
-        <div className="reconciliation-alert-banner" role="alert">
-          <div className="reconciliation-alert-content">
-            <span style={{ fontSize: "1.4rem" }}>⚠️</span>
-            <div>
-              <strong>UNVERIFIED / POSSIBLE DEMO DATA</strong>
-              <p>
-                Portfolio cannot be reconciled: Stated total (${statedNav.toFixed(2)}) differs from holdings sum (${positionsSum.toFixed(2)}) + cash (${cashPower.toFixed(2)}) by ${balanceDiscrepancy.toFixed(2)}. No aggregate conclusion shown until reconciled.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn-view-discrepancy"
-            onClick={() => setShowDiscrepancyModal(true)}
-          >
-            View Discrepancy Breakdown
-          </button>
-        </div>
-      )}
-
-      {/* Top Brokerage Status Header */}
-      <div className="trading-header-banner">
-        <div className="broker-brand-cluster">
-          <div className="broker-logo-box">
-            <span className="broker-logo-icon">📈</span>
-            <div className="broker-brand-names">
-              <h3>E*TRADE Securities</h3>
-              <span className="broker-subbrand">
-                by Morgan Stanley • {isLive ? "Developer Production API" : "Developer Sandbox API"}
-              </span>
-            </div>
-          </div>
-          <div className="broker-status-chips">
-            <span className="mode-badge live-pulse">
-              <span className="pulse-dot" />
-              {isLive ? "LIVE DIRECT API" : "SANDBOX SIMULATION"}
-            </span>
-            <span className="protocol-badge">
-              OAuth 1.0a REST
-            </span>
-          </div>
-        </div>
-
-        {/* Account Financials & Purchasing Power */}
-        {(() => {
-          const totalDayGain = positions.reduce((sum, p) => sum + (p.daysGain || 0), 0);
-          const totalVal = statedNav;
-          const dayGainPct = totalVal > 0 ? (totalDayGain / totalVal) * 100 : 0;
-          const marginPower = cashPower * 2;
-          const isGain = totalDayGain >= 0;
-
-          return (
-            <div className="account-metric-strip">
-              <div className="metric-box">
-                <span className="metric-label">Net Account Value</span>
-                <span className="metric-val highlight">
-                  ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className={`metric-sub ${isGain ? "positive" : "negative"}`}>
-                  {isGain ? "+" : ""}${totalDayGain.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({isGain ? "+" : ""}{dayGainPct.toFixed(2)}%) today
-                </span>
-              </div>
-              <div className="metric-box">
-                <span className="metric-label">Cash Purchasing Power</span>
-                <span className="metric-val">
-                  ${cashPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="metric-sub">Margin: ${marginPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-              <div className="metric-box status-metric-box">
-                <span className="metric-label">Ledger Reconciliation</span>
-                <span className={`reconciliation-tag ${isReconciled ? "reconciled" : "unreconciled"}`}>
-                  {isReconciled ? "✓ Reconciled Balance" : `⚠️ $${balanceDiscrepancy.toFixed(2)} Discrepancy`}
-                </span>
-                <span className="metric-sub">
-                  {positions.length} holdings • {isReconciled ? "0.00 variance" : "Fail-Closed Active"}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
-      </div>
-
-      {/* E*TRADE OAuth 1.0a Authentication Lifecycle Banner */}
-      {oauthStatus?.authenticated ? (
-        <div className="etrade-oauth-banner connected">
-          <div className="oauth-status-info">
-            <span className="oauth-icon">🛡️</span>
-            <div>
-              <strong>E*TRADE Brokerage Account Connected [{brokerStatus?.activeEnvironment || "TEST"}]</strong>
-              <span className="oauth-meta">
-                OAuth 1.0a Active Session • Token valid until Midnight US Eastern Time • Monitored Session
-              </span>
-            </div>
-          </div>
-          <div className="oauth-actions">
-            <button
-              type="button"
-              className="btn-oauth-test"
-              disabled={diagnosticsLoading}
-              onClick={() => runDiagnostics()}
-              title="Inspect upstream E*TRADE live connection and raw account data"
-            >
-              {diagnosticsLoading ? "⏳ Testing..." : "⚡ Test Connection"}
+          {oauthStatus?.authenticated ? (
+            <>
+              {oauthStatus.renewable && <button type="button" className="btn-oauth-renew" disabled={oauthLoading} onClick={handleRenewOAuth}>Renew Token</button>}
+              <button type="button" className="btn-oauth-revoke" disabled={oauthLoading} onClick={handleRevokeOAuth}>Disconnect</button>
+            </>
+          ) : (
+            <button type="button" className="btn-oauth-connect" disabled={oauthLoading} onClick={handleStartOAuth}>
+              {oauthLoading ? "Connecting…" : "Connect"}
             </button>
-            {oauthStatus.renewable && (
-              <button
-                type="button"
-                className="btn-oauth-renew"
-                disabled={oauthLoading}
-                onClick={handleRenewOAuth}
-                title="Renew OAuth Access Token proactively before midnight ET"
-              >
-                🔄 Renew Token
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn-oauth-revoke"
-              disabled={oauthLoading}
-              onClick={handleRevokeOAuth}
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="etrade-oauth-banner unauthenticated">
-          <div className="oauth-status-info">
-            <span className="oauth-icon">⚠️</span>
-            <div>
-              <strong>Authentication Required for Real E*TRADE Broker API [{brokerStatus?.activeEnvironment || "TEST"}]</strong>
-              <span className="oauth-meta">
-                E*TRADE requires 3-legged OAuth 1.0a. Connect your account to fetch live quotes directly and route orders to the exchange.
-              </span>
-            </div>
-          </div>
-          <div className="oauth-actions">
-            <button
-              type="button"
-              className="btn-oauth-test"
-              disabled={diagnosticsLoading}
-              onClick={() => runDiagnostics()}
-              title="Test API credentials and connectivity"
-            >
-              {diagnosticsLoading ? "⏳ Testing..." : "🔍 Check Status"}
-            </button>
-            <button
-              type="button"
-              className="btn-oauth-connect"
-              disabled={oauthLoading}
-              onClick={handleStartOAuth}
-            >
-              {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE Account"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* OAuth Banner Notification Message */}
-      {oauthMsg && (
-        <div
-          style={{
-            background:
-              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
-                ? "rgba(245, 158, 11, 0.15)"
-                : "rgba(56, 189, 248, 0.15)",
-            border:
-              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
-                ? "1px solid rgba(245, 158, 11, 0.4)"
-                : "1px solid rgba(56, 189, 248, 0.3)",
-            borderRadius: "8px",
-            padding: "0.75rem 1rem",
-            color:
-              oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
-                ? "#fbbf24"
-                : "#38bdf8",
-            fontSize: "0.85rem",
-            marginTop: "0.75rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.5rem",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
-            <span>ℹ️ {oauthMsg}</span>
-            <button
-              type="button"
-              onClick={() => setOauthMsg("")}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#94a3b8",
-                cursor: "pointer",
-                fontSize: "0.9rem",
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-          {(oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")) && (
-            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.25rem" }}>
-              <button
-                type="button"
-                onClick={() => handleSwitchAndConnect("TEST")}
-                style={{
-                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                  border: "none",
-                  color: "#ffffff",
-                  fontWeight: 600,
-                  fontSize: "0.78rem",
-                  padding: "0.4rem 0.85rem",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
-                }}
-              >
-                🧪 Switch to TEST & Connect Now
-              </button>
-              <span style={{ fontSize: "0.75rem", color: "#d1d5db" }}>
-                Or configure a Morgan Stanley Production Key &amp; Secret in Cloudflare / GitHub secrets for Live PROD.
-              </span>
-            </div>
           )}
         </div>
-      )}
+        {oauthMsg && (
+          <div className="etrade-banner-message" role="status">
+            <span>{oauthMsg}</span>
+            {oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
+              ? <button type="button" onClick={() => handleSwitchAndConnect("TEST")}>Switch to TEST &amp; Connect</button>
+              : null}
+            <button type="button" aria-label="Dismiss message" onClick={() => setOauthMsg("")}>×</button>
+          </div>
+        )}
+      </section>
 
       {/* OAuth PIN Verification Modal */}
       {showPinModal && (
@@ -3424,49 +3165,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </div>
         </div>
       )}
-      {/* Reconciliation Discrepancy Breakdown Modal */}
-      {showDiscrepancyModal && (
-        <div className="modal-backdrop" onClick={() => setShowDiscrepancyModal(false)}>
-          <div className="etrade-pin-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Portfolio Reconciliation Audit Failure</h3>
-              <button
-                type="button"
-                className="btn-close-modal"
-                onClick={() => setShowDiscrepancyModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <p style={{ color: "#fca5a5", fontSize: "0.88rem", margin: "0 0 1rem 0" }}>
-                The portfolio ledger failed the mathematical reconciliation check. Total stated account value does not equal the sum of active stock positions plus stated cash.
-              </p>
-              <div className="discrepancy-grid" style={{ background: "rgba(0,0,0,0.35)", padding: "1rem", borderRadius: "8px", margin: "0.5rem 0 1rem 0" }}>
-                <div><strong>Stated Net Account Value:</strong> ${statedNav.toFixed(2)}</div>
-                <div><strong>Sum of Holdings Market Value:</strong> ${positionsSum.toFixed(2)} ({positions.length} holdings)</div>
-                <div><strong>Stated Cash Balance:</strong> ${cashPower.toFixed(2)}</div>
-                <div><strong>Calculated Portfolio Total:</strong> ${calculatedPortfolioTotal.toFixed(2)}</div>
-                <div className="variance-highlight" style={{ gridColumn: "1 / -1", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "0.5rem" }}>
-                  <strong>Unexplained Variance:</strong> ${balanceDiscrepancy.toFixed(2)}
-                </div>
-              </div>
-              <p style={{ color: "#94a3b8", fontSize: "0.82rem", lineHeight: 1.4 }}>
-                <strong>Fail-Closed Safety Policy:</strong> In compliance with fiduciary audit principles, aggregate portfolio conclusions and P&amp;L assertions are withheld until the data source can be reconciled.
-              </p>
-              <button
-                type="button"
-                className="btn-cancel-modal"
-                onClick={() => setShowDiscrepancyModal(false)}
-                style={{ width: "100%", marginTop: "1rem" }}
-              >
-                Close Discrepancy Panel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* E*TRADE Live REST Diagnostics Modal */}
       {showDiagnosticsModal && (
         <div className="modal-backdrop" onClick={() => setShowDiagnosticsModal(false)}>
