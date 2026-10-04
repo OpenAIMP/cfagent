@@ -16,6 +16,7 @@ interface OptionsResearchPanelProps {
   userLogin?: string;
   onPreviewTrade?: (ctx: OptionsTradeContext) => void;
   onJobStateChange?: (state: "idle" | "running" | "ready") => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
 export interface OptionsTradeContext {
@@ -360,7 +361,7 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
   );
 }
 
-export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange }: OptionsResearchPanelProps) {
+export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
   const [symbol, setSymbol] = useState("");
   const [thesis, setThesis] = useState<OptionThesis>("bullish");
   const [targetPrice, setTargetPrice] = useState("");
@@ -393,17 +394,12 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [nlqQuery, setNlqQuery] = useState("");
   const [nlqMaxUnderlyings, setNlqMaxUnderlyings] = useState("25");
   const [nlqQuoteAgeSeconds, setNlqQuoteAgeSeconds] = useState("60");
-  const [nlqLoading, setNlqLoading] = useState(false);
-  const [nlqResult, setNlqResult] = useState<any>(null);
-  const [nlqError, setNlqError] = useState("");
 
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
-  const [interpreted, setInterpreted] = useState<string[]>([]);
-
-  const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
+  const hasResults = Boolean(bestTrade || comparison || result);
   useEffect(() => {
-    onJobStateChange?.(loading || nlqLoading ? "running" : hasResults ? "ready" : "idle");
-  }, [loading, nlqLoading, hasResults, onJobStateChange]);
+    onJobStateChange?.(loading ? "running" : hasResults ? "ready" : "idle");
+  }, [loading, hasResults, onJobStateChange]);
 
   const previewTrade: PreviewTrade | undefined = onPreviewTrade
     ? (candidate) => onPreviewTrade(toTradeContext(
@@ -412,24 +408,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       Number(screenedContracts.find((c) => typeof c.underlyingPrice === "number")?.underlyingPrice) || undefined,
     ))
     : undefined;
-
-  const applyInterpretation = (plan: any) => {
-    const filters = plan?.tradingData?.filters;
-    const req = filters?.request;
-    if (!req) return;
-    const chips: string[] = [];
-    if (req.symbol) { setSymbol(String(req.symbol)); chips.push(`Underlying: ${req.symbol}`); }
-    if (req.thesis) { setThesis(req.thesis); chips.push(`Thesis: ${req.thesis}`); }
-    if (req.targetPrice) { setTargetPrice(String(req.targetPrice)); chips.push(`Target price: $${req.targetPrice}`); }
-    if (req.targetDate) { setTargetDate(String(req.targetDate)); chips.push(`Target date: ${req.targetDate}`); }
-    if (req.maxPlannedLoss) { setMaxPlannedLoss(String(req.maxPlannedLoss)); chips.push(`Max loss: $${req.maxPlannedLoss}`); }
-    if (req.minDte !== undefined) { setMinDte(String(req.minDte)); setMaxDte(String(req.maxDte ?? maxDte)); chips.push(`DTE: ${req.minDte}–${req.maxDte}`); }
-    if (req.expectedIvDirection) { setExpectedIvDirection(req.expectedIvDirection); chips.push(`IV: ${req.expectedIvDirection}`); }
-    if (filters.riskProfile) { setRiskProfile(filters.riskProfile); chips.push(`Ranking: ${filters.riskProfile}`); }
-    const types = filters.strategyFilter?.strategyTypes;
-    if (Array.isArray(types) && types.length) { setAllowedStrategies(types); chips.push(`Strategies: ${types.join(", ")}`); }
-    setInterpreted(chips);
-  };
 
   const loadExample = (example: string) => {
     setNlqQuery(example);
@@ -522,41 +500,15 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     void run("rank");
   };
 
-  const submitNaturalLanguage = async (event: React.FormEvent) => {
+  const submitNaturalLanguage = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!nlqQuery.trim() || nlqLoading) return;
-    setNlqLoading(true);
-    setNlqError("");
-    setNlqResult(null);
-    try {
-      const response = await fetch("/api/nlq", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          ...(userLogin ? { "x-user-login": userLogin } : {}),
-        },
-        body: JSON.stringify({
-          query: [
-            nlqQuery.trim(),
-            nlqMaxUnderlyings.trim() && !/\bunderlyings?\b/i.test(nlqQuery)
-              ? `scan up to ${Number(nlqMaxUnderlyings)} underlyings`
-              : "",
-            nlqQuoteAgeSeconds.trim() && !/\bquote\s*age\b/i.test(nlqQuery)
-              ? `quote age under ${Number(nlqQuoteAgeSeconds)} seconds`
-              : "",
-          ].filter(Boolean).join(" "),
-        }),
-      });
-      const data = await response.json() as any;
-      if (!response.ok) throw new Error(data.error || "Natural-language options screen failed");
-      setNlqResult(data);
-      applyInterpretation(data.plan);
-    } catch (cause) {
-      setNlqError(cause instanceof Error ? cause.message : "Natural-language options screen failed");
-    } finally {
-      setNlqLoading(false);
-    }
+    if (!nlqQuery.trim()) return;
+    const prompt = [
+      nlqQuery.trim(),
+      `scan up to ${Number(nlqMaxUnderlyings)} underlyings`,
+      `quote age reference ${Number(nlqQuoteAgeSeconds)} seconds`,
+    ].join("; ");
+    onSendPrompt?.(prompt, "E*TRADE · Auto Options Research");
   };
 
   return (
@@ -565,7 +517,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         <div>
           <p className="options-eyebrow">AUTO OPTIONS RESEARCH · PAPER ONLY</p>
           <h2>Auto Options Research</h2>
-          <p>Describe the request in plain English or fill the thesis below, run a screen/ranking/Quant-vs-LLM comparison or the independent raw-data LLM idea experiment, then export or share results. No orders are placed.</p>
+          <p>Ask the shared chat to interpret an options-screening request, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. No orders are placed.</p>
         </div>
         {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
       </header>
@@ -603,8 +555,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             placeholder="No limit"
           />
         </label>
-        <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
-          {nlqLoading ? "Screening…" : "Ask"}
+        <button type="submit" disabled={!nlqQuery.trim() || !onSendPrompt}>
+          Ask in Chat
         </button>
       </form>
       <div className="options-workflow" aria-label="Options research workflow">
@@ -619,44 +571,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             </div>
           </div>
         ))}
-        <p className="options-workflow-hint">Click an example to load it (it also fills the thesis form below). Press Ask to screen options, or use the action buttons below the form to rank and compare candidates.</p>
+        <p className="options-workflow-hint">Click an example to load the request fields below. Send questions to the shared persistent Chat; use the structured form and research actions to run audited option screens and rankings.</p>
       </div>
-      {nlqError && <div className="options-error" role="alert">{nlqError}</div>}
-      {interpreted.length > 0 && (
-        <div className="options-interpreted" aria-label="How your question was interpreted">
-          <b>Interpreted as (form below updated):</b>{interpreted.map((chip) => <span key={chip}>{chip}</span>)}
-        </div>
-      )}
-      {nlqResult && (
-        <div className="options-nlq-result" role="status">
-          <strong>{nlqResult.count ?? 0} result rows</strong>
-          <p>{nlqResult.validationError || nlqResult.summary}</p>
-          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
-            <StrategyLedgerTable rows={nlqResult.rows} />
-          )}
-          {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && !Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
-                      <div className="options-scenario-table-wrap">
-                        <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
-                <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
-                <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
-                  <tr key={`${row.contractSymbol || row.symbol || "contract"}:${index}`}>
-                    {Object.values(row).map((value, column) => <td key={column}>{String(value ?? "N/A")}</td>)}
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          )}
-          {Array.isArray(nlqResult.rejections) && nlqResult.rejections.length > 0 && (
-            <details className="options-excluded">
-              <summary>View quote and filter rejections</summary>
-              <ul>{nlqResult.rejections.slice(0, 8).map((rejection: any, index: number) => (
-                <li key={`${rejection.contractSymbol}:${index}`}>{rejection.contractSymbol}: {rejection.reason}</li>
-              ))}</ul>
-            </details>
-          )}
-        </div>
-      )}
-
       <header className="options-research-heading">
         <div>
           <h3>Or declare a thesis and constraints</h3>
@@ -866,7 +782,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
             llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
           })) },
-          { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
         ]}
       />
     </section>

@@ -17,7 +17,7 @@ export interface User {
 
 export interface FossResearchHubProps {
   user?: User;
-  onSendPrompt?: (prompt: string) => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
   onTradeSymbol?: (symbol: string) => void;
 }
 
@@ -72,8 +72,6 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
   // NLQ Prompt Bar State
   const [nlqQuery, setNlqQuery] = useState("");
-  const [nlqLoading, setNlqLoading] = useState(false);
-  const [nlqResult, setNlqResult] = useState<any>(null);
 
   // Copy feedback
   const [copiedDid, setCopiedDid] = useState(false);
@@ -309,34 +307,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     }
   };
 
-  const handleRunNlq = async (e?: React.FormEvent, customQuery?: string) => {
-    if (e) e.preventDefault();
-    const q = customQuery || nlqQuery;
-    if (!q.trim() || nlqLoading) return;
-
-    setNlqLoading(true);
-    setNlqResult(null);
-    try {
-      const resp = await fetch("/api/nlq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q.trim() }),
-      });
-      const data = (await resp.json()) as any;
-      setNlqResult(data);
-
-      // If symbol in plan, auto-switch
-      if (data?.plan?.researchData?.symbol) {
-        const targetSym = data.plan.researchData.symbol.toUpperCase();
-        setActiveSymbol(targetSym);
-        setSymbolInput(targetSym);
-        loadAllSymbolData(targetSym);
-      }
-    } catch {
-      setNlqResult({ error: "Failed to execute NLQ query" });
-    } finally {
-      setNlqLoading(false);
-    }
+  const askInChat = (prompt = nlqQuery) => {
+    const query = prompt.trim();
+    if (query) onSendPrompt?.(query, `Yahoo Finance Research · ${subTab}`);
   };
 
   const copyDidToClipboard = (did: string) => {
@@ -398,116 +371,6 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
             <span className="did-verified-tag">🛡️ Cryptographic Research Attestation</span>
           </div>
-        </div>
-      </div>
-
-      {/* NLQ Natural Language Research Bar */}
-      <div className="nlq-quick-bar">
-        <div className="nlq-bar-input-wrap">
-          <span className="nlq-bar-icon">🤖</span>
-          <input
-            type="text"
-            className="nlq-bar-input"
-            placeholder="Ask FOSS research agent: e.g. 'Research NVDA', 'Yahoo Finance quote for AAPL', 'Alpaca snapshot for TSLA', 'Compare MSFT and GOOGL'..."
-            value={nlqQuery}
-            onChange={(e) => setNlqQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleRunNlq();
-            }}
-          />
-          <button
-            type="button"
-            className="btn-nlq-submit"
-            disabled={nlqLoading || !nlqQuery.trim()}
-            onClick={() => handleRunNlq()}
-          >
-            {nlqLoading ? "Researching…" : "⚡ Run NLQ"}
-          </button>
-          {onSendPrompt && (
-            <button
-              type="button"
-              className="btn-nlq-chat"
-              title="Send to Multi-Agent Chat"
-              onClick={() => onSendPrompt(nlqQuery || "Research NVDA")}
-            >
-              💬 In Chat
-            </button>
-          )}
-        </div>
-
-        {/* Suggestion Chips */}
-        <div className="nlq-chips-carousel">
-          <span className="chips-label">Quick Prompts:</span>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Research NVDA");
-              handleRunNlq(undefined, "Research NVDA");
-            }}
-          >
-            🔬 Research NVDA
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Quote AAPL via Alpaca");
-              handleRunNlq(undefined, "Quote AAPL via Alpaca");
-            }}
-          >
-            📊 Quote AAPL (Alpaca)
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Show fundamentals and valuation for MSFT");
-              handleRunNlq(undefined, "Show fundamentals and valuation for MSFT");
-            }}
-          >
-            ⚖️ MSFT Fundamentals
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Alpaca market snapshot for TSLA");
-              handleRunNlq(undefined, "Alpaca market snapshot for TSLA");
-            }}
-          >
-            📷 TSLA Alpaca Snapshot
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Show historical bars for PLTR");
-              handleRunNlq(undefined, "Show historical bars for PLTR");
-            }}
-          >
-            📈 PLTR 30-Day Bars
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Quote BTC/USD crypto");
-              handleRunNlq(undefined, "Quote BTC/USD crypto");
-            }}
-          >
-            🪙 BTC/USD Crypto
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Compare valuation of NVDA, AMD, and INTC");
-              handleRunNlq(undefined, "Compare valuation of NVDA, AMD, and INTC");
-            }}
-          >
-            🔄 Compare NVDA, AMD, INTC
-          </button>
         </div>
       </div>
 
@@ -604,6 +467,34 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
         >
           🔄 Multi-Stock Valuation Comparison
         </button>
+      </div>
+
+      <div className="nlq-quick-bar trading-context-chat">
+        <div className="nlq-bar-input-wrap">
+          <span className="nlq-bar-icon">💬</span>
+          <input
+            type="text"
+            className="nlq-bar-input"
+            placeholder={`Ask Chat about ${subTab}…`}
+            value={nlqQuery}
+            onChange={(event) => setNlqQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") askInChat();
+            }}
+          />
+          <button type="button" className="btn-nlq-submit" disabled={!nlqQuery.trim()} onClick={() => askInChat()}>
+            Ask in Chat
+          </button>
+        </div>
+        <div className="nlq-chips-carousel">
+          <span className="chips-label">Ask from this tab:</span>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Research NVDA")}>Research NVDA</button>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Quote AAPL via Alpaca")}>Quote AAPL</button>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Show fundamentals and valuation for MSFT")}>MSFT Fundamentals</button>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Alpaca market snapshot for TSLA")}>TSLA Snapshot</button>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Show historical bars for PLTR")}>PLTR Bars</button>
+          <button type="button" className="nlq-chip" onClick={() => askInChat("Compare valuation of NVDA, AMD, and INTC")}>Compare Valuation</button>
+        </div>
       </div>
 
       {/* SUBTAB 0: YAHOO FINANCE LIVE MARKET SCREENER */}
@@ -856,7 +747,6 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               { name: "Historical bars", rows: bars as unknown as Array<Record<string, unknown>> },
               { name: "Market snapshot", rows: snapshot ? [snapshot as unknown as Record<string, unknown>] : [] },
               { name: "Stock comparison", rows: comparisonResults as unknown as Array<Record<string, unknown>> },
-              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
             ]}
           />
         </div>

@@ -744,8 +744,7 @@ export function Chat({ user }: { user: User }) {
 
   // NLQ state
   const [nlqInput, setNlqInput] = useState("");
-  const [nlqLoading, setNlqLoading] = useState(false);
-  const [nlqResult, setNlqResult] = useState<any>(null);
+  const [nlqResult] = useState<any>(null);
 
   // Audit state
   const [auditEvents, setAuditEvents] = useState<AuditLogEvent[]>([]);
@@ -1319,32 +1318,21 @@ export function Chat({ user }: { user: User }) {
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isBusy) return;
-    sendMessage({ text: input.trim() });
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: input.trim() }],
+      metadata: { sourceTab: "Chat & Agents" },
+    });
     setInput("");
   };
 
-  const handleChipClick = (prompt: string) => {
+  const handleChipClick = (prompt: string, sourceTab = "Chat & Agents") => {
     if (isBusy) return;
-    sendMessage({ text: prompt });
-  };
-
-  const handleRunNLQ = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nlqInput.trim() || nlqLoading) return;
-    setNlqLoading(true);
-    setNlqResult(null);
-    try {
-      const resp = await fetch("/api/nlq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: nlqInput.trim() }),
-      });
-      setNlqResult(await resp.json());
-    } catch (err) {
-      setNlqResult({ error: "Failed to connect to NLQ endpoint" });
-    } finally {
-      setNlqLoading(false);
-    }
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+      metadata: { sourceTab },
+    });
   };
 
   const handleClearChat = async (skipConfirm?: boolean | React.MouseEvent) => {
@@ -1414,7 +1402,7 @@ export function Chat({ user }: { user: User }) {
             className={`tab-btn ${tab === "nlq" ? "active" : ""}`}
             onClick={() => setTab("nlq")}
           >
-            📊 Analytics (NLQ)
+            🗄️ Database Explorer
           </button>
           <button
             className={`tab-btn ${tab === "audit" ? "active" : ""}`}
@@ -1665,7 +1653,9 @@ export function Chat({ user }: { user: User }) {
                       <div className="message-bubble">
                         <div className="message-header">
                           <span className="author-name">{isUser ? user.name : "Multi-Agent Orchestrator"}</span>
-                          {isUser ? null : <span className="agent-tag">Workers AI</span>}
+                          {isUser ? (
+                            msg.metadata?.sourceTab && <span className="agent-tag">{msg.metadata.sourceTab}</span>
+                          ) : <span className="agent-tag">Workers AI</span>}
                         </div>
 
                         {reasoningText && <ReasoningView reasoning={reasoningText} />}
@@ -1792,20 +1782,22 @@ export function Chat({ user }: { user: User }) {
               </button>
             </div>
 
-            <form className="chat-input-bar nlq-bar" onSubmit={handleRunNLQ}>
+            <form className="chat-input-bar nlq-bar" onSubmit={(event) => {
+              event.preventDefault();
+              if (nlqInput.trim()) {
+                handleChipClick(nlqInput.trim(), "Database Explorer");
+                setNlqInput("");
+                setTab("chat");
+              }
+            }}>
               <input
                 type="text"
                 value={nlqInput}
                 onChange={(e) => setNlqInput(e.target.value)}
-                placeholder="Ask e.g. 'List tables', 'Show categories data', or 'Add category AI Agents'…"
-                disabled={nlqLoading}
+                placeholder="Ask the shared chat about database records or categories…"
               />
-              <button
-                type="submit"
-                className="send-button"
-                disabled={!nlqInput.trim() || nlqLoading}
-              >
-                {nlqLoading ? "Analyzing…" : "Run Query"}
+              <button type="submit" className="send-button" disabled={!nlqInput.trim() || isBusy}>
+                Ask in Chat
               </button>
             </form>
 
@@ -3635,9 +3627,9 @@ export function Chat({ user }: { user: User }) {
         <div className="trading-view" hidden={tab !== "trading"}>
           <ETradeTradingHub
             user={user}
-            onSendPrompt={(prompt) => {
+            onSendPrompt={(prompt, sourceTab) => {
               setTab("chat");
-              handleChipClick(prompt);
+              handleChipClick(prompt, sourceTab || "E*TRADE Brokerage");
             }}
           />
         </div>
@@ -3647,9 +3639,9 @@ export function Chat({ user }: { user: User }) {
           <div className="research-view" hidden={tab !== "research"}>
             <FossResearchHub
               user={user}
-              onSendPrompt={(prompt) => {
+              onSendPrompt={(prompt, sourceTab) => {
                 setTab("chat");
-                handleChipClick(prompt);
+                handleChipClick(prompt, sourceTab || "Yahoo Finance Research");
               }}
               onTradeSymbol={(symbol) => {
                 setTab("trading");

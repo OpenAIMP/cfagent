@@ -26,7 +26,7 @@ export interface User {
 
 export interface ETradeTradingHubProps {
   user?: User;
-  onSendPrompt?: (prompt: string) => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
 const NLQ_ROW_RENDER_LIMIT = 500;
@@ -917,37 +917,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     }
   };
 
-  const handleRunNlq = async (e?: React.FormEvent, customQuery?: string) => {
-    if (e) e.preventDefault();
-    const q = customQuery || nlqQuery;
-    if (!q.trim() || nlqLoading) return;
-
-    setNlqLoading(true);
-    setNlqResult(null);
-    try {
-      const resp = await fetch("/api/nlq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q.trim() }),
-      });
-      const data = (await resp.json()) as any;
-      setNlqResult(data);
-
-      // If NLQ generated an order preview draft, sync it to active draft
-      if (data?.result?.orderPreview?.orderId) {
-        setActiveDraft(data.result.orderPreview);
-      }
-      // If NLQ screened stocks, update list
-      if (Array.isArray(data?.result?.screener?.stocks)) {
-        setScreenerStocks(data.result.screener.stocks);
-      }
-    } catch {
-      setNlqResult({ error: "Failed to execute NLQ query" });
-    } finally {
-      setNlqLoading(false);
-    }
-  };
-
   const copyDidToClipboard = (did: string) => {
     navigator.clipboard.writeText(did);
     setCopiedDid(true);
@@ -969,6 +938,24 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     if (rsi <= 35) return "Oversold";
     if (rsi >= 70) return "Overbought";
     return "Neutral";
+  };
+
+  const sendNlqToChat = (prompt = nlqQuery) => {
+    const cleanPrompt = prompt.trim();
+    if (!cleanPrompt) return;
+    const tabLabels: Record<typeof subTab, string> = {
+      scanner: "Equity Universe Scan",
+      screeners: "Multi-Asset Screeners",
+      options: "Auto Options Research",
+      "llm-ideas": "LLM Idea Experiment",
+      order: "Order Ticket",
+      portfolio: "Portfolio",
+      ledger: "Order History",
+      nlq: "Trading",
+      omnichannel: "Email & Slack Agents",
+      voice: "Voice Trading Desk",
+    };
+    onSendPrompt?.(cleanPrompt, `E*TRADE · ${tabLabels[subTab]}`);
   };
 
   const accountValue = account?.netAccountValue;
@@ -1095,118 +1082,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         </div>
       )}
 
-      {/* NLQ Natural Language Trading Prompt Bar */}
-      <div className="nlq-quick-bar">
-        <div className="nlq-bar-input-wrap">
-          <span className="nlq-bar-icon">🤖</span>
-          <input
-            type="text"
-            className="nlq-bar-input"
-            placeholder="Ask about your account or screen listings by price, exchange, market cap, or daily change"
-            value={nlqQuery}
-            onChange={(e) => setNlqQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                setSubTab("nlq");
-                handleRunNlq();
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="btn-nlq-submit"
-            disabled={nlqLoading || !nlqQuery.trim()}
-            onClick={() => {
-              setSubTab("nlq");
-              handleRunNlq();
-            }}
-          >
-            {nlqLoading ? "Analyzing…" : "🔍 Ask About Account"}
-          </button>
-          {onSendPrompt && (
-            <button
-              type="button"
-              className="btn-nlq-chat"
-              title="Send to Multi-Agent Chat"
-              onClick={() => onSendPrompt(nlqQuery || "Show my portfolio positions and P&L")}
-            >
-              💬 In Chat
-            </button>
-          )}
-        </div>
-
-        {/* Suggestion Chips */}
-        <div className="nlq-chips-carousel">
-          <span className="chips-label">Research &amp; Account Shortcuts:</span>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Find stocks priced between $20 and $200");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Find stocks priced between $20 and $200");
-            }}
-          >
-            💵 Price Range $20–$200
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Find stocks with market cap above $200B");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Find stocks with market cap above $200B");
-            }}
-          >
-            🏦 Large Market Cap
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Show top momentum gainers");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Show top momentum gainers");
-            }}
-          >
-            🟢 Top Momentum Gainers
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Quote NVDA");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Quote NVDA");
-            }}
-          >
-            🔍 Quote NVDA
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Preview buy 10 shares of NVDA limit 125.50");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Preview buy 10 shares of NVDA limit 125.50");
-            }}
-          >
-            📝 Build Order Preview (Buy 10 NVDA)
-          </button>
-          <button
-            type="button"
-            className="nlq-chip"
-            onClick={() => {
-              setNlqQuery("Show my portfolio positions and P&L");
-              setSubTab("nlq");
-              handleRunNlq(undefined, "Show my portfolio positions and P&L");
-            }}
-          >
-            💼 Portfolio Holdings
-          </button>
-        </div>
-      </div>
-
       {/* Navigation Sub-Tabs */}
       <div className="trading-subnav-bar">
         <button
@@ -1260,12 +1135,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           📜 Order History Ledger ({orders.length})
         </button>
         <button
-          className={`subnav-btn ${subTab === "nlq" ? "active" : ""}`}
-          onClick={() => setSubTab("nlq")}
-        >
-          🤖 NLQ Results
-        </button>
-        <button
           className={`subnav-btn ${subTab === "omnichannel" ? "active" : ""}`}
           onClick={() => setSubTab("omnichannel")}
         >
@@ -1278,6 +1147,34 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           🎙️ Voice Trading Desk
         </button>
       </div>
+
+      {subTab !== "options" && subTab !== "llm-ideas" && <div className="nlq-quick-bar trading-context-chat">
+        <div className="nlq-bar-input-wrap">
+          <span className="nlq-bar-icon">💬</span>
+          <input
+            type="text"
+            className="nlq-bar-input"
+            placeholder={`Ask Chat about ${subTab.replace("-", " ")}…`}
+            value={nlqQuery}
+            onChange={(event) => setNlqQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") sendNlqToChat();
+            }}
+          />
+          <button type="button" className="btn-nlq-submit" disabled={!nlqQuery.trim()} onClick={() => sendNlqToChat()}>
+            Ask in Chat
+          </button>
+        </div>
+        <div className="nlq-chips-carousel">
+          <span className="chips-label">Ask from this tab:</span>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Find stocks priced between $20 and $200")}>Price Range $20–$200</button>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Find stocks with market cap above $200B")}>Large Market Cap</button>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Show top momentum gainers")}>Top Momentum Gainers</button>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Quote NVDA")}>Quote NVDA</button>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Preview buy 10 shares of NVDA limit 125.50")}>Build Order Preview</button>
+          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Show my portfolio positions and P&L")}>Portfolio Holdings</button>
+        </div>
+      </div>}
 
       {/* Active HITL Safety Preview Banner (Always visible when a draft is active) */}
       {activeDraft && (
@@ -1430,25 +1327,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
       {subTab === "scanner" && (
         <div className="trading-section screener-section">
-          <form
-            className="stock-screener-nlq-form"
-            onSubmit={(event) => {
-              setSubTab("nlq");
-              void handleRunNlq(event);
-            }}
-          >
-            <label htmlFor="stock-screener-nlq">Natural-language stock screen</label>
-            <input
-              id="stock-screener-nlq"
-              value={nlqQuery}
-              onChange={(event) => setNlqQuery(event.target.value)}
-              placeholder="Find stocks priced between $20 and $200"
-            />
-            <button type="submit" disabled={nlqLoading || !nlqQuery.trim()}>
-              {nlqLoading ? "Running…" : "Run NLQ screen"}
-            </button>
-          </form>
-
           {/* Controls Bar */}
           <div className="screener-controls-bar">
             <div className="control-item">
@@ -1554,7 +1432,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                 matchedCount: screenerStocks.length, exchange: exchangeFilter, minPrice, maxPrice,
                 marketCapPreset, performance: perfFilter, search: screenerSearch,
               }] },
-              { name: "NLQ results", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
             ]}
           />
 
@@ -1656,7 +1533,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       )}
 
       <OptionsResearchPanelHost hidden={subTab !== "options"}>
-        <OptionsResearchPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleOptionsTrade} onJobStateChange={setOptionsJob} />
+        <OptionsResearchPanel
+          activeEnv={activeEnv}
+          userLogin={user?.login}
+          onPreviewTrade={handleOptionsTrade}
+          onJobStateChange={setOptionsJob}
+          onSendPrompt={onSendPrompt}
+        />
       </OptionsResearchPanelHost>
       <OptionsResearchPanelHost hidden={subTab !== "llm-ideas"}>
         <LlmOptionsIdeasPanel activeEnv={activeEnv} userLogin={user?.login} />
@@ -2008,33 +1891,21 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   <button
                     type="button"
                     className="example-link"
-                    onClick={() => {
-                      setSubTab("nlq");
-                      setNlqQuery("Preview buy 10 shares of NVDA limit 125.50");
-                      handleRunNlq(undefined, "Preview buy 10 shares of NVDA limit 125.50");
-                    }}
+                    onClick={() => sendNlqToChat("Preview buy 10 shares of NVDA limit 125.50")}
                   >
                     👉 "Preview buy 10 shares of NVDA limit 125.50"
                   </button>
                   <button
                     type="button"
                     className="example-link"
-                    onClick={() => {
-                      setSubTab("nlq");
-                      setNlqQuery("Screen oversold tech stocks");
-                      handleRunNlq(undefined, "Screen oversold tech stocks");
-                    }}
+                    onClick={() => sendNlqToChat("Screen oversold tech stocks")}
                   >
                     👉 "Screen oversold tech stocks"
                   </button>
                   <button
                     type="button"
                     className="example-link"
-                    onClick={() => {
-                      setSubTab("nlq");
-                      setNlqQuery("Show my portfolio positions");
-                      handleRunNlq(undefined, "Show my portfolio positions");
-                    }}
+                    onClick={() => sendNlqToChat("Show my portfolio positions")}
                   >
                     👉 "Show my portfolio positions"
                   </button>
