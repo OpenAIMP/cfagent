@@ -161,17 +161,8 @@ interface LlmIdeasData {
     status: "complete" | "error";
     model?: string;
     error?: string;
-    scenarios?: Record<"bullish" | "bearish" | "neutral" | "directional", {
-      outlook: string;
-      ideas: Array<{
-        title: string;
-        structure: string;
-        bias: "bullish" | "bearish" | "neutral" | "volatility";
-        legs: Array<{ contractSymbol: string; action: "BUY" | "SELL"; quantity: number }>;
-        explanation: string;
-        risks: string[];
-      }>;
-    }>;
+    answer?: string;
+    contractSymbols?: string[];
   };
 }
 
@@ -292,7 +283,7 @@ function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
         <span>{data.llm.model || "Configured Workers AI model"} · {data.dataCoverage.contractCount} contracts · {data.dataCoverage.expirationCount} expirations</span>
       </header>
       <p className="options-comparison-note">
-        The LLM receives the natural-language question and complete raw E*TRADE expiration/option-chain JSON only—no quant candidates, scores, or modeled analytics.
+        The LLM answers your question using the complete raw E*TRADE expiration/option-chain JSON only—no quant candidates, scores, or modeled analytics.
       </p>
       <button type="button" onClick={() => void downloadInput()} disabled={!data.llmInput}>
         Download exact LLM input (.xls)
@@ -302,21 +293,15 @@ function LlmIdeasExperiment({ data }: { data: LlmIdeasData }) {
         Data coverage: {data.dataCoverage.chainCount} complete E*TRADE chain responses. Recommendations are research ideas, not verified pricing models or instructions to trade.
       </p>
       {data.llm.status === "error" && <div className="options-error" role="alert">LLM idea generation failed: {data.llm.error}</div>}
-      {data.llm.scenarios && Object.entries(data.llm.scenarios).map(([scenarioName, scenario]) => (
-        <section key={scenarioName} className="options-idea-scenario">
-          <h3>{scenarioName[0].toUpperCase() + scenarioName.slice(1)} scenario</h3>
-          <p>{scenario.outlook}</p>
-          {scenario.ideas.map((idea, index) => (
-            <article key={`${scenarioName}-${index}`} className="options-strategy-card">
-              <h4>{idea.title}</h4>
-              <p><b>Structure:</b> {idea.structure} · <b>Bias:</b> {idea.bias}</p>
-              <p><b>Legs:</b> {idea.legs.map((leg) => `${leg.action} ${leg.quantity} ${leg.contractSymbol}`).join(" / ")}</p>
-              <p>{idea.explanation}</p>
-              {idea.risks.length > 0 && <p><b>Risks:</b> {idea.risks.join("; ")}</p>}
-            </article>
-          ))}
-        </section>
-      ))}
+      {data.llm.answer && (
+        <article className="options-llm-answer">
+          <h3>Answer</h3>
+          <p>{data.llm.answer}</p>
+          {(data.llm.contractSymbols || []).length > 0 && (
+            <p><b>Referenced E*TRADE contracts:</b> {data.llm.contractSymbols?.join(", ")}</p>
+          )}
+        </article>
+      )}
     </section>
   );
 }
@@ -981,9 +966,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             quantRank: item.rank, quantScore: item.compositeScore, ...item.candidate,
             llmJudgment: comparison?.llm.ranked?.find((entry) => entry.candidateId === item.candidate.id),
           })) },
-          { name: "Raw-data LLM ideas", rows: Object.entries(llmIdeas?.llm.scenarios || {}).flatMap(([scenario, data]) =>
-            data.ideas.map((idea) => ({ scenario, outlook: data.outlook, ...idea }))
-          ) },
+          { name: "Raw-data LLM answer", rows: llmIdeas?.llm.answer ? [{
+            question: llmIdeas.llmInput?.question,
+            answer: llmIdeas.llm.answer,
+            contractSymbols: llmIdeas.llm.contractSymbols,
+          }] : [] },
           { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
         ]}
       />

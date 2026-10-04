@@ -239,7 +239,7 @@
   line-height: 1.5;
 }
 
-.options-idea-scenario {
+.options-llm-answer {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -248,28 +248,18 @@
   border-radius: 5px;
 }
 
-.options-idea-scenario h3,
-.options-strategy-card h4 {
+.options-llm-answer h3 {
   margin: 0;
   color: var(--text-main);
 }
 
-.options-idea-scenario > p,
-.options-strategy-card p {
+.options-llm-answer > p {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
-}
-
-.options-strategy-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.65rem;
-  border-left: 2px solid var(--accent-cyan);
-  background: var(--bg-surface);
+  white-space: pre-wrap;
 }
 
 .options-comparison-table {

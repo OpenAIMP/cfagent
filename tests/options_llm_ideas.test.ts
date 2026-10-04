@@ -16,18 +16,8 @@ const chains: ETradeOptionChain[] = [{
   }],
 }];
 
-const idea = {
-  title: "Call debit spread",
-  structure: "Buy one call and sell a higher-strike call",
-  bias: "bullish",
-  legs: [{ contractSymbol: "NVDA260120C00180000", action: "BUY", quantity: 1 }],
-  explanation: "Defined-risk bullish exposure.",
-  risks: ["Premium can be lost."],
-};
-
-function llmResponse(contractSymbol = "NVDA260120C00180000"): string {
-  const scenario = { outlook: "Scenario summary.", ideas: [{ ...idea, legs: [{ ...idea.legs[0], contractSymbol }] }] };
-  return JSON.stringify({ scenarios: { bullish: scenario, bearish: scenario, neutral: scenario, directional: scenario } });
+function llmResponse(answer: string, contractSymbols: string[] = []): string {
+  return JSON.stringify({ answer, contractSymbols });
 }
 
 describe("Raw E*TRADE LLM options ideas", () => {
@@ -35,14 +25,20 @@ describe("Raw E*TRADE LLM options ideas", () => {
     const input = buildRawOptionsIdeasInput("NVDA", "Find bullish, bearish, neutral, and directional ideas.", expirations, chains);
     expect(input.userPrompt).toContain(JSON.stringify(chains[0].raw));
     expect(input.userPrompt).toContain("naturalLanguageQuestion");
+    expect(input.userPrompt).toContain("Find bullish, bearish, neutral, and directional ideas.");
     expect(input.userPrompt).not.toContain("quantGeneratedCandidates");
     expect(input.userPrompt).not.toContain("quantScore");
   });
 
-  it("requires all four scenarios and rejects contract symbols absent from E*TRADE", () => {
-    const parsed = parseRawOptionsIdeas(llmResponse(), chains);
-    expect(Object.keys(parsed).sort()).toEqual(["bearish", "bullish", "directional", "neutral"]);
-    expect(() => parseRawOptionsIdeas(llmResponse("INVENTED"), chains)).toThrow("not present in E*TRADE data");
+  it("accepts answers tailored to arbitrary questions and validates referenced contract symbols", () => {
+    const parsed = parseRawOptionsIdeas(llmResponse(
+      "The listed call has a 0.5 delta. Explain what additional information is needed to compare strategies.",
+      ["NVDA260120C00180000"],
+    ), chains);
+    expect(parsed.answer).toContain("0.5 delta");
+    expect(parsed.contractSymbols).toEqual(["NVDA260120C00180000"]);
+    expect(() => parseRawOptionsIdeas(llmResponse("Invented contract.", ["INVENTED"]), chains))
+      .toThrow("not present in E*TRADE data");
   });
 
   it("exports the exact system prompt, user prompt, and full JSON payload as legacy .xls", async () => {

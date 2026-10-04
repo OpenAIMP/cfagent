@@ -2456,7 +2456,12 @@ Agentic Best Practices & Workflow Rules:
           const llm = await generateRawOptionsIdeas(this.env, llmInput);
           return Response.json({
             mode: "raw_etrade_options_ideas",
-            llm: { status: "complete", model: llm.model, scenarios: llm.scenarios },
+            llm: {
+              status: "complete",
+              model: llm.model,
+              answer: llm.answer,
+              contractSymbols: llm.contractSymbols,
+            },
             llmInput: {
               symbol: llmInput.symbol,
               question: llmInput.question,
