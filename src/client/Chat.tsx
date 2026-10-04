@@ -5,6 +5,7 @@ import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
+import { WorkflowGuide } from "./WorkflowGuide";
 
 interface User {
   login: string;
@@ -3655,6 +3656,7 @@ export function Chat({ user }: { user: User }) {
           </div>
         )}
 
+        {(tab === "trading" || tab === "research" || tab === "endpoints") && <WorkflowGuide />}
       </main>
     </div>
   );
