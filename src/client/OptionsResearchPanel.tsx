@@ -254,26 +254,144 @@ function dollars(value: number | null): string {
   return value === null ? "Unlimited" : `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function signedDollars(value: number): string {
+  const text = Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value < 0 ? "-" : ""}$${text}`;
+}
+
+function breakevenText(candidate: StrategyCandidate): string {
+  if (!candidate.breakevens.length) return "None";
+  const price = (value: number) => `$${value.toFixed(2)}`;
+  if (candidate.breakevens.length === 1) {
+    const curve = candidate.payoffCurve;
+    const profitsAbove = curve.length > 0 && curve[curve.length - 1].pnl > curve[0].pnl;
+    return `${profitsAbove ? "Above" : "Below"} ${price(candidate.breakevens[0])}`;
+  }
+  return candidate.breakevens.map(price).join(" · ");
+}
+
+/** Margin is only estimable for defined-risk strategies, where the broker requirement equals the maximum loss. */
+function estimatedMargin(candidate: StrategyCandidate): string {
+  return Number.isFinite(candidate.maxLoss) && candidate.maxLoss !== null ? dollars(candidate.maxLoss) : "Broker-defined";
+}
+
+function niceTicks(min: number, max: number, count: number): number[] {
+  const step = (max - min) / Math.max(1, count - 1);
+  return Array.from({ length: count }, (_, index) => min + index * step);
+}
+
 function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
-  const width = 640;
-  const height = 190;
-  const pad = 20;
-  const values = candidate.payoffCurve.map((point) => point.pnl);
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 0);
-  const range = Math.max(1, max - min);
-  const toX = (index: number) => pad + index * (width - pad * 2) / Math.max(1, candidate.payoffCurve.length - 1);
-  const toY = (value: number) => pad + (max - value) * (height - pad * 2) / range;
-  const path = candidate.payoffCurve.map((point, index) => `${index === 0 ? "M" : "L"}${toX(index)},${toY(point.pnl)}`).join(" ");
+  const [rangePct, setRangePct] = useState(15);
+  const [hoverSpot, setHoverSpot] = useState<number | null>(null);
+  const width = 720;
+  const height = 280;
+  const left = 56;
+  const right = 16;
+  const top = 18;
+  const bottom = 30;
+  const spot = candidate.underlyingPrice;
+  const curve = candidate.payoffCurve;
+  if (curve.length < 2) return null;
+
+  const lo = spot * (1 - rangePct / 100);
+  const hi = spot * (1 + rangePct / 100);
+  const pnlAt = (price: number) => {
+    if (price <= curve[0].underlyingPrice) return curve[0].pnl;
+    for (let index = 1; index < curve.length; index++) {
+      const a = curve[index - 1];
+      const b = curve[index];
+      if (price <= b.underlyingPrice) {
+        const span = b.underlyingPrice - a.underlyingPrice || 1;
+        return a.pnl + ((price - a.underlyingPrice) / span) * (b.pnl - a.pnl);
+      }
+    }
+    return curve[curve.length - 1].pnl;
+  };
+
+  const inside = curve.filter((point) => point.underlyingPrice > lo && point.underlyingPrice < hi);
+  const points = [{ underlyingPrice: lo, pnl: pnlAt(lo) }, ...inside, { underlyingPrice: hi, pnl: pnlAt(hi) }];
+  const pnls = points.map((point) => point.pnl);
+  const yMin = Math.min(...pnls, 0);
+  const yMax = Math.max(...pnls, 0);
+  const pad = Math.max(1, (yMax - yMin) * 0.08);
+  const y0 = yMin - pad;
+  const y1 = yMax + pad;
+  const toX = (price: number) => left + ((price - lo) / (hi - lo)) * (width - left - right);
+  const toY = (value: number) => top + ((y1 - value) / (y1 - y0)) * (height - top - bottom);
   const zeroY = toY(0);
+  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${toX(point.underlyingPrice).toFixed(1)},${toY(point.pnl).toFixed(1)}`).join(" ");
+  const area = `${line} L${toX(hi).toFixed(1)},${zeroY.toFixed(1)} L${toX(lo).toFixed(1)},${zeroY.toFixed(1)} Z`;
+  const id = candidate.id.replace(/[^a-zA-Z0-9]/g, "");
+  const marker = hoverSpot ?? spot;
+  const markerPnl = pnlAt(marker);
+  const visibleBreakevens = candidate.breakevens.filter((price) => price > lo && price < hi);
+
+  const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * width;
+    const ratio = Math.min(1, Math.max(0, (x - left) / (width - left - right)));
+    setHoverSpot(lo + ratio * (hi - lo));
+  };
 
   return (
-    <svg className="options-payoff-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${candidate.label} expiration payoff graph`}>
-      <line x1={pad} y1={zeroY} x2={width - pad} y2={zeroY} className="options-zero-line" />
-      <path d={path} className="options-payoff-line" />
-      <text x={pad} y={height - 2} className="options-axis-label">50% spot</text>
-      <text x={width - pad} y={height - 2} textAnchor="end" className="options-axis-label">150% spot</text>
-    </svg>
+    <div className="options-payoff-wrap">
+      <svg
+        className="options-payoff-graph"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${candidate.label} profit and loss at expiration`}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHoverSpot(null)}
+      >
+        <defs>
+          <linearGradient id={`${id}-gain`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#22c55e" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id={`${id}-loss`} x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+          </linearGradient>
+          <clipPath id={`${id}-above`}><rect x={left} y={top} width={width - left - right} height={Math.max(0, zeroY - top)} /></clipPath>
+          <clipPath id={`${id}-below`}><rect x={left} y={zeroY} width={width - left - right} height={Math.max(0, height - bottom - zeroY)} /></clipPath>
+        </defs>
+        {niceTicks(y0, y1, 6).map((tick) => (
+          <g key={`y${tick}`}>
+            <line x1={left} x2={width - right} y1={toY(tick)} y2={toY(tick)} className="options-grid-line" />
+            <text x={left - 6} y={toY(tick) + 3} textAnchor="end" className="options-axis-label">{signedDollars(Math.round(tick))}</text>
+          </g>
+        ))}
+        {niceTicks(lo, hi, 7).map((tick) => (
+          <text key={`x${tick}`} x={toX(tick)} y={height - 10} textAnchor="middle" className="options-axis-label">${tick.toFixed(2)}</text>
+        ))}
+        <path d={area} fill={`url(#${id}-gain)`} clipPath={`url(#${id}-above)`} />
+        <path d={area} fill={`url(#${id}-loss)`} clipPath={`url(#${id}-below)`} />
+        <line x1={left} x2={width - right} y1={zeroY} y2={zeroY} className="options-zero-line" />
+        <path d={line} className="options-payoff-line" clipPath={`url(#${id}-above)`} stroke="#22c55e" />
+        <path d={line} className="options-payoff-line" clipPath={`url(#${id}-below)`} stroke="#ef4444" />
+        <line x1={toX(spot)} x2={toX(spot)} y1={top} y2={height - bottom} className="options-spot-line" />
+        <text x={toX(spot)} y={top - 5} textAnchor="middle" className="options-spot-label">${spot.toFixed(2)}</text>
+        {visibleBreakevens.map((price) => (
+          <g key={`be${price}`}>
+            <line x1={toX(price)} x2={toX(price)} y1={top} y2={height - bottom} className="options-breakeven-line" />
+            <text x={toX(price)} y={height - bottom - 4} textAnchor="middle" className="options-breakeven-label">BE ${price.toFixed(2)}</text>
+          </g>
+        ))}
+        <line x1={toX(marker)} x2={toX(marker)} y1={top} y2={height - bottom} className="options-marker-line" />
+        <circle cx={toX(marker)} cy={toY(markerPnl)} r={4} className="options-marker-dot" />
+        <text
+          x={Math.min(width - right - 4, Math.max(left + 4, toX(marker) + 8))}
+          y={Math.max(top + 12, toY(markerPnl) - 8)}
+          className={markerPnl >= 0 ? "options-marker-label gain" : "options-marker-label loss"}
+        >
+          {`$${marker.toFixed(2)}: ${signedDollars(markerPnl)}`}
+        </text>
+      </svg>
+      <label className="options-range-control">
+        <span>Range ±{rangePct}%</span>
+        <input type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
+      </label>
+    </div>
   );
 }
 
@@ -287,8 +405,8 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
       <header className="options-candidate-header">
         <div>
           <div className="options-rank">RESEARCH CANDIDATE {candidate.rank}</div>
-          <h3>{candidate.symbol} · {candidate.label}</h3>
-          <p>Expiry {candidate.expirationDate} · Ranked score {candidate.score.toFixed(1)}/100</p>
+          <h3>{candidate.label}</h3>
+          <p>{candidate.symbol} ${candidate.underlyingPrice.toFixed(2)} · Expiry {candidate.expirationDate} · Ranked score {candidate.score.toFixed(1)}/100</p>
         </div>
         <div className="options-candidate-badges">
           <span className={`options-freshness-tag ${candidate.dataFreshness.toLowerCase()}`}>
@@ -311,20 +429,26 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
         ))}
       </div>
 
+      <div className="options-summary-strip">
+        <div><span>{candidate.netDebit >= 0 ? "NET DEBIT" : "NET CREDIT"}</span><strong>{dollars(Math.abs(candidate.netDebit))}</strong></div>
+        <div><span>EST. MARGIN</span><strong>{estimatedMargin(candidate)}</strong></div>
+        <div><span>MAX LOSS</span><strong className="options-negative">{dollars(candidate.maxLoss)}</strong></div>
+        <div><span>MAX PROFIT</span><strong className="options-positive">{candidate.maxProfitUnbounded ? "Unlimited" : dollars(candidate.maxProfit)}</strong></div>
+        <div><span>CHANCE OF PROFIT</span><strong>{(candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}% <small>model</small></strong></div>
+        <div><span>BREAKEVEN</span><strong>{breakevenText(candidate)}</strong></div>
+      </div>
+
+      <PayoffGraph candidate={candidate} />
+
       <div className="options-risk-grid">
-        <div><span>Net debit / credit</span><strong>{candidate.netDebit >= 0 ? dollars(candidate.netDebit) : `${dollars(-candidate.netDebit)} credit`}</strong></div>
-        <div><span>Max profit</span><strong>{candidate.maxProfitUnbounded ? "Unlimited" : dollars(candidate.maxProfit)}</strong></div>
-        <div><span>Break-even(s)</span><strong>{candidate.breakevens.length ? candidate.breakevens.map((point) => `$${point.toFixed(2)}`).join(", ") : "None"}</strong></div>
         <div><span>Target-date modeled P/L</span><strong className={candidate.targetPnl >= 0 ? "options-positive" : "options-negative"}>{dollars(candidate.targetPnl)}</strong></div>
         <div><span>Target reward / risk</span><strong>{candidate.targetRewardRisk.toFixed(2)}x</strong></div>
-        <div><span>Model-implied POP</span><strong>{(candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}% · model</strong></div>
         <div><span>Liquidity score</span><strong>{candidate.liquidityScore.toFixed(1)}/100</strong></div>
       </div>
 
       <details className="options-detail">
-        <summary>Payoff, scenarios, Greeks, and score</summary>
+        <summary>Scenarios, Greeks, and score</summary>
         <div className="options-detail-content">
-          <PayoffGraph candidate={candidate} />
           <div className="options-greeks">
             <span>Net Δ {candidate.netGreeks.delta.toFixed(2)}</span>
             <span>Γ {candidate.netGreeks.gamma.toFixed(3)}</span>

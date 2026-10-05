@@ -569,7 +569,6 @@
 
 .options-payoff-line {
   fill: none;
-  stroke: #34d399;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -897,3 +896,93 @@
 .options-llm-input pre { max-height: 260px; overflow: auto; font-size: .72rem; text-align: left; white-space: pre-wrap; }
 .options-date-row { display: flex; gap: .4rem; }
 .options-order-context { padding: .6rem .8rem; margin-bottom: .75rem; border-left: 3px solid #38bdf8; background: rgba(56,189,248,.08); font-size: .8rem; text-align: left; }
+
+.options-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0.8rem 0;
+  text-align: center;
+}
+
+.options-summary-strip > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.options-summary-strip span {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.options-summary-strip strong {
+  overflow-wrap: anywhere;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.options-summary-strip small {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 400;
+}
+
+.options-payoff-wrap {
+  margin-bottom: 0.8rem;
+}
+
+.options-grid-line {
+  stroke: rgba(148, 163, 184, 0.12);
+  stroke-width: 1;
+}
+
+.options-spot-line,
+.options-breakeven-line,
+.options-marker-line {
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.options-spot-line { stroke: #38bdf8; }
+.options-breakeven-line { stroke: rgba(250, 204, 21, 0.7); }
+.options-marker-line { stroke: rgba(226, 232, 240, 0.6); stroke-dasharray: none; }
+.options-marker-dot { fill: #fff; }
+
+.options-spot-label,
+.options-breakeven-label,
+.options-marker-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.options-spot-label { fill: #38bdf8; }
+.options-breakeven-label { fill: #facc15; }
+.options-marker-label.gain { fill: #6ee7b7; }
+.options-marker-label.loss { fill: #fda4af; }
+
+.options-range-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.options-range-control input {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .options-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

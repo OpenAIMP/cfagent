@@ -89,7 +89,7 @@ describe("Options strategy and recommendation engine", () => {
     expect(candidate.maxProfitUnbounded).toBe(true);
     expect(candidate.breakevens).toHaveLength(1);
     expect(candidate.netGreeks.delta).toBeGreaterThan(0);
-    expect(candidate.payoffCurve.length).toBe(41);
+    expect(candidate.payoffCurve.length).toBeGreaterThanOrEqual(41);
     expect(candidate.scenarios.length).toBeGreaterThan(25);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeGreaterThanOrEqual(0);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeLessThanOrEqual(1);

@@ -488,7 +488,13 @@ function attachDetail(candidate: StrategyCandidate, request: StrategyRequest, ta
   const dividend = request.dividendYield ?? 0;
   const underlying = candidate.underlyingPrice;
   const fees = candidate.estimatedFees;
-  const priceRange = Array.from({ length: 41 }, (_, index) => underlying * (0.5 + index * 0.025));
+  // Strikes and breakevens are included so the kinks of the payoff line are exact.
+  const keyPoints = [...candidate.breakevens, ...candidate.legs.filter((leg) => leg.optionType !== "STOCK").map((leg) => leg.strike)]
+    .filter((price) => price >= underlying * 0.5 && price <= underlying * 1.5);
+  const priceRange = Array.from(new Set([
+    ...Array.from({ length: 41 }, (_, index) => Number((underlying * (0.5 + index * 0.025)).toFixed(2))),
+    ...keyPoints.map((price) => Number(price.toFixed(2))),
+  ])).sort((a, b) => a - b);
   return {
     ...candidate,
     payoffCurve: priceRange.map((spot) => ({
