@@ -68,8 +68,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const activeProvider = providers.find((provider) => provider.id === providerId);
   const endpoint = activeProvider?.endpointByAssetClass[assetClass];
 
-  const callScreen = async (filters: Record<string, unknown>, paymentSignature?: string) => {
-    const paid = assetClass === "options";
+  const callScreen = async (filters: Record<string, unknown>,   paymentSignature?: string, free = false) => {
+      const paid = assetClass === "options" && !free;
     const response = await fetch(paid ? PAID_OPTIONS_ENDPOINT : endpoint!, {
       method: "POST",
       headers: {
@@ -104,6 +104,19 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     if (assetClass === "stocks") onStocksLoaded?.(data.stocks || []);
     setPending(null);
     return null;
+  };
+
+  const runWithoutPaying = async () => {
+    if (!pending || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      await callScreen(pending.filters, undefined, true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Screening failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const payAndRun = async () => {
@@ -278,13 +291,18 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       {pending && (
         <div className="options-error" role="status">
           <p>
-            <strong>Payment required.</strong> The options screener costs ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label}.
-            {pending.paid ? " Your payment was sent; retry verification below." : " You will be asked to confirm the transfer in your wallet."}
+            <strong>Payment optional.</strong> You can pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run the screen for free.
+            {pending.paid ? " Your payment was sent; retry verification below." : " Paying asks you to confirm a transfer in your wallet."}
           </p>
           <p>Recipient: <code>{pending.challenge.recipient}</code></p>
           <button type="button" disabled={loading} onClick={() => void payAndRun()}>
             {loading ? payStatus || "Working…" : pending.paid ? "Retry verification" : `Pay $${pending.challenge.amount.toFixed(2)} & run screen`}
           </button>
+          {!pending.paid && (
+            <button type="button" disabled={loading} onClick={() => void runWithoutPaying()}>
+              Skip payment &amp; run free
+            </button>
+          )}
         </div>
       )}
       {error && <div className="options-error" role="alert">{error}</div>}
