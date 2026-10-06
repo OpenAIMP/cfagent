@@ -856,6 +856,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </div>
         {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
       </header>
+      {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
+        <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
+      )}
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
           <span>Natural-language options screen</span>
