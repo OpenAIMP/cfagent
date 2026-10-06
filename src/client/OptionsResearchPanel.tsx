@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useMemo, useState, createContext } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import type {
   ExpectedIvDirection,
   OptionStrategyType,
   OptionThesis,
   StrategyCandidate,
+  StrategyLeg,
   StrategyRecommendationResult,
 } from "../trading/options/strategyEngine";
+import { contractKey, reviseCandidate } from "../trading/options/strategyEngine";
+import { toLeg } from "../trading/options/strategies/legs";
+import type { ScreenedOptionContractItem } from "../types";
 import type { StrategyEvaluation } from "../trading/options/strategies/types";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
@@ -395,7 +399,120 @@ function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
   );
 }
 
-function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; onPreview?: PreviewTrade }) {
+interface ChainContextValue {
+  contracts: ScreenedOptionContractItem[];
+  version: number;
+  refreshing: boolean;
+  refreshedAt: string | null;
+  refreshError: string;
+  refresh: () => Promise<void>;
+  target: { targetPrice?: number; targetDate?: string; expectedIvDirection?: ExpectedIvDirection };
+}
+
+const ChainContext = createContext<ChainContextValue | null>(null);
+
+function LegEditor({ legs, original, contracts, onChange }: {
+  legs: StrategyLeg[];
+  original: StrategyLeg[];
+  contracts: ScreenedOptionContractItem[];
+  onChange: (legs: StrategyLeg[]) => void;
+}) {
+  const replaceLeg = (index: number, contract: ScreenedOptionContractItem) => {
+    const next = legs.slice();
+    next[index] = toLeg(contract, legs[index].side, legs[index].quantity);
+    onChange(next);
+  };
+  const changed = legs.some((leg, index) => leg.symbol !== original[index]?.symbol);
+
+  return (
+    <div className="options-leg-editor">
+      {legs.map((leg, index) => {
+        if (leg.optionType === "STOCK") {
+          return <div className="options-leg-edit" key={`${leg.symbol}:${index}`}><strong>{leg.side} {leg.quantity} shares</strong></div>;
+        }
+        const sameType = contracts.filter((contract) => contract.optionType === leg.optionType);
+        const expiries = Array.from(new Set([...sameType.map((contract) => contract.expirationDate), leg.expirationDate])).sort();
+        const strikes = Array.from(new Set(sameType.filter((contract) => contract.expirationDate === leg.expirationDate).map((contract) => contract.strikePrice))).sort((a, b) => a - b);
+        if (!strikes.includes(leg.strike)) strikes.push(leg.strike);
+        strikes.sort((a, b) => a - b);
+        const position = strikes.indexOf(leg.strike);
+        const pick = (expiry: string, strike: number) => {
+          const pool = sameType.filter((contract) => contract.expirationDate === expiry);
+          if (!pool.length) return;
+          const best = pool.reduce((nearest, contract) => (Math.abs(contract.strikePrice - strike) < Math.abs(nearest.strikePrice - strike) ? contract : nearest), pool[0]);
+          replaceLeg(index, best);
+        };
+        return (
+          <div className="options-leg-edit" key={`${index}:${leg.optionType}:${leg.side}`}>
+            <strong>{leg.side} {leg.quantity} {leg.optionType}</strong>
+            <label>
+              <span>Expiry</span>
+              <select value={leg.expirationDate} onChange={(event) => pick(event.target.value, leg.strike)}>
+                {expiries.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
+              </select>
+            </label>
+            <label className="options-leg-strike">
+              <span>Strike ${leg.strike}</span>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, strikes.length - 1)}
+                step={1}
+                value={Math.max(0, position)}
+                disabled={strikes.length < 2}
+                onChange={(event) => pick(leg.expirationDate, strikes[Number(event.target.value)])}
+              />
+            </label>
+            <span>Entry ${leg.entryPrice.toFixed(2)} <small>({leg.side === "BUY" ? "ask" : "bid"} {leg.bid.toFixed(2)} / {leg.ask.toFixed(2)})</small></span>
+          </div>
+        );
+      })}
+      {changed && <button type="button" className="options-leg-reset" onClick={() => onChange(original)}>Reset to suggested legs</button>}
+    </div>
+  );
+}
+
+function StrategyCard({ candidate: suggested, onPreview }: { candidate: StrategyCandidate; onPreview?: PreviewTrade }) {
+  const chain = useContext(ChainContext);
+  const [legs, setLegs] = useState<StrategyLeg[]>(suggested.legs);
+  const [underlying, setUnderlying] = useState(suggested.underlyingPrice);
+  const [missingLegs, setMissingLegs] = useState(0);
+
+  useEffect(() => {
+    setLegs(suggested.legs);
+    setUnderlying(suggested.underlyingPrice);
+    setMissingLegs(0);
+  }, [suggested]);
+
+  const chainVersion = chain?.version ?? 0;
+  const contracts = chain?.contracts;
+  useEffect(() => {
+    if (!chainVersion || !contracts?.length) return;
+    const byKey = new Map(contracts.map((contract) => [contractKey(contract), contract]));
+    let missing = 0;
+    setLegs((current) => current.map((leg) => {
+      if (leg.optionType === "STOCK") return leg;
+      const fresh = byKey.get(leg.symbol);
+      if (!fresh) {
+        missing += 1;
+        return leg;
+      }
+      return toLeg(fresh, leg.side, leg.quantity);
+    }));
+    setMissingLegs(missing);
+    const price = contracts.find((contract) => typeof contract.underlyingPrice === "number")?.underlyingPrice;
+    if (price) setUnderlying(price);
+  }, [chainVersion, contracts]);
+
+  const candidate = useMemo(() => {
+    if (legs === suggested.legs && underlying === suggested.underlyingPrice) return suggested;
+    try {
+      return reviseCandidate(suggested, legs, { underlyingPrice: underlying, ...chain?.target });
+    } catch {
+      return suggested;
+    }
+  }, [legs, underlying, suggested, chain?.target?.targetPrice, chain?.target?.targetDate, chain?.target?.expectedIvDirection]);
+  const modified = candidate !== suggested;
   const scenarioValues = candidate.scenarios.filter((scenario) => scenario.ivChangePct === 0);
   const valuationDays = Math.min(...scenarioValues.map((scenario) => scenario.daysToExpiry));
   const targetScenarios = scenarioValues.filter((scenario) => scenario.daysToExpiry === valuationDays);
@@ -414,20 +531,18 @@ function StrategyCard({ candidate, onPreview }: { candidate: StrategyCandidate; 
           </span>
           <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
           {onPreview && <button type="button" onClick={() => onPreview(candidate)}>⚡ Open in Fast Order Ticket</button>}
+          {chain && (
+            <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
+              {chain.refreshing ? "Refreshing…" : "↻ Refresh option prices"}
+            </button>
+          )}
         </div>
       </header>
+      {chain?.refreshedAt && <p className="options-assumptions">Prices refreshed at {chain.refreshedAt}.{missingLegs > 0 ? ` ${missingLegs} leg(s) are no longer in the refreshed chain and keep their previous prices.` : ""}</p>}
+      {chain?.refreshError && <p className="options-error" role="alert">{chain.refreshError}</p>}
+      {modified && <p className="options-assumptions">Showing your adjusted legs (suggested ranking score and explanations refer to the original legs).</p>}
 
-      <div className="options-leg-list">
-        {candidate.legs.map((leg) => (
-          <div className="options-leg" key={`${candidate.id}:${leg.symbol}:${leg.side}`}>
-            <strong>{leg.side} {leg.quantity}</strong>
-            <span>{leg.symbol}</span>
-            <span>{leg.expirationDate}</span>
-            <span>${leg.strike} {leg.optionType}</span>
-            <span>Entry ${leg.entryPrice.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
+      <LegEditor legs={legs} original={suggested.legs} contracts={contracts ?? []} onChange={setLegs} />
 
       <div className="options-summary-strip">
         <div><span>{candidate.netDebit >= 0 ? "NET DEBIT" : "NET CREDIT"}</span><strong>{dollars(Math.abs(candidate.netDebit))}</strong></div>
@@ -531,7 +646,46 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [nlqLoading, setNlqLoading] = useState(false);
   const [nlqError, setNlqError] = useState("");
   const [nlqResult, setNlqResult] = useState<NlqResultView | null>(null);
+  const [chainVersion, setChainVersion] = useState(0);
+  const [chainRefreshing, setChainRefreshing] = useState(false);
+  const [chainRefreshedAt, setChainRefreshedAt] = useState<string | null>(null);
+  const [chainRefreshError, setChainRefreshError] = useState("");
 
+  const refreshChain = async () => {
+    setChainRefreshing(true);
+    setChainRefreshError("");
+    try {
+      const response = await fetch("/api/trading/options/screen", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify({
+          underlyingSymbols: [symbol.trim().toUpperCase()],
+          contractType: "BOTH",
+          minDte: Number(minDte),
+          maxDte: Number(maxDte),
+          minVolume: minVolume.trim() ? Number(minVolume) : undefined,
+          minOpenInterest: minOpenInterest.trim() ? Number(minOpenInterest) : undefined,
+          maxSpreadPct: maxSpreadPct.trim() ? Number(maxSpreadPct) : undefined,
+          maxQuoteAgeSeconds: Number(maxQuoteAgeSeconds),
+          limit: Number(contractLimit),
+        }),
+      });
+      const data = await response.json() as { contracts?: Array<Record<string, unknown>>; error?: string; validationError?: string };
+      if (!response.ok || data.error || data.validationError) throw new Error(data.error || data.validationError || "Price refresh failed");
+      if (!data.contracts?.length) throw new Error("The refreshed option chain was empty.");
+      setScreenedContracts(data.contracts);
+      setChainVersion((version) => version + 1);
+      setChainRefreshedAt(new Date().toLocaleTimeString());
+    } catch (cause) {
+      setChainRefreshError(cause instanceof Error ? cause.message : "Price refresh failed");
+    } finally {
+      setChainRefreshing(false);
+    }
+  };
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
   const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
   useEffect(() => {
@@ -681,7 +835,18 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     }
   };
 
+  const chainValue: ChainContextValue = {
+    contracts: screenedContracts as unknown as ScreenedOptionContractItem[],
+    version: chainVersion,
+    refreshing: chainRefreshing,
+    refreshedAt: chainRefreshedAt,
+    refreshError: chainRefreshError,
+    refresh: refreshChain,
+    target: { targetPrice: Number(targetPrice) || undefined, targetDate, expectedIvDirection },
+  };
+
   return (
+    <ChainContext.Provider value={chainValue}>
     <section className="trading-section options-research-section">
       <header className="options-research-heading">
         <div>
@@ -987,6 +1152,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         ]}
       />
     </section>
+    </ChainContext.Provider>
   );
 }
 

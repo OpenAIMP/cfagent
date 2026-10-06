@@ -986,3 +986,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.options-leg-editor { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.options-leg-edit { display: grid; grid-template-columns: 130px 150px 1fr auto; gap: 12px; align-items: center; padding: 8px 10px; border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 8px; }
+.options-leg-edit label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.options-leg-edit select { padding: 4px 6px; }
+.options-leg-strike input[type="range"] { width: 100%; }
+.options-leg-reset { align-self: flex-start; }

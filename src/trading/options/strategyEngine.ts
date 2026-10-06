@@ -505,6 +505,65 @@ function attachDetail(candidate: StrategyCandidate, request: StrategyRequest, ta
   };
 }
 
+export interface CandidateRevisionOptions {
+  underlyingPrice?: number;
+  targetPrice?: number;
+  targetDate?: string;
+  expectedIvDirection?: ExpectedIvDirection;
+  feesPerContract?: number;
+  riskFreeRate?: number;
+  dividendYield?: number;
+}
+
+/** Re-derives a candidate's cost, risk, payoff and Greeks after its legs were swapped for other strikes/expiries or re-quoted. */
+export function reviseCandidate(candidate: StrategyCandidate, legs: StrategyLeg[], options: CandidateRevisionOptions = {}): StrategyCandidate {
+  const rate = options.riskFreeRate ?? DEFAULT_RATE;
+  const dividend = options.dividendYield ?? 0;
+  const underlying = options.underlyingPrice ?? candidate.underlyingPrice;
+  const optionLegs = legs.filter((leg) => leg.optionType !== "STOCK");
+  const fees = optionLegs.reduce((sum, leg) => sum + leg.quantity * (options.feesPerContract ?? DEFAULT_FEE_PER_CONTRACT), 0);
+  const risk = riskProfile(legs, fees, underlying, rate, dividend);
+  const horizon = horizonDays(legs);
+  const parsedTarget = options.targetDate ? new Date(`${options.targetDate}T00:00:00Z`).getTime() : NaN;
+  const targetDays = Number.isFinite(parsedTarget) ? daysUntil(options.targetDate!) : horizon;
+  const ivMultiplier = options.expectedIvDirection === "rise" ? 1.15 : options.expectedIvDirection === "fall" ? 0.85 : 1;
+  const targetPnl = options.targetPrice && options.targetPrice > 0
+    ? modeledPnl(legs, options.targetPrice, Math.min(targetDays, horizon), fees, rate, dividend, ivMultiplier)
+    : candidate.targetPnl;
+  const maxLossFinite = Number.isFinite(risk.maxLoss) && risk.maxLoss > 0;
+  const states = optionLegs.map((leg) => leg.quoteFreshness);
+  const nearest = optionLegs.length
+    ? optionLegs.reduce((best, leg) => ((leg.daysToExpiration ?? 0) < (best.daysToExpiration ?? 0) ? leg : best), optionLegs[0])
+    : undefined;
+  const sum = (pick: (leg: StrategyLeg) => number) => legs.reduce((total, leg) => total + sideSign(leg) * pick(leg) * leg.multiplier * leg.quantity, 0);
+  const liquidity = optionLegs.length
+    ? optionLegs.reduce((total, leg) => {
+      const spread = clamp(100 - leg.spreadPct * 5);
+      const activity = clamp(40 + 12 * Math.log10(Math.max(1, leg.volume)) + 8 * Math.log10(Math.max(1, leg.openInterest)));
+      return total + (spread * 0.7 + activity * 0.3) / optionLegs.length;
+    }, 0)
+    : candidate.liquidityScore;
+
+  return attachDetail({
+    ...candidate,
+    underlyingPrice: underlying,
+    expirationDate: nearest?.expirationDate ?? candidate.expirationDate,
+    dataFreshness: states.includes("STALE") ? "STALE" : states.includes("UNKNOWN") ? "UNKNOWN" : "FRESH",
+    legs,
+    netDebit: Number(netDebit(legs, fees).toFixed(2)),
+    estimatedFees: Number(fees.toFixed(2)),
+    maxProfit: risk.maxProfit === null ? null : Number(risk.maxProfit.toFixed(2)),
+    maxProfitUnbounded: risk.maxProfitUnbounded,
+    maxLoss: Number.isFinite(risk.maxLoss) ? Number(risk.maxLoss.toFixed(2)) : risk.maxLoss,
+    breakevens: risk.breakevens,
+    targetPnl: Number(targetPnl.toFixed(2)),
+    targetRewardRisk: maxLossFinite ? Number((targetPnl / risk.maxLoss).toFixed(2)) : 0,
+    modelImpliedProbabilityOfProfit: Number(impliedProbabilityOfProfit(legs, risk.breakevens, underlying, fees, rate, dividend).toFixed(4)),
+    netGreeks: { delta: sum((leg) => leg.delta), gamma: sum((leg) => leg.gamma), theta: sum((leg) => leg.theta), vega: sum((leg) => leg.vega) },
+    liquidityScore: Number(liquidity.toFixed(1)),
+  }, { riskFreeRate: rate, dividendYield: dividend } as StrategyRequest, Math.min(targetDays, horizon));
+}
+
 function addRejected(reasons: Map<string, number>, reason: string): void {
   reasons.set(reason, (reasons.get(reason) || 0) + 1);
 }
