@@ -860,6 +860,26 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
         <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
       )}
+      <details className="options-workflow-drawer">
+        <summary>Workflow guide &amp; example requests</summary>
+        <div className="options-workflow" aria-label="Options research workflow">
+          {workflowSteps.map((s) => (
+            <div className="options-workflow-step" key={s.step}>
+              <h4><span className="options-workflow-num">{s.step}</span> {s.title}</h4>
+              <p>{s.blurb}</p>
+              <div className="options-nlq-examples">
+                {s.examples.map((example) => (
+                  <span className="options-example-row" key={example}>
+                    <button type="button" onClick={() => loadExample(example)}>{example}</button>
+                    {onSendPrompt && <button type="button" className="options-example-chat" title="Send this request to the shared Chat" onClick={() => onSendPrompt(example, "E*TRADE · Auto Options Research")}>💬 Chat</button>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="options-workflow-hint">Click an example to load it into the screen fields, or use 💬 Chat to send it to the shared Chat.</p>
+        </div>
+      </details>
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
           <span>Natural-language options screen</span>
@@ -929,20 +949,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           )}
         </div>
       )}
-      <div className="options-workflow" aria-label="Options research workflow">
-        {workflowSteps.map((s) => (
-          <div className="options-workflow-step" key={s.step}>
-            <h4><span className="options-workflow-num">{s.step}</span> {s.title}</h4>
-            <p>{s.blurb}</p>
-            <div className="options-nlq-examples">
-              {s.examples.map((example) => (
-                <button type="button" key={example} onClick={() => loadExample(example)}>{example}</button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <p className="options-workflow-hint">Click an example to load the request fields below. Send questions to the shared persistent Chat; use the structured form and research actions to run audited option screens and rankings.</p>
-      </div>
       <header className="options-research-heading">
         <div>
           <h3>Or declare a thesis and constraints</h3>

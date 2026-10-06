@@ -992,3 +992,9 @@
 .options-leg-edit select { padding: 4px 6px; }
 .options-leg-strike input[type="range"] { width: 100%; }
 .options-leg-reset { align-self: flex-start; }
+
+.options-workflow-drawer { margin: 0 0 12px; }
+.options-workflow-drawer > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.options-example-row { display: flex; gap: 6px; align-items: stretch; }
+.options-example-row > button:first-child { flex: 1; text-align: left; }
+.options-example-chat { white-space: nowrap; }
