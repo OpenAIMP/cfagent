@@ -3,7 +3,7 @@
  *
  * Implements:
  * - Multi-symbol and sector-wide options chain scanning.
- * - Multi-factor filtering: IV, Delta, Gamma, Theta, Volume, Open Interest, DTE, Premium, Moneyness.
+ * - Multi-factor filtering: IV, Delta, Gamma, Theta, Volume, Open Interest, DTE, Premium, Moneyness, Vega, Rho.
  * - Unusual option activity detection (Vol/OI divergence, IV skew).
  * - Real-time integration with E*TRADE REST API option chains.
  * - Input sanitization (NaN/enum/bounds), bounded upstream fan-out (symbol, expiration, and
@@ -94,11 +94,13 @@ const NUMERIC_FILTER_KEYS: NumericFilterKey[] = [
   "minDelta", "maxDelta", "minGamma", "maxGamma", "minTheta", "maxTheta",
   "minPrice", "maxPrice", "minImpliedVolatility", "maxImpliedVolatility",
   "minDte", "maxDte", "maxStrikeDistancePct", "limit",
+  "minVega", "maxVega", "minRho", "maxRho",
 ];
 
 const NON_NEGATIVE_KEYS: NumericFilterKey[] = [
   "maxUnderlyings", "minVolume", "minOpenInterest", "maxSpreadPct", "maxQuoteAgeSeconds",
   "minPrice", "maxPrice", "minImpliedVolatility", "maxStrikeDistancePct", "minDte", "maxDte", "limit",
+  "minVega", "maxVega", "minRho", "maxRho",
 ];
 
 const BOUNDED_PAIRS: Array<[NumericFilterKey, NumericFilterKey]> = [
@@ -108,6 +110,8 @@ const BOUNDED_PAIRS: Array<[NumericFilterKey, NumericFilterKey]> = [
   ["minTheta", "maxTheta"],
   ["minImpliedVolatility", "maxImpliedVolatility"],
   ["minPrice", "maxPrice"],
+  ["minVega", "maxVega"],
+  ["minRho", "maxRho"],
 ];
 
 /**
@@ -458,6 +462,10 @@ export class DynamicOptionsScreener {
     if (filter.maxGamma !== undefined) summaryParts.push(`Gamma <= ${filter.maxGamma}`);
     if (filter.minTheta !== undefined) summaryParts.push(`Theta >= ${filter.minTheta}`);
     if (filter.maxTheta !== undefined) summaryParts.push(`Theta <= ${filter.maxTheta}`);
+    if (filter.minVega !== undefined) summaryParts.push(`Vega >= ${filter.minVega}`);
+    if (filter.maxVega !== undefined) summaryParts.push(`Vega <= ${filter.maxVega}`);
+    if (filter.minRho !== undefined) summaryParts.push(`Rho >= ${filter.minRho}`);
+    if (filter.maxRho !== undefined) summaryParts.push(`Rho <= ${filter.maxRho}`);
     if (filter.minImpliedVolatility !== undefined) summaryParts.push(`IV >= ${(filter.minImpliedVolatility * 100).toFixed(0)}%`);
     if (filter.maxImpliedVolatility !== undefined) summaryParts.push(`IV <= ${(filter.maxImpliedVolatility * 100).toFixed(0)}%`);
     if (filter.minVolume !== undefined) summaryParts.push(`Min Vol >= ${filter.minVolume}`);
@@ -608,6 +616,8 @@ function evaluateContract(
   const delta = c.delta !== undefined ? Math.abs(c.delta) : undefined;
   const gamma = c.gamma;
   const theta = c.theta;
+  const vega = c.vega;
+  const rho = c.rho;
   const iv = c.impliedVolatility;
   const vol = c.volume;
   const oi = c.openInterest;
@@ -673,6 +683,19 @@ function evaluateContract(
   }
   if (filter.maxTheta !== undefined && (theta === undefined || theta > filter.maxTheta)) {
     return { rejection: contractRejection("THETA_OUT_OF_RANGE", contractSym, symbol, `Theta (${theta?.toFixed(4) ?? "N/A"}) exceeds maximum ${filter.maxTheta}`, { theta }) };
+  }
+
+  if (filter.minVega !== undefined && (vega === undefined || vega < filter.minVega)) {
+    return { rejection: contractRejection("VEGA_OUT_OF_RANGE", contractSym, symbol, `Vega (${vega?.toFixed(4) ?? "N/A"}) below minimum ${filter.minVega.toFixed(4)}`, { vega }) };
+  }
+  if (filter.maxVega !== undefined && (vega === undefined || vega > filter.maxVega)) {
+    return { rejection: contractRejection("VEGA_OUT_OF_RANGE", contractSym, symbol, `Vega (${vega?.toFixed(4) ?? "N/A"}) exceeds maximum ${filter.maxVega.toFixed(4)}`, { vega }) };
+  }
+  if (filter.minRho !== undefined && (rho === undefined || rho < filter.minRho)) {
+    return { rejection: contractRejection("RHO_OUT_OF_RANGE", contractSym, symbol, `Rho (${rho?.toFixed(4) ?? "N/A"}) below minimum ${filter.minRho.toFixed(4)}`, { rho }) };
+  }
+  if (filter.maxRho !== undefined && (rho === undefined || rho > filter.maxRho)) {
+    return { rejection: contractRejection("RHO_OUT_OF_RANGE", contractSym, symbol, `Rho (${rho?.toFixed(4) ?? "N/A"}) exceeds maximum ${filter.maxRho.toFixed(4)}`, { rho }) };
   }
 
   if (filter.minImpliedVolatility !== undefined && (iv === undefined || iv < filter.minImpliedVolatility)) {

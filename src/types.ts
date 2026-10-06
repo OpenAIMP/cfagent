@@ -392,6 +392,14 @@ export interface OptionScreenerFilter {
   maxGamma?: number;
   minTheta?: number;
   maxTheta?: number;
+  /** Minimum vega. */
+  minVega?: number;
+  /** Maximum vega. */
+  maxVega?: number;
+  /** Minimum rho. */
+  minRho?: number;
+  /** Maximum rho. */
+  maxRho?: number;
   /** Minimum option premium in USD, evaluated on the bid/ask midpoint. */
   minPrice?: number;
   /** Maximum option premium in USD, evaluated on the bid/ask midpoint. */
@@ -434,6 +442,8 @@ export type OptionScreenRejectionCode =
   | "DELTA_OUT_OF_RANGE"
   | "GAMMA_OUT_OF_RANGE"
   | "THETA_OUT_OF_RANGE"
+  | "VEGA_OUT_OF_RANGE"
+  | "RHO_OUT_OF_RANGE"
   | "IV_OUT_OF_RANGE"
   | "VOLUME_TOO_LOW"
   | "OPEN_INTEREST_TOO_LOW"
@@ -449,6 +459,8 @@ export interface OptionScreenRejection {
   delta?: number;
   gamma?: number;
   theta?: number;
+  vega?: number;
+  rho?: number;
   iv?: number;
   volume?: number;
   daysToExpiration?: number;
@@ -491,6 +503,8 @@ export interface OptionScreenResult {
   /** Non-fatal notices: clamped inputs, default DTE window, truncation, skipped expirations. */
   warnings?: string[];
   rejections?: OptionScreenRejection[];
+  /** Per-underlying put/call ratio and anomaly signal. */
+  putCallRatios?: Record<string, { putCallRatio: number; signal: string }>;
 }
 
 // =========================================================================
