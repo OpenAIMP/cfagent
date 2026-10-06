@@ -8,9 +8,9 @@ import { OptionsDataAgent } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RiskProfile } from "./recommendationAgent";
 import type { StrategyRequest } from "./strategyEngine";
-import type { DynamicOptionsScreener } from "../optionsScreener";
+import { MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 
-export const MAX_SCAN_SYMBOLS = 20;
+export { MAX_SCAN_SYMBOLS };
 const CONCURRENCY = 3;
 
 export type ScanRequestTemplate = Omit<StrategyRequest, "symbol" | "targetPrice"> & { targetPrice?: number };
@@ -69,7 +69,10 @@ export class OpportunityScanner {
         const snapshot = await this.data.loadSnapshot({ ...template, symbol });
         const price = snapshot.contracts[0]?.underlyingPrice;
         if (!price) {
-          skipped.push({ symbol, reason: snapshot.validationError || "No eligible option contracts" });
+          skipped.push({
+            symbol,
+            reason: snapshot.validationError || snapshot.screen.fetchErrors?.[0]?.reason || "No eligible option contracts",
+          });
           return null;
         }
         const request: StrategyRequest = {

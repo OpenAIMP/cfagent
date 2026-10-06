@@ -362,22 +362,39 @@ export interface StockScreenResult {
 // Dynamic Options Screener Engine Types
 // =========================================================================
 
+export type OptionScreenSortKey =
+  | "volume" // highest volume first (default)
+  | "spreadPct" // tightest spread first (ascending)
+  | "iv" // highest implied volatility first
+  | "volumeOiRatio" // highest Vol/OI (unusual activity) first
+  | "dte" // nearest expiration first (ascending)
+  | "strikeDistance"; // closest to the money first (ascending)
+
 export interface OptionScreenerFilter {
+  /** Explicit underlyings to screen; normalized (uppercased/deduped) and capped at MAX_SCAN_SYMBOLS. */
   underlyingSymbols?: string[];
+  /** Cap on dynamically discovered underlyings (1..MAX_SCAN_SYMBOLS). Required when underlyingSymbols is absent. */
   maxUnderlyings?: number;
+  /** Not supported by the all-listings discovery feed; rejected with a validationError unless "all"/"any". */
   sector?: string;
   contractType?: "CALL" | "PUT" | "BOTH";
   minVolume?: number;
   minOpenInterest?: number;
+  /** Maximum bid/ask spread as a percent of the midpoint. */
   maxSpreadPct?: number;
+  /** Quote-age reference in seconds used for FRESH/STALE labeling; stale rows are labeled, never discarded. */
   maxQuoteAgeSeconds?: number;
+  /** Minimum delta compared against the ABSOLUTE delta (0..1); returned contracts keep their signed delta. */
   minDelta?: number;
+  /** Maximum delta compared against the ABSOLUTE delta (0..1). */
   maxDelta?: number;
   minGamma?: number;
   maxGamma?: number;
   minTheta?: number;
   maxTheta?: number;
+  /** Minimum option premium in USD, evaluated on the bid/ask midpoint. */
   minPrice?: number;
+  /** Maximum option premium in USD, evaluated on the bid/ask midpoint. */
   maxPrice?: number;
   minImpliedVolatility?: number; // decimal e.g. 0.35 = 35%
   maxImpliedVolatility?: number; // decimal e.g. 1.20 = 120%
@@ -385,7 +402,10 @@ export interface OptionScreenerFilter {
   maxDte?: number; // Days to expiration max
   moneyness?: "ITM" | "OTM" | "ATM" | "ALL";
   maxStrikeDistancePct?: number; // e.g. 10 for strikes within 10% of underlying price
+  /** Maximum contracts returned (clamped to MAX_RETURNED_CONTRACTS); use totalMatches for the pre-limit count. */
   limit?: number;
+  /** Result ordering; defaults to "volume" (highest volume first). */
+  sortBy?: OptionScreenSortKey;
 }
 
 export interface ScreenedOptionContractItem extends ETradeOptionChainContract {
@@ -400,13 +420,28 @@ export interface ScreenedOptionContractItem extends ETradeOptionChainContract {
   quoteTimestamp?: string;
   quoteFreshness?: "FRESH" | "STALE" | "UNKNOWN";
   volumeOiRatio?: number;
-  ivRankEstimated?: number;
   technicalSignal: string;
   highlightReason: string;
-  validationStatus?: "PASS_CONFIRMED" | "FAIL_MISMATCH";
 }
 
+/** Machine-readable reason a contract failed screening. */
+export type OptionScreenRejectionCode =
+  | "ADJUSTED_CONTRACT"
+  | "INVALID_QUOTE"
+  | "SPREAD_TOO_WIDE"
+  | "PREMIUM_OUT_OF_RANGE"
+  | "DTE_OUT_OF_RANGE"
+  | "DELTA_OUT_OF_RANGE"
+  | "GAMMA_OUT_OF_RANGE"
+  | "THETA_OUT_OF_RANGE"
+  | "IV_OUT_OF_RANGE"
+  | "VOLUME_TOO_LOW"
+  | "OPEN_INTEREST_TOO_LOW"
+  | "MONEYNESS_MISMATCH"
+  | "STRIKE_DISTANCE_TOO_WIDE";
+
 export interface OptionScreenRejection {
+  code: OptionScreenRejectionCode;
   contractSymbol: string;
   underlyingSymbol: string;
   reason: string;
@@ -421,22 +456,40 @@ export interface OptionScreenRejection {
   quoteAgeSeconds?: number;
 }
 
+/** A per-symbol upstream fetch failure (auth, network, rate limit, empty payload). */
+export interface OptionScreenFetchError {
+  symbol: string;
+  reason: string;
+}
+
 export interface OptionScreenResult {
   totalUnderlyingsScanned: number;
   totalContractsEvaluated: number;
+  /** Contracts returned in this payload (after `limit`). */
   matchedCount: number;
+  /** Total contracts that matched the filter before `limit` truncation. */
+  totalMatches?: number;
+  /** Total contracts rejected across all filters (rejections[] holds at most 50 samples). */
+  rejectionCount?: number;
   filterApplied: OptionScreenerFilter;
   filterSummary: string;
   contracts: ScreenedOptionContractItem[];
   scannedAt: string;
   quoteQuality?: {
     maxAgeSeconds?: number;
+    /** Age threshold (seconds) used for FRESH/STALE labels; equals maxAgeSeconds when set, else the default reference. */
+    referenceAgeSeconds?: number;
     staleContractsReturned: number;
     unknownFreshnessContracts: number;
     freshestStaleQuoteAgeSeconds?: number;
   };
+  /** "error" when inputs are invalid (see validationError) or nothing could be fetched (see fetchErrors). */
   status: "matches_found" | "no_matches" | "error";
   validationError?: string;
+  /** Per-symbol upstream failures; present alongside any status when live fetches failed. */
+  fetchErrors?: OptionScreenFetchError[];
+  /** Non-fatal notices: clamped inputs, default DTE window, truncation, skipped expirations. */
+  warnings?: string[];
   rejections?: OptionScreenRejection[];
 }
 

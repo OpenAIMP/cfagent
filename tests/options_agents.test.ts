@@ -41,7 +41,6 @@ function makeContracts(opts: { sharedSymbol?: boolean; fresh?: boolean } = {}): 
       adjustedFlag: false,
       technicalSignal: "fixture",
       highlightReason: "fixture",
-      validationStatus: "PASS_CONFIRMED" as const,
     };
     return [
       { ...base, optionType: "CALL" as const, symbol: opts.sharedSymbol ? "XYZ" : `XYZ${strike}C`, osiKey: `XYZ-${strike}C`, strikePrice: strike, bid: callMid - 0.1, ask: callMid + 0.1, delta },

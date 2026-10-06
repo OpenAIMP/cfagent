@@ -2182,11 +2182,20 @@ Agentic Best Practices & Workflow Rules:
           const etrade = new ETradeService(this.getOrm(), this.env, userLogin, reqEnvLocal);
           const screener = new DynamicOptionsScreener(etrade.client);
           const result = await screener.screenOptions(filter);
+          const failed = result.status === "error";
           return {
-            success: true,
+            success: !failed,
             service: tier.name,
             receipt,
             screenResult: result,
+            ...(failed
+              ? {
+                  error:
+                    result.validationError ||
+                    result.fetchErrors?.[0]?.reason ||
+                    "Options screen failed upstream; no data could be fetched.",
+                }
+              : {}),
           };
         }
       );

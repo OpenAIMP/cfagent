@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
+import {
+  DynamicOptionsScreener,
+  sanitizeOptionScreenerFilter,
+  MAX_SCAN_SYMBOLS,
+  MAX_RETURNED_CONTRACTS,
+  DEFAULT_MAX_DTE,
+} from "../src/trading/optionsScreener";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import type { NasdaqStockListing } from "../src/services/nasdaqListings";
 import { ETradeService } from "../src/services/etrade";
@@ -402,7 +408,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         limit: 10,
       });
 
-      expect(result.status).toBe("no_matches");
+      expect(result.status).toBe("error");
+      expect(result.validationError).toContain("sector");
       expect(result.contracts).toHaveLength(0);
       expect(result.totalUnderlyingsScanned).toBe(0);
     });
@@ -452,8 +459,10 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       });
       expect(result.status).toBe("matches_found");
       expect(result.totalUnderlyingsScanned).toBe(1);
-      expect(result.contracts[0].underlyingSymbol).toBe("LIVE");
-      expect(client.getOptionChains).toHaveBeenCalledWith({ symbol: "LIVE" });
+      // Discovery is deterministic: symbols are sorted alphabetically, so BANK (not LIVE)
+      // is the first symbol under the cap of 1.
+      expect(result.contracts[0].underlyingSymbol).toBe("BANK");
+      expect(client.getOptionChains).toHaveBeenCalledWith({ symbol: "BANK" });
     });
 
     it("uses deterministic test fixtures when injected via setTestChainsFixture", async () => {
@@ -490,6 +499,227 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(res.contracts[0].symbol).toBe("CUSTOM261120C105000");
       expect(res.contracts[0].volumeOiRatio).toBe(2.5); // 5000 / 2000 = 2.5x unusual volume!
       expect(res.contracts[0].technicalSignal).toContain("Unusual Volume Spike");
+    });
+
+    it("filters contracts by option premium (bid/ask midpoint)", async () => {
+      const screener = new DynamicOptionsScreener();
+      // Fixture NVDA call: bid 4.5 / ask 4.7 -> midpoint 4.6.
+      const inside = await screener.screenOptions({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+        minPrice: 4,
+        maxPrice: 5,
+      });
+      expect(inside.status).toBe("matches_found");
+      expect(inside.contracts.length).toBeGreaterThan(0);
+
+      const tooCheap = await screener.screenOptions({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+        maxPrice: 4.0,
+      });
+      expect(tooCheap.status).toBe("no_matches");
+      expect(tooCheap.rejections?.[0].code).toBe("PREMIUM_OUT_OF_RANGE");
+
+      const tooDear = await screener.screenOptions({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+        minPrice: 10,
+      });
+      expect(tooDear.status).toBe("no_matches");
+      expect(tooDear.rejections?.[0].code).toBe("PREMIUM_OUT_OF_RANGE");
+    });
+
+    it("sanitizes invalid filter inputs instead of silently matching nothing", () => {
+      const { filter, warnings } = sanitizeOptionScreenerFilter({
+        minDte: Number("not-a-number"),
+        maxSpreadPct: Number.POSITIVE_INFINITY,
+        contractType: "SIDEWAYS",
+        moneyness: "SIDEWAYS",
+        sortBy: "vibes",
+        maxUnderlyings: 10_000,
+        limit: 9_999,
+      } as never);
+
+      expect(filter.minDte).toBe(0);
+      expect(filter.maxDte).toBe(DEFAULT_MAX_DTE);
+      expect(filter.maxSpreadPct).toBeUndefined();
+      expect(filter.contractType).toBeUndefined();
+      expect(filter.moneyness).toBeUndefined();
+      expect(filter.sortBy).toBeUndefined();
+      expect(filter.maxUnderlyings).toBe(MAX_SCAN_SYMBOLS);
+      expect(filter.limit).toBe(MAX_RETURNED_CONTRACTS);
+      expect(warnings.join(" ")).toContain("Ignored invalid numeric filter 'minDte'");
+      expect(warnings.join(" ")).toContain("maxUnderlyings capped");
+      expect(warnings.join(" ")).toContain("No DTE window supplied");
+    });
+
+    it("swaps inverted min/max bounds with a warning", () => {
+      const { filter, warnings } = sanitizeOptionScreenerFilter({ minDte: 60, maxDte: 14 });
+      expect(filter.minDte).toBe(14);
+      expect(filter.maxDte).toBe(60);
+      expect(warnings.join(" ")).toContain("Swapped inverted");
+    });
+
+    it("reports status error with fetchErrors when all upstream fetches fail", async () => {
+      const client = {
+        getOptionExpireDates: vi.fn(async () => { throw new Error("upstream down"); }),
+        getOptionChains: vi.fn(async () => null),
+      } as unknown as ETradeRestClient;
+      const result = await new DynamicOptionsScreener(client).screenOptions({
+        underlyingSymbols: ["BROKEN"],
+        minDte: 0,
+        maxDte: 90,
+      });
+      expect(result.status).toBe("error");
+      expect(result.contracts).toHaveLength(0);
+      expect(result.fetchErrors?.[0]?.symbol).toBe("BROKEN");
+      expect(result.fetchErrors?.[0]?.reason).toContain("upstream down");
+    });
+
+    it("caps discovered underlyings at the scan limit with a warning", async () => {
+      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const expiry = {
+        year: expiryDate.getUTCFullYear(),
+        month: expiryDate.getUTCMonth() + 1,
+        day: expiryDate.getUTCDate(),
+      };
+      const chain: ETradeOptionChain = {
+        symbol: "CAPPED",
+        underlyingPrice: 100,
+        selectedExpiry: expiry,
+        pairs: [{
+          call: {
+            timeStamp: Date.now(),
+            adjustedFlag: false,
+            optionType: "CALL",
+            strikePrice: 100,
+            symbol: "CAPPEDTESTC100",
+            bid: 2,
+            ask: 2.2,
+            lastPrice: 2.1,
+            volume: 500,
+            openInterest: 1000,
+            delta: 0.5,
+            impliedVolatility: 0.3,
+          },
+        }],
+      };
+      const client = {
+        getOptionExpireDates: vi.fn(async () => [expiry]),
+        getOptionChains: vi.fn(async () => chain),
+      } as unknown as ETradeRestClient;
+      const listings: NasdaqStockListing[] = Array.from({ length: 25 }, (_, i) => ({
+        symbol: `SYM${String(i + 1).padStart(2, "0")}`,
+        companyName: `Capped Corp ${i + 1}`,
+        exchange: "nasdaq" as const,
+        lastPrice: 100,
+        change: 0,
+        changePercent: 0,
+      }));
+      DynamicOptionsScreener.setTestListingsFixture(listings);
+
+      const result = await new DynamicOptionsScreener(client).screenOptions({
+        maxUnderlyings: 100,
+        contractType: "CALL",
+        minDte: 0,
+        maxDte: 90,
+      });
+      expect(result.totalUnderlyingsScanned).toBe(MAX_SCAN_SYMBOLS);
+      expect(result.filterApplied.maxUnderlyings).toBe(MAX_SCAN_SYMBOLS);
+      expect(client.getOptionChains).toHaveBeenCalledTimes(MAX_SCAN_SYMBOLS);
+      expect(result.warnings?.join(" ")).toContain("maxUnderlyings capped");
+    });
+
+    it("sorts by spread ascending when sortBy is spreadPct", () => {
+      const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const expiry = {
+        year: expiryDate.getUTCFullYear(),
+        month: expiryDate.getUTCMonth() + 1,
+        day: expiryDate.getUTCDate(),
+      };
+      const makeLeg = (symbol: string, bid: number, ask: number, volume: number) => ({
+        timeStamp: Date.now(),
+        adjustedFlag: false,
+        optionType: "CALL" as const,
+        strikePrice: 100,
+        symbol,
+        bid,
+        ask,
+        lastPrice: (bid + ask) / 2,
+        volume,
+        openInterest: 1000,
+        delta: 0.5,
+        impliedVolatility: 0.3,
+      });
+      DynamicOptionsScreener.setTestChainsFixture({
+        SORT: {
+          symbol: "SORT",
+          underlyingPrice: 100,
+          selectedExpiry: expiry,
+          pairs: [
+            { call: makeLeg("WIDE", 1, 1.5, 9000) },
+            { call: makeLeg("TIGHT", 4, 4.05, 100) },
+          ],
+        },
+      });
+
+      const byVolume = new DynamicOptionsScreener().screenOptionsSync({
+        underlyingSymbols: ["SORT"],
+        contractType: "CALL",
+      });
+      expect(byVolume.contracts.map((c) => c.symbol)).toEqual(["WIDE", "TIGHT"]);
+
+      const bySpread = new DynamicOptionsScreener().screenOptionsSync({
+        underlyingSymbols: ["SORT"],
+        contractType: "CALL",
+        sortBy: "spreadPct",
+      });
+      expect(bySpread.contracts.map((c) => c.symbol)).toEqual(["TIGHT", "WIDE"]);
+      expect(bySpread.contracts[0].spreadPct).toBeLessThan(bySpread.contracts[1].spreadPct);
+    });
+
+    it("counts every rejection and tags machine-readable codes", async () => {
+      const result = await new DynamicOptionsScreener().screenOptions({
+        underlyingSymbols: ["MSFT"],
+        minVolume: 10000000, // Impossibly high volume
+      });
+      expect(result.status).toBe("no_matches");
+      expect(result.rejectionCount).toBe(2);
+      expect(result.rejections).toHaveLength(2);
+      for (const rejection of result.rejections || []) {
+        expect(rejection.code).toBe("VOLUME_TOO_LOW");
+        expect(rejection.reason).toContain("below minimum");
+      }
+    });
+
+    it("reports total matches and a truncation warning when limited", async () => {
+      const result = await new DynamicOptionsScreener().screenOptions({
+        underlyingSymbols: ["NVDA"],
+        limit: 1,
+      });
+      expect(result.status).toBe("matches_found");
+      expect(result.matchedCount).toBe(1);
+      expect(result.totalMatches).toBe(2);
+      expect(result.warnings?.join(" ")).toContain("Returned 1 of 2");
+    });
+
+    it("applies a default DTE window when none is supplied", async () => {
+      const result = await new DynamicOptionsScreener().screenOptions({
+        underlyingSymbols: ["NVDA"],
+        contractType: "CALL",
+        minDelta: 0.4,
+      });
+      expect(result.status).toBe("matches_found");
+      expect(result.filterApplied.minDte).toBe(0);
+      expect(result.filterApplied.maxDte).toBe(DEFAULT_MAX_DTE);
+      expect(result.warnings?.join(" ")).toContain("DTE");
+    });
+
+    it("rejects synchronous screens without explicit symbols", () => {
+      const result = new DynamicOptionsScreener().screenOptionsSync({});
+      expect(result.status).toBe("error");
+      expect(result.validationError).toContain("explicit underlying symbols");
     });
   });
 

@@ -24,6 +24,8 @@ export interface OptionsDataSnapshot {
     contractsEvaluated: number;
     contractsMatched: number;
     quoteQuality?: OptionScreenResult["quoteQuality"];
+    fetchErrors?: OptionScreenResult["fetchErrors"];
+    warnings?: OptionScreenResult["warnings"];
   };
   rejections: OptionScreenRejection[];
   validationError?: string;
@@ -66,6 +68,8 @@ export class OptionsDataAgent {
         contractsEvaluated: result.totalContractsEvaluated,
         contractsMatched: result.matchedCount,
         quoteQuality: result.quoteQuality,
+        fetchErrors: result.fetchErrors,
+        warnings: result.warnings,
       },
       rejections: (result.rejections || []).slice(0, 50),
       validationError: result.validationError,

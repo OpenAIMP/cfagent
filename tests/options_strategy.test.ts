@@ -37,7 +37,6 @@ function makeContracts(): ScreenedOptionContractItem[] {
       spreadOi: undefined,
       technicalSignal: "Test fixture",
       highlightReason: "Test fixture",
-      validationStatus: "PASS_CONFIRMED" as const,
       volumeOiRatio: 0.5,
     };
     return [

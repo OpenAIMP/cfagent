@@ -2072,14 +2072,14 @@ export class ETradeRestClient {
           bidSize: c.bidSize !== undefined ? Number(c.bidSize) : undefined,
           askSize: c.askSize !== undefined ? Number(c.askSize) : undefined,
           lastPrice: Number(c.lastPrice || 0),
-          volume: c.volume ? Number(c.volume) : undefined,
-          openInterest: c.openInterest ? Number(c.openInterest) : undefined,
-          delta: c.OptionGreeks?.delta ? Number(c.OptionGreeks.delta) : undefined,
-          gamma: c.OptionGreeks?.gamma ? Number(c.OptionGreeks.gamma) : undefined,
-          theta: c.OptionGreeks?.theta ? Number(c.OptionGreeks.theta) : undefined,
-          vega: c.OptionGreeks?.vega ? Number(c.OptionGreeks.vega) : undefined,
-          rho: c.OptionGreeks?.rho ? Number(c.OptionGreeks.rho) : undefined,
-          impliedVolatility: c.OptionGreeks?.iv ? Number(c.OptionGreeks.iv) : undefined,
+          volume: c.volume != null ? Number(c.volume) : undefined,
+          openInterest: c.openInterest != null ? Number(c.openInterest) : undefined,
+          delta: c.OptionGreeks?.delta != null ? Number(c.OptionGreeks.delta) : undefined,
+          gamma: c.OptionGreeks?.gamma != null ? Number(c.OptionGreeks.gamma) : undefined,
+          theta: c.OptionGreeks?.theta != null ? Number(c.OptionGreeks.theta) : undefined,
+          vega: c.OptionGreeks?.vega != null ? Number(c.OptionGreeks.vega) : undefined,
+          rho: c.OptionGreeks?.rho != null ? Number(c.OptionGreeks.rho) : undefined,
+          impliedVolatility: c.OptionGreeks?.iv != null ? Number(c.OptionGreeks.iv) : undefined,
         };
       };
 

@@ -36,17 +36,17 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     type: "object" as const,
     properties: {
       underlying: { type: "string", description: "Optional underlying ticker; omit to discover from current all-exchange listings" },
-      maxUnderlyings: { type: "number", description: "Required for broad scans; maximum underlying symbols to query" },
+      maxUnderlyings: { type: "number", description: "Required for broad scans; maximum underlying symbols to query (clamped to 20)" },
       contractType: { type: "string", enum: ["CALL", "PUT", "BOTH"], description: "Optional option type; omitted screens both" },
       minDelta: { type: "number", description: "Minimum absolute delta (0.0 to 1.0)" },
       maxDelta: { type: "number", description: "Maximum absolute delta (0.0 to 1.0)" },
       minDte: { type: "number", description: "Minimum days to expiration" },
-      maxDte: { type: "number", description: "Maximum days to expiration" },
+      maxDte: { type: "number", description: "Maximum days to expiration (defaults to 90 when no DTE bounds are supplied)" },
       minVolume: { type: "number", description: "Minimum daily contract volume" },
       minOpenInterest: { type: "number", description: "Minimum open interest" },
       maxSpreadPct: { type: "number", description: "Maximum bid/ask spread as percent of midpoint" },
       maxQuoteAgeSeconds: { type: "number", description: "Quote age reference for freshness labels; does not discard stale rows" },
-      limit: { type: "number", description: "Maximum contracts to return; omitted returns all matches" },
+      limit: { type: "number", description: "Maximum contracts to return (clamped to 500); omitted returns up to 500 matches" },
       paymentSignature: { type: "string", description: "x402 PAYMENT-SIGNATURE proof (base64 JSON or hex)" },
     },
   };
@@ -54,8 +54,8 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     underlying: z.string().optional(),
     maxUnderlyings: z.number().int().positive().optional(),
     contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
-    minDelta: z.number().optional(),
-    maxDelta: z.number().optional(),
+    minDelta: z.number().min(0).max(1).optional(),
+    maxDelta: z.number().min(0).max(1).optional(),
     minDte: z.number().int().nonnegative().optional(),
     maxDte: z.number().int().positive().optional(),
     minVolume: z.number().int().nonnegative().optional(),
@@ -148,6 +148,20 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       paid: true,
       receipt: verification.receipt,
       matchesCount: result.matchedCount,
+      totalMatches: result.totalMatches,
+      screenStatus: result.status,
+      rejectionCount: result.rejectionCount,
+      ...(result.status === "error"
+        ? {
+            error:
+              result.validationError ||
+              result.fetchErrors?.[0]?.reason ||
+              "Options screen failed upstream; no data could be fetched.",
+          }
+        : {}),
+      ...(result.fetchErrors && result.fetchErrors.length > 0 ? { fetchErrors: result.fetchErrors } : {}),
+      ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+      quoteQuality: result.quoteQuality,
       contracts: result.contracts,
       timestamp: new Date().toISOString(),
     };

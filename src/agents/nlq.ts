@@ -105,11 +105,14 @@ export interface NLQQueryResult {
   validationError?: string;
   quoteQuality?: {
     maxAgeSeconds?: number;
+    referenceAgeSeconds?: number;
     staleContractsReturned: number;
     unknownFreshnessContracts: number;
     freshestStaleQuoteAgeSeconds?: number;
   };
   rejections?: OptionScreenRejection[];
+  fetchErrors?: Array<{ symbol: string; reason: string }>;
+  warnings?: string[];
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -1304,31 +1307,16 @@ export function executeNLQQuery(
     }
 
     if (action === "options_screen") {
-      const screener = new DynamicOptionsScreener(etrade.client);
-      const res = screener.screenOptionsSync(plan.tradingData?.filters);
+      // Live chain screening requires upstream E*TRADE fetches and is handled by
+      // executeNLQQueryAsync; the sync executor only guards against direct calls.
       return {
         plan,
         domain: "trading",
         targetTable: "etrade_options_screener",
-        count: res.contracts.length,
-        status: res.status,
-        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).`,
-        rows: res.contracts.map((c) => ({
-          contractSymbol: c.osiKey || c.symbol,
-          underlying: c.underlyingSymbol,
-          underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
-          type: c.optionType,
-          strike: `$${c.strikePrice.toFixed(2)}`,
-          bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
-          delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
-          iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
-          volume: (c.volume || 0).toLocaleString(),
-          openInterest: (c.openInterest || 0).toLocaleString(),
-          volOiRatio: c.volumeOiRatio !== undefined ? `${c.volumeOiRatio.toFixed(2)}x` : "N/A",
-          dte: `${c.daysToExpiration}d (${c.expirationDate})`,
-          moneyness: c.moneyness,
-          technicalSignal: c.technicalSignal,
-        })),
+        count: 0,
+        status: "error",
+        summary: "Options Screener: this action requires the asynchronous NLQ executor (executeNLQQueryAsync).",
+        rows: [],
         executedAt,
       };
     }
@@ -1835,10 +1823,16 @@ export async function executeNLQQueryAsync(
     }
 
     if (action === "options_screen") {
+      const rawFilters = plan.tradingData?.filters || {};
+      const hasUniverse = (rawFilters.underlyingSymbols?.length ?? 0) > 0 || rawFilters.maxUnderlyings !== undefined;
+      // Broad screens without an explicit universe get a visible, capped discovery limit so a
+      // live scan never fans out over every U.S. listing (sanitize clamps it to MAX_SCAN_SYMBOLS).
+      const DEFAULT_BROAD_SCAN_UNDERLYINGS = 10;
+      const filters = hasUniverse ? rawFilters : { ...rawFilters, maxUnderlyings: DEFAULT_BROAD_SCAN_UNDERLYINGS };
       const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions(plan.tradingData?.filters);
+      const res = await screener.screenOptions(filters);
       const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
-        ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.maxAgeSeconds || 60}s).`
+        ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.referenceAgeSeconds ?? res.quoteQuality.maxAgeSeconds ?? 60}s).`
         : "";
       return {
         plan,
@@ -1846,10 +1840,14 @@ export async function executeNLQQueryAsync(
         targetTable: "etrade_options_screener",
         count: res.contracts.length,
         status: res.status,
-        summary: `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria] (${res.filterSummary}).${freshnessNote}`,
+        summary: res.status === "error" && res.validationError
+          ? `Options Screener: ${res.validationError}`
+          : `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria${typeof res.totalMatches === "number" && res.totalMatches > res.contracts.length ? ` (${res.totalMatches} total matches before limit)` : ""}] (${res.filterSummary}).${freshnessNote}`,
         validationError: res.validationError,
         quoteQuality: res.quoteQuality,
         rejections: (res.rejections || []).slice(0, 15),
+        ...(res.fetchErrors && res.fetchErrors.length > 0 ? { fetchErrors: res.fetchErrors } : {}),
+        ...(res.warnings && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
         rows: res.contracts.map((c) => ({
           contractSymbol: c.osiKey || c.symbol,
           underlying: c.underlyingSymbol,

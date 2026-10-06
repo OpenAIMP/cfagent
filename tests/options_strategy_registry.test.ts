@@ -38,7 +38,6 @@ function makeChain(days: number): ScreenedOptionContractItem[] {
       adjustedFlag: false,
       technicalSignal: "fixture",
       highlightReason: "fixture",
-      validationStatus: "PASS_CONFIRMED" as const,
       volumeOiRatio: 0.5,
     };
     const callMid = Math.max(100 - strike, 0) + timeValue;
