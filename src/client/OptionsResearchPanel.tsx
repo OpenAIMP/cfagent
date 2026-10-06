@@ -856,6 +856,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </div>
         {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
       </header>
+      {screenMeta?.validationError && <p className="options-error" role="alert">{screenMeta.validationError}</p>}
       {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
         <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
       )}

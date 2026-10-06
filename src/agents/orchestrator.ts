@@ -3222,6 +3222,10 @@ Agentic Best Practices & Workflow Rules:
             contractsEvaluated: screened.totalContractsEvaluated,
             contractsMatched: screened.matchedCount,
             quoteQuality: screened.quoteQuality,
+            fetchErrors: screened.fetchErrors,
+            warnings: screened.warnings,
+            validationError: screened.validationError,
+            status: screened.status,
           },
           contractRejections: (screened.rejections || []).slice(0, 50),
         });
