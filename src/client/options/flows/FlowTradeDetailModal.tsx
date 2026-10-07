@@ -17,9 +17,18 @@ export function FlowTradeDetailModal({
   // Title formatting
   const title = trade.strategyTitle || `${trade.symbol} ${trade.strategy}`;
   const company = trade.companyName || `${trade.symbol} Equity`;
-  const timeFormatted = trade.time.includes("10/6")
-    ? `${trade.time}/26`
-    : `10/6/26, ${trade.time}`;
+  const timeFormatted = trade.timestamp
+    ? new Date(trade.timestamp).toLocaleString("en-US", {
+        month: "numeric",
+        day: "numeric",
+        year: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+    : trade.time.includes("/")
+    ? (trade.time.includes("/26") ? trade.time : `${trade.time}/26`)
+    : `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" })}, ${trade.time}`;
 
   // Default legs if not explicitly provided
   const legs = trade.legsDetails && trade.legsDetails.length > 0
