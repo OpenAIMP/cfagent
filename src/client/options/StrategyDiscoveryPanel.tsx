@@ -413,7 +413,7 @@ export function StrategyDiscoveryPanel({
             </form>
 
             {/* 6 Circular Sentiment Selectors */}
-            <div className="strat-sentiment-grid">
+            <div className="strat-sentiment-group strat-sentiment-grid">
               {(
                 [
                   { id: "very_bearish", label: "Very Bearish", icon: "↘↘", color: "#dc2626" },

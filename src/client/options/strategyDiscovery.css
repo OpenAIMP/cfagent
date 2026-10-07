@@ -138,13 +138,17 @@
   gap: 0.25rem;
 }
 
-/* SENTIMENT SELECTOR (6 CIRCULAR BUTTONS) */
-.strat-sentiment-group {
+/* SENTIMENT SELECTOR (6 CIRCULAR BUTTONS ALIGNED HORIZONTALLY) */
+.strat-sentiment-group,
+.strat-sentiment-grid {
   display: flex;
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin: 0.35rem 0;
+  gap: 1.75rem;
+  flex-wrap: nowrap;
+  margin: 0.5rem 0;
+  width: 100%;
 }
 
 .strat-sentiment-btn-wrap {
@@ -153,6 +157,7 @@
   align-items: center;
   gap: 0.45rem;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .strat-sentiment-circle {
