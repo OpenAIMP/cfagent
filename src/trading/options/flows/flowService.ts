@@ -1894,6 +1894,26 @@ let dynamicListingsCache: {
   etfs: string[];
 } | null = null;
 
+function isOptionableListing(l: NasdaqStockListing): boolean {
+  if (!l.symbol || !/^[A-Z]{1,5}$/.test(l.symbol)) return false;
+  if (!l.lastPrice || l.lastPrice < 3.0) return false;
+  const name = (l.companyName || "").toLowerCase();
+  if (
+    name.includes("warrant") ||
+    name.includes("unit") ||
+    name.includes("right") ||
+    name.includes("preferred") ||
+    name.includes("debt")
+  ) {
+    return false;
+  }
+  // Exclude corrupted penny/OTC valuations
+  if (l.marketCap && l.marketCap > 5_000_000_000_000 && !["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"].includes(l.symbol)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Dynamically resolves active market underlyings for options flow analysis.
  * Uses live market feeds (Nasdaq all-exchange stock listings / FOSS screener)
@@ -1911,24 +1931,27 @@ export async function resolveDynamicFlowSymbols(
     try {
       const listings = await fetchAllUsStockListings().catch(() => []);
       if (listings && listings.length > 0) {
+        // Filter out non-optionable securities (warrants, penny stocks, units)
+        const optionables = listings.filter(isOptionableListing);
+
         // Sort by absolute price change percent (high-momentum / unusual volume movers)
         const activeMoverSort = (a: NasdaqStockListing, b: NasdaqStockListing) =>
           Math.abs(b.changePercent || 0) - Math.abs(a.changePercent || 0);
 
-        const large = listings
+        const large = optionables
           .filter((l) => (l.marketCap || 0) >= 10_000_000_000)
           .sort(activeMoverSort)
           .slice(0, 20)
           .map((l) => l.symbol);
 
-        const mid = listings
+        const mid = optionables
           .filter((l) => (l.marketCap || 0) >= 2_000_000_000 && (l.marketCap || 0) < 10_000_000_000)
           .sort(activeMoverSort)
           .slice(0, 20)
           .map((l) => l.symbol);
 
-        const small = listings
-          .filter((l) => (l.marketCap || 0) > 0 && (l.marketCap || 0) < 2_000_000_000)
+        const small = optionables
+          .filter((l) => (l.marketCap || 0) >= 250_000_000 && (l.marketCap || 0) < 2_000_000_000)
           .sort(activeMoverSort)
           .slice(0, 20)
           .map((l) => l.symbol);
@@ -1983,11 +2006,33 @@ export async function resolveDynamicFlowSymbols(
 export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions): LiveFlowItem[] {
   const refTime = options?.referenceTimestamp ?? Date.now();
   const requestedSymbols = options?.symbols?.map((s) => s.toUpperCase());
-  const profiles = requestedSymbols && requestedSymbols.length > 0
-    ? DYNAMIC_FLOW_PROFILES.filter((p) => requestedSymbols.includes(p.symbol))
-    : DYNAMIC_FLOW_PROFILES;
+  const targetProfiles: Array<{
+    symbol: string;
+    companyName: string;
+    underlyingPrice: number;
+    marketCap: "large" | "mid" | "small";
+    assetType: "stock" | "etf";
+    hasEarnings?: boolean;
+  }> = [];
 
-  const targetProfiles = profiles.length > 0 ? profiles : DYNAMIC_FLOW_PROFILES;
+  if (requestedSymbols && requestedSymbols.length > 0) {
+    for (const sym of requestedSymbols) {
+      const existing = DYNAMIC_FLOW_PROFILES.find((p) => p.symbol === sym);
+      if (existing) {
+        targetProfiles.push(existing);
+      } else {
+        targetProfiles.push({
+          symbol: sym,
+          companyName: `${sym} Equity`,
+          underlyingPrice: 50.0,
+          marketCap: "mid",
+          assetType: sym.length <= 3 && ["SPY", "QQQ", "IWM", "DIA"].includes(sym) ? "etf" : "stock",
+        });
+      }
+    }
+  } else {
+    targetProfiles.push(...DYNAMIC_FLOW_PROFILES);
+  }
   const items: LiveFlowItem[] = [];
 
   const tradeTemplates: Array<{
@@ -2372,26 +2417,12 @@ export async function getDynamicLiveFlowItems(
   // 5. Graceful offline fallback (only if network is completely unavailable e.g. offline sandbox or unit test runner without internet):
   const dynamicUniverse = generateDynamicFlowUniverse({
     referenceTimestamp: refTime,
-    symbols: requestedTickers.length > 0 ? requestedTickers : undefined,
+    symbols: targetSymbols.length > 0 ? targetSymbols : undefined,
     minPremium: filter?.minPremium,
     count: options?.count,
   });
 
-  const allFlows = [
-    ...dynamicUniverse,
-    ...RAW_LIVE_FLOW_ITEMS,
-  ];
-
-  const seen = new Set<string>();
-  const deduped: LiveFlowItem[] = [];
-  for (const item of allFlows) {
-    if (!seen.has(item.id)) {
-      seen.add(item.id);
-      deduped.push(item);
-    }
-  }
-
-  return filterLiveFlowItems(deduped, filter || {});
+  return filterLiveFlowItems(dynamicUniverse, filter || {});
 }
 
 /**

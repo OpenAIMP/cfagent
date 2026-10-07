@@ -1107,10 +1107,88 @@
   gap: 1.5rem;
   width: 100%;
   flex: 1;
-  min-height: 0;
+  min-height: min-content;
+  flex-shrink: 0;
   overflow: visible;
   padding: 0.5rem 1rem 2rem 1rem;
   box-sizing: border-box;
+}
+
+/* Ticker Drilldown Indicator Banner */
+.flow-drilldown-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  margin: 0.5rem 1rem 0.75rem 1rem;
+  gap: 1rem;
+}
+
+.flow-drilldown-info {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #f8fafc;
+  font-size: 0.85rem;
+}
+
+.flow-drilldown-badge {
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.flow-drilldown-text {
+  color: #e2e8f0;
+}
+
+.flow-drilldown-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.flow-drilldown-back-btn {
+  background: #1e293b;
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.flow-drilldown-back-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+
+.flow-drilldown-clear-btn {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.flow-drilldown-clear-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: #ef4444;
 }
 
 .flow-leaderboard-col {

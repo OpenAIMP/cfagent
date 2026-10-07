@@ -10,7 +10,6 @@ import {
   SavedFilterPreset,
 } from "../../../trading/options/flows/types";
 import {
-  RAW_LIVE_FLOW_ITEMS,
   RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
   RAW_CONGRESS_FLOW_ITEMS,
@@ -50,6 +49,7 @@ export function OptionsFlowsHub({
 
   // Live / Historical items
   const [liveItems, setLiveItems] = useState<LiveFlowItem[]>([]);
+  const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>([]);
   const [hasLoadedInitial, setHasLoadedInitial] = useState<boolean>(false);
   const [newsItems, setNewsItems] = useState<NewsFlowItem[]>(RAW_NEWS_FLOW_ITEMS);
   const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>(RAW_INSIDER_FLOW_ITEMS);
@@ -72,16 +72,13 @@ export function OptionsFlowsHub({
       .then((data: any) => {
         if (data?.flows && data.flows.length > 0) {
           setLiveItems(data.flows);
+          if (!cfg.tickers || cfg.tickers.length === 0) {
+            setMarketFlowItems(data.flows);
+          }
           setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-        } else if (!hasLoadedInitial) {
-          setLiveItems(RAW_LIVE_FLOW_ITEMS);
         }
       })
-      .catch(() => {
-        if (!hasLoadedInitial) {
-          setLiveItems(RAW_LIVE_FLOW_ITEMS);
-        }
-      })
+      .catch(() => {})
       .finally(() => {
         setIsRefreshing(false);
         setHasLoadedInitial(true);
@@ -149,8 +146,42 @@ export function OptionsFlowsHub({
   }, [congressItems, filterConfig]);
 
   const summaryData: FlowSummary = useMemo(() => {
-    return calculateFlowSummary(filteredLiveItems);
-  }, [filteredLiveItems]);
+    // Market Summary must ALWAYS represent the market-wide flow across active general filters,
+    // NEVER collapsed into a single drilled-down stock!
+    const marketItems = marketFlowItems.length > 0 ? marketFlowItems : liveItems;
+    const generalMarketConfig: FlowFilterConfig = {
+      ...filterConfig,
+      tickers: [], // Exclude single-ticker drilldown so Summary always displays all stocks
+    };
+    const filteredMarket = filterLiveFlowItems(marketItems, generalMarketConfig);
+    return calculateFlowSummary(filteredMarket);
+  }, [marketFlowItems, liveItems, filterConfig]);
+
+  const handleSwitchSubTab = (tab: FlowSubTab) => {
+    setSubTab(tab);
+    if (tab === "summary") {
+      // When returning to Summary, clear single ticker drilldown so full dynamic market list is displayed
+      if (filterConfig.tickers.length > 0) {
+        const nextCfg: FlowFilterConfig = {
+          ...filterConfig,
+          tickers: [],
+        };
+        setFilterConfig(nextCfg);
+        fetchLiveFlows(nextCfg);
+      } else if (marketFlowItems.length === 0) {
+        fetchLiveFlows(filterConfig);
+      }
+    }
+  };
+
+  const handleClearTickerDrilldown = () => {
+    const nextCfg: FlowFilterConfig = {
+      ...filterConfig,
+      tickers: [],
+    };
+    setFilterConfig(nextCfg);
+    fetchLiveFlows(nextCfg);
+  };
 
   // Handle Preset selection
   const handleSelectPreset = (preset: SavedFilterPreset) => {
@@ -190,11 +221,13 @@ export function OptionsFlowsHub({
   // Select ticker from dual leaderboard
   const handleSelectTicker = (symbol: string) => {
     setActivePreset(null);
-    setFilterConfig({
+    const nextCfg: FlowFilterConfig = {
       ...DEFAULT_FILTER_CONFIG,
       tickers: [symbol],
-    });
+    };
+    setFilterConfig(nextCfg);
     setSubTab("live");
+    fetchLiveFlows(nextCfg);
   };
 
   // Open trade details modal
@@ -302,42 +335,42 @@ export function OptionsFlowsHub({
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "summary" ? "active" : ""}`}
-            onClick={() => setSubTab("summary")}
+            onClick={() => handleSwitchSubTab("summary")}
           >
             Summary
           </button>
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "live" ? "active" : ""}`}
-            onClick={() => setSubTab("live")}
+            onClick={() => handleSwitchSubTab("live")}
           >
             Live Flow
           </button>
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "historical" ? "active" : ""}`}
-            onClick={() => setSubTab("historical")}
+            onClick={() => handleSwitchSubTab("historical")}
           >
             Historical Flow
           </button>
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "news" ? "active" : ""}`}
-            onClick={() => setSubTab("news")}
+            onClick={() => handleSwitchSubTab("news")}
           >
             News Flow
           </button>
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "congress" ? "active" : ""}`}
-            onClick={() => setSubTab("congress")}
+            onClick={() => handleSwitchSubTab("congress")}
           >
             Congress Flow
           </button>
           <button
             type="button"
             className={`flows-subtab-btn ${subTab === "insider" ? "active" : ""}`}
-            onClick={() => setSubTab("insider")}
+            onClick={() => handleSwitchSubTab("insider")}
           >
             Insider Flow
           </button>
@@ -362,7 +395,7 @@ export function OptionsFlowsHub({
         {/* Sentiment Gauge Pill (Screenshot 1 top right) */}
         <div
           className="flows-gauge-badge-wrap"
-          onClick={() => setSubTab("summary")}
+          onClick={() => handleSwitchSubTab("summary")}
           title="Overall Options Market Flow Sentiment Dial"
         >
           <svg className="flows-gauge-svg" viewBox="0 0 40 20">
@@ -434,7 +467,34 @@ export function OptionsFlowsHub({
 
           {/* SUB-TAB 2: LIVE FLOW (SCREENSHOTS 1 & 2) */}
           {(subTab === "live" || subTab === "historical") && (
-            !hasLoadedInitial && liveItems.length === 0 ? (
+            <>
+              {filterConfig.tickers.length > 0 && (
+                <div className="flow-drilldown-banner">
+                  <div className="flow-drilldown-info">
+                    <span className="flow-drilldown-badge">TICKER DRILLDOWN</span>
+                    <span className="flow-drilldown-text">
+                      Showing Live Flow for <strong>{filterConfig.tickers.join(", ")}</strong>
+                    </span>
+                  </div>
+                  <div className="flow-drilldown-actions">
+                    <button
+                      type="button"
+                      className="flow-drilldown-back-btn"
+                      onClick={() => handleSwitchSubTab("summary")}
+                    >
+                      ← Return to Market Summary
+                    </button>
+                    <button
+                      type="button"
+                      className="flow-drilldown-clear-btn"
+                      onClick={handleClearTickerDrilldown}
+                    >
+                      ✕ Show All Tickers
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!hasLoadedInitial && liveItems.length === 0 ? (
               <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.5rem" }}>
                   Streaming Real-Time Institutional Options Flow...
@@ -507,8 +567,9 @@ export function OptionsFlowsHub({
                   })}
                 </tbody>
               </table>
-            )
-          )}
+            )}
+          </>
+        )}
 
           {/* SUB-TAB 4: NEWS FLOW (SCREENSHOT 3) */}
           {subTab === "news" && (

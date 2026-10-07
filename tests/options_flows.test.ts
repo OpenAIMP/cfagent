@@ -587,6 +587,50 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       const multiSymbols = await resolveDynamicFlowSymbols({ marketCaps: ["large", "mid", "small"] });
       expect(multiSymbols.length).toBeGreaterThanOrEqual(10);
     });
+
+    it("ensures market summary maintains full multi-symbol universe without collapsing on ticker drilldown", async () => {
+      // Generate market items across multiple symbols
+      const marketItems = generateDynamicFlowUniverse({
+        referenceTimestamp: Date.now(),
+        symbols: ["NVDA", "AAPL", "IWM", "MARA", "TSLA"],
+      });
+
+      // User drills down to NVDA
+      const drilledItems = filterLiveFlowItems(marketItems, { tickers: ["NVDA"] });
+      expect(drilledItems.every((item) => item.symbol === "NVDA")).toBe(true);
+
+      // Returning to summary: general market config ignores single drilled ticker
+      const summaryConfig: FlowFilterConfig = {
+        tickers: [], // cleared when returning to summary
+        sides: ["BUY", "SELL"],
+        orderTypes: ["SWEEP", "BLOCK", "SPLIT", "SINGLE"],
+        assetTypes: ["stock", "etf"],
+        marketCaps: ["large", "mid", "small"],
+        minPremium: 0,
+        unusualOnly: false,
+        volOverOiOnly: false,
+        otmOnly: false,
+        earningsOnly: false,
+        aboveAskBelowBidOnly: false,
+        chanceRange: [0, 100],
+        minDte: 0,
+        maxDte: 365,
+        insiderNames: [],
+      };
+
+      const restoredMarket = filterLiveFlowItems(marketItems, summaryConfig);
+      const summary = calculateFlowSummary(restoredMarket);
+
+      // Verify that summary contains multiple symbols and has NOT collapsed to just NVDA
+      const allSummarySymbols = new Set([
+        ...summary.bullishLeaderboard.map((b) => b.symbol),
+        ...summary.bearishLeaderboard.map((b) => b.symbol),
+      ]);
+
+      expect(allSummarySymbols.size).toBeGreaterThan(1);
+      expect(allSummarySymbols.has("NVDA")).toBe(true);
+      expect(allSummarySymbols.has("IWM") || allSummarySymbols.has("AAPL")).toBe(true);
+    });
   });
 });
 
