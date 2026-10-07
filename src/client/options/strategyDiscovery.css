@@ -1,0 +1,908 @@
+/* ==========================================================================
+   STRATEGY DISCOVERY & BUILDER — OPTIONSTRAT-GRADE HIGH-FIDELITY STYLING
+   ========================================================================== */
+
+.strat-discovery-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  background: #060b18;
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 1.25rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(56, 189, 248, 0.12);
+}
+
+/* TOP VIEW SWITCHER TABS */
+.strat-view-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+  gap: 1rem;
+}
+
+.strat-view-tab-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.strat-view-tab-btn {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+}
+
+.strat-view-tab-btn:hover {
+  background: rgba(30, 41, 59, 0.9);
+  color: #f8fafc;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.strat-view-tab-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.4);
+}
+
+/* ==========================================================================
+   IMAGE 2: STRATEGY DISCOVERY HEADER & CONTROLS
+   ========================================================================== */
+
+.strat-discovery-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.5rem 0;
+}
+
+.strat-symbol-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.strat-symbol-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  background: #0b1329;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+}
+
+.strat-symbol-input-wrap label {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin-right: 0.4rem;
+  font-weight: 500;
+}
+
+.strat-symbol-input-wrap input {
+  background: transparent;
+  border: none;
+  color: #38bdf8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  width: 5.5rem;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.strat-price-display {
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.strat-change-pill {
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.strat-change-pill.positive {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.strat-change-pill.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.strat-delayed-badge {
+  color: #64748b;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* SENTIMENT SELECTOR (6 CIRCULAR BUTTONS) */
+.strat-sentiment-group {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0;
+}
+
+.strat-sentiment-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.strat-sentiment-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: #091024;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.strat-sentiment-circle svg {
+  width: 22px;
+  height: 22px;
+}
+
+.strat-sentiment-btn-wrap:hover .strat-sentiment-circle {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Bearish circles */
+.strat-sentiment-btn-wrap.very_bearish .strat-sentiment-circle,
+.strat-sentiment-btn-wrap.bearish .strat-sentiment-circle {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.strat-sentiment-btn-wrap.very_bearish.active .strat-sentiment-circle,
+.strat-sentiment-btn-wrap.bearish.active .strat-sentiment-circle {
+  border-color: #ef4444;
+  background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
+}
+
+/* Neutral circle */
+.strat-sentiment-btn-wrap.neutral .strat-sentiment-circle {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #cbd5e1;
+}
+
+.strat-sentiment-btn-wrap.neutral.active .strat-sentiment-circle {
+  border-color: #94a3b8;
+  background: linear-gradient(135deg, #475569 0%, #1e293b 100%);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(148, 163, 184, 0.5);
+}
+
+/* Directional circle (Pink / Purple) */
+.strat-sentiment-btn-wrap.directional .strat-sentiment-circle {
+  border-color: rgba(236, 72, 153, 0.4);
+  color: #f472b6;
+}
+
+.strat-sentiment-btn-wrap.directional.active .strat-sentiment-circle {
+  border-color: #ec4899;
+  background: linear-gradient(135deg, #ec4899 0%, #be185d 100%);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(236, 72, 153, 0.6);
+}
+
+/* Bullish circles */
+.strat-sentiment-btn-wrap.bullish .strat-sentiment-circle,
+.strat-sentiment-btn-wrap.very_bullish .strat-sentiment-circle {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+}
+
+.strat-sentiment-btn-wrap.bullish.active .strat-sentiment-circle,
+.strat-sentiment-btn-wrap.very_bullish.active .strat-sentiment-circle {
+  border-color: #22c55e;
+  background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.6);
+}
+
+.strat-sentiment-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.strat-sentiment-btn-wrap.active .strat-sentiment-label {
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+/* TARGET PRICE & BUDGET BAR */
+.strat-target-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.strat-input-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #0b1329;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.strat-input-pill label {
+  color: #94a3b8;
+}
+
+.strat-input-pill input {
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  width: 5rem;
+  outline: none;
+}
+
+.strat-target-pct {
+  color: #38bdf8;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* EXPIRATION TIMELINE CHIPS BAR */
+.strat-timeline-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.4rem 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.strat-timeline-chip {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 2.8rem;
+}
+
+.strat-timeline-chip:hover {
+  background: rgba(30, 41, 59, 0.9);
+  color: #f8fafc;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.strat-timeline-chip.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(2, 132, 199, 0.5);
+}
+
+/* OPTIMIZATION SLIDER */
+.strat-opt-slider-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  width: 100%;
+  max-width: 520px;
+  margin: 0.2rem auto;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.strat-opt-slider-wrap input[type="range"] {
+  flex: 1;
+  accent-color: #0284c7;
+  height: 4px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   STRATEGY CARDS GRID (IMAGE 2)
+   ========================================================================== */
+
+.strat-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.15rem;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .strat-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .strat-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.strat-card {
+  background: #0b1329;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 8px;
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.strat-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 12px 28px rgba(2, 132, 199, 0.2);
+}
+
+.strat-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.strat-card-title {
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.strat-card-subtitle {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  margin: 0.2rem 0 0;
+}
+
+.strat-card-metrics-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.2rem 0.2rem;
+}
+
+.strat-card-stat-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.strat-card-stat-right {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+}
+
+.strat-stat-highlight {
+  color: #f59e0b;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.strat-stat-profit {
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.strat-stat-risk {
+  color: #cbd5e1;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.strat-stat-chance {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* MINI PAYOFF GRAPH (SVG) */
+.strat-card-mini-graph {
+  width: 100%;
+  height: 120px;
+  background: #070c1e;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: block;
+}
+
+.strat-card-btn-builder {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: 0.84rem;
+  padding: 0.5rem 1rem;
+  width: 65%;
+  margin: 0.3rem auto 0;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+}
+
+.strat-card-btn-builder:hover {
+  background: #0369a1;
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.55);
+}
+
+/* ==========================================================================
+   IMAGE 1: INTERACTIVE STRATEGY BUILDER / PAYOFF ANALYZER
+   ========================================================================== */
+
+.strat-builder-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.strat-builder-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+}
+
+.strat-builder-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.strat-builder-title-group h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.strat-builder-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.strat-btn-action {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.strat-btn-action:hover {
+  background: #0369a1;
+}
+
+.strat-btn-action.secondary {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+
+.strat-btn-action.secondary:hover {
+  background: rgba(30, 41, 59, 0.9);
+  color: #ffffff;
+}
+
+/* EXPIRATION ROW (IMAGE 1) */
+.strat-expiration-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.strat-expiration-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* STRIKE RULER (IMAGE 1) */
+.strat-strike-ruler-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0;
+}
+
+.strat-strike-ruler-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  text-transform: uppercase;
+}
+
+.strat-strike-ruler {
+  position: relative;
+  background: #080f24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  padding: 0 1rem;
+}
+
+.strat-ruler-ticks {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 700px;
+  position: relative;
+}
+
+.strat-ruler-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.strat-ruler-tick-bar {
+  width: 1px;
+  height: 8px;
+  background: #334155;
+}
+
+.strat-ruler-tick.highlight {
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.strat-ruler-badge {
+  position: absolute;
+  top: -12px;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #ffffff;
+  transform: translateX(-50%);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.strat-ruler-badge.call {
+  background: #16a34a;
+  border: 1px solid #22c55e;
+}
+
+.strat-ruler-badge.put {
+  background: #dc2626;
+  border: 1px solid #ef4444;
+}
+
+/* KEY METRICS SUMMARY STRIP (IMAGE 1) */
+.strat-metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.75rem;
+  background: #091024;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+}
+
+@media (max-width: 900px) {
+  .strat-metrics-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.strat-metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.strat-metric-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.strat-metric-val {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.strat-metric-val.gain {
+  color: #22c55e;
+}
+
+.strat-metric-val.loss {
+  color: #ef4444;
+}
+
+/* FULL-SIZE INTERACTIVE PAYOFF GRAPH (IMAGE 1) */
+.strat-full-graph-wrap {
+  position: relative;
+  width: 100%;
+  background: #040816;
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  border-radius: 6px;
+  padding: 0.5rem;
+  user-select: none;
+}
+
+.strat-full-graph-svg {
+  width: 100%;
+  height: 380px;
+  display: block;
+}
+
+/* CONTROLS BELOW GRAPH (DATE, RANGE, IV) */
+.strat-graph-controls-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #080f24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.85rem 1.1rem;
+}
+
+.strat-date-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.strat-date-slider-row input[type="range"] {
+  flex: 1;
+  accent-color: #0284c7;
+  height: 5px;
+}
+
+.strat-sliders-subrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.strat-range-group,
+.strat-iv-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.strat-zoom-btn-group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.strat-zoom-btn {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.45rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.strat-zoom-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+
+/* BOTTOM VIEW TOGGLE BAR (TABLE / GRAPH, METRICS) */
+.strat-bottom-toggles-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #060d1f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.45rem 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.strat-bottom-mode-btns,
+.strat-bottom-metric-btns {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.strat-bottom-btn {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.strat-bottom-btn:hover {
+  background: rgba(30, 41, 59, 0.8);
+  color: #f8fafc;
+}
+
+.strat-bottom-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+
+/* POSITIONS DRAWER / MODAL */
+.strat-positions-panel {
+  background: #0a1329;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.strat-positions-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.strat-position-row {
+  display: grid;
+  grid-template-columns: 80px 100px 1fr 100px 100px 50px;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 768px) {
+  .strat-position-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* DATA MATRIX TABLE VIEW */
+.strat-table-view-wrap {
+  width: 100%;
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #050a18;
+}
+
+.strat-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.strat-matrix-table th {
+  background: #091024;
+  color: #94a3b8;
+  padding: 0.6rem 0.8rem;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.strat-matrix-table th:first-child {
+  text-align: left;
+}
+
+.strat-matrix-table td {
+  padding: 0.45rem 0.8rem;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.strat-matrix-table td:first-child {
+  text-align: left;
+}
+
+.strat-matrix-table tr.current-price-row {
+  background: rgba(56, 189, 248, 0.12);
+  font-weight: 700;
+}

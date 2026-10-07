@@ -14,6 +14,7 @@ import type { ScreenedOptionContractItem } from "../types";
 import type { StrategyEvaluation } from "../trading/options/strategies/types";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
+import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
 import "./optionsResearch.css";
 
 interface OptionsResearchPanelProps {
@@ -611,6 +612,7 @@ type NlqResultView = {
 };
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
+  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq">("discovery");
   const [symbol, setSymbol] = useState("");
   const [thesis, setThesis] = useState<OptionThesis>("bullish");
   const [targetPrice, setTargetPrice] = useState("");
@@ -860,7 +862,50 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
         <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
       )}
-      <details className="options-workflow-drawer">
+
+      <div className="trading-subnav-bar options-subnav-bar" role="tablist" aria-label="Options Research Mode" style={{ margin: "0.5rem 0 1rem" }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={researchMode === "discovery"}
+          className={`subnav-btn ${researchMode === "discovery" ? "active" : ""}`}
+          onClick={() => setResearchMode("discovery")}
+        >
+          🎯 Strategy Discovery &amp; Payoff Analyzer
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={researchMode === "custom"}
+          className={`subnav-btn ${researchMode === "custom" ? "active" : ""}`}
+          onClick={() => setResearchMode("custom")}
+        >
+          ⚙️ Custom Thesis &amp; Strategy Universe
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={researchMode === "nlq"}
+          className={`subnav-btn ${researchMode === "nlq" ? "active" : ""}`}
+          onClick={() => setResearchMode("nlq")}
+        >
+          💬 Natural Language Screen (NLQ)
+        </button>
+      </div>
+
+      {researchMode === "discovery" && (
+        <StrategyDiscoveryPanel
+          initialSymbol={symbol.trim() || "TSLA"}
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+          onPreviewTrade={onPreviewTrade}
+          onSendPrompt={onSendPrompt}
+        />
+      )}
+
+      {researchMode === "nlq" && (
+        <>
+          <details className="options-workflow-drawer">
         <summary>Workflow guide &amp; example requests</summary>
         <div className="options-workflow" aria-label="Options research workflow">
           {workflowSteps.map((s) => (
@@ -949,12 +994,17 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           )}
         </div>
       )}
-      <header className="options-research-heading">
-        <div>
-          <h3>Or declare a thesis and constraints</h3>
-          <p>Underlying, thesis, target price and at least one strategy are required before the action buttons unlock. Candidates are ranked with visible assumptions.</p>
-        </div>
-      </header>
+        </>
+      )}
+
+      {researchMode === "custom" && (
+        <>
+          <header className="options-research-heading">
+            <div>
+              <h3>Declare a thesis and constraints</h3>
+              <p>Underlying, thesis, target price and at least one strategy are required before the action buttons unlock. Candidates are ranked with visible assumptions.</p>
+            </div>
+          </header>
 
       <form className="options-request-form" onSubmit={submit}>
         <label className="options-field">
@@ -1139,6 +1189,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           <ul className="options-result-assumptions">{result.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul>
         </div>
       )}
+        </>
+      )}
+
       <ResearchReportActions
         title={`${symbol || "options"} strategy research`}
         query={nlqQuery || `Rank ${thesis} ${symbol || "NVDA"} option strategies${targetPrice ? ` target $${targetPrice}` : ""} by ${targetDate} max loss $${maxPlannedLoss} ${riskProfile}`}

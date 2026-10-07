@@ -8,6 +8,7 @@ import {
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "./x402Pay";
+import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
 import "./optionsResearch.css";
 
 const PAID_OPTIONS_ENDPOINT = "/api/premium/options-scan";
@@ -38,6 +39,7 @@ function displayValue(value: unknown): string {
 
 export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: ScreenersHubProps) {
   const [assetClass, setAssetClass] = useState<ScreeningAssetClass>("stocks");
+  const [optionsScreenMode, setOptionsScreenMode] = useState<"discovery" | "contracts">("discovery");
   const providers = useMemo(() => getScreeningProviders(assetClass), [assetClass]);
   const [providerId, setProviderId] = useState("etrade");
   const [symbolSearch, setSymbolSearch] = useState("");
@@ -219,7 +221,34 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         ))}
       </div>
 
-      {assetClass === "stocks" || assetClass === "options" ? (
+      {assetClass === "options" && (
+        <div className="trading-subnav-bar" style={{ margin: "0.5rem 0 0.8rem", display: "flex", gap: "0.5rem" }}>
+          <button
+            type="button"
+            className={`subnav-btn ${optionsScreenMode === "discovery" ? "active" : ""}`}
+            onClick={() => setOptionsScreenMode("discovery")}
+          >
+            🎯 Strategy Discovery &amp; Payoff Analyzer
+          </button>
+          <button
+            type="button"
+            className={`subnav-btn ${optionsScreenMode === "contracts" ? "active" : ""}`}
+            onClick={() => setOptionsScreenMode("contracts")}
+          >
+            📋 Raw Contracts Screener
+          </button>
+        </div>
+      )}
+
+      {assetClass === "options" && optionsScreenMode === "discovery" && (
+        <StrategyDiscoveryPanel
+          initialSymbol={symbolSearch.trim() || "NVDA"}
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+        />
+      )}
+
+      {(assetClass === "stocks" || (assetClass === "options" && optionsScreenMode === "contracts")) ? (
         <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
           <label className="options-field">
             <span>Data provider / API</span>
@@ -284,11 +313,13 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
             <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : `Run ${assetClass === "stocks" ? "stock" : "options"} screen`}</button>
           </div>
         </form>
-      ) : (
+      ) : assetClass !== "options" ? (
         <p className="options-comparison-note">This instrument class is a registered extension point, but no provider adapter is connected yet.</p>
-      )}
+      ) : null}
 
-      {pending && (
+      {(assetClass === "stocks" || (assetClass === "options" && optionsScreenMode === "contracts")) && (
+        <>
+          {pending && (
         <div className="options-error" role="status">
           <p>
             <strong>Payment optional.</strong> You can pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run the screen for free.
@@ -320,6 +351,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
             </table>
           </div>
         )
+      )}
+        </>
       )}
       <p className="options-assumptions">
         Provider adapters declare the instrument classes and screening endpoint they support. Add a broker, market-data API, or MCP connector by registering its capabilities and mapping its response to the common result table; unsupported instrument classes are not silently routed to an unrelated feed.
