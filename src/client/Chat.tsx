@@ -1376,6 +1376,7 @@ export function Chat({ user }: { user: User }) {
         {/* Navigation Tabs */}
         <nav className="tab-nav">
           <TabHoverItem
+            align="left"
             eyebrow="AGENTIC BROKERAGE & EXECUTION"
             title="E*TRADE Trading Desk"
             description="Agentic order preview, multi-asset screening, automated options analysis, real-time portfolio, and omnichannel dispatch."

@@ -57,9 +57,13 @@ export function ETradeDynamicMenu({
   userLogin,
   defaultSymbol = "NVDA",
 }: ETradeDynamicMenuProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
   const [downloadSymbol, setDownloadSymbol] = useState(defaultSymbol);
   const menuRef = useRef<HTMLDivElement>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isOpen = isHovered || isPinned;
 
   const isLive =
     activeEnv === "PROD" ||
@@ -69,6 +73,28 @@ export function ETradeDynamicMenu({
   const isConnected = !!oauthStatus?.authenticated;
   const accountValue = account?.netAccountValue;
 
+  const handleMouseEnter = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 220);
+  };
+
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsPinned((prev) => !prev);
+  };
+
   // Sync defaultSymbol when prop changes
   useEffect(() => {
     if (defaultSymbol && defaultSymbol.trim()) {
@@ -76,16 +102,18 @@ export function ETradeDynamicMenu({
     }
   }, [defaultSymbol]);
 
-  // Close menu on click outside
+  // Close menu on click outside or Escape
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        setIsPinned(false);
+        setIsHovered(false);
       }
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setIsOpen(false);
+        setIsPinned(false);
+        setIsHovered(false);
       }
     }
     if (isOpen) {
@@ -99,14 +127,19 @@ export function ETradeDynamicMenu({
   }, [isOpen]);
 
   return (
-    <div className="etrade-dynamic-menu-container" ref={menuRef}>
+    <div
+      className="etrade-dynamic-menu-container"
+      ref={menuRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <button
         type="button"
-        className={`etrade-dynamic-menu-trigger ${isConnected ? "connected" : "disconnected"} ${isLive ? "prod" : "test"} ${isOpen ? "open" : ""}`}
-        onClick={() => setIsOpen((prev) => !prev)}
+        className={`etrade-dynamic-menu-trigger ${isConnected ? "connected" : "disconnected"} ${isLive ? "prod" : "test"} ${isOpen ? "open" : ""} ${isPinned ? "pinned" : ""}`}
+        onClick={handleTriggerClick}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        title="Open E*TRADE Connection, Settings & Tools Menu"
+        title={isPinned ? "E*TRADE Menu pinned open (click to unpin)" : "Hover for quick details, click to pin open"}
       >
         <span className={`menu-status-dot ${isConnected ? "connected" : "disconnected"}`} />
         <span className={`menu-env-tag ${isLive ? "prod" : "test"}`}>{isLive ? "PROD" : "TEST"}</span>
@@ -119,7 +152,7 @@ export function ETradeDynamicMenu({
               : `$${accountValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
             : "Offline"}
         </span>
-        <span className="menu-caret">▾</span>
+        <span className="menu-caret">{isPinned ? "📌" : "▾"}</span>
       </button>
 
       {isOpen && (
@@ -258,7 +291,8 @@ export function ETradeDynamicMenu({
                 type="button"
                 className="btn-menu-tuning"
                 onClick={() => {
-                  setIsOpen(false);
+                  setIsPinned(false);
+                  setIsHovered(false);
                   onOpenEtapiTuning();
                 }}
               >

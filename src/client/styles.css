@@ -3646,7 +3646,10 @@ body {
   gap: 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 0.5rem;
-  overflow-x: auto;
+  overflow: visible !important;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1000;
 }
 
 .subnav-btn {
@@ -4820,7 +4823,9 @@ body {
   gap: 0.5rem;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.5rem;
-  overflow-x: auto;
+  overflow: visible !important;
+  position: relative;
+  z-index: 1000;
 }
 
 .subnav-btn {
@@ -6267,10 +6272,11 @@ body {
 .trading-subnav-bar {
   display: flex;
   gap: 0.5rem;
-  overflow-x: auto;
+  overflow: visible !important;
   padding-bottom: 0.25rem;
   border-bottom: 1px solid var(--border-subtle);
-  scrollbar-width: thin;
+  position: relative;
+  z-index: 1000;
 }
 
 .subnav-btn {
@@ -7703,7 +7709,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  overflow-x: auto;
+  overflow: visible !important;
+  flex-wrap: wrap;
   flex: 1;
 }
 
@@ -7712,6 +7719,9 @@ body {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  position: relative;
+  overflow: visible !important;
+  z-index: 1001;
 }
 
 .etrade-dynamic-menu-container {
@@ -7736,10 +7746,11 @@ body {
 }
 
 .etrade-dynamic-menu-trigger:hover,
-.etrade-dynamic-menu-trigger.open {
-  background: rgba(30, 41, 59, 0.95);
+.etrade-dynamic-menu-trigger.open,
+.etrade-dynamic-menu-trigger.pinned {
+  background: rgba(30, 41, 59, 0.98);
   border-color: #38bdf8;
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.2);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
 }
 
 .etrade-dynamic-menu-trigger.prod {
@@ -7808,20 +7819,24 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 360px;
-  max-width: 92vw;
+  width: 375px;
+  max-width: 95vw;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  scrollbar-width: thin;
   background: rgba(15, 23, 42, 0.98);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: 12px;
-  padding: 1.1rem;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.75), 0 0 24px rgba(56, 189, 248, 0.16);
-  z-index: 10001;
+  padding: 1.15rem;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.85), 0 0 30px rgba(56, 189, 248, 0.22);
+  z-index: 999999 !important;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
   animation: slideDownFade 0.18s ease-out;
+  pointer-events: auto;
 }
 
 @keyframes slideDownFade {
@@ -8123,6 +8138,9 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.5rem;
+  overflow: visible !important;
+  position: relative;
+  z-index: 1000;
 }
 
 .options-subnav-links {
@@ -8130,12 +8148,14 @@ body {
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
+  overflow: visible !important;
 }
 
 .options-subnav-tools {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  overflow: visible !important;
 }
 
 .options-scan-meta-pill {
@@ -8217,6 +8237,103 @@ body {
 .tab-hover-popover,
 .etrade-dynamic-dropdown-panel {
   color-scheme: dark;
+}
+
+/* ==========================================================================
+   Tab Hover Cards (WCAG 2.2 SC 1.4.13, SC 1.4.3 & ISO 9241-110 Ergonomics)
+   ========================================================================== */
+.tab-hover-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  z-index: 10;
+}
+
+.tab-hover-wrapper:hover,
+.tab-hover-wrapper:focus-within {
+  z-index: 999999;
+}
+
+.tab-hover-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 999999 !important;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.82), 0 0 18px rgba(56, 189, 248, 0.16);
+  border-radius: 10px;
+  padding: 0.75rem 0.95rem;
+  width: max-content;
+  max-width: 320px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: left;
+  line-height: 1.35;
+}
+
+/* Tooltip Alignment Variants */
+.tab-hover-wrapper.align-left .tab-hover-popover {
+  left: 0;
+  transform: translateY(4px);
+}
+.tab-hover-wrapper.align-right .tab-hover-popover {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+
+/* Hover & Focus Interactions */
+.tab-hover-wrapper:hover:not(.tooltip-dismissed) .tab-hover-popover,
+.tab-hover-wrapper:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.tab-hover-wrapper.align-left:hover:not(.tooltip-dismissed) .tab-hover-popover,
+.tab-hover-wrapper.align-left:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
+  transform: translateY(0);
+}
+
+.tab-hover-wrapper.align-right:hover:not(.tooltip-dismissed) .tab-hover-popover,
+.tab-hover-wrapper.align-right:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
+  transform: translateY(0);
+}
+
+/* Tooltip Content Typography */
+.tab-hover-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #38bdf8;
+  display: block;
+}
+
+.tab-hover-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #f8fafc;
+  display: block;
+  line-height: 1.25;
+}
+
+.tab-hover-desc {
+  font-size: 0.76rem;
+  color: #cbd5e1;
+  margin: 0;
+  display: block;
+  line-height: 1.38;
 }
 
 

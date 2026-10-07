@@ -17,11 +17,11 @@ import { defaultRegistry } from "../../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./StrategyDiscoveryPanel";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 import { TabHoverItem } from "../TabHoverItem";
+import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -938,26 +938,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           </TabHoverItem>
         </div>
 
-        <div className="options-subnav-tools">
-          {screenMeta && (
+        {screenMeta && (
+          <div className="options-subnav-tools">
             <div className="options-scan-meta-pill" title="Screen evaluation metrics">
               {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
             </div>
-          )}
-          <OptionsDataDownloadDropdown
-            symbol={symbol.trim() || "NVDA"}
-            activeEnv={activeEnv}
-            userLogin={userLogin}
-          />
-          <button
-            type="button"
-            className="btn-etapi-config-pill"
-            onClick={() => setConfigModalOpen(true)}
-            title="Inspect & tune externalized ETAPI engine parameters live"
-          >
-            ⚙️ ETAPI Tuning
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {researchMode === "schedules" && (
