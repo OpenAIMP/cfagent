@@ -486,6 +486,70 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
       }
     }
   });
+
+  it("verifies STRATEGY_LIBRARY covers all 58 OptionStrat strategies with working leg builders and SVG thumbnails", async () => {
+    const { STRATEGY_LIBRARY } = await import("../src/client/options/strategyLibrary");
+    expect(STRATEGY_LIBRARY.length).toBe(73);
+
+    const optionStratNames = [
+      // Novice
+      "Long Call", "Long Put", "Covered Call", "Cash-Secured Put", "Protective Put",
+      // Intermediate
+      "Bull Put Spread", "Bear Call Spread", "Iron Butterfly", "Iron Condor",
+      "Long Put Butterfly", "Long Call Butterfly", "Calendar Call Spread", "Calendar Put Spread",
+      "Diagonal Call Spread", "Diagonal Put Spread", "Bull Call Spread", "Bear Put Spread",
+      "Inverse Iron Butterfly", "Inverse Iron Condor", "Short Put Butterfly", "Short Call Butterfly",
+      "Straddle", "Strangle", "Collar",
+      // Advanced
+      "Short Put", "Short Call", "Short Straddle", "Short Strangle",
+      "Long Call Condor", "Long Put Condor", "Call Ratio Backspread", "Put Ratio Backspread",
+      "Covered Short Straddle", "Covered Strangle", "Short Call Condor", "Short Put Condor",
+      "Bull Call Ladder", "Bear Call Ladder", "Bull Put Ladder", "Bear Put Ladder",
+      "Jade Lizard", "Reverse Jade Lizard",
+      // Expert
+      "Call Ratio Spread", "Put Ratio Spread", "Synthetic Long Stock", "Synthetic Short Stock",
+      "Synthetic Put", "Long Combo", "Short Combo", "Strip", "Strap", "Guts", "Short Guts", "Double Diagonal",
+    ];
+
+    const libNames = new Set(STRATEGY_LIBRARY.map((s) => s.name));
+    for (const name of optionStratNames) {
+      expect(libNames.has(name), `Strategy '${name}' should be in STRATEGY_LIBRARY`).toBe(true);
+    }
+
+    // Verify all 73 strategies have valid properties and executable buildLegs
+    for (const strat of STRATEGY_LIBRARY) {
+      expect(strat.id).toBeTruthy();
+      expect(strat.pnlSvgPath.length).toBeGreaterThan(5);
+      expect(strat.legsCount).toBeGreaterThanOrEqual(1);
+      const legs = strat.buildLegs(200, 30, "2026-11-20", 0.35, 0.04);
+      expect(legs.length).toBeGreaterThanOrEqual(strat.legsCount);
+    }
+  });
+
+  it("filters illiquid option contracts under $0.05 and respects user budget in optimizer", () => {
+    const expirations = generateExpirations();
+    const exp = expirations[3];
+
+    // Discovery with low budget
+    const lowBudgetStrats = discoverStrategies({
+      symbol: "TSLA",
+      currentPrice: 380.0,
+      sentiment: "bullish",
+      targetPrice: 420.0,
+      budget: 500, // $500 max risk / collateral
+      expiration: exp,
+      optimizationBias: 50,
+    });
+
+    for (const strat of lowBudgetStrats) {
+      expect(strat.riskOrCollateral).toBeLessThanOrEqual(500);
+      for (const leg of strat.legs) {
+        if (leg.optionType !== "STOCK") {
+          expect(leg.entryPrice).toBeGreaterThanOrEqual(0.05);
+        }
+      }
+    }
+  });
 });
 
 

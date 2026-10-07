@@ -1398,9 +1398,18 @@ export function discoverStrategies(options: {
   }
 
   let finalResults = results;
+
+  // Filter out illiquid contracts where option leg entryPrice is under $0.05
+  const liquidResults = finalResults.filter((s) =>
+    s.legs.every((leg) => leg.optionType === "STOCK" || leg.entryPrice >= 0.05)
+  );
+  if (liquidResults.length > 0) {
+    finalResults = liquidResults;
+  }
+
   // Filter by budget if provided
   if (options.budget && options.budget > 0) {
-    finalResults = results.filter((s) => s.riskOrCollateral <= options.budget!);
+    finalResults = finalResults.filter((s) => s.riskOrCollateral <= options.budget!);
   }
 
   // Sort by composite score to match user's optimization bias

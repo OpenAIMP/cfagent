@@ -317,6 +317,28 @@
   font-weight: 700;
 }
 
+.strat-implied-move-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  color: #7dd3fc;
+  font-weight: 500;
+}
+
+.strat-implied-move-info strong {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.strat-implied-icon {
+  font-size: 0.9rem;
+}
+
 /* EXPIRATION TIMELINE CHIPS BAR */
 .strat-timeline-strip {
   display: flex;

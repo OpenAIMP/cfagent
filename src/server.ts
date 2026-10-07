@@ -37,6 +37,8 @@ function isAllowedOrigin(request: Request, env: Env): boolean {
     }
     if (originHost === "agent.openaimp.com" || originHost.endsWith(".openaimp.com")) return true;
     if (originHost === "localhost" || originHost.startsWith("localhost:")) return true;
+    if (originHost === "127.0.0.1" || originHost.startsWith("127.0.0.1:")) return true;
+    if (originHost === "[::1]" || originHost.startsWith("[::1]:")) return true;
   } catch {
     return false;
   }
@@ -633,6 +635,19 @@ export default {
       }
     }
 
+    // --- Direct Clear & Reset Session Endpoints (Always Synchronous) ---
+    if (path === "/clear" || path === "/reset" || path === "/api/clear" || path === "/api/reset") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+
+      const id = env.SEARCH_AGENT.idFromName(session.githubLogin);
+      const targetUrl = new URL(`/clear${url.search}`, "https://agent.internal");
+
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", session.githubLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);
@@ -644,7 +659,10 @@ export default {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
-      forwardReq.headers.set("x-async-eligible", "1");
+      const isImmediateSync = /^\/(?:clear|reset|memory|audit)(?:\/|\?|$)/i.test(subPath);
+      if (!isImmediateSync) {
+        forwardReq.headers.set("x-async-eligible", "1");
+      }
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 

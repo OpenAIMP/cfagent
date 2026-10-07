@@ -4,6 +4,7 @@
 <li><a href="./long_call.html">Long Call</a> &mdash; Buy one call; defined risk, unlimited upside.</li>
 <li><a href="./long_put.html">Long Put</a> &mdash; Buy one put; defined risk, large downside payoff.</li>
 <li><a href="./short_call.html">Short Call</a> &mdash; Sell one naked call; unlimited upside risk.</li>
+<li><a href="./short_put.html">Short Put</a> &mdash; Sell one naked put; downside risk is strike minus premium.</li>
 <li><a href="./cash_secured_put.html">Cash-Secured Put</a> &mdash; Sell one put backed by cash for assignment; risk is strike minus premium.</li>
 <li><a href="./leaps_call.html">LEAPS Call</a> &mdash; Long call with at least 365 DTE (stock replacement).</li>
 <li><a href="./leaps_put.html">LEAPS Put</a> &mdash; Long put with at least 365 DTE.</li>
@@ -13,6 +14,7 @@
 <li><a href="./protective_call.html">Protective Call</a> &mdash; Short 100 shares plus one long call.</li>
 <li><a href="./protective_collar.html">Protective Collar</a> &mdash; Long 100 shares, long put below, short call above.</li>
 <li><a href="./covered_strangle.html">Covered Strangle</a> &mdash; Long 100 shares, short put below, short call above.</li>
+<li><a href="./covered_short_straddle.html">Covered Short Straddle</a> &mdash; Long 100 shares plus short straddle (short call + short put at same strike).</li>
 <li><a href="./call_ratio_write.html">Call Ratio Write</a> &mdash; Long 100 shares plus two short calls; one call is uncovered.</li>
 <li><a href="./put_ratio_write.html">Put Ratio Write</a> &mdash; Short 100 shares plus two short puts.</li>
 <li><a href="./call_debit_spread.html">Call Debit Spread</a> &mdash; Buy lower call, sell higher call.</li>
@@ -25,6 +27,8 @@
 <li><a href="./short_strangle.html">Short Strangle</a> &mdash; Sell lower put and higher call; unlimited risk.</li>
 <li><a href="./long_guts.html">Long Guts</a> &mdash; Buy in-the-money call and put (call strike below put strike).</li>
 <li><a href="./short_guts.html">Short Guts</a> &mdash; Sell in-the-money call and put; unlimited risk.</li>
+<li><a href="./strip.html">Strip</a> &mdash; Buy 1 ATM call and 2 ATM puts; volatility play with bearish bias.</li>
+<li><a href="./strap.html">Strap</a> &mdash; Buy 2 ATM calls and 1 ATM put; volatility play with bullish bias.</li>
 <li><a href="./long_call_butterfly.html">Long Call Butterfly</a> &mdash; Buy 1 / sell 2 / buy 1 calls with equal wings.</li>
 <li><a href="./short_call_butterfly.html">Short Call Butterfly</a> &mdash; Sell 1 / buy 2 / sell 1 calls with equal wings.</li>
 <li><a href="./long_put_butterfly.html">Long Put Butterfly</a> &mdash; Buy 1 / sell 2 / buy 1 puts with equal wings.</li>
@@ -32,6 +36,8 @@
 <li><a href="./iron_butterfly.html">Iron Butterfly</a> &mdash; Short straddle with long wings (equal widths).</li>
 <li><a href="./reverse_iron_butterfly.html">Reverse Iron Butterfly</a> &mdash; Long straddle with short wings (equal widths).</li>
 <li><a href="./broken_wing_butterfly.html">Broken-Wing Butterfly</a> &mdash; 1 / -2 / 1 butterfly with unequal wings (call and put forms).</li>
+<li><a href="./inverse_call_broken_wing.html">Inverse Call Broken Wing</a> &mdash; Sell 1 lower call, buy 2 middle calls, sell 1 higher call with unequal wings.</li>
+<li><a href="./inverse_put_broken_wing.html">Inverse Put Broken Wing</a> &mdash; Sell 1 lower put, buy 2 middle puts, sell 1 higher put with unequal wings.</li>
 <li><a href="./skip_strike_butterfly.html">Skip-Strike Butterfly</a> &mdash; Butterfly where one wing skips a strike (one wing is exactly twice the other).</li>
 <li><a href="./unbalanced_butterfly.html">Unbalanced Butterfly</a> &mdash; Ratio butterfly with uneven quantities: 1 / -3 / 2 (call and put forms).</li>
 <li><a href="./long_call_condor.html">Long Call Condor</a> &mdash; Buy outer calls, sell inner calls, equal wings.</li>
@@ -54,8 +60,11 @@
 <li><a href="./call_backspread.html">Call Backspread</a> &mdash; Sell 1 lower call, buy 2 higher calls.</li>
 <li><a href="./put_backspread.html">Put Backspread</a> &mdash; Sell 1 higher put, buy 2 lower puts.</li>
 <li><a href="./call_ladder.html">Call Ladder</a> &mdash; Buy lower call, sell two higher calls at different strikes; unlimited upside risk.</li>
+<li><a href="./bear_call_ladder.html">Bear Call Ladder</a> &mdash; Sell 1 lower call, buy 1 middle call, buy 1 higher call; upside breakout play.</li>
 <li><a href="./put_ladder.html">Put Ladder</a> &mdash; Buy higher put, sell two lower puts at different strikes.</li>
+<li><a href="./bull_put_ladder.html">Bull Put Ladder</a> &mdash; Sell 1 higher put, buy 1 middle put, buy 1 lower put; downside breakout play.</li>
 <li><a href="./jade_lizard.html">Jade Lizard</a> &mdash; Short put plus short call spread above.</li>
+<li><a href="./reverse_jade_lizard.html">Reverse Jade Lizard</a> &mdash; Short OTM call plus bull put spread below; eliminates downside risk when net credit exceeds put spread width.</li>
 <li><a href="./big_lizard.html">Big Lizard</a> &mdash; Short straddle plus long OTM call above.</li>
 <li><a href="./seagull.html">Seagull</a> &mdash; Bullish seagull: long call spread financed by a short put below.</li>
 <li><a href="./synthetic_long_stock.html">Synthetic Long Stock</a> &mdash; Long call plus short put at the same strike.</li>

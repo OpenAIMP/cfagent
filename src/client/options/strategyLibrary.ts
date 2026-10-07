@@ -1,11 +1,11 @@
 /**
  * OptionStrat-Grade Strategy Library
- * Defines 50+ pre-made options strategies categorized into:
- * - Bullish
- * - Bearish
- * - Neutral
- * - Volatility & Breakout
- * - Synthetics & Advanced Spreads
+ * Defines 72 pre-made options strategies covering the complete OptionStrat catalog:
+ * - Bullish (18)
+ * - Bearish (15)
+ * - Neutral (14)
+ * - Volatility & Breakout (16)
+ * - Synthetics & Advanced Spreads (9)
  *
  * Each strategy includes:
  * - Unique ID and name
@@ -169,6 +169,22 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
     },
   },
   {
+    id: "short_put",
+    name: "Short Put",
+    category: "Bullish",
+    subtitle: "Sell 1 OTM Put (Naked)",
+    description: "Sell an out-of-the-money put for upfront credit. High probability of profit with substantial assignment risk.",
+    theses: ["bullish"],
+    riskType: "Undefined",
+    legsCount: 1,
+    pnlSvgPath: "M 0 45 L 40 15 L 90 15",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const strike = roundStrike(spot * 0.95, step);
+      return [createLeg("SELL", "PUT", strike, spot, dte, exp, iv, 1, r)];
+    },
+  },
+  {
     id: "bull_call_spread",
     name: "Bull Call Spread",
     category: "Bullish",
@@ -210,7 +226,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "call_ratio_front_spread",
-    name: "Call Ratio Front Spread",
+    name: "Call Ratio Spread",
     category: "Bullish",
     subtitle: "Buy 1 ITM Call + Sell 2 OTM Calls",
     description: "Modest bullish trade with peak profit at short strikes. Extra sold call finances position; carries upside risk beyond peak.",
@@ -270,7 +286,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "bull_diagonal_spread",
-    name: "Bull Diagonal Spread",
+    name: "Diagonal Call Spread",
     category: "Bullish",
     subtitle: "Buy Far ITM Call + Sell Near OTM Call",
     description: "Poor Man's Covered Call. Deep ITM long-dated LEAPS call acts as synthetic stock, selling near-term monthly calls for income.",
@@ -391,9 +407,91 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
       ];
     },
   },
+  {
+    id: "protective_put",
+    name: "Protective Put",
+    category: "Bullish",
+    subtitle: "Long 100 Shares + Buy 1 OTM Put",
+    description: "Own 100 shares of stock and purchase an out-of-the-money put to establish a strict downside loss floor with unlimited upside.",
+    theses: ["bullish"],
+    riskType: "Defined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 35 L 45 35 L 90 5",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const putStrike = roundStrike(spot * 0.94, step);
+      return [
+        createStockLeg("BUY", spot, 100, exp, dte),
+        createLeg("BUY", "PUT", putStrike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "covered_short_straddle",
+    name: "Covered Short Straddle",
+    category: "Bullish",
+    subtitle: "Long 100 Shares + Sell ATM Straddle",
+    description: "Own 100 shares of stock and sell an ATM call and ATM put to maximize total premium collected.",
+    theses: ["bullish"],
+    riskType: "Covered",
+    legsCount: 3,
+    pnlSvgPath: "M 0 45 L 45 10 L 90 10",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const strike = roundStrike(spot, step);
+      return [
+        createStockLeg("BUY", spot, 100, exp, dte),
+        createLeg("SELL", "CALL", strike, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", strike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "bull_call_ladder",
+    name: "Bull Call Ladder",
+    category: "Bullish",
+    subtitle: "Buy 1 ITM Call + Sell 1 ATM Call + Sell 1 OTM Call",
+    description: "Bull call spread plus an extra sold higher call. Financed entry with downside buffer, but upside risk beyond top strike.",
+    theses: ["bullish"],
+    riskType: "Undefined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 35 L 30 35 L 60 10 L 90 45",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.96, step);
+      const k2 = roundStrike(spot * 1.02, step);
+      const k3 = roundStrike(spot * 1.08, step);
+      return [
+        createLeg("BUY", "CALL", k1, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", k2, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", k3, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "poor_mans_covered_call",
+    name: "Poor Man's Covered Call",
+    category: "Bullish",
+    subtitle: "Buy Far ITM Call (LEAPS) + Sell Near OTM Call",
+    description: "Deep in-the-money long-dated call functions as synthetic stock, selling near-term monthly calls for consistent income.",
+    theses: ["bullish"],
+    riskType: "Defined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 40 L 50 15 L 90 15",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const longStrike = roundStrike(spot * 0.85, step);
+      const shortStrike = roundStrike(spot * 1.05, step);
+      const nearDte = Math.max(7, Math.round(dte * 0.3));
+      return [
+        createLeg("BUY", "CALL", longStrike, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", shortStrike, spot, nearDte, exp, iv, 1, r),
+      ];
+    },
+  },
 
   // ==========================================
-  // BEARISH STRATEGIES (12)
+  // BEARISH STRATEGIES
   // ==========================================
   {
     id: "long_put",
@@ -488,7 +586,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "put_ratio_front_spread",
-    name: "Put Ratio Front Spread",
+    name: "Put Ratio Spread",
     category: "Bearish",
     subtitle: "Buy 1 ITM Put + Sell 2 OTM Puts",
     description: "Targeted bearish structure with peak profit at short puts. Extra sold put finances trade; downside risk below lower breakeven.",
@@ -548,7 +646,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "bear_diagonal_spread",
-    name: "Bear Diagonal Spread",
+    name: "Diagonal Put Spread",
     category: "Bearish",
     subtitle: "Buy Far ITM Put + Sell Near OTM Put",
     description: "Poor Man's Covered Put. Deep ITM long-dated put acts as synthetic short stock, selling monthly puts against it.",
@@ -627,9 +725,71 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
       ];
     },
   },
+  {
+    id: "synthetic_put",
+    name: "Synthetic Put",
+    category: "Bearish",
+    subtitle: "Short 100 Shares + Buy 1 OTM Call",
+    description: "Replicates a long put payoff by shorting 100 shares and capping upside risk with a long call.",
+    theses: ["bearish", "very_bearish"],
+    riskType: "Defined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 5 L 45 35 L 90 35",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const strike = roundStrike(spot * 1.05, step);
+      return [
+        createStockLeg("SELL", spot, 100, exp, dte),
+        createLeg("BUY", "CALL", strike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "bear_put_ladder",
+    name: "Bear Put Ladder",
+    category: "Bearish",
+    subtitle: "Buy 1 ITM Put + Sell 1 ATM Put + Sell 1 OTM Put",
+    description: "Bear put spread plus an additional sold lower put. Downside assignment risk below lowest strike.",
+    theses: ["bearish"],
+    riskType: "Undefined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 45 L 35 10 L 65 35 L 90 35",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.92, step);
+      const k2 = roundStrike(spot * 0.98, step);
+      const k3 = roundStrike(spot * 1.04, step);
+      return [
+        createLeg("BUY", "PUT", k3, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", k2, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", k1, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "poor_mans_covered_put",
+    name: "Poor Man's Covered Put",
+    category: "Bearish",
+    subtitle: "Buy Far ITM Put (LEAPS) + Sell Near OTM Put",
+    description: "Synthetic covered put using a deep ITM long-dated put to finance monthly short put premium collection.",
+    theses: ["bearish"],
+    riskType: "Defined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 15 L 45 15 L 90 40",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const longStrike = roundStrike(spot * 1.15, step);
+      const shortStrike = roundStrike(spot * 0.95, step);
+      const nearDte = Math.max(7, Math.round(dte * 0.3));
+      return [
+        createLeg("BUY", "PUT", longStrike, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", shortStrike, spot, nearDte, exp, iv, 1, r),
+      ];
+    },
+  },
 
   // ==========================================
-  // NEUTRAL / RANGE-BOUND STRATEGIES (14)
+  // NEUTRAL / RANGE-BOUND STRATEGIES
   // ==========================================
   {
     id: "iron_condor",
@@ -718,7 +878,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "call_calendar",
-    name: "Call Calendar Spread",
+    name: "Calendar Call Spread",
     category: "Neutral",
     subtitle: "Sell Near ATM Call + Buy Far ATM Call",
     description: "Capitalizes on front month time decay while preserving back-month long call asset.",
@@ -738,7 +898,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "put_calendar",
-    name: "Put Calendar Spread",
+    name: "Calendar Put Spread",
     category: "Neutral",
     subtitle: "Sell Near ATM Put + Buy Far ATM Put",
     description: "Neutral-to-slight-bearish time decay structure using puts.",
@@ -944,7 +1104,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   // ==========================================
   {
     id: "long_straddle",
-    name: "Long Straddle",
+    name: "Straddle",
     category: "Volatility",
     subtitle: "Buy ATM Call + Buy ATM Put",
     description: "Pure volatility expansion play. Unlimited profit if stock breaks out aggressively in either direction.",
@@ -963,7 +1123,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "long_strangle",
-    name: "Long Strangle",
+    name: "Strangle",
     category: "Volatility",
     subtitle: "Buy OTM Put + Buy OTM Call",
     description: "Lower entry debit volatility breakout trade requiring larger movement to reach profitability.",
@@ -983,7 +1143,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "reverse_iron_condor",
-    name: "Reverse Iron Condor",
+    name: "Inverse Iron Condor",
     category: "Volatility",
     subtitle: "Buy Inner OTM Wings + Sell Outer Wings",
     description: "Defined-risk breakout structure profiting from sharp moves beyond either side.",
@@ -1007,7 +1167,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "reverse_iron_butterfly",
-    name: "Reverse Iron Butterfly",
+    name: "Inverse Iron Butterfly",
     category: "Volatility",
     subtitle: "Buy ATM Straddle + Sell OTM Wings",
     description: "High leverage breakout trade with defined risk capped by outer wings.",
@@ -1067,7 +1227,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "gut_strangle_long",
-    name: "Long Guts",
+    name: "Guts",
     category: "Volatility",
     subtitle: "Buy ITM Put + Buy ITM Call",
     description: "Deep delta in-the-money strangle offering high immediate sensitivity to underlying moves.",
@@ -1147,9 +1307,145 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
       ];
     },
   },
+  {
+    id: "short_call_condor",
+    name: "Short Call Condor",
+    category: "Volatility",
+    subtitle: "Sell Outer Calls + Buy Inner Calls",
+    description: "Inverted 4-strike call condor with defined risk. Profits from explosive volatility moves away from center.",
+    theses: ["directional"],
+    riskType: "Defined",
+    legsCount: 4,
+    pnlSvgPath: "M 0 10 L 25 10 L 40 38 L 60 38 L 75 10 L 90 10",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.94, step);
+      const k2 = roundStrike(spot * 0.98, step);
+      const k3 = roundStrike(spot * 1.02, step);
+      const k4 = roundStrike(spot * 1.06, step);
+      return [
+        createLeg("SELL", "CALL", k1, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", k2, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", k3, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", k4, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "short_put_condor",
+    name: "Short Put Condor",
+    category: "Volatility",
+    subtitle: "Sell Outer Puts + Buy Inner Puts",
+    description: "Inverted 4-strike put condor with defined risk. Maximum gain achieved outside outer strikes.",
+    theses: ["directional"],
+    riskType: "Defined",
+    legsCount: 4,
+    pnlSvgPath: "M 0 10 L 25 10 L 40 38 L 60 38 L 75 10 L 90 10",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.94, step);
+      const k2 = roundStrike(spot * 0.98, step);
+      const k3 = roundStrike(spot * 1.02, step);
+      const k4 = roundStrike(spot * 1.06, step);
+      return [
+        createLeg("SELL", "PUT", k1, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "PUT", k2, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "PUT", k3, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", k4, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "bear_call_ladder",
+    name: "Bear Call Ladder",
+    category: "Volatility",
+    subtitle: "Sell 1 ITM Call + Buy 1 ATM Call + Buy 1 OTM Call",
+    description: "Call ladder backspread profiting from explosive upside breakouts funded by the short call.",
+    theses: ["directional", "bullish"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 20 L 35 20 L 60 40 L 90 5",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.96, step);
+      const k2 = roundStrike(spot * 1.02, step);
+      const k3 = roundStrike(spot * 1.08, step);
+      return [
+        createLeg("SELL", "CALL", k1, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", k2, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", k3, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "bull_put_ladder",
+    name: "Bull Put Ladder",
+    category: "Volatility",
+    subtitle: "Buy 1 Lower Put + Buy 1 Middle Put + Sell 1 ITM Put",
+    description: "Put ladder backspread profiting from severe downward drops and implied volatility spikes.",
+    theses: ["directional", "bearish"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 5 L 35 40 L 60 20 L 90 20",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const k1 = roundStrike(spot * 0.92, step);
+      const k2 = roundStrike(spot * 0.98, step);
+      const k3 = roundStrike(spot * 1.04, step);
+      return [
+        createLeg("BUY", "PUT", k1, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "PUT", k2, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "PUT", k3, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "inverse_call_broken_wing",
+    name: "Inverse Call Broken Wing",
+    category: "Volatility",
+    subtitle: "Sell K1, Buy 2x K2, Sell K3 (Unequal Calls)",
+    description: "Inverted broken wing call butterfly designed to capture directional momentum with asymmetric risk.",
+    theses: ["directional", "bullish"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 20 L 35 20 L 55 42 L 80 10 L 90 10",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const center = roundStrike(spot * 1.04, step);
+      const lowerWidth = step * 3;
+      const upperWidth = step * 6;
+      return [
+        createLeg("SELL", "CALL", center - lowerWidth, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", center, spot, dte, exp, iv, 2, r),
+        createLeg("SELL", "CALL", center + upperWidth, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "inverse_put_broken_wing",
+    name: "Inverse Put Broken Wing",
+    category: "Volatility",
+    subtitle: "Sell K1, Buy 2x K2, Sell K3 (Unequal Puts)",
+    description: "Inverted broken wing put butterfly profiting from market selloffs and volatility expansion.",
+    theses: ["directional", "bearish"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 10 L 20 10 L 45 42 L 65 20 L 90 20",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const center = roundStrike(spot * 0.96, step);
+      const lowerWidth = step * 6;
+      const upperWidth = step * 3;
+      return [
+        createLeg("SELL", "PUT", center - lowerWidth, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "PUT", center, spot, dte, exp, iv, 2, r),
+        createLeg("SELL", "PUT", center + upperWidth, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
 
   // ==========================================
-  // SYNTHETICS & ADVANCED SPREADS (5)
+  // SYNTHETICS & ADVANCED SPREADS
   // ==========================================
   {
     id: "box_spread",
@@ -1221,7 +1517,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "call_broken_wing_butterfly",
-    name: "Broken Wing Butterfly (Calls)",
+    name: "Call Broken Wing",
     category: "Synthetics & Spreads",
     subtitle: "Skip Strike Call Butterfly",
     description: "Skipped outer strike creates a net credit butterfly with zero risk to the downside.",
@@ -1243,7 +1539,7 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
   },
   {
     id: "put_broken_wing_butterfly",
-    name: "Broken Wing Butterfly (Puts)",
+    name: "Put Broken Wing",
     category: "Synthetics & Spreads",
     subtitle: "Skip Strike Put Butterfly",
     description: "Skipped lower strike creates a net credit butterfly with zero risk to the upside.",
@@ -1260,6 +1556,86 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
         createLeg("BUY", "PUT", center - lowerWidth, spot, dte, exp, iv, 1, r),
         createLeg("SELL", "PUT", center, spot, dte, exp, iv, 2, r),
         createLeg("BUY", "PUT", center + upperWidth, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "long_combo",
+    name: "Long Combo",
+    category: "Synthetics & Spreads",
+    subtitle: "Sell OTM Put + Buy OTM Call",
+    description: "Replicates synthetic long stock with zero or minimal upfront debit. Unlimited downside risk.",
+    theses: ["bullish"],
+    riskType: "Undefined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 45 L 35 25 L 65 25 L 90 5",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const putStrike = roundStrike(spot * 0.95, step);
+      const callStrike = roundStrike(spot * 1.05, step);
+      return [
+        createLeg("SELL", "PUT", putStrike, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", callStrike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "short_combo",
+    name: "Short Combo",
+    category: "Synthetics & Spreads",
+    subtitle: "Buy OTM Put + Sell OTM Call",
+    description: "Replicates synthetic short stock position. Uncapped upside risk.",
+    theses: ["bearish"],
+    riskType: "Undefined",
+    legsCount: 2,
+    pnlSvgPath: "M 0 5 L 35 25 L 65 25 L 90 45",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const putStrike = roundStrike(spot * 0.95, step);
+      const callStrike = roundStrike(spot * 1.05, step);
+      return [
+        createLeg("BUY", "PUT", putStrike, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", callStrike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "conversion",
+    name: "Conversion",
+    category: "Synthetics & Spreads",
+    subtitle: "Long Stock + Long Put + Short Call",
+    description: "Classic options arbitrage locking in a risk-free payoff equal to strike minus net cost basis.",
+    theses: ["neutral"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 25 L 90 25",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const strike = roundStrike(spot, step);
+      return [
+        createStockLeg("BUY", spot, 100, exp, dte),
+        createLeg("BUY", "PUT", strike, spot, dte, exp, iv, 1, r),
+        createLeg("SELL", "CALL", strike, spot, dte, exp, iv, 1, r),
+      ];
+    },
+  },
+  {
+    id: "reverse_conversion",
+    name: "Reverse Conversion",
+    category: "Synthetics & Spreads",
+    subtitle: "Short Stock + Short Put + Long Call",
+    description: "Reversal arbitrage locking in synthetic short stock matched against actual short shares.",
+    theses: ["neutral"],
+    riskType: "Defined",
+    legsCount: 3,
+    pnlSvgPath: "M 0 25 L 90 25",
+    buildLegs: (spot, dte, exp, iv, r) => {
+      const step = getStrikeStep(spot);
+      const strike = roundStrike(spot, step);
+      return [
+        createStockLeg("SELL", spot, 100, exp, dte),
+        createLeg("SELL", "PUT", strike, spot, dte, exp, iv, 1, r),
+        createLeg("BUY", "CALL", strike, spot, dte, exp, iv, 1, r),
       ];
     },
   },

@@ -17,7 +17,8 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "long_call", label: "Long Call", category: "single", description: "Buy one call; defined risk, unlimited upside.", theses: ["bullish"], specs: [spec(1, [call("BUY")])] }),
   createTemplateStrategy({ id: "long_put", label: "Long Put", category: "single", description: "Buy one put; defined risk, large downside payoff.", theses: ["bearish"], specs: [spec(1, [put("BUY")])] }),
   createTemplateStrategy({ id: "short_call", label: "Short Call", category: "single", description: "Sell one naked call; unlimited upside risk.", aliases: ["Naked Call"], theses: ["bearish", "range_bound"], specs: [spec(1, [call("SELL")])] }),
-  createTemplateStrategy({ id: "cash_secured_put", label: "Cash-Secured Put", category: "single", description: "Sell one put backed by cash for assignment; risk is strike minus premium.", aliases: ["Short Put", "Naked Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [put("SELL")])] }),
+  createTemplateStrategy({ id: "short_put", label: "Short Put", category: "single", description: "Sell one naked put; downside risk is strike minus premium.", aliases: ["Naked Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [put("SELL")])] }),
+  createTemplateStrategy({ id: "cash_secured_put", label: "Cash-Secured Put", category: "single", description: "Sell one put backed by cash for assignment; risk is strike minus premium.", aliases: ["Cash Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [put("SELL")])] }),
   createTemplateStrategy({ id: "leaps_call", label: "LEAPS Call", category: "single", description: "Long call with at least 365 DTE (stock replacement).", theses: ["bullish"], specs: [spec(1, [call("BUY")], { minDte: 365 })] }),
   createTemplateStrategy({ id: "leaps_put", label: "LEAPS Put", category: "single", description: "Long put with at least 365 DTE.", theses: ["bearish"], specs: [spec(1, [put("BUY")], { minDte: 365 })] }),
 
@@ -27,7 +28,8 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "protective_put", label: "Protective Put", category: "stock", description: "Long 100 shares plus one long put.", aliases: ["Married Put", "Synthetic Long Call"], theses: ["bullish"], specs: [spec(1, [stock("BUY"), put("BUY")])] }),
   createTemplateStrategy({ id: "protective_call", label: "Protective Call", category: "stock", description: "Short 100 shares plus one long call.", aliases: ["Synthetic Long Put"], theses: ["bearish"], specs: [spec(1, [stock("SELL"), call("BUY")])] }),
   createTemplateStrategy({ id: "protective_collar", label: "Protective Collar", category: "stock", description: "Long 100 shares, long put below, short call above.", aliases: ["Collar", "Fence"], theses: ["bullish", "range_bound"], specs: [spec(2, [stock("BUY"), put("BUY", 0), call("SELL", 1)])] }),
-  createTemplateStrategy({ id: "covered_strangle", label: "Covered Strangle", category: "stock", description: "Long 100 shares, short put below, short call above.", aliases: ["Covered Combination"], theses: ["range_bound", "bullish"], specs: [spec(2, [stock("BUY"), put("SELL", 0), call("SELL", 1)])] }),
+  createTemplateStrategy({ id: "covered_strangle", label: "Covered Strangle", category: "stock", description: "Long 100 shares, short put below, short call above.", aliases: ["Covered Combination", "Covered Short Strangle"], theses: ["range_bound", "bullish"], specs: [spec(2, [stock("BUY"), put("SELL", 0), call("SELL", 1)])] }),
+  createTemplateStrategy({ id: "covered_short_straddle", label: "Covered Short Straddle", category: "stock", description: "Long 100 shares plus short straddle (short call + short put at same strike).", aliases: ["Covered Straddle"], theses: ["range_bound", "bullish"], specs: [spec(1, [stock("BUY"), call("SELL", 0), put("SELL", 0)])] }),
   createTemplateStrategy({ id: "call_ratio_write", label: "Call Ratio Write", category: "stock", description: "Long 100 shares plus two short calls; one call is uncovered.", theses: ["range_bound"], specs: [spec(1, [stock("BUY"), call("SELL", 0, 2)])] }),
   createTemplateStrategy({ id: "put_ratio_write", label: "Put Ratio Write", category: "stock", description: "Short 100 shares plus two short puts.", theses: ["range_bound"], specs: [spec(1, [stock("SELL"), put("SELL", 0, 2)])] }),
 
@@ -38,12 +40,14 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "put_credit_spread", label: "Put Credit Spread", category: "vertical", description: "Sell higher put, buy lower put.", aliases: ["Bull Put Spread", "Bull Put Credit Spread", "Short Put Vertical Spread"], theses: ["bullish"], specs: [spec(2, [put("SELL", 1), put("BUY", 0)])] }),
 
   // Volatility
-  createTemplateStrategy({ id: "long_straddle", label: "Long Straddle", category: "volatility", description: "Buy call and put at the same strike.", theses: ["large_move"], specs: [spec(1, [call("BUY"), put("BUY")])] }),
+  createTemplateStrategy({ id: "long_straddle", label: "Long Straddle", category: "volatility", description: "Buy call and put at the same strike.", aliases: ["Straddle"], theses: ["large_move"], specs: [spec(1, [call("BUY"), put("BUY")])] }),
   createTemplateStrategy({ id: "short_straddle", label: "Short Straddle", category: "volatility", description: "Sell call and put at the same strike; unlimited risk.", theses: ["range_bound"], specs: [spec(1, [call("SELL"), put("SELL")])] }),
-  createTemplateStrategy({ id: "long_strangle", label: "Long Strangle", category: "volatility", description: "Buy lower put and higher call.", theses: ["large_move"], specs: [spec(2, [put("BUY", 0), call("BUY", 1)])] }),
+  createTemplateStrategy({ id: "long_strangle", label: "Long Strangle", category: "volatility", description: "Buy lower put and higher call.", aliases: ["Strangle"], theses: ["large_move"], specs: [spec(2, [put("BUY", 0), call("BUY", 1)])] }),
   createTemplateStrategy({ id: "short_strangle", label: "Short Strangle", category: "volatility", description: "Sell lower put and higher call; unlimited risk.", theses: ["range_bound"], specs: [spec(2, [put("SELL", 0), call("SELL", 1)])] }),
-  createTemplateStrategy({ id: "long_guts", label: "Long Guts", category: "volatility", description: "Buy in-the-money call and put (call strike below put strike).", theses: ["large_move"], specs: [spec(2, [call("BUY", 0), put("BUY", 1)])] }),
+  createTemplateStrategy({ id: "long_guts", label: "Long Guts", category: "volatility", description: "Buy in-the-money call and put (call strike below put strike).", aliases: ["Guts"], theses: ["large_move"], specs: [spec(2, [call("BUY", 0), put("BUY", 1)])] }),
   createTemplateStrategy({ id: "short_guts", label: "Short Guts", category: "volatility", description: "Sell in-the-money call and put; unlimited risk.", theses: ["range_bound"], specs: [spec(2, [call("SELL", 0), put("SELL", 1)])] }),
+  createTemplateStrategy({ id: "strip", label: "Strip", category: "volatility", description: "Buy 1 ATM call and 2 ATM puts; volatility play with bearish bias.", aliases: ["Strip Strategy"], theses: ["bearish", "large_move"], specs: [spec(1, [call("BUY", 0, 1), put("BUY", 0, 2)])] }),
+  createTemplateStrategy({ id: "strap", label: "Strap", category: "volatility", description: "Buy 2 ATM calls and 1 ATM put; volatility play with bullish bias.", aliases: ["Strap Strategy"], theses: ["bullish", "large_move"], specs: [spec(1, [call("BUY", 0, 2), put("BUY", 0, 1)])] }),
 
   // Butterflies
   createTemplateStrategy({ id: "long_call_butterfly", label: "Long Call Butterfly", category: "butterfly", description: "Buy 1 / sell 2 / buy 1 calls with equal wings.", theses: ["range_bound"], specs: [spec(3, [call("BUY", 0), call("SELL", 1, 2), call("BUY", 2)], { wings: "equal" })] }),
@@ -51,11 +55,13 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "long_put_butterfly", label: "Long Put Butterfly", category: "butterfly", description: "Buy 1 / sell 2 / buy 1 puts with equal wings.", theses: ["range_bound"], specs: [spec(3, [put("BUY", 0), put("SELL", 1, 2), put("BUY", 2)], { wings: "equal" })] }),
   createTemplateStrategy({ id: "short_put_butterfly", label: "Short Put Butterfly", category: "butterfly", description: "Sell 1 / buy 2 / sell 1 puts with equal wings.", theses: ["large_move"], specs: [spec(3, [put("SELL", 0), put("BUY", 1, 2), put("SELL", 2)], { wings: "equal" })] }),
   createTemplateStrategy({ id: "iron_butterfly", label: "Iron Butterfly", category: "butterfly", description: "Short straddle with long wings (equal widths).", theses: ["range_bound"], specs: [spec(3, [put("BUY", 0), put("SELL", 1), call("SELL", 1), call("BUY", 2)], { wings: "equal" })] }),
-  createTemplateStrategy({ id: "reverse_iron_butterfly", label: "Reverse Iron Butterfly", category: "butterfly", description: "Long straddle with short wings (equal widths).", theses: ["large_move"], specs: [spec(3, [put("SELL", 0), put("BUY", 1), call("BUY", 1), call("SELL", 2)], { wings: "equal" })] }),
-  createTemplateStrategy({ id: "broken_wing_butterfly", label: "Broken-Wing Butterfly", category: "butterfly", description: "1 / -2 / 1 butterfly with unequal wings (call and put forms).", theses: ["range_bound", "bullish", "bearish"], specs: [
+  createTemplateStrategy({ id: "reverse_iron_butterfly", label: "Reverse Iron Butterfly", category: "butterfly", description: "Long straddle with short wings (equal widths).", aliases: ["Inverse Iron Butterfly"], theses: ["large_move"], specs: [spec(3, [put("SELL", 0), put("BUY", 1), call("BUY", 1), call("SELL", 2)], { wings: "equal" })] }),
+  createTemplateStrategy({ id: "broken_wing_butterfly", label: "Broken-Wing Butterfly", category: "butterfly", description: "1 / -2 / 1 butterfly with unequal wings (call and put forms).", aliases: ["Call Broken Wing", "Put Broken Wing", "Broken Wing Butterfly"], theses: ["range_bound", "bullish", "bearish"], specs: [
     spec(3, [call("BUY", 0), call("SELL", 1, 2), call("BUY", 2)], { wings: "broken" }),
     spec(3, [put("BUY", 0), put("SELL", 1, 2), put("BUY", 2)], { wings: "broken" }),
   ] }),
+  createTemplateStrategy({ id: "inverse_call_broken_wing", label: "Inverse Call Broken Wing", category: "butterfly", description: "Sell 1 lower call, buy 2 middle calls, sell 1 higher call with unequal wings.", aliases: ["Short Call Broken Wing Butterfly", "Inverse Call Broken Wing Butterfly"], theses: ["large_move", "bearish"], specs: [spec(3, [call("SELL", 0), call("BUY", 1, 2), call("SELL", 2)], { wings: "broken" })] }),
+  createTemplateStrategy({ id: "inverse_put_broken_wing", label: "Inverse Put Broken Wing", category: "butterfly", description: "Sell 1 lower put, buy 2 middle puts, sell 1 higher put with unequal wings.", aliases: ["Short Put Broken Wing Butterfly", "Inverse Put Broken Wing Butterfly"], theses: ["large_move", "bullish"], specs: [spec(3, [put("SELL", 0), put("BUY", 1, 2), put("SELL", 2)], { wings: "broken" })] }),
   createTemplateStrategy({ id: "skip_strike_butterfly", label: "Skip-Strike Butterfly", category: "butterfly", description: "Butterfly where one wing skips a strike (one wing is exactly twice the other).", theses: ["range_bound", "bullish", "bearish"], specs: [
     spec(3, [call("BUY", 0), call("SELL", 1, 2), call("BUY", 2)], { wings: "skip" }),
     spec(3, [put("BUY", 0), put("SELL", 1, 2), put("BUY", 2)], { wings: "skip" }),
@@ -71,38 +77,41 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "long_put_condor", label: "Long Put Condor", category: "condor", description: "Buy outer puts, sell inner puts, equal wings.", theses: ["range_bound"], specs: [spec(4, [put("BUY", 0), put("SELL", 1), put("SELL", 2), put("BUY", 3)], { wings: "equal" })] }),
   createTemplateStrategy({ id: "short_put_condor", label: "Short Put Condor", category: "condor", description: "Sell outer puts, buy inner puts, equal wings.", theses: ["large_move"], specs: [spec(4, [put("SELL", 0), put("BUY", 1), put("BUY", 2), put("SELL", 3)], { wings: "equal" })] }),
   createTemplateStrategy({ id: "iron_condor", label: "Iron Condor", category: "condor", description: "Put credit spread plus call credit spread.", theses: ["range_bound"], specs: [spec(4, [put("BUY", 0), put("SELL", 1), call("SELL", 2), call("BUY", 3)])] }),
-  createTemplateStrategy({ id: "reverse_iron_condor", label: "Reverse Iron Condor", category: "condor", description: "Put debit spread plus call debit spread.", theses: ["large_move"], specs: [spec(4, flip([put("BUY", 0), put("SELL", 1), call("SELL", 2), call("BUY", 3)]))] }),
+  createTemplateStrategy({ id: "reverse_iron_condor", label: "Reverse Iron Condor", category: "condor", description: "Put debit spread plus call debit spread.", aliases: ["Inverse Iron Condor"], theses: ["large_move"], specs: [spec(4, flip([put("BUY", 0), put("SELL", 1), call("SELL", 2), call("BUY", 3)]))] }),
   createTemplateStrategy({ id: "unbalanced_condor", label: "Unbalanced Condor", category: "condor", description: "Condor with unequal wing widths (call and put forms).", aliases: ["Broken-Wing Condor"], theses: ["range_bound"], specs: [
     spec(4, [call("BUY", 0), call("SELL", 1), call("SELL", 2), call("BUY", 3)], { wings: "unequal" }),
     spec(4, [put("BUY", 0), put("SELL", 1), put("SELL", 2), put("BUY", 3)], { wings: "unequal" }),
   ] }),
 
   // Time-based (two expirations)
-  createTemplateStrategy({ id: "call_calendar", label: "Call Calendar Spread", category: "time", description: "Sell near call, buy far call at the same strike.", aliases: ["Call Time Spread", "Call Horizontal Spread"], theses: ["range_bound", "bullish"], specs: [spec(1, [call("SELL", 0, 1, "near"), call("BUY", 0, 1, "far")])] }),
-  createTemplateStrategy({ id: "put_calendar", label: "Put Calendar Spread", category: "time", description: "Sell near put, buy far put at the same strike.", aliases: ["Put Time Spread", "Put Horizontal Spread"], theses: ["range_bound", "bearish"], specs: [spec(1, [put("SELL", 0, 1, "near"), put("BUY", 0, 1, "far")])] }),
+  createTemplateStrategy({ id: "call_calendar", label: "Call Calendar Spread", category: "time", description: "Sell near call, buy far call at the same strike.", aliases: ["Call Time Spread", "Call Horizontal Spread", "Calendar Call Spread"], theses: ["range_bound", "bullish"], specs: [spec(1, [call("SELL", 0, 1, "near"), call("BUY", 0, 1, "far")])] }),
+  createTemplateStrategy({ id: "put_calendar", label: "Put Calendar Spread", category: "time", description: "Sell near put, buy far put at the same strike.", aliases: ["Put Time Spread", "Put Horizontal Spread", "Calendar Put Spread"], theses: ["range_bound", "bearish"], specs: [spec(1, [put("SELL", 0, 1, "near"), put("BUY", 0, 1, "far")])] }),
   createTemplateStrategy({ id: "double_calendar", label: "Double Calendar Spread", category: "time", description: "Put calendar below plus call calendar above.", theses: ["range_bound"], specs: [spec(2, [put("SELL", 0, 1, "near"), put("BUY", 0, 1, "far"), call("SELL", 1, 1, "near"), call("BUY", 1, 1, "far")])] }),
-  createTemplateStrategy({ id: "call_diagonal", label: "Call Diagonal Spread", category: "time", description: "Buy far call at lower strike, sell near call at higher strike.", theses: ["bullish"], specs: [spec(2, [call("BUY", 0, 1, "far"), call("SELL", 1, 1, "near")])] }),
-  createTemplateStrategy({ id: "put_diagonal", label: "Put Diagonal Spread", category: "time", description: "Buy far put at higher strike, sell near put at lower strike.", theses: ["bearish"], specs: [spec(2, [put("BUY", 1, 1, "far"), put("SELL", 0, 1, "near")])] }),
-  createTemplateStrategy({ id: "double_diagonal", label: "Double Diagonal Spread", category: "time", description: "Put diagonal below plus call diagonal above.", theses: ["range_bound"], specs: [spec(4, [put("BUY", 0, 1, "far"), put("SELL", 1, 1, "near"), call("SELL", 2, 1, "near"), call("BUY", 3, 1, "far")])] }),
+  createTemplateStrategy({ id: "call_diagonal", label: "Call Diagonal Spread", category: "time", description: "Buy far call at lower strike, sell near call at higher strike.", aliases: ["Diagonal Call Spread"], theses: ["bullish"], specs: [spec(2, [call("BUY", 0, 1, "far"), call("SELL", 1, 1, "near")])] }),
+  createTemplateStrategy({ id: "put_diagonal", label: "Put Diagonal Spread", category: "time", description: "Buy far put at higher strike, sell near put at lower strike.", aliases: ["Diagonal Put Spread"], theses: ["bearish"], specs: [spec(2, [put("BUY", 1, 1, "far"), put("SELL", 0, 1, "near")])] }),
+  createTemplateStrategy({ id: "double_diagonal", label: "Double Diagonal Spread", category: "time", description: "Put diagonal below plus call diagonal above.", aliases: ["Double Diagonal"], theses: ["range_bound"], specs: [spec(4, [put("BUY", 0, 1, "far"), put("SELL", 1, 1, "near"), call("SELL", 2, 1, "near"), call("BUY", 3, 1, "far")])] }),
   createTemplateStrategy({ id: "poor_mans_covered_call", label: "Poor Man's Covered Call", category: "time", description: "Deep ITM far-dated call (180+ DTE) financed by a near-dated OTM short call.", aliases: ["PMCC"], theses: ["bullish", "range_bound"], specs: [spec(2, [call("BUY", 0, 1, "far"), call("SELL", 1, 1, "near")], { farMinDte: 180, strikeFilter: (ks, underlying) => ks[0] < underlying && ks[1] >= underlying })] }),
   createTemplateStrategy({ id: "poor_mans_covered_put", label: "Poor Man's Covered Put", category: "time", description: "Deep ITM far-dated put (180+ DTE) financed by a near-dated OTM short put.", aliases: ["PMCP"], theses: ["bearish", "range_bound"], specs: [spec(2, [put("BUY", 1, 1, "far"), put("SELL", 0, 1, "near")], { farMinDte: 180, strikeFilter: (ks, underlying) => ks[1] > underlying && ks[0] <= underlying })] }),
 
   // Ratio, backspread, ladder
-  createTemplateStrategy({ id: "call_ratio_spread", label: "Ratio Call Spread", category: "ratio", description: "Buy 1 lower call, sell 2 higher calls; unlimited upside risk.", theses: ["bullish", "range_bound"], specs: [spec(2, [call("BUY", 0), call("SELL", 1, 2)])] }),
-  createTemplateStrategy({ id: "put_ratio_spread", label: "Ratio Put Spread", category: "ratio", description: "Buy 1 higher put, sell 2 lower puts.", theses: ["bearish", "range_bound"], specs: [spec(2, [put("BUY", 1), put("SELL", 0, 2)])] }),
-  createTemplateStrategy({ id: "call_backspread", label: "Call Backspread", category: "ratio", description: "Sell 1 lower call, buy 2 higher calls.", theses: ["bullish", "large_move"], specs: [spec(2, [call("SELL", 0), call("BUY", 1, 2)])] }),
-  createTemplateStrategy({ id: "put_backspread", label: "Put Backspread", category: "ratio", description: "Sell 1 higher put, buy 2 lower puts.", theses: ["bearish", "large_move"], specs: [spec(2, [put("SELL", 1), put("BUY", 0, 2)])] }),
+  createTemplateStrategy({ id: "call_ratio_spread", label: "Ratio Call Spread", category: "ratio", description: "Buy 1 lower call, sell 2 higher calls; unlimited upside risk.", aliases: ["Call Ratio Spread", "Call Ratio Front Spread"], theses: ["bullish", "range_bound"], specs: [spec(2, [call("BUY", 0), call("SELL", 1, 2)])] }),
+  createTemplateStrategy({ id: "put_ratio_spread", label: "Ratio Put Spread", category: "ratio", description: "Buy 1 higher put, sell 2 lower puts.", aliases: ["Put Ratio Spread", "Put Ratio Front Spread"], theses: ["bearish", "range_bound"], specs: [spec(2, [put("BUY", 1), put("SELL", 0, 2)])] }),
+  createTemplateStrategy({ id: "call_backspread", label: "Call Backspread", category: "ratio", description: "Sell 1 lower call, buy 2 higher calls.", aliases: ["Call Ratio Backspread"], theses: ["bullish", "large_move"], specs: [spec(2, [call("SELL", 0), call("BUY", 1, 2)])] }),
+  createTemplateStrategy({ id: "put_backspread", label: "Put Backspread", category: "ratio", description: "Sell 1 higher put, buy 2 lower puts.", aliases: ["Put Ratio Backspread"], theses: ["bearish", "large_move"], specs: [spec(2, [put("SELL", 1), put("BUY", 0, 2)])] }),
   createTemplateStrategy({ id: "call_ladder", label: "Call Ladder", category: "ratio", description: "Buy lower call, sell two higher calls at different strikes; unlimited upside risk.", aliases: ["Bull Call Ladder"], theses: ["bullish"], specs: [spec(3, [call("BUY", 0), call("SELL", 1), call("SELL", 2)])] }),
+  createTemplateStrategy({ id: "bear_call_ladder", label: "Bear Call Ladder", category: "ratio", description: "Sell 1 lower call, buy 1 middle call, buy 1 higher call; upside breakout play.", aliases: ["Short Call Ladder"], theses: ["bullish", "large_move"], specs: [spec(3, [call("SELL", 0), call("BUY", 1), call("BUY", 2)])] }),
   createTemplateStrategy({ id: "put_ladder", label: "Put Ladder", category: "ratio", description: "Buy higher put, sell two lower puts at different strikes.", aliases: ["Bear Put Ladder"], theses: ["bearish"], specs: [spec(3, [put("BUY", 2), put("SELL", 1), put("SELL", 0)])] }),
+  createTemplateStrategy({ id: "bull_put_ladder", label: "Bull Put Ladder", category: "ratio", description: "Sell 1 higher put, buy 1 middle put, buy 1 lower put; downside breakout play.", aliases: ["Short Put Ladder"], theses: ["bearish", "large_move"], specs: [spec(3, [put("SELL", 2), put("BUY", 1), put("BUY", 0)])] }),
 
   // Multi-structure
   createTemplateStrategy({ id: "jade_lizard", label: "Jade Lizard", category: "multi", description: "Short put plus short call spread above.", theses: ["bullish", "range_bound"], specs: [spec(3, [put("SELL", 0), call("SELL", 1), call("BUY", 2)])] }),
+  createTemplateStrategy({ id: "reverse_jade_lizard", label: "Reverse Jade Lizard", category: "multi", description: "Short OTM call plus bull put spread below; eliminates downside risk when net credit exceeds put spread width.", aliases: ["Inverse Jade Lizard"], theses: ["bearish", "range_bound"], specs: [spec(3, [put("BUY", 0), put("SELL", 1), call("SELL", 2)])] }),
   createTemplateStrategy({ id: "big_lizard", label: "Big Lizard", category: "multi", description: "Short straddle plus long OTM call above.", theses: ["bullish", "range_bound"], specs: [spec(2, [put("SELL", 0), call("SELL", 0), call("BUY", 1)])] }),
   createTemplateStrategy({ id: "seagull", label: "Seagull", category: "multi", description: "Bullish seagull: long call spread financed by a short put below.", aliases: ["Bullish Seagull"], theses: ["bullish"], specs: [spec(3, [put("SELL", 0), call("BUY", 1), call("SELL", 2)])] }),
 
   // Synthetics and arbitrage-style structures
-  createTemplateStrategy({ id: "synthetic_long_stock", label: "Synthetic Long Stock", category: "synthetic", description: "Long call plus short put at the same strike.", aliases: ["Long Combo", "Synthetic Long"], theses: ["bullish"], specs: [spec(1, [call("BUY"), put("SELL")])] }),
-  createTemplateStrategy({ id: "synthetic_short_stock", label: "Synthetic Short Stock", category: "synthetic", description: "Short call plus long put at the same strike; unlimited upside risk.", aliases: ["Short Combo", "Synthetic Short"], theses: ["bearish"], specs: [spec(1, [call("SELL"), put("BUY")])] }),
+  createTemplateStrategy({ id: "synthetic_long_stock", label: "Synthetic Long Stock", category: "synthetic", description: "Long call plus short put at the same strike.", aliases: ["Long Combo", "Synthetic Long", "Long Synthetic Future"], theses: ["bullish"], specs: [spec(1, [call("BUY"), put("SELL")])] }),
+  createTemplateStrategy({ id: "synthetic_short_stock", label: "Synthetic Short Stock", category: "synthetic", description: "Short call plus long put at the same strike; unlimited upside risk.", aliases: ["Short Combo", "Synthetic Short", "Short Synthetic Future"], theses: ["bearish"], specs: [spec(1, [call("SELL"), put("BUY")])] }),
   createTemplateStrategy({ id: "risk_reversal", label: "Risk Reversal", category: "synthetic", description: "Bullish form: short OTM put financing a long OTM call.", theses: ["bullish"], specs: [spec(2, [put("SELL", 0), call("BUY", 1)])] }),
   createTemplateStrategy({ id: "box_spread", label: "Box Spread", category: "arbitrage", description: "Bull call spread plus bear put spread on the same strikes (long box).", aliases: ["Long Box Spread", "Long Box"], theses: [...ALL_THESES], specs: [spec(2, [call("BUY", 0), call("SELL", 1), put("BUY", 1), put("SELL", 0)])] }),
   createTemplateStrategy({ id: "short_box_spread", label: "Short Box Spread", category: "arbitrage", description: "Reverse of the long box (synthetic borrowing).", aliases: ["Short Box"], theses: [...ALL_THESES], specs: [spec(2, flip([call("BUY", 0), call("SELL", 1), put("BUY", 1), put("SELL", 0)]))] }),
@@ -113,7 +122,7 @@ const DEFINITIONS: StrategyDefinition[] = [
 export const defaultRegistry = new StrategyRegistry();
 DEFINITIONS.forEach((def) => defaultRegistry.register(def));
 
-/** Generic names that intentionally expand to several concrete strategies. */
+/** Generic names and standard market aliases that expand to concrete strategies. */
 defaultRegistry
   .alias("Vertical Spread", "call_debit_spread", "put_debit_spread", "call_credit_spread", "put_credit_spread")
   .alias("Horizontal Spread", "call_calendar", "put_calendar")
@@ -122,7 +131,38 @@ defaultRegistry
   .alias("Bull Call Credit Spread", "call_credit_spread")
   .alias("Bull Put Debit Spread", "put_debit_spread")
   .alias("Bear Call Debit Spread", "call_debit_spread")
-  .alias("Bear Put Credit Spread", "put_credit_spread");
+  .alias("Bear Put Credit Spread", "put_credit_spread")
+  .alias("Straddle", "long_straddle")
+  .alias("Strangle", "long_strangle")
+  .alias("Guts", "long_guts")
+  .alias("Collar", "protective_collar")
+  .alias("Fence", "protective_collar")
+  .alias("Calendar Call Spread", "call_calendar")
+  .alias("Calendar Put Spread", "put_calendar")
+  .alias("Diagonal Call Spread", "call_diagonal")
+  .alias("Diagonal Put Spread", "put_diagonal")
+  .alias("Inverse Iron Butterfly", "reverse_iron_butterfly")
+  .alias("Inverse Iron Condor", "reverse_iron_condor")
+  .alias("Covered Short Strangle", "covered_strangle")
+  .alias("Covered Short Straddle", "covered_short_straddle")
+  .alias("Call Ratio Backspread", "call_backspread")
+  .alias("Put Ratio Backspread", "put_backspread")
+  .alias("Call Ratio Spread", "call_ratio_spread")
+  .alias("Put Ratio Spread", "put_ratio_spread")
+  .alias("Call Broken Wing", "broken_wing_butterfly")
+  .alias("Put Broken Wing", "broken_wing_butterfly")
+  .alias("Inverse Call Broken Wing", "inverse_call_broken_wing")
+  .alias("Inverse Put Broken Wing", "inverse_put_broken_wing")
+  .alias("Bull Call Ladder", "call_ladder")
+  .alias("Bear Call Ladder", "bear_call_ladder")
+  .alias("Bull Put Ladder", "bull_put_ladder")
+  .alias("Bear Put Ladder", "put_ladder")
+  .alias("Long Synthetic Future", "synthetic_long_stock")
+  .alias("Short Synthetic Future", "synthetic_short_stock")
+  .alias("Synthetic Put", "protective_call")
+  .alias("Strip", "strip")
+  .alias("Strap", "strap")
+  .alias("Reverse Jade Lizard", "reverse_jade_lizard");
 
 /** Every strategy name the user asked about (duplicates removed), in the order supplied. */
 export const REQUESTED_STRATEGY_NAMES: string[] = [
@@ -142,6 +182,12 @@ export const REQUESTED_STRATEGY_NAMES: string[] = [
   "Short Call", "Short Put", "Call Debit Spread", "Call Credit Spread", "Put Debit Spread", "Put Credit Spread",
   "LEAPS Call", "LEAPS Put", "Poor Man’s Covered Call", "Poor Man’s Covered Put", "Call Time Spread", "Put Time Spread",
   "Horizontal Spread", "Vertical Spread", "Diagonal Spread", "Long Guts", "Short Guts", "Long Combo", "Short Combo",
+  "Strip", "Strap", "Guts", "Bull Call Spread", "Bear Put Spread", "Bull Put Spread", "Bear Call Spread",
+  "Inverse Iron Butterfly", "Inverse Iron Condor", "Covered Short Straddle", "Covered Short Strangle",
+  "Call Ratio Backspread", "Put Ratio Backspread", "Call Broken Wing", "Put Broken Wing",
+  "Inverse Call Broken Wing", "Inverse Put Broken Wing", "Bull Call Ladder", "Bear Call Ladder", "Bull Put Ladder", "Bear Put Ladder",
+  "Reverse Jade Lizard", "Call Ratio Spread", "Put Ratio Spread",
+  "Long Synthetic Future", "Short Synthetic Future", "Synthetic Put",
 ];
 
 const NAME_NOTES: Record<string, string> = {
@@ -166,6 +212,22 @@ const NAME_NOTES: Record<string, string> = {
   syntheticlongput: "Equivalent to Protective Call (short stock plus long call).",
   syntheticshortcall: "Equivalent to Covered Put (short stock plus short put).",
   syntheticshortput: "Equivalent to Covered Call (long stock plus short call).",
+  straddle: "Alias of Long Straddle.",
+  strangle: "Alias of Long Strangle.",
+  guts: "Alias of Long Guts.",
+  syntheticput: "Alias of Protective Call (short stock plus long call).",
+  longsyntheticfuture: "Alias of Synthetic Long Stock.",
+  shortsyntheticfuture: "Alias of Synthetic Short Stock.",
+  callbrokenwing: "Alias of Broken-Wing Butterfly (Call form).",
+  putbrokenwing: "Alias of Broken-Wing Butterfly (Put form).",
+  inversecallbrokenwing: "Short / Inverse Call Broken Wing Butterfly with unequal wing widths.",
+  inverseputbrokenwing: "Short / Inverse Put Broken Wing Butterfly with unequal wing widths.",
+  bearcallladder: "Bear Call Ladder: Call ladder backspread profiting from explosive upside moves.",
+  bullputladder: "Bull Put Ladder: Put ladder backspread profiting from downside crashes.",
+  coveredshortstraddle: "Long 100 shares plus short straddle harvesting maximum dual premium.",
+  reversejadelizard: "Reverse Jade Lizard: Short OTM call plus bull put spread below.",
+  strip: "Strip: Buy 1 ATM call and 2 ATM puts.",
+  strap: "Strap: Buy 2 ATM calls and 1 ATM put.",
 };
 
 export function buildNameLedger(evaluations: StrategyEvaluation[]): NameLedgerEntry[] {

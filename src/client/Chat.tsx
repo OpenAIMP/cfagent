@@ -678,12 +678,395 @@ function ToolResultView({
   );
 }
 
+interface AgentChatTabContentProps {
+  user: User;
+  ads: AdItem[];
+  onAdClick: (ad: AdItem) => void;
+  onOpenAdsTab: () => void;
+  onStatusChange: (status: "ready" | "streaming" | "submitted" | "error") => void;
+  onResetSession: (purge?: boolean) => Promise<void>;
+  isResetting: boolean;
+  resetNotice: string | null;
+  authExpired: boolean;
+  pendingPrompt?: { prompt: string; sourceTab: string } | null;
+  onClearPendingPrompt?: () => void;
+}
+
+function AgentChatTabContent({
+  user,
+  ads,
+  onAdClick,
+  onOpenAdsTab,
+  onStatusChange,
+  onResetSession,
+  isResetting,
+  resetNotice,
+  authExpired,
+  pendingPrompt,
+  onClearPendingPrompt,
+}: AgentChatTabContentProps) {
+  const [input, setInput] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const agent = useAgent({ agent: "SearchAgent", name: user.login });
+  const { messages, sendMessage, status } = useAgentChat({ agent });
+
+  useEffect(() => {
+    onStatusChange(status);
+  }, [status, onStatusChange]);
+
+  useEffect(() => {
+    if (pendingPrompt && status !== "streaming" && status !== "submitted" && !isResetting) {
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: pendingPrompt.prompt }],
+        metadata: { sourceTab: pendingPrompt.sourceTab, userLogin: user.login },
+      });
+      onClearPendingPrompt?.();
+    }
+  }, [pendingPrompt, status, isResetting, sendMessage, user.login, onClearPendingPrompt]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, status]);
+
+  const isBusy = status === "streaming" || status === "submitted";
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isBusy || isResetting) return;
+
+    if (typeof (agent as any).reconnect === "function" && (agent as any).readyState !== 1) {
+      try {
+        (agent as any).reconnect();
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: input.trim() }],
+        metadata: { sourceTab: "Chat & Agents", userLogin: user.login },
+      });
+      setInput("");
+    } catch (err) {
+      console.error("Failed to send chat message:", err);
+    }
+  };
+
+  const handleChipClick = (prompt: string, sourceTab = "Chat & Agents") => {
+    if (isBusy || isResetting) return;
+    try {
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+        metadata: { sourceTab, userLogin: user.login },
+      });
+    } catch (err) {
+      console.error("Failed to send chip action:", err);
+    }
+  };
+
+  const handleClearWithConfirm = () => {
+    if (window.confirm("Are you sure you want to clear this conversation history?")) {
+      onResetSession(true);
+    }
+  };
+
+  return (
+    <div className="chat-view">
+      {/* Top Sponsor Spotlight Bar */}
+      {ads.length > 0 && (
+        <div
+          className="sponsor-spotlight-bar"
+          style={{ borderColor: `${ads[0].accentColor}55` }}
+        >
+          <div className="sponsor-tag-group">
+            <span
+              className="sponsor-pill"
+              style={{ background: `${ads[0].accentColor}25`, color: ads[0].accentColor }}
+            >
+              {ads[0].badge || "SPONSOR"}
+            </span>
+            <span className="sponsor-name">{ads[0].sponsor}</span>
+          </div>
+          <div className="sponsor-message">
+            <strong>{ads[0].title}</strong> — {ads[0].tagline}
+          </div>
+          <div className="sponsor-actions">
+            <button
+              type="button"
+              className="sponsor-cta-btn"
+              style={{ background: ads[0].accentColor }}
+              onClick={() => onAdClick(ads[0])}
+            >
+              {ads[0].ctaText}
+            </button>
+            <button
+              type="button"
+              className="sponsor-more-btn"
+              onClick={onOpenAdsTab}
+              title="View all partner offers"
+            >
+              All Deals ↗
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action Bar */}
+      <div className="chat-action-bar">
+        <span className="chat-subtitle">Stateful Durable Object SQLite Session</span>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            className="clear-btn"
+            onClick={handleClearWithConfirm}
+            disabled={isResetting}
+            title="Clear conversation and reset session"
+          >
+            {isResetting ? "⏳ Resetting…" : "🗑️ Clear chat"}
+          </button>
+        )}
+      </div>
+
+      {resetNotice && (
+        <div className="chat-notice-banner">
+          <span className="notice-icon">{authExpired ? "🔒" : "✅"}</span>
+          <span className="notice-text">{resetNotice}</span>
+          {authExpired && (
+            <a href="/login" className="notice-link-btn">
+              Log In Again ➔
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Messages Stream */}
+      <div className="messages-stream">
+        {messages.length === 0 ? (
+          <div className="hero-welcome">
+            <div className="hero-icon">⚡</div>
+            <h3>Enterprise Multi-Agent Studio</h3>
+            <p>
+              Your prompt is analyzed by an <strong>LLM Judge</strong> router and orchestrated across specialized sub-agents with Cloudflare Workers AI and transactional SQLite persistence.
+            </p>
+            <div className="quick-chips">
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Search the knowledge base: What features are available in Cloudflare Workers AI?")}
+              >
+                🔍 Search Knowledge Base
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Draft a payment refund of $120.00 USD for customer Acme Logistics")}
+              >
+                💳 Prepare Payment Draft
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday")}
+              >
+                📋 Draft High-Priority Task
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs")}
+              >
+                🧠 Store Session Fact
+              </button>
+              <button
+                type="button"
+                className="chip-btn highlight-chip"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca")}
+              >
+                🔬 Research NVDA (FOSS)
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Get live Alpaca quote and NBBO spread for BTC/USD")}
+              >
+                📊 Quote BTC/USD (Alpaca)
+              </button>
+            </div>
+          </div>
+        ) : (
+          messages.map((msg: any) => {
+            const isUser = msg.role === "user";
+            const text = extractText(msg);
+
+            // Extract reasoning stream parts
+            const reasoningParts = !isUser && Array.isArray(msg.parts)
+              ? msg.parts.filter((p: any) => p && p.type === "reasoning")
+              : [];
+            const reasoningText = reasoningParts
+              .map((p: any) => p.text || p.reasoning || "")
+              .filter(Boolean)
+              .join("\n\n");
+
+            // Extract legitimate tool parts (strictly excluding stream lifecycle events and reasoning)
+            const toolParts = !isUser && Array.isArray(msg.parts)
+              ? msg.parts.filter((p: any) => {
+                  if (!p || typeof p !== "object") return false;
+                  const t = p.type;
+                  if (t === "text" || t === "reasoning" || t === "step-start" || t === "step-end" || t === "finish") {
+                    return false;
+                  }
+                  return true;
+                })
+              : [];
+
+            // Ignore empty assistant messages from interrupted or failed streams
+            if (!isUser && !text && toolParts.length === 0 && !reasoningText) {
+              return null;
+            }
+
+            return (
+              <div key={msg.id || Math.random()} className={`message-row ${msg.role}`}>
+                <div className="message-avatar">
+                  {isUser ? (
+                    <img src={user.avatar} alt="User" />
+                  ) : (
+                    <span className="bot-avatar">🤖</span>
+                  )}
+                </div>
+                <div className="message-bubble">
+                  <div className="message-header">
+                    <span className="author-name">{isUser ? user.name : "Multi-Agent Orchestrator"}</span>
+                    {isUser ? (
+                      msg.metadata?.sourceTab && <span className="agent-tag">{msg.metadata.sourceTab}</span>
+                    ) : <span className="agent-tag">Workers AI</span>}
+                  </div>
+
+                  {reasoningText && <ReasoningView reasoning={reasoningText} />}
+
+                  {toolParts.length > 0 && (
+                    <div className="tool-results-list">
+                      {toolParts.map((part: any, pIdx: number) => {
+                        const toolName = part.toolInvocation?.toolName || part.toolName || part.name || part.type || "tool";
+                        const toolData = part.toolInvocation?.result ?? part.output ?? part.result ?? part.toolInvocation?.args ?? part.input ?? {};
+                        return (
+                          <ToolResultView
+                            key={pIdx}
+                            toolType={toolName}
+                            data={toolData}
+                            onAction={(actionPrompt) => handleChipClick(actionPrompt)}
+                            isBusy={isBusy}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {text && <MarkdownContent text={text} />}
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {status === "streaming" && (
+          <div className="message-row assistant">
+            <div className="message-avatar">
+              <span className="bot-avatar pulsing">🤖</span>
+            </div>
+            <div className="message-bubble streaming-bubble">
+              <div className="typing-indicator">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Error banner with working Retry and Reset & Clear History */}
+      {status === "error" && (
+        <div className="chat-error-banner">
+          <span className="error-banner-icon">⚠️</span>
+          <span className="error-banner-text">
+            Agent connection or stream error. Try sending a message or reset session:
+          </span>
+          <div className="error-banner-actions">
+            <button
+              type="button"
+              className="error-banner-btn secondary"
+              disabled={isResetting}
+              onClick={() => {
+                if (typeof (agent as any).reconnect === "function") {
+                  try {
+                    (agent as any).reconnect();
+                  } catch {
+                    // ignore
+                  }
+                }
+                onResetSession(false);
+              }}
+              title="Reconnect agent WebSocket without clearing history"
+            >
+              🔄 Reconnect
+            </button>
+            <button
+              type="button"
+              className="error-banner-btn"
+              disabled={isResetting}
+              onClick={() => onResetSession(true)}
+              title="Reset conversation state and clear history"
+            >
+              {isResetting ? "Resetting…" : "Reset & Clear History"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Input Bar */}
+      <form className="chat-input-bar" onSubmit={handleSendChat}>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={
+            isResetting
+              ? "Resetting session…"
+              : isBusy
+              ? "Agent is processing response…"
+              : "Ask a question, query knowledge base, draft a task, or save a memory…"
+          }
+          disabled={isBusy || isResetting}
+          autoFocus
+        />
+        <button
+          type="submit"
+          className="send-button"
+          disabled={!input.trim() || isBusy || isResetting}
+        >
+          {isBusy ? "Thinking…" : "Send ➔"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("trading");
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
-  const [input, setInput] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // External Ads & Monetization state
   const [externalAds, setExternalAds] = useState<ExternalAdItem[]>([]);
@@ -735,13 +1118,42 @@ export function Chat({ user }: { user: User }) {
   const [browsedData, setBrowsedData] = useState<{ tableName: string; total: number; rows: any[] } | null>(null);
   const [browsingLoading, setBrowsingLoading] = useState(false);
 
-  // Agent connection
-  const agent = useAgent({ agent: "SearchAgent", name: user.login });
-  const { messages, sendMessage, status, clearHistory } = useAgentChat({ agent });
+  // Agent connection state & session management
+  const [chatNonce, setChatNonce] = useState(0);
+  const [chatStatus, setChatStatus] = useState<"ready" | "streaming" | "submitted" | "error">("ready");
+  const [isResettingChat, setIsResettingChat] = useState(false);
+  const [chatResetNotice, setChatResetNotice] = useState<string | null>(null);
+  const [authExpired, setAuthExpired] = useState(false);
+  const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; sourceTab: string } | null>(null);
 
-  const isBusy = status === "streaming" || status === "submitted";
-  const statusLabel = isBusy ? "Thinking…" : status === "error" ? "Error" : "Ready";
-  const statusDotClass = isBusy ? "streaming" : status === "error" ? "error" : "ready";
+  const isBusy = chatStatus === "streaming" || chatStatus === "submitted";
+  const statusLabel = isBusy ? "Thinking…" : chatStatus === "error" ? "Error" : "Ready";
+  const statusDotClass = isBusy ? "streaming" : chatStatus === "error" ? "error" : "ready";
+
+  const handleResetChatSession = async (purge = true) => {
+    if (isResettingChat) return;
+    setIsResettingChat(true);
+    setChatResetNotice(null);
+    setAuthExpired(false);
+    try {
+      const resp = await fetch(`/api/clear?purge=${purge ? "true" : "false"}`, { method: "POST" });
+      if (resp.status === 401) {
+        setAuthExpired(true);
+        setChatResetNotice("Session expired. Please log in again.");
+        return;
+      }
+      setChatResetNotice(purge ? "Chat session and conversation history successfully reset." : "Agent connection re-established.");
+      setTimeout(() => setChatResetNotice(null), 4000);
+    } catch (err) {
+      console.warn("Failed to contact /api/clear:", err);
+      setChatResetNotice("Chat session reset locally.");
+      setTimeout(() => setChatResetNotice(null), 3000);
+    } finally {
+      setIsResettingChat(false);
+      setChatStatus("ready");
+      setChatNonce((n) => n + 1);
+    }
+  };
 
   // NLQ state
   const [nlqInput, setNlqInput] = useState("");
@@ -824,12 +1236,6 @@ export function Chat({ user }: { user: User }) {
     setTimeout(() => setCopiedShareRefId(null), 2500);
   };
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    if (tab === "chat") {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, status, tab]);
 
   // Initial load of partner ads, categories, external ads, and revenue
   useEffect(() => {
@@ -1316,39 +1722,6 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isBusy) return;
-    sendMessage({
-      role: "user",
-      parts: [{ type: "text", text: input.trim() }],
-      metadata: { sourceTab: "Chat & Agents", userLogin: user.login },
-    });
-    setInput("");
-  };
-
-  const handleChipClick = (prompt: string, sourceTab = "Chat & Agents") => {
-    if (isBusy) return;
-    sendMessage({
-      role: "user",
-      parts: [{ type: "text", text: prompt }],
-      metadata: { sourceTab, userLogin: user.login },
-    });
-  };
-
-  const handleClearChat = async (skipConfirm?: boolean | React.MouseEvent) => {
-    const shouldSkip = skipConfirm === true;
-    if (!shouldSkip && !confirm("Are you sure you want to clear this conversation history?")) return;
-    try {
-      await fetch("/api/clear", { method: "POST" });
-      if (typeof clearHistory === "function") {
-        clearHistory();
-      }
-    } catch {
-      // Ignore
-    }
-  };
-
   const handleDeleteMemory = async (key: string) => {
     try {
       await fetch(`/api/memory?key=${encodeURIComponent(key)}`, { method: "DELETE" });
@@ -1514,235 +1887,23 @@ export function Chat({ user }: { user: User }) {
       {/* Main Tab Content */}
       <main className="tab-viewport">
         {tab === "chat" && (
-          <div className="chat-view">
-            {/* Top Sponsor Spotlight Bar */}
-            {ads.length > 0 && (
-              <div
-                className="sponsor-spotlight-bar"
-                style={{ borderColor: `${ads[0].accentColor}55` }}
-              >
-                <div className="sponsor-tag-group">
-                  <span
-                    className="sponsor-pill"
-                    style={{ background: `${ads[0].accentColor}25`, color: ads[0].accentColor }}
-                  >
-                    {ads[0].badge || "SPONSOR"}
-                  </span>
-                  <span className="sponsor-name">{ads[0].sponsor}</span>
-                </div>
-                <div className="sponsor-message">
-                  <strong>{ads[0].title}</strong> — {ads[0].tagline}
-                </div>
-                <div className="sponsor-actions">
-                  <button
-                    type="button"
-                    className="sponsor-cta-btn"
-                    style={{ background: ads[0].accentColor }}
-                    onClick={() => handleAdClick(ads[0])}
-                  >
-                    {ads[0].ctaText}
-                  </button>
-                  <button
-                    type="button"
-                    className="sponsor-more-btn"
-                    onClick={() => setTab("ads")}
-                    title="View all partner offers"
-                  >
-                    All Deals ↗
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="chat-action-bar">
-              <span className="chat-subtitle">Stateful Durable Object SQLite Session</span>
-              {messages.length > 0 && (
-                <button className="clear-btn" onClick={handleClearChat} title="Clear conversation">
-                  🗑️ Clear chat
-                </button>
-              )}
-            </div>
-
-            <div className="messages-stream">
-              {messages.length === 0 ? (
-                <div className="hero-welcome">
-                  <div className="hero-icon">⚡</div>
-                  <h3>Enterprise Multi-Agent Studio</h3>
-                  <p>
-                    Your prompt is analyzed by an <strong>LLM Judge</strong> router and orchestrated across specialized sub-agents with Cloudflare Workers AI and transactional SQLite persistence.
-                  </p>
-                  <div className="quick-chips">
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Search the knowledge base: What features are available in Cloudflare Workers AI?")}
-                    >
-                      🔍 Search Knowledge Base
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Draft a payment refund of $120.00 USD for customer Acme Logistics")}
-                    >
-                      💳 Prepare Payment Draft
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday")}
-                    >
-                      📋 Draft High-Priority Task
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs")}
-                    >
-                      🧠 Store Session Fact
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-btn highlight-chip"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca")}
-                    >
-                      🔬 Research NVDA (FOSS)
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      disabled={isBusy}
-                      onClick={() => handleChipClick("Get live Alpaca quote and NBBO spread for BTC/USD")}
-                    >
-                      📊 Quote BTC/USD (Alpaca)
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                messages.map((msg: any) => {
-                  const isUser = msg.role === "user";
-                  const text = extractText(msg);
-
-                  // Extract reasoning stream parts
-                  const reasoningParts = !isUser && Array.isArray(msg.parts)
-                    ? msg.parts.filter((p: any) => p && p.type === "reasoning")
-                    : [];
-                  const reasoningText = reasoningParts
-                    .map((p: any) => p.text || p.reasoning || "")
-                    .filter(Boolean)
-                    .join("\n\n");
-
-                  // Extract legitimate tool parts (strictly excluding stream lifecycle events and reasoning)
-                  const toolParts = !isUser && Array.isArray(msg.parts)
-                    ? msg.parts.filter((p: any) => {
-                        if (!p || typeof p !== "object") return false;
-                        const t = p.type;
-                        if (t === "text" || t === "reasoning" || t === "step-start" || t === "step-end" || t === "finish") {
-                          return false;
-                        }
-                        return true;
-                      })
-                    : [];
-
-                  // Ignore empty assistant messages from interrupted or failed streams
-                  if (!isUser && !text && toolParts.length === 0 && !reasoningText) {
-                    return null;
-                  }
-
-                  return (
-                    <div key={msg.id || Math.random()} className={`message-row ${msg.role}`}>
-                      <div className="message-avatar">
-                        {isUser ? (
-                          <img src={user.avatar} alt="User" />
-                        ) : (
-                          <span className="bot-avatar">🤖</span>
-                        )}
-                      </div>
-                      <div className="message-bubble">
-                        <div className="message-header">
-                          <span className="author-name">{isUser ? user.name : "Multi-Agent Orchestrator"}</span>
-                          {isUser ? (
-                            msg.metadata?.sourceTab && <span className="agent-tag">{msg.metadata.sourceTab}</span>
-                          ) : <span className="agent-tag">Workers AI</span>}
-                        </div>
-
-                        {reasoningText && <ReasoningView reasoning={reasoningText} />}
-
-                        {toolParts.length > 0 && (
-                          <div className="tool-results-list">
-                            {toolParts.map((part: any, pIdx: number) => {
-                              const toolName = part.toolInvocation?.toolName || part.toolName || part.name || part.type || "tool";
-                              const toolData = part.toolInvocation?.result ?? part.output ?? part.result ?? part.toolInvocation?.args ?? part.input ?? {};
-                              return (
-                                <ToolResultView
-                                  key={pIdx}
-                                  toolType={toolName}
-                                  data={toolData}
-                                  onAction={(actionPrompt) => handleChipClick(actionPrompt)}
-                                  isBusy={isBusy}
-                                />
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {text && <MarkdownContent text={text} />}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-
-              {status === "streaming" && (
-                <div className="message-row assistant">
-                  <div className="message-avatar">
-                    <span className="bot-avatar pulsing">🤖</span>
-                  </div>
-                  <div className="message-bubble streaming-bubble">
-                    <div className="typing-indicator">
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="dot" />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {status === "error" && (
-              <div className="chat-error-banner">
-                <span className="error-banner-icon">⚠️</span>
-                <span className="error-banner-text">Agent connection or stream error. Try sending a message or reset session:</span>
-                <button type="button" className="error-banner-btn" onClick={() => handleClearChat(true)}>
-                  Reset & Clear History
-                </button>
-              </div>
-            )}
-
-            {/* Chat Input Bar */}
-            <form className="chat-input-bar" onSubmit={handleSendChat}>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={isBusy ? "Agent is processing response…" : "Ask a question, query knowledge base, draft a task, or save a memory…"}
-                disabled={isBusy}
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="send-button"
-                disabled={!input.trim() || isBusy}
-              >
-                {isBusy ? "Thinking…" : "Send ➔"}
-              </button>
-            </form>
-          </div>
+          <AgentChatTabContent
+            key={chatNonce}
+            user={user}
+            ads={ads}
+            onAdClick={handleAdClick}
+            onOpenAdsTab={() => {
+              setTab("ads");
+              setTbdMenuOpen(false);
+            }}
+            onStatusChange={setChatStatus}
+            onResetSession={handleResetChatSession}
+            isResetting={isResettingChat}
+            resetNotice={chatResetNotice}
+            authExpired={authExpired}
+            pendingPrompt={pendingPrompt}
+            onClearPendingPrompt={() => setPendingPrompt(null)}
+          />
         )}
 
         {tab === "nlq" && (
@@ -1797,7 +1958,7 @@ export function Chat({ user }: { user: User }) {
             <form className="chat-input-bar nlq-bar" onSubmit={(event) => {
               event.preventDefault();
               if (nlqInput.trim()) {
-                handleChipClick(nlqInput.trim(), "Database Explorer");
+                setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Database Explorer" });
                 setNlqInput("");
                 setTab("chat");
               }
@@ -3640,8 +3801,8 @@ export function Chat({ user }: { user: User }) {
           <ETradeTradingHub
             user={user}
             onSendPrompt={(prompt, sourceTab) => {
+              setPendingPrompt({ prompt, sourceTab: sourceTab || "E*TRADE Brokerage" });
               setTab("chat");
-              handleChipClick(prompt, sourceTab || "E*TRADE Brokerage");
             }}
           />
         </div>
@@ -3651,8 +3812,8 @@ export function Chat({ user }: { user: User }) {
             <FossResearchHub
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
                 setTab("chat");
-                handleChipClick(prompt, sourceTab || "Yahoo Finance Research");
               }}
               onTradeSymbol={(symbol) => {
                 setTab("trading");

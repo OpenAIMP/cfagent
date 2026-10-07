@@ -378,18 +378,41 @@ export function StrategyDiscoveryPanel({
     };
   }, [activeSymbol]);
 
+  // Implied move calculated using options market formula: spot * IV * sqrt(dte / 365)
+  const computeImpliedMove = (spotPrice: number, ivPercent: number, dteDays: number) => {
+    const ivDec = Math.max(0.05, ivPercent / 100);
+    const tYears = Math.max(0.5, dteDays) / 365;
+    return spotPrice * ivDec * Math.sqrt(tYears);
+  };
+
+  // Target price calculation for sentiment presets based on ±1x or ±2x implied move
+  const getTargetPriceForSentiment = (
+    nextSentiment: SentimentType,
+    spotPrice: number,
+    ivPercent: number,
+    dteDays: number
+  ) => {
+    const move = computeImpliedMove(spotPrice, ivPercent, dteDays);
+    if (nextSentiment === "very_bullish") return Number((spotPrice + 2 * move).toFixed(2));
+    if (nextSentiment === "bullish") return Number((spotPrice + move).toFixed(2));
+    if (nextSentiment === "neutral") return Number(spotPrice.toFixed(2));
+    if (nextSentiment === "directional") return Number((spotPrice + move).toFixed(2));
+    if (nextSentiment === "bearish") return Number(Math.max(0.01, spotPrice - move).toFixed(2));
+    if (nextSentiment === "very_bearish") return Number(Math.max(0.01, spotPrice - 2 * move).toFixed(2));
+    return Number(spotPrice.toFixed(2));
+  };
+
   // Adjust target price default when sentiment or quote price changes
   const handleSentimentChange = (nextSentiment: SentimentType) => {
     setSentiment(nextSentiment);
-    const p = quote.price;
-    let factor = 1.15;
-    if (nextSentiment === "very_bullish") factor = 1.43;
-    else if (nextSentiment === "bullish") factor = 1.15;
-    else if (nextSentiment === "neutral") factor = 1.0;
-    else if (nextSentiment === "directional") factor = 1.15;
-    else if (nextSentiment === "bearish") factor = 0.85;
-    else if (nextSentiment === "very_bearish") factor = 0.65;
-    setTargetPrice(Number((p * factor).toFixed(2)));
+    const target = getTargetPriceForSentiment(nextSentiment, quote.price, builderIv, selectedExpiration.dte);
+    setTargetPrice(target);
+  };
+
+  const handleSelectExpiration = (exp: ExpirationOption) => {
+    setSelectedExpiration(exp);
+    const target = getTargetPriceForSentiment(sentiment, quote.price, builderIv, exp.dte);
+    setTargetPrice(target);
   };
 
   const handleSelectSymbol = (sym: string) => {
@@ -407,7 +430,7 @@ export function StrategyDiscoveryPanel({
         delayed: true,
       };
       setQuote(fallback);
-      setTargetPrice(Number((fallback.price * 1.25).toFixed(2)));
+      setTargetPrice(getTargetPriceForSentiment(sentiment, fallback.price, builderIv, selectedExpiration.dte));
     }
   };
 
@@ -1092,9 +1115,9 @@ export function StrategyDiscoveryPanel({
             type="button"
             className="strat-action-chip highlight"
             onClick={() => setShowStrategyModal(true)}
-            title="Browse 50+ pre-made options strategies"
+            title={`Browse ${STRATEGY_LIBRARY.length} pre-made options strategies`}
           >
-            📚 Strategies (52)
+            📚 Strategies ({STRATEGY_LIBRARY.length})
           </button>
           <button
             type="button"
@@ -1204,7 +1227,7 @@ export function StrategyDiscoveryPanel({
 
             {/* Target Price & Budget Bar */}
             <div className="strat-target-bar">
-              <div className="strat-input-pill">
+              <div className="strat-input-pill" title="Tap or edit to customize target price. Defaults to ±1x or ±2x implied move based on sentiment.">
                 <label>Target Price: $</label>
                 <input
                   type="number"
@@ -1215,6 +1238,11 @@ export function StrategyDiscoveryPanel({
                 <span className={`strat-pct-tag ${targetPctChange >= 0 ? "gain" : "loss"}`}>
                   ({targetPctChange >= 0 ? `+${targetPctChange}%` : `${targetPctChange}%`})
                 </span>
+              </div>
+
+              <div className="strat-implied-move-info" title="Market Implied Move calculated from options market IV and days to expiration">
+                <span className="strat-implied-icon">📐</span>
+                <span>Implied Move: <strong>±${computeImpliedMove(quote.price, builderIv, selectedExpiration.dte).toFixed(2)}</strong> (±{(((computeImpliedMove(quote.price, builderIv, selectedExpiration.dte) / (quote.price || 1)) * 100).toFixed(1))}%)</span>
               </div>
 
               <div className="strat-input-pill">
@@ -1238,7 +1266,7 @@ export function StrategyDiscoveryPanel({
                   key={exp.date}
                   type="button"
                   className={`strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
-                  onClick={() => setSelectedExpiration(exp)}
+                  onClick={() => handleSelectExpiration(exp)}
                 >
                   <span className="strat-chip-month">{exp.monthGroup}</span>
                   <span className="strat-chip-day">{exp.dayLabel}</span>
@@ -1399,7 +1427,7 @@ export function StrategyDiscoveryPanel({
                   type="button"
                   className="strat-change-strat-btn"
                   onClick={() => setShowStrategyModal(true)}
-                  title="Change Strategy (50+ available)"
+                  title={`Change Strategy (${STRATEGY_LIBRARY.length} available)`}
                 >
                   Change ▾
                 </button>
@@ -2239,7 +2267,7 @@ export function StrategyDiscoveryPanel({
           <div className="strat-strategy-picker-modal" onClick={(e) => e.stopPropagation()}>
             <div className="strat-modal-header">
               <div className="strat-modal-header-titles">
-                <h3>Options Strategy Library (50+ Strategies)</h3>
+                <h3>Options Strategy Library ({STRATEGY_LIBRARY.length} Strategies)</h3>
                 <span>Choose a pre-made strategy to evaluate profit/loss characteristics</span>
               </div>
               <button

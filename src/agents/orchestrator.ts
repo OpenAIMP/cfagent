@@ -1074,8 +1074,9 @@ Agentic Best Practices & Workflow Rules:
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat-activity)(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
-    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint) {
+    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
       return this.enqueueHttpRequest(request, url);
     }
 
@@ -1599,12 +1600,14 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Clear active conversation transcript for LLM, preserving historical SQLite analytics
-    if (path.endsWith("/clear") && request.method === "POST") {
+    // Clear active conversation transcript and reset session state
+    if ((path.endsWith("/clear") || path.endsWith("/reset")) && (request.method === "POST" || request.method === "DELETE" || request.method === "GET")) {
       try {
-        await this.persistMessages([]);
+        this.abortAllRequests("Session reset requested by user");
         this.resetTurnState();
-        const purge = url.searchParams.get("purge") === "true";
+        this.messages = [];
+        await this.persistMessages([]);
+        const purge = url.searchParams.get("purge") !== "false";
         if (purge) {
           sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
           this.audit("history.purged", "orchestrator", {});
@@ -1613,7 +1616,7 @@ Agentic Best Practices & Workflow Rules:
         }
         return Response.json({
           success: true,
-          message: purge ? "All historical transcripts purged from SQLite" : "Active chat cleared; historical analytics vault preserved in SQLite",
+          message: purge ? "All chat transcripts and session state purged from SQLite" : "Active chat cleared; historical analytics vault preserved in SQLite",
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to clear history" }, { status: 500 });

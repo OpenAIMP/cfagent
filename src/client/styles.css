@@ -1328,10 +1328,69 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
+  white-space: nowrap;
 }
 
 .error-banner-btn:hover {
   background: #b91c1c;
+}
+
+.error-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.error-banner-btn.secondary {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #f1f5f9;
+}
+
+.error-banner-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.error-banner-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chat-notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1.25rem;
+  background: rgba(16, 185, 129, 0.15);
+  border-top: 1px solid rgba(16, 185, 129, 0.3);
+  color: #a7f3d0;
+  font-size: 0.82rem;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.notice-icon {
+  font-size: 1rem;
+}
+
+.notice-text {
+  flex: 1;
+}
+
+.notice-link-btn {
+  background: #059669;
+  color: #ffffff;
+  text-decoration: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+
+.notice-link-btn:hover {
+  background: #047857;
 }
 
 /* ==========================================================================
