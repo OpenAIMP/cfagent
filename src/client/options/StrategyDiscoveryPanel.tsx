@@ -303,8 +303,27 @@ export function StrategyDiscoveryPanel({
   const [strategySearchQuery, setStrategySearchQuery] = useState<string>("");
   const [hoveredStrategyDef, setHoveredStrategyDef] = useState<StrategyDefinition | null>(null);
 
-  // Capability 4: Two-Page Stats Switcher ("overview" | "greeks")
-  const [statsPage, setStatsPage] = useState<"overview" | "greeks">("overview");
+  // Capability 4: Dual Stats Switcher & Side-by-Side View (Default: both active simultaneously)
+  const [showKeyStats, setShowKeyStats] = useState<boolean>(true);
+  const [showNetGreeks, setShowNetGreeks] = useState<boolean>(true);
+
+  const toggleKeyStats = () => {
+    if (showKeyStats && !showNetGreeks) {
+      setShowKeyStats(false);
+      setShowNetGreeks(true);
+    } else {
+      setShowKeyStats(!showKeyStats);
+    }
+  };
+
+  const toggleNetGreeks = () => {
+    if (showNetGreeks && !showKeyStats) {
+      setShowNetGreeks(false);
+      setShowKeyStats(true);
+    } else {
+      setShowNetGreeks(!showNetGreeks);
+    }
+  };
 
   // Capability 8: Legs Inspector & Actions
   const [editingLegCostId, setEditingLegCostId] = useState<string | null>(null);
@@ -2006,142 +2025,164 @@ export function StrategyDiscoveryPanel({
             </div>
           </div>
 
-          {/* Capability 4: Two-Page Stats Switcher ("overview" | "greeks") */}
+          {/* Capability 4: Simultaneous Side-by-Side Stats & Greeks Display */}
           <div className="strat-stats-card-container">
             <div className="strat-stats-header-tabs">
               <button
                 type="button"
-                className={`strat-stats-tab ${statsPage === "overview" ? "active" : ""}`}
-                onClick={() => setStatsPage("overview")}
+                className={`strat-stats-tab ${showKeyStats ? "active" : ""}`}
+                onClick={toggleKeyStats}
+                title={showKeyStats ? "Key Stats & P&L active (click to toggle)" : "Click to enable Key Stats & P&L"}
               >
                 📊 Key Stats & P&L
               </button>
               <button
                 type="button"
-                className={`strat-stats-tab ${statsPage === "greeks" ? "active" : ""}`}
-                onClick={() => setStatsPage("greeks")}
+                className={`strat-stats-tab ${showNetGreeks ? "active" : ""}`}
+                onClick={toggleNetGreeks}
+                title={showNetGreeks ? "Net Option Greeks active (click to toggle)" : "Click to enable Net Option Greeks"}
               >
                 📐 Net Option Greeks (Δ Γ Θ ν ρ)
               </button>
+              {(!showKeyStats || !showNetGreeks) && (
+                <button
+                  type="button"
+                  className="strat-stats-tab reset-both"
+                  onClick={() => {
+                    setShowKeyStats(true);
+                    setShowNetGreeks(true);
+                  }}
+                  title="Enable both side-by-side"
+                >
+                  ⚡ Show Both Side-by-Side
+                </button>
+              )}
             </div>
 
-            {statsPage === "overview" ? (
-              <div className="strat-metrics-strip">
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">
-                    🪙 {selectedStrategy && selectedStrategy.netDebit >= 0 ? "NET DEBIT:" : "NET CREDIT:"}
-                  </span>
-                  <span className="strat-metric-val">
-                    ${Math.abs(selectedStrategy?.netDebit ?? 0).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">📊 EST. MARGIN:</span>
-                  <span className="strat-metric-val">
-                    ${(selectedStrategy?.estMargin ?? 0).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">↘ MAX LOSS:</span>
-                  <span className="strat-metric-val loss">
-                    {selectedStrategy?.maxLoss === null ? "Infinite" : `$${selectedStrategy?.maxLoss?.toLocaleString()}`}
-                  </span>
-                </div>
-
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">↗ MAX PROFIT:</span>
-                  <span className="strat-metric-val gain">
-                    {selectedStrategy?.maxProfit === null ? "Unlimited" : `$${selectedStrategy?.maxProfit?.toLocaleString()}`}
-                  </span>
-                </div>
-
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">🎲 CHANCE OF PROFIT:</span>
-                  <span className="strat-metric-val highlight">
-                    {selectedStrategy?.chanceOfProfit ?? 50}% 🔒
-                  </span>
-                </div>
-
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">→ BREAKEVEN:</span>
-                  <span className="strat-metric-val breakeven">
-                    {selectedStrategy?.breakevenText || `Below $${spot.toFixed(2)}`}
-                  </span>
-                </div>
-
-                {/* Realized & Unrealized P&L Display */}
-                {(pnlBreakdown.hasClosedPositions || pnlBreakdown.hasCustomCostBasis) && (
-                  <>
+            <div className={`strat-stats-side-by-side-row ${showKeyStats && showNetGreeks ? "dual" : "single"}`}>
+              {showKeyStats && (
+                <div className={`strat-stats-panel-col key-stats ${!showNetGreeks ? "full" : ""}`}>
+                  <div className={`strat-metrics-strip ${showKeyStats && showNetGreeks ? "side-by-side" : ""}`}>
                     <div className="strat-metric-cell">
-                      <span className="strat-metric-label">💰 REALIZED P&L:</span>
-                      <span className={`strat-metric-val ${pnlBreakdown.realizedPnl >= 0 ? "gain" : "loss"}`}>
-                        {pnlBreakdown.realizedPnl >= 0 ? "+" : ""}${pnlBreakdown.realizedPnl.toFixed(2)}
+                      <span className="strat-metric-label">
+                        🪙 {selectedStrategy && selectedStrategy.netDebit >= 0 ? "NET DEBIT:" : "NET CREDIT:"}
+                      </span>
+                      <span className="strat-metric-val">
+                        ${Math.abs(selectedStrategy?.netDebit ?? 0).toLocaleString()}
                       </span>
                     </div>
+
                     <div className="strat-metric-cell">
-                      <span className="strat-metric-label">📈 UNREALIZED P&L:</span>
-                      <span className={`strat-metric-val ${pnlBreakdown.unrealizedPnl >= 0 ? "gain" : "loss"}`}>
-                        {pnlBreakdown.unrealizedPnl >= 0 ? "+" : ""}${pnlBreakdown.unrealizedPnl.toFixed(2)}
+                      <span className="strat-metric-label">📊 EST. MARGIN:</span>
+                      <span className="strat-metric-val">
+                        ${(selectedStrategy?.estMargin ?? 0).toLocaleString()}
                       </span>
                     </div>
-                  </>
-                )}
 
-                {flowTradeBanner && !pnlBreakdown.hasClosedPositions && !pnlBreakdown.hasCustomCostBasis && (
-                  <div className="strat-metric-cell">
-                    <span className="strat-metric-label">💰 UNREALIZED LOSS:</span>
-                    <span className="strat-metric-val loss">
-                      {flowTradeBanner.returnText.split(" return")[0]}
-                    </span>
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">↘ MAX LOSS:</span>
+                      <span className="strat-metric-val loss">
+                        {selectedStrategy?.maxLoss === null ? "Infinite" : `$${selectedStrategy?.maxLoss?.toLocaleString()}`}
+                      </span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">↗ MAX PROFIT:</span>
+                      <span className="strat-metric-val gain">
+                        {selectedStrategy?.maxProfit === null ? "Unlimited" : `$${selectedStrategy?.maxProfit?.toLocaleString()}`}
+                      </span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">🎲 CHANCE OF PROFIT:</span>
+                      <span className="strat-metric-val highlight">
+                        {selectedStrategy?.chanceOfProfit ?? 50}% 🔒
+                      </span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">→ BREAKEVEN:</span>
+                      <span className="strat-metric-val breakeven">
+                        {selectedStrategy?.breakevenText || `Below $${spot.toFixed(2)}`}
+                      </span>
+                    </div>
+
+                    {/* Realized & Unrealized P&L Display */}
+                    {(pnlBreakdown.hasClosedPositions || pnlBreakdown.hasCustomCostBasis) && (
+                      <>
+                        <div className="strat-metric-cell">
+                          <span className="strat-metric-label">💰 REALIZED P&L:</span>
+                          <span className={`strat-metric-val ${pnlBreakdown.realizedPnl >= 0 ? "gain" : "loss"}`}>
+                            {pnlBreakdown.realizedPnl >= 0 ? "+" : ""}${pnlBreakdown.realizedPnl.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="strat-metric-cell">
+                          <span className="strat-metric-label">📈 UNREALIZED P&L:</span>
+                          <span className={`strat-metric-val ${pnlBreakdown.unrealizedPnl >= 0 ? "gain" : "loss"}`}>
+                            {pnlBreakdown.unrealizedPnl >= 0 ? "+" : ""}${pnlBreakdown.unrealizedPnl.toFixed(2)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+
+                    {flowTradeBanner && !pnlBreakdown.hasClosedPositions && !pnlBreakdown.hasCustomCostBasis && (
+                      <div className="strat-metric-cell">
+                        <span className="strat-metric-label">💰 UNREALIZED LOSS:</span>
+                        <span className="strat-metric-val loss">
+                          {flowTradeBanner.returnText.split(" return")[0]}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ) : (
-              /* Page 2: Net Greeks */
-              <div className="strat-metrics-strip greeks">
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">Δ NET DELTA:</span>
-                  <span className={`strat-metric-val ${netGreeks.netDelta >= 0 ? "gain" : "loss"}`}>
-                    {netGreeks.netDelta >= 0 ? "+" : ""}{netGreeks.netDelta}
-                  </span>
-                  <span className="strat-greek-sub">Shares equiv</span>
                 </div>
+              )}
 
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">Γ NET GAMMA:</span>
-                  <span className="strat-metric-val">
-                    {netGreeks.netGamma}
-                  </span>
-                  <span className="strat-greek-sub">Δ change / $1</span>
-                </div>
+              {showNetGreeks && (
+                <div className={`strat-stats-panel-col net-greeks ${!showKeyStats ? "full" : ""}`}>
+                  <div className={`strat-metrics-strip greeks ${showKeyStats && showNetGreeks ? "side-by-side" : ""}`}>
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">Δ NET DELTA:</span>
+                      <span className={`strat-metric-val ${netGreeks.netDelta >= 0 ? "gain" : "loss"}`}>
+                        {netGreeks.netDelta >= 0 ? "+" : ""}{netGreeks.netDelta}
+                      </span>
+                      <span className="strat-greek-sub">Shares equiv</span>
+                    </div>
 
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">Θ NET THETA:</span>
-                  <span className={`strat-metric-val ${netGreeks.netTheta >= 0 ? "gain" : "loss"}`}>
-                    {netGreeks.netTheta >= 0 ? "+" : ""}${netGreeks.netTheta}/day
-                  </span>
-                  <span className="strat-greek-sub">Time decay / day</span>
-                </div>
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">Γ NET GAMMA:</span>
+                      <span className="strat-metric-val">
+                        {netGreeks.netGamma}
+                      </span>
+                      <span className="strat-greek-sub">Δ change / $1</span>
+                    </div>
 
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">ν NET VEGA:</span>
-                  <span className={`strat-metric-val ${netGreeks.netVega >= 0 ? "gain" : "loss"}`}>
-                    ${netGreeks.netVega}/1%
-                  </span>
-                  <span className="strat-greek-sub">PnL / 1% IV</span>
-                </div>
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">Θ NET THETA:</span>
+                      <span className={`strat-metric-val ${netGreeks.netTheta >= 0 ? "gain" : "loss"}`}>
+                        {netGreeks.netTheta >= 0 ? "+" : ""}${netGreeks.netTheta}/day
+                      </span>
+                      <span className="strat-greek-sub">Time decay / day</span>
+                    </div>
 
-                <div className="strat-metric-cell">
-                  <span className="strat-metric-label">ρ NET RHO:</span>
-                  <span className="strat-metric-val">
-                    ${netGreeks.netRho}/1%
-                  </span>
-                  <span className="strat-greek-sub">Rate sensitivity</span>
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">ν NET VEGA:</span>
+                      <span className={`strat-metric-val ${netGreeks.netVega >= 0 ? "gain" : "loss"}`}>
+                        ${netGreeks.netVega}/1%
+                      </span>
+                      <span className="strat-greek-sub">PnL / 1% IV</span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">ρ NET RHO:</span>
+                      <span className="strat-metric-val">
+                        ${netGreeks.netRho}/1%
+                      </span>
+                      <span className="strat-greek-sub">Rate sensitivity</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Capability 6: Payoff Chart OR Capability 5: 2D Heatmap Matrix Table */}

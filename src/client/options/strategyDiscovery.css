@@ -2762,45 +2762,180 @@
   max-width: 280px;
 }
 
-/* Capability 4: Two-Page Stats Switcher */
+/* Capability 4: Simultaneous Side-by-Side Stats & Greeks Display */
 .strat-stats-card-container {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin-top: 0.25rem;
 }
 
 .strat-stats-header-tabs {
   display: flex;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .strat-stats-tab {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: #94a3b8;
   font-size: 0.76rem;
   font-weight: 600;
   padding: 0.25rem 0.65rem;
   border-radius: 4px;
   cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.strat-stats-tab:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #e2e8f0;
 }
 
 .strat-stats-tab.active {
   background: rgba(56, 189, 248, 0.15);
   border-color: #38bdf8;
   color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.strat-stats-tab.reset-both {
+  border: 1px dashed rgba(56, 189, 248, 0.45);
+  color: #38bdf8;
+  font-size: 0.72rem;
+  padding: 0.22rem 0.55rem;
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.strat-stats-tab.reset-both:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+}
+
+.strat-stats-side-by-side-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.strat-stats-side-by-side-row.single {
+  display: block;
+}
+
+.strat-stats-panel-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.strat-stats-side-by-side-row.dual .strat-stats-panel-col.key-stats {
+  flex: 1.15 1 54%;
+}
+
+.strat-stats-side-by-side-row.dual .strat-stats-panel-col.net-greeks {
+  flex: 1 1 46%;
+}
+
+.strat-stats-panel-col.full {
+  flex: 1 1 100%;
+  width: 100%;
+}
+
+/* Full-width base Greeks strip when displayed alone */
+.strat-metrics-strip.greeks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  background: #091024;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
 }
 
 .strat-metrics-strip.greeks .strat-metric-cell {
   background: rgba(15, 23, 42, 0.85);
-  border-color: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 4px;
+  padding: 0.4rem 0.55rem;
+}
+
+/* Side-by-side layout styles */
+.strat-metrics-strip.side-by-side {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem 0.85rem;
+  gap: 0.55rem 0.65rem;
+}
+
+.strat-metrics-strip.side-by-side:not(.greeks) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.strat-metrics-strip.side-by-side.greeks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.75rem 0.65rem;
+}
+
+.strat-metrics-strip.side-by-side .strat-metric-cell {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 0.4rem 0.55rem;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.strat-metrics-strip.side-by-side.greeks .strat-metric-cell {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  height: 100%;
+}
+
+.strat-metrics-strip.side-by-side .strat-metric-label {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strat-metrics-strip.side-by-side .strat-metric-val {
+  font-size: clamp(0.85rem, 1vw, 1.05rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .strat-greek-sub {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: #64748b;
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  .strat-stats-side-by-side-row {
+    flex-direction: column;
+  }
+
+  .strat-metrics-strip.side-by-side:not(.greeks) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .strat-metrics-strip.side-by-side.greeks {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* Capability 5: 2D Matrix Table */
