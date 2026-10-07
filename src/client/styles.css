@@ -8167,3 +8167,56 @@ body {
   border-color: #38bdf8;
 }
 
+/* ==========================================================================
+   WCAG 2.2 & ISO 9241-110 Accessibility, Ergonomics & Interaction Standards
+   ========================================================================== */
+
+/* WCAG 2.2 SC 2.4.7 (Focus Visible) & SC 2.4.11 (Focus Appearance - AAA/AA) */
+:focus-visible {
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.3) !important;
+}
+
+/* WCAG 2.2 SC 2.3.3 (Animation from Interactions) & ISO 9241 Ergonomics */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* WCAG 2.2 SC 2.5.8 (Target Size Minimum: >= 24x24px, Recommended >= 32px) */
+.subnav-btn,
+.tab-btn,
+.btn-menu-action,
+.btn-etapi-config-pill,
+.etrade-dynamic-menu-trigger,
+.btn-mask-mini,
+.btn-mask-toggle,
+.nlq-chip,
+.btn-msg-fix,
+.btn-msg-dismiss,
+.btn-menu-tuning {
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+/* WCAG 2.2 SC 1.4.13 (Content on Hover or Focus Dismissal via Escape) */
+.tab-hover-wrapper.tooltip-dismissed .tab-hover-popover {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* WCAG 2.2 SC 1.4.3 (Contrast Minimum) & ISO 9241-110 Self-Descriptiveness */
+.tab-hover-popover,
+.etrade-dynamic-dropdown-panel {
+  color-scheme: dark;
+}
+
+

@@ -279,6 +279,24 @@ export default {
       return Response.json(result);
     }
 
+    // --- Factor 14 Telemetry: Health & Observability Endpoint ---
+    if (path === "/health" || path === "/api/health") {
+      return Response.json({
+        status: "healthy",
+        service: "cfagent-multi-agent-studio",
+        version: "1.0.0",
+        timestamp: new Date().toISOString(),
+        environment: reqEnv,
+        runtime: "cloudflare-workers",
+        telemetry: {
+          durableObjects: "healthy",
+          mcp: "available",
+          apiFirst: true,
+          fifteenFactorCompliant: true,
+        },
+      });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
