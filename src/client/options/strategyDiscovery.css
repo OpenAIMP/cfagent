@@ -140,24 +140,34 @@
 
 /* SENTIMENT SELECTOR (6 CIRCULAR BUTTONS ALIGNED HORIZONTALLY) */
 .strat-sentiment-group,
-.strat-sentiment-grid {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 1.75rem;
-  flex-wrap: nowrap;
-  margin: 0.5rem 0;
-  width: 100%;
+.strat-sentiment-grid,
+.strat-sentiment-selector {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 1.5rem !important;
+  flex-wrap: nowrap !important;
+  margin: 0.75rem 0 1rem 0 !important;
+  width: 100% !important;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 6px;
+  box-sizing: border-box;
 }
 
-.strat-sentiment-btn-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
-  cursor: pointer;
-  flex-shrink: 0;
+.strat-sentiment-btn-wrap,
+.strat-sentiment-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  background: transparent;
+  border: none;
+  padding: 0;
+  user-select: none;
 }
 
 .strat-sentiment-circle {
@@ -179,20 +189,25 @@
   height: 22px;
 }
 
-.strat-sentiment-btn-wrap:hover .strat-sentiment-circle {
+.strat-sentiment-btn-wrap:hover .strat-sentiment-circle,
+.strat-sentiment-card:hover .strat-sentiment-circle {
   transform: translateY(-2px);
   border-color: rgba(255, 255, 255, 0.35);
 }
 
 /* Bearish circles */
 .strat-sentiment-btn-wrap.very_bearish .strat-sentiment-circle,
-.strat-sentiment-btn-wrap.bearish .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.bearish .strat-sentiment-circle,
+.strat-sentiment-card.very_bearish .strat-sentiment-circle,
+.strat-sentiment-card.bearish .strat-sentiment-circle {
   border-color: rgba(239, 68, 68, 0.4);
   color: #f87171;
 }
 
 .strat-sentiment-btn-wrap.very_bearish.active .strat-sentiment-circle,
-.strat-sentiment-btn-wrap.bearish.active .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.bearish.active .strat-sentiment-circle,
+.strat-sentiment-card.very_bearish.active .strat-sentiment-circle,
+.strat-sentiment-card.bearish.active .strat-sentiment-circle {
   border-color: #ef4444;
   background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%);
   color: #ffffff;
@@ -200,12 +215,14 @@
 }
 
 /* Neutral circle */
-.strat-sentiment-btn-wrap.neutral .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.neutral .strat-sentiment-circle,
+.strat-sentiment-card.neutral .strat-sentiment-circle {
   border-color: rgba(148, 163, 184, 0.4);
   color: #cbd5e1;
 }
 
-.strat-sentiment-btn-wrap.neutral.active .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.neutral.active .strat-sentiment-circle,
+.strat-sentiment-card.neutral.active .strat-sentiment-circle {
   border-color: #94a3b8;
   background: linear-gradient(135deg, #475569 0%, #1e293b 100%);
   color: #ffffff;
@@ -213,12 +230,14 @@
 }
 
 /* Directional circle (Pink / Purple) */
-.strat-sentiment-btn-wrap.directional .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.directional .strat-sentiment-circle,
+.strat-sentiment-card.directional .strat-sentiment-circle {
   border-color: rgba(236, 72, 153, 0.4);
   color: #f472b6;
 }
 
-.strat-sentiment-btn-wrap.directional.active .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.directional.active .strat-sentiment-circle,
+.strat-sentiment-card.directional.active .strat-sentiment-circle {
   border-color: #ec4899;
   background: linear-gradient(135deg, #ec4899 0%, #be185d 100%);
   color: #ffffff;
@@ -227,13 +246,17 @@
 
 /* Bullish circles */
 .strat-sentiment-btn-wrap.bullish .strat-sentiment-circle,
-.strat-sentiment-btn-wrap.very_bullish .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.very_bullish .strat-sentiment-circle,
+.strat-sentiment-card.bullish .strat-sentiment-circle,
+.strat-sentiment-card.very_bullish .strat-sentiment-circle {
   border-color: rgba(34, 197, 94, 0.4);
   color: #4ade80;
 }
 
 .strat-sentiment-btn-wrap.bullish.active .strat-sentiment-circle,
-.strat-sentiment-btn-wrap.very_bullish.active .strat-sentiment-circle {
+.strat-sentiment-btn-wrap.very_bullish.active .strat-sentiment-circle,
+.strat-sentiment-card.bullish.active .strat-sentiment-circle,
+.strat-sentiment-card.very_bullish.active .strat-sentiment-circle {
   border-color: #22c55e;
   background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
   color: #ffffff;
@@ -244,9 +267,11 @@
   font-size: 0.72rem;
   color: #94a3b8;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.strat-sentiment-btn-wrap.active .strat-sentiment-label {
+.strat-sentiment-btn-wrap.active .strat-sentiment-label,
+.strat-sentiment-card.active .strat-sentiment-label {
   color: #f8fafc;
   font-weight: 700;
 }

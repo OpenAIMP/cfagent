@@ -36,6 +36,76 @@ import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { OptionsTradeContext } from "./OptionsResearchPanel";
 import "./strategyDiscovery.css";
 
+const SENTIMENT_ITEMS: Array<{
+  id: SentimentType;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: "very_bearish",
+    label: "Very Bearish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 5l-7 7-7-7" />
+        <path d="M19 12l-7 7-7-7" />
+      </svg>
+    ),
+  },
+  {
+    id: "bearish",
+    label: "Bearish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="7" y1="7" x2="17" y2="17" />
+        <polyline points="17 7 17 17 7 17" />
+      </svg>
+    ),
+  },
+  {
+    id: "neutral",
+    label: "Neutral",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12" />
+        <polyline points="12 5 19 12 12 19" />
+      </svg>
+    ),
+  },
+  {
+    id: "directional",
+    label: "High Volatility",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="16 3 21 3 21 8" />
+        <line x1="4" y1="20" x2="21" y2="3" />
+        <polyline points="21 16 21 21 16 21" />
+        <line x1="15" y1="15" x2="21" y2="21" />
+        <line x1="4" y1="4" x2="9" y2="9" />
+      </svg>
+    ),
+  },
+  {
+    id: "bullish",
+    label: "Bullish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="7" y1="17" x2="17" y2="7" />
+        <polyline points="7 7 17 7 17 17" />
+      </svg>
+    ),
+  },
+  {
+    id: "very_bullish",
+    label: "Very Bullish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 19l7-7 7 7" />
+        <path d="M5 12l7-7 7 7" />
+      </svg>
+    ),
+  },
+];
+
 interface StrategyDiscoveryPanelProps {
   initialSymbol?: string;
   activeEnv?: "TEST" | "PROD";
@@ -1110,26 +1180,26 @@ export function StrategyDiscoveryPanel({
               </div>
             )}
 
-            {/* Sentiment Selector Pills */}
-            <div className="strat-sentiment-selector">
-              {(
-                [
-                  { id: "very_bearish", label: "Very Bearish" },
-                  { id: "bearish", label: "Bearish" },
-                  { id: "neutral", label: "Neutral" },
-                  { id: "directional", label: "High Volatility" },
-                  { id: "bullish", label: "Bullish" },
-                  { id: "very_bullish", label: "Very Bullish" },
-                ] as const
-              ).map((item) => (
-                <div
-                  key={item.id}
-                  className={`strat-sentiment-card ${sentiment === item.id ? "active" : ""}`}
-                  onClick={() => handleSentimentChange(item.id)}
-                >
-                  <span className="strat-sentiment-label">{item.label}</span>
-                </div>
-              ))}
+            {/* Sentiment Selector Group (6 Circular Buttons Aligned Horizontally with Icons) */}
+            <div className="strat-sentiment-group strat-sentiment-selector" role="radiogroup" aria-label="Market sentiment">
+              {SENTIMENT_ITEMS.map((item) => {
+                const isActive = sentiment === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
+                    onClick={() => handleSentimentChange(item.id)}
+                    role="radio"
+                    aria-checked={isActive}
+                    title={item.label}
+                  >
+                    <div className="strat-sentiment-circle">
+                      {item.icon}
+                    </div>
+                    <span className="strat-sentiment-label">{item.label}</span>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Target Price & Budget Bar */}
