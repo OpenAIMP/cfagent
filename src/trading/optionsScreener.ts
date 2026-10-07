@@ -23,28 +23,30 @@ import type {
 } from "../types";
 import type { ETradeRestClient } from "./etrade/client";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
+import { getScreenerConfig, type EtapiScreenerConfig } from "../config/etapiConfig";
 
+const baseScreenerConfig = getScreenerConfig();
 /** Maximum underlyings (explicit or discovered) any single screen may query. */
-export const MAX_SCAN_SYMBOLS = 20;
+export const MAX_SCAN_SYMBOLS = baseScreenerConfig.maxScanSymbols;
 /** Maximum expirations fetched per symbol per screen (nearest first). */
-export const MAX_EXPIRATIONS_PER_SYMBOL = 20;
+export const MAX_EXPIRATIONS_PER_SYMBOL = baseScreenerConfig.maxExpirationsPerSymbol;
 /** Default DTE window applied when the caller supplies neither minDte nor maxDte. */
-export const DEFAULT_MAX_DTE = 90;
+export const DEFAULT_MAX_DTE = baseScreenerConfig.defaultMaxDte;
 /** Quote-age reference (seconds) used for FRESH/STALE labels when no filter is supplied. */
-export const DEFAULT_QUOTE_AGE_SECONDS = 60;
+export const DEFAULT_QUOTE_AGE_SECONDS = baseScreenerConfig.defaultQuoteAgeSeconds;
 /** Hard cap on returned contracts; `limit` is clamped to this value. */
-export const MAX_RETURNED_CONTRACTS = 500;
+export const MAX_RETURNED_CONTRACTS = baseScreenerConfig.maxReturnedContracts;
 /** Rejection samples embedded in each result; the full count is reported via `rejectionCount`. */
-export const MAX_REJECTIONS_RETURNED = 50;
+export const MAX_REJECTIONS_RETURNED = baseScreenerConfig.maxRejectionsReturned;
 /** Concurrent upstream symbol fetches per screen. */
-const SYMBOL_FETCH_CONCURRENCY = 4;
+const SYMBOL_FETCH_CONCURRENCY = baseScreenerConfig.symbolFetchConcurrency;
 /** Concurrent upstream expiration fetches per symbol. */
-const EXPIRY_FETCH_CONCURRENCY = 3;
+const EXPIRY_FETCH_CONCURRENCY = baseScreenerConfig.expiryFetchConcurrency;
 /** Unusual-activity signal threshold (volume / open interest). */
-const UNUSUAL_VOLUME_OI_RATIO = 1.5;
-const HIGH_DELTA_THRESHOLD = 0.65;
-const HIGH_IV_THRESHOLD = 0.7;
-const LOW_IV_THRESHOLD = 0.3;
+const UNUSUAL_VOLUME_OI_RATIO = baseScreenerConfig.unusualVolumeOiRatio;
+const HIGH_DELTA_THRESHOLD = baseScreenerConfig.highDeltaThreshold;
+const HIGH_IV_THRESHOLD = baseScreenerConfig.highIvThreshold;
+const LOW_IV_THRESHOLD = baseScreenerConfig.lowIvThreshold;
 
 /**
  * Builds a standard OCC OSI contract symbol (e.g. AAPL 2026-01-16 C 150 -> AAPL260116C00150000)
@@ -121,7 +123,7 @@ const BOUNDED_PAIRS: Array<[NumericFilterKey, NumericFilterKey]> = [
  * result sizes, and applies the default DTE window. Never throws; every adjustment is
  * reported in `warnings`.
  */
-export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}): SanitizedOptionScreenFilter {
+export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}, config: EtapiScreenerConfig = getScreenerConfig()): SanitizedOptionScreenFilter {
   const warnings: string[] = [];
   const filter: OptionScreenerFilter = { ...raw };
   if (raw.underlyingSymbols) filter.underlyingSymbols = [...raw.underlyingSymbols];
@@ -176,40 +178,40 @@ export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}): Sa
 
   if (filter.underlyingSymbols) {
     const normalized = Array.from(new Set(filter.underlyingSymbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
-    if (normalized.length > MAX_SCAN_SYMBOLS) {
-      warnings.push(`Underlying list trimmed from ${normalized.length} to ${MAX_SCAN_SYMBOLS} symbols.`);
-      normalized.length = MAX_SCAN_SYMBOLS;
+    if (normalized.length > config.maxScanSymbols) {
+      warnings.push(`Underlying list trimmed from ${normalized.length} to ${config.maxScanSymbols} symbols.`);
+      normalized.length = config.maxScanSymbols;
     }
     if (normalized.length === 0) delete filter.underlyingSymbols;
     else filter.underlyingSymbols = normalized;
   }
   if (filter.maxUnderlyings !== undefined) {
     const floored = Math.max(1, Math.floor(filter.maxUnderlyings));
-    if (floored > MAX_SCAN_SYMBOLS) {
-      warnings.push(`maxUnderlyings capped at ${MAX_SCAN_SYMBOLS}.`);
-      filter.maxUnderlyings = MAX_SCAN_SYMBOLS;
+    if (floored > config.maxScanSymbols) {
+      warnings.push(`maxUnderlyings capped at ${config.maxScanSymbols}.`);
+      filter.maxUnderlyings = config.maxScanSymbols;
     } else {
       filter.maxUnderlyings = floored;
     }
   }
   if (filter.limit !== undefined) {
     const floored = Math.max(1, Math.floor(filter.limit));
-    if (floored > MAX_RETURNED_CONTRACTS) {
-      warnings.push(`limit capped at ${MAX_RETURNED_CONTRACTS} contracts.`);
-      filter.limit = MAX_RETURNED_CONTRACTS;
+    if (floored > config.maxReturnedContracts) {
+      warnings.push(`limit capped at ${config.maxReturnedContracts} contracts.`);
+      filter.limit = config.maxReturnedContracts;
     } else {
       filter.limit = floored;
     }
   } else {
-    filter.limit = MAX_RETURNED_CONTRACTS;
+    filter.limit = config.maxReturnedContracts;
   }
 
   // Scanning every listed expiration fans out into dozens of upstream calls per symbol,
   // so an unbounded DTE window is never fetched implicitly.
   if (filter.minDte === undefined && filter.maxDte === undefined) {
-    filter.minDte = 0;
-    filter.maxDte = DEFAULT_MAX_DTE;
-    warnings.push(`No DTE window supplied; defaulting to 0-${DEFAULT_MAX_DTE} days to expiration.`);
+    filter.minDte = config.defaultMinDte;
+    filter.maxDte = config.defaultMaxDte;
+    warnings.push(`No DTE window supplied; defaulting to ${config.defaultMinDte}-${config.defaultMaxDte} days to expiration.`);
   }
 
   return { filter, warnings };
@@ -217,11 +219,14 @@ export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}): Sa
 
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
+  public config: EtapiScreenerConfig;
   private static testChainsFixture: Record<string, ETradeOptionChain> = {};
   private static testListingsFixture: NasdaqStockListing[] | null = null;
 
-  constructor(client?: ETradeRestClient) {
+  constructor(client?: ETradeRestClient, config?: Partial<EtapiScreenerConfig>) {
     this.client = client;
+    const base = getScreenerConfig((client as any)?.env, (client as any)?.overrideEnv);
+    this.config = config ? { ...base, ...config } : base;
   }
 
   /**
@@ -251,7 +256,7 @@ export class DynamicOptionsScreener {
 
     const listings = DynamicOptionsScreener.testListingsFixture ?? await fetchAllUsStockListings();
     const discovered = Array.from(new Set(listings.map((listing) => listing.symbol.toUpperCase()))).sort();
-    const cap = filter.maxUnderlyings && filter.maxUnderlyings > 0 ? filter.maxUnderlyings : MAX_SCAN_SYMBOLS;
+    const cap = filter.maxUnderlyings && filter.maxUnderlyings > 0 ? filter.maxUnderlyings : this.config.maxScanSymbols;
     return discovered.slice(0, cap);
   }
 
@@ -261,8 +266,8 @@ export class DynamicOptionsScreener {
    * Returns per-symbol diagnostics alongside the chains so callers can distinguish a
    * legitimate empty slice (expirations exist, none in the window) from upstream
    * failures (auth/network/rate-limit/empty payload). Identical expirations are
-   * deduped and at most MAX_EXPIRATIONS_PER_SYMBOL requests are issued, pooled at
-   * EXPIRY_FETCH_CONCURRENCY.
+   * deduped and at most maxExpirationsPerSymbol requests are issued, pooled at
+   * expiryFetchConcurrency.
    */
   private async fetchChainsForSymbol(
     symbol: string,
@@ -315,9 +320,9 @@ export class DynamicOptionsScreener {
       };
     }
 
-    const requested = eligibleExpirations.slice(0, MAX_EXPIRATIONS_PER_SYMBOL);
+    const requested = eligibleExpirations.slice(0, this.config.maxExpirationsPerSymbol);
     const expirationsTruncated = eligibleExpirations.length - requested.length;
-    const chains = await mapLimit(requested, EXPIRY_FETCH_CONCURRENCY, (expiry) =>
+    const chains = await mapLimit(requested, this.config.expiryFetchConcurrency, (expiry) =>
       client.getOptionChains({
         symbol,
         expiryYear: expiry.year,
@@ -363,7 +368,7 @@ export class DynamicOptionsScreener {
    * Applies the same sanitization and validation as `screenOptions`.
    */
   screenOptionsSync(rawFilter: OptionScreenerFilter = {}): OptionScreenResult {
-    const { filter, warnings } = sanitizeOptionScreenerFilter(rawFilter);
+    const { filter, warnings } = sanitizeOptionScreenerFilter(rawFilter, this.config);
     if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) {
       return {
         ...this.evaluateChains([], filter, 0, { warnings }),
@@ -399,7 +404,7 @@ export class DynamicOptionsScreener {
    * via `fetchErrors` with `status: "error"` when nothing could be fetched.
    */
   async screenOptions(rawFilter: OptionScreenerFilter = {}): Promise<OptionScreenResult> {
-    const { filter, warnings } = sanitizeOptionScreenerFilter(rawFilter);
+    const { filter, warnings } = sanitizeOptionScreenerFilter(rawFilter, this.config);
 
     if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) {
       return {
@@ -417,7 +422,7 @@ export class DynamicOptionsScreener {
     }
 
     const symbols = await this.resolveUnderlyings(filter);
-    const outcomes = await mapLimit(symbols, SYMBOL_FETCH_CONCURRENCY, (symbol) =>
+    const outcomes = await mapLimit(symbols, this.config.symbolFetchConcurrency, (symbol) =>
       this.fetchChainsForSymbol(symbol, filter),
     );
     const chains = outcomes.flatMap((outcome, index) =>
@@ -427,7 +432,7 @@ export class DynamicOptionsScreener {
     const expirationsTruncated = outcomes.reduce((total, outcome) => total + outcome.expirationsTruncated, 0);
     if (expirationsTruncated > 0) {
       warnings.push(
-        `Fetch window capped at ${MAX_EXPIRATIONS_PER_SYMBOL} expirations per symbol; ${expirationsTruncated} later expiration(s) were skipped. Tighten the DTE window to include them.`,
+        `Fetch window capped at ${this.config.maxExpirationsPerSymbol} expirations per symbol; ${expirationsTruncated} later expiration(s) were skipped. Tighten the DTE window to include them.`,
       );
     }
 
@@ -522,10 +527,10 @@ export class DynamicOptionsScreener {
         for (const c of candidates) {
           totalContractsEvaluated++;
 
-          const outcome = evaluateContract(c, context, filter);
+          const outcome = evaluateContract(c, context, filter, this.config);
           if (outcome.rejection) {
             rejectionCounter.total++;
-            if (rejections.length < MAX_REJECTIONS_RETURNED) rejections.push(outcome.rejection);
+            if (rejections.length < this.config.maxRejectionsReturned) rejections.push(outcome.rejection);
           } else if (outcome.item) {
             passedContracts.push(outcome.item);
           }
@@ -536,7 +541,7 @@ export class DynamicOptionsScreener {
     sortScreenedContracts(passedContracts, filter.sortBy);
 
     const totalMatches = passedContracts.length;
-    const effectiveLimit = filter.limit && filter.limit > 0 ? filter.limit : MAX_RETURNED_CONTRACTS;
+    const effectiveLimit = filter.limit && filter.limit > 0 ? filter.limit : this.config.maxReturnedContracts;
     const finalContracts = passedContracts.slice(0, effectiveLimit);
     const warnings = [...(diagnostics.warnings ?? [])];
     if (totalMatches > finalContracts.length) {
@@ -562,13 +567,13 @@ export class DynamicOptionsScreener {
       scannedAt: new Date().toISOString(),
       quoteQuality: {
         maxAgeSeconds: filter.maxQuoteAgeSeconds,
-        referenceAgeSeconds: filter.maxQuoteAgeSeconds ?? DEFAULT_QUOTE_AGE_SECONDS,
+        referenceAgeSeconds: filter.maxQuoteAgeSeconds ?? this.config.defaultQuoteAgeSeconds,
         staleContractsReturned: staleReturned.length,
         unknownFreshnessContracts: unknownFreshness.length,
         ...(staleQuoteAges.length > 0 ? { freshestStaleQuoteAgeSeconds: Math.min(...staleQuoteAges) } : {}),
       },
       status: finalContracts.length > 0 ? "matches_found" : "no_matches",
-      rejections: rejections.slice(0, MAX_REJECTIONS_RETURNED),
+      rejections: rejections.slice(0, this.config.maxRejectionsReturned),
       ...(fetchErrors.length > 0 ? { fetchErrors } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
@@ -609,6 +614,7 @@ function evaluateContract(
   c: ETradeOptionChainContract,
   context: ContractScreenContext,
   filter: OptionScreenerFilter,
+  config: EtapiScreenerConfig = getScreenerConfig(),
 ): ContractOutcome {
   const { symbol, expiry, expirationDate, daysToExpiration, underlyingPrice } = context;
   const contractSym = c.osiKey
@@ -712,15 +718,16 @@ function evaluateContract(
     return { rejection: contractRejection("OPEN_INTEREST_TOO_LOW", contractSym, symbol, `Open Interest (${oi?.toLocaleString() ?? "N/A"}) below minimum ${filter.minOpenInterest.toLocaleString()}`) };
   }
 
-  // Moneyness with a fixed +/-2% ATM band around the underlying price.
+  // Moneyness with configurable ATM band around the underlying price.
   const strikeDistPct = Number((Math.abs(strike - underlyingPrice) / underlyingPrice * 100).toFixed(2));
+  const atmBand = config.atmBandPct;
   let moneyness: "ITM" | "OTM" | "ATM" = "ATM";
   if (c.optionType === "CALL") {
-    if (strike < underlyingPrice * 0.98) moneyness = "ITM";
-    else if (strike > underlyingPrice * 1.02) moneyness = "OTM";
+    if (strike < underlyingPrice * (1 - atmBand)) moneyness = "ITM";
+    else if (strike > underlyingPrice * (1 + atmBand)) moneyness = "OTM";
   } else {
-    if (strike > underlyingPrice * 1.02) moneyness = "ITM";
-    else if (strike < underlyingPrice * 0.98) moneyness = "OTM";
+    if (strike > underlyingPrice * (1 + atmBand)) moneyness = "ITM";
+    else if (strike < underlyingPrice * (1 - atmBand)) moneyness = "OTM";
   }
   if (filter.moneyness && filter.moneyness !== "ALL" && moneyness !== filter.moneyness) {
     return { rejection: contractRejection("MONEYNESS_MISMATCH", contractSym, symbol, `Moneyness (${moneyness}) does not match filter (${filter.moneyness})`, { strikePrice: strike }) };
@@ -748,22 +755,27 @@ function evaluateContract(
       ? { quoteTimestamp: new Date(quoteTimestampMs).toISOString() }
       : {}),
     volumeOiRatio: volOiRatio,
-    technicalSignal: computeTechnicalSignal(volOiRatio, delta, iv),
+    technicalSignal: computeTechnicalSignal(volOiRatio, delta, iv, config),
     highlightReason: `${symbol} $${strike} ${c.optionType} | ${daysToExpiration}d DTE | IV: ${iv === undefined ? "N/A" : `${(iv * 100).toFixed(0)}%`}`,
   };
   return { item };
 }
 
 /** Direction-agnostic technical signal derived from liquidity and volatility heuristics. */
-function computeTechnicalSignal(volOiRatio: number | undefined, absDelta: number | undefined, iv: number | undefined): string {
-  if (volOiRatio !== undefined && volOiRatio >= UNUSUAL_VOLUME_OI_RATIO) {
+function computeTechnicalSignal(
+  volOiRatio: number | undefined,
+  absDelta: number | undefined,
+  iv: number | undefined,
+  config: EtapiScreenerConfig = getScreenerConfig()
+): string {
+  if (volOiRatio !== undefined && volOiRatio >= config.unusualVolumeOiRatio) {
     return `Unusual Volume Spike (Vol/OI: ${volOiRatio}x)`;
   }
-  if (absDelta !== undefined && absDelta >= HIGH_DELTA_THRESHOLD) {
-    return `High Delta Momentum (|delta| >= ${HIGH_DELTA_THRESHOLD})`;
+  if (absDelta !== undefined && absDelta >= config.highDeltaThreshold) {
+    return `High Delta Momentum (|delta| >= ${config.highDeltaThreshold})`;
   }
-  if (iv !== undefined && iv >= HIGH_IV_THRESHOLD) return "High Implied Volatility Expansion";
-  if (iv !== undefined && iv <= LOW_IV_THRESHOLD) return "Low IV Value Opportunity";
+  if (iv !== undefined && iv >= config.highIvThreshold) return "High Implied Volatility Expansion";
+  if (iv !== undefined && iv <= config.lowIvThreshold) return "Low IV Value Opportunity";
   return "Liquid Standard Option";
 }
 

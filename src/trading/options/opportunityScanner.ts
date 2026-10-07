@@ -8,10 +8,12 @@ import { OptionsDataAgent } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RiskProfile } from "./recommendationAgent";
 import type { StrategyRequest } from "./strategyEngine";
-import { MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
+import { MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
+import { getOpportunityScannerConfig } from "../../config/etapiConfig";
 
-export { MAX_SCAN_SYMBOLS };
-const CONCURRENCY = 3;
+const baseOppConfig = getOpportunityScannerConfig();
+export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
+const CONCURRENCY = baseOppConfig.concurrency;
 
 export type ScanRequestTemplate = Omit<StrategyRequest, "symbol" | "targetPrice"> & { targetPrice?: number };
 
@@ -31,7 +33,7 @@ export interface OpportunityScanResult {
   truncatedSymbols: number;
 }
 
-const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = { bullish: 1.05, bearish: 0.95, large_move: 1.1, range_bound: 1 };
+const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);

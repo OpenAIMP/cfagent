@@ -13,7 +13,14 @@ import { FossResearchService } from "../services/fossResearch";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
-import { OptionsAgentPipeline, validateStrategyRequest, type StrategyScreenFilter, type RiskProfile } from "../trading/options";
+import {
+  OptionsAgentPipeline,
+  UnifiedOptionsService,
+  validateStrategyRequest,
+  type StrategyScreenFilter,
+  type RiskProfile,
+  type UnifiedOptionsRequest,
+} from "../trading/options";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import {
   buildRawOptionsIdeasRankingPrompt,
@@ -3316,6 +3323,51 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options screening failed" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Unified Options Intelligence Endpoint
+    if (path.endsWith("/trading/options/unified") && (request.method === "POST" || request.method === "GET")) {
+      try {
+        let reqData: any = {};
+        if (request.method === "POST") {
+          reqData = (await request.json().catch(() => ({}))) as any;
+        } else {
+          reqData = {
+            action: url.searchParams.get("action") || "screen",
+            symbol: url.searchParams.get("symbol") || undefined,
+            symbols: url.searchParams.get("symbols") ? url.searchParams.get("symbols")!.split(",").map((s) => s.trim()) : undefined,
+            thesis: url.searchParams.get("thesis") || undefined,
+            targetPrice: url.searchParams.get("targetPrice") ? Number(url.searchParams.get("targetPrice")) : undefined,
+            riskProfile: url.searchParams.get("riskProfile") || undefined,
+            channel: url.searchParams.get("channel") || "ui",
+            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+          };
+        }
+
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm());
+        const result = await service.execute(reqData);
+
+        const channel = reqData.channel || "ui";
+        if (channel === "slack") {
+          return Response.json(result.toSlack());
+        }
+        if (channel === "email") {
+          return Response.json({ html: result.toEmailHtml(), text: result.toEmailText(), summary: result.summary });
+        }
+        if (channel === "voice") {
+          return Response.json(result.toVoice());
+        }
+        if (channel === "webhook") {
+          return Response.json(result.toWebhook());
+        }
+        if (channel === "mcp") {
+          return Response.json(result.toMcp());
+        }
+        return Response.json(result.toUi());
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
       }
     }
 

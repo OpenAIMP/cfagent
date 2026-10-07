@@ -438,6 +438,17 @@ export default {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
+    // --- Omnichannel Options Intelligence: Unified Options API Forwarder ---
+    if ((path === "/api/trading/options/unified" || path === "/trading/options/unified") && (request.method === "POST" || request.method === "GET")) {
+      const session = await requireAuth(request, env);
+      const userLogin = session?.githubLogin || request.headers.get("x-user-login") || "default_trader";
+      const id = env.SEARCH_AGENT.idFromName(userLogin);
+      const targetUrl = new URL("/trading/options/unified" + url.search, "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
     // --- Cloudflare Agents Task Scheduling Management APIs ---
     if (path.startsWith("/api/schedules") || path === "/api/schedules") {
       const session = await requireAuth(request, env);

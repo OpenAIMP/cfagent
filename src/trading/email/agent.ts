@@ -18,6 +18,16 @@ import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import PostalMime from "postal-mime";
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character] || character);
+}
+
 export class ETradeEmailTradingService {
   constructor(
     private env: Env,
@@ -466,6 +476,53 @@ export class ETradeEmailTradingService {
         return {
           success: true,
           actionType: "portfolio",
+          from: to,
+          to: from,
+          responseSubject: respSub,
+          responseText: respText,
+          responseHtml: respHtml,
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
+
+      // Case E: Options Research & Strategy Screener
+      if (domain === "trading" && ["options_screen", "options_strategies", "options_best_trade", "options_opportunities"].includes(action)) {
+        const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
+        const topResults = rows.slice(0, 5);
+        const htmlCards = topResults.map((row, index) => {
+          const label = String(row.label || row.strategy || row.contractSymbol || row.symbol || `Option ${index + 1}`);
+          const score = row.score ?? row.compositeScore;
+          const details = Object.entries(row)
+            .filter(([k]) => !["label", "strategy", "contractSymbol", "symbol", "score", "compositeScore"].includes(k))
+            .slice(0, 4)
+            .map(([k, v]) => `<strong>${k}:</strong> ${String(v)}`)
+            .join(" &nbsp;|&nbsp; ");
+          return `
+            <div style="background: #1e293b; border-radius: 8px; padding: 14px; margin-bottom: 12px; border: 1px solid #334155;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <h4 style="color: #38bdf8; margin: 0 0 6px 0;">${escapeHtml(label)}</h4>
+                ${score !== undefined ? `<span style="color: #22c55e; font-weight: bold;">Score: ${score}</span>` : ""}
+              </div>
+              ${details ? `<p style="color: #94a3b8; font-size: 13px; margin: 0;">${details}</p>` : ""}
+            </div>
+          `;
+        }).join("");
+
+        const respSub = `📊 E*TRADE Options Research: ${nlqRes.summary || "Strategy Screener"}`;
+        const respText = `${nlqRes.summary || "Options research completed."}\n\n${topResults.map((r, i) => `${i + 1}. ${r.label || r.strategy || r.symbol || "Option"}`).join("\n")}\n\nResearch only — no orders were placed.`;
+        const respHtml = this.renderEmailContainer(
+          "Options Research Results",
+          `
+          <p style="color: #cbd5e1; font-size: 15px; margin-top: 0;">${escapeHtml(nlqRes.summary || "Options strategy evaluation completed.")}</p>
+          ${htmlCards || '<p style="color: #94a3b8;">No matching option candidates found.</p>'}
+          <p style="color: #64748b; font-size: 12px; margin-top: 16px;">🛡️ Multi-Agent Options Engine • E*TRADE Dynamic API Feed • Research Only</p>
+          `
+        );
+
+        return {
+          success: true,
+          actionType: "screener",
           from: to,
           to: from,
           responseSubject: respSub,

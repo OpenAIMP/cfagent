@@ -13,6 +13,8 @@ import type { StrategyRecommendationResult, StrategyRequest } from "./strategyEn
 export * from "./optionsDataAgent";
 export * from "./strategyRiskAgent";
 export * from "./recommendationAgent";
+export * from "./strategyEngine";
+export * from "./unifiedOptionsService";
 
 export interface PipelineOptions {
   strategyFilter?: StrategyScreenFilter;

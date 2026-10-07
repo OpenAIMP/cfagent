@@ -121,19 +121,15 @@ export interface StrategyRecommendationResult {
   nameLedger: NameLedgerEntry[];
 }
 
-const DEFAULT_RATE = 0.04;
-const DEFAULT_FEE_PER_CONTRACT = 0.65;
-const DEFAULT_MAX_COMBINATIONS = 150;
-const DETAIL_LIMIT = 50;
-const MAX_LEGS = 6;
-const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = {
-  thesisAlignment: 0.30,
-  targetRewardRisk: 0.20,
-  liquidity: 0.20,
-  volatilityAlignment: 0.10,
-  thetaBurden: 0.05,
-  freshness: 0.15,
-};
+import { getStrategyEngineConfig, type EtapiStrategyEngineConfig } from "../../config/etapiConfig";
+
+const baseEngineConfig = getStrategyEngineConfig();
+const DEFAULT_RATE = baseEngineConfig.riskFreeRate;
+const DEFAULT_FEE_PER_CONTRACT = baseEngineConfig.feePerContract;
+const DEFAULT_MAX_COMBINATIONS = baseEngineConfig.maxCombinations;
+const DETAIL_LIMIT = baseEngineConfig.detailLimit;
+const MAX_LEGS = baseEngineConfig.maxLegs;
+const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = baseEngineConfig.scoreWeights;
 
 export const ALL_STRATEGY_TYPES: OptionStrategyType[] = defaultRegistry.ids();
 

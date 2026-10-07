@@ -1,6 +1,72 @@
 {
   "environment": "PROD",
   "_comment": "Change 'environment' to 'TEST' or 'PROD' to switch the active GitHub environment. GitHub Actions will pull ET_API_KEY, ET_API_SECRET, and ET_BASE_URL from the matching environment's secrets.",
+  "defaults": {
+    "etapi": {
+      "screener": {
+        "maxScanSymbols": 20,
+        "maxExpirationsPerSymbol": 20,
+        "defaultMaxDte": 90,
+        "defaultMinDte": 0,
+        "defaultQuoteAgeSeconds": 60,
+        "maxReturnedContracts": 500,
+        "maxRejectionsReturned": 50,
+        "symbolFetchConcurrency": 4,
+        "expiryFetchConcurrency": 3,
+        "unusualVolumeOiRatio": 1.5,
+        "highDeltaThreshold": 0.65,
+        "highIvThreshold": 0.70,
+        "lowIvThreshold": 0.30,
+        "atmBandPct": 0.02
+      },
+      "strategyEngine": {
+        "riskFreeRate": 0.04,
+        "feePerContract": 0.65,
+        "maxCombinations": 150,
+        "detailLimit": 50,
+        "maxLegs": 6,
+        "scoreWeights": {
+          "thesisAlignment": 0.30,
+          "targetRewardRisk": 0.20,
+          "liquidity": 0.20,
+          "volatilityAlignment": 0.10,
+          "thetaBurden": 0.05,
+          "freshness": 0.15
+        }
+      },
+      "opportunityScanner": {
+        "maxScanSymbols": 20,
+        "concurrency": 3,
+        "targetFactors": {
+          "bullish": 1.05,
+          "bearish": 0.95,
+          "large_move": 1.10,
+          "range_bound": 1.00
+        }
+      },
+      "llmIdeas": {
+        "inputTokenBudget": 90000,
+        "defaultModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "expirationGroups": [
+          { "id": "near-term", "label": "Near-term (0–30 days)", "minDays": 0, "maxDays": 30 },
+          { "id": "mid-term", "label": "Mid-term (31–90 days)", "minDays": 31, "maxDays": 90 },
+          { "id": "long-term", "label": "Long-term (91+ days)", "minDays": 91, "maxDays": 9999 }
+        ]
+      },
+      "client": {
+        "defaultTimeoutMs": 15000,
+        "maxRetries": 2,
+        "retryDelayMs": 500,
+        "detailFlag": "ALL",
+        "includeWeekly": true
+      },
+      "cache": {
+        "quoteTtlSeconds": 30,
+        "chainTtlSeconds": 60,
+        "expirationsTtlSeconds": 300
+      }
+    }
+  },
   "environments": {
     "TEST": {
       "name": "TEST",
@@ -10,6 +76,17 @@
       "etrade": {
         "baseUrl": "https://apisb.etrade.com/v1",
         "type": "sandbox"
+      },
+      "etapi": {
+        "screener": {
+          "maxScanSymbols": 10,
+          "symbolFetchConcurrency": 2,
+          "expiryFetchConcurrency": 2
+        },
+        "client": {
+          "defaultTimeoutMs": 20000,
+          "maxRetries": 3
+        }
       },
       "payments": {
         "mode": "test",
@@ -33,6 +110,17 @@
       "etrade": {
         "baseUrl": "https://api.etrade.com/v1",
         "type": "live"
+      },
+      "etapi": {
+        "screener": {
+          "maxScanSymbols": 20,
+          "symbolFetchConcurrency": 4,
+          "expiryFetchConcurrency": 3
+        },
+        "client": {
+          "defaultTimeoutMs": 15000,
+          "maxRetries": 2
+        }
       },
       "payments": {
         "mode": "live",

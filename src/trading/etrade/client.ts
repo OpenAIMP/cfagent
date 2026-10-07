@@ -27,6 +27,7 @@ import type {
   ETradeWatchlist,
 } from "../../types";
 import { resolveEnvironmentConfig } from "../../config/environment";
+import { getClientConfig, type EtapiClientConfig } from "../../config/etapiConfig";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
 import { getValidTokens, revokeStoredTokens, revokeRemoteAccessToken } from "../../security/etradeOAuth";
 import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
@@ -38,7 +39,7 @@ export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 export class ETradeRestClient {
   public lastError?: string;
 
-  constructor(private env: Env, private userLogin: string = "default_trader", private overrideEnv?: string) {}
+  constructor(public env: Env, public userLogin: string = "default_trader", public overrideEnv?: string) {}
 
   private handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): void {
     if (status === 401 || status === 403) {
@@ -54,6 +55,10 @@ export class ETradeRestClient {
 
   public getEnvConfig() {
     return resolveEnvironmentConfig(this.env, this.overrideEnv);
+  }
+
+  public getClientConfig(): EtapiClientConfig {
+    return getClientConfig(this.env, this.overrideEnv);
   }
 
   private async generateOAuthHeader(method: string, url: string, extraParams?: Record<string, string>): Promise<string> {
@@ -2003,7 +2008,8 @@ export class ETradeRestClient {
     if (params.expiryDay) query.set("expiryDay", String(params.expiryDay));
     if (params.strikePrice) query.set("strikePrice", String(params.strikePrice));
     if (params.noOfStrikes) query.set("noOfStrikes", String(params.noOfStrikes));
-    if (params.includeWeekly !== undefined) query.set("includeWeekly", String(params.includeWeekly));
+    const weekly = params.includeWeekly !== undefined ? params.includeWeekly : this.getClientConfig().includeWeekly;
+    query.set("includeWeekly", String(weekly));
     if (params.chainType) query.set("chainType", params.chainType);
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/market/optionchains?${query.toString()}`;

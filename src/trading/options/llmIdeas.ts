@@ -51,7 +51,10 @@ export interface ContextLimitedRawOptionsIdeasInput {
   truncated: boolean;
 }
 
-export const RAW_OPTIONS_IDEAS_INPUT_TOKEN_BUDGET = 90_000;
+import { getLlmIdeasConfig } from "../../config/etapiConfig";
+
+const baseLlmConfig = getLlmIdeasConfig();
+export const RAW_OPTIONS_IDEAS_INPUT_TOKEN_BUDGET = baseLlmConfig.inputTokenBudget;
 
 export interface RawOptionsIdeasResponse {
   model: string;
@@ -87,15 +90,16 @@ export interface RawOptionsIdeasRankingResponse {
   rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>;
 }
 
+const configuredGroups = baseLlmConfig.expirationGroups;
 const EXPIRATION_GROUPS: Array<{
   id: RawOptionsIdeasGroup["id"];
   label: string;
   maxDays: number;
-}> = [
-  { id: "near-term", label: "Near-term (0–30 DTE)", maxDays: 30 },
-  { id: "mid-term", label: "Mid-term (31–90 DTE)", maxDays: 90 },
-  { id: "long-term", label: "Long-term (91+ DTE)", maxDays: Number.POSITIVE_INFINITY },
-];
+}> = configuredGroups.map((g) => ({
+  id: g.id,
+  label: g.label,
+  maxDays: g.maxDays >= 9999 ? Number.POSITIVE_INFINITY : g.maxDays,
+}));
 
 function countContracts(optionChains: ETradeOptionChain[]): number {
   return optionChains.reduce(
