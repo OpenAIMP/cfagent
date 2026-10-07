@@ -8,5 +8,6 @@
   "revenue": true,
   "endpoints": false,
   "trading": false,
-  "research": false
+  "research": false,
+  "options-flows": false
 }

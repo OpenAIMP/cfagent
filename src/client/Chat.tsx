@@ -8,6 +8,7 @@ import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { TabHoverItem } from "./TabHoverItem";
+import { OptionsFlowsHub } from "./options/flows";
 import adDisplayConfig from "./ad-display.config.json";
 
 interface User {
@@ -1064,7 +1065,7 @@ function AgentChatTabContent({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("trading");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research" | "options-flows">("trading");
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
 
@@ -1778,6 +1779,22 @@ export function Chat({ user }: { user: User }) {
               }}
             >
               🔬 Yahoo Finance Screener
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="INSTITUTIONAL UNUSUAL ACTIVITY"
+            title="Options Flows"
+            description="Real-time sweeps, blocks, dark pool prints, news flow, congressional disclosures, and corporate insider filings."
+          >
+            <button
+              className={`tab-btn ${tab === "options-flows" ? "active" : ""}`}
+              onClick={() => {
+                setTab("options-flows");
+                setTbdMenuOpen(false);
+              }}
+            >
+              🌊 Options Flows
             </button>
           </TabHoverItem>
 
@@ -3813,6 +3830,21 @@ export function Chat({ user }: { user: User }) {
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
                 setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
+                setTab("chat");
+              }}
+              onTradeSymbol={(symbol) => {
+                setTab("trading");
+              }}
+            />
+          </div>
+        )}
+
+        {tab === "options-flows" && (
+          <div className="options-flows-view" style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+            <OptionsFlowsHub
+              user={user}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Options Flows" });
                 setTab("chat");
               }}
               onTradeSymbol={(symbol) => {

@@ -18,6 +18,18 @@ import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./tradi
 import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
+import {
+  RAW_LIVE_FLOW_ITEMS,
+  RAW_NEWS_FLOW_ITEMS,
+  RAW_INSIDER_FLOW_ITEMS,
+  RAW_CONGRESS_FLOW_ITEMS,
+  filterLiveFlowItems,
+  filterNewsFlowItems,
+  filterInsiderFlowItems,
+  filterCongressFlowItems,
+  calculateFlowSummary,
+  DEFAULT_SAVED_PRESETS,
+} from "./trading/options/flows";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 
@@ -646,6 +658,65 @@ export default {
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Options Flows Endpoints (Live, Historical, News, Insider, Congress, Summary, Presets) ---
+    if (path.startsWith("/api/options/flows/")) {
+      const sub = path.replace("/api/options/flows/", "").split("?")[0];
+      const tickerParam = url.searchParams.get("tickers");
+      const tickers = tickerParam ? tickerParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
+      const minPrem = Number(url.searchParams.get("minPremium") || 0);
+
+      if (sub === "live" || sub === "historical") {
+        const filtered = filterLiveFlowItems(RAW_LIVE_FLOW_ITEMS, { tickers, minPremium: minPrem });
+        return Response.json({
+          success: true,
+          count: filtered.length,
+          total: RAW_LIVE_FLOW_ITEMS.length,
+          flows: filtered,
+        });
+      }
+      if (sub === "news") {
+        const filtered = filterNewsFlowItems(RAW_NEWS_FLOW_ITEMS, tickers);
+        return Response.json({
+          success: true,
+          count: filtered.length,
+          total: RAW_NEWS_FLOW_ITEMS.length,
+          news: filtered,
+        });
+      }
+      if (sub === "insider") {
+        const filtered = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { tickers, minPremium: minPrem });
+        return Response.json({
+          success: true,
+          count: filtered.length,
+          total: RAW_INSIDER_FLOW_ITEMS.length,
+          insiders: filtered,
+        });
+      }
+      if (sub === "congress") {
+        const chamber = url.searchParams.get("chamber") || undefined;
+        const party = url.searchParams.get("party") || undefined;
+        const filtered = filterCongressFlowItems(RAW_CONGRESS_FLOW_ITEMS, { tickers, chamber, party });
+        return Response.json({
+          success: true,
+          count: filtered.length,
+          total: RAW_CONGRESS_FLOW_ITEMS.length,
+          congress: filtered,
+        });
+      }
+      if (sub === "summary") {
+        return Response.json({
+          success: true,
+          summary: calculateFlowSummary(RAW_LIVE_FLOW_ITEMS),
+        });
+      }
+      if (sub === "presets") {
+        return Response.json({
+          success: true,
+          presets: DEFAULT_SAVED_PRESETS,
+        });
+      }
     }
 
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---

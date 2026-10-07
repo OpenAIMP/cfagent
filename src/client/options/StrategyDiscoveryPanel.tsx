@@ -112,6 +112,15 @@ interface StrategyDiscoveryPanelProps {
   userLogin?: string;
   onPreviewTrade?: (ctx: OptionsTradeContext) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  flowTradeBanner?: {
+    title: string;
+    returnText: string;
+    timestamp?: string;
+  } | null;
+  initialCustomLegs?: StrategyLegItem[];
+  initialStrategyName?: string;
+  initialExpirationDate?: string;
+  onBackToFlows?: () => void;
 }
 
 interface StockQuoteState {
@@ -141,6 +150,7 @@ const STORAGE_KEY_SAVED_TRADES = "etrade_saved_options_trades";
 
 // Popular stock & ETF presets including futures
 const POPULAR_TICKERS: StockQuoteState[] = [
+  { symbol: "WMT", price: 107.20, change: 0.0, changePercent: 0.0, companyName: "Walmart Inc.", delayed: true },
   { symbol: "TSLA", price: 380.68, change: 1.95, changePercent: 0.51, companyName: "Tesla, Inc.", delayed: true },
   { symbol: "NVDA", price: 233.95, change: 0.0, changePercent: 0.0, companyName: "NVIDIA Corporation", delayed: true },
   { symbol: "AAPL", price: 232.50, change: 1.25, changePercent: 0.54, companyName: "Apple Inc.", delayed: true },
@@ -199,6 +209,11 @@ export function StrategyDiscoveryPanel({
   userLogin,
   onPreviewTrade,
   onSendPrompt,
+  flowTradeBanner,
+  initialCustomLegs,
+  initialStrategyName,
+  initialExpirationDate,
+  onBackToFlows,
 }: StrategyDiscoveryPanelProps) {
   // Navigation View: "discovery" or "builder"
   const [activeView, setActiveView] = useState<"discovery" | "builder">("builder");
@@ -210,6 +225,8 @@ export function StrategyDiscoveryPanel({
   const [symbolInput, setSymbolInput] = useState(initialSymbol);
   const [activeSymbol, setActiveSymbol] = useState(initialSymbol.toUpperCase());
   const [showSymbolSearchMenu, setShowSymbolSearchMenu] = useState(false);
+  const [customStrategyName, setCustomStrategyName] = useState<string | null>(initialStrategyName || null);
+  const [isFlowBannerDismissed, setIsFlowBannerDismissed] = useState<boolean>(false);
   const [quote, setQuote] = useState<StockQuoteState>(
     DEFAULT_QUOTES[initialSymbol.toUpperCase()] || {
       symbol: initialSymbol.toUpperCase(),
@@ -244,8 +261,28 @@ export function StrategyDiscoveryPanel({
 
   // Builder View State
   const [selectedStrategy, setSelectedStrategy] = useState<DiscoveredStrategy | null>(null);
-  const [builderLegs, setBuilderLegs] = useState<StrategyLegItem[]>([]);
-  const [builderIv, setBuilderIv] = useState<number>(44.2);
+  const [builderLegs, setBuilderLegs] = useState<StrategyLegItem[]>(() => {
+    return initialCustomLegs && initialCustomLegs.length > 0 ? [...initialCustomLegs] : [];
+  });
+  const [builderIv, setBuilderIv] = useState<number>(27.5);
+
+  // Synchronize when custom trade legs are passed
+  useEffect(() => {
+    if (initialCustomLegs && initialCustomLegs.length > 0) {
+      setBuilderLegs([...initialCustomLegs]);
+    }
+    if (initialStrategyName) {
+      setCustomStrategyName(initialStrategyName);
+    }
+    if (initialExpirationDate) {
+      const match = expirations.find(
+        (e) =>
+          e.date === initialExpirationDate ||
+          e.label.toLowerCase().includes(initialExpirationDate.toLowerCase())
+      );
+      if (match) setSelectedExpiration(match);
+    }
+  }, [initialCustomLegs, initialStrategyName, initialExpirationDate, expirations]);
 
   // Capability 1: Strategy Library Modal State (50+ Strategies)
   const [showStrategyModal, setShowStrategyModal] = useState<boolean>(false);
@@ -525,7 +562,7 @@ export function StrategyDiscoveryPanel({
   // BUILDER VIEW CALCULATIONS & MATHEMATICAL ENGINE
   // =========================================================================
   const spot = quote.price;
-  const currentStrategyName = selectedStrategy?.name || "Options Strategy";
+  const currentStrategyName = customStrategyName || selectedStrategy?.name || "Options Strategy";
 
   // Effective DTE and time remaining for the Date slider
   const maxDte = selectedExpiration.dte;
@@ -1418,6 +1455,31 @@ export function StrategyDiscoveryPanel({
           ==================================================================== */}
       {activeView === "builder" && (
         <div className="strat-builder-view">
+          {/* Capability: Flow Trade Banner (Screenshot 4) */}
+          {flowTradeBanner && !isFlowBannerDismissed && (
+            <div className="strat-flow-alert-banner">
+              <div className="strat-flow-alert-content">
+                <span className="strat-flow-alert-title">{flowTradeBanner.title}</span>
+                <span className="strat-flow-alert-subtitle">{flowTradeBanner.returnText}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                {onBackToFlows && (
+                  <button type="button" className="strat-flow-back-btn" onClick={onBackToFlows}>
+                    ← Back to Flows
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="strat-flow-alert-close"
+                  onClick={() => setIsFlowBannerDismissed(true)}
+                  aria-label="Dismiss banner"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Header Bar */}
           <div className="strat-builder-header-bar">
             <div className="strat-builder-title-group">
@@ -1975,6 +2037,15 @@ export function StrategyDiscoveryPanel({
                       </span>
                     </div>
                   </>
+                )}
+
+                {flowTradeBanner && !pnlBreakdown.hasClosedPositions && !pnlBreakdown.hasCustomCostBasis && (
+                  <div className="strat-metric-cell">
+                    <span className="strat-metric-label">💰 UNREALIZED LOSS:</span>
+                    <span className="strat-metric-val loss">
+                      {flowTradeBanner.returnText.split(" return")[0]}
+                    </span>
+                  </div>
                 )}
               </div>
             ) : (
