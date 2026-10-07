@@ -24,6 +24,67 @@ export interface StrategyLegItem {
   gamma: number;
   theta: number;
   vega: number;
+  rho?: number;
+  /** Custom entered cost-basis per unit; shows blue dollar icon when set */
+  customCostBasis?: number;
+  /** When true, excluded from all P&L and Greeks calculations; displays crossed-out eye */
+  isExcluded?: boolean;
+  /** When true, position has been closed to lock in realized profit/loss; displays blue checkmark */
+  isClosed?: boolean;
+  /** Execution exit price when leg was closed */
+  closingPrice?: number;
+  /** Market trading volume */
+  volume?: number;
+  /** Open interest contracts */
+  openInterest?: number;
+}
+
+export interface NetOptionGreeks {
+  netDelta: number;
+  netGamma: number;
+  netTheta: number;
+  netVega: number;
+  netRho: number;
+}
+
+export interface RealizedUnrealizedPnl {
+  realizedPnl: number;
+  unrealizedPnl: number;
+  totalPnl: number;
+  hasCustomCostBasis: boolean;
+  hasClosedPositions: boolean;
+}
+
+export interface Matrix2dCell {
+  price: number;
+  dateStr: string;
+  dteRemaining: number;
+  pnlDollar: number;
+  pnlPercent: number;
+  riskPercent: number;
+  contractValue: number;
+}
+
+export interface Matrix2dColumn {
+  dateStr: string;
+  label: string;
+  dteRemaining: number;
+  isExDiv?: boolean;
+  isEarnings?: boolean;
+}
+
+export interface Matrix2dRow {
+  price: number;
+  priceLabel: string;
+  isAtSpot: boolean;
+  cells: Matrix2dCell[];
+}
+
+export interface Payoff2dMatrixResult {
+  columns: Matrix2dColumn[];
+  rows: Matrix2dRow[];
+  minPnl: number;
+  maxPnl: number;
 }
 
 export interface StrategyEvaluationFactors {
@@ -175,14 +236,28 @@ export function evaluateStrategyPnL(
   let totalPnL = 0;
 
   for (const leg of legs) {
+    // 1. Excluded legs do not contribute to P&L
+    if (leg.isExcluded) continue;
+
+    const effectiveCost = leg.customCostBasis !== undefined ? leg.customCostBasis : leg.entryPrice;
+    const multiplier = leg.optionType === "STOCK" ? 1 : 100;
+
+    // 2. Closed legs lock in realized P&L based on exit closingPrice
+    if (leg.isClosed && leg.closingPrice !== undefined) {
+      const closedGain = leg.side === "BUY"
+        ? (leg.closingPrice - effectiveCost) * multiplier * leg.quantity
+        : (effectiveCost - leg.closingPrice) * multiplier * leg.quantity;
+      totalPnL += closedGain;
+      continue;
+    }
+
     if (leg.optionType === "STOCK") {
-      const perSharePnL = price - leg.entryPrice;
+      const perSharePnL = price - effectiveCost;
       const legPnL = (leg.side === "BUY" ? 1 : -1) * leg.quantity * perSharePnL;
       totalPnL += legPnL;
       continue;
     }
 
-    const multiplier = 100;
     const vol = leg.impliedVolatility || volatility;
 
     let currentOptionValue: number;
@@ -198,8 +273,8 @@ export function evaluateStrategyPnL(
 
     const perContractPnL =
       leg.side === "BUY"
-        ? (currentOptionValue - leg.entryPrice) * multiplier
-        : (leg.entryPrice - currentOptionValue) * multiplier;
+        ? (currentOptionValue - effectiveCost) * multiplier
+        : (effectiveCost - currentOptionValue) * multiplier;
 
     totalPnL += perContractPnL * leg.quantity;
   }
@@ -380,6 +455,247 @@ export function updateLegsExpiration(
       theta: bs.theta,
       vega: bs.vega,
     };
+  });
+}
+
+/**
+ * Calculates net Greeks for all active (non-excluded, non-closed) option legs.
+ */
+export function calculateNetGreeks(
+  legs: StrategyLegItem[],
+  spot: number,
+  dte: number,
+  iv: number,
+  r: number = 0.04
+): NetOptionGreeks {
+  let netDelta = 0;
+  let netGamma = 0;
+  let netTheta = 0;
+  let netVega = 0;
+  let netRho = 0;
+
+  const t = Math.max(0.5, dte) / 365;
+
+  for (const leg of legs) {
+    if (leg.isExcluded || leg.isClosed) continue;
+    const sign = leg.side === "BUY" ? 1 : -1;
+    const qty = leg.quantity;
+
+    if (leg.optionType === "STOCK") {
+      netDelta += sign * qty * 1.0;
+      continue;
+    }
+
+    const vol = leg.impliedVolatility || iv;
+    const bs = blackScholes(spot, leg.strike, t, vol, r, 0, leg.optionType);
+
+    netDelta += sign * qty * bs.delta * 100;
+    netGamma += sign * qty * bs.gamma * 100;
+    netTheta += sign * qty * bs.theta * 100;
+    netVega += sign * qty * bs.vega * 100;
+    netRho += sign * qty * bs.rho * 100;
+  }
+
+  return {
+    netDelta: Number(netDelta.toFixed(2)),
+    netGamma: Number(netGamma.toFixed(4)),
+    netTheta: Number(netTheta.toFixed(2)),
+    netVega: Number(netVega.toFixed(2)),
+    netRho: Number(netRho.toFixed(2)),
+  };
+}
+
+/**
+ * Calculates realized profit/loss from closed positions and unrealized profit/loss against custom cost-basis.
+ */
+export function calculateRealizedAndUnrealizedPnl(
+  legs: StrategyLegItem[],
+  spot: number,
+  dte: number,
+  iv: number,
+  r: number = 0.04
+): RealizedUnrealizedPnl {
+  let realizedPnl = 0;
+  let unrealizedPnl = 0;
+  let hasCustomCostBasis = false;
+  let hasClosedPositions = false;
+
+  const t = Math.max(0.5, dte) / 365;
+
+  for (const leg of legs) {
+    if (leg.isExcluded) continue;
+    const mult = leg.optionType === "STOCK" ? 1 : 100;
+    const cost = leg.customCostBasis !== undefined ? leg.customCostBasis : leg.entryPrice;
+    if (leg.customCostBasis !== undefined) hasCustomCostBasis = true;
+
+    if (leg.isClosed && leg.closingPrice !== undefined) {
+      hasClosedPositions = true;
+      const gain = leg.side === "BUY"
+        ? (leg.closingPrice - cost) * mult * leg.quantity
+        : (cost - leg.closingPrice) * mult * leg.quantity;
+      realizedPnl += gain;
+      continue;
+    }
+
+    // Open position unrealized P&L
+    let currentMark = 0;
+    if (leg.optionType === "STOCK") {
+      currentMark = spot;
+    } else {
+      const vol = leg.impliedVolatility || iv;
+      const bs = blackScholes(spot, leg.strike, t, vol, r, 0, leg.optionType);
+      currentMark = bs.price;
+    }
+
+    const openGain = leg.side === "BUY"
+      ? (currentMark - cost) * mult * leg.quantity
+      : (cost - currentMark) * mult * leg.quantity;
+    unrealizedPnl += openGain;
+  }
+
+  return {
+    realizedPnl: Number(realizedPnl.toFixed(2)),
+    unrealizedPnl: Number(unrealizedPnl.toFixed(2)),
+    totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+    hasCustomCostBasis,
+    hasClosedPositions,
+  };
+}
+
+/**
+ * Generates an OptionStrat-grade 2D Profit/Loss Matrix Table across prices and future calendar dates.
+ */
+export function evaluate2dPayoffMatrix(
+  legs: StrategyLegItem[],
+  spot: number,
+  expirationDte: number,
+  expirationDate: string,
+  iv: number,
+  rangePct: number = 20,
+  priceSteps: number = 19,
+  dateSteps: number = 7,
+  riskOrCollateral: number = 1000,
+  r: number = 0.04
+): Payoff2dMatrixResult {
+  const minPrice = Math.max(1, spot * (1 - rangePct / 100));
+  const maxPrice = spot * (1 + rangePct / 100);
+  const pStep = (maxPrice - minPrice) / Math.max(1, priceSteps - 1);
+
+  // Generate date columns from Today (t=0 elapsed) to Expiration (t=expirationDte)
+  const columns: Matrix2dColumn[] = [];
+  const now = new Date();
+  const totalDte = Math.max(1, expirationDte);
+
+  for (let c = 0; c < dateSteps; c++) {
+    const fraction = c / Math.max(1, dateSteps - 1);
+    const dteRemaining = Math.max(0, Math.round(totalDte * (1 - fraction)));
+    const daysElapsed = Math.round(totalDte * fraction);
+    const targetDay = new Date(now.getTime() + daysElapsed * 86400000);
+    const isoDate = targetDay.toISOString().slice(0, 10);
+    const monthShort = targetDay.toLocaleString("en-US", { month: "short" });
+    const day = targetDay.getDate();
+
+    const isExDiv = c === Math.floor(dateSteps / 2);
+    const isEarnings = c === Math.floor(dateSteps * 0.75);
+
+    columns.push({
+      dateStr: isoDate,
+      label: fraction === 1 ? `Exp (${monthShort} ${day})` : fraction === 0 ? "Today" : `${monthShort} ${day}`,
+      dteRemaining,
+      isExDiv,
+      isEarnings,
+    });
+  }
+
+  let minPnl = Infinity;
+  let maxPnl = -Infinity;
+  const rows: Matrix2dRow[] = [];
+
+  // Generate rows sorted from highest price to lowest price
+  for (let i = priceSteps - 1; i >= 0; i--) {
+    const price = Number((minPrice + i * pStep).toFixed(2));
+    const isAtSpot = Math.abs(price - spot) < pStep * 0.6;
+    const cells: Matrix2dCell[] = [];
+
+    for (const col of columns) {
+      const tYears = col.dteRemaining / 365;
+      const pnlDollar = Number(evaluateStrategyPnL(legs, price, tYears, iv, r).toFixed(2));
+      const pnlPercent = riskOrCollateral > 0 ? Number(((pnlDollar / riskOrCollateral) * 100).toFixed(1)) : 0;
+      const riskPercent = pnlPercent;
+      const contractValue = Number(Math.max(0, pnlDollar + riskOrCollateral).toFixed(2));
+
+      if (pnlDollar < minPnl) minPnl = pnlDollar;
+      if (pnlDollar > maxPnl) maxPnl = pnlDollar;
+
+      cells.push({
+        price,
+        dateStr: col.dateStr,
+        dteRemaining: col.dteRemaining,
+        pnlDollar,
+        pnlPercent,
+        riskPercent,
+        contractValue,
+      });
+    }
+
+    rows.push({
+      price,
+      priceLabel: `$${price.toFixed(2)}`,
+      isAtSpot,
+      cells,
+    });
+  }
+
+  return {
+    columns,
+    rows,
+    minPnl: isFinite(minPnl) ? minPnl : -100,
+    maxPnl: isFinite(maxPnl) ? maxPnl : 100,
+  };
+}
+
+/**
+ * Shifts all option leg strikes simultaneously up or down by N steps (Shift+Drag / Move All Strikes).
+ */
+export function shiftAllStrikes(
+  legs: StrategyLegItem[],
+  strikeStepDelta: number,
+  spot: number,
+  dte: number,
+  iv: number,
+  r: number = 0.04
+): StrategyLegItem[] {
+  const ladder = generateStrikeLadder(spot);
+  const step = ladder.length > 1 ? Number((ladder[1] - ladder[0]).toFixed(2)) : 1;
+
+  return legs.map((leg) => {
+    if (leg.optionType === "STOCK") return leg;
+    const currentIdx = ladder.findIndex((k) => Math.abs(k - leg.strike) < step * 0.5);
+    const targetIdx = Math.max(0, Math.min(ladder.length - 1, (currentIdx >= 0 ? currentIdx : 0) + strikeStepDelta));
+    return updateLegStrike(leg, ladder[targetIdx], spot, dte, iv, r);
+  });
+}
+
+/**
+ * Shifts opposing wings in opposite directions for iron condors, butterflies, and strangles (Symmetric move).
+ */
+export function shiftSymmetricStrikes(
+  legs: StrategyLegItem[],
+  spreadWidthDelta: number,
+  spot: number,
+  dte: number,
+  iv: number,
+  r: number = 0.04
+): StrategyLegItem[] {
+  const ladder = generateStrikeLadder(spot);
+  const step = ladder.length > 1 ? Number((ladder[1] - ladder[0]).toFixed(2)) : 1;
+
+  return legs.map((leg) => {
+    if (leg.optionType === "STOCK") return leg;
+    const direction = leg.optionType === "PUT" ? -spreadWidthDelta : spreadWidthDelta;
+    const currentIdx = ladder.findIndex((k) => Math.abs(k - leg.strike) < step * 0.5);
+    const targetIdx = Math.max(0, Math.min(ladder.length - 1, (currentIdx >= 0 ? currentIdx : 0) + direction));
+    return updateLegStrike(leg, ladder[targetIdx], spot, dte, iv, r);
   });
 }
 

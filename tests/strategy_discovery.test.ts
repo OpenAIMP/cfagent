@@ -287,5 +287,205 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     expect(typeof pnlHalfway).toBe("number");
     expect(typeof pnlExpiry).toBe("number");
   });
+
+  it("validates 50+ pre-made strategy library with categories and valid SVG paths", async () => {
+    const { STRATEGY_LIBRARY } = await import("../src/client/options/strategyLibrary");
+    expect(STRATEGY_LIBRARY.length).toBeGreaterThanOrEqual(50);
+
+    const categories = new Set(STRATEGY_LIBRARY.map((s) => s.category));
+    expect(categories.has("Bullish")).toBe(true);
+    expect(categories.has("Bearish")).toBe(true);
+    expect(categories.has("Neutral")).toBe(true);
+    expect(categories.has("Volatility")).toBe(true);
+    expect(categories.has("Synthetics & Spreads")).toBe(true);
+
+    for (const strat of STRATEGY_LIBRARY) {
+      expect(strat.id).toBeTruthy();
+      expect(strat.name).toBeTruthy();
+      expect(strat.pnlSvgPath).toBeTruthy();
+      expect(strat.pnlSvgPath.startsWith("M")).toBe(true);
+      expect(strat.description).toBeTruthy();
+
+      // Test leg generator factory
+      const legs = strat.buildLegs(200, 30, "2026-11-20", 0.35, 0.04);
+      expect(legs.length).toBeGreaterThanOrEqual(1);
+      for (const leg of legs) {
+        expect(leg.strike).toBeGreaterThan(0);
+        expect(["CALL", "PUT", "STOCK"]).toContain(leg.optionType);
+        expect(["BUY", "SELL"]).toContain(leg.side);
+      }
+    }
+  });
+
+  it("calculates log-normal probability density and above/below probabilities", async () => {
+    const { calculateProbabilityDensityPoints, calculateProbabilityAboveBelow } = await import(
+      "../src/client/options/blackScholes"
+    );
+
+    const spot = 100;
+    const tYears = 30 / 365;
+    const iv = 0.25;
+
+    const points = calculateProbabilityDensityPoints(spot, tYears, iv, 80, 120, 40);
+    expect(points.length).toBe(40);
+    expect(points[0].price).toBe(80);
+    expect(points[points.length - 1].price).toBe(120);
+
+    // Peak density should be near spot (100)
+    const maxDensityPt = points.reduce((prev, curr) => (curr.density > prev.density ? curr : prev));
+    expect(Math.abs(maxDensityPt.price - spot)).toBeLessThan(5);
+
+    // Cumulative probability below 100 should be ~50%
+    const probsAtSpot = calculateProbabilityAboveBelow(spot, 100, tYears, iv);
+    expect(probsAtSpot.probBelowPct).toBeGreaterThan(45);
+    expect(probsAtSpot.probBelowPct).toBeLessThan(55);
+    expect(probsAtSpot.probAbovePct + probsAtSpot.probBelowPct).toBe(100);
+
+    // Probability below 85 should be small, above 85 should be large
+    const probsLow = calculateProbabilityAboveBelow(spot, 85, tYears, iv);
+    expect(probsLow.probBelowPct).toBeLessThan(10);
+    expect(probsLow.probAbovePct).toBeGreaterThan(90);
+  });
+
+  it("calculates net Greeks and realized/unrealized P&L across legs", async () => {
+    const {
+      calculateNetGreeks,
+      calculateRealizedAndUnrealizedPnl,
+    } = await import("../src/client/options/strategyDiscoveryEngine");
+
+    const spot = 200;
+    const dte = 30;
+    const iv = 0.3;
+
+    // Straddle: Buy ATM Call + Buy ATM Put
+    const expirations = generateExpirations();
+    const strats = discoverStrategies({
+      symbol: "TEST",
+      currentPrice: spot,
+      sentiment: "directional",
+      targetPrice: spot * 1.2,
+      expiration: expirations[5],
+      optimizationBias: 50,
+    });
+    const straddle = strats.find((s) => s.name === "Long Straddle")!;
+    expect(straddle).toBeTruthy();
+
+    const greeks = calculateNetGreeks(straddle.legs, spot, dte, iv);
+    // Delta of ATM straddle should be close to 0 (Call ~0.50 + Put ~ -0.50 = ~0)
+    expect(Math.abs(greeks.netDelta)).toBeLessThan(25);
+    // Gamma should be significantly positive (long gamma)
+    expect(greeks.netGamma).toBeGreaterThan(0);
+    // Theta should be negative (paying time decay)
+    expect(greeks.netTheta).toBeLessThan(0);
+    // Vega should be positive (long volatility)
+    expect(greeks.netVega).toBeGreaterThan(0);
+
+    // Test Realized & Unrealized P&L
+    const pnlInitial = calculateRealizedAndUnrealizedPnl(straddle.legs, spot, dte, iv);
+    expect(pnlInitial.realizedPnl).toBe(0);
+    expect(pnlInitial.hasClosedPositions).toBe(false);
+
+    // Close one leg to simulate locking in realized gain
+    const legWithClose = {
+      ...straddle.legs[0],
+      isClosed: true,
+      closingPrice: straddle.legs[0].entryPrice + 2.0, // $2 profit per share = $200
+    };
+    const pnlClosed = calculateRealizedAndUnrealizedPnl([legWithClose, straddle.legs[1]], spot, dte, iv);
+    expect(pnlClosed.hasClosedPositions).toBe(true);
+    expect(pnlClosed.realizedPnl).toBeCloseTo(200, 1);
+  });
+
+  it("evaluates 2D Payoff Matrix across price steps and future dates with date markers", async () => {
+    const { evaluate2dPayoffMatrix } = await import(
+      "../src/client/options/strategyDiscoveryEngine"
+    );
+
+    const spot = 380;
+    const expirations = generateExpirations();
+    const strats = discoverStrategies({
+      symbol: "TSLA",
+      currentPrice: spot,
+      sentiment: "bullish",
+      targetPrice: 450,
+      expiration: expirations[6],
+      optimizationBias: 50,
+    });
+
+    const matrix = evaluate2dPayoffMatrix(
+      strats[0].legs,
+      spot,
+      expirations[6].dte,
+      expirations[6].date,
+      0.4,
+      20,
+      11,
+      5,
+      1000
+    );
+
+    expect(matrix.columns.length).toBe(5);
+    expect(matrix.columns[0].label).toBe("Today");
+    expect(matrix.columns[4].label).toContain("Exp");
+    expect(matrix.rows.length).toBe(11);
+
+    // Price rows should be ordered from highest to lowest
+    expect(matrix.rows[0].price).toBeGreaterThan(matrix.rows[10].price);
+
+    // Contains spot row
+    const spotRow = matrix.rows.find((r) => r.isAtSpot);
+    expect(spotRow).toBeTruthy();
+
+    // Each row contains 5 cell evaluations
+    for (const row of matrix.rows) {
+      expect(row.cells.length).toBe(5);
+      for (const cell of row.cells) {
+        expect(typeof cell.pnlDollar).toBe("number");
+        expect(typeof cell.pnlPercent).toBe("number");
+        expect(typeof cell.contractValue).toBe("number");
+      }
+    }
+  });
+
+  it("shifts strikes simultaneously and symmetrically for condors", async () => {
+    const { shiftAllStrikes, shiftSymmetricStrikes } = await import(
+      "../src/client/options/strategyDiscoveryEngine"
+    );
+
+    const spot = 100;
+    const expirations = generateExpirations();
+    const strats = discoverStrategies({
+      symbol: "XYZ",
+      currentPrice: spot,
+      sentiment: "neutral",
+      targetPrice: spot,
+      expiration: expirations[4],
+      optimizationBias: 50,
+    });
+
+    const ironCondor = strats.find((s) => s.name === "Iron Condor")!;
+    expect(ironCondor).toBeTruthy();
+    expect(ironCondor.legs.length).toBe(4);
+
+    const originalStrikes = ironCondor.legs.map((l) => l.strike);
+
+    // Shift all strikes up by 2 steps
+    const shiftedAll = shiftAllStrikes(ironCondor.legs, 2, spot, 30, 0.3);
+    for (let i = 0; i < ironCondor.legs.length; i++) {
+      expect(shiftedAll[i].strike).toBeGreaterThan(originalStrikes[i]);
+    }
+
+    // Shift symmetric wings (widens put wing down and call wing up)
+    const shiftedSymmetric = shiftSymmetricStrikes(ironCondor.legs, 1, spot, 30, 0.3);
+    for (let i = 0; i < ironCondor.legs.length; i++) {
+      const leg = ironCondor.legs[i];
+      if (leg.optionType === "PUT") {
+        expect(shiftedSymmetric[i].strike).toBeLessThanOrEqual(originalStrikes[i]);
+      } else if (leg.optionType === "CALL") {
+        expect(shiftedSymmetric[i].strike).toBeGreaterThanOrEqual(originalStrikes[i]);
+      }
+    }
+  });
 });
+
 

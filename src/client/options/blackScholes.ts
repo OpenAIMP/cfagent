@@ -156,3 +156,63 @@ export function calculateProbabilityOfProfit(
   // Multi-breakeven fallback
   return 0.5;
 }
+
+/**
+ * Calculates log-normal probability distribution density points for chart overlay bell curve.
+ */
+export function calculateProbabilityDensityPoints(
+  spot: number,
+  timeToExpiryYears: number,
+  volatility: number,
+  priceMin: number,
+  priceMax: number,
+  steps: number = 60,
+  riskFreeRate: number = 0.04
+): Array<{ price: number; density: number; probBelow: number }> {
+  const t = Math.max(1 / 365, timeToExpiryYears);
+  const vol = Math.max(0.05, volatility);
+  const mu = Math.log(spot) + (riskFreeRate - 0.5 * vol * vol) * t;
+  const std = vol * Math.sqrt(t);
+
+  const stepSize = (priceMax - priceMin) / Math.max(1, steps - 1);
+  const points: Array<{ price: number; density: number; probBelow: number }> = [];
+
+  for (let i = 0; i < steps; i++) {
+    const p = priceMin + i * stepSize;
+    if (p <= 0.01) continue;
+    const logP = Math.log(p);
+    const z = (logP - mu) / std;
+    const density = normalPdf(z) / (p * std);
+    const probBelow = normalCdf(z);
+    points.push({ price: Number(p.toFixed(2)), density, probBelow });
+  }
+
+  return points;
+}
+
+/**
+ * Calculates percentage chance that stock price will be below or above target price on selected date.
+ */
+export function calculateProbabilityAboveBelow(
+  spot: number,
+  targetPrice: number,
+  timeToExpiryYears: number,
+  volatility: number,
+  riskFreeRate: number = 0.04
+): { probBelowPct: number; probAbovePct: number } {
+  if (targetPrice <= 0 || spot <= 0) {
+    return { probBelowPct: 50, probAbovePct: 50 };
+  }
+  const t = Math.max(1 / 365, timeToExpiryYears);
+  const vol = Math.max(0.05, volatility);
+  const mu = Math.log(spot) + (riskFreeRate - 0.5 * vol * vol) * t;
+  const std = vol * Math.sqrt(t);
+
+  const z = (Math.log(targetPrice) - mu) / std;
+  const pBelow = normalCdf(z);
+  const probBelowPct = Number((pBelow * 100).toFixed(1));
+  const probAbovePct = Number(((1 - pBelow) * 100).toFixed(1));
+
+  return { probBelowPct, probAbovePct };
+}
+

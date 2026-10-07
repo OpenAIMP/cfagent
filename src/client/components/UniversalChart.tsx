@@ -33,6 +33,12 @@ export interface UniversalChartProps {
   formatY?: (val: number) => string;
   /** Whether to show the crosshair and cursor tooltip (default: true for full payoff) */
   showCrosshair?: boolean;
+  /** Previous strategy comparison curve points (dashed gray line) */
+  comparisonPoints?: ChartPoint[];
+  /** Probability density bell curve points for distribution overlay */
+  probabilityOverlayPoints?: Array<{ x: number; density: number; probBelow: number }>;
+  /** Hover probability chance below / above spot */
+  hoverProbabilities?: { probBelowPct: number; probAbovePct: number } | null;
   /** Additional custom class */
   className?: string;
   /** Accessibility label */
@@ -46,13 +52,18 @@ export interface UniversalChartProps {
  * Supports:
  * 1. Options Payoff Graphs (dual-curve: expiration hockey-stick + intermediate Black-Scholes date curve,
  *    split gain/loss gradients above/below zero line, breakeven markers, spot & target lines, crosshair).
- * 2. Mini Payoff Sparklines (compact strategy discovery cards with green/red zero-anchored fills).
- * 3. Multi-series Line & Time-series charts.
+ * 2. Probability Distribution Overlay (log-normal bell curve overlay).
+ * 3. Strategy Comparison (dashed gray line representing previous trade).
+ * 4. Mini Payoff Sparklines (compact strategy discovery cards with green/red zero-anchored fills).
+ * 5. Multi-series Line & Time-series charts.
  */
 export const UniversalChart: React.FC<UniversalChartProps> = ({
   mode = "payoff",
   points,
   secondaryPoints,
+  comparisonPoints,
+  probabilityOverlayPoints,
+  hoverProbabilities,
   width,
   height,
   spotPrice,
@@ -138,6 +149,33 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
   // Secondary closed area (if intermediate curve is dominant)
   const secondaryAreaD = secondaryLineD
     ? `${secondaryLineD} L${toX(xMax).toFixed(1)},${zeroY.toFixed(1)} L${toX(xMin).toFixed(1)},${zeroY.toFixed(1)} Z`
+    : null;
+
+  // Comparison curve (Previous strategy before edits)
+  const comparisonLineD = comparisonPoints && comparisonPoints.length > 1
+    ? comparisonPoints
+        .map((pt, i) => `${i === 0 ? "M" : "L"}${toX(pt.x).toFixed(1)},${toY(pt.y).toFixed(1)}`)
+        .join(" ")
+    : null;
+
+  // Probability Density Bell Curve Overlay
+  const maxDensity = probabilityOverlayPoints && probabilityOverlayPoints.length > 0
+    ? Math.max(...probabilityOverlayPoints.map((p) => p.density))
+    : 1;
+
+  const probPathD = probabilityOverlayPoints && probabilityOverlayPoints.length > 1
+    ? probabilityOverlayPoints
+        .map((pt, i) => {
+          const x = toX(pt.x);
+          const normalizedHeight = (pt.density / Math.max(0.00001, maxDensity)) * (chartAreaH * 0.42);
+          const y = (svgH - padB) - normalizedHeight;
+          return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ")
+    : null;
+
+  const probAreaD = probPathD
+    ? `${probPathD} L${toX(xMax).toFixed(1)},${(svgH - padB).toFixed(1)} L${toX(xMin).toFixed(1)},${(svgH - padB).toFixed(1)} Z`
     : null;
 
   // Compute interpolated PnL at hover position
@@ -295,6 +333,29 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
           strokeWidth={isMini ? "1" : "1.5"}
           strokeDasharray="none"
         />
+
+        {/* Probability Density Bell Curve Overlay (Translucent blue) */}
+        {!isMini && probAreaD && (
+          <path
+            d={probAreaD}
+            fill="rgba(56, 189, 248, 0.12)"
+            stroke="rgba(56, 189, 248, 0.45)"
+            strokeWidth="1.2"
+            strokeDasharray="2 2"
+          />
+        )}
+
+        {/* Previous Strategy Comparison Curve (Dashed gray line) */}
+        {!isMini && comparisonLineD && (
+          <path
+            d={comparisonLineD}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth="2"
+            strokeDasharray="5 4"
+            opacity="0.85"
+          />
+        )}
 
         {/* Primary Expiration Curve (Kinked hockey-stick) */}
         <path
@@ -455,8 +516,8 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               <rect
                 x="0"
                 y="0"
-                width="120"
-                height="46"
+                width={hoverProbabilities ? "134" : "120"}
+                height={hoverProbabilities ? "62" : "46"}
                 rx="6"
                 fill="#090e1a"
                 stroke="rgba(56, 189, 248, 0.5)"
@@ -474,6 +535,11 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                   {formatY(hoveredSecondaryY ?? hoveredPrimaryY ?? 0)}
                 </tspan>
               </text>
+              {hoverProbabilities && (
+                <text x="8" y="50" fill="#38bdf8" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
+                  {`← ${hoverProbabilities.probBelowPct}% | ${hoverProbabilities.probAbovePct}% →`}
+                </text>
+              )}
             </g>
           </g>
         )}
