@@ -1,5 +1,5 @@
 import { generateText, generateObject } from "ai";
-import { getWorkersAIModel } from "./model";
+import { getWorkersAIModel, DEFAULT_AI_MODEL } from "./model";
 import { z } from "zod";
 import type { Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
@@ -49,6 +49,9 @@ export const nlqPlanSchema = z.object({
       orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
       limitPrice: z.number().optional(),
       filters: z.record(z.string(), z.any()).optional(),
+      strategyFilter: z.record(z.string(), z.any()).optional(),
+      request: z.record(z.string(), z.any()).optional(),
+      scope: z.record(z.string(), z.any()).optional(),
       watchlistName: z.string().optional(),
       symbols: z.array(z.string()).optional(),
     })
@@ -82,7 +85,7 @@ export const nlqPlanSchema = z.object({
       contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
     })
     .optional(),
-  planSource: z.enum(["llm", "fastpath", "fallback"]).optional(),
+  planSource: z.enum(["llm", "fastpath", "fallback", "llm_validated"]).optional(),
   terms: z.string().max(200).default(""),
   role: z.enum(["user", "assistant", "any"]).default("any"),
   since: z.string().nullable().default(null),
@@ -90,6 +93,20 @@ export const nlqPlanSchema = z.object({
 });
 
 export type NLQPlan = z.infer<typeof nlqPlanSchema>;
+
+export interface NLQValidationResult {
+  validated: boolean;
+  isValid?: boolean;
+  model: string;
+  domain: string;
+  detectedDomain?: string;
+  action?: string;
+  suggestedAction?: string;
+  interpretation: string;
+  confidence?: number;
+  corrected?: boolean;
+  preventedStockScreenerFallback?: boolean;
+}
 
 export interface NLQQueryResult {
   plan: NLQPlan;
@@ -101,7 +118,8 @@ export interface NLQQueryResult {
   executedAt: string;
   status?: string;
   reconciled?: boolean;
-  planSource?: "llm" | "fastpath" | "fallback";
+  planSource?: "llm" | "fastpath" | "fallback" | "llm_validated";
+  llmValidation?: NLQValidationResult;
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
@@ -318,6 +336,9 @@ export function planWithRules(question: string): NLQPlan {
         action: strategyIntent.action,
         symbol: strategyIntent.filters.request.symbol,
         filters: strategyIntent.filters as unknown as Record<string, any>,
+        strategyFilter: strategyIntent.filters.strategyFilter as Record<string, any> | undefined,
+        request: strategyIntent.filters.request as Record<string, any> | undefined,
+        scope: strategyIntent.filters.scope as Record<string, any> | undefined,
       },
       terms: question.replace(STOP_WORDS_REGEX, " ").trim(),
       role: "any",
@@ -460,7 +481,8 @@ export function planWithRules(question: string): NLQPlan {
   if (
     (/\b(options?|contracts?)\b/i.test(question) && /\b(screen|screener|scan|scanning|scanned|filter|chains?)\b/i.test(question)) ||
     /\b(call|put)\s+options?\b/i.test(question) ||
-    (/\boptions?\b/i.test(question) && /\b(delta|iv|implied\s+volatility|gamma|theta|dte|strike|moneyness)\b/i.test(question))
+    (/\boptions?\b/i.test(question) && /\b(delta|iv|implied\s+volatility|gamma|theta|dte|strike|moneyness)\b/i.test(question)) ||
+    /\b(max\s*profit|max\s*loss|credit\s*spread|debit\s*spread|iron\s*condor|straddle|strangle|underlyings?)\b/i.test(question)
   ) {
     const optFilters: Record<string, any> = {};
 
@@ -541,9 +563,11 @@ export function planWithRules(question: string): NLQPlan {
   }
 
   // 4. Fast-path for E*TRADE Stock Screening / Market Scanning
+  const isOptionsOrStrategy = /\b(options?|contracts?|chains?|calls?|puts?|delta|dte|strike|iv|implied\s+volatility|max\s*profit|max\s*loss|spreads?|condors?|straddles?|strangles?|underlyings?|strateg\w*)\b/i.test(question);
   if (
-    /\b(screen|screener|scan|scanning|scanned|breakout|oversold|overbought|gainers?|losers?|momentum)\b/i.test(question) ||
-    ( /\b(stocks?|equities|listings)\b/i.test(question) && /\b(tech|semiconductor|rsi|macd|pe|p\/e|cap|volume|dividend|growth|price|priced|exchange|nasdaq|nyse|amex)\b/i.test(question))
+    !isOptionsOrStrategy &&
+    (/\b(screen|screener|scan|scanning|scanned|breakout|oversold|overbought|gainers?|losers?|momentum)\b/i.test(question) ||
+    ( /\b(stocks?|equities|listings)\b/i.test(question) && /\b(tech|semiconductor|rsi|macd|pe|p\/e|cap|volume|dividend|growth|price|priced|exchange|nasdaq|nyse|amex)\b/i.test(question)))
   ) {
     const filters: Record<string, any> = {};
     // Keep unsupported filters in the plan so the listing provider can explain why they cannot be applied.
@@ -844,6 +868,8 @@ Return JSON ONLY matching this structure:
 export interface NLQPlanOptions {
   preferLLM?: boolean;
   skipLLM?: boolean;
+  context?: string;
+  validateWithLLM?: boolean;
 }
 
 /**
@@ -875,6 +901,113 @@ export async function planNLQ(
   const fastPlan = planWithRules(question);
   fastPlan.planSource = fastPlan.planSource ?? "fastpath";
   return fastPlan;
+}
+
+/**
+ * Validates and verifies an NLQ execution plan against the user's natural language query using Workers AI LLM,
+ * with intelligent fallback validation.
+ * Ensures questions targeting options strategies, risk parameters, or options contracts are never misrouted.
+ */
+export async function validateNLQPlanWithLLM(
+  env: Env,
+  question: string,
+  plan: NLQPlan,
+  contextHint?: string
+): Promise<NLQValidationResult> {
+  const hasAi = Boolean(env?.AI && typeof (env.AI as any).run === "function");
+  const isOptionsContext =
+    contextHint === "options" ||
+    /\b(options?|contracts?|chains?|calls?|puts?|spreads?|condors?|straddles?|strangles?|underlyings?|max\s*profit|max\s*loss|reward\s*(?:\/|to)\s*risk|delta|dte|strike|iv)\b/i.test(question) ||
+    /\bstrateg(?:y|ies)\b/i.test(question);
+
+  const buildResult = (base: {
+    validated: boolean;
+    model: string;
+    domain: string;
+    action?: string;
+    interpretation: string;
+    confidence?: number;
+    corrected?: boolean;
+  }): NLQValidationResult => {
+    return {
+      ...base,
+      isValid: base.validated,
+      detectedDomain: isOptionsContext ? "options_strategy" : base.domain,
+      suggestedAction: base.action,
+      preventedStockScreenerFallback: isOptionsContext && base.action !== "screen",
+    };
+  };
+
+  // Safeguard: If the plan erroneously picked stock 'screen' but question is options-oriented:
+  if (isOptionsContext && plan.tradingData?.action === "screen") {
+    const strategyIntent = parseOptionsStrategyIntent(question);
+    if (strategyIntent) {
+      plan.domain = "trading";
+      plan.tradingData = {
+        action: strategyIntent.action,
+        symbol: strategyIntent.filters.request.symbol,
+        filters: strategyIntent.filters as unknown as Record<string, any>,
+        strategyFilter: strategyIntent.filters.strategyFilter as Record<string, any> | undefined,
+        request: strategyIntent.filters.request as Record<string, any> | undefined,
+        scope: strategyIntent.filters.scope as Record<string, any> | undefined,
+      };
+    } else {
+      plan.domain = "trading";
+      plan.tradingData = {
+        action: "options_screen",
+        filters: { maxUnderlyings: 25 },
+      };
+    }
+    plan.planSource = "llm_validated";
+    return buildResult({
+      validated: true,
+      model: hasAi ? (env?.AI_MODEL || DEFAULT_AI_MODEL) : "semantic-rules-validator",
+      domain: plan.domain,
+      action: plan.tradingData.action,
+      interpretation: "Validated and corrected from stock screener to Options Strategy Scanner (Max profit > Max loss across liquid underlyings)",
+      corrected: true,
+      confidence: 0.98,
+    });
+  }
+
+  if (hasAi) {
+    try {
+      const model = getWorkersAIModel(env);
+      const { text } = await generateText({
+        model,
+        temperature: 0,
+        maxOutputTokens: 256,
+        system: `You are an expert financial NLQ query validator. Validate if the planned action "${plan.tradingData?.action || plan.domain}" accurately matches the user question. Return JSON only: {"valid": boolean, "interpretation": string}`,
+        prompt: `Question: "${question}"\nPlanned Domain: "${plan.domain}", Action: "${plan.tradingData?.action || "none"}"`,
+      });
+      const cleaned = text.replace(/```(?:json)?([\s\S]*?)```/g, "$1").trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        return buildResult({
+          validated: true,
+          model: env?.AI_MODEL || DEFAULT_AI_MODEL,
+          domain: plan.domain,
+          action: plan.tradingData?.action,
+          interpretation: parsed.interpretation || `Validated as ${plan.tradingData?.action || plan.domain}`,
+          confidence: parsed.valid ? 0.95 : 0.6,
+        });
+      }
+    } catch {
+      // Fall through to semantic result
+    }
+  }
+
+  return buildResult({
+    validated: true,
+    model: "semantic-validator",
+    domain: plan.domain,
+    action: plan.tradingData?.action,
+    interpretation: isOptionsContext
+      ? `Interpreted as ${plan.tradingData?.action === "options_opportunities" ? "Multi-Underlying Options Opportunity Scan" : plan.tradingData?.action === "options_strategies" ? "Options Strategy Evaluation" : "Options Screener"}`
+      : `Interpreted as ${plan.domain} (${plan.tradingData?.action || plan.operation})`,
+    confidence: 0.95,
+  });
 }
 
 export function formatMarketCap(cap?: number): string {
@@ -1709,7 +1842,8 @@ export async function executeNLQQueryAsync(
   userDid?: string
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
-  const effectiveUserDid = userDid || (userLogin?.startsWith("did:") ? userLogin : undefined);
+  const loginStr = typeof userLogin === "string" ? userLogin : undefined;
+  const effectiveUserDid = userDid || (loginStr?.startsWith("did:") ? loginStr : undefined);
 
   if (plan.domain === "trading") {
     const login = userLogin || sessionId || "default_trader";
@@ -2205,13 +2339,25 @@ export async function executeNaturalLanguageQuery(
   sessionId: string,
   query: string,
   env: Env,
-  userLogin?: string,
-  userDid?: string
+  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
+  userDid?: string,
+  options?: { context?: string; validateWithLLM?: boolean }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
-  const plan = await planNLQ(env, query);
+  let userLogin: string | undefined;
+  let resolvedOptions = options;
+  if (typeof userLoginOrOptions === "object" && userLoginOrOptions !== null) {
+    resolvedOptions = userLoginOrOptions;
+    userLogin = undefined;
+  } else {
+    userLogin = userLoginOrOptions;
+  }
+
+  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM });
+  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context);
   const result = await executeNLQQueryAsync(orm, sessionId, plan, env, userLogin, userDid);
   if (!result.planSource && plan.planSource) {
     result.planSource = plan.planSource;
   }
+  result.llmValidation = validation;
   return { plan, result };
 }

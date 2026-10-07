@@ -1195,71 +1195,139 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           <div className="strat-discovery-header">
-            <form onSubmit={handleSymbolSubmit} className="strat-symbol-bar">
-              <div className="strat-symbol-input-wrap">
-                <label>Symbol:</label>
-                <input
-                  type="text"
-                  value={symbolInput}
-                  onChange={(e) => {
-                    setSymbolInput(e.target.value);
-                    setShowSymbolSearchMenu(true);
-                  }}
-                  onFocus={() => setShowSymbolSearchMenu(true)}
-                  placeholder="TSLA, /ES..."
-                />
-              </div>
+            {/* Top Row: Symbol & Sentiment (Left) and Optimization Bias & Factors (Right) Side-by-Side */}
+            <div className="strat-discovery-top-row">
+              {/* Left Column (Image 1): Symbol Input, Quote Price Badge & 6 Sentiment Direction Buttons */}
+              <div className="strat-discovery-left-col">
+                <form onSubmit={handleSymbolSubmit} className="strat-symbol-bar">
+                  <div className="strat-symbol-input-wrap">
+                    <label>Symbol:</label>
+                    <input
+                      type="text"
+                      value={symbolInput}
+                      onChange={(e) => {
+                        setSymbolInput(e.target.value);
+                        setShowSymbolSearchMenu(true);
+                      }}
+                      onFocus={() => setShowSymbolSearchMenu(true)}
+                      placeholder="TSLA, /ES..."
+                    />
+                  </div>
 
-              <div className="strat-price-badge">
-                ${quote.price.toFixed(2)}
-                <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
-                  {quote.change >= 0 ? "+" : ""}
-                  {quote.changePercent.toFixed(2)}% (+${quote.change.toFixed(2)})
-                </span>
-                <span className="strat-delayed-tag">↻ Delayed</span>
-              </div>
-            </form>
+                  <div className="strat-price-badge">
+                    ${quote.price.toFixed(2)}
+                    <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
+                      {quote.change >= 0 ? "+" : ""}
+                      {quote.changePercent.toFixed(2)}% (+${quote.change.toFixed(2)})
+                    </span>
+                    <span className="strat-delayed-tag">↻ Delayed</span>
+                  </div>
+                </form>
 
-            {/* Symbol Autocomplete Dropdown */}
-            {showSymbolSearchMenu && (
-              <div className="strat-symbol-dropdown-overlay" onClick={() => setShowSymbolSearchMenu(false)}>
-                <div className="strat-symbol-dropdown" onClick={(e) => e.stopPropagation()}>
-                  <div className="strat-dropdown-header">Stocks, ETFs & Futures</div>
-                  {filteredTickers.map((t) => (
-                    <div
-                      key={t.symbol}
-                      className="strat-dropdown-item"
-                      onClick={() => handleSelectSymbol(t.symbol)}
-                    >
-                      <span className="strat-dropdown-sym">{t.symbol}</span>
-                      <span className="strat-dropdown-name">{t.companyName}</span>
-                      <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                {/* Symbol Autocomplete Dropdown */}
+                {showSymbolSearchMenu && (
+                  <div className="strat-symbol-dropdown-overlay" onClick={() => setShowSymbolSearchMenu(false)}>
+                    <div className="strat-symbol-dropdown" onClick={(e) => e.stopPropagation()}>
+                      <div className="strat-dropdown-header">Stocks, ETFs & Futures</div>
+                      {filteredTickers.map((t) => (
+                        <div
+                          key={t.symbol}
+                          className="strat-dropdown-item"
+                          onClick={() => handleSelectSymbol(t.symbol)}
+                        >
+                          <span className="strat-dropdown-sym">{t.symbol}</span>
+                          <span className="strat-dropdown-name">{t.companyName}</span>
+                          <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Sentiment Selector Group (6 Circular Buttons Aligned Horizontally with Icons) */}
+                <div className="strat-sentiment-group strat-sentiment-selector" role="radiogroup" aria-label="Market sentiment">
+                  {SENTIMENT_ITEMS.map((item) => {
+                    const isActive = sentiment === item.id;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
+                        onClick={() => handleSentimentChange(item.id)}
+                        role="radio"
+                        aria-checked={isActive}
+                        title={item.label}
+                      >
+                        <div className="strat-sentiment-circle">
+                          {item.icon}
+                        </div>
+                        <span className="strat-sentiment-label">{item.label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            )}
 
-            {/* Sentiment Selector Group (6 Circular Buttons Aligned Horizontally with Icons) */}
-            <div className="strat-sentiment-group strat-sentiment-selector" role="radiogroup" aria-label="Market sentiment">
-              {SENTIMENT_ITEMS.map((item) => {
-                const isActive = sentiment === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
-                    onClick={() => handleSentimentChange(item.id)}
-                    role="radio"
-                    aria-checked={isActive}
-                    title={item.label}
-                  >
-                    <div className="strat-sentiment-circle">
-                      {item.icon}
-                    </div>
-                    <span className="strat-sentiment-label">{item.label}</span>
+              {/* Right Column (Image 2): Optimization Objective Regime & Evaluation Factors Breakdown */}
+              <div className="strat-discovery-right-col">
+                {/* Optimization Slider */}
+                <div className="strat-opt-slider-wrap">
+                  <span>← Max Return</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={optimizationBias}
+                    onChange={(e) => setOptimizationBias(Number(e.target.value))}
+                  />
+                  <span>Max Chance →</span>
+                </div>
+
+                {/* Evaluation Factors UI Breakdown Panel */}
+                <div className="strat-opt-factors-panel">
+                  <div className="strat-opt-regime-row">
+                    <span className="strat-opt-regime-badge">{optFactors.regime}</span>
+                    <span className="strat-opt-regime-desc">{optFactors.regimeDescription}</span>
                   </div>
-                );
-              })}
+                  <div className="strat-factors-grid">
+                    <div className="strat-factor-card">
+                      <div className="strat-factor-header">
+                        <span className="strat-factor-title">Target Return & Leverage</span>
+                        <span className="strat-factor-weight">{optFactors.returnWeight}% wt</span>
+                      </div>
+                      <div className="strat-factor-bar-bg">
+                        <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
+                      </div>
+                    </div>
+                    <div className="strat-factor-card">
+                      <div className="strat-factor-header">
+                        <span className="strat-factor-title">Win Probability (POP)</span>
+                        <span className="strat-factor-weight">{optFactors.chanceWeight}% wt</span>
+                      </div>
+                      <div className="strat-factor-bar-bg">
+                        <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
+                      </div>
+                    </div>
+                    <div className="strat-factor-card">
+                      <div className="strat-factor-header">
+                        <span className="strat-factor-title">Breakeven Buffer</span>
+                        <span className="strat-factor-weight">{optFactors.safetyWeight}% wt</span>
+                      </div>
+                      <div className="strat-factor-bar-bg">
+                        <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
+                      </div>
+                    </div>
+                    <div className="strat-factor-card">
+                      <div className="strat-factor-header">
+                        <span className="strat-factor-title">Capital Efficiency</span>
+                        <span className="strat-factor-weight">{optFactors.capitalWeight}% wt</span>
+                      </div>
+                      <div className="strat-factor-bar-bg">
+                        <div className="strat-factor-bar-fill capital" style={{ width: `${optFactors.capitalWeight * 4.5}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Target Price & Budget Bar */}
@@ -1309,65 +1377,6 @@ export function StrategyDiscoveryPanel({
                   <span className="strat-chip-day">{exp.dayLabel}</span>
                 </button>
               ))}
-            </div>
-
-            {/* Optimization Slider */}
-            <div className="strat-opt-slider-wrap">
-              <span>← Max Return</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={optimizationBias}
-                onChange={(e) => setOptimizationBias(Number(e.target.value))}
-              />
-              <span>Max Chance →</span>
-            </div>
-
-            {/* Evaluation Factors UI Breakdown Panel */}
-            <div className="strat-opt-factors-panel">
-              <div className="strat-opt-regime-row">
-                <span className="strat-opt-regime-badge">{optFactors.regime}</span>
-                <span className="strat-opt-regime-desc">{optFactors.regimeDescription}</span>
-              </div>
-              <div className="strat-factors-grid">
-                <div className="strat-factor-card">
-                  <div className="strat-factor-header">
-                    <span className="strat-factor-title">Target Return & Leverage</span>
-                    <span className="strat-factor-weight">{optFactors.returnWeight}% wt</span>
-                  </div>
-                  <div className="strat-factor-bar-bg">
-                    <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
-                  </div>
-                </div>
-                <div className="strat-factor-card">
-                  <div className="strat-factor-header">
-                    <span className="strat-factor-title">Win Probability (POP)</span>
-                    <span className="strat-factor-weight">{optFactors.chanceWeight}% wt</span>
-                  </div>
-                  <div className="strat-factor-bar-bg">
-                    <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
-                  </div>
-                </div>
-                <div className="strat-factor-card">
-                  <div className="strat-factor-header">
-                    <span className="strat-factor-title">Breakeven Buffer</span>
-                    <span className="strat-factor-weight">{optFactors.safetyWeight}% wt</span>
-                  </div>
-                  <div className="strat-factor-bar-bg">
-                    <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
-                  </div>
-                </div>
-                <div className="strat-factor-card">
-                  <div className="strat-factor-header">
-                    <span className="strat-factor-title">Capital Efficiency</span>
-                    <span className="strat-factor-weight">{optFactors.capitalWeight}% wt</span>
-                  </div>
-                  <div className="strat-factor-bar-bg">
-                    <div className="strat-factor-bar-fill capital" style={{ width: `${optFactors.capitalWeight * 4.5}%` }} />
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 

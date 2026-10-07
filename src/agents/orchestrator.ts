@@ -1268,16 +1268,29 @@ Agentic Best Practices & Workflow Rules:
     // Natural Language Query (NLQ) endpoint
     if (path.endsWith("/nlq") && request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as { query?: string };
+        const body = (await request.json().catch(() => ({}))) as {
+          query?: string;
+          context?: string;
+          validateWithLLM?: boolean;
+        };
         const query = (body.query || "").trim();
         if (!query) {
           return Response.json({ error: "Query parameter is required" }, { status: 400 });
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const contextHeader = request.headers.get("x-nlq-context") || body.context;
         const userDid = getUserDid(sessionId);
         const orm = this.getOrm();
-        const { plan, result } = await executeNaturalLanguageQuery(orm, sessionId, query, this.env, userLogin, userDid);
+        const { plan, result } = await executeNaturalLanguageQuery(
+          orm,
+          sessionId,
+          query,
+          this.env,
+          userLogin,
+          userDid,
+          { context: contextHeader, validateWithLLM: body.validateWithLLM }
+        );
         this.audit("nlq.executed", "nlq", {
           query,
           domain: result.domain,

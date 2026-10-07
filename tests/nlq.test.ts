@@ -337,5 +337,43 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(result.result.domain).toBe("table_data");
     });
   });
+
+  describe("Options Strategy NLQ Routing & LLM Validation", () => {
+    it("routes 'find strategies where max profit is more than max loss' to options_opportunities and sets maxProfitGreaterThanMaxLoss", async () => {
+      const query = "find strategies where max profit is more than max loss; scan up to 25 underlyings; quote age reference 60 seconds";
+      const plan = await planNLQ(mockEnv, query, { context: "options", validateWithLLM: true });
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("options_opportunities");
+      expect(plan.tradingData?.strategyFilter?.maxProfitGreaterThanMaxLoss).toBe(true);
+      expect(plan.tradingData?.request?.minRewardRisk).toBe(1.0);
+      expect(plan.tradingData?.scope?.kind).toBe("universe");
+      expect(plan.tradingData?.scope?.maxSymbols).toBeLessThanOrEqual(25);
+      expect(plan.tradingData?.scope?.maxSymbols).toBeGreaterThan(0);
+    });
+
+    it("evaluates and validates options query with LLM validation metadata", async () => {
+      const query = "find strategies where max profit is more than max loss";
+      const result = await executeNaturalLanguageQuery(orm, "test_session", query, mockEnv, {
+        context: "options",
+        validateWithLLM: true,
+      });
+
+      expect(result.result.llmValidation).toBeDefined();
+      expect(result.result.llmValidation?.isValid).toBe(true);
+      expect(result.result.llmValidation?.detectedDomain).toBe("options_strategy");
+      expect(result.result.llmValidation?.suggestedAction).toBe("options_opportunities");
+      expect(result.result.llmValidation?.preventedStockScreenerFallback).toBe(true);
+      // Crucial: Must NEVER return stock market screener or penny stocks for an options strategy prompt!
+      expect(result.result.targetTable).not.toBe("etrade_market_screener");
+      expect(result.plan.tradingData?.action).not.toBe("screen");
+    });
+
+    it("guards against fallback to stock screener when options keywords are present", async () => {
+      const plan = await planNLQ(mockEnv, "find strategies where max profit is more than max loss");
+      expect(plan.tradingData?.action).toBe("options_opportunities");
+      expect(plan.tradingData?.action).not.toBe("screen");
+    });
+  });
 });
+
 

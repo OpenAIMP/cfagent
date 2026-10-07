@@ -24,6 +24,8 @@ export interface StrategyScreenFilter {
   minNetCredit?: number;
   minTargetPnl?: number;
   minMaxProfit?: number;
+  minRewardRisk?: number;
+  maxProfitGreaterThanMaxLoss?: boolean;
   maxBreakevenDistancePct?: number;
   maxLegs?: number;
   requireFresh?: boolean;
@@ -139,6 +141,12 @@ export class StrategyRiskAgent {
       const spot = c.underlyingPrice;
       const far = c.breakevens.some((b) => spot > 0 && (Math.abs(b - spot) / spot) * 100 > f.maxBreakevenDistancePct!);
       if (far) return `Breakeven farther than ${f.maxBreakevenDistancePct}% from spot`;
+    }
+    if (f.minRewardRisk !== undefined && c.targetRewardRisk < f.minRewardRisk) {
+      return `Target reward/risk ${c.targetRewardRisk.toFixed(2)}x below required minimum ${f.minRewardRisk.toFixed(2)}x`;
+    }
+    if (f.maxProfitGreaterThanMaxLoss && !c.maxProfitUnbounded && (c.maxProfit ?? 0) <= c.maxLoss) {
+      return `Max profit $${(c.maxProfit ?? 0).toFixed(2)} is not greater than max loss $${c.maxLoss.toFixed(2)}`;
     }
     return null;
   }

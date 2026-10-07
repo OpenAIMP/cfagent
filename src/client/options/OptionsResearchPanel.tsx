@@ -606,6 +606,15 @@ type NlqResultView = {
   rows?: Array<Record<string, unknown>>;
   rejections?: Array<{ contractSymbol?: string; reason?: string }>;
   provenance?: { bestTrade?: BestTradeData };
+  llmValidation?: {
+    validated: boolean;
+    model: string;
+    domain: string;
+    action?: string;
+    interpretation: string;
+    confidence?: number;
+    corrected?: boolean;
+  };
 };
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
@@ -820,9 +829,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         headers: {
           "Content-Type": "application/json",
           "x-environment": activeEnv,
+          "x-nlq-context": "options",
           ...(userLogin ? { "x-user-login": userLogin } : {}),
         },
-        body: JSON.stringify({ query: prompt }),
+        body: JSON.stringify({
+          query: prompt,
+          context: "options",
+          validateWithLLM: true,
+        }),
       });
       const data = await response.json() as NlqResultView;
       if (!response.ok) throw new Error((data as { error?: string }).error || "Options request failed");
@@ -1060,6 +1074,31 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               />
             </div>
           </div>
+          {nlqResult.llmValidation && (
+            <div
+              className="options-nlq-validation-tag"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                background: "rgba(56, 189, 248, 0.08)",
+                border: "1px solid rgba(56, 189, 248, 0.28)",
+                borderRadius: "6px",
+                padding: "0.35rem 0.65rem",
+                fontSize: "0.82rem",
+                color: "#38bdf8",
+                marginBottom: "0.55rem",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <span>🧠 <strong>LLM Validated:</strong></span>
+              <span style={{ color: "#e2e8f0" }}>{nlqResult.llmValidation.interpretation}</span>
+              {nlqResult.llmValidation.corrected && (
+                <span style={{ color: "#34d399", fontSize: "0.75rem", fontWeight: 700, marginLeft: "auto" }}>✓ Intent Protected</span>
+              )}
+            </div>
+          )}
           <p>{nlqResult.validationError || nlqResult.summary}</p>
           {nlqResult.provenance?.bestTrade && <BestTradeCard pick={nlqResult.provenance.bestTrade} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (

@@ -40,6 +40,11 @@ export interface OptionsStrategyIntent {
 const WATCHLIST_STOP = new Set(["MY", "THE", "A", "AN", "THIS", "EACH", "ANY", "ALL", "SAVED", "ONE"]);
 
 function detectScope(question: string): OpportunityScope | null {
+  // Contract-level screens (e.g. "Screen call options...") are handled by options_screen, not strategy opportunity scanner
+  if (/\b(?:call|put)\s+options?\b/i.test(question) && !/\bstrateg\w*\b/i.test(question)) {
+    return null;
+  }
+
   if (/\bwatch\s?lists?\b/i.test(question)) {
     const quoted = question.match(/["'`]([^"'`]{1,40})["'`]/);
     const named = question.match(/\bwatch\s?lists?\s+(?:named\s+|called\s+)?([A-Za-z][\w-]*)/i);
@@ -51,6 +56,11 @@ function detectScope(question: string): OpportunityScope | null {
   if (list) {
     const symbols = list[0].split(/\s*(?:,|and|&)\s*/).filter((s) => !NOT_TICKERS.has(s));
     if (symbols.length >= 2) return { kind: "symbols", symbols };
+  }
+
+  // If a single explicit symbol is provided (and not a multi-symbol list), single-symbol actions take precedence over broad scope
+  if (detectSymbol(question)) {
+    return null;
   }
   if (/\b(?:across|entire|whole|full)\b[^.]*\b(?:stocks?|market|universe|spectrum|listings)\b|\b(?:large|mega)[- ]?cap\b|\bmarket[- ]wide\b|\bacross\s+(?:the\s+)?(?:nasdaq|nyse|amex)\b/i.test(question)) {
     const filters: Record<string, unknown> = {};
@@ -69,6 +79,11 @@ function detectScope(question: string): OpportunityScope | null {
     const top = question.match(/\b(?:top|first|up to|max(?:imum)?)\s*(\d+)\b/i);
     return { kind: "universe", filters, maxSymbols: Math.min(top ? Number(top[1]) : 10, MAX_SCAN_SYMBOLS) };
   }
+  const underlyingsMatch = question.match(/(?:scan|screen|across|up to|max(?:imum)?)\s*(\d+)\s*underlyings\b/i);
+  if (underlyingsMatch) {
+    const filters: Record<string, unknown> = { minMarketCap: 50 };
+    return { kind: "universe", filters, maxSymbols: Math.min(Number(underlyingsMatch[1]), MAX_SCAN_SYMBOLS) };
+  }
   return null;
 }
 
@@ -77,10 +92,10 @@ const NOT_TICKERS = new Set([
   "BEST", "TOP", "PICK", "WITH", "LOSS", "MAX", "MIN", "RR", "A", "I", "IN", "ON", "TO", "OF",
 ]);
 
-const OPTIONS_CONTEXT = /\b(options?|calls?|puts?|spreads?|straddles?|strangles?|condors?|debit|credit|iv|dte|delta|strike)\b/i;
-const BEST_TRADE = /\b(?:best|top)\s+(?:\w+\s+){0,2}(?:trade|play|strategy|spread|setup)\b/i;
-const PICK_TRADE = /\b(?:pick|choose|recommend|suggest|find)\s+(?:me\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+){0,2}(?:trade|strateg(?:y|ies)|spread)\b/i;
-const STRATEGY_SCREEN = /\b(?:options?\s+strateg(?:y|ies)|(?:all|every)\s+strateg(?:y|ies)|strateg(?:y|ies)\s+(?:evaluated|ledger)|strateg(?:y|ies)\s+(?:screen|scan|screener)|(?:debit|credit|vertical)\s+spreads?|straddles?|strangles?|iron\s+condors?)\b/i;
+const OPTIONS_CONTEXT = /\b(options?|calls?|puts?|spreads?|straddles?|strangles?|condors?|debit|credit|iv|dte|delta|strike|strateg(?:y|ies)|max\s*profit|max\s*loss|underlyings?|iron\s*condor|covered\s*call|protective\s*put|collar|butterfly)\b/i;
+const BEST_TRADE = /\b(?:best|top)\s+(?:\w+\s+){0,3}(?:trades?|plays?|strateg(?:y|ies)|spreads?|setups?)\b/i;
+const PICK_TRADE = /\b(?:pick|choose|recommend|suggest|find)\s+(?:me\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+){0,3}(?:trades?|strateg(?:y|ies)|spreads?)\b/i;
+const STRATEGY_SCREEN = /\b(?:(?:find|screen|scan|search|show|get|list)?\s*(?:all\s+)?(?:options?\s+)?strateg(?:y|ies)(?:\s+(?:where|with|that|having|evaluated|ledger|screen|scan|screener))?|(?:all|every)\s+strateg(?:y|ies)|(?:debit|credit|vertical)\s+spreads?|straddles?|strangles?|iron\s+condors?|max\s*profit\s*(?:>|is\s*(?:more|greater|higher)\s*than)\s*max\s*loss)\b/i;
 
 const THESIS_DEFAULTS: Record<OptionThesis, OptionStrategyType[]> = {
   bullish: ["long_call", "call_debit_spread", "put_credit_spread"],
@@ -162,13 +177,31 @@ function detectTargetDate(question: string, maxDte?: number): string {
 
 /** Returns null when the question is not about multi-leg strategies or a best-trade pick. */
 export function parseOptionsStrategyIntent(question: string): OptionsStrategyIntent | null {
+  if (/\b(?:call|put)\s+options?\b/i.test(question) && !/\b(?:strateg\w*|credit\s+spread|debit\s+spread|vertical\s+spread|bull\s+spread|bear\s+spread|condor|straddle|strangle|butterfly|max\s*profit|max\s*loss)\b/i.test(question)) {
+    return null;
+  }
+
   const isBest = BEST_TRADE.test(question) && OPTIONS_CONTEXT.test(question)
     || /\bbest\s+(?:options?\s+)?(?:trade|play)\b/i.test(question)
     || (PICK_TRADE.test(question) && OPTIONS_CONTEXT.test(question));
   const isStrategies = STRATEGY_SCREEN.test(question);
-  const scope = detectScope(question);
+  let scope = detectScope(question);
+
+  const cleanedForStrategy = question.replace(/\b(?:bid[-/ ]?ask\s+spread|spread\s*(?:under|below|<|<=|at most|\d+\s*%))\b/gi, "");
+  const hasStrategyKeywords = /\b(opportunit\w*|(?:option\s+)?trades?|trade\s+ideas?|spreads?|strateg\w*|best\s+trades?|condors?|straddles?|strangles?|butterfl\w*|max\s*profit|max\s*loss)\b/i.test(cleanedForStrategy);
+
+  if (!isBest && !isStrategies && (!scope || !hasStrategyKeywords)) {
+    if (!hasStrategyKeywords) return null;
+  }
+
+  if (!scope && !detectSymbol(question) && hasStrategyKeywords) {
+    const underlyingsMatch = question.match(/(?:scan|screen|across|up to|max(?:imum)?)\s*(\d+)\s*underlyings\b/i);
+    const count = underlyingsMatch ? Math.min(Number(underlyingsMatch[1]), MAX_SCAN_SYMBOLS) : 25;
+    scope = { kind: "universe", filters: { minMarketCap: 50 }, maxSymbols: count };
+  }
+
   const isScan = scope !== null
-    && /\b(opportunit\w*|trade\s+ideas?|spreads?|strateg\w*|options?|best\s+trades?|condors?|straddles?|strangles?)\b/i.test(question)
+    && hasStrategyKeywords
     && !/\b(buy|sell)\s+\d+\b/i.test(question);
   if (!isBest && !isStrategies && !isScan) return null;
   if (/\b(buy|sell)\s+\d+\s+(?:shares?\s+of\s+)?[A-Za-z]{1,5}\b/i.test(question) && !OPTIONS_CONTEXT.test(question)) return null;
@@ -234,6 +267,17 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
   const credit = question.match(/(?:net\s+)?credit\s*(?:>|over|above|at least)\s*\$?\s*(\d[\d,]*)/i);
   if (credit) strategyFilter.minNetCredit = parseNumber(credit[1]);
   if (/\bfresh\s+quotes?\s+only\b|\bonly\s+fresh\b/i.test(question)) strategyFilter.requireFresh = true;
+
+  // Max profit > max loss criteria
+  if (
+    /\bmax\s*profit\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*max\s*loss\b/i.test(question) ||
+    /\bprofit\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*loss\b/i.test(question) ||
+    /\breward\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*risk\b/i.test(question)
+  ) {
+    request.minRewardRisk = 1.0;
+    strategyFilter.minRewardRisk = 1.0;
+    strategyFilter.maxProfitGreaterThanMaxLoss = true;
+  }
 
   const riskProfile: RiskProfile = /\b(conservative|safe|safer|low[- ]risk)\b/i.test(question)
     ? "conservative"
@@ -319,9 +363,11 @@ export async function runOptionsStrategyAction(
   filters: OptionsStrategyIntent["filters"] | undefined,
 ): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[] }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
-  if (action === "options_opportunities") return runOpportunityScan(etrade, filters);
-  if (!filters?.request?.symbol) {
-    return fail("I could not find an underlying ticker. Example: \"best trade for NVDA bullish target $260 max loss $500\".");
+  if (action === "options_opportunities" || !filters?.request?.symbol) {
+    if (filters && !filters.scope) {
+      filters.scope = { kind: "universe", filters: { minMarketCap: 50 }, maxSymbols: 25 };
+    }
+    return runOpportunityScan(etrade, filters);
   }
 
   const request = { ...filters.request } as Partial<StrategyRequest>;
