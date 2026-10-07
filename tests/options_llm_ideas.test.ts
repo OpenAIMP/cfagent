@@ -338,4 +338,55 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(XLSX.utils.sheet_to_json(workbook.Sheets["Cross-Group Ranking"], { header: 1 }))
       .toContainEqual(["1", "Near-term (0–30 DTE)", "Call spread", "Fits the outlook."]);
   });
+
+  it("converts a candidate strategy to a holistic StrategyToEvaluate object for LLM evaluation", async () => {
+    const { candidateToEval } = await import("../src/client/OptionsResearchPanel");
+    const mockCandidate = {
+      id: "nvda-bull-call-1",
+      symbol: "NVDA",
+      label: "Bull Call Spread",
+      type: "bull_call_spread" as const,
+      category: "vertical_spread",
+      underlyingPrice: 180,
+      expirationDate: "2026-11-20",
+      netDebit: 3.5,
+      maxLoss: 350,
+      maxProfit: 650,
+      maxProfitUnbounded: false,
+      breakevens: [183.5],
+      modelImpliedProbabilityOfProfit: 0.62,
+      targetPnl: 450,
+      targetRewardRisk: 1.85,
+      liquidityScore: 88,
+      rank: 1,
+      score: 84.5,
+      dataFreshness: "FRESH" as const,
+      legs: [
+        { symbol: "NVDA261120C00180000", side: "BUY" as const, quantity: 1, strike: 180, expirationDate: "2026-11-20", optionType: "CALL" as const, bid: 5, ask: 5.5, entryPrice: 5.25 },
+        { symbol: "NVDA261120C00190000", side: "SELL" as const, quantity: 1, strike: 190, expirationDate: "2026-11-20", optionType: "CALL" as const, bid: 1.7, ask: 1.8, entryPrice: 1.75 },
+      ],
+      scenarios: [{ daysToExpiry: 30, ivChangePct: 0, underlyingPrice: 185, pnl: 200 }],
+      payoffCurve: [{ underlyingPrice: 170, pnl: -350 }, { underlyingPrice: 195, pnl: 650 }],
+      netGreeks: { delta: 0.35, gamma: 0.02, theta: -0.05, vega: 0.08 },
+      scoreBreakdown: { thesisAlignment: 90, targetRewardRisk: 85, liquidity: 88, volatilityAlignment: 75, thetaBurden: 80, freshness: 100 },
+      explanations: ["Defined-risk trade with positive leverage."],
+      warnings: [],
+      assumptions: ["Modeled using live Black-Scholes formulas."],
+    };
+
+    const evalTarget = candidateToEval(mockCandidate, "bullish", 200);
+    expect(evalTarget.symbol).toBe("NVDA");
+    expect(evalTarget.strategyName).toBe("Bull Call Spread");
+    expect(evalTarget.sentiment).toBe("bullish");
+    expect(evalTarget.targetPrice).toBe(200);
+    expect(evalTarget.expirationDate).toBe("2026-11-20");
+    expect(evalTarget.dte).toBe(30);
+    expect(evalTarget.netDebit).toBe(3.5);
+    expect(evalTarget.maxLoss).toBe(350);
+    expect(evalTarget.maxProfit).toBe(650);
+    expect(evalTarget.chanceOfProfit).toBe(62);
+    expect(evalTarget.breakevenText).toBe("Above $183.50");
+    expect(evalTarget.legsText).toContain("BUY 1 NVDA261120C00180000");
+    expect(evalTarget.legsText).toContain("SELL 1 NVDA261120C00190000");
+  });
 });

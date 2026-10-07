@@ -16,6 +16,10 @@ import { ResearchReportActions } from "./ResearchReportActions";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
 import { UniversalChart } from "./components/UniversalChart";
+import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./options/LlmStrategyEvalModal";
+import { OptionsDataDownloadDropdown } from "./options/optionsDataExporter";
+import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
+import "./options/strategyDiscovery.css";
 import "./optionsResearch.css";
 
 interface OptionsResearchPanelProps {
@@ -154,13 +158,25 @@ interface ComparisonData {
   };
 }
 
-function BestTradeCard({ pick, onPreview }: { pick: BestTradeData; onPreview?: PreviewTrade }) {
+function BestTradeCard({ pick, onPreview, onEvaluateLlm }: { pick: BestTradeData; onPreview?: PreviewTrade; onEvaluateLlm?: (strategy: StrategyToEvaluate) => void }) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
       <header className="options-results-header">
         <h2>{pick.status === "no_trade" ? "No qualifying trade" : `Best trade: ${pick.best?.candidate.label}`}</h2>
         <span>{pick.status.replace("_", " ").toUpperCase()} · {pick.confidence} confidence · {pick.riskProfile} profile</span>
-        {pick.best && onPreview && <button type="button" onClick={() => onPreview(pick.best!.candidate)}>⚡ Open in Fast Order Ticket</button>}
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          {pick.best && onPreview && <button type="button" onClick={() => onPreview(pick.best!.candidate)}>⚡ Open in Fast Order Ticket</button>}
+          {pick.best && onEvaluateLlm && (
+            <button
+              type="button"
+              className="options-eval-llm-btn"
+              onClick={() => onEvaluateLlm(candidateToEval(pick.best!.candidate))}
+              title="Evaluate this top trade recommendation with Workers AI LLM against complete option chains"
+            >
+              🧠 Evaluate with LLM
+            </button>
+          )}
+        </div>
       </header>
       <ul className="options-explanations">{pick.rationale.map((line) => <li key={line}>{line}</li>)}</ul>
       {pick.blockers.length > 0 && <ul className="options-warnings">{pick.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
@@ -178,7 +194,7 @@ function BestTradeCard({ pick, onPreview }: { pick: BestTradeData; onPreview?: P
           </table>
         </div>
       )}
-      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} />}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} />}
       {pick.alternatives.length > 0 && (
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
@@ -187,7 +203,27 @@ function BestTradeCard({ pick, onPreview }: { pick: BestTradeData; onPreview?: P
               <thead><tr><th>#</th><th>Strategy</th><th>Expiry</th><th>Max loss</th><th>POP</th><th>Score</th></tr></thead>
               <tbody>{pick.alternatives.map((alt) => (
                 <tr key={alt.candidate.id} className={onPreview ? "options-clickable-row" : undefined} onClick={() => onPreview?.(alt.candidate)} title="Open in Fast Order Ticket">
-                  <td>{alt.rank}</td><td>{alt.candidate.label}</td><td>{alt.candidate.expirationDate}</td>
+                  <td>{alt.rank}</td>
+                  <td>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <span>{alt.candidate.label}</span>
+                      {onEvaluateLlm && (
+                        <button
+                          type="button"
+                          className="options-eval-llm-btn"
+                          style={{ padding: "0.15rem 0.4rem", fontSize: "0.68rem" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEvaluateLlm(candidateToEval(alt.candidate));
+                          }}
+                          title="Evaluate runner-up trade with LLM"
+                        >
+                          🧠 LLM
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td>{alt.candidate.expirationDate}</td>
                   <td>{dollars(alt.candidate.maxLoss)}</td>
                   <td>{(alt.candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%</td>
                   <td>{alt.compositeScore.toFixed(1)}</td>
@@ -274,6 +310,25 @@ function breakevenText(candidate: StrategyCandidate): string {
     return `${profitsAbove ? "Above" : "Below"} ${price(candidate.breakevens[0])}`;
   }
   return candidate.breakevens.map(price).join(" · ");
+}
+
+export function candidateToEval(candidate: StrategyCandidate, thesis?: OptionThesis, targetPrice?: number): StrategyToEvaluate {
+  return {
+    symbol: candidate.symbol,
+    strategyName: candidate.label,
+    sentiment: thesis || "bullish",
+    targetPrice,
+    expirationDate: candidate.expirationDate,
+    dte: candidate.scenarios[0]?.daysToExpiry,
+    legsText: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol}`).join(" / "),
+    netDebit: candidate.netDebit,
+    maxLoss: candidate.maxLoss,
+    maxProfit: candidate.maxProfit,
+    chanceOfProfit: Math.round(candidate.modelImpliedProbabilityOfProfit * 100),
+    breakevenText: breakevenText(candidate),
+    underlyingPrice: candidate.underlyingPrice,
+    legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+  };
 }
 
 /** Margin is only estimable for defined-risk strategies, where the broker requirement equals the maximum loss. */
@@ -402,7 +457,7 @@ function LegEditor({ legs, original, contracts, onChange }: {
   );
 }
 
-function StrategyCard({ candidate: suggested, onPreview }: { candidate: StrategyCandidate; onPreview?: PreviewTrade }) {
+function StrategyCard({ candidate: suggested, onPreview, onEvaluateLlm }: { candidate: StrategyCandidate; onPreview?: PreviewTrade; onEvaluateLlm?: (strategy: StrategyToEvaluate) => void }) {
   const chain = useContext(ChainContext);
   const [legs, setLegs] = useState<StrategyLeg[]>(suggested.legs);
   const [underlying, setUnderlying] = useState(suggested.underlyingPrice);
@@ -461,6 +516,16 @@ function StrategyCard({ candidate: suggested, onPreview }: { candidate: Strategy
           </span>
           <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
           {onPreview && <button type="button" onClick={() => onPreview(candidate)}>⚡ Open in Fast Order Ticket</button>}
+          {onEvaluateLlm && (
+            <button
+              type="button"
+              className="options-eval-llm-btn"
+              onClick={() => onEvaluateLlm(candidateToEval(candidate))}
+              title="Evaluate this strategy with Workers AI LLM against raw and normalized options chains"
+            >
+              🧠 Evaluate with LLM
+            </button>
+          )}
           {chain && (
             <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
               {chain.refreshing ? "Refreshing…" : "↻ Refresh option prices"}
@@ -541,7 +606,9 @@ type NlqResultView = {
 };
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
-  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq">("discovery");
+  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq" | "llm-ideas">("discovery");
+  const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
+  const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
   const [symbol, setSymbol] = useState("");
   const [thesis, setThesis] = useState<OptionThesis>("bullish");
   const [targetPrice, setTargetPrice] = useState("");
@@ -785,7 +852,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           <h2>Auto Options Research</h2>
           <p>Run an options-screening request in the background, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. Requests are logged to the shared Chat without leaving this tab. No orders are placed.</p>
         </div>
-        {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <OptionsDataDownloadDropdown
+            symbol={symbol.trim() || "NVDA"}
+            activeEnv={activeEnv}
+            userLogin={userLogin}
+          />
+          {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
+        </div>
       </header>
       {screenMeta?.validationError && <p className="options-error" role="alert">{screenMeta.validationError}</p>}
       {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
@@ -820,6 +894,15 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         >
           💬 Natural Language Screen (NLQ)
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={researchMode === "llm-ideas"}
+          className={`subnav-btn ${researchMode === "llm-ideas" ? "active" : ""}`}
+          onClick={() => setResearchMode("llm-ideas")}
+        >
+          🧪 LLM Idea Experiment &amp; Exporter
+        </button>
       </div>
 
       {researchMode === "discovery" && (
@@ -830,6 +913,10 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           onPreviewTrade={onPreviewTrade}
           onSendPrompt={onSendPrompt}
         />
+      )}
+
+      {researchMode === "llm-ideas" && (
+        <LlmOptionsIdeasPanel activeEnv={activeEnv} userLogin={userLogin} />
       )}
 
       {researchMode === "nlq" && (
@@ -895,9 +982,35 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       {nlqError && <p className="options-error" role="alert">{nlqError}</p>}
       {nlqResult && (
         <div className="options-nlq-result" role="status">
-          <strong>{nlqResult.count ?? 0} result rows</strong>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.4rem" }}>
+            <strong>{nlqResult.count ?? 0} result rows</strong>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <button
+                type="button"
+                className="options-eval-llm-btn"
+                onClick={() => {
+                  setEvaluatingStrategy({
+                    symbol: symbol.trim() || (nlqResult.rows?.[0]?.symbol as string) || "NVDA",
+                    strategyName: `NLQ: "${nlqQuery.slice(0, 45)}${nlqQuery.length > 45 ? "…" : ""}"`,
+                    sentiment: thesis,
+                    targetPrice: Number(targetPrice) || undefined,
+                    legsText: nlqQuery,
+                  });
+                }}
+                title="Evaluate this NLQ screening question against live option chains with Workers AI LLM"
+              >
+                🧠 Evaluate NLQ with LLM
+              </button>
+              <OptionsDataDownloadDropdown
+                symbol={symbol.trim() || (nlqResult.rows?.[0]?.symbol as string) || "NVDA"}
+                activeEnv={activeEnv}
+                userLogin={userLogin}
+                label="📥 Download Data"
+              />
+            </div>
+          </div>
           <p>{nlqResult.validationError || nlqResult.summary}</p>
-          {nlqResult.provenance?.bestTrade && <BestTradeCard pick={nlqResult.provenance.bestTrade} onPreview={previewTrade} />}
+          {nlqResult.provenance?.bestTrade && <BestTradeCard pick={nlqResult.provenance.bestTrade} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
             <StrategyLedgerTable rows={nlqResult.rows} />
           )}
@@ -1082,7 +1195,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
-      {bestTrade && <BestTradeCard pick={bestTrade} onPreview={previewTrade} />}
+      {bestTrade && <BestTradeCard pick={bestTrade} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
@@ -1102,7 +1215,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               </span>
             </div>
           )}
-          {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} onPreview={previewTrade} />)}
+          {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />)}
           {result.excluded.length > 0 && (
             <details className="options-excluded">
               <summary>{result.excluded.reduce((sum, entry) => sum + entry.count, 0)} strategy combinations excluded</summary>
@@ -1142,6 +1255,16 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           })) },
           { name: "Options NLQ", rows: (nlqResult?.rows || []) as Array<Record<string, unknown>> },
         ]}
+      />
+
+      {/* Holistic Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      <LlmStrategyEvalModal
+        isOpen={Boolean(evaluatingStrategy)}
+        onClose={() => setEvaluatingStrategy(null)}
+        strategy={evaluatingStrategy}
+        activeEnv={activeEnv}
+        userLogin={userLogin}
+        onPreviewTrade={onPreviewTrade}
       />
     </section>
     </ChainContext.Provider>

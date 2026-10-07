@@ -14,6 +14,8 @@ import {
   type StrategyLegItem,
 } from "./strategyDiscoveryEngine";
 import { UniversalChart } from "../components/UniversalChart";
+import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
+import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { OptionsTradeContext } from "../OptionsResearchPanel";
 import "./strategyDiscovery.css";
 
@@ -53,6 +55,9 @@ export function StrategyDiscoveryPanel({
 }: StrategyDiscoveryPanelProps) {
   // Navigation View: "discovery" (Image 2) or "builder" (Image 1)
   const [activeView, setActiveView] = useState<"discovery" | "builder">("discovery");
+
+  // LLM Strategy Evaluation Modal State
+  const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
 
   // Core ticker state
   const [symbolInput, setSymbolInput] = useState(initialSymbol);
@@ -410,6 +415,12 @@ export function StrategyDiscoveryPanel({
                 </span>
                 <span className="strat-delayed-tag">↻ Delayed</span>
               </div>
+
+              <OptionsDataDownloadDropdown
+                symbol={activeSymbol}
+                activeEnv={activeEnv}
+                userLogin={userLogin}
+              />
             </form>
 
             {/* 6 Circular Sentiment Selectors */}
@@ -650,13 +661,40 @@ export function StrategyDiscoveryPanel({
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    className="strat-card-btn-builder"
-                    onClick={() => openInBuilder(strat)}
-                  >
-                    Open in Builder
-                  </button>
+                  <div className="strat-card-actions-row">
+                    <button
+                      type="button"
+                      className="strat-card-btn-builder"
+                      onClick={() => openInBuilder(strat)}
+                    >
+                      Open in Builder
+                    </button>
+                    <button
+                      type="button"
+                      className="strat-card-btn-eval"
+                      onClick={() => {
+                        setEvaluatingStrategy({
+                          symbol: activeSymbol,
+                          strategyName: strat.name,
+                          sentiment,
+                          targetPrice,
+                          expirationDate: selectedExpiration.date,
+                          dte: selectedExpiration.dte,
+                          legsText: strat.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+                          netDebit: strat.netDebit,
+                          maxLoss: strat.riskOrCollateral,
+                          maxProfit: strat.maxProfit,
+                          chanceOfProfit: strat.chanceOfProfit,
+                          breakevenText: strat.breakevens.map((b) => `$${b.toFixed(2)}`).join(" · "),
+                          underlyingPrice: spot,
+                          legs: strat.legs.map((l) => `${l.side} ${l.quantity} ${activeSymbol} ${selectedExpiration.date} $${l.strike} ${l.optionType}`),
+                        });
+                      }}
+                      title="Evaluate this strategy against live raw and normalized options chains with Workers AI LLM"
+                    >
+                      🧠 Evaluate with LLM
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -689,6 +727,37 @@ export function StrategyDiscoveryPanel({
               <button type="button" className="strat-btn-action" onClick={sendToFastOrder}>
                 Save / Order Ticket ⚡
               </button>
+              <button
+                type="button"
+                className="strat-btn-action eval-llm"
+                onClick={() => {
+                  setEvaluatingStrategy({
+                    symbol: activeSymbol,
+                    strategyName: currentStrategyName,
+                    sentiment,
+                    targetPrice,
+                    expirationDate: selectedExpiration.date,
+                    dte: selectedExpiration.dte,
+                    legsText: builderLegs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+                    netDebit: selectedStrategy?.netDebit,
+                    maxLoss: selectedStrategy?.riskOrCollateral ?? null,
+                    maxProfit: selectedStrategy?.maxProfit ?? null,
+                    chanceOfProfit: selectedStrategy?.chanceOfProfit,
+                    breakevenText: (selectedStrategy?.breakevens || []).map((b) => `$${b.toFixed(2)}`).join(" · "),
+                    underlyingPrice: spot,
+                    legs: builderLegs.map((l) => `${l.side} ${l.quantity} ${activeSymbol} ${selectedExpiration.date} $${l.strike} ${l.optionType}`),
+                  });
+                }}
+                title="Evaluate this custom built strategy with Workers AI LLM against raw and normalized options chains"
+              >
+                🧠 Evaluate with LLM
+              </button>
+              <OptionsDataDownloadDropdown
+                symbol={activeSymbol}
+                activeEnv={activeEnv}
+                userLogin={userLogin}
+                label="📥 Download Data"
+              />
               <button
                 type="button"
                 className="strat-btn-action"
@@ -1035,6 +1104,16 @@ export function StrategyDiscoveryPanel({
           </div>
         </div>
       )}
+
+      {/* Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      <LlmStrategyEvalModal
+        isOpen={Boolean(evaluatingStrategy)}
+        onClose={() => setEvaluatingStrategy(null)}
+        strategy={evaluatingStrategy}
+        activeEnv={activeEnv}
+        userLogin={userLogin}
+        onPreviewTrade={onPreviewTrade}
+      />
     </div>
   );
 }
