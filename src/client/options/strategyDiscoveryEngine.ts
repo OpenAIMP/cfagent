@@ -26,6 +26,35 @@ export interface StrategyLegItem {
   vega: number;
 }
 
+export interface StrategyEvaluationFactors {
+  /** Return on Risk / Target Profit score (0 - 100) */
+  returnScore: number;
+  /** Probability of Profit score (0 - 100) */
+  chanceScore: number;
+  /** Breakeven safety buffer % vs current spot */
+  cushionPct: number;
+  /** Margin of safety / cushion score (0 - 100) */
+  cushionScore: number;
+  /** Capital efficiency score (0 - 100) */
+  capitalEfficiencyScore: number;
+  /** Overall composite match score (0 - 100) given the active bias */
+  compositeScore: number;
+}
+
+export interface OptimizationBiasFactors {
+  /** Weight applied to Return & Leverage (0 - 100) */
+  returnWeight: number;
+  /** Weight applied to Probability of Profit (0 - 100) */
+  chanceWeight: number;
+  /** Weight applied to Breakeven Safety Cushion (0 - 100) */
+  safetyWeight: number;
+  /** Weight applied to Capital Efficiency (0 - 100) */
+  capitalWeight: number;
+  /** Optimization regime descriptor */
+  regime: "Max Return (High Leverage / OTM)" | "Balanced EV (Risk-Adjusted)" | "Max Chance (High Win-Rate / ITM)";
+  regimeDescription: string;
+}
+
 export interface DiscoveredStrategy {
   id: string;
   name: string;
@@ -49,6 +78,7 @@ export interface DiscoveredStrategy {
   dte: number;
   description: string;
   tag?: string;
+  factors?: StrategyEvaluationFactors;
 }
 
 export interface ExpirationOption {
@@ -236,6 +266,113 @@ function makeStockLeg(
 }
 
 /**
+ * Dynamic factor weightings evaluated by the ← Max Return | Max Chance → optimizer.
+ */
+export function getOptimizationFactors(optimizationBias: number = 50): OptimizationBiasFactors {
+  const biasPct = Math.max(0, Math.min(100, optimizationBias));
+  const chanceRatio = biasPct / 100; // 0 to 1
+  const returnRatio = 1 - chanceRatio; // 1 to 0
+
+  const returnWeight = Math.round(10 + returnRatio * 50); // 10% to 60%
+  const chanceWeight = Math.round(10 + chanceRatio * 50); // 10% to 60%
+  const safetyWeight = Math.round(10 + chanceRatio * 15); // 10% to 25%
+  const capitalWeight = Math.round(10 + returnRatio * 10); // 10% to 20%
+
+  let regime: OptimizationBiasFactors["regime"] = "Balanced EV (Risk-Adjusted)";
+  let regimeDescription = "Balancing win-rate probability with risk/reward payoff multiplier.";
+
+  if (biasPct < 35) {
+    regime = "Max Return (High Leverage / OTM)";
+    regimeDescription =
+      "Prioritizing maximum Return-on-Risk (RoR%), leverage, and asymmetric upside multiple at the target price.";
+  } else if (biasPct > 65) {
+    regime = "Max Chance (High Win-Rate / ITM)";
+    regimeDescription =
+      "Prioritizing high Probability of Profit (POP > 70%), maximizing breakeven margin of safety and downside buffer.";
+  }
+
+  return {
+    returnWeight,
+    chanceWeight,
+    safetyWeight,
+    capitalWeight,
+    regime,
+    regimeDescription,
+  };
+}
+
+/**
+ * Recomputes pricing and Greeks for a single leg when its strike price slider moves in Builder.
+ */
+export function updateLegStrike(
+  leg: StrategyLegItem,
+  newStrike: number,
+  spot: number,
+  dte: number,
+  iv: number
+): StrategyLegItem {
+  if (leg.optionType === "STOCK") {
+    return { ...leg, strike: spot, entryPrice: spot };
+  }
+  const t = Math.max(0.5, dte) / 365;
+  const bs = blackScholes(spot, newStrike, t, iv, 0.045, 0, leg.optionType);
+  const mid = bs.price;
+  const spreadHalf = Math.max(0.05, mid * 0.03);
+  const bid = Math.max(0.01, Number((mid - spreadHalf).toFixed(2)));
+  const ask = Number((mid + spreadHalf).toFixed(2));
+  const entryPrice = leg.side === "BUY" ? ask : bid;
+
+  return {
+    ...leg,
+    strike: newStrike,
+    entryPrice,
+    bid,
+    ask,
+    delta: bs.delta,
+    gamma: bs.gamma,
+    theta: bs.theta,
+    vega: bs.vega,
+  };
+}
+
+/**
+ * Recomputes pricing and Greeks for all legs when a different expiration date is selected in Builder.
+ */
+export function updateLegsExpiration(
+  legs: StrategyLegItem[],
+  newDte: number,
+  newExpirationDate: string,
+  spot: number,
+  iv: number
+): StrategyLegItem[] {
+  return legs.map((leg) => {
+    if (leg.optionType === "STOCK") {
+      return { ...leg, expirationDate: newExpirationDate, dte: newDte };
+    }
+    const t = Math.max(0.5, newDte) / 365;
+    const bs = blackScholes(spot, leg.strike, t, iv, 0.045, 0, leg.optionType);
+    const mid = bs.price;
+    const spreadHalf = Math.max(0.05, mid * 0.03);
+    const bid = Math.max(0.01, Number((mid - spreadHalf).toFixed(2)));
+    const ask = Number((mid + spreadHalf).toFixed(2));
+    const entryPrice = leg.side === "BUY" ? ask : bid;
+
+    return {
+      ...leg,
+      expirationDate: newExpirationDate,
+      dte: newDte,
+      entryPrice,
+      bid,
+      ask,
+      delta: bs.delta,
+      gamma: bs.gamma,
+      theta: bs.theta,
+      vega: bs.vega,
+    };
+  });
+}
+
+/**
  * Derives comprehensive metrics and payoff curves for any set of legs.
  */
 export function analyzeStrategy(
@@ -249,7 +386,8 @@ export function analyzeStrategy(
   dte: number,
   expirationDate: string,
   volatility: number,
-  description: string = ""
+  description: string = "",
+  optimizationBias: number = 50
 ): DiscoveredStrategy {
   const tExpiryYears = Math.max(0.5, dte) / 365;
 
@@ -370,6 +508,37 @@ export function analyzeStrategy(
     breakevenText = breakevens.map((b) => `$${b.toFixed(2)}`).join(" · ");
   }
 
+  // Factors evaluation
+  const cushionPct = breakevens.length > 0
+    ? Number(((Math.min(...breakevens.map((b) => Math.abs(b - spot))) / spot) * 100).toFixed(1))
+    : 0;
+
+  const retVal = returnOnRiskPct ?? returnOnCollateralPct ?? 25;
+  const returnScore = Math.min(100, Math.max(5, Math.round((retVal / 250) * 100)));
+  const chanceScore = Math.min(100, Math.max(5, chanceOfProfit));
+  const cushionScore = Math.min(100, Math.max(5, Math.round(cushionPct * 4)));
+  const capitalEfficiencyScore = riskOrCollateral > 0
+    ? Math.min(100, Math.max(10, Math.round((targetProfit / Math.max(100, riskOrCollateral)) * 100)))
+    : 50;
+
+  const optFactors = getOptimizationFactors(optimizationBias);
+  const compositeScore = Math.round(
+    (returnScore * optFactors.returnWeight +
+      chanceScore * optFactors.chanceWeight +
+      cushionScore * optFactors.safetyWeight +
+      capitalEfficiencyScore * optFactors.capitalWeight) /
+      100
+  );
+
+  const factors: StrategyEvaluationFactors = {
+    returnScore,
+    chanceScore,
+    cushionPct,
+    cushionScore,
+    capitalEfficiencyScore,
+    compositeScore,
+  };
+
   return {
     id: `${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${Date.now()}`,
     name,
@@ -392,6 +561,7 @@ export function analyzeStrategy(
     expirationDate,
     dte,
     description,
+    factors,
   };
 }
 
@@ -896,10 +1066,12 @@ export function discoverStrategies(options: {
     );
   }
 
+  let finalResults = results;
   // Filter by budget if provided
   if (options.budget && options.budget > 0) {
-    return results.filter((s) => s.riskOrCollateral <= options.budget!);
+    finalResults = results.filter((s) => s.riskOrCollateral <= options.budget!);
   }
 
-  return results;
+  // Sort by composite score to match user's optimization bias
+  return finalResults.sort((a, b) => (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0));
 }

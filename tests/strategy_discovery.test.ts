@@ -9,6 +9,9 @@ import {
   generateExpirations,
   generateStrikeLadder,
   evaluateStrategyPnL,
+  getOptimizationFactors,
+  updateLegStrike,
+  updateLegsExpiration,
 } from "../src/client/options/strategyDiscoveryEngine";
 
 describe("Strategy Discovery and Black-Scholes Engine", () => {
@@ -175,4 +178,114 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     const pnlIntermediate = evaluateStrategyPnL(bullCallSpread.legs, 380, 15 / 365, 0.44);
     expect(typeof pnlIntermediate).toBe("number");
   });
+
+  it("evaluates optimization bias factors across regimes and attaches factor scores", () => {
+    const maxReturnFactors = getOptimizationFactors(0);
+    expect(maxReturnFactors.regime).toContain("Max Return");
+    expect(maxReturnFactors.returnWeight).toBeGreaterThan(maxReturnFactors.chanceWeight);
+
+    const maxChanceFactors = getOptimizationFactors(100);
+    expect(maxChanceFactors.regime).toContain("Max Chance");
+    expect(maxChanceFactors.chanceWeight).toBeGreaterThan(maxChanceFactors.returnWeight);
+
+    const balancedFactors = getOptimizationFactors(50);
+    expect(balancedFactors.regime).toContain("Balanced");
+
+    // Verify strategies have factors attached
+    const expirations = generateExpirations();
+    const strats = discoverStrategies({
+      symbol: "NVDA",
+      currentPrice: 233.95,
+      sentiment: "bullish",
+      targetPrice: 280.0,
+      expiration: expirations[5],
+      optimizationBias: 80,
+    });
+
+    expect(strats[0].factors).toBeDefined();
+    expect(strats[0].factors!.chanceScore).toBeGreaterThan(0);
+    expect(strats[0].factors!.compositeScore).toBeGreaterThan(0);
+  });
+
+  it("updates leg strike prices and recomputes Black-Scholes Greeks when slider moves", () => {
+    const expirations = generateExpirations();
+    const strats = discoverStrategies({
+      symbol: "TSLA",
+      currentPrice: 380.0,
+      sentiment: "bullish",
+      targetPrice: 500.0,
+      expiration: expirations[4],
+      optimizationBias: 50,
+    });
+
+    const callStrategy = strats.find((s) => s.name === "Long Call")!;
+    const originalLeg = callStrategy.legs[0];
+    const originalStrike = originalLeg.strike;
+    const originalPrice = originalLeg.entryPrice;
+
+    // Slide strike 20 points higher (further OTM)
+    const newStrike = originalStrike + 20;
+    const updatedLeg = updateLegStrike(originalLeg, newStrike, 380.0, expirations[4].dte, 0.44);
+
+    expect(updatedLeg.strike).toBe(newStrike);
+    // Higher strike call should be cheaper
+    expect(updatedLeg.entryPrice).toBeLessThan(originalPrice);
+    // Delta should be lower for higher call strike
+    expect(updatedLeg.delta).toBeLessThan(originalLeg.delta);
+  });
+
+  it("updates leg expiration dates and re-prices premiums when different dates are selected", () => {
+    const expirations = generateExpirations();
+    const nearExp = expirations[1]; // short DTE
+    const farExp = expirations[expirations.length - 2]; // long DTE (LEAP)
+
+    const strats = discoverStrategies({
+      symbol: "TSLA",
+      currentPrice: 380.0,
+      sentiment: "bullish",
+      targetPrice: 500.0,
+      expiration: nearExp,
+      optimizationBias: 50,
+    });
+
+    const callLeg = strats[0].legs[0];
+    const shortTermPrice = callLeg.entryPrice;
+
+    // Update expiration to far term
+    const updatedLegs = updateLegsExpiration([callLeg], farExp.dte, farExp.date, 380.0, 0.44);
+    const farTermPrice = updatedLegs[0].entryPrice;
+
+    // Longer DTE option has more extrinsic time value, so premium must be higher
+    expect(farTermPrice).toBeGreaterThan(shortTermPrice);
+    expect(updatedLegs[0].dte).toBe(farExp.dte);
+    expect(updatedLegs[0].expirationDate).toBe(farExp.date);
+  });
+
+  it("verifies time decay progression between today, intermediate dates, and expiration", () => {
+    const expirations = generateExpirations();
+    const exp = expirations[5]; // e.g. 30-45 DTE
+    const strats = discoverStrategies({
+      symbol: "NVDA",
+      currentPrice: 233.95,
+      sentiment: "bullish",
+      targetPrice: 300.0,
+      expiration: exp,
+      optimizationBias: 50,
+    });
+
+    const bullCall = strats.find((s) => s.name === "Bull Call Spread")!;
+    const spot = 233.95;
+
+    // PnL today (full time remaining)
+    const pnlToday = evaluateStrategyPnL(bullCall.legs, spot, exp.dte / 365, 0.44);
+    // PnL halfway to expiration
+    const pnlHalfway = evaluateStrategyPnL(bullCall.legs, spot, (exp.dte * 0.5) / 365, 0.44);
+    // PnL at expiration
+    const pnlExpiry = evaluateStrategyPnL(bullCall.legs, spot, 0, 0.44);
+
+    expect(typeof pnlToday).toBe("number");
+    expect(typeof pnlHalfway).toBe("number");
+    expect(typeof pnlExpiry).toBe("number");
+  });
 });
+

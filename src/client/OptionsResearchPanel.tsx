@@ -15,6 +15,7 @@ import type { StrategyEvaluation } from "../trading/options/strategies/types";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
+import { UniversalChart } from "./components/UniversalChart";
 import "./optionsResearch.css";
 
 interface OptionsResearchPanelProps {
@@ -287,13 +288,6 @@ function niceTicks(min: number, max: number, count: number): number[] {
 
 function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
   const [rangePct, setRangePct] = useState(15);
-  const [hoverSpot, setHoverSpot] = useState<number | null>(null);
-  const width = 720;
-  const height = 280;
-  const left = 56;
-  const right = 16;
-  const top = 18;
-  const bottom = 30;
   const spot = candidate.underlyingPrice;
   const curve = candidate.payoffCurve;
   if (curve.length < 2) return null;
@@ -314,84 +308,19 @@ function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
   };
 
   const inside = curve.filter((point) => point.underlyingPrice > lo && point.underlyingPrice < hi);
-  const points = [{ underlyingPrice: lo, pnl: pnlAt(lo) }, ...inside, { underlyingPrice: hi, pnl: pnlAt(hi) }];
-  const pnls = points.map((point) => point.pnl);
-  const yMin = Math.min(...pnls, 0);
-  const yMax = Math.max(...pnls, 0);
-  const pad = Math.max(1, (yMax - yMin) * 0.08);
-  const y0 = yMin - pad;
-  const y1 = yMax + pad;
-  const toX = (price: number) => left + ((price - lo) / (hi - lo)) * (width - left - right);
-  const toY = (value: number) => top + ((y1 - value) / (y1 - y0)) * (height - top - bottom);
-  const zeroY = toY(0);
-  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${toX(point.underlyingPrice).toFixed(1)},${toY(point.pnl).toFixed(1)}`).join(" ");
-  const area = `${line} L${toX(hi).toFixed(1)},${zeroY.toFixed(1)} L${toX(lo).toFixed(1)},${zeroY.toFixed(1)} Z`;
-  const id = candidate.id.replace(/[^a-zA-Z0-9]/g, "");
-  const marker = hoverSpot ?? spot;
-  const markerPnl = pnlAt(marker);
-  const visibleBreakevens = candidate.breakevens.filter((price) => price > lo && price < hi);
-
-  const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - box.left) / box.width) * width;
-    const ratio = Math.min(1, Math.max(0, (x - left) / (width - left - right)));
-    setHoverSpot(lo + ratio * (hi - lo));
-  };
+  const points = [{ x: lo, y: pnlAt(lo) }, ...inside.map((p) => ({ x: p.underlyingPrice, y: p.pnl })), { x: hi, y: pnlAt(hi) }];
 
   return (
     <div className="options-payoff-wrap">
-      <svg
-        className="options-payoff-graph"
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label={`${candidate.label} profit and loss at expiration`}
-        onMouseMove={onMove}
-        onMouseLeave={() => setHoverSpot(null)}
-      >
-        <defs>
-          <linearGradient id={`${id}-gain`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#22c55e" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.02" />
-          </linearGradient>
-          <linearGradient id={`${id}-loss`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
-          </linearGradient>
-          <clipPath id={`${id}-above`}><rect x={left} y={top} width={width - left - right} height={Math.max(0, zeroY - top)} /></clipPath>
-          <clipPath id={`${id}-below`}><rect x={left} y={zeroY} width={width - left - right} height={Math.max(0, height - bottom - zeroY)} /></clipPath>
-        </defs>
-        {niceTicks(y0, y1, 6).map((tick) => (
-          <g key={`y${tick}`}>
-            <line x1={left} x2={width - right} y1={toY(tick)} y2={toY(tick)} className="options-grid-line" />
-            <text x={left - 6} y={toY(tick) + 3} textAnchor="end" className="options-axis-label">{signedDollars(Math.round(tick))}</text>
-          </g>
-        ))}
-        {niceTicks(lo, hi, 7).map((tick) => (
-          <text key={`x${tick}`} x={toX(tick)} y={height - 10} textAnchor="middle" className="options-axis-label">${tick.toFixed(2)}</text>
-        ))}
-        <path d={area} fill={`url(#${id}-gain)`} clipPath={`url(#${id}-above)`} />
-        <path d={area} fill={`url(#${id}-loss)`} clipPath={`url(#${id}-below)`} />
-        <line x1={left} x2={width - right} y1={zeroY} y2={zeroY} className="options-zero-line" />
-        <path d={line} className="options-payoff-line" clipPath={`url(#${id}-above)`} stroke="#22c55e" />
-        <path d={line} className="options-payoff-line" clipPath={`url(#${id}-below)`} stroke="#ef4444" />
-        <line x1={toX(spot)} x2={toX(spot)} y1={top} y2={height - bottom} className="options-spot-line" />
-        <text x={toX(spot)} y={top - 5} textAnchor="middle" className="options-spot-label">${spot.toFixed(2)}</text>
-        {visibleBreakevens.map((price) => (
-          <g key={`be${price}`}>
-            <line x1={toX(price)} x2={toX(price)} y1={top} y2={height - bottom} className="options-breakeven-line" />
-            <text x={toX(price)} y={height - bottom - 4} textAnchor="middle" className="options-breakeven-label">BE ${price.toFixed(2)}</text>
-          </g>
-        ))}
-        <line x1={toX(marker)} x2={toX(marker)} y1={top} y2={height - bottom} className="options-marker-line" />
-        <circle cx={toX(marker)} cy={toY(markerPnl)} r={4} className="options-marker-dot" />
-        <text
-          x={Math.min(width - right - 4, Math.max(left + 4, toX(marker) + 8))}
-          y={Math.max(top + 12, toY(markerPnl) - 8)}
-          className={markerPnl >= 0 ? "options-marker-label gain" : "options-marker-label loss"}
-        >
-          {`$${marker.toFixed(2)}: ${signedDollars(markerPnl)}`}
-        </text>
-      </svg>
+      <UniversalChart
+        mode="payoff"
+        points={points}
+        spotPrice={spot}
+        breakevens={candidate.breakevens}
+        width={720}
+        height={280}
+        ariaLabel={`${candidate.label} profit and loss at expiration`}
+      />
       <label className="options-range-control">
         <span>Range ±{rangePct}%</span>
         <input type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
