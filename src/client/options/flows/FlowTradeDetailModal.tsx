@@ -135,11 +135,16 @@ export function FlowTradeDetailModal({
             </div>
           </div>
 
-          <div className="flow-modal-metric-card">
+          <div className="flow-modal-metric-card" title={trade.sentimentReasoning || ""}>
             <div className="flow-metric-label">SENTIMENT</div>
             <div className={`flow-metric-value sentiment-${trade.sentiment}`}>
               {trade.sentiment.charAt(0).toUpperCase() + trade.sentiment.slice(1)}
             </div>
+            {trade.sentimentReasoning && (
+              <div className="flow-metric-sub" style={{ fontSize: "0.68rem", opacity: 0.85 }}>
+                {trade.confidenceScore ? `${trade.confidenceScore}% conv.` : "Rule Evaluated"}
+              </div>
+            )}
           </div>
 
           <div className="flow-modal-metric-card">

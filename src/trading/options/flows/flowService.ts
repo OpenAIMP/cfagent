@@ -7,6 +7,8 @@ import {
   FlowFilterConfig,
   SavedFilterPreset,
   FlowLeaderboardItem,
+  EvaluatedFlowSentiment,
+  FlowLegDetail,
 } from "./types";
 
 export const DEFAULT_SAVED_PRESETS: SavedFilterPreset[] = [
@@ -1239,7 +1241,7 @@ export function filterLiveFlowItems(
   items: LiveFlowItem[],
   filter: Partial<FlowFilterConfig>
 ): LiveFlowItem[] {
-  return items.filter((item) => {
+  return items.map((item) => enrichFlowItem(item)).filter((item) => {
     // 1. Tickers
     if (filter.tickers && filter.tickers.length > 0) {
       const match = filter.tickers.some((t) => item.symbol.toUpperCase() === t.toUpperCase());
@@ -1414,32 +1416,228 @@ export const BEARISH_FLOW_LEADERBOARD: FlowLeaderboardItem[] = [
   { symbol: "MUU", tradeCount: 12, premiumFormatted: "$3.10m", premiumRaw: 3100000, pctWidth: 30 },
 ];
 
+/**
+ * Classifies an options trade into Bullish, Bearish, or Neutral sentiment
+ * based on standardized institutional options flow criteria:
+ *
+ * 1. Contract direction:
+ *    - BUY CALL (Ask cross): Bullish (paying the ask for upside leverage)
+ *    - SELL CALL (Bid hit): Bearish (short call ceiling or hedge)
+ *    - BUY PUT (Ask cross): Bearish (downside speculation or tail risk hedge)
+ *    - SELL PUT (Bid hit): Bullish (income generation / willing to buy underlying)
+ *
+ * 2. Multi-leg spread mechanics:
+ *    - Long Combo (Buy Call + Sell Put): Very Bullish (synthetic long)
+ *    - Short Combo (Buy Put + Sell Call): Very Bearish (synthetic short)
+ *    - Bull Spreads: Bullish
+ *    - Bear Spreads: Bearish
+ *    - Straddles/Strangles/Iron Condors: Neutral
+ *
+ * 3. Execution vs NBBO:
+ *    - Above Ask: Ultra-aggressive buyer (+confidence)
+ *    - Below Bid: Ultra-aggressive seller (+confidence)
+ *
+ * 4. Volume vs Open Interest:
+ *    - Vol > OI: Opening trade indicator (+conviction)
+ */
+export function classifyTradeSentiment(trade: {
+  strategy?: string;
+  strategyTitle?: string;
+  side?: "BUY" | "SELL";
+  type?: string;
+  fillPrice?: number;
+  bid?: number;
+  ask?: number;
+  volOverOi?: boolean;
+  aboveAskBelowBid?: boolean;
+  legsDetails?: FlowLegDetail[];
+}): EvaluatedFlowSentiment {
+  const strat = `${trade.strategyTitle || ""} ${trade.strategy || ""}`.toLowerCase();
+  const side = trade.side || (strat.includes("buy") ? "BUY" : strat.includes("sell") ? "SELL" : "BUY");
+
+  // Multi-leg combo detection
+  const hasBuyCall = (trade.legsDetails?.some(l => l.action === "Buy" && (l.optionType === "CALL" || l.option.includes("C")))) ?? false;
+  const hasSellPut = (trade.legsDetails?.some(l => l.action === "Sell" && (l.optionType === "PUT" || l.option.includes("P")))) ?? false;
+  const hasBuyPut = (trade.legsDetails?.some(l => l.action === "Buy" && (l.optionType === "PUT" || l.option.includes("P")))) ?? false;
+  const hasSellCall = (trade.legsDetails?.some(l => l.action === "Sell" && (l.optionType === "CALL" || l.option.includes("C")))) ?? false;
+
+  if ((hasBuyCall && hasSellPut) || strat.includes("long combo") || (strat.includes("combo") && side === "BUY")) {
+    return {
+      sentiment: "bullish",
+      confidence: 96,
+      reasoning: "Long Combo: Synthetically replicating long delta stock by buying calls funded by selling puts.",
+    };
+  }
+
+  if ((hasBuyPut && hasSellCall) || strat.includes("short combo") || (strat.includes("combo") && side === "SELL")) {
+    return {
+      sentiment: "bearish",
+      confidence: 96,
+      reasoning: "Short Combo: Synthetically replicating short delta stock by buying puts and selling calls.",
+    };
+  }
+
+  // Named Spreads
+  if (strat.includes("bull call") || strat.includes("bull put")) {
+    return {
+      sentiment: "bullish",
+      confidence: 88,
+      reasoning: "Bull Vertical Spread: Directional upside positioning with defined risk.",
+    };
+  }
+
+  if (strat.includes("bear put") || strat.includes("bear call")) {
+    return {
+      sentiment: "bearish",
+      confidence: 88,
+      reasoning: "Bear Vertical Spread: Directional downside positioning with defined risk.",
+    };
+  }
+
+  if (strat.includes("straddle") || strat.includes("strangle") || strat.includes("iron condor") || strat.includes("butterfly")) {
+    return {
+      sentiment: "neutral",
+      confidence: 85,
+      reasoning: "Volatility or Rangebound Structure: Non-directional delta with pure vega/theta profile.",
+    };
+  }
+
+  const isCall = strat.includes("call") || hasBuyCall || hasSellCall;
+  const isPut = strat.includes("put") || hasBuyPut || hasSellPut;
+
+  if (isCall) {
+    if (side === "BUY") {
+      const aggressive = trade.aboveAskBelowBid || (trade.fillPrice && trade.ask && trade.fillPrice >= trade.ask);
+      return {
+        sentiment: "bullish",
+        confidence: aggressive ? 92 : 82,
+        reasoning: aggressive
+          ? "Aggressive Call Buying: Order crossed the NBBO ask, indicating high urgency institutional accumulation."
+          : "Long Call: Direct upside leveraged exposure.",
+      };
+    } else {
+      return {
+        sentiment: "bearish",
+        confidence: 80,
+        reasoning: "Short Call Print: Selling calls to lock in downside hedge or writing upside resistance.",
+      };
+    }
+  }
+
+  if (isPut) {
+    if (side === "BUY") {
+      const aggressive = trade.aboveAskBelowBid || (trade.fillPrice && trade.ask && trade.fillPrice >= trade.ask);
+      return {
+        sentiment: "bearish",
+        confidence: aggressive ? 92 : 82,
+        reasoning: aggressive
+          ? "Aggressive Put Buying: Order crossed the ask, indicating aggressive downside speculation or large portfolio hedge."
+          : "Long Put: Bearish downside positioning.",
+      };
+    } else {
+      return {
+        sentiment: "bullish",
+        confidence: 82,
+        reasoning: "Short Put Print: Writing cash-secured or margin puts, collecting upfront premium and willing to absorb shares at strike.",
+      };
+    }
+  }
+
+  // Default fallback
+  return {
+    sentiment: "neutral",
+    confidence: 60,
+    reasoning: "Neutral or mixed flow print.",
+  };
+}
+
+export function enrichFlowItem(item: LiveFlowItem): LiveFlowItem {
+  const evaluated = classifyTradeSentiment(item);
+  item.sentiment = evaluated.sentiment;
+  item.sentimentReasoning = evaluated.reasoning;
+  item.confidenceScore = evaluated.confidence;
+  return item;
+}
+
+function formatFlowPremium(prem: number): string {
+  if (prem >= 1_000_000) return `$${(prem / 1_000_000).toFixed(2)}m`;
+  if (prem >= 1_000) return `$${Math.round(prem / 1_000)}k`;
+  return `$${prem.toLocaleString()}`;
+}
+
+function mergeLeaderboardWithSeed(
+  dynamicItems: FlowLeaderboardItem[],
+  seedItems: FlowLeaderboardItem[]
+): FlowLeaderboardItem[] {
+  const mergedMap = new Map<string, FlowLeaderboardItem>();
+
+  // Add all dynamic items first
+  for (const item of dynamicItems) {
+    mergedMap.set(item.symbol.toUpperCase(), { ...item });
+  }
+
+  // Top up with seed items so the leaderboard always maintains a complete 20-row view
+  for (const seed of seedItems) {
+    if (!mergedMap.has(seed.symbol.toUpperCase())) {
+      mergedMap.set(seed.symbol.toUpperCase(), { ...seed });
+    } else {
+      // Merge counts and raw premium
+      const existing = mergedMap.get(seed.symbol.toUpperCase())!;
+      const totalPrem = Math.max(existing.premiumRaw, seed.premiumRaw);
+      existing.tradeCount = Math.max(existing.tradeCount, seed.tradeCount);
+      existing.premiumRaw = totalPrem;
+      existing.premiumFormatted = formatFlowPremium(totalPrem);
+    }
+  }
+
+  const result = Array.from(mergedMap.values())
+    .sort((a, b) => b.premiumRaw - a.premiumRaw)
+    .slice(0, 20);
+
+  // Dynamically recompute percentage widths relative to the top symbol
+  const maxPrem = result.length > 0 ? Math.max(...result.map((r) => r.premiumRaw)) : 1;
+  for (const r of result) {
+    r.pctWidth = Math.max(15, Math.min(100, Math.round((r.premiumRaw / maxPrem) * 100)));
+  }
+
+  return result;
+}
+
 export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
   let callPremium = 0;
   let putPremium = 0;
   let sweepCount = 0;
   let blockCount = 0;
 
-  const symbolCalls: Record<string, { premium: number; count: number }> = {};
-  const symbolPuts: Record<string, { premium: number; count: number }> = {};
+  const symbolBullish: Record<string, { premium: number; count: number }> = {};
+  const symbolBearish: Record<string, { premium: number; count: number }> = {};
 
   for (const item of items) {
     if (item.type === "SWEEP") sweepCount++;
     if (item.type === "BLOCK") blockCount++;
+
+    const classification = classifyTradeSentiment(item);
+    item.sentiment = classification.sentiment;
+    item.sentimentReasoning = classification.reasoning;
+    item.confidenceScore = classification.confidence;
 
     const isCall = item.strategy.toLowerCase().includes("call");
     const isPut = item.strategy.toLowerCase().includes("put");
 
     if (isCall) {
       callPremium += item.premium;
-      if (!symbolCalls[item.symbol]) symbolCalls[item.symbol] = { premium: 0, count: 0 };
-      symbolCalls[item.symbol].premium += item.premium;
-      symbolCalls[item.symbol].count += 1;
     } else if (isPut) {
       putPremium += item.premium;
-      if (!symbolPuts[item.symbol]) symbolPuts[item.symbol] = { premium: 0, count: 0 };
-      symbolPuts[item.symbol].premium += item.premium;
-      symbolPuts[item.symbol].count += 1;
+    }
+
+    if (classification.sentiment === "bullish") {
+      if (!symbolBullish[item.symbol]) symbolBullish[item.symbol] = { premium: 0, count: 0 };
+      symbolBullish[item.symbol].premium += item.premium;
+      symbolBullish[item.symbol].count += 1;
+    } else if (classification.sentiment === "bearish") {
+      if (!symbolBearish[item.symbol]) symbolBearish[item.symbol] = { premium: 0, count: 0 };
+      symbolBearish[item.symbol].premium += item.premium;
+      symbolBearish[item.symbol].count += 1;
     }
   }
 
@@ -1448,15 +1646,34 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
     ? Math.round((callPremium / totalPremium) * 100)
     : 50;
 
-  const topBullishSymbols = Object.entries(symbolCalls)
+  const topBullishSymbols = Object.entries(symbolBullish)
     .map(([symbol, data]) => ({ symbol, callPremium: data.premium, tradeCount: data.count }))
     .sort((a, b) => b.callPremium - a.callPremium)
     .slice(0, 6);
 
-  const topBearishSymbols = Object.entries(symbolPuts)
+  const topBearishSymbols = Object.entries(symbolBearish)
     .map(([symbol, data]) => ({ symbol, putPremium: data.premium, tradeCount: data.count }))
     .sort((a, b) => b.putPremium - a.putPremium)
     .slice(0, 6);
+
+  const dynamicBullishList: FlowLeaderboardItem[] = Object.entries(symbolBullish).map(([symbol, data]) => ({
+    symbol,
+    tradeCount: data.count,
+    premiumRaw: data.premium,
+    premiumFormatted: formatFlowPremium(data.premium),
+    pctWidth: 0,
+  }));
+
+  const dynamicBearishList: FlowLeaderboardItem[] = Object.entries(symbolBearish).map(([symbol, data]) => ({
+    symbol,
+    tradeCount: data.count,
+    premiumRaw: data.premium,
+    premiumFormatted: formatFlowPremium(data.premium),
+    pctWidth: 0,
+  }));
+
+  const bullishLeaderboard = mergeLeaderboardWithSeed(dynamicBullishList, BULLISH_FLOW_LEADERBOARD);
+  const bearishLeaderboard = mergeLeaderboardWithSeed(dynamicBearishList, BEARISH_FLOW_LEADERBOARD);
 
   const largestTrades = [...items]
     .sort((a, b) => b.premium - a.premium)
@@ -1472,8 +1689,8 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
     blockCount,
     topBullishSymbols,
     topBearishSymbols,
-    bullishLeaderboard: BULLISH_FLOW_LEADERBOARD,
-    bearishLeaderboard: BEARISH_FLOW_LEADERBOARD,
+    bullishLeaderboard,
+    bearishLeaderboard,
     largestTrades,
   };
 }

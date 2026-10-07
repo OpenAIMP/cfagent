@@ -11,6 +11,7 @@ import {
   filterInsiderFlowItems,
   filterCongressFlowItems,
   calculateFlowSummary,
+  classifyTradeSentiment,
 } from "../src/trading/options/flows/flowService";
 
 describe("Options Flows Engine & Institutional Activity Suite", () => {
@@ -190,5 +191,55 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
     expect(sellLeg.option).toBe("97.5P 1/15/27");
     expect(sellLeg.quantity).toBe(2000);
     expect(sellLeg.strike).toBe(97.5);
+  });
+
+  it("evaluates criteria-based sentiment engine (classifyTradeSentiment)", () => {
+    // 1. Long Call -> Bullish
+    const longCall = classifyTradeSentiment({ strategy: "Buy 100 Call", side: "BUY" });
+    expect(longCall.sentiment).toBe("bullish");
+    expect(longCall.confidence).toBeGreaterThanOrEqual(80);
+
+    // 2. Short Call -> Bearish
+    const shortCall = classifyTradeSentiment({ strategy: "Sell 100 Call", side: "SELL" });
+    expect(shortCall.sentiment).toBe("bearish");
+
+    // 3. Long Put -> Bearish
+    const longPut = classifyTradeSentiment({ strategy: "Buy 100 Put", side: "BUY" });
+    expect(longPut.sentiment).toBe("bearish");
+
+    // 4. Short Put -> Bullish
+    const shortPut = classifyTradeSentiment({ strategy: "Sell 100 Put", side: "SELL" });
+    expect(shortPut.sentiment).toBe("bullish");
+
+    // 5. Long Combo (Buy Call + Sell Put) -> Bullish
+    const longCombo = classifyTradeSentiment({
+      strategy: "Buy 97.5/135 Combo",
+      legsDetails: [
+        { action: "Buy", option: "135C 1/15/27", quantity: 2000, optionType: "CALL" },
+        { action: "Sell", option: "97.5P 1/15/27", quantity: 2000, optionType: "PUT" },
+      ],
+    });
+    expect(longCombo.sentiment).toBe("bullish");
+    expect(longCombo.confidence).toBeGreaterThanOrEqual(95);
+    expect(longCombo.reasoning).toContain("Long Combo");
+
+    // 6. Bull Call Spread -> Bullish
+    const bullCall = classifyTradeSentiment({ strategy: "Buy 108/115 Calls" });
+    expect(bullCall.sentiment).toBe("bullish");
+
+    // 7. Neutral Straddle / Condor
+    const straddle = classifyTradeSentiment({ strategy: "Buy 500 Straddle" });
+    expect(straddle.sentiment).toBe("neutral");
+
+    // 8. Aggressive ask crossing boost
+    const aggressiveCall = classifyTradeSentiment({
+      strategy: "Buy 150 Call",
+      side: "BUY",
+      fillPrice: 2.5,
+      ask: 2.45,
+    });
+    expect(aggressiveCall.sentiment).toBe("bullish");
+    expect(aggressiveCall.confidence).toBeGreaterThanOrEqual(90);
+    expect(aggressiveCall.reasoning).toContain("Aggressive Call Buying");
   });
 });

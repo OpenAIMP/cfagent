@@ -58,6 +58,14 @@ export interface LiveFlowItem {
   performanceLow?: string;
   calculationText?: string;
   returnSinceFillText?: string;
+  sentimentReasoning?: string;
+  confidenceScore?: number;
+}
+
+export interface EvaluatedFlowSentiment {
+  sentiment: FlowSentiment;
+  confidence: number;
+  reasoning: string;
 }
 
 export interface NewsFlowItem {
