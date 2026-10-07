@@ -18,6 +18,7 @@ import type { ETradeOptionChain, ETradeOptionChainContract, Env } from "../../..
 import { DynamicOptionsScreener } from "../../optionsScreener";
 import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
+import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
 
 export const DEFAULT_SAVED_PRESETS: SavedFilterPreset[] = [
   {
@@ -1884,6 +1885,97 @@ export const DYNAMIC_FLOW_PROFILES: Array<{
   { symbol: "RIVN", companyName: "Rivian Automotive", underlyingPrice: 11.4, marketCap: "small", assetType: "stock" },
 ];
 
+// In-memory cache for dynamically scanned stock listings partitioned by market cap (10 minute TTL)
+let dynamicListingsCache: {
+  expiresAt: number;
+  large: string[];
+  mid: string[];
+  small: string[];
+  etfs: string[];
+} | null = null;
+
+/**
+ * Dynamically resolves active market underlyings for options flow analysis.
+ * Uses live market feeds (Nasdaq all-exchange stock listings / FOSS screener)
+ * to discover top-volume, high-momentum tickers partitioned dynamically
+ * by market capitalization:
+ * - Large Cap: >= $10B (S&P 500 / Nasdaq 100 giants)
+ * - Mid Cap: $2B - $10B (Russell midcaps)
+ * - Small Cap: < $2B (up to $5B) (growth / high-beta underlyings)
+ */
+export async function resolveDynamicFlowSymbols(
+  filter?: Partial<FlowFilterConfig>
+): Promise<string[]> {
+  const now = Date.now();
+  if (!dynamicListingsCache || dynamicListingsCache.expiresAt <= now) {
+    try {
+      const listings = await fetchAllUsStockListings().catch(() => []);
+      if (listings && listings.length > 0) {
+        // Sort by absolute price change percent (high-momentum / unusual volume movers)
+        const activeMoverSort = (a: NasdaqStockListing, b: NasdaqStockListing) =>
+          Math.abs(b.changePercent || 0) - Math.abs(a.changePercent || 0);
+
+        const large = listings
+          .filter((l) => (l.marketCap || 0) >= 10_000_000_000)
+          .sort(activeMoverSort)
+          .slice(0, 20)
+          .map((l) => l.symbol);
+
+        const mid = listings
+          .filter((l) => (l.marketCap || 0) >= 2_000_000_000 && (l.marketCap || 0) < 10_000_000_000)
+          .sort(activeMoverSort)
+          .slice(0, 20)
+          .map((l) => l.symbol);
+
+        const small = listings
+          .filter((l) => (l.marketCap || 0) > 0 && (l.marketCap || 0) < 2_000_000_000)
+          .sort(activeMoverSort)
+          .slice(0, 20)
+          .map((l) => l.symbol);
+
+        dynamicListingsCache = {
+          expiresAt: now + 10 * 60 * 1000, // 10 minutes
+          large: large.length > 0 ? large : ["NVDA", "AAPL", "MSFT", "AMZN", "META", "TSLA", "GOOGL", "AMD", "SPY", "QQQ"],
+          mid: mid.length > 0 ? mid : ["IWM", "COIN", "SMCI", "PLTR", "HOOD", "AFRM", "DKNG", "SNAP"],
+          small: small.length > 0 ? small : ["MARA", "UPST", "SOFI", "RIVN", "LCID", "PLUG", "CHWY", "RUN"],
+          etfs: ["SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "SMH"],
+        };
+      }
+    } catch {
+      // Offline fallback
+    }
+  }
+
+  // Fallback defaults if listings could not be loaded
+  const cache = dynamicListingsCache || {
+    expiresAt: now + 60000,
+    large: ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META", "GOOGL"],
+    mid: ["IWM", "COIN", "SMCI", "PLTR", "HOOD", "AFRM", "DKNG", "SNAP"],
+    small: ["MARA", "UPST", "SOFI", "RIVN", "LCID", "PLUG", "CHWY", "RUN"],
+    etfs: ["SPY", "QQQ", "IWM"],
+  };
+
+  const caps = filter?.marketCaps || ["large", "mid", "small"];
+  const selected: string[] = [];
+
+  if (caps.includes("small") && (!caps.includes("large") && !caps.includes("mid"))) {
+    return cache.small.slice(0, 8);
+  }
+  if (caps.includes("mid") && (!caps.includes("large") && !caps.includes("small"))) {
+    return cache.mid.slice(0, 8);
+  }
+  if (caps.includes("large") && (!caps.includes("mid") && !caps.includes("small"))) {
+    return cache.large.slice(0, 10);
+  }
+
+  // Multi-cap diversified basket
+  if (caps.includes("large")) selected.push(...cache.large.slice(0, 6));
+  if (caps.includes("mid")) selected.push(...cache.mid.slice(0, 4));
+  if (caps.includes("small")) selected.push(...cache.small.slice(0, 4));
+
+  return Array.from(new Set(selected));
+}
+
 /**
  * Generates dynamic options flow items across active market underlyings
  * with authentic execution points, realistic Greeks, and up-to-the-minute timestamps.
@@ -2027,11 +2119,8 @@ export async function fetchRealMarketFlowsForSymbol(
     const quote = result.quote || {};
     const underlyingPrice = Number(quote.regularMarketPrice || quote.bid || quote.ask || 100);
     const companyName = quote.shortName || quote.longName || `${cleanSym} ETF / Stock`;
-    const profile = DYNAMIC_FLOW_PROFILES.find((p) => p.symbol === cleanSym);
     let marketCap: MarketCapCategory = "large";
-    if (profile) {
-      marketCap = profile.marketCap;
-    } else if (quote.marketCap && quote.marketCap > 0) {
+    if (quote.marketCap && quote.marketCap > 0) {
       if (quote.marketCap >= 10_000_000_000) {
         marketCap = "large";
       } else if (quote.marketCap >= 2_000_000_000) {
@@ -2040,7 +2129,10 @@ export async function fetchRealMarketFlowsForSymbol(
         marketCap = "small";
       }
     } else {
-      if (cleanSym === "IWM" || cleanSym === "IJR" || cleanSym === "VB" || cleanSym === "MDY") {
+      const profile = DYNAMIC_FLOW_PROFILES.find((p) => p.symbol === cleanSym);
+      if (profile) {
+        marketCap = profile.marketCap;
+      } else if (cleanSym === "IWM" || cleanSym === "IJR" || cleanSym === "VB" || cleanSym === "MDY") {
         marketCap = "mid";
       } else {
         marketCap = "large";
@@ -2223,12 +2315,19 @@ export async function getDynamicLiveFlowItems(
     }
   }
 
-  // 2. Query broker client if env is provided and authenticated
-  if (convertedItems.length === 0 && requestedTickers.length > 0 && env) {
+  // 2. Resolve target symbols dynamically (from filter tickers or live market cap scanner)
+  const targetSymbols = requestedTickers.length > 0
+    ? requestedTickers
+    : await resolveDynamicFlowSymbols(filter);
+
+  // 3. Query broker client (E*TRADE) if env is provided and authenticated
+  // Directly retrieves live option chains from E*TRADE for dynamically discovered underlyings
+  if (convertedItems.length === 0 && env && targetSymbols.length > 0) {
     try {
       const etrade = new ETradeService(env);
-      for (const ticker of requestedTickers) {
-        const cleanSym = ticker.toUpperCase().trim();
+      const symbolsToQuery = targetSymbols.slice(0, 8);
+      for (const sym of symbolsToQuery) {
+        const cleanSym = sym.toUpperCase().trim();
         const chain = await etrade.getOptionChains({ symbol: cleanSym }).catch(() => null);
         if (chain && chain.pairs && chain.pairs.length > 0) {
           const chainTrades = convertOptionChainToFlowItems(chain, { referenceTimestamp: refTime });
@@ -2236,30 +2335,11 @@ export async function getDynamicLiveFlowItems(
         }
       }
     } catch {
-      // Offline broker client
+      // Offline / unauthenticated broker client
     }
   }
 
-  // 3. Fetch real market options flow
-  let targetSymbols: string[] = [];
-  if (requestedTickers.length > 0) {
-    targetSymbols = requestedTickers;
-  } else if (filter?.marketCaps && filter.marketCaps.length === 1) {
-    const requestedCap = filter.marketCaps[0];
-    if (requestedCap === "small") {
-      targetSymbols = ["MARA", "UPST", "SOFI", "RIVN"];
-    } else if (requestedCap === "mid") {
-      targetSymbols = ["IWM", "COIN", "SMCI", "PLTR"];
-    } else {
-      targetSymbols = ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META", "GOOGL"];
-    }
-  } else {
-    targetSymbols = [
-      "SPY", "QQQ", "IWM", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META",
-      "COIN", "SMCI", "MARA", "UPST", "SOFI",
-    ];
-  }
-
+  // 4. Fetch real market options flow from live market exchanges (Yahoo Finance / Alpaca FOSS feeds)
   const realPromises = targetSymbols.map((sym) =>
     fetchRealMarketFlowsForSymbol(sym, {
       minPremium: filter?.minPremium,

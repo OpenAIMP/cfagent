@@ -18,6 +18,7 @@ import {
   getDynamicFlowSummary,
   sortAndScaleLeaderboard,
   fetchRealMarketFlowsForSymbol,
+  resolveDynamicFlowSymbols,
 } from "../src/trading/options/flows/flowService";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import type { ETradeOptionChain } from "../src/types";
@@ -564,6 +565,27 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       const largeSummary = calculateFlowSummary(largeTrades);
       expect(largeSummary.bullishLeaderboard.map((b) => b.symbol)).toEqual(["NVDA"]);
       expect(largeSummary.bearishLeaderboard).toHaveLength(0);
+    });
+
+    it("dynamically resolves active flow underlyings partitioned by market capitalization", async () => {
+      // 1. Small cap dynamic resolution
+      const smallSymbols = await resolveDynamicFlowSymbols({ marketCaps: ["small"] });
+      expect(smallSymbols.length).toBeGreaterThan(0);
+      expect(smallSymbols.every((s) => typeof s === "string" && s.length > 0)).toBe(true);
+
+      // 2. Mid cap dynamic resolution
+      const midSymbols = await resolveDynamicFlowSymbols({ marketCaps: ["mid"] });
+      expect(midSymbols.length).toBeGreaterThan(0);
+      expect(midSymbols.every((s) => typeof s === "string" && s.length > 0)).toBe(true);
+
+      // 3. Large cap dynamic resolution
+      const largeSymbols = await resolveDynamicFlowSymbols({ marketCaps: ["large"] });
+      expect(largeSymbols.length).toBeGreaterThan(0);
+      expect(largeSymbols.every((s) => typeof s === "string" && s.length > 0)).toBe(true);
+
+      // 4. Multi-cap resolution
+      const multiSymbols = await resolveDynamicFlowSymbols({ marketCaps: ["large", "mid", "small"] });
+      expect(multiSymbols.length).toBeGreaterThanOrEqual(10);
     });
   });
 });

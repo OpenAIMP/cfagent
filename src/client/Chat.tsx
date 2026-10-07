@@ -3840,7 +3840,7 @@ export function Chat({ user }: { user: User }) {
         )}
 
         {tab === "options-flows" && (
-          <div className="options-flows-view" style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+          <div className="options-flows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <OptionsFlowsHub
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
