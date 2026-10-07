@@ -13,6 +13,10 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(56, 189, 248, 0.12);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* TOP VIEW SWITCHER TABS */
@@ -65,19 +69,25 @@
 .strat-discovery-header {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1.1rem;
-  padding: 0.5rem 0;
+  align-items: stretch;
+  gap: 0.9rem;
+  padding: 0.25rem 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* SIDE-BY-SIDE DISCOVERY CONTROLS ROW */
 .strat-discovery-top-row {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
-  gap: 1.5rem;
+  gap: 1.25rem;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-wrap: wrap;
 }
 
 .strat-discovery-left-col {
@@ -85,21 +95,37 @@
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 0.65rem;
-  flex: 1 1 50%;
+  gap: 0.5rem;
+  flex: 0 1 auto;
   min-width: 0;
-  padding: 0.25rem 0.25rem;
+  max-width: 100%;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .strat-discovery-left-col .strat-symbol-bar {
   margin: 0;
+  flex-wrap: wrap;
+  gap: 0.65rem;
 }
 
 .strat-discovery-left-col .strat-sentiment-group {
-  margin: 0.25rem 0 0 0 !important;
+  margin: 0.2rem 0 0 0 !important;
   padding: 2px 0 !important;
   justify-content: flex-start !important;
-  gap: 0.65rem !important;
+  gap: 0.5rem !important;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+}
+
+.strat-discovery-left-col .strat-sentiment-circle {
+  width: 40px;
+  height: 40px;
+}
+
+.strat-discovery-left-col .strat-sentiment-label {
+  font-size: 0.7rem;
 }
 
 .strat-discovery-right-col {
@@ -107,50 +133,58 @@
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
-  gap: 0.45rem;
-  flex: 1 1 50%;
+  gap: 0.4rem;
+  flex: 1 1 420px;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .strat-discovery-right-col .strat-opt-slider-wrap {
   width: 100%;
   max-width: 100%;
-  margin: 0 0 0.2rem 0;
+  margin: 0 0 0.15rem 0;
+  box-sizing: border-box;
 }
 
 .strat-discovery-right-col .strat-opt-factors-panel {
   width: 100%;
   max-width: 100%;
   margin: 0;
-  padding: 0.65rem 0.85rem;
+  padding: 0.55rem 0.75rem;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .strat-discovery-right-col .strat-factors-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .strat-discovery-right-col .strat-factors-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1140px) {
   .strat-discovery-top-row {
     flex-direction: column;
-    align-items: center;
-    gap: 1.25rem;
+    align-items: stretch;
+    gap: 1rem;
   }
 
   .strat-discovery-left-col {
-    align-items: center;
+    align-items: flex-start;
     width: 100%;
   }
 
   .strat-discovery-left-col .strat-sentiment-group {
-    justify-content: center !important;
+    justify-content: flex-start !important;
   }
 
   .strat-discovery-right-col {
@@ -525,17 +559,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
+  gap: 0.75rem;
   width: 100%;
-  max-width: 520px;
-  margin: 0.2rem auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0.15rem auto;
   color: #94a3b8;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
+}
+
+.strat-opt-slider-wrap span {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .strat-opt-slider-wrap input[type="range"] {
   flex: 1;
+  min-width: 60px;
   accent-color: #0284c7;
   height: 4px;
   cursor: pointer;
@@ -1140,41 +1181,52 @@
 
 .strat-factors-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .strat-factor-card {
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
-  padding: 0.5rem 0.65rem;
+  padding: 0.45rem 0.55rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .strat-factor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.3rem;
+  gap: 0.25rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .strat-factor-title {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #e2e8f0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .strat-factor-weight {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: #38bdf8;
   font-family: monospace;
+  flex-shrink: 0;
 }
 
 .strat-factor-bar-bg {

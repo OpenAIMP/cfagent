@@ -1252,7 +1252,7 @@ export function StrategyDiscoveryPanel({
                     ${quote.price.toFixed(2)}
                     <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
                       {quote.change >= 0 ? "+" : ""}
-                      {quote.changePercent.toFixed(2)}% (+${quote.change.toFixed(2)})
+                      {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
                     </span>
                     <span className="strat-delayed-tag">↻ Delayed</span>
                   </div>
@@ -1323,36 +1323,36 @@ export function StrategyDiscoveryPanel({
                     <span className="strat-opt-regime-desc">{optFactors.regimeDescription}</span>
                   </div>
                   <div className="strat-factors-grid">
-                    <div className="strat-factor-card">
+                    <div className="strat-factor-card" title="Target Return & Leverage">
                       <div className="strat-factor-header">
-                        <span className="strat-factor-title">Target Return & Leverage</span>
+                        <span className="strat-factor-title">Target Return</span>
                         <span className="strat-factor-weight">{optFactors.returnWeight}% wt</span>
                       </div>
                       <div className="strat-factor-bar-bg">
                         <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
                       </div>
                     </div>
-                    <div className="strat-factor-card">
+                    <div className="strat-factor-card" title="Win Probability (POP)">
                       <div className="strat-factor-header">
-                        <span className="strat-factor-title">Win Probability (POP)</span>
+                        <span className="strat-factor-title">Win Prob (POP)</span>
                         <span className="strat-factor-weight">{optFactors.chanceWeight}% wt</span>
                       </div>
                       <div className="strat-factor-bar-bg">
                         <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
                       </div>
                     </div>
-                    <div className="strat-factor-card">
+                    <div className="strat-factor-card" title="Breakeven Buffer">
                       <div className="strat-factor-header">
-                        <span className="strat-factor-title">Breakeven Buffer</span>
+                        <span className="strat-factor-title">Breakeven</span>
                         <span className="strat-factor-weight">{optFactors.safetyWeight}% wt</span>
                       </div>
                       <div className="strat-factor-bar-bg">
                         <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
                       </div>
                     </div>
-                    <div className="strat-factor-card">
+                    <div className="strat-factor-card" title="Capital Efficiency">
                       <div className="strat-factor-header">
-                        <span className="strat-factor-title">Capital Efficiency</span>
+                        <span className="strat-factor-title">Cap. Efficiency</span>
                         <span className="strat-factor-weight">{optFactors.capitalWeight}% wt</span>
                       </div>
                       <div className="strat-factor-bar-bg">

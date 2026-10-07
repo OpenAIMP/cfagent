@@ -308,7 +308,7 @@ export function OptionsFlowsHub({
         ];
 
     return (
-      <div className="options-flows-container">
+      <div className="options-flows-container" style={{ overflowY: "auto", overflowX: "hidden", height: "100%", width: "100%", boxSizing: "border-box" }}>
         <StrategyDiscoveryPanel
           initialSymbol={activeBuilderTrade.symbol}
           initialStrategyName={activeBuilderTrade.strategyTitle || activeBuilderTrade.strategy}
