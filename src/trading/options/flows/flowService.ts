@@ -1574,6 +1574,56 @@ function formatFlowPremium(prem: number): string {
   return `$${prem.toLocaleString()}`;
 }
 
+/**
+ * Formats options flow print timestamps in US Eastern Time (America/New_York)
+ * standard to all major options exchanges (CBOE, NYSE Arca, Nasdaq).
+ */
+export function formatFlowDateTime(timestamp: number, refTime: number = Date.now()): string {
+  try {
+    const date = new Date(timestamp);
+    const ref = new Date(refTime);
+
+    const nyDateStr = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).format(date);
+
+    const nyRefStr = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).format(ref);
+
+    const timePart = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date).toLowerCase().replace(/\s+/g, "");
+
+    if (nyDateStr === nyRefStr) {
+      return timePart;
+    }
+
+    const monthDay = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      month: "numeric",
+      day: "numeric",
+    }).format(date);
+
+    return `${monthDay} ${timePart}`;
+  } catch {
+    const d = new Date(timestamp);
+    const hours = d.getHours();
+    const mins = d.getMinutes().toString().padStart(2, "0");
+    const ampm = hours >= 12 ? "pm" : "am";
+    return `${hours % 12 || 12}:${mins}${ampm}`;
+  }
+}
+
 function mergeLeaderboardWithSeed(
   dynamicItems: FlowLeaderboardItem[],
   seedItems: FlowLeaderboardItem[]
@@ -1678,21 +1728,50 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
     .sort((a, b) => b.putPremium - a.putPremium)
     .slice(0, 6);
 
-  const dynamicBullishList: FlowLeaderboardItem[] = Object.entries(symbolBullish).map(([symbol, data]) => ({
-    symbol,
-    tradeCount: data.count,
-    premiumRaw: data.premium,
-    premiumFormatted: formatFlowPremium(data.premium),
-    pctWidth: 0,
-  }));
+  let dynamicBullishList: FlowLeaderboardItem[] = Object.entries(symbolBullish)
+    .filter(([symbol, data]) => {
+      const bearPrem = symbolBearish[symbol]?.premium || 0;
+      return data.premium >= bearPrem;
+    })
+    .map(([symbol, data]) => ({
+      symbol,
+      tradeCount: data.count,
+      premiumRaw: data.premium,
+      premiumFormatted: formatFlowPremium(data.premium),
+      pctWidth: 0,
+    }));
 
-  const dynamicBearishList: FlowLeaderboardItem[] = Object.entries(symbolBearish).map(([symbol, data]) => ({
-    symbol,
-    tradeCount: data.count,
-    premiumRaw: data.premium,
-    premiumFormatted: formatFlowPremium(data.premium),
-    pctWidth: 0,
-  }));
+  let dynamicBearishList: FlowLeaderboardItem[] = Object.entries(symbolBearish)
+    .filter(([symbol, data]) => {
+      const bullPrem = symbolBullish[symbol]?.premium || 0;
+      return data.premium > bullPrem;
+    })
+    .map(([symbol, data]) => ({
+      symbol,
+      tradeCount: data.count,
+      premiumRaw: data.premium,
+      premiumFormatted: formatFlowPremium(data.premium),
+      pctWidth: 0,
+    }));
+
+  if (dynamicBullishList.length === 0 && Object.keys(symbolBullish).length > 0) {
+    dynamicBullishList = Object.entries(symbolBullish).map(([symbol, data]) => ({
+      symbol,
+      tradeCount: data.count,
+      premiumRaw: data.premium,
+      premiumFormatted: formatFlowPremium(data.premium),
+      pctWidth: 0,
+    }));
+  }
+  if (dynamicBearishList.length === 0 && Object.keys(symbolBearish).length > 0) {
+    dynamicBearishList = Object.entries(symbolBearish).map(([symbol, data]) => ({
+      symbol,
+      tradeCount: data.count,
+      premiumRaw: data.premium,
+      premiumFormatted: formatFlowPremium(data.premium),
+      pctWidth: 0,
+    }));
+  }
 
   const isBaselineFixture = items === RAW_LIVE_FLOW_ITEMS;
 
@@ -1796,11 +1875,7 @@ export function convertOptionChainToFlowItems(
       // Calculate recent minute timestamp
       const minutesAgo = Math.min(180, (i * 4 + (type === "CALL" ? 1 : 2)));
       const itemTimestamp = refTime - minutesAgo * 60000;
-      const dateObj = new Date(itemTimestamp);
-      const hours = dateObj.getHours();
-      const mins = dateObj.getMinutes().toString().padStart(2, "0");
-      const ampm = hours >= 12 ? "pm" : "am";
-      const timeStr = `${hours % 12 || 12}:${mins}${ampm}`;
+      const timeStr = formatFlowDateTime(itemTimestamp, refTime);
 
       const flowItem: LiveFlowItem = {
         id: `${symbol.toLowerCase()}_chain_${type.toLowerCase()}_${strike}_${itemTimestamp}`,
@@ -2072,11 +2147,7 @@ export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions
 
       const minutesAgo = (tradeIdx * 5 + t * 2) % 240 + 1;
       const itemTimestamp = refTime - minutesAgo * 60000;
-      const dateObj = new Date(itemTimestamp);
-      const hours = dateObj.getHours();
-      const mins = dateObj.getMinutes().toString().padStart(2, "0");
-      const ampm = hours >= 12 ? "pm" : "am";
-      const timeStr = `${hours % 12 || 12}:${mins}${ampm}`;
+      const timeStr = formatFlowDateTime(itemTimestamp, refTime);
 
       const strategy = `${template.side === "BUY" ? "Buy" : "Sell"} ${strike} ${template.optType === "CALL" ? "Call" : "Put"}`;
       const strategyTitle = `${profile.symbol} ${template.side === "BUY" ? "Long" : "Short"} ${template.optType === "CALL" ? "Call" : "Put"}`;
@@ -2253,19 +2324,7 @@ export async function fetchRealMarketFlowsForSymbol(
       // Real trade timestamp from exchange
       const tradeSeconds = Number(c.lastTradeDate || 0);
       const tradeTimestamp = tradeSeconds > 0 ? tradeSeconds * 1000 : refTime - idx * 60000;
-      const tradeDateObj = new Date(tradeTimestamp);
-
-      const isToday =
-        tradeDateObj.getFullYear() === new Date(refTime).getFullYear() &&
-        tradeDateObj.getMonth() === new Date(refTime).getMonth() &&
-        tradeDateObj.getDate() === new Date(refTime).getDate();
-
-      const hours = tradeDateObj.getHours();
-      const mins = tradeDateObj.getMinutes().toString().padStart(2, "0");
-      const ampm = hours >= 12 ? "pm" : "am";
-      const timeStr = isToday
-        ? `${hours % 12 || 12}:${mins}${ampm}`
-        : `${tradeDateObj.getMonth() + 1}/${tradeDateObj.getDate()} ${hours % 12 || 12}:${mins}${ampm}`;
+      const timeStr = formatFlowDateTime(tradeTimestamp, refTime);
 
       const strategy = `${side === "BUY" ? "Buy" : "Sell"} ${strike} ${isCall ? "Call" : "Put"}`;
       const strategyTitle = `${cleanSym} ${side === "BUY" ? "Long" : "Short"} ${isCall ? "Call" : "Put"}`;

@@ -19,13 +19,14 @@ export function FlowTradeDetailModal({
   const company = trade.companyName || `${trade.symbol} Equity`;
   const timeFormatted = trade.timestamp
     ? new Date(trade.timestamp).toLocaleString("en-US", {
+        timeZone: "America/New_York",
         month: "numeric",
         day: "numeric",
         year: "2-digit",
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
-      })
+      }) + " ET"
     : trade.time.includes("/")
     ? (trade.time.includes("/26") ? trade.time : `${trade.time}/26`)
     : `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" })}, ${trade.time}`;

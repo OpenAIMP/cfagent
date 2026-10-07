@@ -19,6 +19,7 @@ import {
   sortAndScaleLeaderboard,
   fetchRealMarketFlowsForSymbol,
   resolveDynamicFlowSymbols,
+  formatFlowDateTime,
 } from "../src/trading/options/flows/flowService";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import type { ETradeOptionChain } from "../src/types";
@@ -630,6 +631,134 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       expect(allSummarySymbols.size).toBeGreaterThan(1);
       expect(allSummarySymbols.has("NVDA")).toBe(true);
       expect(allSummarySymbols.has("IWM") || allSummarySymbols.has("AAPL")).toBe(true);
+    });
+
+    it("formats options flow timestamps in US Eastern Time (America/New_York) preventing future UTC time jumps", () => {
+      // 2026-10-07 18:30:00 UTC = 2026-10-07 14:30:00 EDT (2:30pm ET)
+      const testUtcEpoch = Date.UTC(2026, 9, 7, 18, 30, 0); // Oct 7, 2026 18:30:00 UTC
+      const refTime = Date.UTC(2026, 9, 7, 18, 45, 0); // Oct 7, 2026 18:45:00 UTC (same day)
+
+      const formatted = formatFlowDateTime(testUtcEpoch, refTime);
+      expect(formatted).toBe("2:30pm");
+
+      // Verify that it is NOT formatted as 6:30pm (UTC hour)
+      expect(formatted).not.toContain("6:30");
+    });
+
+    it("partitions dual leaderboards by net sentiment so stocks only appear on their dominant side", () => {
+      const mixedTrades = [
+        // STX: $3M bullish vs $1M bearish -> Net Bullish
+        {
+          id: "stx_bull",
+          time: "2:20pm",
+          timestamp: Date.now(),
+          symbol: "STX",
+          strategy: "Buy 690 Call",
+          underlyingPrice: 685,
+          expiration: "2d",
+          dte: 2,
+          strike: 690,
+          premium: 3000000,
+          premiumFormatted: "$3.00m",
+          type: "SWEEP" as const,
+          side: "BUY" as const,
+          sentiment: "bullish" as const,
+          volume: 1000,
+          openInterest: 500,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 40,
+          marketCap: "large" as const,
+          assetType: "stock" as const,
+        },
+        {
+          id: "stx_bear",
+          time: "2:21pm",
+          timestamp: Date.now(),
+          symbol: "STX",
+          strategy: "Buy 680 Put",
+          underlyingPrice: 685,
+          expiration: "2d",
+          dte: 2,
+          strike: 680,
+          premium: 1000000,
+          premiumFormatted: "$1.00m",
+          type: "BLOCK" as const,
+          side: "BUY" as const,
+          sentiment: "bearish" as const,
+          volume: 400,
+          openInterest: 500,
+          volOverOi: false,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 40,
+          marketCap: "large" as const,
+          assetType: "stock" as const,
+        },
+        // CEG: $200k bullish vs $800k bearish -> Net Bearish
+        {
+          id: "ceg_bull",
+          time: "2:22pm",
+          timestamp: Date.now(),
+          symbol: "CEG",
+          strategy: "Buy 300 Call",
+          underlyingPrice: 295,
+          expiration: "2d",
+          dte: 2,
+          strike: 300,
+          premium: 200000,
+          premiumFormatted: "$200k",
+          type: "SINGLE" as const,
+          side: "BUY" as const,
+          sentiment: "bullish" as const,
+          volume: 100,
+          openInterest: 100,
+          volOverOi: false,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 40,
+          marketCap: "large" as const,
+          assetType: "stock" as const,
+        },
+        {
+          id: "ceg_bear",
+          time: "2:23pm",
+          timestamp: Date.now(),
+          symbol: "CEG",
+          strategy: "Buy 290 Put",
+          underlyingPrice: 295,
+          expiration: "2d",
+          dte: 2,
+          strike: 290,
+          premium: 800000,
+          premiumFormatted: "$800k",
+          type: "BLOCK" as const,
+          side: "BUY" as const,
+          sentiment: "bearish" as const,
+          volume: 500,
+          openInterest: 100,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 40,
+          marketCap: "large" as const,
+          assetType: "stock" as const,
+        },
+      ];
+
+      const summary = calculateFlowSummary(mixedTrades);
+
+      const bullSymbols = summary.bullishLeaderboard.map((b) => b.symbol);
+      const bearSymbols = summary.bearishLeaderboard.map((b) => b.symbol);
+
+      // STX is Net Bullish -> MUST appear on Bullish, MUST NOT appear on Bearish
+      expect(bullSymbols).toContain("STX");
+      expect(bearSymbols).not.toContain("STX");
+
+      // CEG is Net Bearish -> MUST appear on Bearish, MUST NOT appear on Bullish
+      expect(bearSymbols).toContain("CEG");
+      expect(bullSymbols).not.toContain("CEG");
     });
   });
 });

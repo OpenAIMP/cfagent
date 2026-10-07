@@ -20,6 +20,7 @@ import {
   filterInsiderFlowItems,
   filterCongressFlowItems,
   calculateFlowSummary,
+  formatFlowDateTime,
 } from "../../../trading/options/flows/flowService";
 import { FlowFiltersSidebar } from "./FlowFiltersSidebar";
 import { FlowSummaryDualBars } from "./FlowSummaryDualBars";
@@ -528,7 +529,9 @@ export function OptionsFlowsHub({
                           className="flow-locked-row"
                           onClick={() => setShowUpgradeModal(true)}
                         >
-                          <td className="flow-time-cell">{item.time}</td>
+                          <td className="flow-time-cell">
+                            {item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}
+                          </td>
                           <td colSpan={5}>
                             <span className="flow-locked-text">
                               🔒 Upgrade for Access
@@ -544,7 +547,9 @@ export function OptionsFlowsHub({
                         style={{ cursor: "pointer" }}
                         onClick={() => handleOpenTradeDetail(item)}
                       >
-                        <td className="flow-time-cell">{item.time}</td>
+                        <td className="flow-time-cell">
+                          {item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}
+                        </td>
                         <td className={`flow-symbol-cell ${item.sentiment}`}>{item.symbol}</td>
                         <td className="flow-strategy-cell">
                           {item.strategy}
