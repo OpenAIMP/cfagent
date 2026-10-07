@@ -145,6 +145,7 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+  min-height: 0;
 }
 
 .flows-table-area {
@@ -153,6 +154,7 @@
   flex-direction: column;
   overflow-y: auto;
   min-width: 0;
+  min-height: 0;
 }
 
 /* FLOW DATA TABLES */
@@ -1080,14 +1082,18 @@
   display: flex;
   gap: 1.5rem;
   width: 100%;
-  height: 100%;
-  padding: 0.5rem 0.5rem 1rem 0.5rem;
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 0.5rem 0.5rem 1.5rem 0.5rem;
   box-sizing: border-box;
 }
 
 .flow-leaderboard-col {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -1101,6 +1107,7 @@
   font-size: 0.95rem;
   font-weight: 700;
   color: #f8fafc;
+  flex-shrink: 0;
 }
 
 .flow-col-title-bullish {
@@ -1122,8 +1129,32 @@
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
-  max-height: calc(100vh - 210px);
-  padding-right: 4px;
+  flex: 1;
+  min-height: 0;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 rgba(15, 23, 42, 0.4);
+}
+
+.flow-leaderboard-rows-list::-webkit-scrollbar,
+.flow-dual-leaderboard-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.flow-leaderboard-rows-list::-webkit-scrollbar-track,
+.flow-dual-leaderboard-container::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.flow-leaderboard-rows-list::-webkit-scrollbar-thumb,
+.flow-dual-leaderboard-container::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+.flow-leaderboard-rows-list::-webkit-scrollbar-thumb:hover,
+.flow-dual-leaderboard-container::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 .flow-bar-row {

@@ -49,11 +49,12 @@ export function OptionsFlowsHub({
   const [activeBuilderTrade, setActiveBuilderTrade] = useState<LiveFlowItem | null>(null);
 
   // Live / Historical items
-  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
+  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>([]);
+  const [hasLoadedInitial, setHasLoadedInitial] = useState<boolean>(false);
   const [newsItems, setNewsItems] = useState<NewsFlowItem[]>(RAW_NEWS_FLOW_ITEMS);
   const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>(RAW_INSIDER_FLOW_ITEMS);
   const [congressItems, setCongressItems] = useState<CongressFlowItem[]>(RAW_CONGRESS_FLOW_ITEMS);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
   const fetchLiveFlows = (tickers?: string[], minPrem?: number) => {
@@ -66,13 +67,22 @@ export function OptionsFlowsHub({
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => {
-        if (data?.flows) {
+        if (data?.flows && data.flows.length > 0) {
           setLiveItems(data.flows);
           setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+        } else if (!hasLoadedInitial) {
+          setLiveItems(RAW_LIVE_FLOW_ITEMS);
         }
       })
-      .catch(() => {})
-      .finally(() => setIsRefreshing(false));
+      .catch(() => {
+        if (!hasLoadedInitial) {
+          setLiveItems(RAW_LIVE_FLOW_ITEMS);
+        }
+      })
+      .finally(() => {
+        setIsRefreshing(false);
+        setHasLoadedInitial(true);
+      });
   };
 
   // Fetch initial or server data if available
@@ -401,74 +411,100 @@ export function OptionsFlowsHub({
         <main className="flows-table-area">
           {/* SUB-TAB 1: SUMMARY VIEW (SCREENSHOT 1: DUAL GRADIENT BARS) */}
           {subTab === "summary" && (
-            <FlowSummaryDualBars
-              bullishItems={summaryData.bullishLeaderboard}
-              bearishItems={summaryData.bearishLeaderboard}
-              onSelectSymbol={handleSelectTicker}
-            />
+            !hasLoadedInitial && liveItems.length === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.5rem" }}>
+                  Aggregating Real-Time Options Flow Leaderboard...
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  Calculating net bullish vs bearish institutional dollar volumes directly from market exchanges
+                </div>
+              </div>
+            ) : (
+              <FlowSummaryDualBars
+                bullishItems={summaryData.bullishLeaderboard}
+                bearishItems={summaryData.bearishLeaderboard}
+                onSelectSymbol={handleSelectTicker}
+              />
+            )
           )}
 
           {/* SUB-TAB 2: LIVE FLOW (SCREENSHOTS 1 & 2) */}
           {(subTab === "live" || subTab === "historical") && (
-            <table className="flow-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Symbol</th>
-                  <th>Strategy</th>
-                  <th>Expiration</th>
-                  <th>Premium</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLiveItems.map((item) => {
-                  if (item.isLocked) {
+            !hasLoadedInitial && liveItems.length === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.5rem" }}>
+                  Streaming Real-Time Institutional Options Flow...
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  Fetching authentic market orders, sweeps, and block trades from exchange feeds
+                </div>
+              </div>
+            ) : filteredLiveItems.length === 0 ? (
+              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "#94a3b8" }}>
+                No options flow prints matching the current filter criteria.
+              </div>
+            ) : (
+              <table className="flow-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th>Strategy</th>
+                    <th>Expiration</th>
+                    <th>Premium</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLiveItems.map((item) => {
+                    if (item.isLocked) {
+                      return (
+                        <tr
+                          key={item.id}
+                          className="flow-locked-row"
+                          onClick={() => setShowUpgradeModal(true)}
+                        >
+                          <td className="flow-time-cell">{item.time}</td>
+                          <td colSpan={5}>
+                            <span className="flow-locked-text">
+                              🔒 Upgrade for Access
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    }
+
                     return (
                       <tr
                         key={item.id}
-                        className="flow-locked-row"
-                        onClick={() => setShowUpgradeModal(true)}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => handleOpenTradeDetail(item)}
                       >
                         <td className="flow-time-cell">{item.time}</td>
-                        <td colSpan={5}>
-                          <span className="flow-locked-text">
-                            🔒 Upgrade for Access
+                        <td className={`flow-symbol-cell ${item.sentiment}`}>{item.symbol}</td>
+                        <td className="flow-strategy-cell">
+                          {item.strategy}
+                          {item.companyName && (
+                            <span className="flow-strategy-desc">({item.companyName})</span>
+                          )}
+                        </td>
+                        <td className="flow-exp-cell">{item.expiration}</td>
+                        <td className={`flow-premium-cell ${item.sentiment}`}>
+                          {item.premiumFormatted}
+                          {item.abnormalActivity && <span className="flow-aa-badge">AA</span>}
+                        </td>
+                        <td>
+                          <span className={`flow-type-badge ${item.type.toLowerCase()}`}>
+                            {item.type}
                           </span>
                         </td>
                       </tr>
                     );
-                  }
-
-                  return (
-                    <tr
-                      key={item.id}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handleOpenTradeDetail(item)}
-                    >
-                      <td className="flow-time-cell">{item.time}</td>
-                      <td className={`flow-symbol-cell ${item.sentiment}`}>{item.symbol}</td>
-                      <td className="flow-strategy-cell">
-                        {item.strategy}
-                        {item.companyName && (
-                          <span className="flow-strategy-desc">({item.companyName})</span>
-                        )}
-                      </td>
-                      <td className="flow-exp-cell">{item.expiration}</td>
-                      <td className={`flow-premium-cell ${item.sentiment}`}>
-                        {item.premiumFormatted}
-                        {item.abnormalActivity && <span className="flow-aa-badge">AA</span>}
-                      </td>
-                      <td>
-                        <span className={`flow-type-badge ${item.type.toLowerCase()}`}>
-                          {item.type}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  })}
+                </tbody>
+              </table>
+            )
           )}
 
           {/* SUB-TAB 4: NEWS FLOW (SCREENSHOT 3) */}

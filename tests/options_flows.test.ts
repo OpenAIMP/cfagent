@@ -16,6 +16,8 @@ import {
   generateDynamicFlowUniverse,
   getDynamicLiveFlowItems,
   getDynamicFlowSummary,
+  sortAndScaleLeaderboard,
+  fetchRealMarketFlowsForSymbol,
 } from "../src/trading/options/flows/flowService";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import type { ETradeOptionChain } from "../src/types";
@@ -381,6 +383,83 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       expect(summary.bullishLeaderboard.length).toBeGreaterThan(0);
       expect(summary.bearishLeaderboard.length).toBeGreaterThan(0);
       expect(summary.largestTrades.length).toBeGreaterThan(0);
+    });
+
+    it("sortAndScaleLeaderboard correctly scales percentages and ranks by premium", () => {
+      const items = [
+        { symbol: "NVDA", tradeCount: 15, premiumRaw: 50000000, premiumFormatted: "$50.00m", pctWidth: 0 },
+        { symbol: "AAPL", tradeCount: 10, premiumRaw: 25000000, premiumFormatted: "$25.00m", pctWidth: 0 },
+        { symbol: "TSLA", tradeCount: 5, premiumRaw: 10000000, premiumFormatted: "$10.00m", pctWidth: 0 },
+      ];
+
+      const scaled = sortAndScaleLeaderboard(items);
+      expect(scaled[0].symbol).toBe("NVDA");
+      expect(scaled[0].pctWidth).toBe(100);
+      expect(scaled[1].symbol).toBe("AAPL");
+      expect(scaled[1].pctWidth).toBe(50);
+      expect(scaled[2].symbol).toBe("TSLA");
+      expect(scaled[2].pctWidth).toBe(20);
+    });
+
+    it("calculateFlowSummary computes dynamic leaderboards from custom active trades", () => {
+      const customTrades = [
+        {
+          id: "trade_1",
+          time: "11:55am",
+          timestamp: Date.now(),
+          symbol: "IWM",
+          strategy: "Buy 278 Call",
+          underlyingPrice: 277.5,
+          expiration: "0d",
+          dte: 0,
+          strike: 278,
+          premium: 2000000,
+          premiumFormatted: "$2.00m",
+          type: "SWEEP" as const,
+          side: "BUY" as const,
+          sentiment: "bullish" as const,
+          volume: 5000,
+          openInterest: 1000,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 25,
+          marketCap: "mid" as const,
+          assetType: "etf" as const,
+        },
+        {
+          id: "trade_2",
+          time: "11:54am",
+          timestamp: Date.now() - 60000,
+          symbol: "SPY",
+          strategy: "Buy 775 Put",
+          underlyingPrice: 776.0,
+          expiration: "0d",
+          dte: 0,
+          strike: 775,
+          premium: 5000000,
+          premiumFormatted: "$5.00m",
+          type: "BLOCK" as const,
+          side: "BUY" as const,
+          sentiment: "bearish" as const,
+          volume: 10000,
+          openInterest: 5000,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 40,
+          marketCap: "large" as const,
+          assetType: "etf" as const,
+        },
+      ];
+
+      const summary = calculateFlowSummary(customTrades);
+      expect(summary.totalTrades).toBe(2);
+      expect(summary.totalPremium).toBe(7000000);
+      expect(summary.callPremium).toBe(2000000);
+      expect(summary.putPremium).toBe(5000000);
+      expect(summary.bullishLeaderboard.some((b) => b.symbol === "IWM")).toBe(true);
+      expect(summary.bearishLeaderboard.some((b) => b.symbol === "SPY")).toBe(true);
     });
   });
 });
