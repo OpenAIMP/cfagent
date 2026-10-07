@@ -12,7 +12,9 @@ import {
   type ExpirationOption,
   type SentimentType,
   type StrategyLegItem,
+  type StrategyDiscoveryConfig,
 } from "./strategyDiscoveryEngine";
+import { apiFetch as fetch } from "../apiFetch";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
@@ -98,6 +100,35 @@ export function StrategyDiscoveryPanel({
   const [selectedStrategy, setSelectedStrategy] = useState<DiscoveredStrategy | null>(null);
   const [builderLegs, setBuilderLegs] = useState<StrategyLegItem[]>([]);
   const [builderIv, setBuilderIv] = useState<number>(44.2);
+
+  // Dynamic Engine Config loaded from externalized ETAPI settings
+  const [engineConfig, setEngineConfig] = useState<StrategyDiscoveryConfig>({
+    riskFreeRate: 0.04,
+    feePerContract: 0.65,
+    maxCombinations: 150,
+  });
+
+  useEffect(() => {
+    fetch("/api/trading/options/config", {
+      headers: {
+        "x-environment": activeEnv,
+        ...(userLogin ? { "x-user-login": userLogin } : {}),
+      },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: any) => {
+        if (data?.config?.strategyEngine) {
+          setEngineConfig({
+            riskFreeRate: data.config.strategyEngine.riskFreeRate ?? 0.04,
+            feePerContract: data.config.strategyEngine.feePerContract ?? 0.65,
+            maxCombinations: data.config.strategyEngine.maxCombinations ?? 150,
+          });
+        }
+      })
+      .catch(() => {
+        // Fallback to baseline defaults
+      });
+  }, [activeEnv, userLogin]);
   const [builderRangePct, setBuilderRangePct] = useState<number>(1.7);
   const [builderZoomLevel, setBuilderZoomLevel] = useState<"x1" | "x2" | "x3">("x1");
   // Date Slider: 0 = Today, 100 = At Expiration
@@ -183,8 +214,9 @@ export function StrategyDiscoveryPanel({
       expiration: selectedExpiration,
       optimizationBias,
       baseIv: builderIv / 100,
+      config: engineConfig,
     });
-  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, selectedExpiration, optimizationBias, builderIv]);
+  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, selectedExpiration, optimizationBias, builderIv, engineConfig]);
 
   // When discovering strategies, initialize selectedStrategy with the first match if empty
   useEffect(() => {
@@ -271,7 +303,7 @@ export function StrategyDiscoveryPanel({
   const handleStrikeChange = (legId: string, newStrike: number) => {
     const updatedLegs = builderLegs.map((l) => {
       if (l.id === legId) {
-        return updateLegStrike(l, newStrike, spot, selectedExpiration.dte, builderIv / 100);
+        return updateLegStrike(l, newStrike, spot, selectedExpiration.dte, builderIv / 100, engineConfig.riskFreeRate);
       }
       return l;
     });
@@ -290,7 +322,8 @@ export function StrategyDiscoveryPanel({
         selectedExpiration.date,
         builderIv / 100,
         selectedStrategy.description,
-        optimizationBias
+        optimizationBias,
+        engineConfig
       );
       setSelectedStrategy(reanalyzed);
     }
@@ -309,7 +342,7 @@ export function StrategyDiscoveryPanel({
   const handleBuilderExpirationChange = (exp: ExpirationOption) => {
     setSelectedExpiration(exp);
     if (builderLegs.length > 0) {
-      const updatedLegs = updateLegsExpiration(builderLegs, exp.dte, exp.date, spot, builderIv / 100);
+      const updatedLegs = updateLegsExpiration(builderLegs, exp.dte, exp.date, spot, builderIv / 100, engineConfig.riskFreeRate);
       setBuilderLegs(updatedLegs);
 
       if (selectedStrategy) {
@@ -325,7 +358,8 @@ export function StrategyDiscoveryPanel({
           exp.date,
           builderIv / 100,
           selectedStrategy.description,
-          optimizationBias
+          optimizationBias,
+          engineConfig
         );
         setSelectedStrategy(reanalyzed);
       }

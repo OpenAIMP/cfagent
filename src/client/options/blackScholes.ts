@@ -49,7 +49,7 @@ export function blackScholes(
   k: number,
   t: number,
   v: number,
-  r: number = 0.045,
+  r: number = 0.04,
   q: number = 0,
   type: "CALL" | "PUT" = "CALL"
 ): OptionGreeks {

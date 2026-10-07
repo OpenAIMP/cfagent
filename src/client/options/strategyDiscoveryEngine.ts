@@ -41,6 +41,14 @@ export interface StrategyEvaluationFactors {
   compositeScore: number;
 }
 
+export interface StrategyDiscoveryConfig {
+  riskFreeRate?: number;
+  feePerContract?: number;
+  maxCombinations?: number;
+  detailLimit?: number;
+  maxLegs?: number;
+}
+
 export interface OptimizationBiasFactors {
   /** Weight applied to Return & Leverage (0 - 100) */
   returnWeight: number;
@@ -162,7 +170,7 @@ export function evaluateStrategyPnL(
   price: number,
   tRemainingYears: number,
   volatility: number,
-  r: number = 0.045
+  r: number = 0.04
 ): number {
   let totalPnL = 0;
 
@@ -210,10 +218,11 @@ function makeLeg(
   dte: number,
   expirationDate: string,
   iv: number,
-  quantity: number = 1
+  quantity: number = 1,
+  r: number = 0.04
 ): StrategyLegItem {
   const t = Math.max(0.5, dte) / 365;
-  const bs = blackScholes(spot, strike, t, iv, 0.045, 0, optionType);
+  const bs = blackScholes(spot, strike, t, iv, r, 0, optionType);
   const mid = bs.price;
   const spreadHalf = Math.max(0.05, mid * 0.03);
   const bid = Math.max(0.01, Number((mid - spreadHalf).toFixed(2)));
@@ -309,13 +318,14 @@ export function updateLegStrike(
   newStrike: number,
   spot: number,
   dte: number,
-  iv: number
+  iv: number,
+  r: number = 0.04
 ): StrategyLegItem {
   if (leg.optionType === "STOCK") {
     return { ...leg, strike: spot, entryPrice: spot };
   }
   const t = Math.max(0.5, dte) / 365;
-  const bs = blackScholes(spot, newStrike, t, iv, 0.045, 0, leg.optionType);
+  const bs = blackScholes(spot, newStrike, t, iv, r, 0, leg.optionType);
   const mid = bs.price;
   const spreadHalf = Math.max(0.05, mid * 0.03);
   const bid = Math.max(0.01, Number((mid - spreadHalf).toFixed(2)));
@@ -343,14 +353,15 @@ export function updateLegsExpiration(
   newDte: number,
   newExpirationDate: string,
   spot: number,
-  iv: number
+  iv: number,
+  r: number = 0.04
 ): StrategyLegItem[] {
   return legs.map((leg) => {
     if (leg.optionType === "STOCK") {
       return { ...leg, expirationDate: newExpirationDate, dte: newDte };
     }
     const t = Math.max(0.5, newDte) / 365;
-    const bs = blackScholes(spot, leg.strike, t, iv, 0.045, 0, leg.optionType);
+    const bs = blackScholes(spot, leg.strike, t, iv, r, 0, leg.optionType);
     const mid = bs.price;
     const spreadHalf = Math.max(0.05, mid * 0.03);
     const bid = Math.max(0.01, Number((mid - spreadHalf).toFixed(2)));
@@ -387,8 +398,10 @@ export function analyzeStrategy(
   expirationDate: string,
   volatility: number,
   description: string = "",
-  optimizationBias: number = 50
+  optimizationBias: number = 50,
+  config?: Partial<StrategyDiscoveryConfig>
 ): DiscoveredStrategy {
+  const r = config?.riskFreeRate ?? 0.04;
   const tExpiryYears = Math.max(0.5, dte) / 365;
 
   // Generate range of prices for payoff curve (e.g. from spot * 0.2 to spot * 1.8)
@@ -578,11 +591,13 @@ export function discoverStrategies(options: {
   expiration: ExpirationOption;
   optimizationBias: number; // 0 = Max Return (OTM), 100 = Max Chance (ITM)
   baseIv?: number;
+  config?: Partial<StrategyDiscoveryConfig>;
 }): DiscoveredStrategy[] {
-  const { symbol, currentPrice: spot, sentiment, targetPrice, expiration, optimizationBias, baseIv = 0.442 } = options;
+  const { symbol, currentPrice: spot, sentiment, targetPrice, expiration, optimizationBias, baseIv = 0.442, config } = options;
   const dte = expiration.dte;
   const expiryDate = expiration.date;
   const strikes = generateStrikeLadder(spot);
+  const r = config?.riskFreeRate ?? 0.04;
 
   // Find ATM strike index
   let atmIndex = 0;

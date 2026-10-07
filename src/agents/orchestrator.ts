@@ -21,6 +21,7 @@ import {
   type RiskProfile,
   type UnifiedOptionsRequest,
 } from "../trading/options";
+import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import {
   buildRawOptionsIdeasRankingPrompt,
@@ -3368,6 +3369,33 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result.toUi());
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
+      }
+    }
+
+    // Dynamic ETAPI Options Configuration & Tuning Endpoint
+    if (path.endsWith("/trading/options/config") && (request.method === "POST" || request.method === "GET")) {
+      try {
+        if (request.method === "POST") {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (body.reset) {
+            setRuntimeEtapiConfigOverrides(null);
+          } else if (body.overrides) {
+            setRuntimeEtapiConfigOverrides(body.overrides);
+          }
+          return Response.json({
+            success: true,
+            environment: requestedEnv,
+            config: getEtapiConfig(this.env, requestedEnv),
+            message: body.reset ? "Reset configuration to environment defaults" : "Runtime configuration overrides applied",
+          });
+        }
+        return Response.json({
+          success: true,
+          environment: requestedEnv,
+          config: getEtapiConfig(this.env, requestedEnv),
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to access options configuration" }, { status: 500 });
       }
     }
 

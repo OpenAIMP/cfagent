@@ -19,6 +19,7 @@ import { UniversalChart } from "./components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./options/LlmStrategyEvalModal";
 import { OptionsDataDownloadDropdown } from "./options/optionsDataExporter";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
+import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import "./options/strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -638,6 +639,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
   const [nlqQuery, setNlqQuery] = useState("");
   const [nlqMaxUnderlyings, setNlqMaxUnderlyings] = useState("25");
   const [nlqQuoteAgeSeconds, setNlqQuoteAgeSeconds] = useState("60");
@@ -858,6 +860,27 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             activeEnv={activeEnv}
             userLogin={userLogin}
           />
+          <button
+            type="button"
+            className="subnav-btn"
+            style={{
+              padding: "0.45rem 0.85rem",
+              background: "rgba(15, 23, 42, 0.8)",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              color: "#38bdf8",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              borderRadius: "6px",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}
+            onClick={() => setConfigModalOpen(true)}
+            title="Inspect & tune externalized ETAPI engine parameters live"
+          >
+            ⚙️ ETAPI Tuning
+          </button>
           {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
         </div>
       </header>
@@ -1265,6 +1288,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         activeEnv={activeEnv}
         userLogin={userLogin}
         onPreviewTrade={onPreviewTrade}
+      />
+
+      {/* Dynamic ETAPI Engine Tuning & Configuration Modal */}
+      <EtapiConfigModal
+        isOpen={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
+        activeEnv={activeEnv}
+        userLogin={userLogin}
       />
     </section>
     </ChainContext.Provider>

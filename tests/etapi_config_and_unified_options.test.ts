@@ -162,4 +162,33 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
     const mcpOutput = result.toMcp();
     expect(mcpOutput.content).toBeDefined();
   });
+
+  it("handles unified action: config across omnichannel formatters", async () => {
+    const mockEnv: Partial<Env> = {
+      APP_ENV: "PROD",
+      ETRADE_ENVIRONMENT: "live",
+    };
+    const service = new UnifiedOptionsService(mockEnv as Env);
+    const configResult = await service.execute({
+      action: "config",
+    });
+
+    expect(configResult.success).toBe(true);
+    expect(configResult.action).toBe("config");
+    expect(configResult.summary).toContain("Risk-Free Rate");
+
+    const slack = configResult.toSlack();
+    expect(slack.blocks.length).toBeGreaterThan(1);
+    expect(JSON.stringify(slack.blocks)).toContain("Risk-Free Rate");
+
+    const email = configResult.toEmailHtml();
+    expect(email).toContain("ETAPI Runtime Parameters");
+
+    const voice = configResult.toVoice();
+    expect(voice.spokenText).toContain("Risk-Free Rate");
+
+    const webhook = configResult.toWebhook();
+    expect(webhook.status).toBe("success");
+    expect((webhook.result as any).config).toBeDefined();
+  });
 });

@@ -41,7 +41,8 @@ export type UnifiedOptionsAction =
   | "best_trade"
   | "opportunities"
   | "recommend"
-  | "compare";
+  | "compare"
+  | "config";
 
 export type OmnichannelContext =
   | "ui"
@@ -218,6 +219,15 @@ export class UnifiedOptionsService {
           break;
         }
 
+        case "config": {
+          executionData = {
+            config: this.config,
+            environment: this.overrideEnv || (this.env.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST"),
+          };
+          summary = `ETAPI Options Configuration: Risk-Free Rate ${(this.config.strategyEngine.riskFreeRate * 100).toFixed(1)}%, Fee $${this.config.strategyEngine.feePerContract.toFixed(2)}/contract, Max DTE ${this.config.screener.defaultMaxDte}d, Atmosphere Band ${(this.config.screener.atmBandPct * 100).toFixed(1)}%.`;
+          break;
+        }
+
         default: {
           executionData = { error: `Unsupported action '${req.action}'` };
           summary = `Unsupported action '${req.action}'.`;
@@ -292,7 +302,20 @@ export class UnifiedOptionsService {
     const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade;
     const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? 0;
 
-    if (bt && bt.label) {
+    if (req.action === "config" && data.config) {
+      const cfg = data.config as EtapiConfig;
+      blocks.push({
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Risk-Free Rate:*\n${(cfg.strategyEngine.riskFreeRate * 100).toFixed(1)}%` },
+          { type: "mrkdwn", text: `*Fee / Contract:*\n$${cfg.strategyEngine.feePerContract.toFixed(2)}` },
+          { type: "mrkdwn", text: `*Max DTE:*\n${cfg.screener.defaultMaxDte} days` },
+          { type: "mrkdwn", text: `*ATM Band:*\n${(cfg.screener.atmBandPct * 100).toFixed(1)}%` },
+          { type: "mrkdwn", text: `*Max Combinations:*\n${cfg.strategyEngine.maxCombinations}` },
+          { type: "mrkdwn", text: `*Unusual Vol/OI Ratio:*\n${cfg.screener.unusualVolumeOiRatio}x` },
+        ],
+      });
+    } else if (bt && bt.label) {
       blocks.push({
         type: "section",
         fields: [
@@ -349,7 +372,21 @@ export class UnifiedOptionsService {
     const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade;
     const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? 0;
 
-    if (bt && bt.label) {
+    if (req.action === "config" && data.config) {
+      const cfg = data.config as EtapiConfig;
+      cardsHtml = `
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px;">
+          <h3 style="margin-top:0;color:#38bdf8;">⚙️ ETAPI Runtime Parameters</h3>
+          <table style="width:100%;border-collapse:collapse;color:#cbd5e1;font-size:13px;">
+            <tr><td style="padding:6px 0;">Risk-Free Rate:</td><td style="font-weight:bold;color:#f8fafc;">${(cfg.strategyEngine.riskFreeRate * 100).toFixed(1)}%</td></tr>
+            <tr><td style="padding:6px 0;">Fee / Contract:</td><td style="font-weight:bold;color:#f8fafc;">$${cfg.strategyEngine.feePerContract.toFixed(2)}</td></tr>
+            <tr><td style="padding:6px 0;">Default Max DTE:</td><td style="font-weight:bold;color:#f8fafc;">${cfg.screener.defaultMaxDte} days</td></tr>
+            <tr><td style="padding:6px 0;">ATM Band:</td><td style="font-weight:bold;color:#f8fafc;">${(cfg.screener.atmBandPct * 100).toFixed(1)}%</td></tr>
+            <tr><td style="padding:6px 0;">Unusual Vol/OI:</td><td style="font-weight:bold;color:#f8fafc;">${cfg.screener.unusualVolumeOiRatio}x</td></tr>
+          </table>
+        </div>
+      `;
+    } else if (bt && bt.label) {
       const legsHtml = (bt.legs || []).map((l: any) =>
         `<tr>
           <td style="padding: 8px; border-bottom: 1px solid #334155;"><strong>${l.side}</strong></td>
