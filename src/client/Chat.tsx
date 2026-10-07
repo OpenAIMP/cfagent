@@ -7,6 +7,7 @@ import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { FossResearchHub } from "./FossResearchHub";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import { TabHoverItem } from "./TabHoverItem";
 import adDisplayConfig from "./ad-display.config.json";
 
 interface User {
@@ -1374,33 +1375,53 @@ export function Chat({ user }: { user: User }) {
 
         {/* Navigation Tabs */}
         <nav className="tab-nav">
-          <button
-            className={`tab-btn ${tab === "trading" ? "active" : ""}`}
-            onClick={() => {
-              setTab("trading");
-              setTbdMenuOpen(false);
-            }}
+          <TabHoverItem
+            eyebrow="AGENTIC BROKERAGE & EXECUTION"
+            title="E*TRADE Trading Desk"
+            description="Agentic order preview, multi-asset screening, automated options analysis, real-time portfolio, and omnichannel dispatch."
           >
-            📈 E*TRADE Brokerage
-          </button>
-          <button
-            className={`tab-btn ${tab === "research" ? "active" : ""}`}
-            onClick={() => {
-              setTab("research");
-              setTbdMenuOpen(false);
-            }}
+            <button
+              className={`tab-btn ${tab === "trading" ? "active" : ""}`}
+              onClick={() => {
+                setTab("trading");
+                setTbdMenuOpen(false);
+              }}
+            >
+              📈 E*TRADE Brokerage
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="FREE & OPEN FINANCIAL RESEARCH"
+            title="Yahoo Finance Screener"
+            description="Zero-credential market scanning for active stocks, top gainers, losers, sectors, and historical charts with AI agent integration."
           >
-            🔬 Yahoo Finance Screener
-          </button>
-          <button
-            className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
-            onClick={() => {
-              setTab("endpoints");
-              setTbdMenuOpen(false);
-            }}
+            <button
+              className={`tab-btn ${tab === "research" ? "active" : ""}`}
+              onClick={() => {
+                setTab("research");
+                setTbdMenuOpen(false);
+              }}
+            >
+              🔬 Yahoo Finance Screener
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="MODEL CONTEXT PROTOCOL & REST"
+            title="API & MCP Explorer"
+            description="Interactive documentation and cURL tester for all Model Context Protocol (MCP) tools and REST API endpoints."
           >
-            🔌 API &amp; MCP Endpoints
-          </button>
+            <button
+              className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
+              onClick={() => {
+                setTab("endpoints");
+                setTbdMenuOpen(false);
+              }}
+            >
+              🔌 API &amp; MCP Endpoints
+            </button>
+          </TabHoverItem>
           <div className="tab-menu">
             <button
               type="button"

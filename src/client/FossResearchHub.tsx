@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { ResearchReportActions } from "./ResearchReportActions";
+import { TabHoverItem } from "./TabHoverItem";
 import type {
   FossQuote,
   FossCompanyFundamentals,
@@ -420,54 +421,102 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
       {/* Navigation Sub-Tabs */}
       <div className="trading-subnav-bar">
-        <button
-          className={`subnav-btn ${subTab === "screener" ? "active" : ""}`}
-          onClick={() => {
-            setSubTab("screener");
-            if (screenerStocks.length === 0) fetchScreener();
-          }}
+        <TabHoverItem
+          eyebrow="FOSS MARKET SCREENER"
+          title="Yahoo Finance Screener"
+          description="Filter active stocks, top gainers, and top losers without requiring broker credentials."
         >
-          🔍 Yahoo Finance Screener
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "report" ? "active" : ""}`}
-          onClick={() => setSubTab("report")}
+          <button
+            className={`subnav-btn ${subTab === "screener" ? "active" : ""}`}
+            onClick={() => {
+              setSubTab("screener");
+              if (screenerStocks.length === 0) fetchScreener();
+            }}
+          >
+            🔍 Yahoo Finance Screener
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="AI RESEARCH ENGINE"
+          title="Autonomous Research Report"
+          description="Deep AI-generated equity research synthesizing fundamentals, news, valuations, and risk factors."
         >
-          🔬 Autonomous Research Report
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "quoting" ? "active" : ""}`}
-          onClick={() => setSubTab("quoting")}
+          <button
+            className={`subnav-btn ${subTab === "report" ? "active" : ""}`}
+            onClick={() => setSubTab("report")}
+          >
+            🔬 Autonomous Research Report
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="REAL-TIME QUOTE AGGREGATION"
+          title="Multi-Provider Quoting"
+          description="Compare bid/ask spreads, volume, and Level 1 quotes across Yahoo Finance and Alpaca."
         >
-          📊 Multi-Provider Quoting
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "fundamentals" ? "active" : ""}`}
-          onClick={() => setSubTab("fundamentals")}
+          <button
+            className={`subnav-btn ${subTab === "quoting" ? "active" : ""}`}
+            onClick={() => setSubTab("quoting")}
+          >
+            📊 Multi-Provider Quoting
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="FINANCIAL METRICS"
+          title="Fundamentals & Valuations"
+          description="Analyze balance sheets, P/E ratios, EBITDA, cash flow, and valuation multiples."
         >
-          ⚖️ Fundamentals &amp; Valuations
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "bars" ? "active" : ""}`}
-          onClick={() => setSubTab("bars")}
+          <button
+            className={`subnav-btn ${subTab === "fundamentals" ? "active" : ""}`}
+            onClick={() => setSubTab("fundamentals")}
+          >
+            ⚖️ Fundamentals &amp; Valuations
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="PRICE TIME-SERIES"
+          title="Historical OHLCV Bars"
+          description="Interactive historical candlesticks, moving averages, and volume across multiple timeframes."
         >
-          📈 Historical OHLCV Bars ({bars.length})
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "snapshot" ? "active" : ""}`}
-          onClick={() => setSubTab("snapshot")}
+          <button
+            className={`subnav-btn ${subTab === "bars" ? "active" : ""}`}
+            onClick={() => setSubTab("bars")}
+          >
+            📈 Historical OHLCV Bars ({bars.length})
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="MARKET SNAPSHOT API"
+          title="Alpaca Market Snapshot"
+          description="Live minute-by-minute bar snapshots and latest trades via Alpaca Market Data v2."
         >
-          📷 Alpaca Market Snapshot
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "compare" ? "active" : ""}`}
-          onClick={() => {
-            setSubTab("compare");
-            if (comparisonResults.length === 0) runComparison(compareSymbolsInput);
-          }}
+          <button
+            className={`subnav-btn ${subTab === "snapshot" ? "active" : ""}`}
+            onClick={() => setSubTab("snapshot")}
+          >
+            📷 Alpaca Market Snapshot
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="PEER GROUP BENCHMARKING"
+          title="Multi-Stock Valuation Comparison"
+          description="Side-by-side comparison of valuation metrics, margins, and performance for multiple tickers."
         >
-          🔄 Multi-Stock Valuation Comparison
-        </button>
+          <button
+            className={`subnav-btn ${subTab === "compare" ? "active" : ""}`}
+            onClick={() => {
+              setSubTab("compare");
+              if (comparisonResults.length === 0) runComparison(compareSymbolsInput);
+            }}
+          >
+            🔄 Multi-Stock Valuation Comparison
+          </button>
+        </TabHoverItem>
       </div>
 
       <div className="nlq-quick-bar trading-context-chat">

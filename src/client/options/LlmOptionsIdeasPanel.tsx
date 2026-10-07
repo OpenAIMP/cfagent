@@ -137,14 +137,6 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
 
   return (
     <section className="trading-section options-research-section llm-options-ideas-panel">
-      <header className="options-research-heading">
-        <div>
-          <p className="options-eyebrow">INDEPENDENT RAW-DATA LLM EXPERIMENT</p>
-          <h2>LLM Options Idea Experiment</h2>
-          <p>The experiment divides retrieved chains into near-term (0–30 DTE), mid-term (31–90 DTE), and long-term (91+ DTE) groups. Each group is analyzed independently from raw E*TRADE data; a final LLM request ranks the group winners for your question. Options chains are persistently stored in SQLite and updated upon refresh.</p>
-        </div>
-      </header>
-
       <form className="options-request-form llm-options-ideas-form" onSubmit={(event) => void submit(event)}>
         <label className="options-field">
           <span>Underlying ticker</span>

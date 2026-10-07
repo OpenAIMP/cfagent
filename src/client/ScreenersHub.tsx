@@ -10,6 +10,7 @@ import type { ScreenedStockItem } from "../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "./x402Pay";
 import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
 import { ScheduledOptionsManager } from "./options/ScheduledOptionsManager";
+import { TabHoverItem } from "./TabHoverItem";
 import "./optionsResearch.css";
 
 const PAID_OPTIONS_ENDPOINT = "/api/premium/options-scan";
@@ -197,54 +198,107 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
 
   return (
     <section className="trading-section screeners-hub">
-      <header className="options-research-heading">
-        <div>
-          <p className="options-eyebrow">PROVIDER-EXTENSIBLE MARKET SCREENER</p>
-          <h2>Screeners</h2>
-          <p>Select an instrument class and a connected data provider. Stock and options screeners are available now; other asset classes appear as adapters are added.</p>
-        </div>
-      </header>
+      <div className="trading-subnav-bar screeners-asset-tabs" role="tablist" aria-label="Instrument class" style={{ margin: "0.25rem 0 0.75rem" }}>
+        {SCREENING_ASSET_CLASSES.map((asset) => {
+          const descriptions: Record<string, { eyebrow: string; title: string; desc: string }> = {
+            stocks: {
+              eyebrow: "EQUITIES SCREENING",
+              title: "Stock Universe Screener",
+              desc: "Screen common stocks and ETFs by price, volume, exchange, and market cap.",
+            },
+            options: {
+              eyebrow: "DERIVATIVES SCREENING",
+              title: "Options Contracts & Chains",
+              desc: "Filter options by implied volatility, delta, strike range, and expiration cycle.",
+            },
+            crypto: {
+              eyebrow: "DIGITAL ASSETS",
+              title: "Cryptocurrency Pairs",
+              desc: "Screen spot crypto pairs and perpetual futures (adapter in development).",
+            },
+            futures: {
+              eyebrow: "COMMODITY & INDEX FUTURES",
+              title: "Futures Contracts",
+              desc: "Screen E-mini index futures, energy, metals, and treasury contracts (adapter in development).",
+            },
+            indices: {
+              eyebrow: "BROAD MARKET BENCHMARKS",
+              title: "Market Indices",
+              desc: "Track major market indices and sector benchmark performance (adapter in development).",
+            },
+          };
+          const info = descriptions[asset.id] || {
+            eyebrow: "MARKET SCREENER",
+            title: asset.label,
+            desc: `Screen ${asset.label.toLowerCase()} across connected market data providers.`,
+          };
 
-      <div className="trading-subnav-bar screeners-asset-tabs" role="tablist" aria-label="Instrument class">
-        {SCREENING_ASSET_CLASSES.map((asset) => (
-          <button
-            key={asset.id}
-            type="button"
-            role="tab"
-            aria-selected={assetClass === asset.id}
-            disabled={!asset.available}
-            className={`subnav-btn ${assetClass === asset.id ? "active" : ""}`}
-            onClick={() => asset.available && setAssetClass(asset.id)}
-            title={asset.available ? `Screen ${asset.label.toLowerCase()}` : `No connected ${asset.label.toLowerCase()} screening provider yet`}
-          >
-            {asset.label}{asset.available ? "" : " · Planned"}
-          </button>
-        ))}
+          return (
+            <TabHoverItem
+              key={asset.id}
+              eyebrow={info.eyebrow}
+              title={info.title}
+              description={info.desc}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={assetClass === asset.id}
+                disabled={!asset.available}
+                className={`subnav-btn ${assetClass === asset.id ? "active" : ""}`}
+                onClick={() => asset.available && setAssetClass(asset.id)}
+                title={asset.available ? `Screen ${asset.label.toLowerCase()}` : `No connected ${asset.label.toLowerCase()} screening provider yet`}
+              >
+                {asset.label}{asset.available ? "" : " · Planned"}
+              </button>
+            </TabHoverItem>
+          );
+        })}
       </div>
 
       {assetClass === "options" && (
-        <div className="trading-subnav-bar" style={{ margin: "0.5rem 0 0.8rem", display: "flex", gap: "0.5rem" }}>
-          <button
-            type="button"
-            className={`subnav-btn ${optionsScreenMode === "discovery" ? "active" : ""}`}
-            onClick={() => setOptionsScreenMode("discovery")}
+        <div className="trading-subnav-bar" style={{ margin: "0.25rem 0 0.8rem", display: "flex", gap: "0.5rem" }}>
+          <TabHoverItem
+            eyebrow="STRATEGY DISCOVERY"
+            title="Strategy Discovery & Payoff Analyzer"
+            description="Multi-leg options payoff graphs, profit targets, and probability analysis."
           >
-            🎯 Strategy Discovery &amp; Payoff Analyzer
-          </button>
-          <button
-            type="button"
-            className={`subnav-btn ${optionsScreenMode === "contracts" ? "active" : ""}`}
-            onClick={() => setOptionsScreenMode("contracts")}
+            <button
+              type="button"
+              className={`subnav-btn ${optionsScreenMode === "discovery" ? "active" : ""}`}
+              onClick={() => setOptionsScreenMode("discovery")}
+            >
+              🎯 Strategy Discovery &amp; Payoff Analyzer
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="CONTRACT CHAIN"
+            title="Raw Contracts Screener"
+            description="Raw contract grid with bid, ask, implied volatility, delta, gamma, theta, and vega."
           >
-            📋 Raw Contracts Screener
-          </button>
-          <button
-            type="button"
-            className={`subnav-btn ${optionsScreenMode === "schedules" ? "active" : ""}`}
-            onClick={() => setOptionsScreenMode("schedules")}
+            <button
+              type="button"
+              className={`subnav-btn ${optionsScreenMode === "contracts" ? "active" : ""}`}
+              onClick={() => setOptionsScreenMode("contracts")}
+            >
+              📋 Raw Contracts Screener
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="DURABLE TIMERS"
+            title="Scheduled Options Screen"
+            description="Recurring options screens with autonomous omnichannel notifications."
           >
-            ⏰ Scheduled Screening &amp; Schedulers
-          </button>
+            <button
+              type="button"
+              className={`subnav-btn ${optionsScreenMode === "schedules" ? "active" : ""}`}
+              onClick={() => setOptionsScreenMode("schedules")}
+            >
+              ⏰ Scheduled Screening &amp; Schedulers
+            </button>
+          </TabHoverItem>
         </div>
       )}
 

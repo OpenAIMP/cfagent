@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { TabHoverItem } from "./TabHoverItem";
 import {
   MCP_TOOLS_CATALOG,
   MCP_RESOURCES_CATALOG,
@@ -263,36 +264,70 @@ export function McpApiExplorer() {
 
       {/* Sub-Navigation Switcher */}
       <div className="endpoints-subnav">
-        <button
-          className={`subnav-btn ${subTab === "tools" ? "active" : ""}`}
-          onClick={() => setSubTab("tools")}
+        <TabHoverItem
+          eyebrow="MCP TOOL PROTOCOL"
+          title="Callable Agent Tools"
+          description="Browse and execute Model Context Protocol tools exposed to autonomous agent swarms."
         >
-          🛠️ MCP Tools (14)
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "resources" ? "active" : ""}`}
-          onClick={() => setSubTab("resources")}
+          <button
+            className={`subnav-btn ${subTab === "tools" ? "active" : ""}`}
+            onClick={() => setSubTab("tools")}
+          >
+            🛠️ MCP Tools (14)
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="MCP RESOURCES"
+          title="Context Resources"
+          description="Read static and dynamic context resources provided by connected MCP servers."
         >
-          📦 MCP Resources (6)
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "prompts" ? "active" : ""}`}
-          onClick={() => setSubTab("prompts")}
+          <button
+            className={`subnav-btn ${subTab === "resources" ? "active" : ""}`}
+            onClick={() => setSubTab("resources")}
+          >
+            📦 MCP Resources (6)
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="MCP PROMPTS"
+          title="Agent Prompt Templates"
+          description="Pre-configured system and agent prompt templates for specialized workflows."
         >
-          💡 MCP Prompts (3)
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "rest" ? "active" : ""}`}
-          onClick={() => setSubTab("rest")}
+          <button
+            className={`subnav-btn ${subTab === "prompts" ? "active" : ""}`}
+            onClick={() => setSubTab("prompts")}
+          >
+            💡 MCP Prompts (3)
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="HTTP REST API"
+          title="REST Endpoints Explorer"
+          description="Interactive cURL commands and response samples for all serverless HTTP routes."
         >
-          🚀 REST APIs (16)
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "config" ? "active" : ""}`}
-          onClick={() => setSubTab("config")}
+          <button
+            className={`subnav-btn ${subTab === "rest" ? "active" : ""}`}
+            onClick={() => setSubTab("rest")}
+          >
+            🚀 REST APIs (16)
+          </button>
+        </TabHoverItem>
+
+        <TabHoverItem
+          eyebrow="DEVELOPER CONFIGURATION"
+          title="Claude & Cursor Config"
+          description="Ready-to-copy JSON configuration files to connect Claude Desktop and Cursor IDE."
         >
-          📋 Claude / Cursor Config
-        </button>
+          <button
+            className={`subnav-btn ${subTab === "config" ? "active" : ""}`}
+            onClick={() => setSubTab("config")}
+          >
+            📋 Claude / Cursor Config
+          </button>
+        </TabHoverItem>
       </div>
 
       {/* 1. MCP Tools View */}

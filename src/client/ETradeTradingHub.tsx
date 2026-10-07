@@ -12,6 +12,9 @@ import {
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
 import { ScreenersHub } from "./ScreenersHub";
+import { TabHoverItem } from "./TabHoverItem";
+import { ETradeDynamicMenu } from "./ETradeDynamicMenu";
+import { EtapiConfigModal } from "./options/EtapiConfigModal";
 
 function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
   return <div hidden={hidden}>{children}</div>;
@@ -45,6 +48,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [account, setAccount] = useState<ETradeAccount | null>(null);
   const [positions, setPositions] = useState<ETradePosition[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
 
   // Screener state
   const [exchangeFilter, setExchangeFilter] = useState<"ALL" | "NASDAQ" | "NYSE" | "AMEX">("ALL");
@@ -963,57 +967,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
 
   return (
     <div className="etrade-trading-hub">
-      <section className={`etrade-account-banner ${isLive ? "prod" : "test"}`} aria-label="E*TRADE account and connection controls">
-        <div className="etrade-banner-identity">
-          <strong>E*TRADE</strong>
-          <span className={`etrade-environment ${isLive ? "prod" : "test"}`}>{isLive ? "PROD" : "TEST"}</span>
-          <div className="etrade-banner-account">
-            <span><small>Account value</small><b>{maskAccount ? "••••••" : accountValue === undefined ? "Unavailable" : `$${accountValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</b></span>
-            <span><small>A/C #</small><b>{account?.accountId && account.accountId !== "unconnected" ? (maskAccount ? `••••${account.accountId.slice(-4)}` : account.accountId) : "Unavailable"}</b></span>
-            <button
-              type="button"
-              className="btn-mask-toggle"
-              onClick={() => setMaskAccount(!maskAccount)}
-              aria-label={maskAccount ? "Reveal account value and account number" : "Mask account value and account number"}
-              title={maskAccount ? "Reveal account value and account number" : "Mask account value and account number"}
-            >
-              {maskAccount ? "Show" : "Hide"}
-            </button>
-          </div>
-        </div>
-        <div className="etrade-banner-controls">
-          <div className="etrade-environment-controls" aria-label="E*TRADE environment">
-            <button type="button" className={!isLive ? "active" : ""} onClick={() => handleSwitchEnvironment("TEST")}>TEST</button>
-            <button type="button" className={isLive ? "active" : ""} onClick={() => handleSwitchEnvironment("PROD")}>PROD</button>
-          </div>
-          <span className={`etrade-connection-state ${oauthStatus?.authenticated ? "connected" : "disconnected"}`}>
-            {oauthStatus?.authenticated ? "Connected" : "Not connected"}
-          </span>
-          <button type="button" className="btn-sync-diagnostics" disabled={diagnosticsLoading} onClick={() => runDiagnostics()}>
-            {diagnosticsLoading ? "Testing…" : "Test & Sync"}
-          </button>
-          {oauthStatus?.authenticated ? (
-            <>
-              {oauthStatus.renewable && <button type="button" className="btn-oauth-renew" disabled={oauthLoading} onClick={handleRenewOAuth}>Renew Token</button>}
-              <button type="button" className="btn-oauth-revoke" disabled={oauthLoading} onClick={handleRevokeOAuth}>Disconnect</button>
-            </>
-          ) : (
-            <button type="button" className="btn-oauth-connect" disabled={oauthLoading} onClick={handleStartOAuth}>
-              {oauthLoading ? "Connecting…" : "Connect"}
-            </button>
-          )}
-        </div>
-        {oauthMsg && (
-          <div className="etrade-banner-message" role="status">
-            <span>{oauthMsg}</span>
-            {oauthMsg.includes("SANDBOX") || oauthMsg.includes("switch environment to TEST")
-              ? <button type="button" onClick={() => handleSwitchAndConnect("TEST")}>Switch to TEST &amp; Connect</button>
-              : null}
-            <button type="button" aria-label="Dismiss message" onClick={() => setOauthMsg("")}>×</button>
-          </div>
-        )}
-      </section>
-
       {/* OAuth PIN Verification Modal */}
       {showPinModal && (
         <div className="modal-backdrop">
@@ -1082,64 +1035,144 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         </div>
       )}
 
-      {/* Navigation Sub-Tabs */}
+      {/* Navigation Sub-Tabs & Dynamic E*TRADE Menu */}
       <div className="trading-subnav-bar">
-        <button
-          className={`subnav-btn ${subTab === "screeners" ? "active" : ""}`}
-          onClick={() => setSubTab("screeners")}
-        >
-          🔎 Multi-Asset Screeners
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "scanner" ? "active" : ""}`}
-          onClick={() => setSubTab("scanner")}
-        >
-          📈 Equity Universe Scan
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
-          onClick={() => setSubTab("options")}
-        >
-          🤖 Auto Options Research
-          {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
-          onClick={() => setSubTab("order")}
-        >
-          ⚡ Fast Order Ticket &amp; Preview
-          {activeDraft && <span className="preview-indicator-badge">1 PREVIEW</span>}
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "portfolio" ? "active" : ""}`}
-          onClick={() => {
-            setSubTab("portfolio");
-            fetchPositions();
-          }}
-        >
-          💼 Portfolio &amp; Holdings ({positions.length})
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "ledger" ? "active" : ""}`}
-          onClick={() => {
-            setSubTab("ledger");
-            fetchOrders();
-          }}
-        >
-          📜 Order History Ledger ({orders.length})
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "omnichannel" ? "active" : ""}`}
-          onClick={() => setSubTab("omnichannel")}
-        >
-          💬 Email &amp; Slack Agents
-        </button>
-        <button
-          className={`subnav-btn ${subTab === "voice" ? "active" : ""}`}
-          onClick={() => setSubTab("voice")}
-        >
-          🎙️ Voice Trading Desk
-        </button>
+        <div className="trading-subnav-links">
+          <TabHoverItem
+            eyebrow="PROVIDER-EXTENSIBLE MARKET SCREENER"
+            title="Multi-Asset Screeners"
+            description="Screen equities, options, crypto, futures, and indices across connected market data providers."
+          >
+            <button
+              className={`subnav-btn ${subTab === "screeners" ? "active" : ""}`}
+              onClick={() => setSubTab("screeners")}
+            >
+              🔎 Multi-Asset Screeners
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="REAL-TIME LISTINGS SCAN"
+            title="Equity Universe Scan"
+            description="Scan NYSE, NASDAQ, and AMEX listings by price, market cap, daily change, and inspect Level 1 quotes."
+          >
+            <button
+              className={`subnav-btn ${subTab === "scanner" ? "active" : ""}`}
+              onClick={() => setSubTab("scanner")}
+            >
+              📈 Equity Universe Scan
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="AUTO OPTIONS RESEARCH · PAPER ONLY"
+            title="Auto Options Research"
+            description="Run an options-screening request in the background, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. Requests are logged to the shared Chat without leaving this tab. No orders are placed."
+          >
+            <button
+              className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
+              onClick={() => setSubTab("options")}
+            >
+              🤖 Auto Options Research
+              {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="AGENTIC EXECUTION & HUMAN-IN-THE-LOOP"
+            title="Fast Order Ticket & Preview"
+            description="Build and validate live equity orders with two-step preview validation, human-in-the-loop attestation, and DID cryptographic signatures."
+          >
+            <button
+              className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
+              onClick={() => setSubTab("order")}
+            >
+              ⚡ Fast Order Ticket &amp; Preview
+              {activeDraft && <span className="preview-indicator-badge">1 PREVIEW</span>}
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="LIVE POSITION TRACKING"
+            title="Portfolio & Holdings"
+            description="Inspect open equity and options holdings, cost basis, unrealized gain/loss, and portfolio allocation."
+          >
+            <button
+              className={`subnav-btn ${subTab === "portfolio" ? "active" : ""}`}
+              onClick={() => {
+                setSubTab("portfolio");
+                fetchPositions();
+              }}
+            >
+              💼 Portfolio &amp; Holdings ({positions.length})
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="AUDIT TRAIL & TRADE LOG"
+            title="Order History Ledger"
+            description="Full chronological ledger of open, executed, and cancelled orders with E*TRADE upstream order IDs and execution timestamps."
+          >
+            <button
+              className={`subnav-btn ${subTab === "ledger" ? "active" : ""}`}
+              onClick={() => {
+                setSubTab("ledger");
+                fetchOrders();
+              }}
+            >
+              📜 Order History Ledger ({orders.length})
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="OMNICHANNEL NOTIFICATIONS"
+            title="Email & Slack Agents"
+            description="Configure autonomous alerts, trade approvals, and scheduled market briefings dispatched to Slack and Email."
+          >
+            <button
+              className={`subnav-btn ${subTab === "omnichannel" ? "active" : ""}`}
+              onClick={() => setSubTab("omnichannel")}
+            >
+              💬 Email &amp; Slack Agents
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="REAL-TIME SPEECH INTERACTION"
+            title="Voice Trading Desk"
+            description="Hands-free voice recognition desk for querying quotes, screening setups, and confirming trade previews."
+          >
+            <button
+              className={`subnav-btn ${subTab === "voice" ? "active" : ""}`}
+              onClick={() => setSubTab("voice")}
+            >
+              🎙️ Voice Trading Desk
+            </button>
+          </TabHoverItem>
+        </div>
+
+        <div className="trading-subnav-actions">
+          <ETradeDynamicMenu
+            activeEnv={activeEnv}
+            oauthStatus={oauthStatus}
+            account={account}
+            brokerStatus={brokerStatus}
+            maskAccount={maskAccount}
+            setMaskAccount={setMaskAccount}
+            diagnosticsLoading={diagnosticsLoading}
+            oauthLoading={oauthLoading}
+            oauthMsg={oauthMsg}
+            setOauthMsg={setOauthMsg}
+            handleSwitchEnvironment={handleSwitchEnvironment}
+            handleSwitchAndConnect={handleSwitchAndConnect}
+            runDiagnostics={runDiagnostics}
+            handleRenewOAuth={handleRenewOAuth}
+            handleRevokeOAuth={handleRevokeOAuth}
+            handleStartOAuth={handleStartOAuth}
+            onOpenEtapiTuning={() => setConfigModalOpen(true)}
+            userLogin={user?.login}
+          />
+        </div>
       </div>
 
       {subTab !== "options" && subTab !== "llm-ideas" && <div className="nlq-quick-bar trading-context-chat">
@@ -3215,6 +3248,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
         </div>
       </details>
+
+      {/* Dynamic ETAPI Engine Tuning & Configuration Modal */}
+      <EtapiConfigModal
+        isOpen={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
+        activeEnv={activeEnv}
+        userLogin={user?.login}
+      />
     </div>
   );
 }

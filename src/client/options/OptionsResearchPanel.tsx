@@ -21,6 +21,7 @@ import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
+import { TabHoverItem } from "../TabHoverItem";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -849,13 +850,100 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   return (
     <ChainContext.Provider value={chainValue}>
     <section className="trading-section options-research-section">
-      <header className="options-research-heading">
-        <div>
-          <p className="options-eyebrow">AUTO OPTIONS RESEARCH · PAPER ONLY</p>
-          <h2>Auto Options Research</h2>
-          <p>Run an options-screening request in the background, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. Requests are logged to the shared Chat without leaving this tab. No orders are placed.</p>
+      {screenMeta?.validationError && <p className="options-error" role="alert">{screenMeta.validationError}</p>}
+      {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
+        <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
+      )}
+
+      <div className="trading-subnav-bar options-subnav-bar" role="tablist" aria-label="Options Research Mode" style={{ margin: "0.25rem 0 0.85rem" }}>
+        <div className="options-subnav-links">
+          <TabHoverItem
+            eyebrow="ALGORITHMIC SELECTION ENGINE"
+            title="Strategy Discovery & Payoff Analyzer"
+            description="Explore multi-leg option strategies (Iron Condors, Spreads, Straddles, Covered Calls) matched to market sentiment with interactive payoff charts and Greeks."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "discovery"}
+              className={`subnav-btn ${researchMode === "discovery" ? "active" : ""}`}
+              onClick={() => setResearchMode("discovery")}
+            >
+              🎯 Strategy Discovery &amp; Payoff Analyzer
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="CONSTRAINED OPTION SCANNING"
+            title="Custom Thesis & Strategy Universe"
+            description="Declare specific target prices, target dates, and IV assumptions to filter and rank tailored candidate structures."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "custom"}
+              className={`subnav-btn ${researchMode === "custom" ? "active" : ""}`}
+              onClick={() => setResearchMode("custom")}
+            >
+              ⚙️ Custom Thesis &amp; Strategy Universe
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="AI-POWERED PROMPT SCREENING"
+            title="Natural Language Screen (NLQ)"
+            description="Ask questions in plain English like 'Find high IV call spreads on NVDA with 30 DTE' to run instant options filters."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "nlq"}
+              className={`subnav-btn ${researchMode === "nlq" ? "active" : ""}`}
+              onClick={() => setResearchMode("nlq")}
+            >
+              💬 Natural Language Screen (NLQ)
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="INDEPENDENT RAW-DATA LLM EXPERIMENT"
+            title="LLM Options Idea Experiment"
+            description="Divides chains into near/mid/long-term expiration cohorts for multi-stage LLM evaluation against raw market data."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "llm-ideas"}
+              className={`subnav-btn ${researchMode === "llm-ideas" ? "active" : ""}`}
+              onClick={() => setResearchMode("llm-ideas")}
+            >
+              🧪 LLM Idea Experiment &amp; Exporter
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="DURABLE TIMERS & AUTONOMOUS DISPATCH"
+            title="Scheduled Screening & Schedulers"
+            description="Create and monitor autonomous scheduled options scans powered by Cloudflare Durable Timers with Slack & Email notifications."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "schedules"}
+              className={`subnav-btn ${researchMode === "schedules" ? "active" : ""}`}
+              onClick={() => setResearchMode("schedules")}
+            >
+              ⏰ Scheduled Screening &amp; Schedulers
+            </button>
+          </TabHoverItem>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+
+        <div className="options-subnav-tools">
+          {screenMeta && (
+            <div className="options-scan-meta-pill" title="Screen evaluation metrics">
+              {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
+            </div>
+          )}
           <OptionsDataDownloadDropdown
             symbol={symbol.trim() || "NVDA"}
             activeEnv={activeEnv}
@@ -863,79 +951,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           />
           <button
             type="button"
-            className="subnav-btn"
-            style={{
-              padding: "0.45rem 0.85rem",
-              background: "rgba(15, 23, 42, 0.8)",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
-              color: "#38bdf8",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              borderRadius: "6px",
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.4rem",
-            }}
+            className="btn-etapi-config-pill"
             onClick={() => setConfigModalOpen(true)}
             title="Inspect & tune externalized ETAPI engine parameters live"
           >
             ⚙️ ETAPI Tuning
           </button>
-          {screenMeta && <div className="options-scan-meta">{screenMeta.contractsEvaluated} contracts evaluated · {screenMeta.contractsMatched} eligible · {result?.request.minDte ?? 14}–{result?.request.maxDte ?? 60} DTE</div>}
         </div>
-      </header>
-      {screenMeta?.validationError && <p className="options-error" role="alert">{screenMeta.validationError}</p>}
-      {Array.isArray(screenMeta?.fetchErrors) && screenMeta.fetchErrors.length > 0 && (
-        <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
-      )}
-
-      <div className="trading-subnav-bar options-subnav-bar" role="tablist" aria-label="Options Research Mode" style={{ margin: "0.5rem 0 1rem" }}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={researchMode === "discovery"}
-          className={`subnav-btn ${researchMode === "discovery" ? "active" : ""}`}
-          onClick={() => setResearchMode("discovery")}
-        >
-          🎯 Strategy Discovery &amp; Payoff Analyzer
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={researchMode === "custom"}
-          className={`subnav-btn ${researchMode === "custom" ? "active" : ""}`}
-          onClick={() => setResearchMode("custom")}
-        >
-          ⚙️ Custom Thesis &amp; Strategy Universe
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={researchMode === "nlq"}
-          className={`subnav-btn ${researchMode === "nlq" ? "active" : ""}`}
-          onClick={() => setResearchMode("nlq")}
-        >
-          💬 Natural Language Screen (NLQ)
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={researchMode === "llm-ideas"}
-          className={`subnav-btn ${researchMode === "llm-ideas" ? "active" : ""}`}
-          onClick={() => setResearchMode("llm-ideas")}
-        >
-          🧪 LLM Idea Experiment &amp; Exporter
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={researchMode === "schedules"}
-          className={`subnav-btn ${researchMode === "schedules" ? "active" : ""}`}
-          onClick={() => setResearchMode("schedules")}
-        >
-          ⏰ Scheduled Screening &amp; Schedulers
-        </button>
       </div>
 
       {researchMode === "schedules" && (
@@ -1083,13 +1105,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
 
       {researchMode === "custom" && (
         <>
-          <header className="options-research-heading">
-            <div>
-              <h3>Declare a thesis and constraints</h3>
-              <p>Underlying, thesis, target price and at least one strategy are required before the action buttons unlock. Candidates are ranked with visible assumptions.</p>
-            </div>
-          </header>
-
       <form className="options-request-form" onSubmit={submit}>
         <label className="options-field">
           <span>Underlying</span>
