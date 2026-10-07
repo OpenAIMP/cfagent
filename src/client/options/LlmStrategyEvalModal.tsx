@@ -7,8 +7,8 @@ import {
   type OptionsIdeasReportExport,
   type RawOptionsIdeasExport,
   type RetrievedOptionsDataExport,
-} from "../optionsIdeasExport";
-import type { OptionsTradeContext } from "../OptionsResearchPanel";
+} from "./optionsIdeasExport";
+import type { OptionsTradeContext } from "./OptionsResearchPanel";
 import "./strategyDiscovery.css";
 
 export interface StrategyToEvaluate {

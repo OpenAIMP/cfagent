@@ -18,7 +18,7 @@ import { apiFetch as fetch } from "../apiFetch";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
-import type { OptionsTradeContext } from "../OptionsResearchPanel";
+import type { OptionsTradeContext } from "./OptionsResearchPanel";
 import "./strategyDiscovery.css";
 
 interface StrategyDiscoveryPanelProps {

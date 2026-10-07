@@ -5,7 +5,7 @@ import {
   downloadRetrievedOptionsDataXls,
   type RawOptionsIdeasExport,
   type RetrievedOptionsDataExport,
-} from "../optionsIdeasExport";
+} from "./optionsIdeasExport";
 import "./strategyDiscovery.css";
 
 export async function fetchOptionsDataForExport(

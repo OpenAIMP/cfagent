@@ -34,6 +34,12 @@ import {
 import { OpportunityScanner, type OpportunityScanResult } from "./opportunityScanner";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
+import { rankCandidatesWithLlm } from "./llmComparison";
+import {
+  generateRawOptionsIdeas,
+  groupRawOptionsIdeasChains,
+  buildContextLimitedRawOptionsIdeasInput,
+} from "./llmIdeas";
 
 export type UnifiedOptionsAction =
   | "screen"
@@ -42,6 +48,8 @@ export type UnifiedOptionsAction =
   | "opportunities"
   | "recommend"
   | "compare"
+  | "llm_ideas"
+  | "llm_evaluate"
   | "config";
 
 export type OmnichannelContext =
@@ -225,6 +233,105 @@ export class UnifiedOptionsService {
             environment: this.overrideEnv || (this.env.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST"),
           };
           summary = `ETAPI Options Configuration: Risk-Free Rate ${(this.config.strategyEngine.riskFreeRate * 100).toFixed(1)}%, Fee $${this.config.strategyEngine.feePerContract.toFixed(2)}/contract, Max DTE ${this.config.screener.defaultMaxDte}d, Atmosphere Band ${(this.config.screener.atmBandPct * 100).toFixed(1)}%.`;
+          break;
+        }
+
+        case "compare": {
+          const symbol = (req.symbol || "SPY").toUpperCase().trim();
+          const targetPrice = req.targetPrice || 100;
+          const targetDate = req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+          const strategyRequest: StrategyRequest = {
+            symbol,
+            thesis: req.thesis || "bullish",
+            targetPrice,
+            targetDate,
+            expectedIvDirection: req.expectedIvDirection || "unchanged",
+            maxPlannedLoss: req.maxPlannedLoss || 1000,
+            minRewardRisk: req.minRewardRisk || 1.5,
+            allowedStrategies: req.allowedStrategies || [],
+          };
+          const pipeline = new OptionsAgentPipeline(screener);
+          const pipelineResult = await pipeline.run(strategyRequest, {
+            riskProfile: req.riskProfile || "balanced",
+          });
+          const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
+          let llmJudgment: any = null;
+          try {
+            llmJudgment = await rankCandidatesWithLlm(
+              this.env,
+              strategyRequest,
+              req.riskProfile || "balanced",
+              pipelineResult.snapshot.contracts,
+              candidates
+            );
+          } catch (e: any) {
+            llmJudgment = { status: "error", error: e?.message || "LLM comparison ranking failed." };
+          }
+          executionData = {
+            mode: "same_candidate_ranking",
+            quant: {
+              ranked: pipelineResult.ranked.slice(0, 10),
+              scoreWeights: pipelineResult.strategies.scoreWeights,
+              candidateCount: candidates.length,
+            },
+            llm: llmJudgment?.status === "error" ? llmJudgment : { status: "complete", ...llmJudgment },
+            contracts: pipelineResult.snapshot.contracts,
+          };
+          summary = `Quant vs LLM comparison for ${symbol}: evaluated ${candidates.length} candidates.`;
+          break;
+        }
+
+        case "llm_ideas":
+        case "llm_evaluate": {
+          const symbol = (req.symbol || "NVDA").toUpperCase().trim();
+          const question = req.question || "Find the strongest options strategy ideas across available chains.";
+          let expirations: any[] = [];
+          const chains: any[] = [];
+          const orm = this.orm || new DatabaseORM({ exec: () => [] });
+          const cached = orm.getOptionsChain ? orm.getOptionsChain(symbol) : null;
+          if (cached && cached.expirations.length > 0 && cached.chains.length > 0) {
+            expirations = cached.expirations;
+            for (const c of cached.chains) chains.push(c);
+          } else {
+            expirations = await etrade.client.getOptionExpireDates(symbol);
+            if (expirations.length > 0) {
+              const targetExp = expirations.slice(0, 12);
+              for (const exp of targetExp) {
+                const chain = await etrade.client.getOptionChains({
+                  symbol,
+                  expiryYear: exp.year,
+                  expiryMonth: exp.month,
+                  expiryDay: exp.day,
+                  includeWeekly: true,
+                  chainType: "CALLPUT",
+                  includeRawResponse: true,
+                });
+                if (chain) chains.push(chain);
+              }
+              if (orm.setOptionsChain && chains.length > 0) {
+                orm.setOptionsChain(symbol, expirations, chains, 600);
+              }
+            }
+          }
+          const groups = groupRawOptionsIdeasChains(expirations, chains);
+          const groupResults = [];
+          for (const group of groups.slice(0, 3)) {
+            try {
+              const limited = buildContextLimitedRawOptionsIdeasInput(symbol, `${question}\nAnalyze ${group.label}`, group.expirations, group.optionChains);
+              const llmRes = await generateRawOptionsIdeas(this.env, limited.input);
+              groupResults.push({ id: group.id, label: group.label, status: "complete" as const, answer: llmRes.answer, contractSymbols: llmRes.contractSymbols });
+            } catch (err: any) {
+              groupResults.push({ id: group.id, label: group.label, status: "error" as const, error: err.message });
+            }
+          }
+          executionData = {
+            mode: "raw_etrade_options_ideas",
+            symbol,
+            question,
+            groups: groupResults,
+            dataCoverage: { expirationCount: expirations.length, chainCount: chains.length, contractCount: chains.reduce((acc, c) => acc + (c.pairs?.length || 0), 0) },
+          };
+          summary = `Raw LLM options analysis for ${symbol}: evaluated ${groups.length} expiration groups.`;
           break;
         }
 
