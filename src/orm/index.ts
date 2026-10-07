@@ -15,6 +15,7 @@ import type {
   RevenueSummary,
   TradeRecord,
   WatchlistRecord,
+  OptionsChainCacheRecord,
 } from "../types";
 
 export interface SqlStorage {
@@ -136,6 +137,15 @@ export class Repository<T extends Record<string, any>> {
     return this.findById(id);
   }
 
+  upsert(record: T): T {
+    const id = record[this.idField];
+    if (id && this.findById(id)) {
+      this.update(id, record);
+      return record;
+    }
+    return this.create(record);
+  }
+
   delete(id: string): boolean {
     const query = `DELETE FROM ${this.tableName} WHERE ${this.idField} = ?`;
     this.sql.exec(query, id);
@@ -173,6 +183,7 @@ export class DatabaseORM {
   public events: Repository<AuditEvent>;
   public trades: Repository<TradeRecord>;
   public watchlists: Repository<WatchlistRecord>;
+  public optionsChainCache: Repository<OptionsChainCacheRecord>;
 
   constructor(private sql: SqlStorage) {
     this.categories = new Repository<CategoryRecord>(sql, "mas_categories", "id", {
@@ -304,6 +315,16 @@ export class DatabaseORM {
       source: "source",
       createdAt: "created_at",
       updatedAt: "updated_at",
+    });
+
+    this.optionsChainCache = new Repository<OptionsChainCacheRecord>(sql, "mas_options_chain_cache", "id", {
+      id: "id",
+      symbol: "symbol",
+      expirationsJson: "expirations_json",
+      chainsJson: "chains_json",
+      fetchedAt: "fetched_at",
+      expiresAt: "expires_at",
+      contractCount: "contract_count",
     });
   }
 
@@ -469,6 +490,19 @@ export class DatabaseORM {
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      )
+    `);
+
+    // 11. Options Chain Cache Table (Durable Options Storage)
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_options_chain_cache (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        expirations_json TEXT NOT NULL,
+        chains_json TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        contract_count INTEGER NOT NULL DEFAULT 0
       )
     `);
 
@@ -858,5 +892,50 @@ export class DatabaseORM {
 
   deleteWatchlist(id: string): boolean {
     return this.watchlists.delete(id);
+  }
+
+  // =========================================================================
+  // Options Chain Persistence & Caching Layer (Durable SQLite)
+  // =========================================================================
+
+  getOptionsChain(symbol: string): { expirations: any[]; chains: any[]; fetchedAt: number; contractCount: number } | null {
+    const sym = symbol.toUpperCase().trim();
+    const record = this.optionsChainCache.findById(sym);
+    if (!record) return null;
+    if (Date.now() > record.expiresAt) return null;
+    try {
+      return {
+        expirations: JSON.parse(record.expirationsJson),
+        chains: JSON.parse(record.chainsJson),
+        fetchedAt: record.fetchedAt,
+        contractCount: record.contractCount,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  setOptionsChain(symbol: string, expirations: any[], chains: any[], ttlSeconds: number = 600): void {
+    const sym = symbol.toUpperCase().trim();
+    const now = Date.now();
+    const expiresAt = now + ttlSeconds * 1000;
+    const contractCount = chains.reduce(
+      (count: number, chain: any) =>
+        count +
+        (chain.pairs || []).reduce(
+          (pairCount: number, pair: any) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
+          0
+        ),
+      0
+    );
+    this.optionsChainCache.upsert({
+      id: sym,
+      symbol: sym,
+      expirationsJson: JSON.stringify(expirations),
+      chainsJson: JSON.stringify(chains),
+      fetchedAt: now,
+      expiresAt,
+      contractCount,
+    });
   }
 }

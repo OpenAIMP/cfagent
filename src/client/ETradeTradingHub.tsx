@@ -11,7 +11,6 @@ import {
   TradeRecord,
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
-import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { ScreenersHub } from "./ScreenersHub";
 
 function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
@@ -1105,12 +1104,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
         </button>
         <button
-          className={`subnav-btn ${subTab === "llm-ideas" ? "active" : ""}`}
-          onClick={() => setSubTab("llm-ideas")}
-        >
-          ✨ LLM Idea Experiment
-        </button>
-        <button
           className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
           onClick={() => setSubTab("order")}
         >
@@ -1541,9 +1534,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           onJobStateChange={setOptionsJob}
           onSendPrompt={onSendPrompt}
         />
-      </OptionsResearchPanelHost>
-      <OptionsResearchPanelHost hidden={subTab !== "llm-ideas"}>
-        <LlmOptionsIdeasPanel activeEnv={activeEnv} userLogin={user?.login} />
       </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}

@@ -21,6 +21,8 @@ interface LlmOptionsIdeasResponse {
     sentContractCount?: number;
     estimatedInputTokens?: number;
     inputTruncated?: boolean;
+    cached?: boolean;
+    fetchedAt?: number;
   };
   groups?: OptionsIdeasReportExport["groups"];
   finalAnalysis?: OptionsIdeasReportExport["finalAnalysis"] & {
@@ -49,7 +51,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
   const [error, setError] = useState("");
   const [exportError, setExportError] = useState("");
 
-  const runAnalysis = async (requestedQuestion: string) => {
+  const runAnalysis = async (requestedQuestion: string, forceRefresh = false) => {
     if (loading) return;
     setLoading(true);
     setError("");
@@ -63,7 +65,11 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
           "x-environment": activeEnv,
           ...(userLogin ? { "x-user-login": userLogin } : {}),
         },
-        body: JSON.stringify({ symbol: symbol.trim().toUpperCase(), question: requestedQuestion.trim() }),
+        body: JSON.stringify({
+          symbol: symbol.trim().toUpperCase(),
+          question: requestedQuestion.trim(),
+          refresh: forceRefresh,
+        }),
       });
       const data = await response.json() as LlmOptionsIdeasResponse | { error?: string };
       if (!response.ok) {
@@ -135,7 +141,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
         <div>
           <p className="options-eyebrow">INDEPENDENT RAW-DATA LLM EXPERIMENT</p>
           <h2>LLM Options Idea Experiment</h2>
-          <p>The experiment divides retrieved chains into near-term (0–30 DTE), mid-term (31–90 DTE), and long-term (91+ DTE) groups. Each group is analyzed independently from raw E*TRADE data; a final LLM request ranks the group winners for your question. No quant candidates or analytics are sent.</p>
+          <p>The experiment divides retrieved chains into near-term (0–30 DTE), mid-term (31–90 DTE), and long-term (91+ DTE) groups. Each group is analyzed independently from raw E*TRADE data; a final LLM request ranks the group winners for your question. Options chains are persistently stored in SQLite and updated upon refresh.</p>
         </div>
       </header>
 
@@ -161,9 +167,21 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             placeholder="For example: Find the strongest options strategies for bullish, bearish, neutral, and directional scenarios. Explain the structure, relevant contract data, and risks."
           />
         </label>
-        <button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
-          {loading ? "Fetching complete chains and analyzing…" : "Ask LLM"}
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
+            {loading ? "Analyzing chains with Workers AI…" : "Ask LLM"}
+          </button>
+          <button
+            type="button"
+            className="options-eval-llm-btn"
+            disabled={loading || !symbol.trim() || !question.trim()}
+            onClick={() => void runAnalysis(question, true)}
+            title="Force refresh live E*TRADE chains and update persistent SQLite cache"
+            style={{ minHeight: "38px" }}
+          >
+            🔄 Refresh Chains
+          </button>
+        </div>
       </form>
 
       <div className="llm-ideas-samples" aria-label="Sample analysis questions">
@@ -191,12 +209,32 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
       {result && (
         <section className="options-comparison" aria-label="Raw-data LLM analysis">
           <header className="options-results-header">
-            <h3>LLM analysis report</h3>
-            <span>
-              {result.llm.model || "Configured model"} ·{" "}
-              {result.dataCoverage.sentContractCount ?? result.dataCoverage.contractCount} of {result.dataCoverage.contractCount} contracts sent ·{" "}
-              {result.dataCoverage.expirationCount} expirations
-            </span>
+            <div>
+              <h3>LLM analysis report</h3>
+              <span>
+                {result.llm.model || "Configured model"} ·{" "}
+                {result.dataCoverage.sentContractCount ?? result.dataCoverage.contractCount} of {result.dataCoverage.contractCount} contracts sent ·{" "}
+                {result.dataCoverage.expirationCount} expirations
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              {result.dataCoverage.cached && (
+                <span
+                  style={{
+                    padding: "0.2rem 0.55rem",
+                    borderRadius: "999px",
+                    background: "rgba(16, 185, 129, 0.15)",
+                    border: "1px solid rgba(16, 185, 129, 0.35)",
+                    color: "#6ee7b7",
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                  }}
+                  title="Accelerated from SQLite options chain cache"
+                >
+                  ⚡ Stored SQLite Cache
+                </span>
+              )}
+            </div>
           </header>
           {result.finalAnalysis?.status === "complete" ? (
             <article className="options-llm-answer">
@@ -276,19 +314,21 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               )}
             </article>
           ))}
-          <button type="button" onClick={() => void downloadReport()}>
-            Download analysis report (.xls)
-          </button>
-          {result.llmInput && (
-            <button type="button" onClick={() => void downloadInput()}>
-              Download exact group and ranking inputs (.xls)
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+            <button type="button" className="options-eval-llm-btn" onClick={() => void downloadReport()}>
+              📥 Download analysis report (.xls)
             </button>
-          )}
-          {result.retrievedData && (
-            <button type="button" onClick={() => void downloadRetrievedData()}>
-              Download all retrieved raw data (.xls)
-            </button>
-          )}
+            {result.llmInput && (
+              <button type="button" className="options-eval-llm-btn" onClick={() => void downloadInput()}>
+                📥 Download exact inputs (.xls)
+              </button>
+            )}
+            {result.retrievedData && (
+              <button type="button" className="options-eval-llm-btn" onClick={() => void downloadRetrievedData()}>
+                📥 Download all retrieved raw data (.xls)
+              </button>
+            )}
+          </div>
           {exportError && <div className="options-error" role="alert">Export failed: {exportError}</div>}
           {result.dataCoverage.inputTruncated && (
             <p className="options-comparison-note">

@@ -2898,9 +2898,10 @@ Agentic Best Practices & Workflow Rules:
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
     if (path.endsWith("/trading/options/llm-ideas") && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { symbol?: unknown; question?: unknown } | null;
+      const body = await request.json().catch(() => null) as { symbol?: unknown; question?: unknown; refresh?: unknown } | null;
       const symbol = typeof body?.symbol === "string" ? body.symbol.trim().toUpperCase() : "";
       const question = typeof body?.question === "string" ? body.question.trim() : "";
+      const forceRefresh = body?.refresh === true;
       if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) {
         return Response.json({ error: "Provide a valid stock ticker symbol." }, { status: 400 });
       }
@@ -2910,32 +2911,56 @@ Agentic Best Practices & Workflow Rules:
 
       let retrievedExpirations: ETradeOptionExpireDate[] = [];
       const retrievedChains: ETradeOptionChain[] = [];
+      const orm = this.getOrm();
+      const cached = !forceRefresh ? orm.getOptionsChain(symbol) : null;
+
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const expirations = await etrade.client.getOptionExpireDates(symbol);
-        retrievedExpirations = expirations;
-        if (expirations.length === 0) {
-          throw new Error(etrade.client.lastError || `E*TRADE returned no option expirations for ${symbol}.`);
-        }
+        const etrade = new ETradeService(orm, this.env, userLogin, requestedEnv);
 
-        for (const expiry of expirations) {
-          const chain = await etrade.client.getOptionChains({
-            symbol,
-            expiryYear: expiry.year,
-            expiryMonth: expiry.month,
-            expiryDay: expiry.day,
-            includeWeekly: true,
-            chainType: "CALLPUT",
-            includeRawResponse: true,
-          });
-          if (!chain) {
-            throw new Error(
-              etrade.client.lastError ||
-              `E*TRADE did not return the complete option chain for ${symbol} ${expiry.year}-${expiry.month}-${expiry.day}.`,
-            );
+        if (cached && cached.expirations.length > 0 && cached.chains.length > 0) {
+          retrievedExpirations = cached.expirations;
+          for (const c of cached.chains) {
+            retrievedChains.push(c);
           }
-          retrievedChains.push(chain);
+        } else {
+          const expirations = await etrade.client.getOptionExpireDates(symbol);
+          if (expirations.length === 0) {
+            throw new Error(etrade.client.lastError || `E*TRADE returned no option expirations for ${symbol}.`);
+          }
+          retrievedExpirations = expirations;
+
+          // Target up to 18 most active expirations across near, mid, and long term to prevent unconstrained latency
+          const targetExpirations = expirations.length > 18
+            ? [...expirations.slice(0, 10), ...expirations.slice(10, 16), ...expirations.slice(-2)]
+            : expirations;
+
+          // Fetch option chains with concurrency chunking (4 parallel requests at a time)
+          const chunkSize = 4;
+          for (let i = 0; i < targetExpirations.length; i += chunkSize) {
+            const chunk = targetExpirations.slice(i, i + chunkSize);
+            const chunkChains = await Promise.all(
+              chunk.map((expiry) =>
+                etrade.client.getOptionChains({
+                  symbol,
+                  expiryYear: expiry.year,
+                  expiryMonth: expiry.month,
+                  expiryDay: expiry.day,
+                  includeWeekly: true,
+                  chainType: "CALLPUT",
+                  includeRawResponse: true,
+                })
+              )
+            );
+            for (const chain of chunkChains) {
+              if (chain) retrievedChains.push(chain);
+            }
+          }
+
+          if (retrievedChains.length > 0) {
+            // Persist into durable SQLite table (10-minute TTL)
+            orm.setOptionsChain(symbol, retrievedExpirations, retrievedChains, 600);
+          }
         }
 
         const contractCount = retrievedChains.reduce(
@@ -2949,77 +2974,86 @@ Agentic Best Practices & Workflow Rules:
         const rawData = {
           symbol,
           question,
-          expirations,
+          expirations: retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
         };
-        const groups = groupRawOptionsIdeasChains(expirations, retrievedChains);
-        const groupResults = [];
-        const groupInputs = [];
-        for (const group of groups) {
-          const groupContractCount = group.optionChains.reduce(
-            (count, chain) => count + chain.pairs.reduce(
-              (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
+        const groups = groupRawOptionsIdeasChains(retrievedExpirations, retrievedChains);
+
+        // Process expiration groups concurrently for maximum throughput
+        const groupPayloads = await Promise.all(
+          groups.map(async (group) => {
+            const groupContractCount = group.optionChains.reduce(
+              (count, chain) => count + chain.pairs.reduce(
+                (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
+                0,
+              ),
               0,
-            ),
-            0,
-          );
-          let limitedInput: ReturnType<typeof buildContextLimitedRawOptionsIdeasInput> | undefined;
-          const groupQuestion = [
-            question,
-            `Analyze only the ${group.label} expiration group (${group.expirations.length} expirations).`,
-            "Identify this group's strongest strategy for the user's requested outlook. Explain exact contract legs using only symbols present in this group's supplied chains, why the strategy fits, and its material risks. If no supported strategy is suitable, state that instead of inventing one.",
-          ].join("\n\n");
-          try {
-            const limited = buildContextLimitedRawOptionsIdeasInput(
-              symbol,
-              groupQuestion,
-              group.expirations,
-              group.optionChains,
             );
-            limitedInput = limited;
-            const llmInput = limited.input;
-            const inputExport = {
+            const groupQuestion = [
+              question,
+              `Analyze only the ${group.label} expiration group (${group.expirations.length} expirations).`,
+              "Identify this group's strongest strategy for the user's requested outlook. Explain exact contract legs using only symbols present in this group's supplied chains, why the strategy fits, and its material risks. If no supported strategy is suitable, state that instead of inventing one.",
+            ].join("\n\n");
+
+            try {
+              const limited = buildContextLimitedRawOptionsIdeasInput(
+                symbol,
+                groupQuestion,
+                group.expirations,
+                group.optionChains,
+              );
+              const llmInput = limited.input;
+              const inputExport = {
                 id: group.id,
                 label: group.label,
-              symbol: llmInput.symbol,
-              question: llmInput.question,
-              expirations: llmInput.expirations,
-              optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
-              systemPrompt: llmInput.systemPrompt,
-              userPrompt: llmInput.userPrompt,
-              selection: llmInput.selection,
-            };
-            groupInputs.push(inputExport);
-            const llm = await generateRawOptionsIdeas(this.env, llmInput);
-            groupResults.push({
-              id: group.id,
-              label: group.label,
-              status: "complete" as const,
-              model: llm.model,
-              answer: llm.answer,
-              contractSymbols: llm.contractSymbols,
-              contractWarnings: llm.contractWarnings,
-              contractDetails: llm.contractDetails,
-              expirationCount: group.expirations.length,
-              contractCount: groupContractCount,
-              sentContractCount: limited.includedContractCount,
-              estimatedInputTokens: limited.estimatedInputTokens,
-              inputTruncated: limited.truncated,
-            });
-          } catch (err) {
-            groupResults.push({
-              id: group.id,
-              label: group.label,
-              status: "error" as const,
-              error: err instanceof Error ? err.message : "Expiration-group analysis failed.",
-              expirationCount: group.expirations.length,
-              contractCount: groupContractCount,
-              sentContractCount: limitedInput?.includedContractCount ?? 0,
-              estimatedInputTokens: limitedInput?.estimatedInputTokens ?? 0,
-              inputTruncated: limitedInput?.truncated ?? false,
-            });
-          }
-        }
+                symbol: llmInput.symbol,
+                question: llmInput.question,
+                expirations: llmInput.expirations,
+                optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
+                systemPrompt: llmInput.systemPrompt,
+                userPrompt: llmInput.userPrompt,
+                selection: llmInput.selection,
+              };
+              const llm = await generateRawOptionsIdeas(this.env, llmInput);
+              return {
+                inputExport,
+                result: {
+                  id: group.id,
+                  label: group.label,
+                  status: "complete" as const,
+                  model: llm.model,
+                  answer: llm.answer,
+                  contractSymbols: llm.contractSymbols,
+                  contractWarnings: llm.contractWarnings,
+                  contractDetails: llm.contractDetails,
+                  expirationCount: group.expirations.length,
+                  contractCount: groupContractCount,
+                  sentContractCount: limited.includedContractCount,
+                  estimatedInputTokens: limited.estimatedInputTokens,
+                  inputTruncated: limited.truncated,
+                },
+              };
+            } catch (err) {
+              return {
+                inputExport: null,
+                result: {
+                  id: group.id,
+                  label: group.label,
+                  status: "error" as const,
+                  error: err instanceof Error ? err.message : "Expiration-group analysis failed.",
+                  expirationCount: group.expirations.length,
+                  contractCount: groupContractCount,
+                  sentContractCount: 0,
+                  estimatedInputTokens: 0,
+                  inputTruncated: false,
+                },
+              };
+            }
+          })
+        );
+
+        const groupResults = groupPayloads.map((p) => p.result);
+        const groupInputs = groupPayloads.map((p) => p.inputExport).filter((x): x is NonNullable<typeof x> => Boolean(x));
 
         let finalAnalysis:
           | { status: "complete"; model: string; answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>; systemPrompt: string; userPrompt: string }
@@ -3068,12 +3102,14 @@ Agentic Best Practices & Workflow Rules:
           },
         } : undefined;
         const dataCoverage = {
-          expirationCount: expirations.length,
+          expirationCount: retrievedExpirations.length,
           chainCount: retrievedChains.length,
           contractCount,
           sentContractCount: groupResults.reduce((count, group) => count + group.sentContractCount, 0),
           estimatedInputTokens: groupResults.reduce((count, group) => count + group.estimatedInputTokens, 0),
           inputTruncated: groupResults.some((group) => group.inputTruncated),
+          cached: Boolean(cached),
+          fetchedAt: cached?.fetchedAt || Date.now(),
         };
         return Response.json({
           mode: "raw_etrade_options_ideas",

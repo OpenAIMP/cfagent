@@ -39,6 +39,8 @@ interface LlmOptionsIdeasResponse {
     sentContractCount?: number;
     estimatedInputTokens?: number;
     inputTruncated?: boolean;
+    cached?: boolean;
+    fetchedAt?: number;
   };
   groups?: OptionsIdeasReportExport["groups"];
   finalAnalysis?: OptionsIdeasReportExport["finalAnalysis"] & {
@@ -94,7 +96,7 @@ export function LlmStrategyEvalModal({
 
   if (!isOpen || !strategy) return null;
 
-  const runLlmEvaluation = async (queryText: string) => {
+  const runLlmEvaluation = async (queryText: string, forceRefresh = false) => {
     if (loading) return;
     setLoading(true);
     setError("");
@@ -110,6 +112,7 @@ export function LlmStrategyEvalModal({
         body: JSON.stringify({
           symbol: strategy.symbol.trim().toUpperCase(),
           question: queryText.trim(),
+          refresh: forceRefresh,
         }),
       });
       const data = (await response.json()) as LlmOptionsIdeasResponse | { error?: string };
@@ -259,7 +262,25 @@ export function LlmStrategyEvalModal({
                 className="llm-eval-submit-btn"
                 disabled={loading || !question.trim()}
               >
-                {loading ? "Retrieving complete option chains & analyzing…" : "🚀 Run LLM Evaluation"}
+                {loading ? "Analyzing strategy with Workers AI…" : "🚀 Run LLM Evaluation"}
+              </button>
+              <button
+                type="button"
+                className="subnav-btn"
+                disabled={loading || !question.trim()}
+                onClick={() => void runLlmEvaluation(question, true)}
+                title="Force refresh live E*TRADE option chains into persistent cache"
+                style={{
+                  padding: "0.55rem 0.95rem",
+                  fontSize: "0.82rem",
+                  background: "rgba(15, 23, 42, 0.8)",
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  color: "#38bdf8",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                🔄 Refresh Market Chains
               </button>
               {result && onPreviewTrade && (
                 <button
@@ -286,9 +307,25 @@ export function LlmStrategyEvalModal({
                 <span>•</span>
                 <span>{result.dataCoverage.expirationCount} Expirations</span>
                 <span>•</span>
-                <span>{result.dataCoverage.contractCount} Total Contracts Retrieved</span>
+                <span>{result.dataCoverage.contractCount} Total Contracts</span>
                 <span>•</span>
-                <span>{result.dataCoverage.sentContractCount ?? result.dataCoverage.contractCount} Normalized Contracts Evaluated</span>
+                <span>{result.dataCoverage.sentContractCount ?? result.dataCoverage.contractCount} Evaluated</span>
+                {result.dataCoverage?.cached && (
+                  <span
+                    style={{
+                      background: "rgba(16, 185, 129, 0.15)",
+                      color: "#10b981",
+                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      marginLeft: "auto",
+                    }}
+                  >
+                    ⚡ Stored SQLite Cache
+                  </span>
+                )}
               </div>
 
               {/* Final Synthesis / Cross-group Ranking */}

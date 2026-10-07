@@ -556,6 +556,16 @@ export interface WatchlistRecord {
   updatedAt: string;
 }
 
+export interface OptionsChainCacheRecord {
+  id: string; // symbol e.g. NVDA
+  symbol: string;
+  expirationsJson: string; // JSON string of ETradeOptionExpireDate[]
+  chainsJson: string; // JSON string of ETradeOptionChain[]
+  fetchedAt: number; // timestamp in ms
+  expiresAt: number; // timestamp in ms
+  contractCount: number;
+}
+
 export interface ETradeOrderDraft {
   orderId: string;
   previewId?: string;
