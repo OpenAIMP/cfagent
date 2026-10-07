@@ -461,6 +461,110 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       expect(summary.bullishLeaderboard.some((b) => b.symbol === "IWM")).toBe(true);
       expect(summary.bearishLeaderboard.some((b) => b.symbol === "SPY")).toBe(true);
     });
+
+    it("updates summary leaderboards dynamically when filtered by marketCaps", () => {
+      const allTrades = [
+        {
+          id: "t_large",
+          time: "11:50am",
+          timestamp: Date.now(),
+          symbol: "NVDA",
+          strategy: "Buy 130 Call",
+          underlyingPrice: 128.5,
+          expiration: "3d",
+          dte: 3,
+          strike: 130,
+          premium: 10000000,
+          premiumFormatted: "$10.00m",
+          type: "SWEEP" as const,
+          side: "BUY" as const,
+          sentiment: "bullish" as const,
+          volume: 5000,
+          openInterest: 2000,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 35,
+          marketCap: "large" as const,
+          assetType: "stock" as const,
+        },
+        {
+          id: "t_mid",
+          time: "11:45am",
+          timestamp: Date.now() - 300000,
+          symbol: "IWM",
+          strategy: "Buy 278 Put",
+          underlyingPrice: 277.5,
+          expiration: "0d",
+          dte: 0,
+          strike: 278,
+          premium: 4500000,
+          premiumFormatted: "$4.50m",
+          type: "BLOCK" as const,
+          side: "BUY" as const,
+          sentiment: "bearish" as const,
+          volume: 20000,
+          openInterest: 1000,
+          volOverOi: true,
+          isOtm: false,
+          hasEarnings: false,
+          chance: 55,
+          marketCap: "mid" as const,
+          assetType: "etf" as const,
+        },
+        {
+          id: "t_small",
+          time: "11:40am",
+          timestamp: Date.now() - 600000,
+          symbol: "MARA",
+          strategy: "Buy 11 Call",
+          underlyingPrice: 10.2,
+          expiration: "7d",
+          dte: 7,
+          strike: 11,
+          premium: 1200000,
+          premiumFormatted: "$1.20m",
+          type: "SWEEP" as const,
+          side: "BUY" as const,
+          sentiment: "bullish" as const,
+          volume: 8000,
+          openInterest: 1500,
+          volOverOi: true,
+          isOtm: true,
+          hasEarnings: false,
+          chance: 28,
+          marketCap: "small" as const,
+          assetType: "stock" as const,
+        },
+      ];
+
+      // 1. Filter by Small-Cap only
+      const smallTrades = filterLiveFlowItems(allTrades, { marketCaps: ["small"] });
+      expect(smallTrades.length).toBe(1);
+      expect(smallTrades[0].symbol).toBe("MARA");
+
+      const smallSummary = calculateFlowSummary(smallTrades);
+      expect(smallSummary.bullishLeaderboard.map((b) => b.symbol)).toEqual(["MARA"]);
+      expect(smallSummary.bearishLeaderboard).toHaveLength(0);
+
+      // 2. Filter by Mid-Cap only
+      const midTrades = filterLiveFlowItems(allTrades, { marketCaps: ["mid"] });
+      expect(midTrades.length).toBe(1);
+      expect(midTrades[0].symbol).toBe("IWM");
+
+      const midSummary = calculateFlowSummary(midTrades);
+      expect(midSummary.bearishLeaderboard.map((b) => b.symbol)).toEqual(["IWM"]);
+      expect(midSummary.bullishLeaderboard).toHaveLength(0);
+
+      // 3. Filter by Large-Cap only
+      const largeTrades = filterLiveFlowItems(allTrades, { marketCaps: ["large"] });
+      expect(largeTrades.length).toBe(1);
+      expect(largeTrades[0].symbol).toBe("NVDA");
+
+      const largeSummary = calculateFlowSummary(largeTrades);
+      expect(largeSummary.bullishLeaderboard.map((b) => b.symbol)).toEqual(["NVDA"]);
+      expect(largeSummary.bearishLeaderboard).toHaveLength(0);
+    });
   });
 });
 

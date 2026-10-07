@@ -1695,11 +1695,11 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
 
   const isBaselineFixture = items === RAW_LIVE_FLOW_ITEMS;
 
-  const bullishLeaderboard = isBaselineFixture || (dynamicBullishList.length === 0 && dynamicBearishList.length === 0)
+  const bullishLeaderboard = isBaselineFixture
     ? mergeLeaderboardWithSeed(dynamicBullishList, BULLISH_FLOW_LEADERBOARD)
     : sortAndScaleLeaderboard(dynamicBullishList);
 
-  const bearishLeaderboard = isBaselineFixture || (dynamicBullishList.length === 0 && dynamicBearishList.length === 0)
+  const bearishLeaderboard = isBaselineFixture
     ? mergeLeaderboardWithSeed(dynamicBearishList, BEARISH_FLOW_LEADERBOARD)
     : sortAndScaleLeaderboard(dynamicBearishList);
 
@@ -1877,6 +1877,11 @@ export const DYNAMIC_FLOW_PROFILES: Array<{
   { symbol: "COIN", companyName: "Coinbase Global", underlyingPrice: 198.6, marketCap: "mid", assetType: "stock" },
   { symbol: "PLTR", companyName: "Palantir Tech", underlyingPrice: 43.8, marketCap: "mid", assetType: "stock" },
   { symbol: "GOOGL", companyName: "Alphabet Inc.", underlyingPrice: 166.5, marketCap: "large", assetType: "stock" },
+  { symbol: "SMCI", companyName: "Super Micro Computer", underlyingPrice: 44.3, marketCap: "mid", assetType: "stock" },
+  { symbol: "MARA", companyName: "MARA Holdings Inc.", underlyingPrice: 10.2, marketCap: "small", assetType: "stock" },
+  { symbol: "UPST", companyName: "Upstart Holdings", underlyingPrice: 23.8, marketCap: "small", assetType: "stock" },
+  { symbol: "SOFI", companyName: "SoFi Technologies", underlyingPrice: 15.6, marketCap: "small", assetType: "stock" },
+  { symbol: "RIVN", companyName: "Rivian Automotive", underlyingPrice: 11.4, marketCap: "small", assetType: "stock" },
 ];
 
 /**
@@ -2022,8 +2027,25 @@ export async function fetchRealMarketFlowsForSymbol(
     const quote = result.quote || {};
     const underlyingPrice = Number(quote.regularMarketPrice || quote.bid || quote.ask || 100);
     const companyName = quote.shortName || quote.longName || `${cleanSym} ETF / Stock`;
-    const marketCap: MarketCapCategory =
-      (quote.marketCap || 0) > 200_000_000_000 ? "large" : (quote.marketCap || 0) > 10_000_000_000 ? "mid" : "small";
+    const profile = DYNAMIC_FLOW_PROFILES.find((p) => p.symbol === cleanSym);
+    let marketCap: MarketCapCategory = "large";
+    if (profile) {
+      marketCap = profile.marketCap;
+    } else if (quote.marketCap && quote.marketCap > 0) {
+      if (quote.marketCap >= 10_000_000_000) {
+        marketCap = "large";
+      } else if (quote.marketCap >= 2_000_000_000) {
+        marketCap = "mid";
+      } else {
+        marketCap = "small";
+      }
+    } else {
+      if (cleanSym === "IWM" || cleanSym === "IJR" || cleanSym === "VB" || cleanSym === "MDY") {
+        marketCap = "mid";
+      } else {
+        marketCap = "large";
+      }
+    }
     const assetType: AssetClassCategory = quote.quoteType === "ETF" ? "etf" : "stock";
 
     const optionsData = result.options?.[0];
@@ -2219,9 +2241,24 @@ export async function getDynamicLiveFlowItems(
   }
 
   // 3. Fetch real market options flow
-  const targetSymbols = requestedTickers.length > 0
-    ? requestedTickers
-    : ["SPY", "QQQ", "IWM", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META"];
+  let targetSymbols: string[] = [];
+  if (requestedTickers.length > 0) {
+    targetSymbols = requestedTickers;
+  } else if (filter?.marketCaps && filter.marketCaps.length === 1) {
+    const requestedCap = filter.marketCaps[0];
+    if (requestedCap === "small") {
+      targetSymbols = ["MARA", "UPST", "SOFI", "RIVN"];
+    } else if (requestedCap === "mid") {
+      targetSymbols = ["IWM", "COIN", "SMCI", "PLTR"];
+    } else {
+      targetSymbols = ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META", "GOOGL"];
+    }
+  } else {
+    targetSymbols = [
+      "SPY", "QQQ", "IWM", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META",
+      "COIN", "SMCI", "MARA", "UPST", "SOFI",
+    ];
+  }
 
   const realPromises = targetSymbols.map((sym) =>
     fetchRealMarketFlowsForSymbol(sym, {

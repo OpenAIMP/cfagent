@@ -57,11 +57,14 @@ export function OptionsFlowsHub({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
-  const fetchLiveFlows = (tickers?: string[], minPrem?: number) => {
+  const fetchLiveFlows = (config?: Partial<FlowFilterConfig>) => {
     setIsRefreshing(true);
+    const cfg = config || filterConfig;
     const params = new URLSearchParams();
-    if (tickers && tickers.length > 0) params.set("tickers", tickers.join(","));
-    if (minPrem && minPrem > 0) params.set("minPremium", String(minPrem));
+    if (cfg.tickers && cfg.tickers.length > 0) params.set("tickers", cfg.tickers.join(","));
+    if (cfg.minPremium && cfg.minPremium > 0) params.set("minPremium", String(cfg.minPremium));
+    if (cfg.marketCaps && cfg.marketCaps.length > 0) params.set("marketCaps", cfg.marketCaps.join(","));
+    if (cfg.assetTypes && cfg.assetTypes.length > 0) params.set("assetTypes", cfg.assetTypes.join(","));
     const url = `/api/options/flows/live${params.toString() ? `?${params.toString()}` : ""}`;
 
     fetch(url)
@@ -87,7 +90,7 @@ export function OptionsFlowsHub({
 
   // Fetch initial or server data if available
   useEffect(() => {
-    fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium);
+    fetchLiveFlows(filterConfig);
 
     fetch("/api/options/flows/news")
       .then((r) => (r.ok ? r.json() : null))
@@ -112,11 +115,11 @@ export function OptionsFlowsHub({
 
     // Auto-refresh dynamic options flow stream every 30 seconds
     const interval = setInterval(() => {
-      fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium);
+      fetchLiveFlows(filterConfig);
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [filterConfig.tickers, filterConfig.minPremium]);
+  }, [filterConfig.tickers, filterConfig.minPremium, filterConfig.marketCaps, filterConfig.assetTypes]);
 
   // Filtered collections
   const filteredLiveItems = useMemo(() => {
@@ -146,8 +149,8 @@ export function OptionsFlowsHub({
   }, [congressItems, filterConfig]);
 
   const summaryData: FlowSummary = useMemo(() => {
-    return calculateFlowSummary(liveItems);
-  }, [liveItems]);
+    return calculateFlowSummary(filteredLiveItems);
+  }, [filteredLiveItems]);
 
   // Handle Preset selection
   const handleSelectPreset = (preset: SavedFilterPreset) => {
@@ -347,7 +350,7 @@ export function OptionsFlowsHub({
           </div>
           <button
             type="button"
-            onClick={() => fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium)}
+            onClick={() => fetchLiveFlows(filterConfig)}
             disabled={isRefreshing}
             style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8", background: "rgba(30, 41, 59, 0.8)", border: "1px solid #334155", borderRadius: "6px", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
             title="Fetch fresh real-time options flow prints"

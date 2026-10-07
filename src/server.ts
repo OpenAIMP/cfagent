@@ -31,6 +31,8 @@ import {
   DEFAULT_SAVED_PRESETS,
   getDynamicLiveFlowItems,
   getDynamicFlowSummary,
+  MarketCapCategory,
+  AssetClassCategory,
 } from "./trading/options/flows";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
@@ -668,9 +670,13 @@ export default {
       const tickerParam = url.searchParams.get("tickers");
       const tickers = tickerParam ? tickerParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
       const minPrem = Number(url.searchParams.get("minPremium") || 0);
+      const marketCapsParam = url.searchParams.get("marketCaps");
+      const marketCaps = marketCapsParam ? (marketCapsParam.split(",").map((c) => c.trim()).filter(Boolean) as MarketCapCategory[]) : undefined;
+      const assetTypesParam = url.searchParams.get("assetTypes");
+      const assetTypes = assetTypesParam ? (assetTypesParam.split(",").map((c) => c.trim()).filter(Boolean) as AssetClassCategory[]) : undefined;
 
       if (sub === "live" || sub === "historical") {
-        const flows = await getDynamicLiveFlowItems(env, { tickers, minPremium: minPrem });
+        const flows = await getDynamicLiveFlowItems(env, { tickers, minPremium: minPrem, marketCaps, assetTypes });
         return Response.json({
           success: true,
           count: flows.length,
@@ -690,7 +696,7 @@ export default {
         });
       }
       if (sub === "insider") {
-        const filtered = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { tickers, minPremium: minPrem });
+        const filtered = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { tickers, minPremium: minPrem, marketCaps, assetTypes });
         return Response.json({
           success: true,
           count: filtered.length,
@@ -710,7 +716,7 @@ export default {
         });
       }
       if (sub === "summary") {
-        const summary = await getDynamicFlowSummary(env, { tickers, minPremium: minPrem });
+        const summary = await getDynamicFlowSummary(env, { tickers, minPremium: minPrem, marketCaps, assetTypes });
         return Response.json({
           success: true,
           summary,
