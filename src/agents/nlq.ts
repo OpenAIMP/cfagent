@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, generateObject } from "ai";
 import { getWorkersAIModel } from "./model";
 import { z } from "zod";
 import type { Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
@@ -80,6 +80,7 @@ export const nlqPlanSchema = z.object({
       contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
     })
     .optional(),
+  planSource: z.enum(["llm", "fastpath", "fallback"]).optional(),
   terms: z.string().max(200).default(""),
   role: z.enum(["user", "assistant", "any"]).default("any"),
   since: z.string().nullable().default(null),
@@ -98,6 +99,7 @@ export interface NLQQueryResult {
   executedAt: string;
   status?: string;
   reconciled?: boolean;
+  planSource?: "llm" | "fastpath" | "fallback";
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
@@ -117,7 +119,7 @@ export interface NLQQueryResult {
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
 
-export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
+export function planWithRules(question: string): NLQPlan {
   const qLower = question.toLowerCase();
 
   // 0. Fast-path for Cloudflare Agents Task Scheduling
@@ -698,45 +700,7 @@ export async function planNLQ(env: Env, question: string): Promise<NLQPlan> {
     };
   }
 
-  try {
-    const model = getWorkersAIModel(env);
-    const { text } = await generateText({
-      model,
-      temperature: 0,
-      system: `You are an NLQ planner for an enterprise multi-agent database over SQLite.
-Classify the user's natural language request into a query plan:
-Domains:
-1. 'tables': if asking to list tables, inspect database schema, or show structure.
-2. 'table_data': if asking to view/search records in a specific table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_messages, mas_memory, mas_events, mas_trades).
-3. 'category_mutation': if asking to add or update referral categories.
-4. 'trading': if asking to screen/scan stocks, get quotes, preview trades, or inspect positions.
-5. 'conversation': if asking questions about past chat messages or user prompts.
-
-Return JSON only:
-{
-  "domain": "tables"|"table_data"|"category_mutation"|"trading"|"conversation",
-  "operation": "list"|"count"|"search"|"create"|"update",
-  "targetTable": "mas_categories"|"mas_referrals"|"mas_ads"|"mas_transactions"|"mas_messages"|"mas_events"|"mas_trades",
-  "terms": "search keyword",
-  "role": "any"|"user"|"assistant",
-  "limit": 25
-}`,
-      prompt: question.slice(0, 2000),
-    });
-
-    const cleaned = text.replace(/```(?:json)?([\s\S]*?)```/g, "$1").trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (typeof parsed.terms === "string") {
-        parsed.terms = parsed.terms.replace(STOP_WORDS_REGEX, " ").trim();
-      }
-      return nlqPlanSchema.parse(parsed);
-    }
-  } catch {
-    // Fall back to conversation search
-  }
-
+  // 9. Heuristic conversation search fallback
   const isCount = /\b(how many|count|total)\b/i.test(question);
   const isAssistant = /\b(assistant|bot|responses?|answers?)\b/i.test(question);
   const isUser = /\b(user|questions?|prompts?|i asked|i said)\b/i.test(question);
@@ -749,7 +713,135 @@ Return JSON only:
     role: isAssistant ? "assistant" : isUser ? "user" : "any",
     since: null,
     limit: 25,
+    planSource: "fallback",
   };
+}
+
+/**
+ * Tier 2: Calls Cloudflare Workers AI with structured output constraint
+ * matching the exact API schema (nlqPlanSchema).
+ */
+export async function planWithLLM(env: Env, question: string): Promise<NLQPlan | null> {
+  const hasAi = Boolean(env?.AI && typeof (env.AI as any).run === "function");
+  if (!hasAi) return null;
+
+  try {
+    const model = getWorkersAIModel(env);
+    const { object } = await generateObject({
+      model,
+      schema: nlqPlanSchema,
+      system: `You are an expert NLQ (Natural Language Query) planner for an enterprise multi-agent financial and database platform.
+Analyze the user's natural language request and output a structured plan conforming exactly to the JSON schema.
+
+Available Domains:
+1. 'trading':
+   - Quotes: action 'quote', specify symbol.
+   - Stock Screener: action 'screen', specify filters (e.g. minPrice, maxPrice, minMarketCap, exchange, gainersOnly, losersOnly, sector, maxRsi).
+   - Order Previews: action 'preview_order', specify symbol, orderAction ('BUY'|'SELL'), quantity, orderType ('MARKET'|'LIMIT'), limitPrice.
+   - Positions/Portfolio: action 'positions' for account balance and holdings.
+   - Options Screener: action 'options_screen', filters (contractType 'CALL'|'PUT'|'BOTH', minDelta, maxDelta, minDte, maxDte, minVolume, minOpenInterest, moneyness).
+   - Options Strategies: action 'options_strategies' or 'options_best_trade' for multi-leg strategies (iron condor, vertical spread).
+   - Watchlists: action 'watchlist_save' or 'watchlist_list'.
+2. 'research':
+   - Real-time and fundamental research using Yahoo Finance or Alpaca (actions: 'quote', 'fundamentals', 'bars', 'report', 'compare', 'snapshot').
+3. 'scheduling':
+   - Task scheduling (action: 'list', 'create', 'cancel'). Type: 'delayed' (delayInSeconds), 'interval' (intervalSeconds).
+4. 'agentic_payments':
+   - Agent wallet status (action 'wallet_status'), micropayments ledger ('micropayments_list'), set limit ('set_limit').
+5. 'tables':
+   - Database schema inspection and table listing.
+6. 'table_data':
+   - Direct record browsing in tables (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_messages, mas_events, mas_trades).
+7. 'category_mutation':
+   - Adding or editing referral categories.
+8. 'conversation':
+   - Searching past chat messages or general questions.`,
+      prompt: question.slice(0, 2000),
+    });
+
+    if (object && object.domain) {
+      return {
+        ...object,
+        planSource: "llm",
+      };
+    }
+  } catch {
+    // If generateObject fails, fallback to generateText with JSON extraction
+    try {
+      const model = getWorkersAIModel(env);
+      const { text } = await generateText({
+        model,
+        temperature: 0,
+        system: `You are an NLQ planner for an enterprise database and trading platform.
+Return JSON ONLY matching this structure:
+{
+  "domain": "trading"|"research"|"scheduling"|"agentic_payments"|"tables"|"table_data"|"category_mutation"|"conversation",
+  "operation": "list"|"count"|"search"|"create"|"update",
+  "targetTable": string,
+  "tradingData": { "action": string, "symbol": string, "orderAction": "BUY"|"SELL", "quantity": number, "limitPrice": number, "filters": {} },
+  "researchData": { "action": string, "symbol": string, "symbols": [] },
+  "scheduleData": { "action": string, "scheduleType": string, "delayInSeconds": number, "description": string },
+  "terms": string,
+  "limit": number
+}`,
+        prompt: question.slice(0, 2000),
+      });
+
+      const cleaned = text.replace(/```(?:json)?([\s\S]*?)```/g, "$1").trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        if (typeof parsed.terms === "string") {
+          parsed.terms = parsed.terms.replace(STOP_WORDS_REGEX, " ").trim();
+        }
+        const validated = nlqPlanSchema.parse(parsed);
+        return {
+          ...validated,
+          planSource: "llm",
+        };
+      }
+    } catch {
+      // LLM execution failed; caller will fall back to planWithRules
+    }
+  }
+
+  return null;
+}
+
+export interface NLQPlanOptions {
+  preferLLM?: boolean;
+  skipLLM?: boolean;
+}
+
+/**
+ * Main NLQ Planning entry point:
+ * Tiered Hybrid Architecture:
+ * 1. If LLM is available and not skipped, calls Workers AI with Structured Outputs (nlqPlanSchema).
+ * 2. If LLM fails, errors, or is unavailable, seamlessly falls back to the deterministic rule engine.
+ */
+export async function planNLQ(
+  env: Env,
+  question: string,
+  options?: NLQPlanOptions
+): Promise<NLQPlan> {
+  const hasAi = Boolean(env?.AI && typeof (env.AI as any).run === "function");
+
+  // Tier 2: LLM Structured Output (when AI binding is active and not skipped)
+  if (hasAi && !options?.skipLLM) {
+    const llmPlan = await planWithLLM(env, question);
+    if (llmPlan) {
+      return llmPlan;
+    }
+    // If LLM returned null or failed, fall back to rule-based parser with provenance
+    const fallbackPlan = planWithRules(question);
+    fallbackPlan.planSource = "fallback";
+    return fallbackPlan;
+  }
+
+  // Tier 1 & 3: Deterministic Rule-Based implementation (<1ms latency, 0 tokens)
+  const fastPlan = planWithRules(question);
+  fastPlan.planSource = fastPlan.planSource ?? "fastpath";
+  return fastPlan;
 }
 
 export function formatMarketCap(cap?: number): string {
@@ -2033,5 +2125,8 @@ export async function executeNaturalLanguageQuery(
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   const plan = await planNLQ(env, query);
   const result = await executeNLQQueryAsync(orm, sessionId, plan, env, userLogin, userDid);
+  if (!result.planSource && plan.planSource) {
+    result.planSource = plan.planSource;
+  }
   return { plan, result };
 }

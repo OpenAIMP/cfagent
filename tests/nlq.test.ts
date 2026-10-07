@@ -1,10 +1,20 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { planNLQ, executeNLQQuery, formatMarketCap } from "../src/agents/nlq";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { generateObject, generateText } from "ai";
+import { planNLQ, executeNLQQuery, executeNaturalLanguageQuery, formatMarketCap } from "../src/agents/nlq";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import type { Env } from "../src/types";
+
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>();
+  return {
+    ...actual,
+    generateObject: vi.fn(),
+    generateText: vi.fn(),
+  };
+});
 
 describe("Natural Language Query (NLQ) Engine", () => {
   let sql: MockSqlStorage;
@@ -221,4 +231,103 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(avgoRej.reason).toContain("violates gainersOnly rule");
     });
   });
+
+  describe("Hybrid Tiered NLQ Planning (LLM Structured Outputs & Deterministic Fallback)", () => {
+    it("marks deterministic fast-path plans with planSource 'fastpath' when AI binding is omitted", async () => {
+      const plan = await planNLQ(mockEnv, "Find stocks priced between $20 and $200");
+      expect(plan.planSource).toBe("fastpath");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("screen");
+    });
+
+    it("respects skipLLM option and executes fast-path directly", async () => {
+      const envWithAI: Env = {
+        ...mockEnv,
+        AI: { run: vi.fn() } as any,
+      };
+      const plan = await planNLQ(envWithAI, "List all database tables and schema", { skipLLM: true });
+      expect(plan.planSource).toBe("fastpath");
+      expect(plan.domain).toBe("tables");
+    });
+
+    it("uses LLM structured output when Workers AI binding is functional", async () => {
+      const envWithAI: Env = {
+        ...mockEnv,
+        AI: { run: vi.fn() } as any,
+      };
+
+      const mockLlmPlan = {
+        domain: "trading" as const,
+        operation: "search" as const,
+        tradingData: {
+          action: "screen" as const,
+          filters: { minPrice: 50, maxPrice: 150, sector: "Technology" },
+        },
+        terms: "tech stocks 50 to 150",
+        role: "any" as const,
+        since: null,
+        limit: 25,
+      };
+
+      vi.mocked(generateObject).mockResolvedValueOnce({
+        object: mockLlmPlan,
+      } as any);
+
+      const plan = await planNLQ(envWithAI, "Find tech stocks between $50 and $150");
+      expect(generateObject).toHaveBeenCalled();
+      expect(plan.planSource).toBe("llm");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.filters?.sector).toBe("Technology");
+    });
+
+    it("falls back to deterministic rules with planSource 'fallback' when LLM throws an error", async () => {
+      const envWithAI: Env = {
+        ...mockEnv,
+        AI: { run: vi.fn() } as any,
+      };
+
+      vi.mocked(generateObject).mockRejectedValueOnce(new Error("Workers AI Rate Limit / 429 Overloaded"));
+      vi.mocked(generateText).mockRejectedValueOnce(new Error("Backup generateText timeout"));
+
+      const plan = await planNLQ(envWithAI, "Show referral categories");
+      expect(plan.planSource).toBe("fallback");
+      expect(plan.domain).toBe("table_data");
+      expect(plan.targetTable).toBe("mas_categories");
+    });
+
+    it("recovers via secondary generateText with JSON extraction if generateObject throws", async () => {
+      const envWithAI: Env = {
+        ...mockEnv,
+        AI: { run: vi.fn() } as any,
+      };
+
+      vi.mocked(generateObject).mockRejectedValueOnce(new Error("Schema constraint not supported by model"));
+      vi.mocked(generateText).mockResolvedValueOnce({
+        text: JSON.stringify({
+          domain: "tables",
+          operation: "list",
+          terms: "",
+          limit: 10,
+        }),
+      } as any);
+
+      const plan = await planNLQ(envWithAI, "What tables exist in the database?");
+      expect(plan.planSource).toBe("llm");
+      expect(plan.domain).toBe("tables");
+    });
+
+    it("propagates planSource to executeNaturalLanguageQuery result", async () => {
+      const result = await executeNaturalLanguageQuery(
+        orm,
+        "test_session",
+        "Show referral categories",
+        mockEnv
+      );
+
+      expect(result.plan.planSource).toBe("fastpath");
+      expect(result.result.planSource).toBe("fastpath");
+      expect(result.result.domain).toBe("table_data");
+    });
+  });
 });
+
