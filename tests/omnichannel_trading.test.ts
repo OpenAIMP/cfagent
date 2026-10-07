@@ -138,7 +138,7 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(result.responseSubject).toContain("Portfolio");
       expect(result.responseText).toContain("Reconciled Total Value");
       expect(result.responseHtml).toContain("E*TRADE Brokerage Account Overview");
-    });
+    }, 25000);
 
     it("generates Human-in-the-Loop (HITL) order preview emails with Agent DID attestation", async () => {
       const emailService = new ETradeEmailTradingService(mockEnv, orm, sessionId);

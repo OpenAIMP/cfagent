@@ -1158,7 +1158,7 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok && (res.status === 404 || res.status === 400)) {
+      if (!res.ok && res.status === 404) {
         url = fallbackUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
         authHeader = await this.generateOAuthHeader("GET", url);
@@ -1261,7 +1261,7 @@ export class ETradeRestClient {
         },
       });
 
-      if (!res.ok && (res.status === 400 || res.status === 404)) {
+      if (!res.ok && res.status === 404) {
         url = fallbackUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
         authHeader = await this.generateOAuthHeader("GET", url);
@@ -1273,7 +1273,7 @@ export class ETradeRestClient {
           },
         });
 
-        if (!res.ok && (res.status === 400 || res.status === 404)) {
+        if (!res.ok && res.status === 404) {
           const plainUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/portfolio`;
           const plainAuth = await this.generateOAuthHeader("GET", plainUrl);
           res = await fetch(plainUrl, {

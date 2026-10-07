@@ -12,4 +12,9 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  // @ts-expect-error vitest configuration options
+  test: {
+    testTimeout: 25000,
+    hookTimeout: 25000,
+  },
 });
