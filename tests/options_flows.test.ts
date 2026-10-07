@@ -12,7 +12,13 @@ import {
   filterCongressFlowItems,
   calculateFlowSummary,
   classifyTradeSentiment,
+  convertOptionChainToFlowItems,
+  generateDynamicFlowUniverse,
+  getDynamicLiveFlowItems,
+  getDynamicFlowSummary,
 } from "../src/trading/options/flows/flowService";
+import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
+import type { ETradeOptionChain } from "../src/types";
 
 describe("Options Flows Engine & Institutional Activity Suite", () => {
   it("contains curated live flows matching OptionStrat institutional data", () => {
@@ -242,4 +248,140 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
     expect(aggressiveCall.confidence).toBeGreaterThanOrEqual(90);
     expect(aggressiveCall.reasoning).toContain("Aggressive Call Buying");
   });
+
+  describe("Dynamic Options Flow Engine (Option Chain Conversion & Live Synthesis)", () => {
+    it("converts an ETradeOptionChain into dynamic institutional LiveFlowItem prints", () => {
+      const mockChain: ETradeOptionChain = {
+        symbol: "NVDA",
+        underlyingPrice: 125.5,
+        selectedExpiry: { year: 2026, month: 11, day: 20 },
+        pairs: [
+          {
+            call: {
+              symbol: "NVDA",
+              optionType: "CALL",
+              strikePrice: 130,
+              lastPrice: 4.5,
+              bid: 4.3,
+              ask: 4.4,
+              volume: 2500,
+              openInterest: 1000,
+              delta: 0.45,
+            },
+            put: {
+              symbol: "NVDA",
+              optionType: "PUT",
+              strikePrice: 120,
+              lastPrice: 2.2,
+              bid: 2.1,
+              ask: 2.15,
+              volume: 350,
+              openInterest: 500,
+              delta: -0.35,
+            },
+          },
+        ],
+      };
+
+      const flowItems = convertOptionChainToFlowItems(mockChain);
+      expect(flowItems.length).toBe(2);
+
+      // 1. Call print: 130C, lastPrice 4.5 >= ask 4.4 -> BUY, volume 2500 >= 1000 and premium >= 250k -> BLOCK
+      const callPrint = flowItems.find((f) => f.strategy.includes("Call"))!;
+      expect(callPrint).toBeDefined();
+      expect(callPrint.symbol).toBe("NVDA");
+      expect(callPrint.strike).toBe(130);
+      expect(callPrint.side).toBe("BUY");
+      expect(callPrint.sentiment).toBe("bullish");
+      expect(callPrint.type).toBe("BLOCK");
+      expect(callPrint.volOverOi).toBe(true);
+      expect(callPrint.isOtm).toBe(true);
+      expect(callPrint.premium).toBeGreaterThanOrEqual(250000);
+      expect(callPrint.premiumFormatted).toMatch(/^\$[0-9.]+[km]$/);
+
+      // 2. Put print: 120P, lastPrice 2.2 >= ask 2.15 -> BUY, volume 350 -> SPLIT
+      const putPrint = flowItems.find((f) => f.strategy.includes("Put"))!;
+      expect(putPrint).toBeDefined();
+      expect(putPrint.symbol).toBe("NVDA");
+      expect(putPrint.strike).toBe(120);
+      expect(putPrint.side).toBe("BUY");
+      expect(putPrint.sentiment).toBe("bearish");
+      expect(putPrint.type).toBe("SPLIT");
+      expect(putPrint.volOverOi).toBe(false);
+      expect(putPrint.isOtm).toBe(true);
+    });
+
+    it("synthesizes dynamic options flow universe with authentic market prints and live timestamps", () => {
+      const dynamicFlows = generateDynamicFlowUniverse();
+      expect(dynamicFlows.length).toBeGreaterThanOrEqual(30);
+
+      const symbols = new Set(dynamicFlows.map((f) => f.symbol));
+      expect(symbols.has("NVDA")).toBe(true);
+      expect(symbols.has("AAPL")).toBe(true);
+      expect(symbols.has("QQQ")).toBe(true);
+      expect(symbols.has("TSLA")).toBe(true);
+      expect(symbols.has("WMT")).toBe(true);
+
+      const types = new Set(dynamicFlows.map((f) => f.type));
+      expect(types.has("SWEEP")).toBe(true);
+      expect(types.has("BLOCK")).toBe(true);
+      expect(types.has("SPLIT")).toBe(true);
+
+      // Verify timestamps are dynamically generated for today (within last 4 hours)
+      const now = Date.now();
+      for (const flow of dynamicFlows) {
+        expect(flow.timestamp).toBeLessThanOrEqual(now);
+        expect(flow.timestamp).toBeGreaterThan(now - 4 * 3600 * 1000);
+        expect(flow.sentiment).toMatch(/bullish|bearish|neutral/);
+        expect(flow.premiumFormatted).toBeDefined();
+      }
+    });
+
+    it("dynamically retrieves filtered live flows and merges chain fixtures via getDynamicLiveFlowItems", async () => {
+      const customChain: ETradeOptionChain = {
+        symbol: "CUSTOM",
+        underlyingPrice: 75.0,
+        selectedExpiry: { year: 2026, month: 12, day: 18 },
+        pairs: [
+          {
+            call: {
+              symbol: "CUSTOM",
+              optionType: "CALL",
+              strikePrice: 80,
+              lastPrice: 3.0,
+              bid: 2.8,
+              ask: 2.9,
+              volume: 1200,
+              openInterest: 400,
+            },
+          },
+        ],
+      };
+
+      DynamicOptionsScreener.setTestChainsFixture({ CUSTOM: customChain });
+
+      // Fetch dynamic flows for CUSTOM ticker
+      const customFlows = await getDynamicLiveFlowItems(undefined, { tickers: ["CUSTOM"] });
+      expect(customFlows.length).toBeGreaterThan(0);
+      expect(customFlows.some((f) => f.symbol === "CUSTOM" && f.strike === 80)).toBe(true);
+
+      const customTrade = customFlows.find((f) => f.symbol === "CUSTOM" && f.strike === 80)!;
+      expect(customTrade.sentiment).toBe("bullish");
+      expect(customTrade.volOverOi).toBe(true);
+
+      DynamicOptionsScreener.clearTestChainsFixture();
+    });
+
+    it("computes dynamic FlowSummary and dual leaderboards over live flow data", async () => {
+      const summary = await getDynamicFlowSummary(undefined, { tickers: ["NVDA", "AAPL", "WMT"] });
+      expect(summary.totalTrades).toBeGreaterThan(0);
+      expect(summary.totalPremium).toBeGreaterThan(0);
+      expect(summary.bullishSentimentRatio).toBeGreaterThanOrEqual(0);
+      expect(summary.bullishSentimentRatio).toBeLessThanOrEqual(100);
+      expect(summary.bullishLeaderboard.length).toBeGreaterThan(0);
+      expect(summary.bearishLeaderboard.length).toBeGreaterThan(0);
+      expect(summary.largestTrades.length).toBeGreaterThan(0);
+    });
+  });
 });
+

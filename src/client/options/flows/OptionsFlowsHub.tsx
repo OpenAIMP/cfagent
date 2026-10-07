@@ -53,15 +53,31 @@ export function OptionsFlowsHub({
   const [newsItems, setNewsItems] = useState<NewsFlowItem[]>(RAW_NEWS_FLOW_ITEMS);
   const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>(RAW_INSIDER_FLOW_ITEMS);
   const [congressItems, setCongressItems] = useState<CongressFlowItem[]>(RAW_CONGRESS_FLOW_ITEMS);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+
+  const fetchLiveFlows = (tickers?: string[], minPrem?: number) => {
+    setIsRefreshing(true);
+    const params = new URLSearchParams();
+    if (tickers && tickers.length > 0) params.set("tickers", tickers.join(","));
+    if (minPrem && minPrem > 0) params.set("minPremium", String(minPrem));
+    const url = `/api/options/flows/live${params.toString() ? `?${params.toString()}` : ""}`;
+
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: any) => {
+        if (data?.flows) {
+          setLiveItems(data.flows);
+          setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsRefreshing(false));
+  };
 
   // Fetch initial or server data if available
   useEffect(() => {
-    fetch("/api/options/flows/live")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
-        if (data?.flows) setLiveItems(data.flows);
-      })
-      .catch(() => {});
+    fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium);
 
     fetch("/api/options/flows/news")
       .then((r) => (r.ok ? r.json() : null))
@@ -83,7 +99,14 @@ export function OptionsFlowsHub({
         if (data?.congress) setCongressItems(data.congress);
       })
       .catch(() => {});
-  }, []);
+
+    // Auto-refresh dynamic options flow stream every 30 seconds
+    const interval = setInterval(() => {
+      fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [filterConfig.tickers, filterConfig.minPremium]);
 
   // Filtered collections
   const filteredLiveItems = useMemo(() => {
@@ -306,6 +329,22 @@ export function OptionsFlowsHub({
             Insider Flow
           </button>
         </nav>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "4px 8px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 600 }}>
+            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+            <span>LIVE</span>
+            {lastSyncTime && <span style={{ color: "#94a3b8", fontWeight: 400 }}>{lastSyncTime}</span>}
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchLiveFlows(filterConfig.tickers, filterConfig.minPremium)}
+            disabled={isRefreshing}
+            style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8", background: "rgba(30, 41, 59, 0.8)", border: "1px solid #334155", borderRadius: "6px", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
+            title="Fetch fresh real-time options flow prints"
+          >
+            {isRefreshing ? "Refreshing..." : "↻ Refresh"}
+          </button>
+        </div>
 
         {/* Sentiment Gauge Pill (Screenshot 1 top right) */}
         <div

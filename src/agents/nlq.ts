@@ -9,6 +9,7 @@ import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
+import { getDynamicLiveFlowItems } from "../trading/options/flows";
 
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
@@ -36,6 +37,7 @@ export const nlqPlanSchema = z.object({
           "options_strategies",
           "options_best_trade",
           "options_opportunities",
+          "options_flow",
           "watchlist_save",
           "watchlist_list",
           "watchlist_details",
@@ -417,6 +419,37 @@ export function planWithRules(question: string): NLQPlan {
         action: "watchlist_list",
       },
       terms: "watchlists",
+      role: "any",
+      since: null,
+      limit: 25,
+    };
+  }
+
+  // 3b-2. Fast-path for Options Flow Queries
+  if (
+    /\b(options?\s+flows?|unusual\s+options?|options?\s+sweeps?|institutional\s+flows?|bullish\s+flows?|bearish\s+flows?)\b/i.test(question) ||
+    (/\bflows?\b/i.test(question) && /\b(calls?|puts?|sweeps?|blocks?|options?)\b/i.test(question))
+  ) {
+    const symMatch = question.match(/\b(?:for|on|in)\s+([A-Za-z]{1,5})\b/i) || question.match(/\b([A-Za-z]{1,5})\s+(?:options?\s+)?flows?\b/i);
+    const sym = symMatch && !["FLOW", "FLOWS", "OPTION", "OPTIONS", "SWEEP", "SWEEPS", "BLOCK", "BLOCKS", "CALL", "CALLS", "PUT", "PUTS"].includes(symMatch[1].toUpperCase())
+      ? symMatch[1].toUpperCase()
+      : undefined;
+
+    return {
+      domain: "trading",
+      operation: "search",
+      tradingData: {
+        action: "options_flow",
+        symbol: sym,
+        filters: {
+          symbol: sym,
+          bullishOnly: /\bbullish\b/i.test(question),
+          bearishOnly: /\bbearish\b/i.test(question),
+          sweepsOnly: /\bsweeps?\b/i.test(question),
+          unusualOnly: /\bunusual\b/i.test(question),
+        },
+      },
+      terms: sym ? `${sym} options flow` : "options flow",
       role: "any",
       since: null,
       limit: 25,
@@ -1413,6 +1446,20 @@ export function executeNLQQuery(
       };
     }
 
+    if (action === "options_flow") {
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "options_flows",
+        count: 0,
+        status: "info",
+        summary: "Options Flow: this action requires the asynchronous NLQ executor (executeNLQQueryAsync).",
+        rows: [],
+        executedAt,
+        planSource: plan.planSource || "fastpath",
+      };
+    }
+
     if (action === "watchlist_save") {
       const name = plan.tradingData?.watchlistName || "My Watchlist";
       let symbols = plan.tradingData?.symbols || [];
@@ -1958,6 +2005,44 @@ export async function executeNLQQueryAsync(
           dte: `${c.daysToExpiration}d (${c.expirationDate})`,
           moneyness: c.moneyness,
           technicalSignal: c.technicalSignal,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_flow") {
+      const sym = plan.tradingData?.symbol;
+      const flows = await getDynamicLiveFlowItems(env, { tickers: sym ? [sym] : undefined });
+      const filtered = flows.filter((f) => {
+        if (plan.tradingData?.filters?.bullishOnly && f.sentiment !== "bullish") return false;
+        if (plan.tradingData?.filters?.bearishOnly && f.sentiment !== "bearish") return false;
+        if (plan.tradingData?.filters?.sweepsOnly && f.type !== "SWEEP") return false;
+        if (plan.tradingData?.filters?.unusualOnly && !f.volOverOi) return false;
+        return true;
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "options_flows",
+        count: filtered.length,
+        summary: sym
+          ? `Options Flow: Found ${filtered.length} dynamic institutional prints for ${sym}.`
+          : `Options Flow: Found ${filtered.length} dynamic institutional prints across the market universe.`,
+        rows: filtered.slice(0, plan.limit || 25).map((f) => ({
+          time: f.time,
+          symbol: f.symbol,
+          underlyingPrice: `$${f.underlyingPrice.toFixed(2)}`,
+          strategy: f.strategy,
+          type: f.type,
+          side: f.side,
+          sentiment: f.sentiment.toUpperCase(),
+          premium: f.premiumFormatted,
+          volume: f.volume.toLocaleString(),
+          openInterest: f.openInterest.toLocaleString(),
+          volOverOi: f.volOverOi ? "YES" : "NO",
+          dte: `${f.dte}d`,
+          reasoning: f.sentimentReasoning,
         })),
         executedAt,
       };

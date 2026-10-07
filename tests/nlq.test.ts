@@ -107,6 +107,14 @@ describe("Natural Language Query (NLQ) Engine", () => {
       });
     });
 
+    it("classifies options flow queries into domain 'trading' with action 'options_flow'", async () => {
+      const plan = await planNLQ(mockEnv, "Show unusual options flow for NVDA");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("options_flow");
+      expect(plan.tradingData?.symbol).toBe("NVDA");
+      expect(plan.tradingData?.filters?.unusualOnly).toBe(true);
+    });
+
     it("classifies conversation questions into domain 'conversation'", async () => {
       const plan = await planNLQ(mockEnv, "How many questions did the user ask?");
       expect(plan.domain).toBe("conversation");

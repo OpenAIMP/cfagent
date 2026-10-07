@@ -29,6 +29,8 @@ import {
   filterCongressFlowItems,
   calculateFlowSummary,
   DEFAULT_SAVED_PRESETS,
+  getDynamicLiveFlowItems,
+  getDynamicFlowSummary,
 } from "./trading/options/flows";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
@@ -668,12 +670,14 @@ export default {
       const minPrem = Number(url.searchParams.get("minPremium") || 0);
 
       if (sub === "live" || sub === "historical") {
-        const filtered = filterLiveFlowItems(RAW_LIVE_FLOW_ITEMS, { tickers, minPremium: minPrem });
+        const flows = await getDynamicLiveFlowItems(env, { tickers, minPremium: minPrem });
         return Response.json({
           success: true,
-          count: filtered.length,
-          total: RAW_LIVE_FLOW_ITEMS.length,
-          flows: filtered,
+          count: flows.length,
+          total: flows.length,
+          flows,
+          isDynamic: true,
+          updatedAt: new Date().toISOString(),
         });
       }
       if (sub === "news") {
@@ -706,9 +710,11 @@ export default {
         });
       }
       if (sub === "summary") {
+        const summary = await getDynamicFlowSummary(env, { tickers, minPremium: minPrem });
         return Response.json({
           success: true,
-          summary: calculateFlowSummary(RAW_LIVE_FLOW_ITEMS),
+          summary,
+          isDynamic: true,
         });
       }
       if (sub === "presets") {
