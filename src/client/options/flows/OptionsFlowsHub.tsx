@@ -10,6 +10,7 @@ import {
   SavedFilterPreset,
 } from "../../../trading/options/flows/types";
 import {
+  RAW_LIVE_FLOW_ITEMS,
   RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
   RAW_CONGRESS_FLOW_ITEMS,
@@ -49,8 +50,8 @@ export function OptionsFlowsHub({
   const [activeBuilderTrade, setActiveBuilderTrade] = useState<LiveFlowItem | null>(null);
 
   // Live / Historical items
-  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>([]);
-  const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>([]);
+  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
+  const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
   const [hasLoadedInitial, setHasLoadedInitial] = useState<boolean>(false);
   const [newsItems, setNewsItems] = useState<NewsFlowItem[]>(RAW_NEWS_FLOW_ITEMS);
   const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>(RAW_INSIDER_FLOW_ITEMS);
@@ -309,7 +310,7 @@ export function OptionsFlowsHub({
         ];
 
     return (
-      <div className="options-flows-container" style={{ overflowY: "auto", overflowX: "hidden", height: "100%", width: "100%", boxSizing: "border-box" }}>
+      <div className="options-flows-container options-flows-builder-view">
         <StrategyDiscoveryPanel
           initialSymbol={activeBuilderTrade.symbol}
           initialStrategyName={activeBuilderTrade.strategyTitle || activeBuilderTrade.strategy}

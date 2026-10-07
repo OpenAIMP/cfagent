@@ -17,6 +17,10 @@
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: hidden;
+  overflow-y: visible;
+  flex-shrink: 0;
+  min-height: min-content;
+  height: auto;
 }
 
 /* TOP VIEW SWITCHER TABS */
@@ -724,6 +728,18 @@
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
+  width: 100%;
+  min-height: min-content;
+  height: auto;
+}
+
+.strat-discovery-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  width: 100%;
+  min-height: min-content;
+  height: auto;
 }
 
 .strat-builder-header-bar {
