@@ -550,6 +550,66 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
       }
     }
   });
+
+  it("evaluates all trends across bullish, bearish, neutral, and directional when sentiment is 'all'", () => {
+    const expirations = generateExpirations();
+    const exp = expirations[4];
+
+    const allTrendStrats = discoverStrategies({
+      symbol: "NVDA",
+      currentPrice: 230.0,
+      sentiment: "all",
+      targetPrice: 230.0,
+      expiration: exp,
+      optimizationBias: 50,
+    });
+
+    expect(allTrendStrats.length).toBeGreaterThan(10);
+    const names = allTrendStrats.map((s) => s.name);
+    // Bullish
+    expect(names).toContain("Long Call");
+    expect(names).toContain("Bull Call Spread");
+    // Bearish
+    expect(names).toContain("Long Put");
+    expect(names).toContain("Bear Put Spread");
+    // Neutral
+    expect(names).toContain("Iron Condor");
+    // Directional
+    expect(names).toContain("Long Straddle");
+
+    // Each strategy has rewardRiskRatio populated (or null if uncapped)
+    for (const strat of allTrendStrats) {
+      if (strat.maxProfit !== null && strat.maxLoss !== null && strat.maxLoss > 0) {
+        expect(strat.rewardRiskRatio).toBeCloseTo(strat.maxProfit / strat.maxLoss, 1);
+      } else if (strat.maxProfit === null) {
+        expect(strat.rewardRiskRatio).toBeNull();
+      }
+    }
+  });
+
+  it("filters strategies by minimum Reward/Risk (Max Profit vs Max Loss) ratio", () => {
+    const expirations = generateExpirations();
+    const exp = expirations[2];
+
+    // Filter for reward/risk >= 2.0 (1:2 ratio)
+    const highRrStrats = discoverStrategies({
+      symbol: "NVDA",
+      currentPrice: 230.0,
+      sentiment: "all",
+      targetPrice: 230.0,
+      minRewardRisk: 2.0,
+      expiration: exp,
+      optimizationBias: 50,
+    });
+
+    expect(highRrStrats.length).toBeGreaterThan(0);
+    for (const strat of highRrStrats) {
+      if (strat.maxProfit !== null && strat.maxLoss !== null && strat.maxLoss > 0) {
+        expect(strat.maxProfit / strat.maxLoss).toBeGreaterThanOrEqual(2.0);
+      }
+    }
+  });
 });
+
 
 

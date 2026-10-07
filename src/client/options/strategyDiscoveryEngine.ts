@@ -1,6 +1,7 @@
 import { blackScholes, calculateProbabilityOfProfit, normalCdf } from "./blackScholes";
 
 export type SentimentType =
+  | "all"
   | "very_bearish"
   | "bearish"
   | "neutral"
@@ -139,6 +140,7 @@ export interface DiscoveredStrategy {
   riskOrCollateral: number;
   returnOnRiskPct: number | null;
   returnOnCollateralPct: number | null;
+  rewardRiskRatio?: number | null; // e.g. 2.5 or null if uncapped
   chanceOfProfit: number; // 0 to 100
   breakevens: number[];
   breakevenText: string;
@@ -868,6 +870,11 @@ export function analyzeStrategy(
     compositeScore,
   };
 
+  const rewardRiskRatio =
+    maxLoss !== null && maxLoss > 0 && maxProfit !== null
+      ? Number((maxProfit / maxLoss).toFixed(2))
+      : null;
+
   return {
     id: `${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${Date.now()}`,
     name,
@@ -883,6 +890,7 @@ export function analyzeStrategy(
     riskOrCollateral: Math.round(riskOrCollateral),
     returnOnRiskPct,
     returnOnCollateralPct,
+    rewardRiskRatio,
     chanceOfProfit,
     breakevens,
     breakevenText,
@@ -904,6 +912,7 @@ export function discoverStrategies(options: {
   sentiment: SentimentType;
   targetPrice: number;
   budget?: number | null;
+  minRewardRisk?: number | null;
   expiration: ExpirationOption;
   optimizationBias: number; // 0 = Max Return (OTM), 100 = Max Chance (ITM)
   baseIv?: number;
@@ -941,7 +950,7 @@ export function discoverStrategies(options: {
   // ==========================================
   // BULLISH & VERY BULLISH STRATEGIES
   // ==========================================
-  if (sentiment === "bullish" || sentiment === "very_bullish") {
+  if (sentiment === "all" || sentiment === "bullish" || sentiment === "very_bullish") {
     // 1. Long Call
     const callStrike = sentiment === "very_bullish" ? getStrike(-4) : getStrike(-2); // deep in the money or near-ATM
     const longCallLeg = makeLeg("BUY", "CALL", callStrike, spot, dte, expiryDate, baseIv);
@@ -1083,7 +1092,7 @@ export function discoverStrategies(options: {
   // ==========================================
   // BEARISH & VERY BEARISH STRATEGIES
   // ==========================================
-  else if (sentiment === "bearish" || sentiment === "very_bearish") {
+  if (sentiment === "all" || sentiment === "bearish" || sentiment === "very_bearish") {
     // 1. Long Put
     const putStrike = sentiment === "very_bearish" ? getStrike(4) : getStrike(1);
     const longPutLeg = makeLeg("BUY", "PUT", putStrike, spot, dte, expiryDate, baseIv);
@@ -1208,7 +1217,7 @@ export function discoverStrategies(options: {
   // ==========================================
   // NEUTRAL STRATEGIES (Range-Bound / Low Vol)
   // ==========================================
-  else if (sentiment === "neutral") {
+  if (sentiment === "all" || sentiment === "neutral") {
     // 1. Iron Condor
     const icPutBuy = makeLeg("BUY", "PUT", getStrike(-7), spot, dte, expiryDate, baseIv);
     const icPutSell = makeLeg("SELL", "PUT", getStrike(-3), spot, dte, expiryDate, baseIv);
@@ -1314,7 +1323,7 @@ export function discoverStrategies(options: {
   // ==========================================
   // DIRECTIONAL / HIGH VOLATILITY STRATEGIES
   // ==========================================
-  else if (sentiment === "directional") {
+  if (sentiment === "all" || sentiment === "directional") {
     // 1. Long Straddle
     const lsAtm = getStrike(0);
     const lsCall = makeLeg("BUY", "CALL", lsAtm, spot, dte, expiryDate, baseIv);
@@ -1410,6 +1419,15 @@ export function discoverStrategies(options: {
   // Filter by budget if provided
   if (options.budget && options.budget > 0) {
     finalResults = finalResults.filter((s) => s.riskOrCollateral <= options.budget!);
+  }
+
+  // Filter by minimum Reward/Risk ratio (Max Profit vs Max Loss) if provided
+  if (options.minRewardRisk && options.minRewardRisk > 0) {
+    finalResults = finalResults.filter((s) => {
+      if (s.maxProfit === null) return true; // unlimited profit exceeds any ratio
+      if (s.maxLoss === null || s.maxLoss <= 0) return false;
+      return (s.maxProfit / s.maxLoss) >= options.minRewardRisk!;
+    });
   }
 
   // Sort by composite score to match user's optimization bias

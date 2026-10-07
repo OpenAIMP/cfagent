@@ -142,8 +142,12 @@ export class StrategyRiskAgent {
       const far = c.breakevens.some((b) => spot > 0 && (Math.abs(b - spot) / spot) * 100 > f.maxBreakevenDistancePct!);
       if (far) return `Breakeven farther than ${f.maxBreakevenDistancePct}% from spot`;
     }
-    if (f.minRewardRisk !== undefined && c.targetRewardRisk < f.minRewardRisk) {
-      return `Target reward/risk ${c.targetRewardRisk.toFixed(2)}x below required minimum ${f.minRewardRisk.toFixed(2)}x`;
+    if (f.minRewardRisk !== undefined) {
+      const maxProfitRatio = c.maxLoss > 0 && c.maxProfit !== null ? c.maxProfit / c.maxLoss : c.maxProfitUnbounded ? Infinity : 0;
+      const effectiveRatio = Math.max(c.targetRewardRisk, maxProfitRatio);
+      if (effectiveRatio < f.minRewardRisk) {
+        return `Target reward/risk ${c.targetRewardRisk.toFixed(2)}x (max profit ratio ${maxProfitRatio.toFixed(2)}x) below required minimum ${f.minRewardRisk.toFixed(2)}x`;
+      }
     }
     if (f.maxProfitGreaterThanMaxLoss && !c.maxProfitUnbounded && (c.maxProfit ?? 0) <= c.maxLoss) {
       return `Max profit $${(c.maxProfit ?? 0).toFixed(2)} is not greater than max loss $${c.maxLoss.toFixed(2)}`;

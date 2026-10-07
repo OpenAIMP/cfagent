@@ -42,6 +42,16 @@ const SENTIMENT_ITEMS: Array<{
   icon: React.ReactNode;
 }> = [
   {
+    id: "all",
+    label: "ALL",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3v18M3 12h18M6.3 6.3l11.4 11.4M6.3 17.7L17.7 6.3" />
+      </svg>
+    ),
+  },
+  {
     id: "very_bearish",
     label: "Very Bearish",
     icon: (
@@ -256,6 +266,9 @@ export function StrategyDiscoveryPanel({
   // Budget state (null = None)
   const [budget, setBudget] = useState<number | null>(null);
 
+  // Minimum Reward/Risk (Max Profit vs Max Loss) filter ratio (null = Any)
+  const [minRewardRiskRatio, setMinRewardRiskRatio] = useState<number | null>(null);
+
   // Optimization Slider (0 = Max Return, 100 = Max Chance)
   const [optimizationBias, setOptimizationBias] = useState<number>(50);
 
@@ -430,6 +443,7 @@ export function StrategyDiscoveryPanel({
     dteDays: number
   ) => {
     const move = computeImpliedMove(spotPrice, ivPercent, dteDays);
+    if (nextSentiment === "all") return Number(spotPrice.toFixed(2));
     if (nextSentiment === "very_bullish") return Number((spotPrice + 2 * move).toFixed(2));
     if (nextSentiment === "bullish") return Number((spotPrice + move).toFixed(2));
     if (nextSentiment === "neutral") return Number(spotPrice.toFixed(2));
@@ -484,12 +498,13 @@ export function StrategyDiscoveryPanel({
       sentiment,
       targetPrice,
       budget,
+      minRewardRisk: minRewardRiskRatio,
       expiration: selectedExpiration,
       optimizationBias,
       baseIv: builderIv / 100,
       config: engineConfig,
     });
-  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, selectedExpiration, optimizationBias, builderIv, engineConfig]);
+  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig]);
 
   // When discovering strategies, initialize selectedStrategy with the first match if empty
   useEffect(() => {
@@ -1362,6 +1377,22 @@ export function StrategyDiscoveryPanel({
                   }}
                 />
               </div>
+
+              <div className="strat-input-pill" title="Filter strategies by minimum Reward/Risk (Max Profit to Max Loss ratio)">
+                <label>Min R:R:</label>
+                <select
+                  value={minRewardRiskRatio ?? ""}
+                  onChange={(e) => setMinRewardRiskRatio(e.target.value === "" ? null : Number(e.target.value))}
+                  className="strat-rr-select"
+                >
+                  <option value="">Any R:R</option>
+                  <option value="1">≥ 1:1 (Profit &gt; Loss)</option>
+                  <option value="1.5">≥ 1:1.5 (+50%)</option>
+                  <option value="2">≥ 1:2 (2x)</option>
+                  <option value="3">≥ 1:3 (3x)</option>
+                  <option value="4">≥ 1:4 (4x)</option>
+                </select>
+              </div>
             </div>
 
             {/* Expiration Timeline Chips */}
@@ -1393,6 +1424,16 @@ export function StrategyDiscoveryPanel({
                   <div className="strat-card-title-row">
                     <span className="strat-card-name">{strat.name}</span>
                     <span className="strat-card-subtitle">{strat.subtitle}</span>
+                    {strat.rewardRiskRatio !== undefined && strat.rewardRiskRatio !== null && (
+                      <span className="strat-stat-rr-badge" title="Reward / Risk Ratio (Max Profit vs Max Loss)">
+                        R:R 1:{strat.rewardRiskRatio}
+                      </span>
+                    )}
+                    {strat.maxProfit === null && (
+                      <span className="strat-stat-rr-badge uncapped" title="Uncapped Upside Potential">
+                        R:R ∞ (Uncapped)
+                      </span>
+                    )}
                   </div>
 
                   <div className="strat-card-stats-row">

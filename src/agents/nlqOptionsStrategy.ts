@@ -248,8 +248,49 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
 
   const loss = question.match(/(?:max(?:imum)?\s+(?:planned\s+)?loss|risk(?:ing)?|budget|capital)\s*(?:of|under|below|<|at most|up to|:)?\s*\$?\s*(\d[\d,]*)/i);
   if (loss) request.maxPlannedLoss = parseNumber(loss[1]);
+  // Parse explicit reward/risk or profit-to-loss multiplier/percentage (e.g. 1:2, 1:3, 1:4, 2:1, 3:1, by 50%, by 2x)
+  let parsedRewardRisk: number | undefined;
+
+  // 1. Ratio patterns like 1:2, 1:3, 1:4, 2:1, 3:1, 1 to 2, 2 to 1
+  const ratioMatch = question.match(/(?:(?:reward\s*(?:\/|to)\s*risk|r\/r|profit\s*(?:\/|to)\s*loss|by|at least|>=|>)\s*)?(\d+(?:\.\d+)?)\s*(?::|to|\/)\s*(\d+(?:\.\d+)?)/i);
+  if (ratioMatch) {
+    const n1 = Number(ratioMatch[1]);
+    const n2 = Number(ratioMatch[2]);
+    if (n1 > 0 && n2 > 0) {
+      parsedRewardRisk = Number((Math.max(n1, n2) / Math.min(n1, n2)).toFixed(2));
+    }
+  }
+
+  // 2. Multiplier patterns like 2x, 3x, 4x, 1.5x
+  const multMatch = question.match(/(?:by|at least|>=|>)\s*(\d+(?:\.\d+)?)\s*x\b/i) ||
+                    question.match(/(\d+(?:\.\d+)?)\s*x\s*(?:max\s*loss|loss|risk)/i);
+  if (multMatch) {
+    const m = Number(multMatch[1]);
+    if (m > 0) parsedRewardRisk = m;
+  }
+
+  // 3. Percentage patterns like by 50%, by 100%, 200%
+  const pctMatch = question.match(/(?:by|at least|>=|>)\s*(\d+(?:\.\d+)?)\s*%/i);
+  if (pctMatch && /\b(profit|loss|more|greater|higher|gain)\b/i.test(question)) {
+    const pct = Number(pctMatch[1]);
+    if (pct > 0) {
+      parsedRewardRisk = Number((1 + pct / 100).toFixed(2));
+    }
+  }
+
+  // 4. Standard reward/risk phrase: reward to risk at least 1.5
   const rr = question.match(/(?:reward\s*(?:\/|to)\s*risk|r\/r)\s*(?:>=|>|of|over|above|at least)?\s*(\d+(?:\.\d+)?)/i);
-  if (rr) request.minRewardRisk = Number(rr[1]);
+  if (rr && !parsedRewardRisk) {
+    parsedRewardRisk = Number(rr[1]);
+  }
+
+  const strategyFilter: StrategyScreenFilter = {};
+  if (parsedRewardRisk !== undefined) {
+    request.minRewardRisk = parsedRewardRisk;
+    strategyFilter.minRewardRisk = parsedRewardRisk;
+    strategyFilter.maxProfitGreaterThanMaxLoss = true;
+  }
+
   const volume = question.match(/volume\s*(?:>|over|greater than|above)\s*(\d[\d,]*)/i);
   if (volume) request.minVolume = parseNumber(volume[1]);
   const oi = question.match(/(?:open\s*interest|oi)\s*(?:>|over|greater than|above)\s*(\d[\d,]*)/i);
@@ -259,7 +300,6 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
   const age = question.match(/quote\s*age\s*(?:<|under|below|at most)\s*(\d+)\s*(?:s|seconds?)/i);
   if (age) request.maxQuoteAgeSeconds = Number(age[1]);
 
-  const strategyFilter: StrategyScreenFilter = {};
   const pop = question.match(/(?:pop|probability\s+of\s+profit|chance\s+of\s+profit)\s*(?:>|over|above|at least|of)?\s*(\d+(?:\.\d+)?)\s*%/i);
   if (pop) strategyFilter.minProbabilityOfProfit = Number(pop[1]) / 100;
   const debit = question.match(/(?:net\s+)?debit\s*(?:<|under|below|at most)\s*\$?\s*(\d[\d,]*)/i);
@@ -268,14 +308,16 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
   if (credit) strategyFilter.minNetCredit = parseNumber(credit[1]);
   if (/\bfresh\s+quotes?\s+only\b|\bonly\s+fresh\b/i.test(question)) strategyFilter.requireFresh = true;
 
-  // Max profit > max loss criteria
+  // Max profit > max loss criteria (sets to 1.0 if not already parsed to an explicit ratio)
   if (
     /\bmax\s*profit\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*max\s*loss\b/i.test(question) ||
     /\bprofit\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*loss\b/i.test(question) ||
     /\breward\s*(?:is\s*)?(?:more|greater|higher|>)\s*(?:than)?\s*risk\b/i.test(question)
   ) {
-    request.minRewardRisk = 1.0;
-    strategyFilter.minRewardRisk = 1.0;
+    if (parsedRewardRisk === undefined) {
+      request.minRewardRisk = 1.0;
+      strategyFilter.minRewardRisk = 1.0;
+    }
     strategyFilter.maxProfitGreaterThanMaxLoss = true;
   }
 

@@ -373,6 +373,25 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(plan.tradingData?.action).toBe("options_opportunities");
       expect(plan.tradingData?.action).not.toBe("screen");
     });
+
+    it("parses explicit reward:risk ratios like 1:2, 1:3, 1:4, 2x, and percentages like 50%", async () => {
+      const plan12 = await planNLQ(mockEnv, "find strategies where max profit is greater than max loss by 1:2");
+      expect(plan12.tradingData?.request?.minRewardRisk).toBe(2.0);
+      expect(plan12.tradingData?.strategyFilter?.minRewardRisk).toBe(2.0);
+      expect(plan12.tradingData?.strategyFilter?.maxProfitGreaterThanMaxLoss).toBe(true);
+
+      const plan13 = await planNLQ(mockEnv, "find strategies where max profit is greater than max loss by 1:3");
+      expect(plan13.tradingData?.request?.minRewardRisk).toBe(3.0);
+
+      const plan14 = await planNLQ(mockEnv, "find strategies where max profit is greater than max loss by 1:4");
+      expect(plan14.tradingData?.request?.minRewardRisk).toBe(4.0);
+
+      const planPct = await planNLQ(mockEnv, "find strategies where max profit is greater than max loss by 50%");
+      expect(planPct.tradingData?.request?.minRewardRisk).toBe(1.5);
+
+      const plan2x = await planNLQ(mockEnv, "find strategies where max profit is 2x max loss");
+      expect(plan2x.tradingData?.request?.minRewardRisk).toBe(2.0);
+    });
   });
 });
 
