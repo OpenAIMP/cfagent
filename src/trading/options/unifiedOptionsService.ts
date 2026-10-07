@@ -318,7 +318,7 @@ export class UnifiedOptionsService {
           for (const group of groups.slice(0, 3)) {
             try {
               const limited = buildContextLimitedRawOptionsIdeasInput(symbol, `${question}\nAnalyze ${group.label}`, group.expirations, group.optionChains);
-              const llmRes = await generateRawOptionsIdeas(this.env, limited.input);
+              const llmRes = await generateRawOptionsIdeas(this.env, limited.input, group.optionChains);
               groupResults.push({ id: group.id, label: group.label, status: "complete" as const, answer: llmRes.answer, contractSymbols: llmRes.contractSymbols });
             } catch (err: any) {
               groupResults.push({ id: group.id, label: group.label, status: "error" as const, error: err.message });

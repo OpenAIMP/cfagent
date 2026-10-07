@@ -355,7 +355,9 @@ export function LlmStrategyEvalModal({
               ) : (
                 <div className="llm-eval-synthesis-card">
                   <h4>LLM Analysis Response</h4>
-                  <p className="llm-eval-answer-text">{result.llm.answer || result.llm.error}</p>
+                  <p className="llm-eval-answer-text">
+                    {result.llm.answer || (result.llm.error ? `⚠️ Synthesis note: ${result.llm.error}` : "Analysis completed across cohorts.")}
+                  </p>
                 </div>
               )}
 
@@ -368,7 +370,9 @@ export function LlmStrategyEvalModal({
                         <strong>{group.label}</strong>
                         <span>{group.contractCount} contracts ({group.expirationCount} exp)</span>
                       </div>
-                      <p className="llm-eval-group-answer">{group.answer || group.error}</p>
+                      <p className={`llm-eval-group-answer ${group.status === "error" ? "cohort-error" : ""}`}>
+                        {group.answer || (group.error ? `⚠️ Cohort analysis note: ${group.error}` : "No candidate strategy identified.")}
+                      </p>
                       {group.contractSymbols && group.contractSymbols.length > 0 && (
                         <div className="llm-eval-group-contracts">
                           {group.contractSymbols.map((sym) => (

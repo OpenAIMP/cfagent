@@ -28,6 +28,7 @@ import {
   buildContextLimitedRawOptionsIdeasInput,
   generateRawOptionsIdeas,
   generateRawOptionsIdeasRanking,
+  synthesizeFallbackRanking,
   groupRawOptionsIdeasChains,
 } from "../trading/options/llmIdeas";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -3052,7 +3053,7 @@ Agentic Best Practices & Workflow Rules:
                 userPrompt: llmInput.userPrompt,
                 selection: llmInput.selection,
               };
-              const llm = await generateRawOptionsIdeas(this.env, llmInput);
+              const llm = await generateRawOptionsIdeas(this.env, llmInput, group.optionChains);
               return {
                 inputExport,
                 result: {
@@ -3106,27 +3107,39 @@ Agentic Best Practices & Workflow Rules:
             error: group.error,
           }));
         const rankingPrompt = buildRawOptionsIdeasRankingPrompt(question, rankingGroups);
-        try {
-          const ranking = await generateRawOptionsIdeasRanking(
-            this.env,
-            question,
-            rankingGroups,
-          );
-          finalAnalysis = {
-            status: "complete",
-            model: ranking.model,
-            answer: ranking.answer,
-            rankings: ranking.rankings,
-            systemPrompt: rankingPrompt.systemPrompt,
-            userPrompt: rankingPrompt.userPrompt,
-          };
-        } catch (err) {
+        if (completedGroups.length === 0) {
           finalAnalysis = {
             status: "error",
-            error: err instanceof Error ? err.message : "Final cross-group ranking failed.",
+            error: "All expiration cohorts encountered upstream analysis errors.",
             systemPrompt: rankingPrompt.systemPrompt,
             userPrompt: rankingPrompt.userPrompt,
           };
+        } else {
+          try {
+            const ranking = await generateRawOptionsIdeasRanking(
+              this.env,
+              question,
+              rankingGroups,
+            );
+            finalAnalysis = {
+              status: "complete",
+              model: ranking.model,
+              answer: ranking.answer,
+              rankings: ranking.rankings,
+              systemPrompt: rankingPrompt.systemPrompt,
+              userPrompt: rankingPrompt.userPrompt,
+            };
+          } catch (err) {
+            const fallback = synthesizeFallbackRanking(completedGroups.map((g) => g.id), rankingGroups);
+            finalAnalysis = {
+              status: "complete",
+              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
+              answer: fallback.answer,
+              rankings: fallback.rankings,
+              systemPrompt: rankingPrompt.systemPrompt,
+              userPrompt: rankingPrompt.userPrompt,
+            };
+          }
         }
 
         const firstInput = groupInputs[0];

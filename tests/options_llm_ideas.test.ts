@@ -7,6 +7,9 @@ import {
   parseRawOptionsIdeas,
   parseRawOptionsIdeasRanking,
   groupRawOptionsIdeasChains,
+  extractAndRepairJson,
+  repairTruncatedJson,
+  synthesizeFallbackRanking,
 } from "../src/trading/options/llmIdeas";
 import {
   createOptionsIdeasReportXls,
@@ -388,5 +391,92 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(evalTarget.breakevenText).toBe("Above $183.50");
     expect(evalTarget.legsText).toContain("BUY 1 NVDA261120C00180000");
     expect(evalTarget.legsText).toContain("SELL 1 NVDA261120C00190000");
+  });
+
+  it("repairs truncated JSON output without throwing Unexpected end of JSON input", () => {
+    const truncated1 = '{"answer": "The Long Call is optimal because delta is 0.8 and IV is low.';
+    const parsed1 = extractAndRepairJson(truncated1) as { answer: string };
+    expect(parsed1.answer).toContain("The Long Call is optimal");
+
+    const truncated2 = '{"answer": "Strategy fits.", "contractSymbols": ["NVDA260120C00180000"';
+    const parsed2 = extractAndRepairJson(truncated2) as { answer: string; contractSymbols: string[] };
+    expect(parsed2.contractSymbols).toEqual(["NVDA260120C00180000"]);
+
+    const repaired = parseRawOptionsIdeas(
+      '{"answer": "BUY 1 225C is recommended due to positive gamma and high upside leverage.',
+      chains,
+    );
+    expect(repaired.answer).toContain("BUY 1 225C is recommended");
+  });
+
+  it("handles plain text responses gracefully instead of crashing on JSON parsing", () => {
+    const textOutput = "The Long Call strategy on NVDA with BUY 1 225C expiring 2026-10-30 is a defined-risk structure.";
+    const parsed = parseRawOptionsIdeas(textOutput, chains);
+    expect(parsed.answer).toContain("The Long Call strategy on NVDA");
+    expect(parsed.contractSymbols).toEqual([]);
+  });
+
+  it("verifies contracts against complete verificationChains even when sampled chains were truncated", () => {
+    const sampledChain: ETradeOptionChain = {
+      ...chains[0],
+      pairs: [], // sampled out to 0 contracts
+    };
+    const fullChain: ETradeOptionChain = {
+      ...chains[0],
+      pairs: [{
+        call: { symbol: "NVDA--261030C00225000", optionType: "CALL", strikePrice: 225, bid: 14, ask: 15, lastPrice: 14.5 },
+      }],
+    };
+
+    const parsed = parseRawOptionsIdeas(
+      JSON.stringify({
+        answer: "BUY 1 NVDA--261030C00225000 is the best strike.",
+        contractSymbols: ["NVDA--261030C00225000"],
+      }),
+      [sampledChain],
+      [fullChain],
+    );
+
+    expect(parsed.contractSymbols).toEqual(["NVDA--261030C00225000"]);
+    expect(parsed.contractWarnings).toEqual([]);
+    expect(parsed.contractDetails).toHaveLength(1);
+    expect(parsed.contractDetails[0].symbol).toBe("NVDA--261030C00225000");
+  });
+
+  it("parses human-readable contract references without an explicit year", () => {
+    const expiryChain: ETradeOptionChain = {
+      ...chains[0],
+      selectedExpiry: { year: 2026, month: 10, day: 30 },
+      pairs: [{
+        call: { symbol: "NVDA--261030C00225000", optionType: "CALL", strikePrice: 225, bid: 14, ask: 15, lastPrice: 14.5 },
+      }],
+    };
+
+    const parsed = parseRawOptionsIdeas(
+      JSON.stringify({
+        answer: "Consider the NVDA Oct 30 225 Call for bullish exposure.",
+        contractSymbols: ["NVDA Oct 30 225 Call"],
+      }),
+      [expiryChain],
+    );
+
+    expect(parsed.contractSymbols).toEqual(["NVDA--261030C00225000"]);
+    expect(parsed.contractWarnings).toEqual([]);
+  });
+
+  it("synthesizes a cross-group fallback ranking without crashing when ranking generation fails", () => {
+    const fallback = synthesizeFallbackRanking(
+      ["near-term", "long-term"],
+      [
+        { id: "near-term", label: "Near-term (0–30 days)", status: "complete", answer: "Long Call is the strongest fit for high delta." },
+        { id: "mid-term", label: "Mid-term (31–90 days)", status: "error", error: "Timeout." },
+        { id: "long-term", label: "Long-term (91+ days)", status: "complete", answer: "Long Call minimizes theta decay." },
+      ],
+    );
+
+    expect(fallback.rankings).toHaveLength(2);
+    expect(fallback.rankings[0].groupId).toBe("near-term");
+    expect(fallback.rankings[1].groupId).toBe("long-term");
+    expect(fallback.answer).toContain("Evaluated 2 expiration horizons");
   });
 });

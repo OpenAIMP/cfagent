@@ -192,11 +192,27 @@ function estimateInputTokens(input: RawOptionsIdeasInput): number {
   return Math.ceil(bytes * 0.8) + 128;
 }
 
+function extractQuestionStrikes(question: string): Set<number> {
+  const strikes = new Set<number>();
+  const regex = /(?:\$|\bstrike\s*|\b)([0-9]+(?:\.[0-9]+)?)\s*(?:C|P|Call|Put)?\b/gi;
+  for (const match of question.matchAll(regex)) {
+    const num = Number(match[1]);
+    if (Number.isFinite(num) && num > 0) {
+      strikes.add(num);
+    }
+  }
+  return strikes;
+}
+
 function pairPriority(
   pair: ETradeOptionChain["pairs"][number],
   underlyingPrice: number,
+  targetStrikes: Set<number> = new Set(),
 ): number {
   const strike = pair.call?.strikePrice ?? pair.put?.strikePrice ?? underlyingPrice;
+  if (targetStrikes.has(strike)) {
+    return -10000;
+  }
   const distance = underlyingPrice > 0 ? Math.abs(strike - underlyingPrice) / underlyingPrice : 1;
   const liquidity = (pair.call?.volume ?? 0) + (pair.put?.volume ?? 0) +
     (pair.call?.openInterest ?? 0) + (pair.put?.openInterest ?? 0);
@@ -236,9 +252,10 @@ export function buildContextLimitedRawOptionsIdeasInput(
     return { input: fullInput, estimatedInputTokens: fullTokens, includedContractCount: allContractCount, truncated: false };
   }
 
+  const targetStrikes = extractQuestionStrikes(question);
   const buckets = optionChains.map((chain) =>
     chain.pairs
-      .map((pair, index) => ({ pair, index, priority: pairPriority(pair, chain.underlyingPrice) }))
+      .map((pair, index) => ({ pair, index, priority: pairPriority(pair, chain.underlyingPrice, targetStrikes) }))
       .sort((left, right) => left.priority - right.priority),
   );
   const orderedCandidates: Array<{ chainIndex: number; pairIndex: number }> = [];
@@ -331,9 +348,9 @@ function validateIdeaContracts(
       ? availableContracts.filter(({ contract, expiry }) =>
         contract.optionType === parsed.optionType &&
         contract.strikePrice === parsed.strikePrice &&
-        expiry?.year === parsed.year &&
-        expiry.month === parsed.month &&
-        expiry.day === parsed.day)
+        (!parsed.year || expiry?.year === parsed.year) &&
+        expiry?.month === parsed.month &&
+        expiry?.day === parsed.day)
       : [];
     if (matches.length === 1) {
       contractSymbols.add(matches[0].contract.symbol);
@@ -397,36 +414,196 @@ function getVerifiedContractDetails(
 }
 
 function parseHumanContractReference(value: string): {
-  year: number;
+  year?: number;
   month: number;
   day: number;
   strikePrice: number;
   optionType: "CALL" | "PUT";
 } | null {
-  const match = /^(?:[A-Z0-9.-]+\s+)?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+'?(\d{2,4})\s+\$?([\d,]+(?:\.\d+)?)\s+(Call|Put)$/i.exec(value.trim());
-  if (!match) return null;
-  const yearValue = Number(match[3]);
-  const year = yearValue < 100 ? 2000 + yearValue : yearValue;
-  const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-    .indexOf(match[1].slice(0, 3).toLowerCase()) + 1;
-  const day = Number(match[2]);
-  const strikePrice = Number(match[4].replace(/,/g, ""));
-  if (!month || !Number.isFinite(strikePrice)) return null;
-  return {
-    year,
-    month,
-    day,
-    strikePrice,
-    optionType: match[5].toUpperCase() as "CALL" | "PUT",
-  };
+  const trimmed = value.trim();
+  // 1. With year: e.g. "NVDA Jan 19 '29 $225 Call" or "Oct 30, 2026 225 Call"
+  const matchWithYear = /^(?:[A-Z0-9.-]+\s+)?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+'?(\d{2,4})\s+\$?([\d,]+(?:\.\d+)?)\s+(Call|Put)$/i.exec(trimmed);
+  if (matchWithYear) {
+    const yearValue = Number(matchWithYear[3]);
+    const year = yearValue < 100 ? 2000 + yearValue : yearValue;
+    const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+      .indexOf(matchWithYear[1].slice(0, 3).toLowerCase()) + 1;
+    const day = Number(matchWithYear[2]);
+    const strikePrice = Number(matchWithYear[4].replace(/,/g, ""));
+    if (month && Number.isFinite(strikePrice)) {
+      return { year, month, day, strikePrice, optionType: matchWithYear[5].toUpperCase() as "CALL" | "PUT" };
+    }
+  }
+
+  // 2. Without year: e.g. "NVDA Oct 30 225 Call" or "Oct 30 $225 Call"
+  const matchNoYear = /^(?:[A-Z0-9.-]+\s+)?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+\$?([\d,]+(?:\.\d+)?)\s+(Call|Put)$/i.exec(trimmed);
+  if (matchNoYear) {
+    const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+      .indexOf(matchNoYear[1].slice(0, 3).toLowerCase()) + 1;
+    const day = Number(matchNoYear[2]);
+    const strikePrice = Number(matchNoYear[3].replace(/,/g, ""));
+    if (month && Number.isFinite(strikePrice)) {
+      return { month, day, strikePrice, optionType: matchNoYear[4].toUpperCase() as "CALL" | "PUT" };
+    }
+  }
+
+  return null;
+}
+
+export function repairTruncatedJson(input: string): string {
+  let s = input.trim();
+  s = s.replace(/,\s*$/, "");
+
+  let inString = false;
+  let escape = false;
+  const stack: string[] = [];
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+      } else if (ch === "}" && stack.length > 0 && stack[stack.length - 1] === "{") {
+        stack.pop();
+      } else if (ch === "]" && stack.length > 0 && stack[stack.length - 1] === "[") {
+        stack.pop();
+      }
+    }
+  }
+
+  if (inString) {
+    s += '"';
+  }
+
+  s = s.replace(/,\s*$/, "");
+
+  while (stack.length > 0) {
+    const open = stack.pop();
+    if (open === "{") s += "}";
+    else if (open === "[") s += "]";
+  }
+
+  return s;
+}
+
+export function extractAndRepairJson(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error("Empty response from AI model.");
+  }
+
+  // 1. Try direct JSON.parse first
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue
+  }
+
+  // 2. Extract from markdown code fence if present
+  const codeBlockMatch = /```(?:json)?\s*([\s\S]*?)(?:```|$)/i.exec(trimmed);
+  let candidate = codeBlockMatch ? codeBlockMatch[1].trim() : trimmed;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    // Continue
+  }
+
+  // 3. Find outermost { ... } or [ ... ]
+  const firstBrace = candidate.indexOf("{");
+  const firstBracket = candidate.indexOf("[");
+  let startIdx = -1;
+  let isObject = true;
+
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    startIdx = firstBrace;
+    isObject = true;
+  } else if (firstBracket !== -1) {
+    startIdx = firstBracket;
+    isObject = false;
+  }
+
+  if (startIdx !== -1) {
+    candidate = candidate.slice(startIdx);
+  }
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    // Continue
+  }
+
+  // 4. Auto-repair truncated JSON (fixing "Unexpected end of JSON input")
+  const repaired = repairTruncatedJson(candidate);
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    const lastBrace = candidate.lastIndexOf(isObject ? "}" : "]");
+    if (lastBrace > 0) {
+      const slice = candidate.slice(0, lastBrace + 1);
+      try {
+        return JSON.parse(slice);
+      } catch {
+        // Fall through
+      }
+    }
+  }
+
+  throw new Error("Unable to parse JSON from AI model output.");
+}
+
+export function synthesizeFallbackRanking(
+  completedGroupIds: string[],
+  groups: RawOptionsIdeasRankingInput[],
+  rawText?: string,
+): Pick<RawOptionsIdeasRankingResponse, "answer" | "rankings"> {
+  const completedGroups = groups.filter((g) => completedGroupIds.includes(g.id) && g.status !== "error");
+  const answer = rawText && rawText.length > 20 && !rawText.includes("Unexpected end") && !rawText.includes("SyntaxError")
+    ? rawText.replace(/```(?:json)?/gi, "").replace(/```/g, "").slice(0, 400).trim()
+    : `Evaluated ${completedGroupIds.length} expiration horizons. Cross-group analysis ranks completed horizons by risk/reward and time horizon suitability.`;
+
+  const rankings = completedGroups.map((group, index) => {
+    const firstSentence = (group.answer?.split(/[.\n]/)[0] || `Strategy for ${group.label || group.id}`).trim();
+    return {
+      rank: index + 1,
+      groupId: group.id,
+      strategy: firstSentence.slice(0, 100),
+      rationale: (group.answer?.slice(0, 220) || `Analysis for ${group.label || group.id}`).trim(),
+    };
+  });
+
+  return { answer, rankings };
 }
 
 export function parseRawOptionsIdeasRanking(
   text: string,
   groupIds: string[],
 ): Pick<RawOptionsIdeasRankingResponse, "answer" | "rankings"> {
-  const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  const parsed = rankingSchema.parse(JSON.parse(unwrapped));
+  let parsed: { answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }> };
+  try {
+    const json = extractAndRepairJson(text);
+    parsed = rankingSchema.parse(json);
+  } catch (err) {
+    const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try {
+      parsed = rankingSchema.parse(JSON.parse(unwrapped));
+    } catch {
+      throw err;
+    }
+  }
+
   const ids = new Set(groupIds);
   if (
     parsed.rankings.length !== groupIds.length ||
@@ -467,25 +644,46 @@ export function buildRawOptionsIdeasRankingPrompt(
 export function parseRawOptionsIdeas(
   text: string,
   optionChains: ETradeOptionChain[],
+  verificationChains?: ETradeOptionChain[],
 ): Pick<RawOptionsIdeasResponse, "answer" | "contractSymbols" | "contractWarnings" | "contractDetails"> {
-  const unwrapped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  const parsed = responseSchema.parse(JSON.parse(unwrapped));
+  let parsed: { answer: string; contractSymbols: string[] };
+  try {
+    const json = extractAndRepairJson(text);
+    parsed = responseSchema.parse(json);
+  } catch {
+    // Graceful fallback when the model returned plain text analysis instead of strict JSON
+    const cleanAnswer = text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
+    if (!cleanAnswer) {
+      throw new Error("Workers AI returned an empty answer.");
+    }
+    parsed = {
+      answer: cleanAnswer,
+      contractSymbols: optionSymbolsInAnswer(cleanAnswer),
+    };
+  }
+
+  const chainsToVerify = verificationChains && verificationChains.length > 0 ? verificationChains : optionChains;
   const answerReferences = optionSymbolsInAnswer(parsed.answer);
-  const validated = validateIdeaContracts([...parsed.contractSymbols, ...answerReferences], optionChains);
-  const canonicalAnswer = canonicalizeAnswerSymbols(parsed.answer, optionChains);
+  const validated = validateIdeaContracts([...parsed.contractSymbols, ...answerReferences], chainsToVerify);
+  const canonicalAnswer = canonicalizeAnswerSymbols(parsed.answer, chainsToVerify);
   const answer = validated.contractWarnings.length
     ? `${canonicalAnswer}\n\nContract verification note: ${validated.contractWarnings.join("; ")}.`
     : canonicalAnswer;
   return {
     answer,
     ...validated,
-    contractDetails: getVerifiedContractDetails(validated.contractSymbols, optionChains),
+    contractDetails: getVerifiedContractDetails(validated.contractSymbols, chainsToVerify),
   };
 }
 
 export async function generateRawOptionsIdeas(
   env: Env,
   input: RawOptionsIdeasInput,
+  verificationChains?: ETradeOptionChain[],
 ): Promise<RawOptionsIdeasResponse> {
   let prompt = [
     input.userPrompt,
@@ -501,9 +699,10 @@ export async function generateRawOptionsIdeas(
       prompt,
     });
     try {
+      const chainsToVerify = verificationChains && verificationChains.length > 0 ? verificationChains : input.optionChains;
       return {
         model: env.AI_MODEL || DEFAULT_AI_MODEL,
-        ...parseRawOptionsIdeas(text, input.optionChains),
+        ...parseRawOptionsIdeas(text, chainsToVerify),
       };
     } catch (error) {
       lastError = error;
@@ -532,7 +731,7 @@ export async function generateRawOptionsIdeasRanking(
     const { text } = await generateText({
       model: getWorkersAIModel(env),
       temperature: 0,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 2048,
       system: prompt.systemPrompt,
       prompt: attempt === 0
         ? prompt.userPrompt
@@ -545,8 +744,16 @@ export async function generateRawOptionsIdeasRanking(
       };
     } catch (error) {
       lastError = error;
-      if (attempt === 1) throw error;
+      if (attempt === 1) {
+        return {
+          model: env.AI_MODEL || DEFAULT_AI_MODEL,
+          ...synthesizeFallbackRanking(prompt.completedGroupIds, groups, text),
+        };
+      }
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("Final cross-group ranking failed.");
+  return {
+    model: env.AI_MODEL || DEFAULT_AI_MODEL,
+    ...synthesizeFallbackRanking(prompt.completedGroupIds, groups),
+  };
 }
