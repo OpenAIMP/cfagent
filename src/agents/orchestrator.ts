@@ -1072,8 +1072,9 @@ Agentic Best Practices & Workflow Rules:
 
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
+    const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
-    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint) {
+    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint) {
       return this.enqueueHttpRequest(request, url);
     }
 
@@ -3857,19 +3858,24 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
-    if ((path.endsWith("/schedules") || path.endsWith("/api/schedules")) && request.method === "GET") {
+    if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
         const type = url.searchParams.get("type") as any;
-        const schedules = typeof (this as any).listSchedules === "function"
-          ? await (this as any).listSchedules(type ? { type } : undefined)
-          : [];
+        let schedules: any[] = [];
+        if (typeof (this as any).listSchedules === "function") {
+          schedules = await (this as any).listSchedules(type ? { type } : undefined);
+        } else if ((this as any).scheduler && typeof (this as any).scheduler.list === "function") {
+          schedules = await (this as any).scheduler.list(type ? { type } : undefined);
+        } else if (typeof (this as any).getSchedules === "function") {
+          schedules = (this as any).getSchedules(type ? { type } : undefined);
+        }
         return Response.json({
-          count: schedules.length,
-          schedules,
+          count: Array.isArray(schedules) ? schedules.length : 0,
+          schedules: Array.isArray(schedules) ? schedules : [],
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to list schedules" }, { status: 500 });
+        return Response.json({ error: err.message || "Failed to list schedules", schedules: [] }, { status: 500 });
       }
     }
 

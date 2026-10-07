@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { apiFetch as fetch } from "../apiFetch";
 import "./scheduledOptions.css";
 
 export interface ScheduledTaskItem {
@@ -57,6 +58,7 @@ export function ScheduledOptionsManager({
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
   // Form State
   const [targetSymbols, setTargetSymbols] = useState("NVDA, AAPL, SPY, MSFT");
@@ -89,14 +91,19 @@ export function ScheduledOptionsManager({
           "x-user-login": userLogin,
         },
       });
-      const data = (await res.json()) as any;
+      const data = (await res.json().catch(() => ({}))) as any;
       if (res.ok && Array.isArray(data.schedules)) {
         setSchedules(data.schedules);
+      } else if (res.ok && Array.isArray(data)) {
+        setSchedules(data);
       } else {
-        setError(data.error || "Failed to load schedules");
+        setSchedules([]);
+        if (data && data.error) setError(data.error);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to contact scheduling agent");
+      console.warn("[ScheduledOptionsManager] Note on fetching schedules:", err);
+      setSchedules([]);
+      setError("Unable to connect to durable scheduling service. Check your connection or trigger analysis directly.");
     } finally {
       setLoading(false);
     }
@@ -133,7 +140,24 @@ export function ScheduledOptionsManager({
     fetchAudit();
   }, [fetchSchedules, fetchAudit]);
 
-  // Create Schedule
+  // Edit Existing Schedule
+  const handleEditSchedule = (item: ScheduledTaskItem) => {
+    setEditingScheduleId(item.id);
+    const syms = item.payload?.symbols;
+    setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "NVDA, AAPL, SPY, MSFT");
+    setThesis(item.payload?.thesis || "bullish");
+    setRiskProfile(item.payload?.riskProfile || "balanced");
+    setScheduleType(item.type === "cron" ? "cron" : "interval");
+    if (item.intervalSeconds) setIntervalSeconds(item.intervalSeconds);
+    if (item.cron) setCronExpression(item.cron);
+    setPushToSlack(item.payload?.pushToSlack !== false);
+    if (item.payload?.slackChannel) setSlackChannel(item.payload.slackChannel);
+    if (item.payload?.emailTo) setEmailTo(item.payload.emailTo);
+    if (item.payload?.webhookUrl) setWebhookUrl(item.payload.webhookUrl);
+    setModalOpen(true);
+  };
+
+  // Create or Update Schedule
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -169,6 +193,23 @@ export function ScheduledOptionsManager({
     }
 
     try {
+      // If editing an existing schedule, cancel the prior schedule first
+      if (editingScheduleId) {
+        try {
+          await fetch("/api/schedules/cancel", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-environment": activeEnv,
+              "x-user-login": userLogin,
+            },
+            body: JSON.stringify({ id: editingScheduleId }),
+          });
+        } catch (priorErr) {
+          console.warn("[ScheduledOptionsManager] Note on prior schedule cancellation:", priorErr);
+        }
+      }
+
       const res = await fetch("/api/schedules/create", {
         method: "POST",
         headers: {
@@ -179,17 +220,22 @@ export function ScheduledOptionsManager({
         body: JSON.stringify(requestBody),
       });
 
-      const data = (await res.json()) as any;
+      const data = (await res.json().catch(() => ({}))) as any;
       if (res.ok && data.success) {
-        setSuccessMsg(`✓ Schedule created successfully! (ID: ${data.schedule?.id || "active"})`);
+        setSuccessMsg(
+          editingScheduleId
+            ? "✓ Schedule updated successfully!"
+            : `✓ Schedule created successfully! (ID: ${data.schedule?.id || "active"})`
+        );
+        setEditingScheduleId(null);
         setModalOpen(false);
         fetchSchedules();
         fetchAudit();
       } else {
-        setError(data.error || "Failed to create schedule");
+        setError(data.error || "Failed to save schedule");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to create schedule");
+      setError(err.message || "Failed to save schedule");
     } finally {
       setSubmitting(false);
     }
@@ -493,6 +539,15 @@ export function ScheduledOptionsManager({
                     </button>
                     <button
                       type="button"
+                      className="btn-sched-action-sm"
+                      style={{ background: "rgba(56, 189, 248, 0.15)", borderColor: "rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                      onClick={() => handleEditSchedule(item)}
+                      title="Update parameters or cadence for this schedule"
+                    >
+                      ✏ Edit / Update
+                    </button>
+                    <button
+                      type="button"
                       className="btn-sched-cancel-sm"
                       onClick={() => handleCancelSchedule(item.id)}
                       title="Permanently cancel this durable schedule"
@@ -583,7 +638,7 @@ export function ScheduledOptionsManager({
           <div className="sched-modal-card" onClick={(e) => e.stopPropagation()}>
             <header className="sched-modal-header">
               <div>
-                <h3>⏰ Configure New Options Schedule</h3>
+                <h3>{editingScheduleId ? "✏ Update Options Screening Schedule" : "⏰ Configure New Options Schedule"}</h3>
                 <p>Register a durable Cloudflare Agents SDK timer to screen options 24/7 in the background.</p>
               </div>
               <button
@@ -830,7 +885,11 @@ export function ScheduledOptionsManager({
                   className="btn-sched-primary"
                   disabled={submitting}
                 >
-                  {submitting ? "Registering Schedule…" : "✓ Register Durable Schedule"}
+                  {submitting
+                    ? "Saving Schedule…"
+                    : editingScheduleId
+                    ? "✓ Save Updated Schedule"
+                    : "✓ Register Durable Schedule"}
                 </button>
               </footer>
             </form>
