@@ -681,10 +681,6 @@ export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research">("trading");
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
-  const [researchVisited, setResearchVisited] = useState(false);
-  useEffect(() => {
-    if (tab === "research") setResearchVisited(true);
-  }, [tab]);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -3628,9 +3624,8 @@ export function Chat({ user }: { user: User }) {
           />
         </div>
 
-        {/* FOSS Market Research & Quoting Hub (Yahoo Finance & Alpaca) */}
-        {(tab === "research" || researchVisited) && (
-          <div className="research-view" hidden={tab !== "research"}>
+        {tab === "research" && (
+          <div className="research-view">
             <FossResearchHub
               user={user}
               onSendPrompt={(prompt, sourceTab) => {

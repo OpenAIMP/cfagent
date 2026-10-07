@@ -13,3 +13,4 @@ export * from "./optionsDataExporter";
 export * from "./optionsIdeasExport";
 export * from "./strategyDiscoveryEngine";
 export * from "./blackScholes";
+export * from "./ScheduledOptionsManager";

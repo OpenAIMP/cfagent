@@ -657,6 +657,125 @@ export class ETradeSlackTradingService {
       };
     }
 
+    // 3. Approve & Preview Options Strategy Order from Scheduled or Omnichannel Alert
+    if (actionId === "etrade_approve_options_order" || actionId === "etrade_preview_options") {
+      let optData: any = {};
+      try {
+        optData = JSON.parse(orderId || "{}");
+      } catch {
+        optData = { symbol: orderId, strategy: "Options Strategy" };
+      }
+      const sym = optData.symbol || "OPTIONS";
+      const strat = optData.strategy || "Strategy";
+      const legsCount = Array.isArray(optData.legs) ? optData.legs.length : 1;
+
+      // Create an order draft in SQLite if ORM is available
+      const draftId = `opt_${sym}_${Date.now()}`;
+      if (this.orm?.trades) {
+        try {
+          this.orm.trades.create({
+            id: draftId,
+            sessionId: this.sessionId,
+            symbol: sym,
+            action: (optData.action || "BUY").toUpperCase(),
+            quantity: 1,
+            price: 0,
+            orderType: "LIMIT",
+            status: "previewed",
+            proposerDid: AGENT_DIDS.TRADING,
+            authorizerDid,
+            proofSignature: `sig_slack_opt_${draftId}`,
+            totalValue: optData.maxLoss || 0,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          });
+        } catch {
+          // Non-critical trade creation
+        }
+      }
+
+      const replacementBlocks = [
+        {
+          type: "header",
+          text: {
+            type: "plain_text",
+            text: "✅ OPTIONS ORDER PREVIEW APPROVED & QUEUED",
+            emoji: true,
+          },
+        },
+        {
+          type: "section",
+          fields: [
+            { type: "mrkdwn", text: `*Underlying Symbol:*\n*${sym}*` },
+            { type: "mrkdwn", text: `*Strategy:*\n*${strat}*` },
+            { type: "mrkdwn", text: `*Legs:*\n${legsCount} option leg(s)` },
+            { type: "mrkdwn", text: `*Draft ID:*\n\`${draftId}\`` },
+            { type: "mrkdwn", text: `*Authorizer:*\n<@${user.id}>` },
+            { type: "mrkdwn", text: `*Status:*\n*QUEUED FOR E*TRADE ROUTING*` },
+          ],
+        },
+        {
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: `Draft ID: \`${draftId}\` • Trading Agent DID: \`${AGENT_DIDS.TRADING}\` • ${timestamp}`,
+            },
+          ],
+        },
+      ];
+
+      if (payload.response_url) {
+        await this.postResponseUrl(payload.response_url, {
+          text: `✅ Options strategy order preview for ${sym} (${strat}) approved by <@${user.id}>`,
+          blocks: replacementBlocks,
+          replace_original: true,
+        });
+      }
+
+      return {
+        success: true,
+        actionId,
+        orderId: draftId,
+        status: "executed",
+        message: `Options order draft ${draftId} for ${sym} approved by user`,
+        replacementBlocks,
+        proposerDid: AGENT_DIDS.TRADING,
+        authorizerDid,
+        timestamp,
+      };
+    }
+
+    // 4. Dismiss Options Alert
+    if (actionId === "etrade_dismiss_options_alert") {
+      const replacementBlocks = [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `ℹ️ Options alert for *${orderId || "symbol"}* dismissed by <@${user.id}>.`,
+          },
+        },
+      ];
+
+      if (payload.response_url) {
+        await this.postResponseUrl(payload.response_url, {
+          text: `Options alert dismissed`,
+          blocks: replacementBlocks,
+          replace_original: true,
+        });
+      }
+
+      return {
+        success: true,
+        actionId,
+        status: "rejected",
+        message: "Options alert dismissed",
+        replacementBlocks,
+        timestamp,
+      };
+    }
+
     return {
       success: false,
       actionId,

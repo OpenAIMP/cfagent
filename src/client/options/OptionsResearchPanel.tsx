@@ -20,6 +20,7 @@ import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEval
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
+import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -607,7 +608,7 @@ type NlqResultView = {
 };
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
-  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq" | "llm-ideas">("discovery");
+  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq" | "llm-ideas" | "schedules">("discovery");
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
   const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
   const [symbol, setSymbol] = useState("");
@@ -926,7 +927,25 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         >
           🧪 LLM Idea Experiment &amp; Exporter
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={researchMode === "schedules"}
+          className={`subnav-btn ${researchMode === "schedules" ? "active" : ""}`}
+          onClick={() => setResearchMode("schedules")}
+        >
+          ⏰ Scheduled Screening &amp; Schedulers
+        </button>
       </div>
+
+      {researchMode === "schedules" && (
+        <ScheduledOptionsManager
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+          onPreviewTrade={(cand) => previewTrade?.(cand)}
+          onSendPrompt={onSendPrompt}
+        />
+      )}
 
       {researchMode === "discovery" && (
         <StrategyDiscoveryPanel

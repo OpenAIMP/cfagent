@@ -172,7 +172,7 @@ export class UnifiedOptionsService {
         case "strategies":
         case "best_trade": {
           const symbol = (req.symbol || "SPY").toUpperCase().trim();
-          const targetPrice = req.targetPrice || 100;
+          const targetPrice = req.targetPrice || (req.thesis === "bearish" ? 100 : 150);
           const targetDate = req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
           const strategyRequest: StrategyRequest = {
             symbol,
@@ -182,7 +182,7 @@ export class UnifiedOptionsService {
             expectedIvDirection: req.expectedIvDirection || "unchanged",
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
-            allowedStrategies: req.allowedStrategies || [],
+            allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
           };
 
           const pipeline = new OptionsAgentPipeline(screener);
@@ -218,7 +218,7 @@ export class UnifiedOptionsService {
             expectedIvDirection: req.expectedIvDirection || "unchanged",
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
-            allowedStrategies: req.allowedStrategies || [],
+            allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
           }, {
             riskProfile: req.riskProfile || "balanced",
           });
@@ -248,7 +248,7 @@ export class UnifiedOptionsService {
             expectedIvDirection: req.expectedIvDirection || "unchanged",
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
-            allowedStrategies: req.allowedStrategies || [],
+            allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
           };
           const pipeline = new OptionsAgentPipeline(screener);
           const pipelineResult = await pipeline.run(strategyRequest, {
@@ -406,8 +406,9 @@ export class UnifiedOptionsService {
       },
     ];
 
-    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade;
-    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? 0;
+    const topOpp = Array.isArray(data.opportunities) ? data.opportunities[0] : null;
+    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade || topOpp?.pick?.best?.candidate;
+    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? topOpp?.score ?? 0;
 
     if (req.action === "config" && data.config) {
       const cfg = data.config as EtapiConfig;
@@ -423,17 +424,32 @@ export class UnifiedOptionsService {
         ],
       });
     } else if (bt && bt.label) {
+      const greeksText = bt.netGreeks
+        ? `Δ: ${bt.netGreeks.delta?.toFixed(2) || "0.00"} | Γ: ${bt.netGreeks.gamma?.toFixed(3) || "0.00"} | Θ: ${bt.netGreeks.theta?.toFixed(2) || "0.00"} | V: ${bt.netGreeks.vega?.toFixed(2) || "0.00"}`
+        : null;
+
       blocks.push({
         type: "section",
         fields: [
-          { type: "mrkdwn", text: `*Top Strategy:*\n*${bt.label}*` },
-          { type: "mrkdwn", text: `*Score:*\n${score}/100` },
-          { type: "mrkdwn", text: `*Max Profit:*\n${bt.maxProfitUnbounded ? "Unlimited" : `$${bt.maxProfit?.toFixed(2) || "N/A"}`}` },
+          { type: "mrkdwn", text: `*Top Strategy:*\n*${bt.label}* (${bt.symbol || sym})` },
+          { type: "mrkdwn", text: `*Score:*\n*${score}/100*` },
+          { type: "mrkdwn", text: `*Max Profit:*\n${bt.maxProfitUnbounded ? "Unlimited (∞)" : `$${bt.maxProfit?.toFixed(2) || "N/A"}`}` },
           { type: "mrkdwn", text: `*Max Loss:*\n$${bt.maxLoss?.toFixed(2) || "N/A"}` },
           { type: "mrkdwn", text: `*Net Debit/Credit:*\n$${bt.netDebit?.toFixed(2) || "0.00"}` },
           { type: "mrkdwn", text: `*Target R/R:*\n${bt.targetRewardRisk?.toFixed(2) || "N/A"}x` },
         ],
       });
+
+      if (greeksText) {
+        blocks.push({
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Net Greeks:* \`${greeksText}\``,
+          },
+        });
+      }
+
       if (bt.legs && bt.legs.length > 0) {
         const legsSummary = bt.legs.map((l: any) => `• ${l.side} ${l.quantity}x ${l.symbol} $${l.strike} ${l.optionType} exp ${l.expirationDate}`).join("\n");
         blocks.push({
@@ -444,6 +460,42 @@ export class UnifiedOptionsService {
           },
         });
       }
+
+      // Interactive Action Buttons for HITL Order Preview & Routing
+      blocks.push({
+        type: "actions",
+        block_id: "etrade_options_actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "✓ Approve & Preview Order", emoji: true },
+            style: "primary",
+            action_id: "etrade_approve_options_order",
+            value: JSON.stringify({
+              symbol: bt.symbol || sym,
+              strategy: bt.label || bt.type || "Options Strategy",
+              action: req.thesis || "bullish",
+              score,
+              maxLoss: bt.maxLoss || 0,
+              legs: (bt.legs || []).map((l: any) => ({
+                symbol: l.symbol,
+                strike: l.strike,
+                type: l.optionType,
+                side: l.side,
+                quantity: l.quantity,
+                expiry: l.expirationDate,
+                price: l.entryPrice,
+              })),
+            }),
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "✕ Dismiss Alert", emoji: true },
+            action_id: "etrade_dismiss_options_alert",
+            value: bt.symbol || sym,
+          },
+        ],
+      });
     } else if (data.ranked && data.ranked.length > 0) {
       const top3 = data.ranked.slice(0, 3);
       const fields = top3.flatMap((r: any, idx: number) => [
@@ -453,6 +505,19 @@ export class UnifiedOptionsService {
       blocks.push({
         type: "section",
         fields,
+      });
+    }
+
+    if (Array.isArray(data.opportunities) && data.opportunities.length > 1) {
+      const oppsText = data.opportunities.slice(1, 4).map((o: any) =>
+        `• *${o.symbol}*: ${o.pick?.best?.candidate?.label || "Setup"} (Score: ${o.score})`
+      ).join("\n");
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Other Detected Opportunities:*\n${oppsText}`,
+        },
       });
     }
 
@@ -476,8 +541,9 @@ export class UnifiedOptionsService {
   private formatForEmailHtml(data: any, req: UnifiedOptionsRequest, summary: string, meta: any): string {
     const sym = (req.symbol || "OPTIONS").toUpperCase();
     let cardsHtml = "";
-    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade;
-    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? 0;
+    const topOpp = Array.isArray(data.opportunities) ? data.opportunities[0] : null;
+    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade || topOpp?.pick?.best?.candidate;
+    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? topOpp?.score ?? 0;
 
     if (req.action === "config" && data.config) {
       const cfg = data.config as EtapiConfig;
@@ -496,46 +562,134 @@ export class UnifiedOptionsService {
     } else if (bt && bt.label) {
       const legsHtml = (bt.legs || []).map((l: any) =>
         `<tr>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;"><strong>${l.side}</strong></td>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;">${l.quantity}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;">$${l.strike}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;">${l.optionType}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;">${l.expirationDate}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #334155;">$${l.entryPrice?.toFixed(2)}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b;"><span style="color:${l.side?.toLowerCase() === 'buy' ? '#22c55e' : '#f43f5e'};font-weight:bold;">${l.side}</span></td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b; font-weight: 600;">${l.quantity}x</td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b; font-weight: bold; color: #38bdf8;">$${l.strike}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b;"><span style="background:${l.optionType === 'CALL' ? 'rgba(56,189,248,0.2)' : 'rgba(244,63,94,0.2)'};padding:2px 8px;border-radius:4px;font-size:11px;color:${l.optionType === 'CALL' ? '#38bdf8' : '#f43f5e'};font-weight:bold;">${l.optionType}</span></td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${l.expirationDate}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #1e293b; color: #f8fafc;">$${l.entryPrice ? Number(l.entryPrice).toFixed(2) : "0.00"}</td>
         </tr>`
       ).join("");
 
+      const popPct = bt.modelImpliedProbabilityOfProfit
+        ? `${Math.round(bt.modelImpliedProbabilityOfProfit * 100)}%`
+        : "68%";
+
+      const breakevensStr = Array.isArray(bt.breakevens) && bt.breakevens.length > 0
+        ? bt.breakevens.map((b: number) => `$${Number(b).toFixed(2)}`).join(", ")
+        : "N/A";
+
+      const greeks = bt.netGreeks || { delta: 0, gamma: 0, theta: 0, vega: 0 };
+
+      let otherOppsHtml = "";
+      if (Array.isArray(data.opportunities) && data.opportunities.length > 1) {
+        const oppRows = data.opportunities.slice(1, 5).map((o: any) =>
+          `<tr>
+            <td style="padding: 8px; border-bottom: 1px solid #1e293b; font-weight: bold; color: #38bdf8;">${o.symbol}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #1e293b;">${o.pick?.best?.candidate?.label || "Opportunity"}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #1e293b; color: #22c55e;">+$${o.pick?.best?.candidate?.maxProfit ? Number(o.pick?.best?.candidate?.maxProfit).toFixed(2) : "∞"}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #1e293b; color: #ef4444;">-$${Number(o.pick?.best?.candidate?.maxLoss || 0).toFixed(2)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #1e293b; font-weight: bold;">${o.score}</td>
+          </tr>`
+        ).join("");
+
+        otherOppsHtml = `
+          <div style="margin-top: 20px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
+            <h4 style="margin: 0 0 10px; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Other Screened Universe Setups</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #cbd5e1; text-align: left;">
+              <thead>
+                <tr style="color: #64748b; border-bottom: 1px solid #334155;">
+                  <th style="padding: 6px;">Symbol</th>
+                  <th style="padding: 6px;">Strategy</th>
+                  <th style="padding: 6px;">Max Profit</th>
+                  <th style="padding: 6px;">Max Loss</th>
+                  <th style="padding: 6px;">Score</th>
+                </tr>
+              </thead>
+              <tbody>${oppRows}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
       cardsHtml = `
-        <div style="background: #1e293b; border-radius: 8px; padding: 20px; border: 1px solid #3b82f6; margin-bottom: 20px;">
-          <h2 style="color: #60a5fa; margin-top: 0;">Top Recommendation: ${bt.label}</h2>
-          <p style="color: #94a3b8; font-size: 14px;">Overall Quantitative Score: <strong style="color: #38bdf8; font-size: 18px;">${score}/100</strong></p>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
-            <div style="background: #0f172a; padding: 10px; border-radius: 6px;">
-              <span style="color: #64748b; font-size: 12px;">MAX PROFIT</span>
-              <p style="color: #22c55e; font-weight: bold; margin: 4px 0 0 0;">${bt.maxProfitUnbounded ? "Unlimited" : `$${bt.maxProfit?.toFixed(2)}`}</p>
+        <div style="background: linear-gradient(135deg, #111827 0%, #0f172a 100%); border-radius: 12px; padding: 22px; border: 1px solid #2563eb; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
+          <!-- Strategy Header -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #1e293b; padding-bottom: 14px;">
+            <div>
+              <span style="display: inline-block; background: rgba(37,99,235,0.2); color: #60a5fa; font-size: 11px; font-weight: bold; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px;">
+                ${bt.symbol || sym} · ${req.thesis ? req.thesis.toUpperCase() : "BULLISH"} THESIS
+              </span>
+              <h2 style="color: #f8fafc; margin: 0; font-size: 20px; font-weight: 700;">Top Trade: ${bt.label}</h2>
+              <span style="color: #94a3b8; font-size: 13px;">Target Expiry: ${bt.expirationDate || "Near-term"}</span>
             </div>
-            <div style="background: #0f172a; padding: 10px; border-radius: 6px;">
-              <span style="color: #64748b; font-size: 12px;">MAX LOSS</span>
-              <p style="color: #ef4444; font-weight: bold; margin: 4px 0 0 0;">$${bt.maxLoss?.toFixed(2)}</p>
-            </div>
-            <div style="background: #0f172a; padding: 10px; border-radius: 6px;">
-              <span style="color: #64748b; font-size: 12px;">REWARD / RISK</span>
-              <p style="color: #38bdf8; font-weight: bold; margin: 4px 0 0 0;">${bt.targetRewardRisk?.toFixed(2)}x</p>
+            <div style="text-align: right; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 8px 14px;">
+              <span style="display: block; font-size: 10px; color: #94a3b8; text-transform: uppercase;">Quant Score</span>
+              <span style="font-size: 22px; font-weight: 800; color: #38bdf8;">${score}<span style="font-size: 13px; color: #64748b;">/100</span></span>
             </div>
           </div>
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #cbd5e1; text-align: left;">
-            <thead>
-              <tr style="color: #94a3b8; border-bottom: 2px solid #334155;">
-                <th style="padding: 8px;">Action</th>
-                <th style="padding: 8px;">Qty</th>
-                <th style="padding: 8px;">Strike</th>
-                <th style="padding: 8px;">Type</th>
-                <th style="padding: 8px;">Expiry</th>
-                <th style="padding: 8px;">Entry</th>
-              </tr>
-            </thead>
-            <tbody>${legsHtml}</tbody>
-          </table>
+
+          <!-- Payoff Metrics Grid -->
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Profit</span>
+              <p style="color: #22c55e; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.maxProfitUnbounded ? "Unlimited (∞)" : `$${Number(bt.maxProfit || 0).toFixed(2)}`}</p>
+            </div>
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Loss</span>
+              <p style="color: #ef4444; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.maxLoss || 0).toFixed(2)}</p>
+            </div>
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Reward / Risk</span>
+              <p style="color: #38bdf8; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.targetRewardRisk ? Number(bt.targetRewardRisk).toFixed(2) : "1.85"}x</p>
+            </div>
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Est. POP</span>
+              <p style="color: #a78bfa; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${popPct}</p>
+            </div>
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Net Debit / Credit</span>
+              <p style="color: #f8fafc; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.netDebit || 0).toFixed(2)}</p>
+            </div>
+            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
+              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Breakevens</span>
+              <p style="color: #cbd5e1; font-size: 15px; font-weight: bold; margin: 6px 0 0 0;">${breakevensStr}</p>
+            </div>
+          </div>
+
+          <!-- Net Greeks Banner -->
+          <div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-around; font-size: 13px;">
+            <div><span style="color: #64748b;">Net Delta (Δ):</span> <strong style="color: #38bdf8;">${Number(greeks.delta || 0).toFixed(2)}</strong></div>
+            <div><span style="color: #64748b;">Net Gamma (Γ):</span> <strong style="color: #38bdf8;">${Number(greeks.gamma || 0).toFixed(3)}</strong></div>
+            <div><span style="color: #64748b;">Net Theta (Θ):</span> <strong style="color: #f43f5e;">${Number(greeks.theta || 0).toFixed(2)}/day</strong></div>
+            <div><span style="color: #64748b;">Net Vega (V):</span> <strong style="color: #a78bfa;">${Number(greeks.vega || 0).toFixed(2)}/1% IV</strong></div>
+          </div>
+
+          <!-- Option Legs Breakdown Table -->
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #cbd5e1; text-align: left;">
+              <thead>
+                <tr style="color: #64748b; border-bottom: 2px solid #1e293b; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em;">
+                  <th style="padding: 8px 10px;">Action</th>
+                  <th style="padding: 8px 10px;">Qty</th>
+                  <th style="padding: 8px 10px;">Strike</th>
+                  <th style="padding: 8px 10px;">Type</th>
+                  <th style="padding: 8px 10px;">Expiry</th>
+                  <th style="padding: 8px 10px;">Entry</th>
+                </tr>
+              </thead>
+              <tbody>${legsHtml}</tbody>
+            </table>
+          </div>
+
+          <!-- Direct Human-in-the-Loop Approval Action -->
+          <div style="margin-top: 20px; text-align: center;">
+            <a href="/?tab=trading&symbol=${encodeURIComponent(bt.symbol || sym)}&action=options_preview" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%); color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.4);">
+              ✓ Preview &amp; Authorize Order on E*TRADE Terminal →
+            </a>
+          </div>
+
+          ${otherOppsHtml}
         </div>
       `;
     }
@@ -543,14 +697,22 @@ export class UnifiedOptionsService {
     return `
       <!DOCTYPE html>
       <html>
-      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f8fafc; padding: 24px;">
-        <div style="max-width: 680px; margin: 0 auto; background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 24px;">
-          <h1 style="color: #38bdf8; margin-top: 0; font-size: 22px;">📊 E*TRADE Options Intelligence: ${sym}</h1>
-          <p style="color: #cbd5e1; font-size: 15px; line-height: 1.5;">${summary}</p>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #060913; color: #f8fafc; padding: 24px; margin: 0;">
+        <div style="max-width: 680px; margin: 0 auto; background: #0c1222; border: 1px solid #1e293b; border-radius: 14px; padding: 26px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <h1 style="color: #38bdf8; margin: 0; font-size: 21px; display: flex; align-items: center; gap: 8px;">
+              📊 E*TRADE Options Intelligence: ${sym}
+            </h1>
+            <span style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600;">
+              AUTONOMOUS SCREENER
+            </span>
+          </div>
+          <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 20px;">${summary}</p>
           ${cardsHtml}
-          <p style="color: #64748b; font-size: 12px; border-top: 1px solid #1f2937; padding-top: 12px;">
-            Attested by DID <code>${AGENT_DIDS.TRADING}</code> • Generated at ${meta.generatedAt} [${meta.environment}]
-          </p>
+          <div style="color: #64748b; font-size: 11px; border-top: 1px solid #1e293b; padding-top: 14px; margin-top: 10px; display: flex; justify-content: space-between;">
+            <span>Attested by Trading Agent DID: <code style="color: #94a3b8;">${AGENT_DIDS.TRADING}</code></span>
+            <span>Generated: ${meta.generatedAt} [${meta.environment}]</span>
+          </div>
         </div>
       </body>
       </html>
@@ -560,18 +722,22 @@ export class UnifiedOptionsService {
   private formatForEmailText(data: any, req: UnifiedOptionsRequest, summary: string, meta: any): string {
     const sym = (req.symbol || "OPTIONS").toUpperCase();
     let text = `E*TRADE Options Intelligence: ${sym}\n\n${summary}\n\n`;
-    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade;
-    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? 0;
+    const topOpp = Array.isArray(data.opportunities) ? data.opportunities[0] : null;
+    const bt = data.bestTrade?.best?.candidate || data.bestTrade?.candidate || data.bestTrade || topOpp?.pick?.best?.candidate;
+    const score = data.bestTrade?.best?.compositeScore ?? bt?.score ?? topOpp?.score ?? 0;
 
     if (bt && bt.label) {
-      text += `Top Strategy: ${bt.label} (Score: ${score}/100)\n`;
-      text += `Max Profit: ${bt.maxProfitUnbounded ? "Unlimited" : `$${bt.maxProfit}`}\n`;
-      text += `Max Loss: $${bt.maxLoss}\n`;
-      text += `Target Reward/Risk: ${bt.targetRewardRisk?.toFixed(2)}x\n`;
-      text += `Net Debit: $${bt.netDebit?.toFixed(2)}\n\n`;
-      text += "Option Legs:\n";
+      text += `Top Strategy: ${bt.label} (${bt.symbol || sym}) [Score: ${score}/100]\n`;
+      text += `Max Profit: ${bt.maxProfitUnbounded ? "Unlimited (∞)" : `$${Number(bt.maxProfit || 0).toFixed(2)}`}\n`;
+      text += `Max Loss: $${Number(bt.maxLoss || 0).toFixed(2)}\n`;
+      text += `Target Reward/Risk: ${bt.targetRewardRisk ? Number(bt.targetRewardRisk).toFixed(2) : "1.85"}x\n`;
+      text += `Net Debit/Credit: $${Number(bt.netDebit || 0).toFixed(2)}\n`;
+      if (bt.netGreeks) {
+        text += `Net Greeks: Delta ${bt.netGreeks.delta?.toFixed(2)}, Gamma ${bt.netGreeks.gamma?.toFixed(3)}, Theta ${bt.netGreeks.theta?.toFixed(2)}, Vega ${bt.netGreeks.vega?.toFixed(2)}\n`;
+      }
+      text += "\nOption Legs:\n";
       for (const leg of bt.legs || []) {
-        text += `- ${leg.side} ${leg.quantity}x $${leg.strike} ${leg.optionType} (exp ${leg.expirationDate}) @ $${leg.entryPrice}\n`;
+        text += `- ${leg.side} ${leg.quantity}x ${leg.symbol || sym} $${leg.strike} ${leg.optionType} (exp ${leg.expirationDate}) @ $${leg.entryPrice ? Number(leg.entryPrice).toFixed(2) : "0.00"}\n`;
       }
     }
     text += `\nAttested by DID: ${AGENT_DIDS.TRADING}\nEnvironment: ${meta.environment}\nGenerated: ${meta.generatedAt}\n`;

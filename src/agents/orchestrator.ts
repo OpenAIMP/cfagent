@@ -214,6 +214,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
                 summary: res.data.summary,
                 symbols: res.data.symbols,
                 withTrades: res.data.withTrades,
+                opportunities: res.data.opportunities,
+                notifications: res.data.notifications,
                 timestamp: res.timestamp,
               })
             );

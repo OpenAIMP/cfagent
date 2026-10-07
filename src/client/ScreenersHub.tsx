@@ -9,6 +9,7 @@ import {
 import type { ScreenedStockItem } from "../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "./x402Pay";
 import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
+import { ScheduledOptionsManager } from "./options/ScheduledOptionsManager";
 import "./optionsResearch.css";
 
 const PAID_OPTIONS_ENDPOINT = "/api/premium/options-scan";
@@ -39,7 +40,7 @@ function displayValue(value: unknown): string {
 
 export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: ScreenersHubProps) {
   const [assetClass, setAssetClass] = useState<ScreeningAssetClass>("stocks");
-  const [optionsScreenMode, setOptionsScreenMode] = useState<"discovery" | "contracts">("discovery");
+  const [optionsScreenMode, setOptionsScreenMode] = useState<"discovery" | "contracts" | "schedules">("discovery");
   const providers = useMemo(() => getScreeningProviders(assetClass), [assetClass]);
   const [providerId, setProviderId] = useState("etrade");
   const [symbolSearch, setSymbolSearch] = useState("");
@@ -237,7 +238,21 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           >
             📋 Raw Contracts Screener
           </button>
+          <button
+            type="button"
+            className={`subnav-btn ${optionsScreenMode === "schedules" ? "active" : ""}`}
+            onClick={() => setOptionsScreenMode("schedules")}
+          >
+            ⏰ Scheduled Screening &amp; Schedulers
+          </button>
         </div>
+      )}
+
+      {assetClass === "options" && optionsScreenMode === "schedules" && (
+        <ScheduledOptionsManager
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+        />
       )}
 
       {assetClass === "options" && optionsScreenMode === "discovery" && (
