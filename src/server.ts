@@ -722,6 +722,67 @@ export default {
   async email(message: any, env: Env, ctx?: any): Promise<void> {
     await handleCloudflareEmailMessage(message, env, ctx);
   },
+  async scheduled(event: any, env: Env, ctx?: any): Promise<void> {
+    const userLogin = "default_trader";
+    const id = env.SEARCH_AGENT.idFromName(userLogin);
+    const agent = env.SEARCH_AGENT.get(id);
+
+    if (event?.cron === "0 23 * * *") {
+      const renewPromise = agent.fetch(
+        new Request("https://agent.internal/schedules/trigger-renew", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(renewPromise);
+      else await renewPromise;
+    } else {
+      const optionsPromise = agent.fetch(
+        new Request("https://agent.internal/schedules/trigger-options-analysis", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-login": userLogin,
+          },
+          body: JSON.stringify({
+            symbols: ["AAPL", "NVDA", "SPY", "MSFT"],
+            thesis: "bullish",
+            pushToSlack: true,
+          }),
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(optionsPromise);
+      else await optionsPromise;
+    }
+  },
+  async queue(batch: any, env: Env, ctx?: any): Promise<void> {
+    const userLogin = "default_trader";
+    const id = env.SEARCH_AGENT.idFromName(userLogin);
+    const agent = env.SEARCH_AGENT.get(id);
+
+    if (batch?.messages && Array.isArray(batch.messages)) {
+      for (const msg of batch.messages) {
+        try {
+          const body = msg.body;
+          if (body?.taskType === "options_analysis") {
+            const queuePromise = agent.fetch(
+              new Request("https://agent.internal/schedules/trigger-options-analysis", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-user-login": userLogin },
+                body: JSON.stringify(body.payload || {}),
+              })
+            );
+            if (ctx?.waitUntil) ctx.waitUntil(queuePromise);
+            else await queuePromise;
+          }
+          if (typeof msg.ack === "function") msg.ack();
+        } catch (queueErr) {
+          console.warn("[Queue Handler] Failed to process queue message:", queueErr);
+          if (typeof msg.retry === "function") msg.retry();
+        }
+      }
+    }
+  },
 } satisfies ExportedHandler<Env>;
 
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {

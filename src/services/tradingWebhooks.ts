@@ -22,6 +22,8 @@ import { DatabaseORM } from "../orm";
 import { AGENT_DIDS, createDidAttestation } from "../agents/did";
 import { ETradeService } from "./etrade";
 
+import { verifyHmacSha256Signature } from "../security/webhookSecurity";
+
 export class ETradeWebhookService {
   constructor(
     private orm?: DatabaseORM,
@@ -33,29 +35,7 @@ export class ETradeWebhookService {
    * Verify HMAC-SHA256 webhook signature using Web Crypto API
    */
   async verifySignature(rawBody: string, signature: string | null, secret?: string): Promise<boolean> {
-    if (!secret) return true; // If no secret configured, accept in open dev mode
-    if (!signature) return false;
-
-    try {
-      const cleanSig = signature.replace(/^sha256=/i, "").trim().toLowerCase();
-      const encoder = new TextEncoder();
-      const key = await crypto.subtle.importKey(
-        "raw",
-        encoder.encode(secret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["verify"]
-      );
-
-      const signatureBytes = Uint8Array.from(
-        cleanSig.match(/.{2}/g) ?? [],
-        (byte) => Number.parseInt(byte, 16)
-      );
-
-      return await crypto.subtle.verify("HMAC", key, signatureBytes, encoder.encode(rawBody));
-    } catch {
-      return false;
-    }
+    return verifyHmacSha256Signature(rawBody, signature, secret);
   }
 
   /**

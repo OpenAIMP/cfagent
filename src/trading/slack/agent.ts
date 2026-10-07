@@ -34,55 +34,7 @@ function escapeHtml(value: string): string {
   })[character] || character);
 }
 
-/**
- * Timing-safe string comparison
- */
-export function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const A = enc.encode(a);
-  const B = enc.encode(b);
-  if (A.length !== B.length) return false;
-  let diff = 0;
-  for (let i = 0; i < A.length; i++) {
-    diff |= A[i] ^ B[i];
-  }
-  return diff === 0;
-}
-
-/**
- * Verify Slack HMAC-SHA256 request signature
- */
-export async function verifySlackSignature(
-  signingSecret: string,
-  timestamp: string | null,
-  rawBody: string,
-  signature: string | null
-): Promise<boolean> {
-  if (!signingSecret || !timestamp || !signature) return false;
-
-  const now = Math.floor(Date.now() / 1000);
-  const tsNum = Number(timestamp);
-  if (isNaN(tsNum) || Math.abs(now - tsNum) > 300) {
-    return false; // Replay guard: reject requests older than 5 minutes
-  }
-
-  const base = `v0:${timestamp}:${rawBody}`;
-  const enc = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(signingSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const sigBuffer = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(base));
-  const hexSig = [...new Uint8Array(sigBuffer)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  return timingSafeEqual(`v0=${hexSig}`, signature);
-}
+export { timingSafeEqual, verifySlackSignature } from "../../security/webhookSecurity";
 
 export class ETradeSlackTradingService {
   constructor(

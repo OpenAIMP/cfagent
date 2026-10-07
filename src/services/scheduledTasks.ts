@@ -12,6 +12,27 @@ import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from ".
 import type { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { DynamicMarketScreener } from "../trading/screener";
+import {
+  UnifiedOptionsService,
+  type OptionThesis,
+  type OptionStrategyType,
+} from "../trading/options";
+import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeEmailTradingService } from "../trading/email/agent";
+import { ETradeWebhookService } from "./tradingWebhooks";
+
+export interface AutonomousOptionsAnalysisOptions {
+  symbols?: string[];
+  thesis?: OptionThesis;
+  targetDate?: string;
+  allowedStrategies?: OptionStrategyType[];
+  riskProfile?: "conservative" | "balanced" | "aggressive";
+  pushToSlack?: boolean;
+  slackChannel?: string;
+  emailTo?: string;
+  webhookUrl?: string;
+  environment?: string;
+}
 
 export class ScheduledTasksService {
   constructor(
@@ -288,5 +309,151 @@ export class ScheduledTasksService {
       },
       timestamp,
     };
+  }
+
+  /**
+   * Autonomous Options Intelligence & Cross-Symbol Opportunity Analysis
+   * Can be triggered on-demand or executed on a Cloudflare Agents schedule (cron or interval)
+   * Dispatches push notifications to Slack, Email, and Webhook upon completion
+   */
+  async autonomousOptionsAnalysis(
+    options: AutonomousOptionsAnalysisOptions = {}
+  ): Promise<ScheduledTaskResult<{
+    totalScanned: number;
+    withTrades: number;
+    symbols: string[];
+    summary: string;
+    notifications: {
+      slack?: boolean;
+      email?: boolean;
+      webhook?: boolean;
+    };
+    opportunities?: any[];
+  }>> {
+    const timestamp = new Date().toISOString();
+    const symbols = options.symbols && options.symbols.length > 0 ? options.symbols : ["AAPL", "NVDA", "SPY", "MSFT"];
+    const targetThesis = options.thesis || "bullish";
+
+    try {
+      const unifiedService = new UnifiedOptionsService(
+        this.env,
+        this.userLogin,
+        options.environment,
+        this.orm
+      );
+
+      const response = await unifiedService.execute({
+        action: "opportunities",
+        symbols,
+        thesis: targetThesis,
+        targetDate: options.targetDate,
+        riskProfile: options.riskProfile || "balanced",
+        allowedStrategies: options.allowedStrategies,
+        channel: "ui",
+        userLogin: this.userLogin,
+        overrideEnv: options.environment,
+      });
+
+      const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
+
+      // 1. Push to Slack if requested or if SLACK_BOT_TOKEN is present
+      if (options.pushToSlack || this.env.SLACK_BOT_TOKEN) {
+        try {
+          const slackService = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
+          const slackPayload = response.toSlack();
+          if (options.slackChannel) {
+            slackPayload.channel = options.slackChannel;
+          }
+          notifications.slack = await slackService.postSlackMessage(slackPayload);
+        } catch (slackErr) {
+          console.warn("[ScheduledTasksService] Slack notification error:", slackErr);
+          notifications.slack = false;
+        }
+      }
+
+      // 2. Push Email if recipient is specified
+      if (options.emailTo) {
+        try {
+          const emailService = new ETradeEmailTradingService(this.env, this.orm, this.userLogin);
+          notifications.email = await emailService.sendOutboundEmail(
+            options.emailTo,
+            `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
+            response.toEmailHtml(),
+            response.toEmailText()
+          );
+        } catch (emailErr) {
+          console.warn("[ScheduledTasksService] Email notification error:", emailErr);
+          notifications.email = false;
+        }
+      }
+
+      // 3. Push Webhook if target URL is specified or default configured
+      const targetWebhookUrl = options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL;
+      if (targetWebhookUrl) {
+        try {
+          const webhookService = new ETradeWebhookService(this.orm, this.env, this.userLogin);
+          const webhookPayload = response.toWebhook();
+          const whResult = await webhookService.dispatchOutboundWebhook(
+            "options.scheduled_analysis",
+            webhookPayload,
+            targetWebhookUrl
+          );
+          notifications.webhook = whResult.success;
+        } catch (webhookErr) {
+          console.warn("[ScheduledTasksService] Webhook notification error:", webhookErr);
+          notifications.webhook = false;
+        }
+      }
+
+      this.audit("options.scheduled_analysis_completed", {
+        symbols,
+        thesis: targetThesis,
+        scanned: response.data?.scanned ?? symbols.length,
+        withTrades: response.data?.withTrades ?? 0,
+        notifications,
+      });
+
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `🎯 Scheduled Options Intelligence: ${response.summary}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+
+      return {
+        success: true,
+        taskType: "options_analysis" as any,
+        data: {
+          totalScanned: response.data?.scanned ?? symbols.length,
+          withTrades: response.data?.withTrades ?? 0,
+          symbols,
+          summary: response.summary,
+          notifications,
+          opportunities: response.data?.opportunities,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      this.audit("options.scheduled_analysis_failed", {
+        symbols,
+        thesis: targetThesis,
+        error: err.message,
+      });
+
+      return {
+        success: false,
+        taskType: "options_analysis" as any,
+        error: err.message || "Scheduled options analysis failed",
+        timestamp,
+      };
+    }
   }
 }

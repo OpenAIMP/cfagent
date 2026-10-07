@@ -221,6 +221,28 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       const messages = orm.messages.findMany({ where: { sessionId } });
       expect(messages.some(m => m.content.includes("Review AAPL quarterly earnings"))).toBe(true);
     });
+
+    it("runs autonomous options analysis across symbols and records audit events", async () => {
+      const service = new ScheduledTasksService(env, orm, sessionId);
+      const res = await service.autonomousOptionsAnalysis({
+        symbols: ["AAPL", "MSFT"],
+        thesis: "bullish",
+        pushToSlack: false,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.taskType).toBe("options_analysis");
+      expect(res.data?.symbols).toEqual(["AAPL", "MSFT"]);
+      expect(res.data?.summary).toBeTruthy();
+
+      // Verify audit event
+      const auditEvents = orm.events.findMany({ where: { type: "options.scheduled_analysis_completed" } });
+      expect(auditEvents.length).toBe(1);
+
+      // Verify assistant message record
+      const messages = orm.messages.findMany({ where: { sessionId } });
+      expect(messages.some(m => m.content.includes("Scheduled Options Intelligence"))).toBe(true);
+    });
   });
 
   // =========================================================================

@@ -25,6 +25,12 @@
     { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
   ],
   "observability": { "enabled": true },
+  "triggers": {
+    "crons": [
+      "0 13 * * 1-5",
+      "0 23 * * *"
+    ]
+  },
   "vars": {
     "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com",
     "APP_NAME": "AI Search Agent",

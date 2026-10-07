@@ -39,7 +39,7 @@ import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
-import { ScheduledTasksService } from "../services/scheduledTasks";
+import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -193,6 +193,41 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       await (this as any).keepAliveWhile(runScreen);
     } else {
       await runScreen();
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Autonomous Options Intelligence
+   * Runs cross-symbol options discovery and dispatches omnichannel push alerts
+   */
+  async autonomousOptionsAnalysis(payload?: AutonomousOptionsAnalysisOptions): Promise<void> {
+    const runAnalysis = async () => {
+      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+      const res = await service.autonomousOptionsAnalysis(payload);
+      if (res.success && res.data) {
+        if (typeof (this as any).broadcast === "function") {
+          try {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "options_alert",
+                title: "Autonomous Options Intelligence Alert",
+                summary: res.data.summary,
+                symbols: res.data.symbols,
+                withTrades: res.data.withTrades,
+                timestamp: res.timestamp,
+              })
+            );
+          } catch {
+            // Non-critical broadcast error
+          }
+        }
+      }
+    };
+
+    if (typeof (this as any).keepAliveWhile === "function") {
+      await (this as any).keepAliveWhile(runAnalysis);
+    } else {
+      await runAnalysis();
     }
   }
 
@@ -3940,6 +3975,18 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ success: true, message: "E*TRADE token renewal triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger token renewal" }, { status: 500 });
+      }
+    }
+
+    // Trigger autonomous options analysis immediately on demand
+    if (path.endsWith("/schedules/trigger-options-analysis") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+        const result = await service.autonomousOptionsAnalysis(body);
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
       }
     }
 
