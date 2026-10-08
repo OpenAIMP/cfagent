@@ -19,6 +19,7 @@ import { DynamicOptionsScreener } from "../../optionsScreener";
 import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
+import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
 
 export const DEFAULT_SAVED_PRESETS: SavedFilterPreset[] = [
   {
@@ -1927,7 +1928,7 @@ export interface DynamicFlowUniverseOptions {
 }
 
 /**
- * Curated dynamic symbol profiles representing high-volume equities and ETFs.
+ * Curated dynamic symbol profiles derived from the externalized curated stock universe.
  */
 export const DYNAMIC_FLOW_PROFILES: Array<{
   symbol: string;
@@ -1936,29 +1937,14 @@ export const DYNAMIC_FLOW_PROFILES: Array<{
   marketCap: "large" | "mid" | "small";
   assetType: "stock" | "etf";
   hasEarnings?: boolean;
-}> = [
-  { symbol: "NVDA", companyName: "NVIDIA Corp.", underlyingPrice: 128.5, marketCap: "large", assetType: "stock" },
-  { symbol: "AAPL", companyName: "Apple Inc.", underlyingPrice: 227.4, marketCap: "large", assetType: "stock" },
-  { symbol: "QQQ", companyName: "Invesco QQQ Trust", underlyingPrice: 486.2, marketCap: "large", assetType: "etf" },
-  { symbol: "SPY", companyName: "SPDR S&P 500 ETF", underlyingPrice: 574.8, marketCap: "large", assetType: "etf" },
-  { symbol: "TSLA", companyName: "Tesla, Inc.", underlyingPrice: 242.6, marketCap: "large", assetType: "stock" },
-  { symbol: "MSFT", companyName: "Microsoft Corp.", underlyingPrice: 418.9, marketCap: "large", assetType: "stock" },
-  { symbol: "AMZN", companyName: "Amazon.com Inc.", underlyingPrice: 186.7, marketCap: "large", assetType: "stock" },
-  { symbol: "META", companyName: "Meta Platforms", underlyingPrice: 588.3, marketCap: "large", assetType: "stock" },
-  { symbol: "AMD", companyName: "Advanced Micro Devices", underlyingPrice: 154.2, marketCap: "large", assetType: "stock" },
-  { symbol: "WMT", companyName: "Walmart Inc.", underlyingPrice: 107.2, marketCap: "large", assetType: "stock" },
-  { symbol: "ARM", companyName: "Arm Holdings", underlyingPrice: 142.1, marketCap: "large", assetType: "stock" },
-  { symbol: "IWM", companyName: "iShares Russell 2000 ETF", underlyingPrice: 218.4, marketCap: "mid", assetType: "etf" },
-  { symbol: "XSP", companyName: "Mini-SPX Index", underlyingPrice: 572.1, marketCap: "large", assetType: "etf" },
-  { symbol: "COIN", companyName: "Coinbase Global", underlyingPrice: 198.6, marketCap: "mid", assetType: "stock" },
-  { symbol: "PLTR", companyName: "Palantir Tech", underlyingPrice: 43.8, marketCap: "mid", assetType: "stock" },
-  { symbol: "GOOGL", companyName: "Alphabet Inc.", underlyingPrice: 166.5, marketCap: "large", assetType: "stock" },
-  { symbol: "SMCI", companyName: "Super Micro Computer", underlyingPrice: 44.3, marketCap: "mid", assetType: "stock" },
-  { symbol: "MARA", companyName: "MARA Holdings Inc.", underlyingPrice: 10.2, marketCap: "small", assetType: "stock" },
-  { symbol: "UPST", companyName: "Upstart Holdings", underlyingPrice: 23.8, marketCap: "small", assetType: "stock" },
-  { symbol: "SOFI", companyName: "SoFi Technologies", underlyingPrice: 15.6, marketCap: "small", assetType: "stock" },
-  { symbol: "RIVN", companyName: "Rivian Automotive", underlyingPrice: 11.4, marketCap: "small", assetType: "stock" },
-];
+}> = CURATED_STOCK_UNIVERSE.map((item) => ({
+  symbol: item.symbol,
+  companyName: item.companyName,
+  underlyingPrice: item.defaultPrice ?? 150.0,
+  marketCap: ((item.marketCap || 0) >= 10e9 ? "large" : (item.marketCap || 0) >= 2e9 ? "mid" : "small") as "large" | "mid" | "small",
+  assetType: (item.sector.includes("ETF") ? "etf" : "stock") as "stock" | "etf",
+  hasEarnings: !item.sector.includes("ETF"),
+}));
 
 // In-memory cache for dynamically scanned stock listings partitioned by market cap (10 minute TTL)
 let dynamicListingsCache: {
@@ -2002,6 +1988,12 @@ export async function resolveDynamicFlowSymbols(
   filter?: Partial<FlowFilterConfig>
 ): Promise<string[]> {
   const now = Date.now();
+  const curatedUniverse = getCuratedStockUniverse();
+  const defaultLarge = curatedUniverse.filter((l) => (l.marketCap || 0) >= 10e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
+  const defaultMid = curatedUniverse.filter((l) => (l.marketCap || 0) >= 2e9 && (l.marketCap || 0) < 10e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
+  const defaultSmall = curatedUniverse.filter((l) => (l.marketCap || 0) < 2e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
+  const defaultEtfs = curatedUniverse.filter((l) => l.sector.includes("ETF")).map((l) => l.symbol);
+
   if (!dynamicListingsCache || dynamicListingsCache.expiresAt <= now) {
     try {
       const listings = await fetchAllUsStockListings().catch(() => []);
@@ -2033,10 +2025,10 @@ export async function resolveDynamicFlowSymbols(
 
         dynamicListingsCache = {
           expiresAt: now + 10 * 60 * 1000, // 10 minutes
-          large: large.length > 0 ? large : ["NVDA", "AAPL", "MSFT", "AMZN", "META", "TSLA", "GOOGL", "AMD", "SPY", "QQQ"],
-          mid: mid.length > 0 ? mid : ["IWM", "COIN", "SMCI", "PLTR", "HOOD", "AFRM", "DKNG", "SNAP"],
-          small: small.length > 0 ? small : ["MARA", "UPST", "SOFI", "RIVN", "LCID", "PLUG", "CHWY", "RUN"],
-          etfs: ["SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "SMH"],
+          large: large.length > 0 ? large : defaultLarge,
+          mid: mid.length > 0 ? mid : defaultMid,
+          small: small.length > 0 ? small : defaultSmall,
+          etfs: defaultEtfs.length > 0 ? defaultEtfs : ["SPY", "QQQ", "IWM"],
         };
       }
     } catch {
@@ -2044,13 +2036,13 @@ export async function resolveDynamicFlowSymbols(
     }
   }
 
-  // Fallback defaults if listings could not be loaded
+  // Fallback defaults derived from externalized curated universe
   const cache = dynamicListingsCache || {
     expiresAt: now + 60000,
-    large: ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "AMD", "AMZN", "MSFT", "META", "GOOGL"],
-    mid: ["IWM", "COIN", "SMCI", "PLTR", "HOOD", "AFRM", "DKNG", "SNAP"],
-    small: ["MARA", "UPST", "SOFI", "RIVN", "LCID", "PLUG", "CHWY", "RUN"],
-    etfs: ["SPY", "QQQ", "IWM"],
+    large: defaultLarge.slice(0, 10),
+    mid: defaultMid.slice(0, 8),
+    small: defaultSmall.slice(0, 8),
+    etfs: defaultEtfs.slice(0, 7),
   };
 
   const caps = filter?.marketCaps || ["large", "mid", "small"];

@@ -165,5 +165,10 @@
   { "symbol": "SMH", "companyName": "VanEck Semiconductor ETF", "sector": "Sector ETF", "exchange": "nasdaq", "defaultPrice": 250.0, "marketCap": 23000000000 },
   { "symbol": "SOXX", "companyName": "iShares Semiconductor ETF", "sector": "Sector ETF", "exchange": "nasdaq", "defaultPrice": 225.0, "marketCap": 14000000000 },
   { "symbol": "XBI", "companyName": "SPDR S&P Biotech ETF", "sector": "Sector ETF", "exchange": "amex", "defaultPrice": 96.0, "marketCap": 7500000000 },
-  { "symbol": "USO", "companyName": "United States Oil Fund LP", "sector": "Commodity ETF", "exchange": "amex", "defaultPrice": 76.0, "marketCap": 1500000000 }
+  { "symbol": "USO", "companyName": "United States Oil Fund LP", "sector": "Commodity ETF", "exchange": "amex", "defaultPrice": 76.0, "marketCap": 1500000000 },
+  { "symbol": "XSP", "companyName": "Mini-SPX Index", "sector": "Broad Market Index", "exchange": "amex", "defaultPrice": 572.0, "marketCap": 500000000000 },
+  { "symbol": "MARA", "companyName": "MARA Holdings Inc.", "sector": "Financial / Crypto", "exchange": "nasdaq", "defaultPrice": 18.0, "marketCap": 4500000000 },
+  { "symbol": "UPST", "companyName": "Upstart Holdings, Inc.", "sector": "Technology / Fintech", "exchange": "nasdaq", "defaultPrice": 48.0, "marketCap": 4200000000 },
+  { "symbol": "SOFI", "companyName": "SoFi Technologies, Inc.", "sector": "Financial / Fintech", "exchange": "nasdaq", "defaultPrice": 14.0, "marketCap": 15000000000 },
+  { "symbol": "RIVN", "companyName": "Rivian Automotive, Inc.", "sector": "Consumer Discretionary / EV", "exchange": "nasdaq", "defaultPrice": 12.0, "marketCap": 12000000000 }
 ]
