@@ -94,6 +94,16 @@ describe("Platform Capabilities & Chat Knowledge Retrieval Suite", () => {
       expect(match).toBeDefined();
       expect(result.formattedAnswer).toContain("options-flows");
     });
+
+    it("retrieves the complete 14-workflow directory breakdown for analysis and execution", () => {
+      const result = searchPlatformKnowledge("how many workflows are there for both analysis and execution and what components/apis are leveraged to enable them");
+      expect(result.count).toBe(14);
+      expect(result.formattedAnswer).toContain("14 Total Workflows");
+      expect(result.formattedAnswer).toContain("Part 1: Analysis Workflows (8 Workflows");
+      expect(result.formattedAnswer).toContain("Part 2: Execution Workflows (6 Workflows");
+      expect(result.formattedAnswer).toMatch(/A1.*Stock Screener/);
+      expect(result.formattedAnswer).toMatch(/E1.*Brokerage Order Preview/);
+    });
   });
 
   describe("2. MCP Command: QueryPlatformKnowledgeCommand", () => {

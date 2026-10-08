@@ -308,6 +308,32 @@ export function searchPlatformKnowledge(
   const terms = q.split(/\s+/).filter((t) => t.length > 2);
   const normalizedQ = q.replace(/[^a-z0-9]/g, "");
 
+  // Dedicated handler for workflow count & analysis vs execution breakdown
+  if (/\b(how\s+many\s+workflows|analysis\s+and\s+execution|analysis\s+vs\s+execution|execution\s+workflows|analysis\s+workflows|what\s+components.*apis)\b/i.test(q)) {
+    const formattedAnswer = getAnalysisAndExecutionWorkflowsMarkdown();
+    return {
+      query,
+      count: 14,
+      results: PLATFORM_WORKFLOWS_KNOWLEDGE.slice(0, maxResults).map((wf) => ({
+        id: wf.id,
+        title: `Workflow ${wf.number}: ${wf.title}`,
+        type: "workflow",
+        category: wf.categoryLabel,
+        summary: wf.subtitle,
+        details: wf.overview,
+        howToUse: [
+          `Open the '${wf.targetTab}' tab in the platform navigation.`,
+          ...wf.steps.map((s) => `${s.step} (${s.title}): ${s.description}`),
+        ],
+        targetTab: wf.targetTab,
+        apiEndpoint: wf.apiEndpoint,
+        samplePrompt: wf.sampleQueryOrAction,
+        relevanceScore: 100,
+      })),
+      formattedAnswer,
+    };
+  }
+
   // If query is empty, return the comprehensive 8-workflow overview immediately
   if (terms.length === 0 || !normalizedQ) {
     const formattedAnswer = getPlatformOverviewMarkdown();
@@ -474,6 +500,108 @@ export function searchPlatformKnowledge(
     results: topResults,
     formattedAnswer,
   };
+}
+
+/**
+ * Returns comprehensive markdown breaking down all 14 Analysis and Execution workflows,
+ * their enabling components, and leveraged APIs.
+ */
+function getAnalysisAndExecutionWorkflowsMarkdown(): string {
+  return [
+    `### Analysis & Execution Workflows Directory (14 Total Workflows)`,
+    ``,
+    `The platform provides **14 distinct workflows**, categorized into **8 Analysis Workflows** and **6 Execution Workflows**:`,
+    ``,
+    `---`,
+    `### 📊 Part 1: Analysis Workflows (8 Workflows — Read-Only & Quant)`,
+    ``,
+    `1. **A1: Multi-Exchange Stock Screener & Equity Momentum Analysis**`,
+    `   - **Scope**: Screens 8,000+ US equities with 14-period RSI & MACD momentum across NASDAQ, NYSE, AMEX.`,
+    `   - **Components**: \`DynamicMarketScreener\` (\`yfinanceScreener.ts\`), \`curatedStockUniverse.json\`, \`ETradeRestClient\`, \`FossResearchService\`.`,
+    `   - **APIs Leveraged**: \`api.nasdaq.com/api/screener/stocks\`, \`query1/query2.finance.yahoo.com\`, \`fc.yahoo.com\`, \`api.etrade.com/v1/market/quote\`.`,
+    `   - **Endpoints**: \`POST /api/etrade/screen\`, \`POST /api/foss/screen\`.`,
+    ``,
+    `2. **A2: Options Strategy Discovery, Greeks Modeling & EV Scoring**`,
+    `   - **Scope**: Evaluates 72 catalog options strategies against live option chains; computes Black-Scholes Greeks, IV Rank, and Expected Value (EV).`,
+    `   - **Components**: \`UnifiedOptionsService\`, \`OptionsStrategyRegistry\` (72 strategies), \`BlackScholesCalculator\`, \`CalibratedOptionChains\`.`,
+    `   - **APIs Leveraged**: \`api.etrade.com/v1/market/optionchains\`, \`api.etrade.com/v1/market/optionexpiredate\`.`,
+    `   - **Endpoints**: \`POST /api/etrade/options/strategy\`, \`POST /api/trading/options/unified\`.`,
+    ``,
+    `3. **A3: Raw Options Contract Screener & Chain Filtering**`,
+    `   - **Scope**: Contract-level filtering by delta, volume, open interest, and 15 auditable rejection codes.`,
+    `   - **Components**: \`DynamicOptionsScreener\` (\`optionsScreener.ts\`), \`PaidOptionsScreenerCommand\` (x402).`,
+    `   - **APIs Leveraged**: \`api.etrade.com/v1/market/optionchains\`.`,
+    `   - **Endpoints**: \`POST /api/trading/options/screen\`, \`POST /api/premium/options-scan\`.`,
+    ``,
+    `4. **A4: Real-Time Options Flows & Institutional Smart Money Tracking**`,
+    `   - **Scope**: Detects unusual sweeps ($100k+ aggressive orders), blocks, volume/OI surges (>1.5x), and sentiment leaderboards.`,
+    `   - **Components**: \`OptionsFlowService\` (\`flows/flowService.ts\`), \`DynamicMarketScreener\` (screener-first dynamic underlyings).`,
+    `   - **APIs Leveraged**: \`api.nasdaq.com\` (dynamic cap buckets), live normalized options prints.`,
+    `   - **Endpoints**: \`GET /api/options/flows/live\`, \`GET /api/options/flows/summary\`, \`GET /api/options/flows/news\`.`,
+    ``,
+    `5. **A5: Visual Multi-Leg Strategy Builder & Expiration Payoff Analysis**`,
+    `   - **Scope**: Interactive payoff diagrams, breakeven boundaries, max loss/gain, and net Greeks across 1-4 leg structures.`,
+    `   - **Components**: \`StrategyBuilderEngine\`, \`llmComparison.ts\`, \`llmIdeas.ts\`.`,
+    `   - **APIs Leveraged**: Live option chain feeds, Workers AI (\`Llama 3.3 70B\`).`,
+    `   - **Endpoints**: \`POST /api/trading/options/compare\`, \`POST /api/trading/options/llm-ideas\`.`,
+    ``,
+    `6. **A6: Portfolio Risk Exposure, SPY Beta-Weighting & Hedging Analysis**`,
+    `   - **Scope**: Syncs brokerage holdings, calculates portfolio Net Delta ($\\Delta_{\\text{SPY}}$), daily Theta decay, and proposes hedges.`,
+    `   - **Components**: \`PortfolioRiskEngine\`, \`ETradeRestClient\`, \`ScheduledTasksService\`.`,
+    `   - **APIs Leveraged**: \`api.etrade.com/v1/accounts/{id}/portfolio\`, \`api.etrade.com/v1/accounts/{id}/balance\`.`,
+    `   - **Endpoints**: \`GET /api/etrade/positions\`, \`GET /api/etrade/accounts\`.`,
+    ``,
+    `7. **A7: Zero-Credential FOSS Equity & Crypto Research**`,
+    `   - **Scope**: Fundamental valuations (P/E, PEG, P/B), analyst targets, historical chart bars, and crypto Level 1 quotes.`,
+    `   - **Components**: \`FossResearchService\`, \`YahooFinanceProvider\`, \`AlpacaMarketDataProvider\`.`,
+    `   - **APIs Leveraged**: \`query1.finance.yahoo.com\`, \`data.alpaca.markets/v2/stocks/quotes\`, \`data.alpaca.markets/v1beta3/crypto/quotes\`.`,
+    `   - **Endpoints**: \`GET /api/foss/quote\`, \`GET /api/foss/fundamentals\`, \`GET /api/foss/bars\`, \`GET /api/foss/research\`.`,
+    ``,
+    `8. **A8: Conversational Financial Intelligence & NLQ Analytics**`,
+    `   - **Scope**: Translates natural language questions into parameter-bound SQLite queries, options evaluations, and research scans.`,
+    `   - **Components**: \`NLQPlanner\`, \`NLQExecutor\`, \`LLMJudge\` router, \`DatabaseORM\`, \`PlatformKnowledgeService\`.`,
+    `   - **APIs Leveraged**: Cloudflare Workers AI, Cloudflare AI Search RAG, Durable Object SQLite storage.`,
+    `   - **Endpoints**: \`POST /api/nlq\`, \`POST /api/chat\`, \`POST /nlq/webhook\`.`,
+    ``,
+    `---`,
+    `### ⚡ Part 2: Execution Workflows (6 Workflows — Side-Effecting & Money Movement)`,
+    ``,
+    `1. **E1: Brokerage Order Preview & HITL Execution (E*TRADE)**`,
+    `   - **Scope**: Zero unconfirmed trades: drafts orders with Agent DID attestations (\`did:agent:openaimp:trading\`) requiring human approval.`,
+    `   - **Components**: \`ETradeRestClient\`, \`ETradeTradingHub\`, \`ETradePreviewOrderCommand\`, \`ETradeExecuteOrderCommand\`.`,
+    `   - **APIs Leveraged**: \`api.etrade.com/v1/accounts/{id}/orders/preview\`, \`api.etrade.com/v1/accounts/{id}/orders/place\`, \`mas_trades\` WAL ledger.`,
+    `   - **Endpoints**: \`POST /api/etrade/order/preview\`, \`POST /api/etrade/order/execute\`.`,
+    ``,
+    `2. **E2: Direct Equities & Crypto Order Placement (Alpaca Broker API)**`,
+    `   - **Scope**: Direct paper/live market and limit orders for equities and crypto via Alpaca.`,
+    `   - **Components**: \`AlpacaMarketDataProvider\`, \`FossAlpacaPlaceOrderCommand\`.`,
+    `   - **APIs Leveraged**: \`api.alpaca.markets/v2/orders\`, \`api.alpaca.markets/v2/account\`, \`api.alpaca.markets/v2/positions\`.`,
+    `   - **Endpoints**: \`POST /api/trading/alpaca/order\`, \`GET /api/trading/alpaca/orders\`.`,
+    ``,
+    `3. **E3: Autonomous Background Cron, Interval Alarms & Token Lifecycle Management**`,
+    `   - **Scope**: Proactive E*TRADE OAuth renewal at 23:00 ET, interval market scans every 5m (300s), async job runner, and WebSocket broadcasts.`,
+    `   - **Components**: \`ScheduledTasksService\`, Cloudflare Durable Object Alarm lifecycle (\`schedule\`, \`scheduleEvery\`), \`mas_async_jobs\`.`,
+    `   - **APIs Leveraged**: \`api.etrade.com/oauth/renew_access_token\`, Cloudflare DO Alarms, WebSocket \`broadcast\`.`,
+    `   - **Endpoints**: \`POST /api/schedules/trigger-screen\`, \`POST /api/schedules/trigger-renew\`, \`GET /api/jobs\`.`,
+    ``,
+    `4. **E4: Omnichannel Execution & One-Click Approvals (Slack, Email, Voice)**`,
+    `   - **Scope**: Interactive Slack Block Kit trading, signed inbound email trading, one-click mobile approval links (\`/trade/approve\`), and voice trading.`,
+    `   - **Components**: \`ETradeSlackTradingService\`, \`ETradeEmailTradingService\`, \`ETradeVoiceTradingService\`, \`ETradeWebhookService\`.`,
+    `   - **APIs Leveraged**: Slack Web API, Cloudflare \`EMAIL\` binding, Cloudflare WebSockets (\`/voice/trade\`), HMAC-SHA256 webhooks.`,
+    `   - **Endpoints**: \`POST /slack/events\`, \`POST /slack/interactions\`, \`GET /trade/approve\`, \`POST /api/trading/reports/webhook\`.`,
+    ``,
+    `5. **E5: Agentic Micropayments, Gateways & x402 Protocol Settlement**`,
+    `   - **Scope**: Payment intent drafting across Stripe, PayPal, Lemon Squeezy, and HTTP 402 (x402) on-chain crypto micropayments ($0.05 USDC).`,
+    `   - **Components**: \`PaymentGatewayService\`, \`PaymentStrategyFactory\`, \`x402Verifier\`, \`OptionsScannerMCP\`.`,
+    `   - **APIs Leveraged**: \`api.stripe.com/v1/payment_intents\`, \`api-m.paypal.com\`, \`api.lemonsqueezy.com\`, Base / Ethereum RPC nodes.`,
+    `   - **Endpoints**: \`POST /api/payments/create\`, \`POST /api/payments/confirm\`, \`POST /mcp/scanner\`.`,
+    ``,
+    `6. **E6: Enterprise Observability & Cryptographic Audit Ledger Execution**`,
+    `   - **Scope**: Immutable transaction logging, router telemetry, and cryptographic verification stamps.`,
+    `   - **Components**: \`DatabaseORM\` (\`mas_events\`, \`mas_trades\`), \`AuditEventPublisher\` & \`Observer\` pattern.`,
+    `   - **APIs Leveraged**: SQLite WAL storage, W3C DID cryptographic registry.`,
+    `   - **Endpoints**: \`GET /api/audit\`, \`sqlite://audit/recent\`.`,
+  ].join("\n");
 }
 
 /**
