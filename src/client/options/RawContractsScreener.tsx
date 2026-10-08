@@ -4,6 +4,8 @@ import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { OptionsTradeContext } from "./OptionsResearchPanel";
+import { RiskAnalysisModal } from "./RiskAnalysisModal";
+import type { RiskSubject } from "./riskManagementEngine";
 
 interface RawContractsScreenerProps {
   activeEnv: "TEST" | "PROD";
@@ -11,6 +13,7 @@ interface RawContractsScreenerProps {
   initialSymbol?: string;
   onPreviewTrade?: (ctx: OptionsTradeContext) => void;
   onSelectContract?: (contract: ScreenedOptionContractItem) => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
 interface PendingPayment {
@@ -31,7 +34,9 @@ export function RawContractsScreener({
   initialSymbol = "NVDA",
   onPreviewTrade,
   onSelectContract,
+  onSendPrompt,
 }: RawContractsScreenerProps) {
+  const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [symbol, setSymbol] = useState(initialSymbol);
   const [contractType, setContractType] = useState<"BOTH" | "CALL" | "PUT">("BOTH");
   const [minDte, setMinDte] = useState("0");
@@ -550,6 +555,58 @@ export function RawContractsScreener({
                             Select
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="subnav-btn"
+                          style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "#f59e0b", color: "#fbbf24" }}
+                          title="Analyze risk profile and mitigation playbook"
+                          onClick={() =>
+                            setRiskSubject({
+                              title: `${c.optionType} $${c.strikePrice} (${c.expirationDate})`,
+                              underlyingSymbol: c.underlyingSymbol,
+                              underlyingPrice: c.underlyingPrice,
+                              strategyType: `Long ${c.optionType}`,
+                              sentiment: isCall ? "bullish" : "bearish",
+                              expirationDate: c.expirationDate,
+                              dte: c.daysToExpiration,
+                              quantity: 1,
+                              netDebit: mid,
+                              maxProfit: isCall ? null : c.strikePrice * 100,
+                              maxLoss: mid * 100,
+                              chanceOfProfit: isCall ? (c.delta ? Math.min(99, Math.abs(c.delta) * 100) : 50) : (c.delta ? Math.min(99, Math.abs(c.delta) * 100) : 50),
+                              breakevens: [isCall ? Number((c.strikePrice + mid).toFixed(2)) : Number((c.strikePrice - mid).toFixed(2))],
+                              legs: [
+                                {
+                                  side: "BUY",
+                                  action: "BUY",
+                                  optionType: c.optionType,
+                                  strike: c.strikePrice,
+                                  expirationDate: c.expirationDate,
+                                  entryPrice: mid,
+                                  bid: c.bid,
+                                  ask: c.ask,
+                                  iv: c.impliedVolatility,
+                                  delta: c.delta,
+                                  gamma: c.gamma,
+                                  theta: c.theta,
+                                  vega: c.vega,
+                                },
+                              ],
+                              netGreeks: {
+                                delta: c.delta,
+                                gamma: c.gamma,
+                                theta: c.theta,
+                                vega: c.vega,
+                              },
+                              bid: c.bid,
+                              ask: c.ask,
+                              openInterest: c.openInterest,
+                              volume: c.volume,
+                            })
+                          }
+                        >
+                          🛡️ Risk
+                        </button>
                         {onPreviewTrade && (
                           <button
                             type="button"
@@ -599,6 +656,14 @@ export function RawContractsScreener({
           </p>
         </div>
       )}
+
+      {/* Risk Analysis & Management Playbook Modal */}
+      <RiskAnalysisModal
+        isOpen={Boolean(riskSubject)}
+        onClose={() => setRiskSubject(null)}
+        subject={riskSubject}
+        onSendPrompt={onSendPrompt}
+      />
     </div>
   );
 }

@@ -15,6 +15,8 @@ import { ScreenersHub } from "./ScreenersHub";
 import { TabHoverItem } from "./TabHoverItem";
 import { ETradeDynamicMenu } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
+import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
+import type { RiskSubject } from "./options/riskManagementEngine";
 
 function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
   return <div hidden={hidden}>{children}</div>;
@@ -74,6 +76,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const [activeDraft, setActiveDraft] = useState<ETradeOrderDraft | null>(null);
   const [executingDraft, setExecutingDraft] = useState(false);
   const [lastExecutionResult, setLastExecutionResult] = useState<ETradeOrderExecutionResult | null>(null);
+  const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [orderError, setOrderError] = useState("");
   const [orderContext, setOrderContext] = useState<OptionsTradeContext | null>(null);
   const [autoPreview, setAutoPreview] = useState(false);
@@ -1298,6 +1301,28 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
               )}
               <button
                 type="button"
+                className="btn-risk-analysis"
+                style={{ padding: "0.6rem 1.1rem", fontSize: "0.85rem" }}
+                onClick={() => {
+                  const price = activeDraft.limitPrice || activeDraft.estimatedPrice || 100;
+                  setRiskSubject({
+                    title: `${activeDraft.action} ${activeDraft.quantity}x ${activeDraft.symbol}`,
+                    underlyingSymbol: activeDraft.symbol,
+                    underlyingPrice: price,
+                    strategyType: `${activeDraft.action} ${activeDraft.orderType} Order`,
+                    sentiment: activeDraft.action.toLowerCase().includes("buy") ? "bullish" : "bearish",
+                    quantity: activeDraft.quantity,
+                    maxLoss: activeDraft.estimatedTotal,
+                    breakevens: [price],
+                    breakevenText: `Order Price: $${price.toFixed(2)}`,
+                  });
+                }}
+                title="Analyze Pre-Trade Risk Profile and Defense Playbook"
+              >
+                🛡️ Risk Analysis
+              </button>
+              <button
+                type="button"
                 className="btn-reject-order"
                 disabled={executingDraft}
                 onClick={() => handleExecuteDraft(activeDraft.orderId, "rejected")}
@@ -1880,14 +1905,42 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   </div>
                 </div>
 
-                {/* Submit Preview Button */}
-                <button
-                  type="submit"
-                  className="btn-submit-preview"
-                  disabled={previewLoading || !orderSymbol.trim()}
-                >
-                  {previewLoading ? "Creating Cryptographic Preview…" : "🛡️ Preview Order with Agent DID"}
-                </button>
+                {/* Submit Preview and Pre-Trade Risk Analysis Buttons */}
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="submit"
+                    className="btn-submit-preview"
+                    style={{ flex: 1 }}
+                    disabled={previewLoading || !orderSymbol.trim()}
+                  >
+                    {previewLoading ? "Creating Cryptographic Preview…" : "⚡ Preview Order with Agent DID"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-risk-analysis"
+                    style={{ padding: "0.75rem 1rem", fontSize: "0.85rem" }}
+                    disabled={!orderSymbol.trim()}
+                    onClick={() => {
+                      const estPrice = orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : (orderQuote?.lastPrice || 100);
+                      const totalVal = orderQuantity * estPrice;
+                      setRiskSubject({
+                        title: `${orderAction} ${orderQuantity}x ${orderSymbol.toUpperCase()} (${orderType})`,
+                        underlyingSymbol: orderSymbol.toUpperCase(),
+                        underlyingPrice: estPrice,
+                        strategyType: `${orderAction} Order Ticket`,
+                        sentiment: orderAction.includes("BUY") ? "bullish" : "bearish",
+                        quantity: orderQuantity,
+                        positionType: "EQUITY",
+                        maxLoss: totalVal,
+                        breakevens: [estPrice],
+                        breakevenText: `Execution/Limit: $${estPrice.toFixed(2)}`,
+                      });
+                    }}
+                    title="Run pre-trade institutional risk analysis"
+                  >
+                    🛡️ Risk Analysis
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -2065,6 +2118,31 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                             >
                               - Close
                             </button>
+                            <button
+                              type="button"
+                              className="btn-risk-analysis"
+                              style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
+                              onClick={() => {
+                                setRiskSubject({
+                                  title: `${pos.quantity}x ${pos.symbol} (${pos.description || "Long Equity"})`,
+                                  underlyingSymbol: pos.symbol,
+                                  underlyingPrice: pos.currentPrice,
+                                  strategyType: "Long Equity Position",
+                                  sentiment: "bullish",
+                                  quantity: pos.quantity,
+                                  positionType: "EQUITY",
+                                  costBasis: pos.costBasis,
+                                  unrealizedPnL: pos.unrealizedGainLoss,
+                                  maxLoss: pos.marketValue,
+                                  maxProfit: null,
+                                  breakevens: [pos.costBasis],
+                                  breakevenText: `Cost basis: $${pos.costBasis.toFixed(2)}/share`,
+                                });
+                              }}
+                              title="Analyze position risk profile and hedging strategies"
+                            >
+                              🛡️ Risk
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2106,12 +2184,13 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                   <th>Broker Ref</th>
                   <th>Proposer DID</th>
                   <th>Date &amp; Time</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {orders.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="empty-state">
+                    <td colSpan={11} className="empty-state">
                       {ordersLoading ? "Loading orders ledger…" : "No trade orders recorded yet."}
                     </td>
                   </tr>
@@ -2145,6 +2224,30 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                       </td>
                       <td>
                         <span className="time-snippet">{new Date(ord.createdAt).toLocaleString()}</span>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-risk-analysis"
+                          style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem" }}
+                          onClick={() => {
+                            setRiskSubject({
+                              title: `${ord.action} ${ord.quantity}x ${ord.symbol}`,
+                              underlyingSymbol: ord.symbol,
+                              underlyingPrice: ord.price,
+                              strategyType: `${ord.action} Trade`,
+                              sentiment: ord.action.toLowerCase().includes("buy") ? "bullish" : "bearish",
+                              quantity: ord.quantity,
+                              positionType: "EQUITY",
+                              maxLoss: ord.totalValue,
+                              breakevens: [ord.price],
+                              breakevenText: `Price: $${ord.price.toFixed(2)}`,
+                            });
+                          }}
+                          title="Analyze risk profile for this ledger trade"
+                        >
+                          🛡️ Risk
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -3269,6 +3372,14 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
         onClose={() => setConfigModalOpen(false)}
         activeEnv={activeEnv}
         userLogin={user?.login}
+      />
+
+      {/* Institutional Risk Analysis & Defense Playbook Modal */}
+      <RiskAnalysisModal
+        isOpen={Boolean(riskSubject)}
+        onClose={() => setRiskSubject(null)}
+        subject={riskSubject}
+        onSendPrompt={onSendPrompt}
       />
     </div>
   );

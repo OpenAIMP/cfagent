@@ -123,19 +123,27 @@ Analysis workflows focus on data ingestion, quantitative mathematical modeling, 
 
 ---
 
-### Workflow A6: Portfolio Risk Exposure, SPY Beta-Weighting & Hedging Analysis
+### Workflow A6: Institutional Risk Management, Defense Playbooks & Portfolio Exposure
 * **Operational Track**: Analysis
-* **Functional Scope**: Connects to the user's active brokerage portfolio to compute total portfolio Net Delta ($\Delta_{\text{SPY}}$), beta-weighted against the S&P 500. Audits daily Theta decay vs. negative carry burden, detects volatility tail-risk imbalances, and proposes delta-neutral hedging setups.
+* **Functional Scope**: Provides institutional-grade risk management and defense playbooks across **all strategies and trades** in the platform:
+  - **What is Involved (Risk Anatomy)**: Capital at Risk / Max Loss, Full Greeks Matrix ($\Delta, \$,\Delta, \Gamma, \Theta, \text{Vega}$), Directional Drift Sensitivity, Probability of Profit (POP), Probability of Touch, Multi-strike Breakeven Cushions, American Early Assignment & Dividend Tail Hazards, and Multi-point Stress Test Scenarios (-20% crash to +20% squeeze).
+  - **How to Manage the Risk (Defense Playbook)**: NAV-based Position Sizing Calculator (2–5% capital budget), Profit-Taking Rules (50% rule for credit spreads, 75–100% for debit spreads), Stop-Loss Preservations (2x credit rule or 50% premium loss), and Tactical Defense Adjustments (Roll Out in time for duration/credit, Roll Untested Wing closer to spot, Invert Spreads, Delta Hedge).
+  - **Universal "🛡️ Risk Analysis" Button Integration**: Accessible on every strategy discovery card, builder action bar, strategy library card, raw contract screener row, institutional flow print, portfolio holding, order draft preview, and orders ledger trade.
+  - **AI Risk Orchestrator**: 1-click dispatch to multi-agent chat (`onSendPrompt`) to formulate real-time defensive adjustments.
 * **Enabling Components**:
-  - `PortfolioRiskEngine`
+  - `RiskManagementEngine` (`src/client/options/riskManagementEngine.ts`)
+  - `RiskAnalysisModal` (`src/client/options/RiskAnalysisModal.tsx`)
+  - `StrategyDiscoveryPanel` (`src/client/options/StrategyDiscoveryPanel.tsx`)
+  - `RawContractsScreener` (`src/client/options/RawContractsScreener.tsx`)
+  - `FlowTradeDetailModal` & `OptionsFlowsHub` (`src/client/options/flows/`)
+  - `ETradeTradingHub` (`src/client/ETradeTradingHub.tsx`)
   - `ETradeRestClient` (`src/trading/etrade/client.ts`)
-  - `ScheduledTasksService` (`src/services/scheduledTasks.ts`)
 * **APIs Leveraged**:
   - `https://api.etrade.com/v1/accounts/{accountIdKey}/portfolio` (active holdings and cost basis)
   - `https://api.etrade.com/v1/accounts/{accountIdKey}/balance` (cash & margin balances)
-  - Historical beta calculation feeds
-* **REST Endpoints**: `GET /api/etrade/positions`, `GET /api/etrade/accounts`
-* **MCP Tools**: `etrade_get_positions`, `sqlite://trading/orders`
+  - Analytical Black-Scholes Greeks and normal CDF math
+* **REST Endpoints**: `GET /api/etrade/positions`, `GET /api/etrade/accounts`, `POST /api/trading/options/screen`
+* **MCP Tools**: `etrade_get_positions`, `sqlite://trading/orders`, `query_platform_knowledge`
 
 ---
 

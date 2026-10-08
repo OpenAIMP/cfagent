@@ -14,3 +14,5 @@ export * from "./optionsIdeasExport";
 export * from "./strategyDiscoveryEngine";
 export * from "./blackScholes";
 export * from "./ScheduledOptionsManager";
+export * from "./RiskAnalysisModal";
+export * from "./riskManagementEngine";

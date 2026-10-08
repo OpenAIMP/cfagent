@@ -6,6 +6,7 @@ interface FlowTradeDetailModalProps {
   onClose: () => void;
   onOpenInBuilder: (trade: LiveFlowItem) => void;
   onUpgradeClick?: () => void;
+  onRiskAnalysis?: (trade: LiveFlowItem) => void;
 }
 
 export function FlowTradeDetailModal({
@@ -13,6 +14,7 @@ export function FlowTradeDetailModal({
   onClose,
   onOpenInBuilder,
   onUpgradeClick,
+  onRiskAnalysis,
 }: FlowTradeDetailModalProps) {
   // Title formatting
   const title = trade.strategyTitle || `${trade.symbol} ${trade.strategy}`;
@@ -201,7 +203,7 @@ export function FlowTradeDetailModal({
           <p className="flow-modal-calc-text">{calcText}</p>
         </div>
 
-        {/* Open in Builder Button */}
+        {/* Open in Builder and Risk Analysis Buttons */}
         <div className="flow-modal-action-row">
           <button
             type="button"
@@ -210,6 +212,15 @@ export function FlowTradeDetailModal({
           >
             Open in Builder
           </button>
+          {onRiskAnalysis && (
+            <button
+              type="button"
+              className="flow-btn-risk-analysis"
+              onClick={() => onRiskAnalysis(trade)}
+            >
+              🛡️ Risk Analysis
+            </button>
+          )}
         </div>
       </div>
     </div>

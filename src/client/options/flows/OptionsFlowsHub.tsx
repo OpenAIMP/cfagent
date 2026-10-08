@@ -27,6 +27,8 @@ import { FlowFiltersSidebar } from "./FlowFiltersSidebar";
 import { FlowSummaryDualBars } from "./FlowSummaryDualBars";
 import { FlowTradeDetailModal } from "./FlowTradeDetailModal";
 import { StrategyDiscoveryPanel } from "../StrategyDiscoveryPanel";
+import { RiskAnalysisModal } from "../RiskAnalysisModal";
+import type { RiskSubject } from "../riskManagementEngine";
 
 export type FlowSubTab = "summary" | "live" | "historical" | "news" | "congress" | "insider";
 
@@ -34,6 +36,35 @@ interface OptionsFlowsHubProps {
   user?: { name: string; login: string };
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
   onTradeSymbol?: (symbol: string) => void;
+}
+
+function flowTradeToRiskSubject(trade: LiveFlowItem): RiskSubject {
+  const isPut = trade.strategy.toLowerCase().includes("put");
+  const isCredit = trade.isCredit ?? (trade.side === "SELL" || trade.strategy.toLowerCase().includes("credit"));
+  const strike = typeof trade.strike === "number" ? trade.strike : trade.underlyingPrice;
+  const fill = trade.fillPrice || 1.5;
+  return {
+    title: trade.strategyTitle || `${trade.symbol} ${trade.strategy}`,
+    underlyingSymbol: trade.symbol,
+    underlyingPrice: trade.currentSpot || trade.underlyingPrice,
+    strategyType: trade.strategy,
+    sentiment: trade.sentiment,
+    expirationDate: trade.expiration,
+    dte: trade.dte,
+    quantity: trade.totalQuantity || trade.volume || 10,
+    netDebit: isCredit ? -fill : fill,
+    maxProfit: isCredit ? fill * 100 : null,
+    maxLoss: isCredit ? null : fill * 100,
+    chanceOfProfit: trade.chance || (isCredit ? 65 : 45),
+    breakevens: [isPut ? Number((strike - fill).toFixed(2)) : Number((strike + fill).toFixed(2))],
+    breakevenText: trade.calculationText,
+    legs: (trade.legsDetails || []).map((l) => ({
+      side: l.action.toUpperCase().includes("BUY") ? "BUY" : "SELL",
+      optionType: l.optionType,
+      strike: l.strike,
+      quantity: l.quantity,
+    })),
+  };
 }
 
 export function OptionsFlowsHub({
@@ -48,6 +79,7 @@ export function OptionsFlowsHub({
   const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
   const [selectedDetailTrade, setSelectedDetailTrade] = useState<LiveFlowItem | null>(null);
   const [activeBuilderTrade, setActiveBuilderTrade] = useState<LiveFlowItem | null>(null);
+  const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
 
   // Live / Historical items
   const [liveItems, setLiveItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
@@ -519,6 +551,7 @@ export function OptionsFlowsHub({
                     <th>Expiration</th>
                     <th>Premium</th>
                     <th>Type</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -533,7 +566,7 @@ export function OptionsFlowsHub({
                           <td className="flow-time-cell">
                             {item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}
                           </td>
-                          <td colSpan={5}>
+                          <td colSpan={6}>
                             <span className="flow-locked-text">
                               🔒 Upgrade for Access
                             </span>
@@ -567,6 +600,20 @@ export function OptionsFlowsHub({
                           <span className={`flow-type-badge ${item.type.toLowerCase()}`}>
                             {item.type}
                           </span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="subnav-btn"
+                            style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem", borderColor: "#f59e0b", color: "#fbbf24" }}
+                            title="Analyze institutional trade risk profile"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRiskSubject(flowTradeToRiskSubject(item));
+                            }}
+                          >
+                            🛡️ Risk
+                          </button>
                         </td>
                       </tr>
                     );
@@ -810,8 +857,17 @@ export function OptionsFlowsHub({
           onClose={() => setSelectedDetailTrade(null)}
           onOpenInBuilder={handleOpenInBuilder}
           onUpgradeClick={() => setShowUpgradeModal(true)}
+          onRiskAnalysis={(trade) => setRiskSubject(flowTradeToRiskSubject(trade))}
         />
       )}
+
+      {/* Institutional Risk Analysis & Defense Playbook Modal */}
+      <RiskAnalysisModal
+        isOpen={Boolean(riskSubject)}
+        onClose={() => setRiskSubject(null)}
+        subject={riskSubject}
+        onSendPrompt={onSendPrompt}
+      />
     </div>
   );
 }

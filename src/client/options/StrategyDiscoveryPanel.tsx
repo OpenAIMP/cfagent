@@ -32,6 +32,8 @@ import {
 import { apiFetch as fetch } from "../apiFetch";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
+import { RiskAnalysisModal } from "./RiskAnalysisModal";
+import type { RiskSubject } from "./riskManagementEngine";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { OptionsTradeContext } from "./OptionsResearchPanel";
 import "./strategyDiscovery.css";
@@ -230,6 +232,9 @@ export function StrategyDiscoveryPanel({
 
   // LLM Strategy Evaluation Modal State
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
+
+  // Risk Analysis Modal State
+  const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
 
   // Core ticker state
   const [symbolInput, setSymbolInput] = useState(initialSymbol);
@@ -1650,6 +1655,49 @@ export function StrategyDiscoveryPanel({
                     >
                       🧠 Evaluate with LLM
                     </button>
+                    <button
+                      type="button"
+                      className="strat-card-btn-risk"
+                      onClick={() => {
+                        setRiskSubject({
+                          title: strat.name,
+                          underlyingSymbol: activeSymbol,
+                          underlyingPrice: spot,
+                          strategyType: strat.name,
+                          sentiment,
+                          expirationDate: selectedExpiration.date,
+                          dte: selectedExpiration.dte,
+                          legsText: strat.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+                          netDebit: strat.netDebit,
+                          maxLoss: strat.riskOrCollateral,
+                          maxProfit: strat.maxProfit,
+                          chanceOfProfit: strat.chanceOfProfit,
+                          breakevens: strat.breakevens,
+                          breakevenText: strat.breakevens.map((b) => `$${b.toFixed(2)}`).join(" · "),
+                          legs: strat.legs.map((l) => ({
+                            side: l.side,
+                            quantity: l.quantity,
+                            strike: l.strike,
+                            optionType: l.optionType,
+                            entryPrice: l.entryPrice,
+                            delta: l.delta,
+                            gamma: l.gamma,
+                            theta: l.theta,
+                            vega: l.vega,
+                          })),
+                          netGreeks: {
+                            delta: netGreeks.netDelta,
+                            gamma: netGreeks.netGamma,
+                            theta: netGreeks.netTheta,
+                            vega: netGreeks.netVega,
+                            rho: netGreeks.netRho,
+                          },
+                        });
+                      }}
+                      title="Analyze Strategy Risk & Management Playbook"
+                    >
+                      🛡️ Risk Analysis
+                    </button>
                   </div>
                 </div>
               );
@@ -1749,6 +1797,50 @@ export function StrategyDiscoveryPanel({
                 }}
               >
                 🧠 Evaluate with LLM
+              </button>
+              <button
+                type="button"
+                className="strat-btn-action"
+                style={{ borderColor: "#f59e0b", color: "#fbbf24" }}
+                onClick={() => {
+                  setRiskSubject({
+                    title: currentStrategyName,
+                    underlyingSymbol: activeSymbol,
+                    underlyingPrice: spot,
+                    strategyType: currentStrategyName,
+                    sentiment,
+                    expirationDate: selectedExpiration.date,
+                    dte: selectedExpiration.dte,
+                    legsText: builderLegs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+                    netDebit: selectedStrategy?.netDebit,
+                    maxLoss: selectedStrategy?.riskOrCollateral ?? null,
+                    maxProfit: selectedStrategy?.maxProfit ?? null,
+                    chanceOfProfit: selectedStrategy?.chanceOfProfit,
+                    breakevens: selectedStrategy?.breakevens || [],
+                    breakevenText: (selectedStrategy?.breakevens || []).map((b) => `$${b.toFixed(2)}`).join(" · "),
+                    legs: builderLegs.map((l) => ({
+                      side: l.side,
+                      quantity: l.quantity,
+                      strike: l.strike,
+                      optionType: l.optionType,
+                      entryPrice: l.entryPrice,
+                      delta: l.delta,
+                      gamma: l.gamma,
+                      theta: l.theta,
+                      vega: l.vega,
+                    })),
+                    netGreeks: {
+                      delta: netGreeks.netDelta,
+                      gamma: netGreeks.netGamma,
+                      theta: netGreeks.netTheta,
+                      vega: netGreeks.netVega,
+                      rho: netGreeks.netRho,
+                    },
+                  });
+                }}
+                title="Institutional Risk Management & Defense Playbook"
+              >
+                🛡️ Risk Analysis
               </button>
               <OptionsDataDownloadDropdown
                 symbol={activeSymbol}
@@ -2659,7 +2751,30 @@ export function StrategyDiscoveryPanel({
 
                     <div className="strat-lib-footer">
                       <span className="strat-lib-legs-tag">{stratDef.legsCount} Leg{stratDef.legsCount > 1 ? "s" : ""}</span>
-                      <button type="button" className="strat-lib-select-btn">Select Strategy →</button>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <button
+                          type="button"
+                          className="strat-card-btn-risk"
+                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRiskSubject({
+                              title: stratDef.name,
+                              underlyingSymbol: activeSymbol,
+                              underlyingPrice: spot,
+                              strategyType: stratDef.name,
+                              sentiment: stratDef.theses[0] || "neutral",
+                              dte: selectedExpiration.dte,
+                              legsText: `${stratDef.legsCount} legs (${stratDef.riskType} Risk)`,
+                              breakevenText: stratDef.subtitle,
+                            });
+                          }}
+                          title="Analyze Strategy Risk & Management Playbook"
+                        >
+                          🛡️ Risk
+                        </button>
+                        <button type="button" className="strat-lib-select-btn">Select Strategy →</button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -2871,6 +2986,36 @@ export function StrategyDiscoveryPanel({
                         <button
                           type="button"
                           className="strat-saved-load-btn"
+                          style={{ borderColor: "#f59e0b", color: "#fbbf24" }}
+                          onClick={() => {
+                            setRiskSubject({
+                              title: t.name,
+                              underlyingSymbol: t.symbol,
+                              underlyingPrice: t.underlyingPriceAtSave,
+                              strategyType: t.strategyName,
+                              expirationDate: t.expirationDate,
+                              dte: t.dte,
+                              legsText: t.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+                              legs: t.legs.map((l) => ({
+                                side: l.side,
+                                quantity: l.quantity,
+                                strike: l.strike,
+                                optionType: l.optionType,
+                                entryPrice: l.entryPrice,
+                                delta: l.delta,
+                                gamma: l.gamma,
+                                theta: l.theta,
+                                vega: l.vega,
+                              })),
+                            });
+                          }}
+                          title="Analyze Risk for Saved Trade"
+                        >
+                          🛡️ Risk
+                        </button>
+                        <button
+                          type="button"
+                          className="strat-saved-load-btn"
                           onClick={() => handleLoadSavedTrade(t)}
                         >
                           Load Trade ↗
@@ -2951,6 +3096,14 @@ export function StrategyDiscoveryPanel({
         activeEnv={activeEnv}
         userLogin={userLogin}
         onPreviewTrade={onPreviewTrade}
+      />
+
+      {/* Institutional Risk Analysis & Defense Playbook Modal */}
+      <RiskAnalysisModal
+        isOpen={Boolean(riskSubject)}
+        onClose={() => setRiskSubject(null)}
+        subject={riskSubject}
+        onSendPrompt={onSendPrompt}
       />
     </div>
   );

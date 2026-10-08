@@ -21,6 +21,8 @@ import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 import { RawContractsScreener } from "./RawContractsScreener";
+import { RiskAnalysisModal } from "./RiskAnalysisModal";
+import type { RiskSubject } from "./riskManagementEngine";
 import { TabHoverItem } from "../TabHoverItem";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import "./strategyDiscovery.css";
@@ -51,6 +53,44 @@ function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, unde
     underlyingPrice,
     label: `${candidate.label} (${candidate.expirationDate}), max loss ${candidate.maxLoss === null ? "unlimited" : `$${candidate.maxLoss}`}`,
     legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+  };
+}
+
+function candidateToRiskSubject(candidate: StrategyCandidate): RiskSubject {
+  return {
+    title: candidate.label,
+    underlyingSymbol: candidate.symbol,
+    underlyingPrice: candidate.underlyingPrice,
+    strategyType: candidate.type,
+    sentiment: "directional",
+    expirationDate: candidate.expirationDate,
+    dte: candidate.legs[0]?.daysToExpiration,
+    netDebit: candidate.netDebit,
+    maxLoss: candidate.maxLoss,
+    maxProfit: candidate.maxProfit,
+    chanceOfProfit: candidate.modelImpliedProbabilityOfProfit * 100,
+    breakevens: candidate.breakevens,
+    breakevenText: candidate.breakevens.map((b) => `$${b.toFixed(2)}`).join(" · "),
+    legsText: candidate.legs.map((l) => `${l.side} ${l.quantity} ${l.symbol}`).join(" / "),
+    legs: candidate.legs.map((l) => ({
+      side: l.side,
+      quantity: l.quantity,
+      entryPrice: l.entryPrice,
+      strike: l.strike,
+      optionType: l.optionType,
+      expirationDate: l.expirationDate,
+      iv: l.impliedVolatility,
+      delta: l.delta,
+      gamma: l.gamma,
+      theta: l.theta,
+      vega: l.vega,
+    })),
+    netGreeks: {
+      delta: candidate.netGreeks.delta,
+      gamma: candidate.netGreeks.gamma,
+      theta: candidate.netGreeks.theta,
+      vega: candidate.netGreeks.vega,
+    },
   };
 }
 
@@ -162,7 +202,17 @@ interface ComparisonData {
   };
 }
 
-function BestTradeCard({ pick, onPreview, onEvaluateLlm }: { pick: BestTradeData; onPreview?: PreviewTrade; onEvaluateLlm?: (strategy: StrategyToEvaluate) => void }) {
+function BestTradeCard({
+  pick,
+  onPreview,
+  onEvaluateLlm,
+  onRiskAnalysis,
+}: {
+  pick: BestTradeData;
+  onPreview?: PreviewTrade;
+  onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
+  onRiskAnalysis?: (subject: RiskSubject) => void;
+}) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
       <header className="options-results-header">
@@ -178,6 +228,16 @@ function BestTradeCard({ pick, onPreview, onEvaluateLlm }: { pick: BestTradeData
               title="Evaluate this top trade recommendation with Workers AI LLM against complete option chains"
             >
               🧠 Evaluate with LLM
+            </button>
+          )}
+          {pick.best && onRiskAnalysis && (
+            <button
+              type="button"
+              className="strat-card-btn-risk"
+              onClick={() => onRiskAnalysis(candidateToRiskSubject(pick.best!.candidate))}
+              title="Analyze Risk and Defense Playbook for Top Trade"
+            >
+              🛡️ Risk Analysis
             </button>
           )}
         </div>
@@ -198,7 +258,7 @@ function BestTradeCard({ pick, onPreview, onEvaluateLlm }: { pick: BestTradeData
           </table>
         </div>
       )}
-      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} />}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} />}
       {pick.alternatives.length > 0 && (
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
@@ -223,6 +283,20 @@ function BestTradeCard({ pick, onPreview, onEvaluateLlm }: { pick: BestTradeData
                           title="Evaluate runner-up trade with LLM"
                         >
                           🧠 LLM
+                        </button>
+                      )}
+                      {onRiskAnalysis && (
+                        <button
+                          type="button"
+                          className="strat-card-btn-risk"
+                          style={{ padding: "0.15rem 0.4rem", fontSize: "0.68rem" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRiskAnalysis(candidateToRiskSubject(alt.candidate));
+                          }}
+                          title="Analyze risk for this trade"
+                        >
+                          🛡️ Risk
                         </button>
                       )}
                     </div>
@@ -461,7 +535,17 @@ function LegEditor({ legs, original, contracts, onChange }: {
   );
 }
 
-function StrategyCard({ candidate: suggested, onPreview, onEvaluateLlm }: { candidate: StrategyCandidate; onPreview?: PreviewTrade; onEvaluateLlm?: (strategy: StrategyToEvaluate) => void }) {
+function StrategyCard({
+  candidate: suggested,
+  onPreview,
+  onEvaluateLlm,
+  onRiskAnalysis,
+}: {
+  candidate: StrategyCandidate;
+  onPreview?: PreviewTrade;
+  onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
+  onRiskAnalysis?: (subject: RiskSubject) => void;
+}) {
   const chain = useContext(ChainContext);
   const [legs, setLegs] = useState<StrategyLeg[]>(suggested.legs);
   const [underlying, setUnderlying] = useState(suggested.underlyingPrice);
@@ -528,6 +612,16 @@ function StrategyCard({ candidate: suggested, onPreview, onEvaluateLlm }: { cand
               title="Evaluate this strategy with Workers AI LLM against raw and normalized options chains"
             >
               🧠 Evaluate with LLM
+            </button>
+          )}
+          {onRiskAnalysis && (
+            <button
+              type="button"
+              className="strat-card-btn-risk"
+              onClick={() => onRiskAnalysis(candidateToRiskSubject(candidate))}
+              title="Institutional Risk Management & Defense Playbook"
+            >
+              🛡️ Risk Analysis
             </button>
           )}
           {chain && (
@@ -662,6 +756,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [chainRefreshing, setChainRefreshing] = useState(false);
   const [chainRefreshedAt, setChainRefreshedAt] = useState<string | null>(null);
   const [chainRefreshError, setChainRefreshError] = useState("");
+  const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
 
   // Auto-refresh configuration state (persisted to localStorage)
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
@@ -1099,6 +1194,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           userLogin={userLogin}
           initialSymbol={symbol.trim() || "NVDA"}
           onPreviewTrade={onPreviewTrade}
+          onSendPrompt={onSendPrompt}
         />
       )}
 
@@ -1221,8 +1317,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               )}
             </div>
           )}
-          <p>{nlqResult.validationError || nlqResult.summary}</p>
-          {nlqResult.provenance?.bestTrade && <BestTradeCard pick={nlqResult.provenance.bestTrade} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />}
+          {nlqResult.provenance?.bestTrade && (
+            <BestTradeCard
+              pick={nlqResult.provenance.bestTrade}
+              onPreview={previewTrade}
+              onEvaluateLlm={handleEvaluateLlm}
+              onRiskAnalysis={setRiskSubject}
+            />
+          )}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
             <StrategyLedgerTable rows={nlqResult.rows} />
           )}
@@ -1400,7 +1502,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
-      {bestTrade && <BestTradeCard pick={bestTrade} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />}
+      {bestTrade && (
+        <BestTradeCard
+          pick={bestTrade}
+          onPreview={previewTrade}
+          onEvaluateLlm={handleEvaluateLlm}
+          onRiskAnalysis={setRiskSubject}
+        />
+      )}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
@@ -1420,7 +1529,15 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               </span>
             </div>
           )}
-          {result.candidates.map((candidate) => <StrategyCard key={candidate.id} candidate={candidate} onPreview={previewTrade} onEvaluateLlm={handleEvaluateLlm} />)}
+          {result.candidates.map((candidate) => (
+            <StrategyCard
+              key={candidate.id}
+              candidate={candidate}
+              onPreview={previewTrade}
+              onEvaluateLlm={handleEvaluateLlm}
+              onRiskAnalysis={setRiskSubject}
+            />
+          ))}
           {result.excluded.length > 0 && (
             <details className="options-excluded">
               <summary>{result.excluded.reduce((sum, entry) => sum + entry.count, 0)} strategy combinations excluded</summary>
@@ -1478,6 +1595,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         onClose={() => setConfigModalOpen(false)}
         activeEnv={activeEnv}
         userLogin={userLogin}
+      />
+
+      {/* Institutional Risk Analysis & Defense Playbook Modal */}
+      <RiskAnalysisModal
+        isOpen={Boolean(riskSubject)}
+        onClose={() => setRiskSubject(null)}
+        subject={riskSubject}
+        onSendPrompt={onSendPrompt}
       />
     </section>
     </ChainContext.Provider>
