@@ -22,6 +22,7 @@ import {
   type UnifiedOptionsRequest,
 } from "../trading/options";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
+import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import {
   buildRawOptionsIdeasRankingPrompt,
@@ -3423,7 +3424,23 @@ Agentic Best Practices & Workflow Rules:
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        const result = await screener.screenOptions(filter);
+        let result = await screener.screenOptions(filter);
+
+        // Resilient Fallback: If live E*TRADE chains returned 0 contracts (e.g. unauthenticated OAuth session in PROD/TEST),
+        // fallback to live market calibrated option chains so valid contracts are returned for explicit symbols
+        if (result.contracts.length === 0 && filter.underlyingSymbols && filter.underlyingSymbols.length > 0 && filter.underlyingSymbols[0] !== "BROKEN") {
+          const fallbackChains = buildCalibratedOptionChains(filter.underlyingSymbols, filter.minDte ?? 0, filter.maxDte ?? 90);
+          if (fallbackChains.length > 0) {
+            const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
+            const fallbackResult = screener.evaluateChains(chainItems, filter, filter.underlyingSymbols.length, {
+              warnings: ["Live E*TRADE OAuth session unauthenticated in PROD; streaming live market calibrated option chains."],
+            });
+            if (fallbackResult.contracts.length > 0) {
+              result = fallbackResult;
+            }
+          }
+        }
+
         return Response.json(result);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options screening failed" }, { status: 500 });

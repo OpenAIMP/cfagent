@@ -443,7 +443,7 @@ export class DynamicOptionsScreener {
     return result;
   }
 
-  private evaluateChains(
+  evaluateChains(
     chains: Array<{ symbol: string; chain: ETradeOptionChain }>,
     filter: OptionScreenerFilter = {},
     totalUnderlyingsScanned = new Set(chains.map((chain) => chain.symbol)).size,
