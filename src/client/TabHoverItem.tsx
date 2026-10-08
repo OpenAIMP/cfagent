@@ -53,6 +53,7 @@ export function TabHoverItem({
     <div
       className={`tab-hover-wrapper align-${align} ${className} ${dismissed ? "tooltip-dismissed" : ""}`}
       onMouseEnter={() => setDismissed(false)}
+      onPointerEnter={() => setDismissed(false)}
       onFocus={() => setDismissed(false)}
     >
       {accessibleChild}
@@ -62,6 +63,8 @@ export function TabHoverItem({
           role="tooltip"
           id={tooltipId}
           aria-live="polite"
+          onMouseEnter={() => setDismissed(false)}
+          onPointerEnter={() => setDismissed(false)}
         >
           {eyebrow && <span className="tab-hover-eyebrow">{eyebrow}</span>}
           <strong className="tab-hover-title">{title}</strong>

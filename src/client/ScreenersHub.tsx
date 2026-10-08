@@ -247,7 +247,6 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 disabled={!asset.available}
                 className={`subnav-btn ${assetClass === asset.id ? "active" : ""}`}
                 onClick={() => asset.available && setAssetClass(asset.id)}
-                title={asset.available ? `Screen ${asset.label.toLowerCase()}` : `No connected ${asset.label.toLowerCase()} screening provider yet`}
               >
                 {asset.label}{asset.available ? "" : " · Planned"}
               </button>

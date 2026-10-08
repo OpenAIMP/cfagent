@@ -108,6 +108,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  position: relative;
+  z-index: 1000;
+}
+
+.screeners-asset-tabs:hover,
+.screeners-asset-tabs:focus-within,
+.screeners-asset-tabs:has(.tab-hover-wrapper:hover) {
+  z-index: 99999 !important;
 }
 
 .screeners-asset-tabs .subnav-btn:disabled {
