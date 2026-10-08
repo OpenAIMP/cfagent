@@ -136,7 +136,9 @@ The platform utilizes Cloudflare Workers AI with zero cold-starts and global edg
 
 ## Part 3: Cloudflare Scheduling & Autonomous Tasks
 
-The platform implements autonomous background automation powered by **Cloudflare Agents Durable Object Alarms** and **Cron Triggers**, managed via [`src/services/scheduledTasks.ts`](file:///c:/Users/spr9s/cfagent/src/services/scheduledTasks.ts) and the `/api/schedules` endpoint.
+The platform implements autonomous background automation powered by **Cloudflare Agents Durable Object Alarms**, **Cron Triggers**, and the native `schedule` runtime APIs ([Cloudflare Agents Task Scheduling Reference](https://developers.cloudflare.com/agents/runtime/execution/schedule-tasks/)), managed via [`src/services/scheduledTasks.ts`](file:///c:/Users/spr9s/cfagent/src/services/scheduledTasks.ts) and the `/api/schedules` endpoint.
+
+> 📘 For the complete technical architecture and parameter tuning manual, see the dedicated [Cloudflare Agents Task Scheduling & ETAPI Engine Tuning Guide](file:///c:/Users/spr9s/cfagent/docs/CLOUDFLARE_SCHEDULING_AND_ETAPI_TUNING.md).
 
 ### Scheduled Background Daemons
 
