@@ -952,13 +952,24 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           </TabHoverItem>
         </div>
 
-        {screenMeta && (
-          <div className="options-subnav-tools">
+        <div className="options-subnav-tools">
+          <button
+            type="button"
+            className={`btn-options-refresh ${chainRefreshing ? "refreshing" : ""}`}
+            onClick={() => void refreshChain()}
+            disabled={chainRefreshing}
+            title={`Refresh options chain & market data${chainRefreshedAt ? ` (last refreshed: ${chainRefreshedAt})` : ""}`}
+          >
+            <span className={chainRefreshing ? "strat-spin" : ""}>↻</span>
+            <span>{chainRefreshing ? "Refreshing…" : "Refresh Options"}</span>
+            {chainRefreshedAt && <small className="options-refresh-timestamp">({chainRefreshedAt})</small>}
+          </button>
+          {screenMeta && (
             <div className="options-scan-meta-pill" title="Screen evaluation metrics">
               {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {researchMode === "schedules" && (

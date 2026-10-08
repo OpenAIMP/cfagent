@@ -7657,109 +7657,7 @@ body {
   white-space: nowrap;
 }
 
-/* ==========================================================================
-   Tab Hover Tooltip Cards (Reusable Space-Saving UI)
-   ========================================================================== */
-.tab-hover-wrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-}
-
-.tab-hover-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  z-index: 10000;
-  background: rgba(15, 23, 42, 0.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 9px;
-  padding: 0.65rem 0.85rem;
-  min-width: 220px;
-  max-width: 330px;
-  width: max-content;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 16px rgba(56, 189, 248, 0.15);
-  text-align: left;
-  white-space: normal;
-  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
-}
-
-.tab-hover-popover::before {
-  content: "";
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-bottom: 6px solid rgba(56, 189, 248, 0.45);
-}
-
-.tab-hover-wrapper.align-left .tab-hover-popover {
-  left: 0;
-  transform: translateY(4px);
-}
-.tab-hover-wrapper.align-left .tab-hover-popover::before {
-  left: 20px;
-}
-
-.tab-hover-wrapper.align-right .tab-hover-popover {
-  left: auto;
-  right: 0;
-  transform: translateY(4px);
-}
-.tab-hover-wrapper.align-right .tab-hover-popover::before {
-  left: auto;
-  right: 20px;
-}
-
-.tab-hover-wrapper:hover .tab-hover-popover,
-.tab-hover-wrapper:focus-within .tab-hover-popover {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(0);
-}
-
-.tab-hover-wrapper.align-left:hover .tab-hover-popover,
-.tab-hover-wrapper.align-left:focus-within .tab-hover-popover {
-  transform: translateY(0);
-}
-
-.tab-hover-wrapper.align-right:hover .tab-hover-popover,
-.tab-hover-wrapper.align-right:focus-within .tab-hover-popover {
-  transform: translateY(0);
-}
-
-.tab-hover-eyebrow {
-  display: block;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #38bdf8;
-  margin-bottom: 0.2rem;
-}
-
-.tab-hover-title {
-  display: block;
-  font-size: 0.84rem;
-  font-weight: 700;
-  color: #f8fafc;
-  margin-bottom: 0.3rem;
-}
-
-.tab-hover-desc {
-  margin: 0;
-  font-size: 0.74rem;
-  line-height: 1.4;
-  color: #cbd5e1;
-}
+/* Tab Hover Tooltips are defined authoritatively in the WCAG 2.2 & ISO section below */
 
 /* ==========================================================================
    Dynamic E*TRADE Brokerage Menu (Space-Saving Consolidated Controls)
@@ -8246,6 +8144,50 @@ body {
   border-color: #38bdf8;
 }
 
+.btn-options-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.32rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-options-refresh:hover:not(:disabled) {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.btn-options-refresh:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.options-refresh-timestamp {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.strat-spin {
+  display: inline-block;
+  animation: stratSpin 1s linear infinite;
+}
+
+@keyframes stratSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ==========================================================================
    WCAG 2.2 & ISO 9241-110 Accessibility, Ergonomics & Interaction Standards
    ========================================================================== */
@@ -8323,11 +8265,13 @@ body {
   pointer-events: none;
   transition: opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 999999 !important;
-  background: rgba(15, 23, 42, 0.97);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.82), 0 0 18px rgba(56, 189, 248, 0.16);
+  background-color: #0b1120 !important;
+  background: #0b1120 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  isolation: isolate;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.98), 0 0 0 1px rgba(56, 189, 248, 0.25), 0 0 20px rgba(56, 189, 248, 0.15);
   border-radius: 10px;
   padding: 0.75rem 0.95rem;
   width: max-content;
@@ -8340,15 +8284,35 @@ body {
   line-height: 1.35;
 }
 
+.tab-hover-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #0b1120;
+  filter: drop-shadow(0 -1px 0 rgba(56, 189, 248, 0.45));
+}
+
 /* Tooltip Alignment Variants */
 .tab-hover-wrapper.align-left .tab-hover-popover {
   left: 0;
   transform: translateY(4px);
 }
+.tab-hover-wrapper.align-left .tab-hover-popover::before {
+  left: 24px;
+}
+
 .tab-hover-wrapper.align-right .tab-hover-popover {
   left: auto;
   right: 0;
   transform: translateY(4px);
+}
+.tab-hover-wrapper.align-right .tab-hover-popover::before {
+  left: auto;
+  right: 24px;
 }
 
 /* Hover & Focus Interactions */
@@ -8361,11 +8325,15 @@ body {
 
 .tab-hover-wrapper.align-left:hover:not(.tooltip-dismissed) .tab-hover-popover,
 .tab-hover-wrapper.align-left:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
+  opacity: 1;
+  visibility: visible;
   transform: translateY(0);
 }
 
 .tab-hover-wrapper.align-right:hover:not(.tooltip-dismissed) .tab-hover-popover,
 .tab-hover-wrapper.align-right:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
+  opacity: 1;
+  visibility: visible;
   transform: translateY(0);
 }
 

@@ -414,38 +414,60 @@ export function StrategyDiscoveryPanel({
     }
   }, [expirations]);
 
-  // Fetch live or FOSS quote when symbol changes
-  useEffect(() => {
-    let isCurrent = true;
-    const fetchQuote = async () => {
-      try {
-        const resp = await fetch(`/api/foss/quote?symbol=${encodeURIComponent(activeSymbol)}`);
-        if (resp.ok) {
-          const data = (await resp.json()) as any;
-          if (isCurrent && data && data.lastPrice) {
-            setQuote({
-              symbol: activeSymbol,
-              price: Number(data.lastPrice || data.price),
-              change: Number(data.change || 0),
-              changePercent: Number(data.changePercent || 0),
-              companyName: data.companyName || activeSymbol,
-              delayed: true,
-            });
-            return;
+  const [isQuoteRefreshing, setIsQuoteRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+
+  // Fetch live or FOSS quote with optional notification and reanalysis
+  const fetchQuoteData = async (sym: string, showNotification: boolean = false) => {
+    setIsQuoteRefreshing(true);
+    try {
+      const resp = await fetch(`/api/foss/quote?symbol=${encodeURIComponent(sym)}`);
+      if (resp.ok) {
+        const data = (await resp.json()) as any;
+        if (data && (data.lastPrice || data.price)) {
+          const freshPrice = Number(data.lastPrice || data.price);
+          const freshQuote: StockQuoteState = {
+            symbol: sym,
+            price: freshPrice,
+            change: Number(data.change || 0),
+            changePercent: Number(data.changePercent || 0),
+            companyName: data.companyName || sym,
+            delayed: true,
+          };
+          setQuote(freshQuote);
+          if (builderLegs.length > 0) {
+            const updated = builderLegs.map((l) =>
+              updateLegStrike(l, l.strike, freshPrice, selectedExpiration.dte, builderIv / 100, engineConfig.riskFreeRate)
+            );
+            setBuilderLegs(updated);
+            reanalyze(updated);
           }
+          const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          setLastRefreshedAt(timeStr);
+          if (showNotification) {
+            showToast(`Refreshed ${sym} market data: $${freshPrice.toFixed(2)}`);
+          }
+          return;
         }
-      } catch {
-        // Fallback to defaults
       }
-      if (isCurrent && DEFAULT_QUOTES[activeSymbol]) {
-        setQuote(DEFAULT_QUOTES[activeSymbol]);
-      }
-    };
-    void fetchQuote();
-    return () => {
-      isCurrent = false;
-    };
+    } catch {
+      // Fallback to defaults
+    } finally {
+      setIsQuoteRefreshing(false);
+    }
+
+    if (DEFAULT_QUOTES[sym]) {
+      setQuote(DEFAULT_QUOTES[sym]);
+    }
+  };
+
+  useEffect(() => {
+    void fetchQuoteData(activeSymbol, false);
   }, [activeSymbol]);
+
+  const handleRefreshOptions = () => {
+    void fetchQuoteData(activeSymbol, true);
+  };
 
   // Implied move calculated using options market formula: spot * IV * sqrt(dte / 365)
   const computeImpliedMove = (spotPrice: number, ivPercent: number, dteDays: number) => {
@@ -1184,6 +1206,16 @@ export function StrategyDiscoveryPanel({
         <div className="strat-top-controls-group">
           <button
             type="button"
+            className={`strat-action-chip refresh ${isQuoteRefreshing ? "refreshing" : ""}`}
+            onClick={handleRefreshOptions}
+            disabled={isQuoteRefreshing}
+            title={`Refresh options quotes & market data for ${activeSymbol}`}
+          >
+            <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span> {isQuoteRefreshing ? "Refreshing…" : "Refresh"}
+            {lastRefreshedAt && <span className="strat-chip-subtime">{lastRefreshedAt}</span>}
+          </button>
+          <button
+            type="button"
             className="strat-action-chip highlight"
             onClick={() => setShowStrategyModal(true)}
             title={`Browse ${STRATEGY_LIBRARY.length} pre-made options strategies`}
@@ -1255,6 +1287,15 @@ export function StrategyDiscoveryPanel({
                       {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
                     </span>
                     <span className="strat-delayed-tag">↻ Delayed</span>
+                    <button
+                      type="button"
+                      className="strat-mini-refresh-btn"
+                      onClick={handleRefreshOptions}
+                      disabled={isQuoteRefreshing}
+                      title={`Refresh ${activeSymbol} quote & options`}
+                    >
+                      <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span>
+                    </button>
                   </div>
                 </form>
 
@@ -1439,10 +1480,12 @@ export function StrategyDiscoveryPanel({
                   : `${strat.returnOnCollateralPct}% Return on collateral`;
 
               return (
-                <div key={strat.id} className="strat-discovery-card">
+                <div key={strat.id} className="strat-card strat-discovery-card">
                   <div className="strat-card-title-row">
-                    <span className="strat-card-name">{strat.name}</span>
-                    <span className="strat-card-subtitle">{strat.subtitle}</span>
+                    <div className="strat-card-header-left">
+                      <span className="strat-card-name">{strat.name}</span>
+                      <span className="strat-card-subtitle">{strat.subtitle}</span>
+                    </div>
                     {strat.rewardRiskRatio !== undefined && strat.rewardRiskRatio !== null && (
                       <span className="strat-stat-rr-badge" title="Reward / Risk Ratio (Max Profit vs Max Loss)">
                         R:R 1:{strat.rewardRiskRatio}
@@ -1462,7 +1505,9 @@ export function StrategyDiscoveryPanel({
                     </div>
                     <div className="strat-card-stat-right">
                       <span className="strat-stat-chance">{strat.chanceOfProfit}% Chance 🔒</span>
-                      <span className="strat-stat-risk">${strat.riskOrCollateral.toLocaleString()}</span>
+                      <span className="strat-stat-risk">
+                        ${strat.riskOrCollateral.toLocaleString()} {strat.returnOnRiskPct !== null ? "Risk" : "Collateral"}
+                      </span>
                     </div>
                   </div>
 
@@ -1666,6 +1711,15 @@ export function StrategyDiscoveryPanel({
               {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+" : ""}${quote.change.toFixed(2)})
             </span>
             <span className="strat-delayed-tag">↻ Realtime/Delayed</span>
+            <button
+              type="button"
+              className="strat-mini-refresh-btn"
+              onClick={handleRefreshOptions}
+              disabled={isQuoteRefreshing}
+              title={`Refresh ${activeSymbol} quote & options legs`}
+            >
+              <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span> {isQuoteRefreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
 
           {/* Quick Symbol Autocomplete Overlay in Builder */}
@@ -1707,8 +1761,9 @@ export function StrategyDiscoveryPanel({
                 <button
                   key={exp.date}
                   type="button"
-                  className={`strat-exp-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
+                  className={`strat-exp-chip strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
                   onClick={() => handleBuilderExpirationChange(exp)}
+                  title={`${exp.label} (${exp.dte} DTE)`}
                 >
                   <span className="strat-chip-month">{exp.monthGroup}</span>
                   <span className="strat-chip-day">{exp.dayLabel}</span>

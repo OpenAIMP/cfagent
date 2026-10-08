@@ -39,11 +39,13 @@ export function TabHoverItem({
   }, []);
 
   // Clone child with aria-describedby for assistive tech (WCAG 2.2 SC 4.1.2)
+  // Suppress native browser title tooltips on child buttons to avoid overlapping native & custom popovers
   const accessibleChild = React.isValidElement(children)
     ? React.cloneElement(children as React.ReactElement<any>, {
         "aria-describedby": (children.props as any)["aria-describedby"]
           ? `${(children.props as any)["aria-describedby"]} ${tooltipId}`
           : tooltipId,
+        title: undefined,
       })
     : children;
 

@@ -1575,9 +1575,23 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           <div className="order-ticket-layout">
             {/* Left: Interactive Order Ticket Form */}
             <div className="order-form-card">
-              <div className="card-header-styled">
-                <h4>⚡ E*TRADE Fast Order Ticket</h4>
-                <span className="header-subtitle">Zero-commission equity trading with agentic DID stamping</span>
+              <div className="card-header-styled" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
+                <div>
+                  <h4>⚡ E*TRADE Fast Order Ticket</h4>
+                  <span className="header-subtitle">Zero-commission equity trading with agentic DID stamping</span>
+                </div>
+                {orderSymbol && (
+                  <button
+                    type="button"
+                    className="btn-options-refresh"
+                    onClick={() => fetchSymbolQuote(orderSymbol)}
+                    disabled={quoteLoading}
+                    title={`Refresh live quote for ${orderSymbol}`}
+                  >
+                    <span className={quoteLoading ? "strat-spin" : ""}>↻</span>
+                    <span>{quoteLoading ? "Refreshing…" : "Refresh Quote"}</span>
+                  </button>
+                )}
               </div>
 
               {orderError && <div className="form-error-alert">⚠️ {orderError}</div>}
