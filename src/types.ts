@@ -358,6 +358,10 @@ export interface StockScreenResult {
     message: string;
     error?: string;
   };
+  movers?: {
+    gainers: ScreenedStockItem[];
+    losers: ScreenedStockItem[];
+  };
 }
 
 // =========================================================================
@@ -1041,7 +1045,7 @@ export interface VoiceTradingTurnResponse {
   success: boolean;
   spokenText: string;
   displayMarkdown: string;
-  actionType: "quote" | "screener" | "options_screener" | "options_research" | "watchlist" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "agentic_payment" | "general" | "error";
+  actionType: "quote" | "screener" | "options_screener" | "options_research" | "watchlist" | "preview" | "approval" | "rejection" | "portfolio" | "schedule" | "agentic_payment" | "capabilities" | "general" | "error";
   orderId?: string;
   orderDraft?: ETradeOrderDraft;
   orderStatus?: "previewed" | "executed" | "rejected" | "not_found";

@@ -357,6 +357,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       "text talks": "tech stocks",
       "text talk": "tech stock",
       "tech talks": "tech stocks",
+      "text stocks": "tech stocks",
       "talks": "stocks",
     },
     maxPromptLength: 500,

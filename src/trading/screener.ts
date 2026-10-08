@@ -17,12 +17,26 @@ import {
   getCuratedStockListings,
   getCuratedStockUniverse,
   setCuratedStockUniverse,
+  getCuratedStockBySymbol,
   type CuratedStockSecurity,
   type YFinanceSecurityDefinition,
 } from "../config/curatedStockUniverse";
 
 export type { CuratedStockSecurity, YFinanceSecurityDefinition };
-export { CURATED_STOCK_UNIVERSE, YFINANCE_MARKET_UNIVERSE, getCuratedStockListings, getCuratedStockUniverse, setCuratedStockUniverse };
+export { CURATED_STOCK_UNIVERSE, YFINANCE_MARKET_UNIVERSE, getCuratedStockListings, getCuratedStockUniverse, setCuratedStockUniverse, getCuratedStockBySymbol };
+
+export function inferSectorFromCompanyName(name: string): string | undefined {
+  if (!name) return undefined;
+  const lower = name.toLowerCase();
+  if (/\b(semiconductor|semiconductors|micro|chips?|wafer|devices?)\b/i.test(lower)) return "Semiconductors";
+  if (/\b(technology|software|systems|cloud|data|cyber|network|computing|digital|platform|intelligence|ai)\b/i.test(lower)) return "Technology";
+  if (/\b(bank|bancorp|financial|capital|insurance|wealth|trust|holdings?|investment|credit)\b/i.test(lower)) return "Financial";
+  if (/\b(pharma|therapeutics|medical|health|care|biosciences?|biotech|clinical|hospital)\b/i.test(lower)) return "Healthcare";
+  if (/\b(energy|petroleum|oil|gas|pipeline|refining|drilling|solar|clean energy)\b/i.test(lower)) return "Energy";
+  if (/\b(retail|automotive|motors|motors?|apparel|entertainment|leisure|travel|hotel|restaurant)\b/i.test(lower)) return "Consumer Discretionary";
+  if (/\b(telecom|communications?|media|wireless|broadcasting)\b/i.test(lower)) return "Communication Services";
+  return undefined;
+}
 
 export function calculateDynamicRsi(
   symbol: string,
@@ -90,7 +104,7 @@ export class DynamicMarketScreener implements IMarketScreener {
   ): StockScreenResult {
     const summaryParts: string[] = [];
     const rejections: { symbol: string; reason: string; changePercent?: number; price?: number; rsi?: number }[] = [];
-    const passedStocks: ScreenedStockItem[] = [];
+    let passedStocks: ScreenedStockItem[] = [];
 
     if (filter.search && filter.search.trim()) {
       summaryParts.push(`Search: "${filter.search.trim()}"`);
@@ -400,8 +414,15 @@ export class DynamicMarketScreener implements IMarketScreener {
       });
     }
 
+    const isMovers = filter.gainersLosers === "movers" || (Boolean(filter.gainersOnly) && Boolean(filter.losersOnly));
+    let moversData: { gainers: ScreenedStockItem[]; losers: ScreenedStockItem[] } | undefined;
+
     // Sorting
-    if (filter.gainersLosers === "movers" || (Boolean(filter.gainersOnly) && Boolean(filter.losersOnly))) {
+    if (isMovers) {
+      const gainers = passedStocks.filter((s) => s.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
+      const losers = passedStocks.filter((s) => s.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
+      moversData = { gainers: [...gainers], losers: [...losers] };
+
       passedStocks.sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent));
     } else if (filter.gainersOnly || filter.gainersLosers === "gainers") {
       passedStocks.sort((a, b) => b.changePercent - a.changePercent);
@@ -409,6 +430,8 @@ export class DynamicMarketScreener implements IMarketScreener {
       passedStocks.sort((a, b) => a.changePercent - b.changePercent);
     } else if (filter.gainersLosers === "active") {
       passedStocks.sort((a, b) => b.volume - a.volume);
+    } else if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
+      passedStocks.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0));
     }
 
     // Fail-closed verification: double check that no invalid row exists in passedStocks
@@ -441,6 +464,7 @@ export class DynamicMarketScreener implements IMarketScreener {
         rejections,
       },
       stocks: finalStocks,
+      movers: moversData,
       scannedAt: new Date().toISOString(),
     };
   }
@@ -491,11 +515,25 @@ export class DynamicMarketScreener implements IMarketScreener {
 
   async screenLive(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
     const unsupported: string[] = [];
-    if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) unsupported.push("sector");
-    if (filter.minRsi !== undefined || filter.maxRsi !== undefined || (filter.rsiFilter && filter.rsiFilter !== "any")) unsupported.push("RSI");
+    const hasTechnicalIndicators =
+      filter.minRsi !== undefined ||
+      filter.maxRsi !== undefined ||
+      (filter.rsiFilter !== undefined && filter.rsiFilter !== "any") ||
+      (filter.momentum !== undefined && filter.momentum !== "any");
+
+    if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase()) && hasTechnicalIndicators) {
+      unsupported.push("sector");
+    }
+    if (hasTechnicalIndicators) {
+      if (filter.minRsi !== undefined || filter.maxRsi !== undefined || (filter.rsiFilter && filter.rsiFilter !== "any")) {
+        unsupported.push("RSI");
+      }
+      if (filter.momentum && filter.momentum !== "any") {
+        unsupported.push("technical momentum");
+      }
+    }
     if (filter.minVolume !== undefined) unsupported.push("volume");
     if (filter.maxPeRatio !== undefined) unsupported.push("P/E");
-    if (filter.momentum && filter.momentum !== "any") unsupported.push("technical momentum");
 
     const sourceCounts: Record<string, number> = {};
     let listings: NasdaqStockListing[];
@@ -547,29 +585,34 @@ export class DynamicMarketScreener implements IMarketScreener {
       };
     }
     const isCuratedUniverse = !DynamicMarketScreener.testListingsFixture && listings.length === getCuratedStockUniverse().length;
-    const quotes: ETradeQuote[] = selectedListings.map((listing) => ({
-      symbol: listing.symbol,
-      companyName: listing.companyName,
-      listingExchange: listing.exchange.toUpperCase(),
-      lastPrice: listing.lastPrice,
-      price: listing.lastPrice,
-      change: listing.change,
-      changePercent: listing.changePercent,
-      bid: 0,
-      ask: 0,
-      volume: 0,
-      open: 0,
-      high: 0,
-      low: 0,
-      marketCap: listing.marketCap,
-      week52High: 0,
-      week52Low: 0,
-      quoteStatus: "AS_OF_UNKNOWN",
-      source: isCuratedUniverse
-        ? "Curated externalized stock universe (Nasdaq, NYSE, AMEX)"
-        : "Nasdaq all-exchange stock listings (source quote time unavailable)",
-      timestamp: "",
-    }));
+    const quotes: ETradeQuote[] = selectedListings.map((listing) => {
+      const curated = getCuratedStockBySymbol(listing.symbol);
+      const sector = curated?.sector || inferSectorFromCompanyName(listing.companyName) || "Equities";
+      return {
+        symbol: listing.symbol,
+        companyName: listing.companyName,
+        listingExchange: listing.exchange.toUpperCase(),
+        lastPrice: listing.lastPrice,
+        price: listing.lastPrice,
+        change: listing.change,
+        changePercent: listing.changePercent,
+        bid: 0,
+        ask: 0,
+        volume: 0,
+        open: 0,
+        high: 0,
+        low: 0,
+        marketCap: listing.marketCap,
+        week52High: 0,
+        week52Low: 0,
+        sector,
+        quoteStatus: "AS_OF_UNKNOWN",
+        source: isCuratedUniverse
+          ? "Curated externalized stock universe (Nasdaq, NYSE, AMEX)"
+          : "Nasdaq all-exchange stock listings (source quote time unavailable)",
+        timestamp: "",
+      };
+    });
 
     if (unsupported.length > 0) {
       const message = `The dynamic listing feed does not provide ${unsupported.join(", ")} data. Those criteria were not applied; use only price, daily change, market cap, and ticker/company search.`;

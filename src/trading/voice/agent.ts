@@ -26,6 +26,7 @@ import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
+import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 
 /**
  * Normalizes speech-to-text transcript for financial and trading intents.
@@ -46,11 +47,19 @@ export function normalizeVoiceTradingTranscript(raw: string, env?: Env): string 
   const voiceCfg = getVoiceConfig(env);
 
   // 1c. Apply phonetic speech-to-text corrections (e.g. "text talks" -> "tech stocks")
-  const phonetic = voiceCfg.phoneticCorrections || {};
+  const defaultPhonetic: Record<string, string> = {
+    "text talks": "tech stocks",
+    "text talk": "tech stock",
+    "tech talks": "tech stocks",
+    "text stocks": "tech stocks",
+  };
+  const phonetic = { ...defaultPhonetic, ...(voiceCfg.phoneticCorrections || {}) };
   for (const [misheard, corrected] of Object.entries(phonetic)) {
     const reg = new RegExp(`\\b${misheard}\\b`, "gi");
     text = text.replace(reg, corrected);
   }
+  // Also handle trailing or isolated "talks" in financial screening context e.g. "all talks" -> "all stocks"
+  text = text.replace(/\b(all|tech|top|buy|sell|screen|find)\s+talks\b/gi, "$1 stocks");
 
   // 2. Normalize spoken company names to canonical tickers from externalized config
   const companyToTicker = voiceCfg.companyToTicker || {};
@@ -142,14 +151,15 @@ export class ETradeVoiceTradingService {
     const authorizerDid = `did:user:voice:${userLogin}`;
     const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
 
-    // 0. Conversational Open-Ended Single-Word Prompt (e.g. "Find", "Search", "Help")
-    if (/^(find|search|help|lookup|show me)$/i.test(cleanTranscript.trim())) {
-      const spokenText = "What would you like me to find? You can say 'Find top gainers and losers', 'Screen tech stocks', 'Quote NVDA', or ask for your portfolio balance.";
+    // 0. Conversational Open-Ended Single-Word Prompt (e.g. "Find", "Search", "Help", "Explore")
+    if (/^(find|search|help|lookup|show me|explore|menu)$/i.test(cleanTranscript.trim())) {
+      const caps = getPlatformCapabilitiesDeskSummary();
+      const spokenText = tuneFinancialPronunciation(caps.spokenSummary);
       return {
         success: true,
         spokenText,
-        displayMarkdown: `### 🎙️ E*TRADE Voice Desk\n\n${spokenText}\n\n- *"Find top gainers and losers"*\n- *"Screen tech stocks"*\n- *"Quote NVDA"*\n- *"Buy 1 share of NVDA at market"*`,
-        actionType: "general",
+        displayMarkdown: caps.markdownOverview,
+        actionType: "capabilities",
         proposerDid: AGENT_DIDS.TRADING,
         timestamp,
       };
@@ -334,6 +344,19 @@ export class ETradeVoiceTradingService {
 
       const domain = plan.domain;
       const action = plan.tradingData?.action || "query";
+
+      if (domain === "trading" && action === "capabilities") {
+        const caps = getPlatformCapabilitiesDeskSummary();
+        const spokenText = tuneFinancialPronunciation(caps.spokenSummary);
+        return {
+          success: true,
+          spokenText,
+          displayMarkdown: caps.markdownOverview,
+          actionType: "capabilities",
+          proposerDid: AGENT_DIDS.TRADING,
+          timestamp,
+        };
+      }
 
       if (domain === "research") {
         const rows: Array<Record<string, unknown>> = nlqRes.rows || [];
@@ -525,18 +548,62 @@ export class ETradeVoiceTradingService {
           };
         }
 
+        const isMovers = filters.gainersLosers === "movers" || (Boolean(filters.gainersOnly) && Boolean(filters.losersOnly));
+        if (isMovers && (stocks.length > 0 || (nlqRes.movers?.gainers?.length || 0) > 0 || (nlqRes.movers?.losers?.length || 0) > 0)) {
+          const movers = nlqRes.movers;
+          const gainers = (movers?.gainers && movers.gainers.length > 0)
+            ? movers.gainers.slice(0, 3)
+            : stocks.filter((s) => (s.changePercent ?? 0) > 0).sort((a, b) => b.changePercent - a.changePercent).slice(0, 3);
+          const losers = (movers?.losers && movers.losers.length > 0)
+            ? movers.losers.slice(0, 3)
+            : stocks.filter((s) => (s.changePercent ?? 0) < 0).sort((a, b) => a.changePercent - b.changePercent).slice(0, 3);
+
+          const formatPrice = (p: any) => typeof p === "number" ? `$${p.toFixed(2)}` : String(p || "N/A");
+          const gainersSpoken = gainers.map((s) => `${s.symbol} at ${formatPrice(s.price)}, up ${Math.abs(s.changePercent || 0).toFixed(2)} percent`).join(", and ");
+          const losersSpoken = losers.map((s) => `${s.symbol} at ${formatPrice(s.price)}, down ${Math.abs(s.changePercent || 0).toFixed(2)} percent`).join(", and ");
+
+          let spokenRaw = "";
+          if (gainers.length > 0 && losers.length > 0) {
+            spokenRaw = `Here are today's top market movers across listed stocks. Top gainers include ${gainersSpoken}. Top losers include ${losersSpoken}. Say "Quote symbol" for full metrics, "Options on symbol" for strategy ideas, or specify an order to preview.`;
+          } else if (gainers.length > 0) {
+            spokenRaw = `Here are today's top market movers. Top gainers include ${gainersSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
+          } else {
+            spokenRaw = `Here are today's top market movers. Top losers include ${losersSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
+          }
+          const spokenText = tuneFinancialPronunciation(spokenRaw);
+
+          const gainersTable = gainers.map((s) => `| **${s.symbol}** | ${s.exchange || "N/A"} | ${formatPrice(s.price)} | +${Math.abs(s.changePercent || 0).toFixed(2)}% | ${s.marketCap || "N/A"} |`).join("\n");
+          const losersTable = losers.map((s) => `| **${s.symbol}** | ${s.exchange || "N/A"} | ${formatPrice(s.price)} | -${Math.abs(s.changePercent || 0).toFixed(2)}% | ${s.marketCap || "N/A"} |`).join("\n");
+
+          const displayMarkdown = `### 📊 Market Movers: Top Gainers & Losers\n\n` +
+            `#### 📈 Top Daily Gainers\n| Symbol | Exchange | Price | Daily Change | Market Cap |\n|---|---|---|---|---|\n${gainersTable || "| None | - | - | - | - |"}\n\n` +
+            `#### 📉 Top Daily Losers\n| Symbol | Exchange | Price | Daily Change | Market Cap |\n|---|---|---|---|---|\n${losersTable || "| None | - | - | - | - |"}\n\n` +
+            `*💡 Voice Desk Tips: Say "Quote <symbol>" for detailed metrics, "Options on <symbol>" for strategy ideas, or "Buy <qty> <symbol>" to draft an order.*`;
+
+          return {
+            success: true,
+            spokenText,
+            displayMarkdown,
+            actionType: "screener",
+            screenedStocks: stocks as ScreenedStockItem[],
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
         const top = stocks.slice(0, 3);
         const topSpoken = top
           .map((s) => `${s.symbol} at ${s.price}, daily change ${s.change}`)
           .join(", and ");
 
-        const spokenRaw = `I screened ${stocks.length} listed stocks. Top results include ${topSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
+        const sectorPrefix = sector ? `${sector} ` : "";
+        const spokenRaw = `I screened ${stocks.length} ${sectorPrefix}listed stocks. Top results include ${topSpoken}. Say "Quote symbol" for full metrics, or specify an order to preview.`;
         const spokenText = tuneFinancialPronunciation(spokenRaw);
 
         const tableRows = stocks.slice(0, 5).map((stock) =>
           `| **${stock.symbol}** | ${stock.exchange || "N/A"} | ${stock.price} | ${stock.change} | ${stock.marketCap || "N/A"} |`
         ).join("\n");
-        const displayMarkdown = `### 🔍 Market Listings (${stocks.length} Matched)\n\n| Symbol | Exchange | Price | Daily Change | Market Cap |\n|---|---|---|---|---|\n${tableRows}\n\n*Say "Quote <symbol>" for detailed quote data, or "Buy <qty> <symbol>" to draft an order.*`;
+        const displayMarkdown = `### 🔍 ${sectorPrefix}Market Listings (${stocks.length} Matched)\n\n| Symbol | Exchange | Price | Daily Change | Market Cap |\n|---|---|---|---|---|\n${tableRows}\n\n*Say "Quote <symbol>" for detailed quote data, or "Buy <qty> <symbol>" to draft an order.*`;
 
         return {
           success: true,

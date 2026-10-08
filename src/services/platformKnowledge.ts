@@ -713,3 +713,110 @@ function generateMarkdownAnswer(query: string, results: KnowledgeSearchResult[])
 
   return sections.join("\n");
 }
+
+export interface PlatformCapabilitiesDeskSummary {
+  spokenSummary: string;
+  markdownOverview: string;
+  workflows: Array<{
+    id: string;
+    title: string;
+    category: string;
+    targetTab: string;
+    samplePrompt: string;
+  }>;
+}
+
+/**
+ * Returns a high-level, actionable summary of platform capabilities
+ * designed specifically for voice desk responses and discovery prompts.
+ */
+export function getPlatformCapabilitiesDeskSummary(): PlatformCapabilitiesDeskSummary {
+  const workflows = [
+    {
+      id: "stock-screener",
+      title: "Stock Screener & Market Movers",
+      category: "Stocks",
+      targetTab: "trading",
+      samplePrompt: "Find top gainers and losers",
+    },
+    {
+      id: "real-time-quotes",
+      title: "Real-Time Equity Quotes & NBBO",
+      category: "Quotes",
+      targetTab: "trading",
+      samplePrompt: "Quote NVDA",
+    },
+    {
+      id: "options-strategy-discovery",
+      title: "Options Strategy Discovery & Greeks Engine",
+      category: "Options",
+      targetTab: "trading",
+      samplePrompt: "Find bull call spreads on SPY with max loss <= $30",
+    },
+    {
+      id: "options-flows",
+      title: "Real-Time Options Flows & Institutional Sweeps",
+      category: "Flows",
+      targetTab: "options-flows",
+      samplePrompt: "Show unusual options flow and sweeps",
+    },
+    {
+      id: "multi-leg-builder",
+      title: "Visual Multi-Leg Strategy Builder & Payoff",
+      category: "Builder",
+      targetTab: "trading",
+      samplePrompt: "Build iron condor on TSLA",
+    },
+    {
+      id: "portfolio-risk",
+      title: "Portfolio Exposure & Reconciled Balances",
+      category: "Portfolio",
+      targetTab: "trading",
+      samplePrompt: "What is my portfolio balance and positions?",
+    },
+    {
+      id: "order-execution",
+      title: "E*TRADE Brokerage Order Drafts (Strict HITL)",
+      category: "Orders",
+      targetTab: "trading",
+      samplePrompt: "Buy 10 shares of NVDA at market",
+    },
+    {
+      id: "scheduled-tasks",
+      title: "Autonomous Background Alarms & Screening",
+      category: "Scheduling",
+      targetTab: "trading",
+      samplePrompt: "Remind me to check AAPL in 10 minutes",
+    },
+  ];
+
+  const spokenSummary =
+    "The E*TRADE Voice Trading Desk provides 14 integrated market capabilities across analysis and execution. You can ask for real-time market quotes, technical screening across 8,000 equities, top gainers and losers, options strategy discovery with Black-Scholes Greeks, real-time options flow, portfolio risk and balances, scheduled alerts, or draft trade order tickets with Human-in-the-Loop protection. What would you like to explore today?";
+
+  const markdownOverview = [
+    `### 🎙️ E*TRADE Voice Trading Desk: Platform Capabilities`,
+    ``,
+    `Multi-Agent Studio connects you to **14 integrated market analysis & execution workflows**:`,
+    ``,
+    `#### 📊 Market Analysis Capabilities`,
+    `- 📈 **Real-Time Quotes**: Instant bid/ask NBBO, daily changes, and 52-week ranges. *(e.g. "Quote NVDA", "What is Apple trading at?")*`,
+    `- 🔍 **Stock Screener & Movers**: Screen 8,000+ equities across NASDAQ, NYSE, and AMEX. *(e.g. "Find top gainers and losers", "Screen all tech stocks")*`,
+    `- ⚡ **Options Strategy Discovery**: 72 catalog strategies, calibrated pricing, and Black-Scholes Greeks. *(e.g. "Find bull call spreads on SPY", "Options ideas for NVDA")*`,
+    `- 🌊 **Options Flow Tracker**: Detects unusual sweeps, blocks, and institutional sentiment. *(e.g. "Check unusual options flow")*`,
+    `- 🛡️ **Portfolio & Risk Analysis**: Reconciled holdings, purchasing power, and dollar delta exposure. *(e.g. "What is my portfolio balance?", "Show my positions")*`,
+    `- 🔬 **FOSS Fundamental Research**: P/E ratios, valuations, and analyst ratings without API credentials. *(e.g. "Valuation and P/E for MSFT")*`,
+    ``,
+    `#### ⚡ Execution & Automation Capabilities`,
+    `- 📝 **Order Draft & Preview (Strict HITL)**: Drafts orders with Agent DID attestations requiring verbal or 1-click confirmation before broker execution. *(e.g. "Buy 10 shares of NVDA at market", "Limit order 5 AAPL at 220")*`,
+    `- ⏰ **Cloudflare Durable Timers**: Schedule background scans and reminders that survive worker restarts. *(e.g. "Remind me to check TSLA in ten minutes", "Schedule market screen every five minutes")*`,
+    `- 💬 **Omnichannel Approvals**: Execute orders and receive alerts over Slack, Email, and Voice.`,
+    ``,
+    `*💡 Voice Desk Tips: Speak naturally to run any screen, request a quote, or preview a trade.*`,
+  ].join("\n");
+
+  return {
+    spokenSummary,
+    markdownOverview,
+    workflows,
+  };
+}

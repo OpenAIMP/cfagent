@@ -252,6 +252,96 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.displayMarkdown).toContain("Stock Screen Unavailable");
     });
 
+    it("handles open-ended discovery 'Find' by presenting 14 integrated platform capabilities rather than conversation records", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Find",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("capabilities");
+      expect(res.spokenText).toContain("14 integrated market capabilities");
+      expect(res.spokenText).not.toContain("conversation records");
+      expect(res.displayMarkdown).toContain("Platform Capabilities");
+      expect(res.displayMarkdown).toContain("Market Analysis Capabilities");
+      expect(res.displayMarkdown).toContain("Execution & Automation Capabilities");
+    });
+
+    it("handles verbal market movers query 'Find the top Gainers and losers' with dual gainers and losers breakdown", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Find the top Gainers and losers",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("screener");
+      expect(res.spokenText).toContain("top market movers");
+      expect(res.spokenText).toContain("Top gainers include");
+      expect(res.spokenText).toContain("Top losers include");
+      expect(res.displayMarkdown).toContain("Market Movers: Top Gainers & Losers");
+      expect(res.displayMarkdown).toContain("Top Daily Gainers");
+      expect(res.displayMarkdown).toContain("Top Daily Losers");
+    });
+
+    it("handles phonetic misrecognition 'Screen all text talks' by normalizing to tech stocks and filtering technology equities", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Screen all text talks",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("screener");
+      expect(res.screenedStocks).toBeDefined();
+      expect(res.screenedStocks!.length).toBeGreaterThan(0);
+      for (const stock of res.screenedStocks!) {
+        const sec = (stock.sector || "").toLowerCase();
+        expect(["technology", "semiconductors"]).toContain(sec);
+      }
+      expect(res.spokenText).toContain("Technology");
+      expect(res.displayMarkdown).toContain("Technology");
+    });
+
+    it("handles verbal sector screening 'Screen all tech stocks' returning technology leaders sorted by market cap", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "Screen all tech stocks",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("screener");
+      expect(res.screenedStocks).toBeDefined();
+      expect(res.screenedStocks!.length).toBeGreaterThan(0);
+      expect(res.spokenText).toContain("Technology");
+      expect(res.displayMarkdown).toContain("Technology");
+    });
+
+    it("handles verbal platform capabilities query 'What are your capabilities'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "What are your capabilities",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("capabilities");
+      expect(res.spokenText).toContain("14 integrated market capabilities");
+      expect(res.displayMarkdown).toContain("Platform Capabilities");
+    });
+
     it("handles verbal portfolio and balance queries", async () => {
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
       const req: VoiceTradingTurnRequest = {

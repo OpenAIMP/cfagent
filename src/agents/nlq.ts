@@ -11,6 +11,7 @@ import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrat
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { getDynamicLiveFlowItems } from "../trading/options/flows";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
+import { getPlatformCapabilitiesDeskSummary } from "../services/platformKnowledge";
 
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
@@ -34,6 +35,7 @@ export const nlqPlanSchema = z.object({
           "preview_order",
           "execute_order",
           "positions",
+          "capabilities",
           "options_screen",
           "options_strategies",
           "options_best_trade",
@@ -138,6 +140,8 @@ export interface NLQQueryResult {
   rejections?: OptionScreenRejection[];
   fetchErrors?: Array<{ symbol: string; reason: string }>;
   warnings?: string[];
+  displayMarkdown?: string;
+  movers?: StockScreenResult["movers"];
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -738,6 +742,27 @@ export function planWithRules(question: string): NLQPlan {
     };
   }
 
+  // 3b. Fast-path for Platform Capabilities, Discovery & General Assistance
+  const isCapabilitiesQuery =
+    /\b(capabilities|capability|features?|workflows?|what\s+can\s+(?:you|this\s+desk|the\s+agent|the\s+platform)\s+do|how\s+to\s+use|help|overview|menu|what\s+do\s+you\s+support|what\s+are\s+the\s+capabilities)\b/i.test(question) ||
+    /^(?:find|search|explore|help|lookup|start|menu|show\s+me|show)$/i.test(question.trim());
+
+  const isExplicitConversationQuery = /\b(messages?|chat\s+history|transcripts?|conversation\s+records?|conversations?|user\s+said|i\s+said|what\s+did\s+i\s+ask)\b/i.test(question);
+
+  if (isCapabilitiesQuery && !isExplicitConversationQuery) {
+    return {
+      domain: "trading",
+      operation: "list",
+      tradingData: {
+        action: "capabilities",
+      },
+      terms: "platform capabilities",
+      role: "any",
+      since: null,
+      limit: 14,
+    };
+  }
+
   // 4. Fast-path for E*TRADE Stock Screening / Market Scanning
   const isOptionsOrStrategy = /\b(options?|contracts?|chains?|calls?|puts?|delta|dte|strike|iv|implied\s+volatility|max\s*profit|max\s*loss|spreads?|condors?|straddles?|strangles?|underlyings?|strateg\w*)\b/i.test(question);
   if (
@@ -751,6 +776,9 @@ export function planWithRules(question: string): NLQPlan {
     if (/\b(semiconductor|semis|chips)\b/i.test(question)) filters.sector = "Semiconductors";
     if (/\b(cloud|enterprise|software)\b/i.test(question)) filters.sector = "Enterprise Software";
     if (/\b(crypto|bitcoin|fintech)\b/i.test(question)) filters.sector = "Fintech & Crypto";
+    if (/\b(financials?|finance|banks?)\b/i.test(question)) filters.sector = "Financial";
+    if (/\b(healthcare?|pharma|biotech)\b/i.test(question)) filters.sector = "Healthcare";
+    if (/\b(energy|oil|gas)\b/i.test(question)) filters.sector = "Energy";
 
     const rsiUnderMatch = question.match(/rsi\s*(?:<|under|less than|below)\s*(\d+)/i);
     if (rsiUnderMatch) filters.maxRsi = Number(rsiUnderMatch[1]);
@@ -779,9 +807,12 @@ export function planWithRules(question: string): NLQPlan {
 
     const hasGainers = /\b(gainer|gainers|up|green)\b/i.test(question);
     const hasLosers = /\b(loser|losers|down|red)\b/i.test(question);
+    const isMoversIntent = (hasGainers && hasLosers) || /\b(market\s*movers?|biggest\s*movers?|top\s*movers?)\b/i.test(question);
 
-    if (hasGainers && hasLosers) {
+    if (isMoversIntent) {
       filters.gainersLosers = "movers";
+      delete filters.gainersOnly;
+      delete filters.losersOnly;
     } else if (hasGainers) {
       filters.gainersOnly = true;
     } else if (hasLosers) {
@@ -1523,6 +1554,21 @@ export function executeNLQQuery(
     const etrade = new ETradeService(orm, env, sessionId);
     const action = plan.tradingData?.action || "screen";
 
+    if (action === "capabilities") {
+      const caps = getPlatformCapabilitiesDeskSummary();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "platform_capabilities",
+        count: caps.workflows.length,
+        status: "matches_found",
+        summary: caps.spokenSummary,
+        displayMarkdown: caps.markdownOverview,
+        rows: caps.workflows as any,
+        executedAt,
+      };
+    }
+
     if (action === "screen") {
       const screenRes = etrade.screenStocks(plan.tradingData?.filters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
@@ -1556,6 +1602,7 @@ export function executeNLQQuery(
         status: scannerState,
         summary,
         scanLedger: screenRes.ledger,
+        movers: screenRes.movers,
         provenance: {
           scannerState,
           universeCount: screenRes.totalScreened,
@@ -1574,8 +1621,11 @@ export function executeNLQQuery(
             symbol: s.symbol,
             companyName: s.companyName,
             sector: s.sector,
+            exchange: s.listingExchange || (s as any).exchange || "N/A",
             price: `$${s.price.toFixed(2)}`,
+            rawPrice: s.price,
             change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePercent: s.changePercent,
             changePeriod: s.changePeriod || "1D (Regular Trading Day)",
             priorClose: `$${(s.previousClose ?? (s.price - s.change)).toFixed(2)}`,
             rsi14: s.rsi14,
@@ -2057,6 +2107,21 @@ export async function executeNLQQueryAsync(
     const etrade = new ETradeService(orm, env, login);
     const action = plan.tradingData?.action || "screen";
 
+    if (action === "capabilities") {
+      const caps = getPlatformCapabilitiesDeskSummary();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "platform_capabilities",
+        count: caps.workflows.length,
+        status: "matches_found",
+        summary: caps.spokenSummary,
+        displayMarkdown: caps.markdownOverview,
+        rows: caps.workflows as any,
+        executedAt,
+      };
+    }
+
     if (action === "screen") {
       const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
@@ -2095,6 +2160,7 @@ export async function executeNLQQueryAsync(
         validationError: screenRes.validationError,
         discovery: screenRes.discovery,
         scanLedger: screenRes.ledger,
+        movers: screenRes.movers,
         provenance: {
           scannerState,
           universeCount: screenRes.totalScreened,
@@ -2111,9 +2177,12 @@ export async function executeNLQQueryAsync(
           return {
             symbol: s.symbol,
             companyName: s.companyName,
-            exchange: s.listingExchange || "N/A",
+            sector: s.sector,
+            exchange: s.listingExchange || (s as any).exchange || "N/A",
             price: `$${s.price.toFixed(2)}`,
+            rawPrice: s.price,
             change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePercent: s.changePercent,
             marketCap: formatMarketCap(s.marketCap),
             source: s.source || "Dynamic stock listing",
             quoteTimestamp: s.timestamp || executedAt,
