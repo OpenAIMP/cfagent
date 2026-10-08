@@ -86,7 +86,8 @@ body {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-subtle);
-  z-index: 20;
+  position: relative;
+  z-index: 10000;
 }
 
 .brand {
@@ -7781,9 +7782,11 @@ body {
   max-height: calc(100vh - 110px);
   overflow-y: auto;
   scrollbar-width: thin;
-  background: rgba(15, 23, 42, 0.98);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background-color: #0b1120 !important;
+  background: #0b1120 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  isolation: isolate;
   border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: 12px;
   padding: 1.15rem;
@@ -8252,7 +8255,7 @@ body {
 
 .tab-hover-wrapper:hover,
 .tab-hover-wrapper:focus-within {
-  z-index: 999999;
+  z-index: 999999 !important;
 }
 
 .tab-hover-popover {
@@ -8318,22 +8321,22 @@ body {
 /* Hover & Focus Interactions */
 .tab-hover-wrapper:hover:not(.tooltip-dismissed) .tab-hover-popover,
 .tab-hover-wrapper:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
   transform: translateX(-50%) translateY(0);
 }
 
 .tab-hover-wrapper.align-left:hover:not(.tooltip-dismissed) .tab-hover-popover,
 .tab-hover-wrapper.align-left:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
   transform: translateY(0);
 }
 
 .tab-hover-wrapper.align-right:hover:not(.tooltip-dismissed) .tab-hover-popover,
 .tab-hover-wrapper.align-right:focus-within:not(.tooltip-dismissed) .tab-hover-popover {
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
   transform: translateY(0);
 }
 

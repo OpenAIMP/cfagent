@@ -1609,7 +1609,8 @@
   top: calc(100% + 6px);
   right: 0;
   min-width: 310px;
-  background: #090e1c;
+  background-color: #0b1120 !important;
+  background: #0b1120 !important;
   border: 1px solid rgba(56, 189, 248, 0.3);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.15);
@@ -1618,7 +1619,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  backdrop-filter: blur(12px);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  isolation: isolate;
 }
 
 .options-download-menu-header {

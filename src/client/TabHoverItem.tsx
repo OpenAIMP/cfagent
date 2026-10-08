@@ -45,7 +45,7 @@ export function TabHoverItem({
         "aria-describedby": (children.props as any)["aria-describedby"]
           ? `${(children.props as any)["aria-describedby"]} ${tooltipId}`
           : tooltipId,
-        title: undefined,
+        title: "",
       })
     : children;
 
