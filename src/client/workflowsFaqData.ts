@@ -660,11 +660,71 @@ export const CAPABILITY_MATRIX: CapabilityMatrixRow[] = [
 
 export const DECISIONING_SECTIONS: DecisioningSection[] = [
   {
-    id: "options-screener-logic",
+    id: "stock-screener-logic",
     number: 1,
-    title: "Options Screener Search, Filter & Rank Logic",
+    title: "Stock Screener Search, Ingestion & Fallback Decision Logic",
+    subtitle: "Dynamic All-Exchange Discovery, Fallback Decision Tree, Indicators & Options Flow Integration",
+    badge: "Equity Screener",
+    badgeColor: "green",
+    overview: "The Stock Screener (DynamicMarketScreener) discovers and evaluates equities across all US exchanges (NASDAQ, NYSE, AMEX). Options Flow and downstream modules do NOT default to a static list as their first option — they query DynamicMarketScreener first. The screener queries live all-exchange listings from api.nasdaq.com, and if that API is rate-limited, blocked, or unavailable, it decides whether to use a dynamic feed or fall back to the externalized curated universe (src/config/curatedStockUniverse.json).",
+    rules: [
+      {
+        name: "Multi-Exchange Dynamic Listing Ingestion & Fallback Decision Tree",
+        description: "Executes a multi-tiered ingestion hierarchy across NASDAQ, NYSE, and AMEX (~8,500 active securities), prioritizing authentic remote exchange feeds before falling back gracefully.",
+        formulaOrCode: "Priority 1: fetchAllUsStockListings() via api.nasdaq.com/api/screener/stocks (~8,500 rows, paginated)\nPriority 2: If upstream is rate-limited, blocked, or returns empty -> DynamicMarketScreener autonomously activates fallback\nPriority 3: Ingests getCuratedStockListings() from src/config/curatedStockUniverse.json (with sector, market cap, and exchange metadata)\nAudit Stamp: discovery.mode = 'all_us_listings', tagged with source count audit statistics",
+      },
+      {
+        name: "Options Flow Integration Rule: Screener-First Dynamic Resolution",
+        description: "Guarantees that Options Flow never defaults to a static ticker list as its first option. Options Flow queries DynamicMarketScreener to obtain active market underlyings partitioned into market cap buckets.",
+        formulaOrCode: "Options Flow invokes: DynamicMarketScreener.screenLive({ minPrice: 3.0 })\nScreener Decision: Attempts live multi-exchange scan -> falls back to curated universe only if offline\nPartitions results into:\n  - Large Cap: >= $10B (Mega/Large cap options volume leaders)\n  - Mid Cap: $2B - $10B (Russell midcap momentum movers)\n  - Small Cap: $250M - $2B (High-beta growth candidates)\n  - ETFs: SPY, QQQ, IWM, DIA, XLF, XLE, SMH, etc.\nSorts by absolute price change |changePercent| (top movers first)",
+      },
+      {
+        name: "Equity Boundary Filtering & Penny Stock Exclusion",
+        description: "Applies rigorous boundary gates across exchange, market cap, price, volume, and percentage change.",
+        parametersOrGates: [
+          "Exchange: NASDAQ, NYSE, AMEX, or ALL (Exchange filter ignores OTC/pink sheets)",
+          "Price Gate: minPrice <= LastPrice <= maxPrice (Penny stock exclusions: Price >= $3.00 for optionable securities)",
+          "Market Cap: Mega (>= $200B), Large (>= $10B), Mid ($2B-$10B), Small (< $2B)",
+          "1D Price Change %: Absolute velocity filter (|changePercent|) highlighting breakout gainers/losers",
+          "Volume Floor: minVolume >= threshold (Omits dormant or low-liquidity issues)",
+        ],
+      },
+      {
+        name: "Technical Momentum Indicators (RSI & MACD)",
+        description: "Enriches candidates with 14-period daily RSI and MACD (12, 26, 9 EMA) using historical OHLCV chart bars.",
+        formulaOrCode: "RSI > 70: Overbought (Potential mean-reversion or exhaustion)\nRSI < 30: Oversold Bounce (Fallen-angel pullback opportunity)\nMACD Line > Signal Line: Bullish Acceleration\nMACD Line < Signal Line: Bearish Contraction",
+      },
+      {
+        name: "Auditable Stock Scan Ledger",
+        description: "Maintains a verifiable ledger recording total scanned securities, passed candidates, and exact exclusion reasons.",
+        parametersOrGates: [
+          "EXCHANGE_MISMATCH: Ticker listing does not belong to selected exchange partition",
+          "PRICE_OUT_OF_RANGE: Last sale price below minimum ($3.00 floor) or above ceiling",
+          "MARKET_CAP_OUT_OF_RANGE: Market capitalization outside target tier",
+          "NON_OPTIONABLE_SECURITY: Excluded warrants, rights, units, preferred shares, and debt notes",
+          "CHANGE_PERCENT_OUT_OF_RANGE: Daily momentum change below requested threshold",
+        ],
+      },
+    ],
+    matrixOrWeights: [
+      { dimension: "Priority 1 (Live Nasdaq)", weightOrValue: "api.nasdaq.com/api/screener/stocks", details: "All active US equities (~8,500 rows) with real-time 15m delayed exchange pricing" },
+      { dimension: "Priority 2 (Yahoo FOSS)", weightOrValue: "query1.finance.yahoo.com/v8/finance/chart", details: "1-month daily historical OHLCV bars for 14-period RSI and MACD indicators" },
+      { dimension: "Priority 3 (Curated Fallback)", weightOrValue: "src/config/curatedStockUniverse.json", details: "Resilient offline fallback with sector, market cap, and exchange metadata" },
+      { dimension: "Downstream Client: Options Flow", weightOrValue: "DynamicMarketScreener.screenLive()", details: "Resolves dynamic market underlyings first before tape ingestion; never defaults to static list" },
+    ],
+    concreteExample: {
+      title: "Screening All-Exchange Equities with Dynamic Options Flow Handoff",
+      input: "Market: US Equities, Min Price: $3.00, Consumer: Options Flow resolveDynamicFlowSymbols()",
+      evaluation: "DynamicMarketScreener queries Nasdaq API; receives 8,500 listings. Filters out warrants and penny stocks. Partitions top absolute movers: NVDA (+4.2%), TSLA (-3.1%), PLTR (+6.8%), AMD (+2.9%).",
+      verdict: "Stock Screener returns 20 Large Cap, 20 Mid Cap, and 20 Small Cap symbols. Options Flow consumes these dynamic underlyings to query live options tape and synthesize flow leaderboards.",
+    },
+  },
+  {
+    id: "options-screener-logic",
+    number: 2,
+    title: "Raw Options Contracts Screener & Chain Filtering Engine",
     subtitle: "Multivariate Contract Filtering, Moneyness Bounds, Technical Signals & Rejection Ledgers",
-    badge: "Contract Filtering",
+    badge: "Options Screener",
     badgeColor: "blue",
     overview: "The Raw Contracts Screener evaluates individual call and put option contracts against strict institutional liquidity, risk, and pricing constraints. Sanitization normalizes user inputs, clamps negative bounds, and computes auditable rejection ledgers detailing exactly why each non-qualifying contract was omitted.",
     rules: [
@@ -731,7 +791,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
   },
   {
     id: "strategy-selection-rules",
-    number: 2,
+    number: 3,
     title: "Strategy Selection, Strike Placement & Expiration Horizon Rules",
     subtitle: "72-Strategy Catalog Resolution, Combinatorial Strike Generation & Horizon Pruning",
     badge: "Strategy Generation",
@@ -783,7 +843,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
   },
   {
     id: "multivariate-scoring-criteria",
-    number: 3,
+    number: 4,
     title: "Multivariate Strategy Scoring & Weighting Vectors",
     subtitle: "Mathematical Formulations for Expected Value, Liquidity, Freshness & OptionStrat Discovery",
     badge: "Mathematical Scoring",
@@ -843,7 +903,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
   },
   {
     id: "pickbesttrades-engine",
-    number: 4,
+    number: 5,
     title: "Pick Best Trade Decision Engine (RecommendationAgent)",
     subtitle: "Profile-Weighted Composite Re-Ranking, Blocker Detection, Confidence Grading & Trade Plans",
     badge: "Recommendation Agent",
@@ -902,7 +962,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
   },
   {
     id: "additional-decisioning-gates",
-    number: 5,
+    number: 6,
     title: "Additional Decisioning Gates, Exclusion Rules & Background Automation",
     subtitle: "Undefined Risk Safeguards, Arbitrage Rejection, Autonomous Schedulers & Brokerage Handshake",
     badge: "Execution Safeguards",

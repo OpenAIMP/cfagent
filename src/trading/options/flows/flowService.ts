@@ -16,6 +16,7 @@ import {
 } from "./types";
 import type { ETradeOptionChain, ETradeOptionChainContract, Env } from "../../../types";
 import { DynamicOptionsScreener } from "../../optionsScreener";
+import { DynamicMarketScreener } from "../../screener";
 import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
@@ -1955,9 +1956,16 @@ let dynamicListingsCache: {
   etfs: string[];
 } | null = null;
 
-function isOptionableListing(l: NasdaqStockListing): boolean {
+function isOptionableListing(l: {
+  symbol?: string;
+  companyName?: string;
+  price?: number;
+  lastPrice?: number;
+  marketCap?: number;
+}): boolean {
   if (!l.symbol || !/^[A-Z]{1,5}$/.test(l.symbol)) return false;
-  if (!l.lastPrice || l.lastPrice < 3.0) return false;
+  const currentPrice = l.price ?? l.lastPrice ?? 0;
+  if (currentPrice < 3.0) return false;
   const name = (l.companyName || "").toLowerCase();
   if (
     name.includes("warrant") ||
@@ -1977,12 +1985,10 @@ function isOptionableListing(l: NasdaqStockListing): boolean {
 
 /**
  * Dynamically resolves active market underlyings for options flow analysis.
- * Uses live market feeds (Nasdaq all-exchange stock listings / FOSS screener)
- * to discover top-volume, high-momentum tickers partitioned dynamically
- * by market capitalization:
- * - Large Cap: >= $10B (S&P 500 / Nasdaq 100 giants)
- * - Mid Cap: $2B - $10B (Russell midcaps)
- * - Small Cap: < $2B (up to $5B) (growth / high-beta underlyings)
+ * Uses the Stock Screener (DynamicMarketScreener) as the primary discovery engine.
+ * The Stock Screener attempts live dynamic discovery across all US exchanges first (Nasdaq/NYSE/AMEX).
+ * If the upstream listing API is unavailable, rate-limited, or blocked, DynamicMarketScreener
+ * decides whether to use a dynamic listing or fall back to the externalized curated stock universe.
  */
 export async function resolveDynamicFlowSymbols(
   filter?: Partial<FlowFilterConfig>
@@ -1996,13 +2002,22 @@ export async function resolveDynamicFlowSymbols(
 
   if (!dynamicListingsCache || dynamicListingsCache.expiresAt <= now) {
     try {
-      const listings = await fetchAllUsStockListings().catch(() => []);
-      if (listings && listings.length > 0) {
+      // Primary discovery: Stock Screener dynamically scans live equities across all US exchanges first
+      const screener = new DynamicMarketScreener();
+      const screenResult = await screener.screenLive({
+        minPrice: 3.0,
+      });
+
+      const screenedList = (screenResult && screenResult.stocks && screenResult.stocks.length > 0)
+        ? screenResult.stocks
+        : [];
+
+      if (screenedList.length > 0) {
         // Filter out non-optionable securities (warrants, penny stocks, units)
-        const optionables = listings.filter(isOptionableListing);
+        const optionables = screenedList.filter(isOptionableListing);
 
         // Sort by absolute price change percent (high-momentum / unusual volume movers)
-        const activeMoverSort = (a: NasdaqStockListing, b: NasdaqStockListing) =>
+        const activeMoverSort = (a: { changePercent?: number }, b: { changePercent?: number }) =>
           Math.abs(b.changePercent || 0) - Math.abs(a.changePercent || 0);
 
         const large = optionables
@@ -2023,16 +2038,20 @@ export async function resolveDynamicFlowSymbols(
           .slice(0, 20)
           .map((l) => l.symbol);
 
+        const etfs = optionables
+          .filter((l) => (l as any).sector?.includes("ETF") || ["SPY", "QQQ", "IWM", "DIA", "XLF", "XLE", "SMH"].includes(l.symbol))
+          .map((l) => l.symbol);
+
         dynamicListingsCache = {
           expiresAt: now + 10 * 60 * 1000, // 10 minutes
           large: large.length > 0 ? large : defaultLarge,
           mid: mid.length > 0 ? mid : defaultMid,
           small: small.length > 0 ? small : defaultSmall,
-          etfs: defaultEtfs.length > 0 ? defaultEtfs : ["SPY", "QQQ", "IWM"],
+          etfs: etfs.length > 0 ? etfs : defaultEtfs.length > 0 ? defaultEtfs : ["SPY", "QQQ", "IWM"],
         };
       }
     } catch {
-      // Offline fallback
+      // DynamicMarketScreener fallback handles graceful degradation
     }
   }
 

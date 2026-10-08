@@ -58,7 +58,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     badge: "Dual-Engine (Nasdaq & Yahoo)",
     badgeColor: "green",
     subtitle: "Screen 8,000+ US equities dynamically across NASDAQ, NYSE, and AMEX with technical indicators and auditable scan ledgers.",
-    overview: "The Stock Screener allows filtering across all active US equities by price, market cap, exchange, 14-period daily RSI, MACD momentum, and daily gainers/losers. It operates either via official Nasdaq multi-exchange batch listings or live Yahoo Finance FOSS feeds.",
+    overview: "The Stock Screener allows filtering across all active US equities by price, market cap, exchange, 14-period daily RSI, MACD momentum, and daily gainers/losers. It queries official Nasdaq multi-exchange listings (api.nasdaq.com) across 8,000+ active tickers, with resilient automatic fallback to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance FOSS feeds if upstream APIs are rate-limited. Downstream workflows (including Options Flow) query this screener first as their primary dynamic market underlyings engine.",
     apiEndpoint: "POST /api/etrade/screen · POST /api/foss/screen",
     targetTab: "trading",
     steps: [
@@ -69,8 +69,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
       {
         step: "Step 2",
-        title: "Dynamic Exchange Ingestion",
-        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers or fetches 1-month daily historical closes via Yahoo Finance FOSS.",
+        title: "Dynamic Exchange Ingestion & Fallback Decision",
+        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers. If rate-limited, throttled, or unreachable, DynamicMarketScreener autonomously decides to fall back to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance FOSS feeds.",
       },
       {
         step: "Step 3",
@@ -85,7 +85,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     ],
     keyFeatures: [
       "Dynamic all-exchange discovery with live Nasdaq, NYSE, and AMEX support.",
-      "Externalized curated stock universe (src/config/curatedStockUniverse.json) with sector, exchange, and market-cap tags as a resilient alternative to upstream Nasdaq API rate limits.",
+      "Autonomous fallback decision tree: prioritizes remote Nasdaq/Yahoo listings before gracefully falling back to externalized curated universe.",
+      "Single Source of Truth for Options Flow: Options Flow queries this screener first to resolve active, liquid market underlyings partitioned by market cap rather than defaulting to a static list.",
       "Dual provider flexibility: E*TRADE broker mode or 100% zero-credential Yahoo Finance FOSS mode.",
       "Auditable scan ledger detailing why each security matched or failed criteria.",
       "Sortable results by 1D change %, volume, market cap, and RSI momentum.",
@@ -210,7 +211,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     badge: "Direct Broker Chains · Full Greeks",
     badgeColor: "blue",
     subtitle: "Screen single-leg calls and puts across multivariate constraints (bid/ask spread %, volume, open interest, DTE, Delta, moneyness).",
-    overview: "Directly queries and screens raw options contract chains across select DTE horizons. Enforces multivariate liquidity and spread filters, extracts Black-Scholes Greeks, and provides 1-click order ticket staging.",
+    overview: "Directly queries and screens raw options contract chains across select DTE horizons. Enforces multivariate liquidity and spread filters, moneyness At-The-Money bands (+/-2%), extracts Black-Scholes Greeks, applies deterministic sorting comparators, records an auditable 15-code rejection ledger, and provides 1-click order ticket staging.",
     apiEndpoint: "POST /api/trading/options/screen",
     targetTab: "trading",
     steps: [
@@ -221,24 +222,25 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
       {
         step: "Step 2",
-        title: "Multivariate Boundary Screening",
-        description: "Enforces constraints on bid/ask spread %, minimum volume, open interest, and strike distance.",
+        title: "Multivariate Boundary & Moneyness Screening",
+        description: "Enforces constraints on bid/ask spread %, minimum volume, open interest, quote freshness (<= 60s), and ATM moneyness band (atmBandPct = 0.02, +/-2% of spot). Records failure codes in rejection ledger.",
       },
       {
         step: "Step 3",
-        title: "Live Greeks Extraction",
-        description: "Calculates or extracts live Delta (Δ), Gamma (Γ), Theta (Θ), Vega (ν), and moneyness flags (ITM, ATM, OTM).",
+        title: "Live Greeks & Signal Extraction",
+        description: "Calculates or extracts live Delta (Δ), Gamma (Γ), Theta (Θ), Vega (ν), and direction-agnostic signals (Vol/OI spike > 1.5x, High Delta, IV expansion).",
       },
       {
         step: "Step 4",
-        title: "Sort & Staging",
-        description: "Orders by volume, open interest, or spread tightness with 1-click trade ticket integration.",
+        title: "Deterministic Sort & Staging",
+        description: "Orders matching contracts deterministically by volume, spread tightness, IV, Vol/OI ratio, or DTE with secondary tie-breakers on symbol and strike price, integrating with 1-click order preview tickets.",
       },
     ],
     keyFeatures: [
       "Direct E*TRADE option chains screening with calibrated market feed fallback.",
       "Fine-grained liquidity filters: min volume, min open interest, max bid-ask spread %.",
       "Complete Greeks breakdown: Delta, Gamma, Theta, Vega, and Implied Volatility.",
+      "Auditable Rejection Ledger: 15 standardized failure codes explaining omitted contracts.",
       "One-click staging of selected contract into order preview ticket.",
     ],
     dataSources: [
@@ -261,14 +263,14 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     badge: "Sweeps & Blocks · Net Sentiment",
     badgeColor: "purple",
     subtitle: "Real-time institutional sweeps, block orders, dark pool prints, insider SEC filings, and congressional disclosures.",
-    overview: "Monitors institutional options order flow to identify 'smart money' positioning. Computes aggregate Net Bullish vs Net Bearish premium leaderboards and flags Volume-to-Open-Interest (Vol/OI) spikes indicative of directional conviction.",
+    overview: "Monitors institutional options order flow to identify 'smart money' positioning. Options Flow does NOT default to a static list as its first option — it queries the Stock Screener (DynamicMarketScreener) first to resolve active, high-momentum market underlyings across all US exchanges before ingesting live options tape prints. Computes aggregate Net Bullish vs Net Bearish premium leaderboards and flags Volume-to-Open-Interest (Vol/OI) spikes indicative of directional conviction.",
     apiEndpoint: "GET /api/trading/options/flows · GET /api/trading/options/flow-summary",
     targetTab: "options-flows",
     steps: [
       {
         step: "Step 1",
-        title: "Order Flow Ingestion",
-        description: "Ingests options trade prints across all exchanges, filtering for multi-exchange sweeps, single-venue blocks, and dark pool executions.",
+        title: "Screener-First Underlyings Resolution",
+        description: "Options Flow queries DynamicMarketScreener first to obtain active multi-exchange equities. DynamicMarketScreener attempts live all-exchange discovery, falling back to the curated universe only if offline. Options Flow partitions these screened equities into Large Cap (>= $10B), Mid Cap ($2B-$10B), and Small Cap (<$2B) sorted by absolute daily momentum.",
       },
       {
         step: "Step 2",
@@ -287,12 +289,14 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
     ],
     keyFeatures: [
+      "Screener-Driven Dynamic Discovery: Options Flow queries the Stock Screener first to identify liquid, high-momentum market movers across exchanges, never defaulting to a static ticker list.",
       "Real-time institutional flow feed with filterable trade sizes ($50K+, $250K+, $1M+).",
       "Dual Leaderboards: Top 10 Net Bullish Tickers vs Top 10 Net Bearish Tickers.",
       "Volume-to-Open-Interest (Vol/OI) anomaly flags highlighting unusual contract activity.",
       "Integrated Congressional stock disclosures and corporate insider purchases.",
     ],
     dataSources: [
+      "Stock Screener (DynamicMarketScreener) for live dynamic equity discovery (Nasdaq/Yahoo feeds with curated fallback)",
       "Institutional Options Consolidated Tape feeds (CTA / OPRA)",
       "SEC EDGAR Form 4 corporate insider transaction filings",
       "US House & Senate financial disclosure reports",
@@ -527,7 +531,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
   // Decisioning Logic Tab State
   const [decisioningSearchQuery, setDecisioningSearchQuery] = useState<string>("");
-  const [expandedDecisioningId, setExpandedDecisioningId] = useState<string>("options-screener-logic");
+  const [expandedDecisioningId, setExpandedDecisioningId] = useState<string>("stock-screener-logic");
 
   const categories = [
     { id: "all", label: "All Workflows (8)" },
@@ -688,7 +692,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           className={`workflows-nav-tab ${activeTab === "decisioning" ? "active" : ""}`}
           onClick={() => setActiveTab("decisioning")}
         >
-          📐 Search, Selection &amp; Ranking Decision Logic (5)
+          📐 Search, Selection &amp; Ranking Decision Logic (6)
         </button>
       </div>
 
