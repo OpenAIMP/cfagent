@@ -37,24 +37,44 @@ export function normalizeVoiceTradingTranscript(raw: string): string {
   // 1. Remove verbal fillers
   text = text.replace(/\b(um|uh|er|ah|like|you know|please)\b/gi, "").trim();
 
+  // 1b. Normalize spaced-out alphanumeric characters (e.g. from speech "6 d 7 3 7 3 4 3" -> "6d737343")
+  text = text.replace(/\b(?:order\s+)?((?:[a-zA-Z0-9]\s+){4,}[a-zA-Z0-9])\b/gi, (match) => {
+    return match.replace(/\s+/g, "");
+  });
+
   // 2. Normalize spoken company names to canonical tickers
   const companyToTicker: Record<string, string> = {
     nvidia: "NVDA",
+    nvda: "NVDA",
     apple: "AAPL",
+    aapl: "AAPL",
     microsoft: "MSFT",
+    msft: "MSFT",
     tesla: "TSLA",
+    tsla: "TSLA",
     amazon: "AMZN",
+    amzn: "AMZN",
     google: "GOOGL",
+    googl: "GOOGL",
     alphabet: "GOOGL",
     broadcom: "AVGO",
+    avgo: "AVGO",
     amd: "AMD",
     meta: "META",
     palantir: "PLTR",
+    pltr: "PLTR",
     coinbase: "COIN",
+    coin: "COIN",
     jpmorgan: "JPM",
+    jpm: "JPM",
     goldman: "GS",
+    gs: "GS",
     schwab: "SCHW",
+    schw: "SCHW",
     robinhood: "HOOD",
+    hood: "HOOD",
+    spy: "SPY",
+    qqq: "QQQ",
   };
 
   for (const [name, sym] of Object.entries(companyToTicker)) {
@@ -116,10 +136,16 @@ export function tuneFinancialPronunciation(text: string): string {
   out = out.replace(/\bMACD\b/gi, "M-A-C-D");
   out = out.replace(/\bP\/E(?:\s+ratio)?\b/gi, "P to E ratio");
 
-  // 4. Order ID pronunciation: space out alphanumeric characters for clear speech
-  out = out.replace(/\b(ord_[a-zA-Z0-9_-]{4,12})\b/g, (_m, ordId) => {
-    return `order ${ordId.replace("ord_", "").split("").join(" ")}`;
+  // 4. Order ID pronunciation: space out alphanumeric characters for clear speech and avoid stuttering
+  out = out.replace(/\b(?:order\s+id\s+is\s+|order\s+id\s*:?\s*)?(ord_[a-zA-Z0-9_-]{4,12})\b/gi, (match, ordId) => {
+    const chars = ordId.replace(/^ord_/, "").split("").join(" ");
+    if (/order\s+id/i.test(match)) {
+      return `Order ID is ${chars}`;
+    }
+    return `order ${chars}`;
   });
+  // Clean up any double "order order"
+  out = out.replace(/\border\s+order\b/gi, "order");
 
   // 5. Clean markdown tokens from spoken output
   out = out.replace(/[*_`#]/g, "");
@@ -559,8 +585,23 @@ export class ETradeVoiceTradingService {
         const qty: number = Number(row.quantity) || 1;
         const total: string = String(row.estimatedTotal || "$0.00");
         const price: string = String(row.estimatedPrice || "$0.00");
+        const orderType: string = String(row.orderType || plan.tradingData?.orderType || "MARKET").toUpperCase();
+        const limitPriceStr: string | undefined = row.limitPrice && row.limitPrice !== "N/A (Market Order)" ? String(row.limitPrice) : undefined;
+        const marketPriceStr: string | undefined = row.prevailingMarketPrice && row.prevailingMarketPrice !== "N/A" ? String(row.prevailingMarketPrice) : undefined;
+        const relativeDesc: string | undefined = row.relativePricing || plan.tradingData?.relativePriceDescription;
+        const shareWord = qty === 1 ? "share" : "shares";
 
-        const spokenRaw = `I have drafted an order to ${actionStr} ${qty} shares of ${symbol} for an estimated total of ${total}. Order ID is ${orderId}. Safety guarantee: no capital has been moved. Say "Confirm order ${orderId}" to execute, or say "Cancel order" to discard.`;
+        let priceDesc = "";
+        if (orderType === "LIMIT") {
+          if (relativeDesc && marketPriceStr) {
+            priceDesc = ` at limit price ${price} (${relativeDesc} of ${marketPriceStr})`;
+          } else {
+            priceDesc = ` at limit price ${price}`;
+          }
+        }
+
+        const orderDescriptor = orderType === "LIMIT" ? "a LIMIT order" : "an order";
+        const spokenRaw = `I have drafted ${orderDescriptor} to ${actionStr} ${qty} ${shareWord} of ${symbol}${priceDesc} for an estimated total of ${total}. Order ID is ${orderId}. Safety guarantee: no capital has been moved. Say "Confirm order ${orderId}" to execute, or say "Cancel order" to discard.`;
         const spokenText = tuneFinancialPronunciation(spokenRaw);
 
         const orderDraft: ETradeOrderDraft = {
@@ -568,7 +609,8 @@ export class ETradeVoiceTradingService {
           symbol,
           action: actionStr === "SELL" ? "SELL" : "BUY",
           orderAction: (["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"].includes(actionStr) ? actionStr : "BUY") as any,
-          orderType: "MARKET",
+          orderType: (orderType === "LIMIT" ? "LIMIT" : "MARKET") as any,
+          limitPrice: orderType === "LIMIT" ? parseFloat(price.replace(/[^0-9.]/g, "")) || undefined : undefined,
           quantity: qty,
           estimatedPrice: parseFloat(price.replace(/[^0-9.]/g, "")) || 0,
           term: "GOOD_FOR_DAY",
@@ -583,7 +625,18 @@ export class ETradeVoiceTradingService {
           placedAt: timestamp,
         };
 
-        const displayMarkdown = `### 🛡️ Order Preview Awaiting Verbal Confirmation\n\n- **Action:** **${actionStr}**\n- **Symbol:** **${symbol}**\n- **Quantity:** **${qty} shares**\n- **Estimated Total:** **${total}**\n- **Order ID:** \`${orderId}\`\n\n> 🔒 **Human-in-the-Loop Safety Guarantee**: No funds have been moved.\n> **To Authorize:** Say *"Confirm order ${orderId}"*\n> **To Discard:** Say *"Cancel order ${orderId}"*`;
+        const displayMarkdown = `### 🛡️ Order Preview Awaiting Verbal Confirmation\n\n` +
+          `- **Action:** **${actionStr}**\n` +
+          `- **Symbol:** **${symbol}**\n` +
+          `- **Order Type:** **${orderType}**\n` +
+          (orderType === "LIMIT" ? `- **Limit Price:** **${price}**${relativeDesc ? ` *(${relativeDesc})*` : ""}\n` : "") +
+          (marketPriceStr ? `- **Prevailing Market Price:** **${marketPriceStr}**\n` : "") +
+          `- **Quantity:** **${qty} ${shareWord}**\n` +
+          `- **Estimated Total:** **${total}**\n` +
+          `- **Order ID:** \`${orderId}\`\n\n` +
+          `> 🔒 **Human-in-the-Loop Safety Guarantee**: No funds have been moved.\n` +
+          `> **To Authorize:** Say *"Confirm order ${orderId}"*\n` +
+          `> **To Discard:** Say *"Cancel order ${orderId}"*`;
 
         return {
           success: true,

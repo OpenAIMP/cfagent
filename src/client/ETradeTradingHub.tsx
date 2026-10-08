@@ -3047,7 +3047,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
                           </div>
                           <div style={{ fontSize: "0.82rem", color: "#cbd5e1", display: "grid", gap: "0.25rem" }}>
                             <div><strong>Order ID:</strong> <code>{msg.orderDraft.orderId}</code></div>
-                            <div><strong>Action:</strong> {msg.orderDraft.action} {msg.orderDraft.quantity} {msg.orderDraft.symbol}</div>
+                            <div><strong>Action:</strong> {msg.orderDraft.action} {msg.orderDraft.quantity} {msg.orderDraft.quantity === 1 ? "share" : "shares"} of {msg.orderDraft.symbol} {msg.orderDraft.orderType === "LIMIT" ? `(LIMIT @ $${(msg.orderDraft.limitPrice || msg.orderDraft.estimatedPrice)?.toFixed(2)})` : "(MARKET)"}</div>
                             <div><strong>Estimated Total:</strong> ${msg.orderDraft.estimatedTotal?.toFixed(2)} USD</div>
                           </div>
                           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>

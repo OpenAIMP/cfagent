@@ -58,13 +58,19 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       url.searchParams.set("offset", String(offset));
       url.searchParams.set("exchange", exchange);
 
-      const response = await fetcher(url.toString(), {
-        headers: {
-          Accept: "application/json, text/plain, */*",
-          Origin: "https://www.nasdaq.com",
-          "User-Agent": "Mozilla/5.0",
-        },
-      });
+      let response: Response;
+      try {
+        response = await fetcher(url.toString(), {
+          signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(2500) : undefined,
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            Origin: "https://www.nasdaq.com",
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+      } catch (fetchErr) {
+        throw new Error(`Nasdaq ${exchange.toUpperCase()} listings timed out or failed: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
+      }
       if (!response.ok) {
         throw new Error(`Nasdaq ${exchange.toUpperCase()} listings failed [HTTP ${response.status}]`);
       }

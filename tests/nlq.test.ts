@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { generateObject, generateText } from "ai";
-import { planNLQ, executeNLQQuery, executeNaturalLanguageQuery, formatMarketCap } from "../src/agents/nlq";
+import { planNLQ, executeNLQQuery, executeNaturalLanguageQuery, formatMarketCap, extractOrderParameters } from "../src/agents/nlq";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
@@ -391,6 +391,53 @@ describe("Natural Language Query (NLQ) Engine", () => {
 
       const plan2x = await planNLQ(mockEnv, "find strategies where max profit is 2x max loss");
       expect(plan2x.tradingData?.request?.minRewardRisk).toBe(2.0);
+    });
+  });
+
+  describe("Order Planning and Relative Pricing Fast-Paths", () => {
+    it("extracts order parameters from voice transcript 'buy 1 order of nvda at 30% below market price'", () => {
+      const order = extractOrderParameters("buy 1 order of nvda at 30% below market price");
+      expect(order).toBeDefined();
+      expect(order?.symbol).toBe("NVDA");
+      expect(order?.quantity).toBe(1);
+      expect(order?.orderAction).toBe("BUY");
+      expect(order?.orderType).toBe("LIMIT");
+      expect(order?.relativePriceOffsetPercent).toBe(-30);
+      expect(order?.limitPrice).toBeGreaterThan(0);
+    });
+
+    it("plans order previews with relative discounts accurately via planNLQ", async () => {
+      const plan = await planNLQ(mockEnv, "buy 1 order of nvda at 30% below market price");
+      expect(plan.domain).toBe("trading");
+      expect(plan.tradingData?.action).toBe("preview_order");
+      expect(plan.tradingData?.symbol).toBe("NVDA");
+      expect(plan.tradingData?.quantity).toBe(1);
+      expect(plan.tradingData?.orderType).toBe("LIMIT");
+      expect(plan.tradingData?.relativePriceOffsetPercent).toBe(-30);
+    });
+
+    it("handles alternative filler phrases: 'buy 10 shares of AAPL at 10% discount to market price'", () => {
+      const order = extractOrderParameters("buy 10 shares of AAPL at 10% discount to market price");
+      expect(order?.symbol).toBe("AAPL");
+      expect(order?.quantity).toBe(10);
+      expect(order?.orderType).toBe("LIMIT");
+      expect(order?.relativePriceOffsetPercent).toBe(-10);
+    });
+
+    it("handles premium limit orders: 'sell 5 shares of AMD at 10% above market price'", () => {
+      const order = extractOrderParameters("sell 5 shares of AMD at 10% above market price");
+      expect(order?.symbol).toBe("AMD");
+      expect(order?.quantity).toBe(5);
+      expect(order?.orderAction).toBe("SELL");
+      expect(order?.orderType).toBe("LIMIT");
+      expect(order?.relativePriceOffsetPercent).toBe(10);
+    });
+
+    it("handles contract and lot terminology: 'buy 1 contract of spy'", () => {
+      const order = extractOrderParameters("buy 1 contract of spy");
+      expect(order?.symbol).toBe("SPY");
+      expect(order?.quantity).toBe(1);
+      expect(order?.orderType).toBe("MARKET");
     });
   });
 });

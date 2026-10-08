@@ -136,6 +136,17 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(tuned).toContain("order a b c 1 2 3");
     });
 
+    it("avoids stuttering 'order order' when order is already in the prompt", () => {
+      const tuned = tuneFinancialPronunciation('Say "Confirm order ord_6d737343" to execute, or say "Cancel order" to discard.');
+      expect(tuned).not.toContain("order order");
+      expect(tuned).toContain("Confirm order 6 d 7 3 7 3 4 3");
+    });
+
+    it("formats 'Order ID is ord_xxx' naturally without stutter", () => {
+      const tuned = tuneFinancialPronunciation("Order ID is ord_6d737343.");
+      expect(tuned).toBe("Order ID is 6 d 7 3 7 3 4 3.");
+    });
+
     it("strips markdown symbols that distort voice synthesizers", () => {
       const raw = "### **Order Confirmed** for `NVDA` *now*";
       const tuned = tuneFinancialPronunciation(raw);
@@ -349,6 +360,77 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(savedTrade?.status).toBe("previewed");
       expect(savedTrade?.symbol).toBe("AAPL");
       expect(savedTrade?.quantity).toBe(10);
+    });
+
+    it("correctly parses and stages relative discount limit orders: 'buy 1 order of nvda at 30% below market price'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const req: VoiceTradingTurnRequest = {
+        transcript: "buy 1 order of nvda at 30% below market price",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(req);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("preview");
+      expect(res.orderStatus).toBe("previewed");
+      expect(res.orderDraft).toBeDefined();
+      expect(res.orderDraft?.symbol).toBe("NVDA");
+      expect(res.orderDraft?.quantity).toBe(1);
+      expect(res.orderDraft?.orderType).toBe("LIMIT");
+      expect(res.orderDraft?.estimatedPrice).toBeGreaterThan(0);
+      expect(res.orderDraft?.estimatedTotal).toBeGreaterThan(0);
+
+      // Verify spoken text grammar: "1 share" (not "1 shares"), "NVDA" (not "ORDER"), "a LIMIT order"
+      expect(res.spokenText).toContain("drafted a LIMIT order to BUY 1 share of NVDA");
+      expect(res.spokenText).not.toContain("1 shares");
+      expect(res.spokenText).not.toContain("ORDER");
+      expect(res.spokenText).not.toContain("order order");
+      expect(res.spokenText).toContain("30 percent below market price");
+      expect(res.spokenText).toContain("Confirm order");
+
+      // Verify SQLite state
+      const savedTrade = orm.trades.findById(res.orderId!);
+      expect(savedTrade).toBeDefined();
+      expect(savedTrade?.symbol).toBe("NVDA");
+      expect(savedTrade?.quantity).toBe(1);
+      expect(savedTrade?.orderType).toBe("LIMIT");
+    });
+
+    it("verbally confirms order using spaced-out voice characters e.g. 'Confirm order 6 d 7 3 7 3 4 3'", async () => {
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+
+      const orderId = "ord_6d737343";
+      orm.trades.create({
+        id: orderId,
+        sessionId,
+        symbol: "NVDA",
+        action: "BUY",
+        orderType: "LIMIT",
+        quantity: 1,
+        price: 89.60,
+        totalValue: 89.60,
+        status: "previewed",
+        proposerDid: "did:agent:openaimp:trading",
+        authorizerDid: `did:user:voice:${sessionId}`,
+        proofSignature: "sig_test_123",
+        createdAt: new Date().toISOString(),
+      });
+
+      const confirmReq: VoiceTradingTurnRequest = {
+        transcript: "Confirm order 6 d 7 3 7 3 4 3",
+        sessionId,
+      };
+
+      const res = await service.processVoiceTurn(confirmReq);
+
+      expect(res.success).toBe(true);
+      expect(res.actionType).toBe("approval");
+      expect(res.orderStatus).toBe("executed");
+      expect(res.spokenText).toMatch(/successfully executed/i);
+
+      const executedTrade = orm.trades.findById(orderId);
+      expect(executedTrade?.status).toBe("executed");
     });
 
     it("verbally executes order upon receiving explicit confirmation: 'Confirm order <orderId>'", async () => {

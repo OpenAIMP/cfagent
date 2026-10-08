@@ -10,6 +10,7 @@ import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { getDynamicLiveFlowItems } from "../trading/options/flows";
+import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
@@ -48,6 +49,8 @@ export const nlqPlanSchema = z.object({
       quantity: z.number().optional(),
       orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
       limitPrice: z.number().optional(),
+      relativePriceOffsetPercent: z.number().optional(),
+      relativePriceDescription: z.string().optional(),
       filters: z.record(z.string(), z.any()).optional(),
       strategyFilter: z.record(z.string(), z.any()).optional(),
       request: z.record(z.string(), z.any()).optional(),
@@ -138,6 +141,179 @@ export interface NLQQueryResult {
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
+
+export function extractOrderParameters(question: string): {
+  orderAction: "BUY" | "SELL" | "SELL_SHORT" | "BUY_TO_COVER";
+  quantity: number;
+  symbol: string;
+  orderType: "MARKET" | "LIMIT";
+  limitPrice?: number;
+  relativePriceOffsetPercent?: number;
+  relativePriceDescription?: string;
+} | null {
+  const isOrderIntent = /\b(buy|purchase|sell|short|cover|order\s+to\s+buy|order\s+to\s+sell|place\s+(?:an?\s+)?order|draft\s+(?:an?\s+)?order)\b/i.test(question);
+  if (!isOrderIntent || /\b(messages?|categories|tables?)\b/i.test(question)) {
+    return null;
+  }
+
+  // 1. Action
+  let orderAction: "BUY" | "SELL" | "SELL_SHORT" | "BUY_TO_COVER" = "BUY";
+  if (/\b(sell\s*short|short)\b/i.test(question)) {
+    orderAction = "SELL_SHORT";
+  } else if (/\b(buy\s*to\s*cover|cover)\b/i.test(question)) {
+    orderAction = "BUY_TO_COVER";
+  } else if (/\bsell\b/i.test(question)) {
+    orderAction = "SELL";
+  } else {
+    orderAction = "BUY";
+  }
+
+  // 2. Quantity
+  let quantity = 1;
+  const wordToNumber: Record<string, number> = {
+    one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    fifteen: 15, twenty: 20, twentyfive: 25, fifty: 50, hundred: 100,
+  };
+
+  const qtyMatch = question.match(
+    /\b(?:buy|sell|short|purchase|cover)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|hundred|a|an)\b/i
+  ) || question.match(/\b(\d+)\s*(?:shares?|contracts?|lots?|units?|orders?|stocks?)\b/i);
+
+  if (qtyMatch) {
+    const rawQty = qtyMatch[1].toLowerCase();
+    if (/^\d+$/.test(rawQty)) {
+      quantity = parseInt(rawQty, 10);
+    } else if (wordToNumber[rawQty] !== undefined) {
+      quantity = wordToNumber[rawQty];
+    }
+  } else {
+    if (/\b(?:a|an)\s+(?:share|order|lot|contract|unit|stock)\b/i.test(question)) {
+      quantity = 1;
+    } else {
+      quantity = 10;
+    }
+  }
+
+  // 3. Symbol Extraction
+  const NON_TICKER_WORDS = new Set([
+    "BUY", "SELL", "SHORT", "PURCHASE", "COVER",
+    "ORDER", "ORDERS", "SHARE", "SHARES", "STOCK", "STOCKS",
+    "CONTRACT", "CONTRACTS", "LOT", "LOTS", "UNIT", "UNITS",
+    "POSITION", "POSITIONS",
+    "OF", "AT", "FOR", "IN", "ON", "TO", "FROM", "WITH", "BY",
+    "A", "AN", "THE", "SOME", "ALL",
+    "MARKET", "LIMIT", "PRICE", "PRICED", "SPOT", "QUOTE",
+    "PERCENT", "PCT", "DISCOUNT", "PREMIUM", "BELOW", "UNDER", "ABOVE", "OVER",
+    "LESS", "MORE", "THAN", "OFF",
+    "DOLLAR", "DOLLARS", "CENT", "CENTS", "USD",
+    "PLEASE", "WANT", "LIKE", "DRAFT", "PLACE", "SUBMIT", "CONFIRM", "EXECUTE",
+    "TODAY", "NOW", "CURRENT", "LIVE",
+  ]);
+
+  let symbol = "";
+
+  // Pattern A: "buy 1 order of nvda" / "buy 10 shares of aapl" / "buy 10 nvda"
+  const structuredSymbolMatch = question.match(
+    /\b(?:buy|sell|short|purchase|cover)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|hundred|a|an)?\s*(?:(?:shares?|orders?|contracts?|lots?|units?|stocks?)\s*(?:of\s*)?|of\s+)?([A-Za-z]{1,5})\b/i
+  );
+
+  if (structuredSymbolMatch && !NON_TICKER_WORDS.has(structuredSymbolMatch[1].toUpperCase())) {
+    symbol = structuredSymbolMatch[1].toUpperCase();
+  }
+
+  // Pattern B: Look for "... of <ticker>" e.g. "order of nvda", "shares of nvda"
+  if (!symbol || NON_TICKER_WORDS.has(symbol)) {
+    const ofMatch = question.match(/\b(?:order|orders|share|shares|stock|stocks|contract|contracts|lot|lots|unit|units)\s+of\s+([A-Za-z]{1,5})\b/i);
+    if (ofMatch && !NON_TICKER_WORDS.has(ofMatch[1].toUpperCase())) {
+      symbol = ofMatch[1].toUpperCase();
+    }
+  }
+
+  // Pattern C: Check known curated stock universe tickers in question
+  if (!symbol || NON_TICKER_WORDS.has(symbol)) {
+    const tokens = question.split(/[^A-Za-z0-9]+/).map(t => t.toUpperCase()).filter(t => t.length >= 1 && t.length <= 5);
+    for (const token of tokens) {
+      if (!NON_TICKER_WORDS.has(token)) {
+        const curated = getCuratedStockBySymbol(token);
+        if (curated) {
+          symbol = token;
+          break;
+        }
+      }
+    }
+  }
+
+  // Pattern D: Fallback to first non-blacklisted token
+  if (!symbol || NON_TICKER_WORDS.has(symbol)) {
+    const tokens = question.split(/[^A-Za-z0-9]+/).map(t => t.toUpperCase()).filter(t => t.length >= 1 && t.length <= 5);
+    for (const token of tokens) {
+      if (!NON_TICKER_WORDS.has(token)) {
+        symbol = token;
+        break;
+      }
+    }
+  }
+
+  if (!symbol || NON_TICKER_WORDS.has(symbol)) {
+    return null;
+  }
+
+  // 4. Pricing / Limit Price / Relative Offset
+  let orderType: "MARKET" | "LIMIT" = "MARKET";
+  let limitPrice: number | undefined = undefined;
+  let relativePriceOffsetPercent: number | undefined = undefined;
+  let relativePriceDescription: string | undefined = undefined;
+
+  // Relative Discount (below market)
+  const discountMatch = question.match(
+    /(?:at|with)?\s*(?:a\s+)?(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:below|under|discount(?:\s+(?:to|from))?|less\s+than|off)\s*(?:market(?:\s+price)?|spot|current\s+price|price)?/i
+  );
+  if (discountMatch) {
+    const pct = parseFloat(discountMatch[1]);
+    relativePriceOffsetPercent = -pct;
+    relativePriceDescription = `${pct}% below market price`;
+    orderType = "LIMIT";
+  }
+
+  // Relative Premium (above market)
+  const premiumMatch = question.match(
+    /(?:at|with)?\s*(?:a\s+)?(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:above|over|premium(?:\s+(?:to|from))?|more\s+than)\s*(?:market(?:\s+price)?|spot|current\s+price|price)?/i
+  );
+  if (premiumMatch) {
+    const pct = parseFloat(premiumMatch[1]);
+    relativePriceOffsetPercent = pct;
+    relativePriceDescription = `${pct}% above market price`;
+    orderType = "LIMIT";
+  }
+
+  // Explicit Dollar Limit
+  const explicitLimitMatch = question.match(
+    /(?:limit\s*(?:at|of|price)?\s*\$?|at\s+\$|for\s+\$)(\d+(?:\.\d+)?)\b/i
+  );
+  if (explicitLimitMatch && relativePriceOffsetPercent === undefined) {
+    limitPrice = parseFloat(explicitLimitMatch[1]);
+    orderType = "LIMIT";
+  }
+
+  // If relative offset is given, compute baseline limit price from curated stock if available
+  if (relativePriceOffsetPercent !== undefined && limitPrice === undefined) {
+    const curated = getCuratedStockBySymbol(symbol);
+    if (curated?.defaultPrice && curated.defaultPrice > 0) {
+      limitPrice = Number((curated.defaultPrice * (1 + relativePriceOffsetPercent / 100)).toFixed(2));
+    }
+  }
+
+  return {
+    orderAction,
+    quantity,
+    symbol,
+    orderType,
+    limitPrice,
+    relativePriceOffsetPercent,
+    relativePriceDescription,
+  };
+}
 
 export function planWithRules(question: string): NLQPlan {
   const qLower = question.toLowerCase();
@@ -714,28 +890,22 @@ export function planWithRules(question: string): NLQPlan {
   }
 
   // 7. Fast-path for E*TRADE Order Proposal / Preview
-  const orderMatch = question.match(/\b(buy|sell|short|purchase)\s+(\d+)?\s*(?:shares?\s*(?:of\s*)?)?([A-Za-z]{1,5})\b/i);
-  if (orderMatch && !/\b(messages?|categories|tables?)\b/i.test(question)) {
-    const rawAction = orderMatch[1].toLowerCase();
-    const orderAction = rawAction === "sell" ? "SELL" : rawAction === "short" ? "SELL_SHORT" : "BUY";
-    const quantity = orderMatch[2] ? Number(orderMatch[2]) : 10;
-    const symbol = orderMatch[3].toUpperCase();
-
-    const limitMatch = question.match(/limit\s*(?:at|of)?\s*\$?(\d+(?:\.\d+)?)/i);
-    const limitPrice = limitMatch ? Number(limitMatch[1]) : undefined;
-
+  const orderParams = extractOrderParameters(question);
+  if (orderParams) {
     return {
       domain: "trading",
       operation: "create",
       tradingData: {
         action: "preview_order",
-        symbol,
-        orderAction,
-        quantity,
-        orderType: limitPrice ? "LIMIT" : "MARKET",
-        limitPrice,
+        symbol: orderParams.symbol,
+        orderAction: orderParams.orderAction,
+        quantity: orderParams.quantity,
+        orderType: orderParams.orderType,
+        limitPrice: orderParams.limitPrice,
+        relativePriceOffsetPercent: orderParams.relativePriceOffsetPercent,
+        relativePriceDescription: orderParams.relativePriceDescription,
       },
-      terms: `${orderAction} ${quantity} ${symbol}`,
+      terms: `${orderParams.orderAction} ${orderParams.quantity} ${orderParams.symbol}`,
       role: "any",
       since: null,
       limit: 1,
@@ -1462,21 +1632,47 @@ export function executeNLQQuery(
       }
       const qty = plan.tradingData?.quantity || 1;
       const orderAction = plan.tradingData?.orderAction || "BUY";
+      const quote = etrade.getQuote(sym);
+      const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
+      const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      let limitPrice = plan.tradingData?.limitPrice;
+      let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
+
+      if (relativeOffset !== undefined && quote.lastPrice > 0) {
+        orderType = "LIMIT";
+        limitPrice = Number((quote.lastPrice * (1 + relativeOffset / 100)).toFixed(2));
+      } else if (limitPrice !== undefined) {
+        orderType = "LIMIT";
+      }
+
       const draft = etrade.previewOrder({
         sessionId,
         symbol: sym,
         orderAction,
         quantity: qty,
-        orderType: plan.tradingData?.orderType || "MARKET",
-        limitPrice: plan.tradingData?.limitPrice,
+        orderType,
+        limitPrice,
       });
+
+      const shareWord = draft.quantity === 1 ? "share" : "shares";
+      const marketPriceStr = quote.lastPrice > 0 ? `$${quote.lastPrice.toFixed(2)}` : "Market";
+
+      let pricingSummary = `at ~$${draft.estimatedPrice.toFixed(2)}`;
+      if (draft.orderType === "LIMIT") {
+        if (relativeDesc && quote.lastPrice > 0) {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)} (${relativeDesc} prevailing quote ${marketPriceStr})`;
+        } else {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)}`;
+        }
+      }
 
       return {
         plan,
         domain: "trading",
         targetTable: "mas_trades",
         count: 1,
-        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
+        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
         rows: [
           {
             orderId: draft.orderId,
@@ -1484,6 +1680,9 @@ export function executeNLQQuery(
             action: draft.orderAction,
             quantity: draft.quantity,
             orderType: draft.orderType,
+            limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
+            prevailingMarketPrice: marketPriceStr,
+            relativePricing: relativeDesc,
             estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
             estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
             commission: `$${draft.estimatedCommission.toFixed(2)}`,
@@ -1963,8 +2162,19 @@ export async function executeNLQQueryAsync(
       }
       const qty = plan.tradingData?.quantity || 1;
       const orderAction = plan.tradingData?.orderAction || "BUY";
-      const orderType = plan.tradingData?.orderType || "MARKET";
-      const limitPrice = plan.tradingData?.limitPrice;
+      const quote = await etrade.fetchQuoteRemote(sym);
+      const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
+      const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      let limitPrice = plan.tradingData?.limitPrice;
+      let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
+
+      if (relativeOffset !== undefined && quote.lastPrice > 0) {
+        orderType = "LIMIT";
+        limitPrice = Number((quote.lastPrice * (1 + relativeOffset / 100)).toFixed(2));
+      } else if (limitPrice !== undefined) {
+        orderType = "LIMIT";
+      }
 
       const draft = await etrade.previewOrderRemote({
         sessionId,
@@ -1975,12 +2185,19 @@ export async function executeNLQQueryAsync(
         limitPrice,
       });
 
-      const quote = await etrade.fetchQuoteRemote(sym);
+      const shareWord = draft.quantity === 1 ? "share" : "shares";
       const marketPriceStr = quote.lastPrice > 0 ? `$${quote.lastPrice.toFixed(2)}` : "Market";
 
-      const summary = orderType === "LIMIT" && limitPrice !== undefined
-        ? `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at limit price $${draft.estimatedPrice.toFixed(2)} (Prevailing Market Quote: ${marketPriceStr}). Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`
-        : `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} shares of ${draft.symbol} at ~$${draft.estimatedPrice.toFixed(2)}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`;
+      let pricingSummary = `at ~$${draft.estimatedPrice.toFixed(2)}`;
+      if (draft.orderType === "LIMIT") {
+        if (relativeDesc && quote.lastPrice > 0) {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)} (${relativeDesc} prevailing quote ${marketPriceStr})`;
+        } else {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)}`;
+        }
+      }
+
+      const summary = `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`;
 
       return {
         plan,
@@ -1995,8 +2212,9 @@ export async function executeNLQQueryAsync(
             action: draft.orderAction,
             quantity: draft.quantity,
             orderType: draft.orderType,
-            limitPrice: limitPrice !== undefined ? `$${limitPrice.toFixed(2)}` : "N/A (Market Order)",
+            limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
             prevailingMarketPrice: marketPriceStr,
+            relativePricing: relativeDesc,
             estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
             estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
             commission: `$${draft.estimatedCommission.toFixed(2)}`,

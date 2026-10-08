@@ -1997,7 +1997,8 @@ export async function resolveDynamicFlowSymbols(
   const curatedUniverse = getCuratedStockUniverse();
   const defaultLarge = curatedUniverse.filter((l) => (l.marketCap || 0) >= 10e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
   const defaultMid = curatedUniverse.filter((l) => (l.marketCap || 0) >= 2e9 && (l.marketCap || 0) < 10e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
-  const defaultSmall = curatedUniverse.filter((l) => (l.marketCap || 0) < 2e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
+  const defaultSmallRaw = curatedUniverse.filter((l) => (l.marketCap || 0) < 2e9 && !l.sector.includes("ETF")).map((l) => l.symbol);
+  const defaultSmall = defaultSmallRaw.length > 0 ? defaultSmallRaw : ["SOFI", "MARA", "RIOT", "PLUG", "AFRM", "UPST", "RIVN", "LCID"];
   const defaultEtfs = curatedUniverse.filter((l) => l.sector.includes("ETF")).map((l) => l.symbol);
 
   if (!dynamicListingsCache || dynamicListingsCache.expiresAt <= now) {
