@@ -1,4 +1,4 @@
-import type { Env, SessionData } from "./types";
+import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, getSession, setSessionCookie } from "./session";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import { renderLandingPage } from "./landing";
@@ -36,6 +36,8 @@ import {
 } from "./trading/options/flows";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
+export { BrowserAgent } from "./agents/browserAgent";
+export { SlackAgent } from "./agents/slackAgent";
 
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -537,6 +539,53 @@ export default {
       } catch (err: any) {
         return Response.json({ success: false, error: err.message }, { status: 500 });
       }
+    }
+
+    // --- Cloudflare Browser Agent: Transaction Snap to Slack via Webhook API ---
+    if ((path === "/api/browser/transaction-snap" || path === "/browser/transaction-snap" || path === "/api/browser/snap/transaction") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const tx: TransactionSnapData = body.transaction || body;
+        if (!tx || !tx.symbol) {
+          return Response.json({ error: "Transaction data with symbol is required." }, { status: 400 });
+        }
+        const userLogin = request.headers.get("x-user-login") || tx.symbol || "browser_trader";
+        const id = env.SEARCH_AGENT.idFromName(userLogin);
+        const targetUrl = new URL("/trading/browser/transaction-snap", "https://agent.internal");
+        const forwardReq = new Request(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-user-login": userLogin },
+          body: JSON.stringify(body),
+        });
+        return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+      } catch (err: any) {
+        return Response.json({ success: false, error: err.message }, { status: 500 });
+      }
+    }
+
+    // --- Omnichannel Trading Agent: Slack Slash Commands (/snap, /trade, /quote, /screen, etc.) ---
+    if ((path === "/slack/commands" || path === "/slack/slash") && request.method === "POST") {
+      const rawBody = await request.text();
+      const sig = request.headers.get("x-slack-signature");
+      const ts = request.headers.get("x-slack-request-timestamp");
+
+      if (env.SLACK_SIGNING_SECRET) {
+        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
+        if (!isValid) {
+          return new Response("Invalid Slack signature", { status: 401 });
+        }
+      }
+
+      const params = new URLSearchParams(rawBody);
+      const teamId = params.get("team_id") || "default_workspace";
+      const id = env.SEARCH_AGENT.idFromName(`slack_${teamId}`);
+      const targetUrl = new URL("/trading/slack/command", "https://agent.internal");
+      const forwardReq = new Request(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: rawBody,
+      });
+      return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
     // --- Omnichannel Trading Agent: Slack Events Webhook ---

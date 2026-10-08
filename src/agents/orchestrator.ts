@@ -40,6 +40,8 @@ import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { BrowserAgent } from "./browserAgent";
+import { SlackAgent } from "./slackAgent";
 import { ETradeVoiceTradingService } from "../trading/voice/agent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
@@ -62,6 +64,7 @@ import type {
   AsyncJobRecord,
   AsyncJobSubmission,
   AsyncJobStatus,
+  TransactionSnapData,
 } from "../types";
 
 /**
@@ -2895,6 +2898,34 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack interaction" }, { status: 500 });
+      }
+    }
+
+    // Omnichannel Trading Channel: Slack Slash Commands (/trade, /quote, /screen, /options, /snap)
+    if (path.endsWith("/trading/slack/command") && request.method === "POST") {
+      try {
+        const formData = await request.formData();
+        const slackAgent = new SlackAgent(this.ctx, this.env);
+        return slackAgent.handleSlashCommand(formData);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slash command" }, { status: 500 });
+      }
+    }
+
+    // Cloudflare Browser Agent: Transaction Snapshot Dispatch via Webhook
+    if ((path.endsWith("/trading/browser/transaction-snap") || path.endsWith("/browser/transaction-snap")) && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const tx: TransactionSnapData = body.transaction || body;
+        const browserAgent = new BrowserAgent(this.ctx, this.env);
+        const result = await browserAgent.sendTransactionSnapToSlack(tx, {
+          webhookUrl: body.webhookUrl || this.env.SLACK_WEBHOOK_URL,
+          channel: body.channel,
+          caption: body.caption,
+        });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to generate transaction snap" }, { status: 500 });
       }
     }
 

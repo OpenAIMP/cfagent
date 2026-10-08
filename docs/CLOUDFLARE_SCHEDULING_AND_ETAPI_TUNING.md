@@ -297,3 +297,105 @@ The scheduling engine and ETAPI configuration subsystems are thoroughly verified
 - [`tests/scheduled_tasks.test.ts`](file:///c:/Users/spr9s/cfagent/tests/scheduled_tasks.test.ts): 15 comprehensive tests covering token renewal, market screening, 15m order expiration, reminder dispatching, and agent scheduler harnesses.
 - [`tests/scheduled_options_screening.test.ts`](file:///c:/Users/spr9s/cfagent/tests/scheduled_options_screening.test.ts): 5 tests validating autonomous options scanning, basket resolution, and Slack/Email dispatch.
 - [`tests/etapi_config_and_unified_options.test.ts`](file:///c:/Users/spr9s/cfagent/tests/etapi_config_and_unified_options.test.ts): 10 tests verifying config loading, tier overrides, quantitative score weight normalization, and omnichannel serialization.
+- [`tests/browser_and_slack_agents.test.ts`](file:///c:/Users/spr9s/cfagent/tests/browser_and_slack_agents.test.ts): 10 tests verifying Browser Agent SVG snapshot generation, Slack webhook delivery, Slash Commands routing, interactive HITL trade approval, and multi-agent coordination.
+
+---
+
+## Part 4: Independent Cloudflare Browser Agent & Slack Agent Architecture
+
+Following the official Cloudflare Agents blueprints:
+- **Cloudflare Browser Agent**: [Browser Agent Blueprint](https://developers.cloudflare.com/agents/examples/browser-agent/)
+- **Cloudflare Slack Agent**: [Slack Agent Blueprint](https://developers.cloudflare.com/agents/examples/slack-agent/)
+
+The system implements two independent, stateful agents that coordinate seamlessly for automated execution receipts and collaborative trading in Slack.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               INDEPENDENT CLOUDFLARE BROWSER AGENT & SLACK AGENT ARCHITECTURE          │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│   ┌───────────────────────────┐                       ┌────────────────────────────┐   │
+│   │   Slack Client / User     │                       │     Target Web Resource    │   │
+│   │   Slash Commands / Buttons│                       │     E*TRADE / Yahoo Chart  │   │
+│   └─────────────┬─────────────┘                       └─────────────▲──────────────┘   │
+│                 │ /trade, /snap, /quote                             │                  │
+│                 ▼                                                   │ Headless DOM /   │
+│   ┌───────────────────────────┐    Coordination / Snap Trigger      │ CDP Inspection   │
+│   │        SlackAgent         │─────────────────────────────────┐   │                  │
+│   │  (Durable Object per Team)│                                 │   │                  │
+│   │  - /commands, /events     │                                 ▼   │                  │
+│   │  - HITL [Approve/Reject]  │                      ┌─────────────────────────────┐   │
+│   │  - Conversational Memory  │                      │        BrowserAgent         │   │
+│   └─────────────┬─────────────┘                      │   (Durable Object Runtime)  │   │
+│                 │                                    │   - Dark-Theme SVG Receipt  │   │
+│                 ▼ [Approved]                         │   - Block Kit Visual Card   │   │
+│   ┌───────────────────────────┐                      │   - DID Proof Attestation   │   │
+│   │ E*TRADE Order Execution   │                      └──────────────┬──────────────┘   │
+│   │ (ETradeService / Rest)    │                                     │                  │
+│   └───────────────────────────┘                                     ▼ Webhook Delivery │
+│                                                      ┌─────────────────────────────┐   │
+│                                                      │    Slack Incoming Webhook   │   │
+│                                                      │    or chat.postMessage API  │   │
+│                                                      └─────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.1 Cloudflare Browser Agent (`BrowserAgent`)
+
+Located in [`src/agents/browserAgent.ts`](file:///c:/Users/spr9s/cfagent/src/agents/browserAgent.ts), the `BrowserAgent` extends `AIChatAgent<Env>`:
+
+1. **Transaction Snapshots to Slack via Webhooks**:
+   - `sendTransactionSnapToSlack(tx, options)`: Renders a vector-sharp, dark-theme SVG visual receipt encoding:
+     - Header badge indicating trade action (`BUY`, `SELL`, `BUY_TO_OPEN`, `SELL_TO_OPEN`, `NET_DEBIT`, `NET_CREDIT`).
+     - Ticker symbol, order quantity, limit/market price, and total consideration.
+     - Execution status indicator (`🟢 EXECUTED`, `🔵 PREVIEWED`, `🔴 REJECTED`).
+     - Multi-leg options breakdowns (legs, strikes, expiration dates).
+     - W3C DID attestation (`did:agent:openaimp:browser`).
+   - Delivers the receipt and Block Kit interactive message directly to Slack via `env.SLACK_WEBHOOK_URL` (or custom webhook) or Bot Token (`chat.postMessage`).
+2. **Headless Page Inspection & Table Scraping**:
+   - `capturePageSnapshot(url, options)`: Inspects external market charts or order status pages via `env.BROWSER`.
+   - `scrapeTables(url)`: Extracts structured tables from rendered web destinations.
+3. **HTTP Routing**:
+   - `GET /browser/health`: Returns agent readiness and capabilities.
+   - `POST /api/browser/transaction-snap`: Ingests transaction payloads and fires webhook snapshots.
+   - `POST /browser/snap/page`: Captures URL screenshot and posts to Slack.
+
+### 4.2 Independent Slack Trading Agent (`SlackAgent`)
+
+Located in [`src/agents/slackAgent.ts`](file:///c:/Users/spr9s/cfagent/src/agents/slackAgent.ts), the `SlackAgent` extends `AIChatAgent<Env>`:
+
+1. **Multi-Tenant Durable Object Isolation**:
+   - Uses `team_id` from Slack payloads as the DO instance key (`slack_${team_id}`), giving each Slack workspace its own isolated SQLite database, conversational memory, and active order tickets.
+2. **Slash Commands Router (`/slack/commands`)**:
+   - `/snap [symbol or orderId]`: Commands `BrowserAgent` to generate an instant visual receipt for an order or market chart and post it directly to the Slack channel.
+   - `/trade [action] [qty] [symbol] [type] [price]`: Generates a Human-in-the-Loop order preview ticket with interactive action buttons:
+     - `[✓ Approve & Submit]`
+     - `[✕ Reject Draft]`
+     - `[📸 Snap Receipt]`
+   - `/quote [symbol]`: Returns real-time market quote cards with bid/ask, volume, and 24h change.
+   - `/options [symbol] [thesis]`: Generates AI-calibrated options recommendation cards.
+   - `/portfolio`: Returns real-time account balances and open positions.
+   - `/help`: Returns command cheat sheet.
+3. **Interactive HITL Approval & Auto-Snap Coordination**:
+   - When a trader clicks `[✓ Approve & Submit]`, `SlackAgent` verifies the trade in SQLite, executes the transaction via `ETradeService`, and **automatically commands `BrowserAgent`** to generate the official execution snap and deliver it via webhook to the channel thread.
+   - When a trader clicks `[📸 Snap Receipt]`, `SlackAgent` immediately dispatches an on-demand transaction snapshot to Slack.
+4. **Events API & Signature Verification**:
+   - Verifies incoming requests with HMAC-SHA256 (`x-slack-signature` + `x-slack-request-timestamp`) using `env.SLACK_SIGNING_SECRET`.
+   - Handles `url_verification` challenge handshakes and `app_mention` threads.
+
+### 4.3 Server Endpoints & Integration
+
+In [`src/server.ts`](file:///c:/Users/spr9s/cfagent/src/server.ts), both agents are exported as first-class Cloudflare Agents:
+```typescript
+export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
+export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
+export { BrowserAgent } from "./agents/browserAgent";
+export { SlackAgent } from "./agents/slackAgent";
+```
+
+And mapped to clean inbound endpoints:
+- `POST /api/browser/transaction-snap`: Generates and delivers transaction receipts to Slack.
+- `POST /slack/commands` or `/slack/slash`: Routes Slack slash commands.
+- `POST /slack/interactions`: Processes interactive Block Kit button clicks.
+- `POST /slack` or `/slack/events`: Handles Slack Events API webhooks.
+

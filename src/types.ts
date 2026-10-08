@@ -92,6 +92,8 @@ export interface Env {
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
   ETRADE_KV?: KVNamespace;
+  BROWSER_AGENT?: DurableObjectNamespace;
+  SLACK_AGENT?: DurableObjectNamespace;
   PAYMENTS_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
@@ -1224,6 +1226,42 @@ export interface BrowserInspectResult {
   title?: string;
   text?: string;
   tables?: Array<Array<string>>;
+  screenshotBase64?: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface TransactionSnapData {
+  transactionId: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_OPEN" | "SELL_TO_CLOSE" | "BUY_TO_CLOSE" | "SELL_TO_OPEN" | string;
+  quantity: number;
+  price?: number;
+  orderType?: "MARKET" | "LIMIT" | "STOP" | string;
+  status: "previewed" | "executed" | "filled" | "rejected" | "expired" | "cancelled" | string;
+  totalValue?: number;
+  environment?: string;
+  accountKey?: string;
+  commission?: number;
+  timestamp?: string;
+  notes?: string;
+  legs?: Array<{
+    action: string;
+    symbol: string;
+    strike?: number;
+    expiry?: string;
+    type?: string;
+  }>;
+}
+
+export interface BrowserAgentSnapResult {
+  success: boolean;
+  transactionId?: string;
+  symbol?: string;
+  url?: string;
+  slackWebhookUrl?: string;
+  channel?: string;
+  caption?: string;
   screenshotBase64?: string;
   error?: string;
   timestamp: string;
