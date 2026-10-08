@@ -503,3 +503,311 @@
   box-shadow: 0 6px 20px rgba(2, 132, 199, 0.5);
   background: linear-gradient(135deg, #0369a1 0%, #1d4ed8 100%);
 }
+
+/* ==========================================================================
+   Primary Sub-Navigation Tabs (Workflows vs FAQs vs Improvements)
+   ========================================================================== */
+.workflows-nav-tab {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  padding: 0.55rem 1.15rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.workflows-nav-tab:hover {
+  background: rgba(30, 41, 59, 0.9);
+  color: #ffffff;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.workflows-nav-tab.active {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.3) 100%);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.15);
+}
+
+/* ==========================================================================
+   Questions, Solutions & FAQs Section Styling
+   ========================================================================== */
+.faq-accordion-card {
+  background: #0b1120;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.faq-accordion-card:hover {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.faq-accordion-card.open {
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 8px 30px rgba(2, 132, 199, 0.2);
+}
+
+.faq-card-header {
+  padding: 1.15rem 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.6) 100%);
+  transition: background 0.15s ease;
+}
+
+.faq-card-header:hover {
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.faq-card-body {
+  padding: 1.5rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  background: rgba(11, 17, 32, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.faq-theory-box {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.faq-theory-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.faq-theory-content {
+  font-size: 0.84rem;
+  color: #cbd5e1;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.faq-formula-badge {
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  color: #38bdf8;
+  margin-top: 0.35rem;
+  display: inline-block;
+}
+
+/* 3-Method Execution Grid */
+.faq-methods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.faq-method-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.faq-method-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56, 189, 248, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.faq-method-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.faq-method-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.faq-method-desc {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.faq-method-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.faq-method-steps li {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  line-height: 1.4;
+}
+
+.faq-method-steps li span.bullet {
+  color: #38bdf8;
+  font-weight: bold;
+}
+
+.faq-method-code {
+  font-family: monospace;
+  font-size: 0.74rem;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  color: #38bdf8;
+  word-break: break-all;
+}
+
+/* Capability Matrix Table */
+.faq-matrix-container {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+
+.faq-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: #e2e8f0;
+}
+
+.faq-matrix-table th {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 2px solid rgba(56, 189, 248, 0.3);
+  text-align: left;
+  color: #38bdf8;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.faq-matrix-table td {
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  line-height: 1.4;
+}
+
+.faq-matrix-table tr:hover td {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+/* Improvements Cards */
+.improvement-card {
+  background: #0b1120;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: all 0.18s ease;
+}
+
+.improvement-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 6px 22px rgba(2, 132, 199, 0.15);
+}
+
+.improvement-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.improvement-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.improvement-num {
+  font-size: 0.76rem;
+  font-weight: 800;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.improvement-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.improvement-block-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.improvement-block-label.limitation {
+  color: #f87171;
+}
+
+.improvement-block-label.enhancement {
+  color: #38bdf8;
+}
+
+.improvement-block-label.impact {
+  color: #4ade80;
+}
+
+.improvement-block-desc {
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin: 0;
+}
+
