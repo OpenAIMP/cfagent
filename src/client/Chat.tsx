@@ -9,6 +9,7 @@ import { FossResearchHub } from "./FossResearchHub";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
+import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
 
 interface User {
@@ -1065,7 +1066,7 @@ function AgentChatTabContent({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research" | "options-flows">("trading");
+  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research" | "options-flows" | "workflows">("trading");
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
 
@@ -1811,6 +1812,22 @@ export function Chat({ user }: { user: User }) {
               }}
             >
               🔌 API &amp; MCP Endpoints
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
+            eyebrow="PLATFORM GUIDE & ARCHITECTURE"
+            title="Workflows & Playbooks"
+            description="Interactive step-by-step documentation, data pipelines, options strategies, stock screening, and execution workflows."
+          >
+            <button
+              className={`tab-btn ${tab === "workflows" ? "active" : ""}`}
+              onClick={() => {
+                setTab("workflows");
+                setTbdMenuOpen(false);
+              }}
+            >
+              🧭 Workflows
             </button>
           </TabHoverItem>
           <div className="tab-menu">
@@ -3849,6 +3866,21 @@ export function Chat({ user }: { user: User }) {
               }}
               onTradeSymbol={(symbol) => {
                 setTab("trading");
+              }}
+            />
+          </div>
+        )}
+
+        {tab === "workflows" && (
+          <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <WorkflowsHub
+              onNavigateTab={(targetTab) => {
+                setTab(targetTab as any);
+                setTbdMenuOpen(false);
+              }}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
+                setTab("chat");
               }}
             />
           </div>

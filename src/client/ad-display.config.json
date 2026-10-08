@@ -9,5 +9,6 @@
   "endpoints": false,
   "trading": false,
   "research": false,
-  "options-flows": false
+  "options-flows": false,
+  "workflows": false
 }
