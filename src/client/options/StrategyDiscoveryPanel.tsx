@@ -356,7 +356,7 @@ export function StrategyDiscoveryPanel({
   const [engineConfig, setEngineConfig] = useState<StrategyDiscoveryConfig>({
     riskFreeRate: 0.04,
     feePerContract: 0.65,
-    maxCombinations: 150,
+    maxCombinations: 5000,
   });
 
   useEffect(() => {
@@ -372,7 +372,7 @@ export function StrategyDiscoveryPanel({
           setEngineConfig({
             riskFreeRate: data.config.strategyEngine.riskFreeRate ?? 0.04,
             feePerContract: data.config.strategyEngine.feePerContract ?? 0.65,
-            maxCombinations: data.config.strategyEngine.maxCombinations ?? 150,
+            maxCombinations: data.config.strategyEngine.maxCombinations ?? 5000,
           });
         }
       })

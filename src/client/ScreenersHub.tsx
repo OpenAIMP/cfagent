@@ -7,19 +7,8 @@ import {
   type ScreeningAssetClass,
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
-import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "./x402Pay";
-import { StrategyDiscoveryPanel } from "./options/StrategyDiscoveryPanel";
-import { ScheduledOptionsManager } from "./options/ScheduledOptionsManager";
 import { TabHoverItem } from "./TabHoverItem";
 import "./optionsResearch.css";
-
-const PAID_OPTIONS_ENDPOINT = "/api/premium/options-scan";
-
-interface PendingPayment {
-  challenge: X402Challenge;
-  filters: Record<string, unknown>;
-  paid?: PaidTransfer;
-}
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
@@ -41,7 +30,6 @@ function displayValue(value: unknown): string {
 
 export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: ScreenersHubProps) {
   const [assetClass, setAssetClass] = useState<ScreeningAssetClass>("stocks");
-  const [optionsScreenMode, setOptionsScreenMode] = useState<"discovery" | "contracts" | "schedules">("discovery");
   const providers = useMemo(() => getScreeningProviders(assetClass), [assetClass]);
   const [providerId, setProviderId] = useState("etrade");
   const [symbolSearch, setSymbolSearch] = useState("");
@@ -50,104 +38,19 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [trend, setTrend] = useState("all");
-  const [contractType, setContractType] = useState("BOTH");
-  const [minDte, setMinDte] = useState("");
-  const [maxDte, setMaxDte] = useState("");
-  const [minVolume, setMinVolume] = useState("");
-  const [minOpenInterest, setMinOpenInterest] = useState("");
-  const [maxSpreadPct, setMaxSpreadPct] = useState("");
   const [rows, setRows] = useState<ScreenRow[]>([]);
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState<PendingPayment | null>(null);
-  const [payStatus, setPayStatus] = useState("");
 
   useEffect(() => {
-    if (!providers.some((provider) => provider.id === providerId)) {
+    if (providers.length > 0 && !providers.some((provider) => provider.id === providerId)) {
       setProviderId(providers[0]?.id || "");
     }
   }, [providers, providerId]);
 
   const activeProvider = providers.find((provider) => provider.id === providerId);
   const endpoint = activeProvider?.endpointByAssetClass[assetClass];
-
-  const callScreen = async (filters: Record<string, unknown>,   paymentSignature?: string, free = false) => {
-      const paid = assetClass === "options" && !free;
-    const response = await fetch(paid ? PAID_OPTIONS_ENDPOINT : endpoint!, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-environment": activeEnv,
-        ...(userLogin ? { "x-user-login": userLogin } : {}),
-        ...(paymentSignature ? { "PAYMENT-SIGNATURE": paymentSignature } : {}),
-      },
-      body: JSON.stringify(filters),
-    });
-    const body = await response.json() as Record<string, any>;
-    if (paid && response.status === 402) {
-      const challenge = body.protocols?.x402?.challenge as X402Challenge | undefined;
-      if (!challenge) throw new Error(body.error || "Payment required, but no payment challenge was returned.");
-      return { challenge, reason: paymentSignature ? (body.reason as string | undefined) : undefined, retryable: /not yet visible/i.test(String(body.reason || "")) };
-    }
-    const data = (paid ? body.screenResult ?? body : body) as {
-      error?: string;
-      stocks?: ScreenedStockItem[];
-      contracts?: ScreenRow[];
-      filterSummary?: string;
-      validationError?: string;
-      totalScanned?: number;
-      totalContractsEvaluated?: number;
-      matchedCount?: number;
-    };
-    if (!response.ok) throw new Error(body.error || data.error || `Screening request failed [HTTP ${response.status}].`);
-    if (data.validationError) throw new Error(data.validationError);
-    const results = assetClass === "stocks" ? data.stocks || [] : data.contracts || [];
-    setRows(results.map((row) => Object.fromEntries(Object.entries(row))));
-    setSummary(data.filterSummary || `${data.totalScanned ?? data.totalContractsEvaluated ?? 0} scanned · ${data.matchedCount ?? results.length} matched`);
-    if (assetClass === "stocks") onStocksLoaded?.(data.stocks || []);
-    setPending(null);
-    return null;
-  };
-
-  const runWithoutPaying = async () => {
-    if (!pending || loading) return;
-    setLoading(true);
-    setError("");
-    try {
-      await callScreen(pending.filters, undefined, true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Screening failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const payAndRun = async () => {
-    if (!pending || loading) return;
-    setLoading(true);
-    setError("");
-    try {
-      let current = pending;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const paid = current.paid ?? await sendUsdcPayment(current.challenge, setPayStatus);
-        current = { ...current, paid };
-        setPending(current);
-        setPayStatus("Verifying payment…");
-        const signature = await buildPaymentSignature(current.challenge, paid);
-        const outcome = await callScreen(current.filters, signature);
-        if (!outcome) return;
-        if (!outcome.retryable) throw new Error(outcome.reason || "Payment could not be verified.");
-        await new Promise((resolve) => setTimeout(resolve, 3_000));
-      }
-      throw new Error("Payment sent but not yet visible to the server. Press the button again to retry; you will not be charged twice.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Payment failed.");
-    } finally {
-      setLoading(false);
-      setPayStatus("");
-    }
-  };
 
   const runScreen = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -156,39 +59,47 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     setError("");
     setRows([]);
     setSummary("");
-    setPending(null);
     try {
-      const filters = assetClass === "stocks"
-        ? {
-            ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "exchange") ? { exchange } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "price-range") ? {
-              minPrice: numberFilter(minPrice),
-              maxPrice: numberFilter(maxPrice),
-            } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "trend") ? {
-              gainersOnly: trend === "gainers" || undefined,
-              losersOnly: trend === "losers" || undefined,
-            } : {}),
-          }
-        : {
-            ...(providerSupportsFilter(activeProvider, assetClass, "search") ? {
-              underlyingSymbols: symbolSearch.trim() ? [symbolSearch.trim().toUpperCase()] : [],
-            } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "contract-type") ? { contractType } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "dte-range") ? {
-              minDte: numberFilter(minDte),
-              maxDte: numberFilter(maxDte),
-            } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "min-volume") ? { minVolume: numberFilter(minVolume) } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "min-open-interest") ? { minOpenInterest: numberFilter(minOpenInterest) } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "max-spread") ? { maxSpreadPct: numberFilter(maxSpreadPct) } : {}),
-            ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
-          };
+      const filters = {
+        ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
+        ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
+        ...(providerSupportsFilter(activeProvider, assetClass, "exchange") ? { exchange } : {}),
+        ...(providerSupportsFilter(activeProvider, assetClass, "price-range") ? {
+          minPrice: numberFilter(minPrice),
+          maxPrice: numberFilter(maxPrice),
+        } : {}),
+        ...(providerSupportsFilter(activeProvider, assetClass, "trend") ? {
+          gainersOnly: trend === "gainers" || undefined,
+          losersOnly: trend === "losers" || undefined,
+        } : {}),
+      };
 
-      const outcome = await callScreen(filters);
-      if (outcome) setPending({ challenge: outcome.challenge, filters });
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify(filters),
+      });
+
+      const data = (await response.json()) as {
+        error?: string;
+        stocks?: ScreenedStockItem[];
+        filterSummary?: string;
+        validationError?: string;
+        totalScanned?: number;
+        matchedCount?: number;
+      };
+
+      if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
+      if (data.validationError) throw new Error(data.validationError);
+
+      const stockResults = data.stocks || [];
+      setRows(stockResults.map((row) => Object.fromEntries(Object.entries(row))));
+      setSummary(data.filterSummary || `${data.totalScanned ?? 0} scanned · ${data.matchedCount ?? stockResults.length} matched`);
+      onStocksLoaded?.(stockResults);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Screening request failed.");
     } finally {
@@ -204,27 +115,32 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
             stocks: {
               eyebrow: "EQUITIES SCREENING",
               title: "Stock Universe Screener",
-              desc: "Screen common stocks and ETFs by price, volume, exchange, and market cap.",
+              desc: "Screen common stocks and ETFs by price, volume, exchange, and trend.",
             },
             options: {
-              eyebrow: "DERIVATIVES SCREENING",
-              title: "Options Contracts & Chains",
-              desc: "Filter options by implied volatility, delta, strike range, and expiration cycle.",
+              eyebrow: "DERIVATIVES · CONSOLIDATED",
+              title: "Options · Planned in Hub (Active in Auto Options)",
+              desc: "All options capabilities, raw contracts screening, and strategy discovery are now in the dedicated Auto Options Research tab.",
             },
-            crypto: {
-              eyebrow: "DIGITAL ASSETS",
-              title: "Cryptocurrency Pairs",
-              desc: "Screen spot crypto pairs and perpetual futures (adapter in development).",
+            forex: {
+              eyebrow: "CURRENCY PAIRS",
+              title: "Forex Screener · Planned",
+              desc: "Screen foreign exchange pairs across global FX liquidity pools (adapter in development).",
             },
             futures: {
               eyebrow: "COMMODITY & INDEX FUTURES",
-              title: "Futures Contracts",
+              title: "Futures Screener · Planned",
               desc: "Screen E-mini index futures, energy, metals, and treasury contracts (adapter in development).",
             },
-            indices: {
-              eyebrow: "BROAD MARKET BENCHMARKS",
-              title: "Market Indices",
-              desc: "Track major market indices and sector benchmark performance (adapter in development).",
+            commodities: {
+              eyebrow: "COMMODITY BENCHMARKS",
+              title: "Commodities Screener · Planned",
+              desc: "Screen physical commodity and spot contracts (adapter in development).",
+            },
+            bonds: {
+              eyebrow: "FIXED INCOME",
+              title: "Bonds & Yields · Planned",
+              desc: "Screen US Treasuries, corporate bonds, and yield curve spreads (adapter in development).",
             },
           };
           const info = descriptions[asset.id] || {
@@ -244,9 +160,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 type="button"
                 role="tab"
                 aria-selected={assetClass === asset.id}
-                disabled={!asset.available}
                 className={`subnav-btn ${assetClass === asset.id ? "active" : ""}`}
-                onClick={() => asset.available && setAssetClass(asset.id)}
+                onClick={() => setAssetClass(asset.id)}
               >
                 {asset.label}{asset.available ? "" : " · Planned"}
               </button>
@@ -255,87 +170,27 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         })}
       </div>
 
-      {assetClass === "options" && (
-        <div className="trading-subnav-bar" style={{ margin: "0.25rem 0 0.8rem", display: "flex", gap: "0.5rem" }}>
-          <TabHoverItem
-            eyebrow="STRATEGY DISCOVERY"
-            title="Strategy Discovery & Payoff Analyzer"
-            description="Multi-leg options payoff graphs, profit targets, and probability analysis."
-          >
-            <button
-              type="button"
-              className={`subnav-btn ${optionsScreenMode === "discovery" ? "active" : ""}`}
-              onClick={() => setOptionsScreenMode("discovery")}
-            >
-              🎯 Strategy Discovery &amp; Payoff Analyzer
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="CONTRACT CHAIN"
-            title="Raw Contracts Screener"
-            description="Raw contract grid with bid, ask, implied volatility, delta, gamma, theta, and vega."
-          >
-            <button
-              type="button"
-              className={`subnav-btn ${optionsScreenMode === "contracts" ? "active" : ""}`}
-              onClick={() => setOptionsScreenMode("contracts")}
-            >
-              📋 Raw Contracts Screener
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="DURABLE TIMERS"
-            title="Scheduled Options Screen"
-            description="Recurring options screens with autonomous omnichannel notifications."
-          >
-            <button
-              type="button"
-              className={`subnav-btn ${optionsScreenMode === "schedules" ? "active" : ""}`}
-              onClick={() => setOptionsScreenMode("schedules")}
-            >
-              ⏰ Scheduled Screening &amp; Schedulers
-            </button>
-          </TabHoverItem>
-        </div>
-      )}
-
-      {assetClass === "options" && optionsScreenMode === "schedules" && (
-        <ScheduledOptionsManager
-          activeEnv={activeEnv}
-          userLogin={userLogin}
-        />
-      )}
-
-      {assetClass === "options" && optionsScreenMode === "discovery" && (
-        <StrategyDiscoveryPanel
-          initialSymbol={symbolSearch.trim() || "NVDA"}
-          activeEnv={activeEnv}
-          userLogin={userLogin}
-        />
-      )}
-
-      {(assetClass === "stocks" || (assetClass === "options" && optionsScreenMode === "contracts")) ? (
-        <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
-          <label className="options-field">
-            <span>Data provider / API</span>
-            <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-              {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
-            </select>
-          </label>
-          {providerSupportsFilter(activeProvider, assetClass, "search") && <label className="options-field">
-            <span>{assetClass === "stocks" ? "Ticker or company search" : "Underlying symbol"}</span>
-            <input
-              value={symbolSearch}
-              onChange={(event) => setSymbolSearch(event.target.value)}
-              placeholder={assetClass === "stocks" ? "Optional; e.g. NVDA" : "Required; e.g. NVDA"}
-              required={assetClass === "options"}
-            />
-          </label>}
-          {assetClass === "stocks" ? (
-            <>
-              {providerSupportsFilter(activeProvider, assetClass, "exchange") && <label className="options-field">
+      {assetClass === "stocks" ? (
+        <>
+          <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
+            <label className="options-field">
+              <span>Data provider / API</span>
+              <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+                {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+              </select>
+            </label>
+            {providerSupportsFilter(activeProvider, assetClass, "search") && (
+              <label className="options-field">
+                <span>Ticker or company search</span>
+                <input
+                  value={symbolSearch}
+                  onChange={(event) => setSymbolSearch(event.target.value)}
+                  placeholder="Optional; e.g. NVDA, AAPL"
+                />
+              </label>
+            )}
+            {providerSupportsFilter(activeProvider, assetClass, "exchange") && (
+              <label className="options-field">
                 <span>Exchange</span>
                 <select value={exchange} onChange={(event) => setExchange(event.target.value)}>
                   <option value="ALL">All U.S. listings</option>
@@ -343,85 +198,68 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                   <option value="NYSE">NYSE</option>
                   <option value="AMEX">AMEX</option>
                 </select>
-              </label>}
-              {providerSupportsFilter(activeProvider, assetClass, "price-range") && <>
+              </label>
+            )}
+            {providerSupportsFilter(activeProvider, assetClass, "price-range") && (
+              <>
                 <label className="options-field"><span>Min price</span><input type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} /></label>
                 <label className="options-field"><span>Max price</span><input type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
-              </>}
-              {providerSupportsFilter(activeProvider, assetClass, "trend") && <label className="options-field">
+              </>
+            )}
+            {providerSupportsFilter(activeProvider, assetClass, "trend") && (
+              <label className="options-field">
                 <span>Daily trend</span>
                 <select value={trend} onChange={(event) => setTrend(event.target.value)}>
                   <option value="all">All</option>
                   <option value="gainers">Gainers</option>
                   <option value="losers">Losers</option>
                 </select>
-              </label>}
-            </>
-          ) : (
-            <>
-              {providerSupportsFilter(activeProvider, assetClass, "contract-type") && <label className="options-field">
-                <span>Contract type</span>
-                <select value={contractType} onChange={(event) => setContractType(event.target.value)}>
-                  <option value="BOTH">Calls &amp; puts</option>
-                  <option value="CALL">Calls</option>
-                  <option value="PUT">Puts</option>
-                </select>
-              </label>}
-              {providerSupportsFilter(activeProvider, assetClass, "dte-range") && <>
-                <label className="options-field"><span>Min DTE</span><input type="number" min="0" value={minDte} onChange={(event) => setMinDte(event.target.value)} /></label>
-                <label className="options-field"><span>Max DTE</span><input type="number" min="0" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} /></label>
-              </>}
-              {providerSupportsFilter(activeProvider, assetClass, "min-volume") && <label className="options-field"><span>Min volume</span><input type="number" min="0" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} /></label>}
-              {providerSupportsFilter(activeProvider, assetClass, "min-open-interest") && <label className="options-field"><span>Min open interest</span><input type="number" min="0" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} /></label>}
-              {providerSupportsFilter(activeProvider, assetClass, "max-spread") && <label className="options-field"><span>Max spread (%)</span><input type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} /></label>}
-            </>
-          )}
-          {providerSupportsFilter(activeProvider, assetClass, "limit") && <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>}
-          <div className="options-form-footer">
-            <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : `Run ${assetClass === "stocks" ? "stock" : "options"} screen`}</button>
-          </div>
-        </form>
-      ) : assetClass !== "options" ? (
-        <p className="options-comparison-note">This instrument class is a registered extension point, but no provider adapter is connected yet.</p>
-      ) : null}
+              </label>
+            )}
+            {providerSupportsFilter(activeProvider, assetClass, "limit") && (
+              <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
+            )}
+            <div className="options-form-footer">
+              <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : "Run stock screen"}</button>
+            </div>
+          </form>
 
-      {(assetClass === "stocks" || (assetClass === "options" && optionsScreenMode === "contracts")) && (
-        <>
-          {pending && (
-        <div className="options-error" role="status">
-          <p>
-            <strong>Payment optional.</strong> You can pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run the screen for free.
-            {pending.paid ? " Your payment was sent; retry verification below." : " Paying asks you to confirm a transfer in your wallet."}
-          </p>
-          <p>Recipient: <code>{pending.challenge.recipient}</code></p>
-          <button type="button" disabled={loading} onClick={() => void payAndRun()}>
-            {loading ? payStatus || "Working…" : pending.paid ? "Retry verification" : `Pay $${pending.challenge.amount.toFixed(2)} & run screen`}
-          </button>
-          {!pending.paid && (
-            <button type="button" disabled={loading} onClick={() => void runWithoutPaying()}>
-              Skip payment &amp; run free
-            </button>
+          {error && <div className="options-error" role="alert">{error}</div>}
+          {summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
+          {(rows.length > 0 || summary) && (
+            rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
+              <div className="options-table-scroll">
+                <table className="options-comparison-table">
+                  <thead><tr>{Object.keys(rows[0]).map((key) => <th key={key}>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</th>)}</tr></thead>
+                  <tbody>{rows.map((row, index) => (
+                    <tr key={`${String(row.symbol || index)}:${index}`}>
+                      {Object.values(row).map((value, column) => <td key={column}>{displayValue(value)}</td>)}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )
           )}
+        </>
+      ) : assetClass === "options" ? (
+        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px" }}>
+          <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "1.05rem" }}>⚡ Options Capabilities Moved to Auto Options Research</h4>
+          <p style={{ margin: "0 0 0.75rem", color: "#cbd5e1", fontSize: "0.92rem", lineHeight: 1.5 }}>
+            All options screening, analysis, and execution tools—including the <strong>📋 Raw Contracts Screener</strong>, <strong>🎯 Strategy Discovery &amp; Payoff Analyzer</strong>, <strong>⚙️ Custom Thesis Universe</strong>, <strong>💬 Natural Language Screen (NLQ)</strong>, and <strong>⏰ Scheduled Options Schedulers</strong>—are now centralized under the <strong>Auto Options Research</strong> tab.
+          </p>
+          <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.85rem" }}>
+            The Options tab in this Multi-Asset Screener is marked as planned to keep this screener focused on equities and future multi-asset feeds without duplication.
+          </p>
+        </div>
+      ) : (
+        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "rgba(100, 116, 139, 0.1)", border: "1px solid rgba(100, 116, 139, 0.25)", borderRadius: "8px" }}>
+          <h4 style={{ margin: "0 0 0.5rem", color: "#94a3b8", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>
+          <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.9rem" }}>
+            This instrument class is a planned extension point. Multi-asset provider adapters are currently in development.
+          </p>
         </div>
       )}
-      {error && <div className="options-error" role="alert">{error}</div>}
-      {summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
-      {(rows.length > 0 || summary) && (
-        rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
-          <div className="options-table-scroll">
-            <table className="options-comparison-table">
-              <thead><tr>{Object.keys(rows[0]).map((key) => <th key={key}>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</th>)}</tr></thead>
-              <tbody>{rows.map((row, index) => (
-                <tr key={`${String(row.symbol || row.osiKey || row.contractSymbol || index)}:${index}`}>
-                  {Object.values(row).map((value, column) => <td key={column}>{displayValue(value)}</td>)}
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )
-      )}
-        </>
-      )}
+
       <p className="options-assumptions">
         Provider adapters declare the instrument classes and screening endpoint they support. Add a broker, market-data API, or MCP connector by registering its capabilities and mapping its response to the common result table; unsupported instrument classes are not silently routed to an unrelated feed.
       </p>

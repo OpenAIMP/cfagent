@@ -538,7 +538,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
         moneyness: "SIDEWAYS",
         sortBy: "vibes",
         maxUnderlyings: 10_000,
-        limit: 9_999,
+        limit: 99_999,
       } as never);
 
       expect(filter.minDte).toBe(0);

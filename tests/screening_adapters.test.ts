@@ -9,14 +9,13 @@ import {
 describe("provider- and asset-class screening adapters", () => {
   it("registers the current E*TRADE and Yahoo stock-screening routes", () => {
     expect(getScreeningProviders("stocks").map(({ id }) => id)).toEqual(["etrade", "yahoo-finance"]);
-    expect(getScreeningProviders("options").map(({ id }) => id)).toEqual(["etrade"]);
-    expect(SCREENING_PROVIDERS.find(({ id }) => id === "etrade")?.endpointByAssetClass.options)
-      .toBe("/api/trading/options/screen");
+    expect(SCREENING_PROVIDERS.find(({ id }) => id === "etrade")?.endpointByAssetClass.stocks)
+      .toBe("/api/etrade/screen");
   });
 
-  it("models unsupported asset classes as unavailable rather than routing them to another provider", () => {
+  it("models unsupported and planned asset classes as unavailable rather than routing them to another provider", () => {
     const planned = SCREENING_ASSET_CLASSES.filter(({ available }) => !available);
-    expect(planned.map(({ id }) => id)).toEqual(["forex", "futures", "commodities", "bonds"]);
+    expect(planned.map(({ id }) => id)).toEqual(["options", "forex", "futures", "commodities", "bonds"]);
     for (const { id } of planned) expect(getScreeningProviders(id)).toEqual([]);
   });
 

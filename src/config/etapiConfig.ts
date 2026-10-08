@@ -95,12 +95,12 @@ const DEFAULT_SCORE_WEIGHTS: EtapiStrategyScoreWeights = {
 const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   screener: {
     maxScanSymbols: 20,
-    maxExpirationsPerSymbol: 20,
+    maxExpirationsPerSymbol: 100,
     defaultMaxDte: 90,
     defaultMinDte: 0,
     defaultQuoteAgeSeconds: 60,
-    maxReturnedContracts: 500,
-    maxRejectionsReturned: 50,
+    maxReturnedContracts: 10000,
+    maxRejectionsReturned: 1000,
     symbolFetchConcurrency: 4,
     expiryFetchConcurrency: 3,
     unusualVolumeOiRatio: 1.5,
@@ -112,8 +112,8 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   strategyEngine: {
     riskFreeRate: 0.04,
     feePerContract: 0.65,
-    maxCombinations: 150,
-    detailLimit: 50,
+    maxCombinations: 5000,
+    detailLimit: 5000,
     maxLegs: 6,
     scoreWeights: DEFAULT_SCORE_WEIGHTS,
   },

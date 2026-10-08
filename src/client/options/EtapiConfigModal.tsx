@@ -26,15 +26,15 @@ export function EtapiConfigModal({
   // Editable fields state
   const [riskFreeRatePct, setRiskFreeRatePct] = useState("4.0");
   const [feePerContract, setFeePerContract] = useState("0.65");
-  const [maxCombinations, setMaxCombinations] = useState("150");
-  const [detailLimit, setDetailLimit] = useState("50");
+  const [maxCombinations, setMaxCombinations] = useState("5000");
+  const [detailLimit, setDetailLimit] = useState("5000");
 
   const [defaultMaxDte, setDefaultMaxDte] = useState("90");
   const [defaultMinDte, setDefaultMinDte] = useState("0");
   const [unusualVolOiRatio, setUnusualVolOiRatio] = useState("1.5");
   const [atmBandPct, setAtmBandPct] = useState("2.0");
   const [maxScanSymbols, setMaxScanSymbols] = useState("20");
-  const [maxReturnedContracts, setMaxReturnedContracts] = useState("500");
+  const [maxReturnedContracts, setMaxReturnedContracts] = useState("10000");
 
   const [thesisWeight, setThesisWeight] = useState("30");
   const [rewardRiskWeight, setRewardRiskWeight] = useState("20");
@@ -397,9 +397,9 @@ export function EtapiConfigModal({
                 </label>
                 <input
                   type="number"
-                  step="10"
+                  step="50"
                   min="10"
-                  max="1000"
+                  max="50000"
                   value={maxCombinations}
                   onChange={(e) => setMaxCombinations(e.target.value)}
                   style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
@@ -412,9 +412,9 @@ export function EtapiConfigModal({
                 </label>
                 <input
                   type="number"
-                  step="5"
+                  step="50"
                   min="5"
-                  max="200"
+                  max="50000"
                   value={detailLimit}
                   onChange={(e) => setDetailLimit(e.target.value)}
                   style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}

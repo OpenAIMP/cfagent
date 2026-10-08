@@ -156,6 +156,30 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     expect(dirNames).toContain("Long Strangle");
   });
 
+  it("discovers all option strategies when sentiment is 'all' without premature truncation", () => {
+    const expirations = generateExpirations();
+    const allStrategies = discoverStrategies({
+      symbol: "NVDA",
+      currentPrice: 233.95,
+      sentiment: "all",
+      targetPrice: 240.0,
+      expiration: expirations[5],
+      optimizationBias: 50,
+    });
+
+    // Verifies full breadth across all 72 catalog strategies + pre-built setups
+    expect(allStrategies.length).toBeGreaterThanOrEqual(70);
+    const names = new Set(allStrategies.map((s) => s.name));
+    expect(names.has("Long Call")).toBe(true);
+    expect(names.has("Long Put")).toBe(true);
+    expect(names.has("Iron Condor")).toBe(true);
+    expect(names.has("Iron Butterfly")).toBe(true);
+    expect(names.has("Bull Call Spread")).toBe(true);
+    expect(names.has("Bear Put Spread")).toBe(true);
+    expect(names.has("Jade Lizard")).toBe(true);
+    expect(names.has("Long Straddle")).toBe(true);
+  });
+
   it("evaluates strategy PnL across prices at expiration and at intermediate time t", () => {
     const expirations = generateExpirations();
     const strategies = discoverStrategies({
@@ -248,7 +272,8 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
       optimizationBias: 50,
     });
 
-    const callLeg = strats[0].legs[0];
+    const callStrategy = strats.find((s) => s.name === "Long Call") || strats[0];
+    const callLeg = callStrategy.legs.find((l) => l.optionType === "CALL") || callStrategy.legs[0];
     const shortTermPrice = callLeg.entryPrice;
 
     // Update expiration to far term

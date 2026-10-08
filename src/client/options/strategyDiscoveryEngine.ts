@@ -1,4 +1,5 @@
 import { blackScholes, calculateProbabilityOfProfit, normalCdf } from "./blackScholes";
+import { STRATEGY_LIBRARY } from "./strategyLibrary";
 
 export type SentimentType =
   | "all"
@@ -948,6 +949,35 @@ export function discoverStrategies(options: {
   const results: DiscoveredStrategy[] = [];
 
   // ==========================================
+  // COMPLETE 72-STRATEGY CATALOG (OptionStrat Standard)
+  // When sentiment is "all" or matches, evaluate all 72 pre-built strategies
+  // ==========================================
+  for (const def of STRATEGY_LIBRARY) {
+    if (sentiment === "all" || def.theses.includes(sentiment)) {
+      try {
+        const legs = def.buildLegs(spot, dte, expiryDate, baseIv, r);
+        results.push(
+          analyzeStrategy(
+            def.name,
+            def.category,
+            def.subtitle,
+            def.theses,
+            legs,
+            spot,
+            targetPrice,
+            dte,
+            expiryDate,
+            baseIv,
+            def.description
+          )
+        );
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  // ==========================================
   // BULLISH & VERY BULLISH STRATEGIES
   // ==========================================
   if (sentiment === "all" || sentiment === "bullish" || sentiment === "very_bullish") {
@@ -1408,12 +1438,23 @@ export function discoverStrategies(options: {
 
   let finalResults = results;
 
-  // Filter out illiquid contracts where option leg entryPrice is under $0.05
-  const liquidResults = finalResults.filter((s) =>
-    s.legs.every((leg) => leg.optionType === "STOCK" || leg.entryPrice >= 0.05)
-  );
-  if (liquidResults.length > 0) {
-    finalResults = liquidResults;
+  // Deduplicate strategies by name & leg signature so variations remain distinct
+  const seenStrategyKeys = new Set<string>();
+  finalResults = finalResults.filter((s) => {
+    const key = `${s.name}::${s.legs.map((l) => `${l.side}_${l.strike}_${l.optionType}`).join(";")}`;
+    if (seenStrategyKeys.has(key)) return false;
+    seenStrategyKeys.add(key);
+    return true;
+  });
+
+  // Filter out illiquid contracts only if user did NOT select "all" options
+  if (sentiment !== "all") {
+    const liquidResults = finalResults.filter((s) =>
+      s.legs.every((leg) => leg.optionType === "STOCK" || leg.entryPrice >= 0.05)
+    );
+    if (liquidResults.length > 0) {
+      finalResults = liquidResults;
+    }
   }
 
   // Filter by budget if provided
@@ -1431,5 +1472,7 @@ export function discoverStrategies(options: {
   }
 
   // Sort by composite score to match user's optimization bias
-  return finalResults.sort((a, b) => (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0));
+  const sorted = finalResults.sort((a, b) => (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0));
+  const maxLimit = options.config?.maxCombinations ?? 5000;
+  return sorted.slice(0, maxLimit);
 }

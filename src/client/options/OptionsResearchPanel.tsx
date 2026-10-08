@@ -20,6 +20,7 @@ import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEval
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
+import { RawContractsScreener } from "./RawContractsScreener";
 import { TabHoverItem } from "../TabHoverItem";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import "./strategyDiscovery.css";
@@ -618,7 +619,7 @@ type NlqResultView = {
 };
 
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
-  const [researchMode, setResearchMode] = useState<"discovery" | "custom" | "nlq" | "llm-ideas" | "schedules">("discovery");
+  const [researchMode, setResearchMode] = useState<"discovery" | "contracts" | "custom" | "nlq" | "llm-ideas" | "schedules">("discovery");
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
   const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
   const [symbol, setSymbol] = useState("");
@@ -634,8 +635,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [minOpenInterest, setMinOpenInterest] = useState("500");
   const [maxSpreadPct, setMaxSpreadPct] = useState("10");
   const [maxQuoteAgeSeconds, setMaxQuoteAgeSeconds] = useState("60");
-  const [contractLimit, setContractLimit] = useState("500");
-  const [candidateLimit, setCandidateLimit] = useState("10");
+  const [contractLimit, setContractLimit] = useState("5000");
+  const [candidateLimit, setCandidateLimit] = useState("100");
   const [maxStrikesPerSide, setMaxStrikesPerSide] = useState("12");
   const [maxIronCondors, setMaxIronCondors] = useState("100");
   const [eventPolicy, setEventPolicy] = useState<"warn" | "exclude">("warn");
@@ -938,6 +939,22 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           </TabHoverItem>
 
           <TabHoverItem
+            eyebrow="LIVE CHAIN FILTERING"
+            title="Raw Contracts Screener"
+            description="Directly filter individual Call and Put contracts across symbols, DTE windows, strikes, bid/ask spreads, volume, and Greeks."
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={researchMode === "contracts"}
+              className={`subnav-btn ${researchMode === "contracts" ? "active" : ""}`}
+              onClick={() => setResearchMode("contracts")}
+            >
+              📋 Raw Contracts Screener
+            </button>
+          </TabHoverItem>
+
+          <TabHoverItem
             eyebrow="CONSTRAINED OPTION SCANNING"
             title="Custom Thesis & Strategy Universe"
             description="Declare specific target prices, target dates, and IV assumptions to filter and rank tailored candidate structures."
@@ -1073,6 +1090,15 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           userLogin={userLogin}
           onPreviewTrade={onPreviewTrade}
           onSendPrompt={onSendPrompt}
+        />
+      )}
+
+      {researchMode === "contracts" && (
+        <RawContractsScreener
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+          initialSymbol={symbol.trim() || "NVDA"}
+          onPreviewTrade={onPreviewTrade}
         />
       )}
 

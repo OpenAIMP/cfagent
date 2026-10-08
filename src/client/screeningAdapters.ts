@@ -16,14 +16,12 @@ export const SCREENING_PROVIDERS: ScreeningProviderAdapter[] = [
     id: "etrade",
     label: "E*TRADE API",
     kind: "broker-api",
-    assetClasses: ["stocks", "options"],
+    assetClasses: ["stocks"],
     endpointByAssetClass: {
       stocks: "/api/etrade/screen",
-      options: "/api/trading/options/screen",
     },
     filtersByAssetClass: {
       stocks: ["search", "limit", "exchange", "price-range", "trend"],
-      options: ["search", "limit", "contract-type", "dte-range", "min-volume", "min-open-interest", "max-spread"],
     },
   },
   {
@@ -42,7 +40,7 @@ export const SCREENING_ASSET_CLASSES: Array<{
   available: boolean;
 }> = [
   { id: "stocks", label: "Stocks", available: true },
-  { id: "options", label: "Options", available: true },
+  { id: "options", label: "Options", available: false },
   { id: "forex", label: "Forex", available: false },
   { id: "futures", label: "Futures", available: false },
   { id: "commodities", label: "Commodities", available: false },
