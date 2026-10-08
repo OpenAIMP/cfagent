@@ -11,20 +11,26 @@ import {
   type DecisioningSection,
   type DecisioningRule,
   type DecisioningMatrixRow,
+  type ParameterBadge,
 } from "./workflowsFaqData";
 
 export interface WorkflowItem {
   id: string;
+  codeId: string;
   number: number;
+  track: "analysis" | "execution";
+  trackLabel: string;
   title: string;
-  category: "stocks" | "options" | "flows" | "brokerage" | "scheduled" | "nlq" | "payments";
+  category: "stocks" | "options" | "flows" | "brokerage" | "scheduled" | "nlq" | "payments" | "research" | "audit" | "risk";
   categoryLabel: string;
   badge: string;
-  badgeColor: "green" | "blue" | "purple" | "orange";
+  badgeColor: "green" | "blue" | "purple" | "orange" | "cyan";
   subtitle: string;
   overview: string;
   apiEndpoint: string;
   targetTab: string;
+  keyParameters?: string;
+  governingDecisionRuleId?: string;
   steps: Array<{
     step: string;
     title: string;
@@ -49,18 +55,26 @@ export interface WorkflowItem {
 }
 
 export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
+  // =========================================================================
+  // ANALYSIS TRACK (A1 - A8)
+  // =========================================================================
   {
     id: "stock-screener",
+    codeId: "A1",
     number: 1,
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
     title: "Stock Screener & Multi-Exchange Equity Discovery",
     category: "stocks",
-    categoryLabel: "Stocks",
+    categoryLabel: "Equities",
     badge: "Dual-Engine (Nasdaq & Yahoo)",
     badgeColor: "green",
     subtitle: "Screen 8,000+ US equities dynamically across NASDAQ, NYSE, and AMEX with technical indicators and auditable scan ledgers.",
     overview: "The Stock Screener allows filtering across all active US equities by price, market cap, exchange, 14-period daily RSI, MACD momentum, and daily gainers/losers. It queries official Nasdaq multi-exchange listings (api.nasdaq.com) across 8,000+ active tickers, with resilient automatic fallback to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance FOSS feeds if upstream APIs are rate-limited. Downstream workflows (including Options Flow) query this screener first as their primary dynamic market underlyings engine.",
     apiEndpoint: "POST /api/etrade/screen · POST /api/foss/screen",
     targetTab: "trading",
+    keyParameters: "exchange: ALL, minPrice: $3.00, marketCapTier: Large/Mid/Small, rsiPeriod: 14",
+    governingDecisionRuleId: "stock-screener-logic",
     steps: [
       {
         step: "Step 1",
@@ -70,7 +84,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 2",
         title: "Dynamic Exchange Ingestion & Fallback Decision",
-        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers. If rate-limited, throttled, or unreachable, DynamicMarketScreener autonomously decides to fall back to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance FOSS feeds.",
+        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers. If rate-limited, throttled, or unreachable, DynamicMarketScreener autonomously falls back to the curated universe or Yahoo FOSS feeds.",
       },
       {
         step: "Step 3",
@@ -105,7 +119,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
         status4xx: 0,
         avgDuration: "2.17s",
         role: "Nasdaq Official All-Exchange Screener",
-        usageDetails: "Ingests dynamic listing tables across NASDAQ, NYSE, and AMEX (~8,500 active securities) in 5,000-row paginated batches. Provides ticker symbols, company names, exchanges, last sale prices, and market caps.",
+        usageDetails: "Ingests dynamic listing tables across NASDAQ, NYSE, and AMEX (~8,500 active securities) in 5,000-row paginated batches.",
         nuanceExplanation: "33 total requests reflect 3 exchange partitions paginated across 5,000 rows. The 2.17s latency reflects Nasdaq enterprise database queries.",
       },
       {
@@ -114,7 +128,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
         status4xx: 46,
         avgDuration: "257.6ms",
         role: "Yahoo Finance Chart, Indicators & Session Crumb",
-        usageDetails: "Retrieves 1-month daily and intraday historical OHLCV chart bars (/v8/finance/chart/{symbol}) to compute 14-period RSI and MACD (12, 26, 9 EMA), and exchanges session cookies for crumb tokens (/v1/test/getcrumb).",
+        usageDetails: "Retrieves 1-month daily and intraday historical OHLCV chart bars (/v8/finance/chart/{symbol}) to compute 14-period RSI and MACD.",
         nuanceExplanation: "The 46 4xx responses represent unlisted OTC tickers or transient Yahoo rate throttles. Resilient fallback mechanisms handle retries seamlessly.",
       },
       {
@@ -123,7 +137,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
         status4xx: 7,
         avgDuration: "70.9ms",
         role: "Yahoo Finance Quote Summary & Options Feed",
-        usageDetails: "Secondary load-balanced endpoint querying detailed valuation metrics (/v10/finance/quoteSummary/{symbol}?modules=price,summaryDetail) and live options chain flow snapshots (/v7/finance/options/{symbol}).",
+        usageDetails: "Secondary load-balanced endpoint querying detailed valuation metrics (/v10/finance/quoteSummary/{symbol}?modules=price,summaryDetail).",
         nuanceExplanation: "Extremely fast 70.9ms average latency. The 7 4xx responses reflect non-optionable ticker queries or invalid symbol symbols.",
       },
       {
@@ -132,373 +146,692 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
         status4xx: 70,
         avgDuration: "30.3ms",
         role: "Yahoo Finance Cookie Crumb Handshake",
-        usageDetails: "Initial cookie handshake request for the open-source Yahoo Finance session protocol. Captures the 'set-cookie: A3=...' header needed to retrieve authorization crumbs.",
-        nuanceExplanation: "100% 4xx (HTTP 404/401) is expected by design: Yahoo intentionally responds with 4xx while setting the session cookie. The platform captures this cookie header and exchanges it for a crumb on query1.",
-      },
-      {
-        host: "api.etrade.com",
-        status2xx: 501,
-        status4xx: 1000,
-        avgDuration: "167.7ms",
-        role: "Official E*TRADE Broker REST API",
-        usageDetails: "Direct broker integration querying live equity quotes (/v1/market/quote), option expiration dates (/v1/market/optionexpiredate), option chains (/v1/market/optionchains), accounts, and order previews.",
-        nuanceExplanation: "501 2xx responses reflect active authenticated broker sessions. The 1,000 4xx responses reflect expired daily OAuth 1.0a access tokens (which reset at midnight ET) or unauthenticated preview attempts gracefully trapped by the fallback layer.",
+        usageDetails: "Initial cookie handshake request for the open-source Yahoo Finance session protocol.",
+        nuanceExplanation: "100% 4xx (HTTP 404/401) is expected by design: Yahoo intentionally responds with 4xx while setting the session cookie header.",
       },
     ],
     faq: {
-      question: "Why do screener prices sometimes differ from my real-time brokerage app?",
-      answer: "Public market feeds (Nasdaq Screener web feed and unauthenticated Yahoo Finance) are subject to mandatory 15-minute exchange delays under CTA/UTP rules. Furthermore, screener feeds capture static batch snapshots at regular market close (4:00 PM ET) and do not reflect after-hours or pre-market extended trading ticks.",
+      question: "Why does the screener not show penny stocks or low-liquidity OTC stocks?",
+      answer: "The screener defaults to a minimum price floor of $3.00 and requires major exchange listing (NASDAQ/NYSE/AMEX) to ensure optionability and prevent illiquid OTC slippage.",
     },
-    sampleQueryOrAction: "Screen tech stocks with RSI < 35 and market cap > $50B",
+    sampleQueryOrAction: "Screen NASDAQ stocks with price > $50, market cap > $10B, and RSI < 35",
   },
+
   {
     id: "options-discovery",
+    codeId: "A2",
     number: 2,
-    title: "Options Strategy Discovery & 2D Payoff Analyzer",
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Options Strategy Discovery, Greeks Modeling & EV Scoring",
     category: "options",
     categoryLabel: "Options",
-    badge: "72 Strategies · Auto-Refresh",
+    badge: "72-Strategy Catalog",
     badgeColor: "blue",
-    subtitle: "OptionStrat-grade strategy scanner, visual payoff graphs, Black-Scholes Greeks, 2D P&L date matrix, and auto-refresh.",
-    overview: "Discovers and evaluates multi-leg options combinations based on target prices, risk/reward constraints, and market sentiment. Includes an optimization bias slider balancing Probability of Profit (POP) against Return-on-Risk (RoR%), plus configurable background auto-refreshing.",
-    apiEndpoint: "POST /api/trading/options/llm-ideas · GET /api/foss/quote",
+    subtitle: "Calibrates synthetic option pricing, computes analytical Black-Scholes Greeks, POP, and EV across 72 catalog structures.",
+    overview: "Evaluates multi-leg options structures (Iron Condors, Vertical Spreads, Butterflies, Calendars, Diagonals, Straddles, Strangles) against live calibrated option chains. Calculates Delta, Gamma, Theta, Vega, IV Rank, Probability of Profit (POP = N(d2)), and Expected Value (EV). Supports strict user budget and risk filtering (e.g. Max Loss <= $30, Max Profit > $0).",
+    apiEndpoint: "POST /api/etrade/options/strategy · POST /api/trading/options/unified",
     targetTab: "trading",
+    keyParameters: "symbol: NVDA, bias: 50 (Balanced EV), budget: $300, minRR: 1.0, maxLoss: $30",
+    governingDecisionRuleId: "multivariate-scoring-criteria",
     steps: [
       {
         step: "Step 1",
-        title: "Target Price & Bias Setting",
-        description: "Set underlying target price (defaults to ±1x or ±2x market implied move) and adjust the Optimization Bias slider (Max Return ↔ Balanced EV ↔ Max Chance).",
+        title: "Chain Ingestion & Synthetic Calibration",
+        description: "Fetches live option chains from E*TRADE or FOSS feeds. Mid-market prices are calibrated to eliminate spread distortions.",
       },
       {
         step: "Step 2",
-        title: "Algorithmic Discovery Scan",
-        description: "Scans candidate legs using Black-Scholes models to compute net debit/credit, max profit, max loss, collateral requirements, breakevens, and win probability (POP).",
+        title: "Combinatorial Strike Ladder Generation",
+        description: "Generates candidate leg combinations across 72 catalog strategies, shifting strikes dynamically based on Optimization Bias (0=Max Return, 50=Balanced, 100=Max Chance).",
       },
       {
         step: "Step 3",
-        title: "Multi-Leg Builder & Payoff Graph",
-        description: "Loads candidates into an interactive payoff chart with symmetric strike shifts (Expand Wings) and multi-expiration diagonal configuration.",
+        title: "Analytical Black-Scholes Greeks & POP",
+        description: "Computes Delta, Gamma, Theta, Vega, and Probability of Profit (N(d2)) for every candidate structure using continuous dividend and risk-free rates.",
       },
       {
         step: "Step 4",
-        title: "2D P&L Date Matrix & Greeks",
-        description: "Simulates strategy P&L across a 2-dimensional grid of price steps vs calendar dates to expiration, accounting for theta decay and IV crush/surge.",
+        title: "Multivariate 6-Factor Composite Scoring",
+        description: "Ranks setups using the institutional dot-product score: S = w_thesis*S_thesis + w_RR*S_RR + w_liq*S_liq + w_fresh*S_fresh + w_iv*S_iv + w_theta*S_theta.",
       },
     ],
     keyFeatures: [
-      "72 Pre-made strategies: Butterflies, Diagonals, Iron Condors, Straddles, Broken Wing Butterflies, and Collars.",
-      "Configurable Auto-Refresh (10s, 15s, 30s, 1m, 2m, 5m) with persistent localStorage storage.",
-      "Defined vs Undefined vs Covered risk tagging with explicit Max Loss caps.",
-      "Interactive IV Crush (-25%) and IV Spike (+25%) scenario simulation.",
+      "72 distinct options strategies spanning directional, neutral, volatility, and income plays.",
+      "Strict parameter filtering: max loss, max profit, min win rate, strike bounds, and expiration windows.",
+      "Black-Scholes analytical Greeks engine with continuous dividend and risk-free rate calibration.",
+      "Expected Value (EV) calculation: EV = (POP * MaxProfit) - ((1 - POP) * MaxLoss) / Collateral.",
+      "Visual 2D interactive payoff curve with breakevens, max gain, and max capital at risk.",
     ],
     dataSources: [
-      "Black-Scholes analytic pricing engine with cumulative normal distribution CDF",
-      "Live E*TRADE options chains & Level 1 market feeds",
-      "OptionStrat HTML strategy templates & SVG mini-curve generators",
+      "E*TRADE Option Chains API (api.etrade.com/v1/market/optionchains)",
+      "E*TRADE Option Expirations API (api.etrade.com/v1/market/optionexpiredate)",
+      "Calibrated Synthetic Pricing Engine (src/trading/options/calibratedOptionChains.ts)",
     ],
     faq: {
-      question: "How does the optimizer balance Max Chance vs Max Return?",
-      answer: "When set to Max Return, the engine targets asymmetric leverage by selecting out-of-the-money strikes with high payout multiples (3:1+). When set to Max Chance, it selects deep in-the-money or wide credit structures with high win probabilities (POP > 70%) and large breakeven cushion buffers.",
+      question: "How does the Optimization Bias slider affect strike selection?",
+      answer: "Bias 0 shifts strikes +3 steps OTM for maximum percentage return multiple. Bias 50 centers strikes ATM for balanced EV. Bias 100 shifts strikes -3 steps ITM for maximum probability of profit (POP > 75%).",
     },
-    sampleQueryOrAction: "Find defined risk credit spreads on NVDA with max loss under $30",
+    sampleQueryOrAction: "Find bullish call spreads on NVDA with max loss <= $30 and max profit > $0",
   },
+
   {
-    id: "raw-contracts-screener",
+    id: "options-raw-screener",
+    codeId: "A3",
     number: 3,
-    title: "Raw Contracts Screener & Chain Filtering",
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Raw Options Contract Screener & Chain Filtering",
     category: "options",
     categoryLabel: "Options",
-    badge: "Direct Broker Chains · Full Greeks",
-    badgeColor: "blue",
-    subtitle: "Screen single-leg calls and puts across multivariate constraints (bid/ask spread %, volume, open interest, DTE, Delta, moneyness).",
-    overview: "Directly queries and screens raw options contract chains across select DTE horizons. Enforces multivariate liquidity and spread filters, moneyness At-The-Money bands (+/-2%), extracts Black-Scholes Greeks, applies deterministic sorting comparators, records an auditable 15-code rejection ledger, and provides 1-click order ticket staging.",
-    apiEndpoint: "POST /api/trading/options/screen",
+    badge: "15-Gate Contract Filter",
+    badgeColor: "purple",
+    subtitle: "Granular contract-level filtering of raw option strikes with moneyness bounds, Greek filters, and 15 rejection code gates.",
+    overview: "Direct, granular contract-level filtering of raw option strikes across calls and puts. Applies 15 rejection code gates (e.g. SPREAD_TOO_WIDE, MIN_VOLUME_FAIL, OUTSIDE_DELTA_RANGE, STALE_QUOTE). Sanitization normalizes user inputs, clamps negative bounds, and computes auditable rejection ledgers detailing exactly why each non-qualifying contract was omitted.",
+    apiEndpoint: "POST /api/trading/options/screen · POST /api/premium/options-scan",
     targetTab: "trading",
+    keyParameters: "minVol: 500, minOI: 1000, maxSpreadPct: 5.0%, atmBandPct: 0.02, dte: 14-45d",
+    governingDecisionRuleId: "options-screener-logic",
     steps: [
       {
         step: "Step 1",
-        title: "Chain Retrieval",
-        description: "Direct ingestion of full broker option chains across selected DTE horizons (up to 10,000 contracts).",
+        title: "Raw Chain Retrieval",
+        description: "Retrieves complete strike ladder for the selected underlying across weekly and monthly expiration cycles.",
       },
       {
         step: "Step 2",
-        title: "Multivariate Boundary & Moneyness Screening",
-        description: "Enforces constraints on bid/ask spread %, minimum volume, open interest, quote freshness (<= 60s), and ATM moneyness band (atmBandPct = 0.02, +/-2% of spot). Records failure codes in rejection ledger.",
+        title: "Boundary Sanitization & Clamping",
+        description: "Validates bid/ask quotes, omits inverted quotes (bid > ask or bid <= 0), and verifies quote age under 60 seconds.",
       },
       {
         step: "Step 3",
-        title: "Live Greeks & Signal Extraction",
-        description: "Calculates or extracts live Delta (Δ), Gamma (Γ), Theta (Θ), Vega (ν), and direction-agnostic signals (Vol/OI spike > 1.5x, High Delta, IV expansion).",
+        title: "15-Gate Exclusion Filter",
+        description: "Applies volume floors, open interest depth, spread percentage ceilings, and Delta/Gamma/Theta/Vega tolerances.",
       },
       {
         step: "Step 4",
-        title: "Deterministic Sort & Staging",
-        description: "Orders matching contracts deterministically by volume, spread tightness, IV, Vol/OI ratio, or DTE with secondary tie-breakers on symbol and strike price, integrating with 1-click order preview tickets.",
+        title: "Heuristic Signal Tagging",
+        description: "Tags passing contracts with market condition signals: Unusual Volume Spike (Vol/OI > 1.5x), High Delta Momentum, or High IV Expansion.",
       },
     ],
     keyFeatures: [
-      "Direct E*TRADE option chains screening with calibrated market feed fallback.",
-      "Fine-grained liquidity filters: min volume, min open interest, max bid-ask spread %.",
-      "Complete Greeks breakdown: Delta, Gamma, Theta, Vega, and Implied Volatility.",
-      "Auditable Rejection Ledger: 15 standardized failure codes explaining omitted contracts.",
-      "One-click staging of selected contract into order preview ticket.",
+      "15 explicit rejection codes for 100% auditability.",
+      "Bid-ask spread percentage filtering relative to midpoint to eliminate wide illiquid options.",
+      "At-The-Money (ATM) ±2% moneyness band classification into ITM, ATM, and OTM.",
+      "Support for x402 pay-per-query micropayments via external MCP tool integration.",
     ],
     dataSources: [
-      "E*TRADE Option Chains API (v1/market/optionchains)",
-      "E*TRADE Expiration Dates API (v1/market/optionexpiredate)",
-      "Black-Scholes analytic pricing engine",
+      "E*TRADE Option Chains API (api.etrade.com/v1/market/optionchains)",
+      "Synthetic Midpoint & Spread Ratio Solvers",
     ],
     faq: {
-      question: "Why does the screener show 0 contracts if I don't set filters carefully?",
-      answer: "Tight bid-ask spread filters (e.g. < 2%) or high volume thresholds will prune illiquid contracts. If live broker OAuth is unauthenticated, the engine seamlessly provides calibrated market option chains.",
+      question: "What rejection code is triggered if a quote is stale or inverted?",
+      answer: "Inverted quotes trigger INVALID_QUOTE. Quotes older than maxQuoteAgeSeconds (default 60s) trigger STALE_QUOTE and degrade confidence.",
     },
-    sampleQueryOrAction: "Screen NVDA calls between 14 and 45 DTE with volume > 500 and spread < 5%",
+    sampleQueryOrAction: "Screen NVDA call contracts with volume > 500, spread < 4%, and DTE between 14 and 45 days",
   },
+
   {
     id: "options-flows",
+    codeId: "A4",
     number: 4,
-    title: "Institutional Options Flows & Unusual Activity",
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Real-Time Options Flow & Institutional Activity Tracker",
     category: "flows",
-    categoryLabel: "Flows",
-    badge: "Sweeps & Blocks · Net Sentiment",
-    badgeColor: "purple",
-    subtitle: "Real-time institutional sweeps, block orders, dark pool prints, insider SEC filings, and congressional disclosures.",
-    overview: "Monitors institutional options order flow to identify 'smart money' positioning. Options Flow does NOT default to a static list as its first option — it queries the Stock Screener (DynamicMarketScreener) first to resolve active, high-momentum market underlyings across all US exchanges before ingesting live options tape prints. Computes aggregate Net Bullish vs Net Bearish premium leaderboards and flags Volume-to-Open-Interest (Vol/OI) spikes indicative of directional conviction.",
-    apiEndpoint: "GET /api/trading/options/flows · GET /api/trading/options/flow-summary",
+    categoryLabel: "Market Flows",
+    badge: "Institutional Smart Money",
+    badgeColor: "blue",
+    subtitle: "Tracks unusual options volume, sweeps (≥$100k executed aggressively at ask), blocks, splits, and dynamic sentiment leaderboards.",
+    overview: "Monitors options flow in real time across the market. Filters by trade type (SWEEP, BLOCK, SPLIT), sentiment (BULLISH, BEARISH), moneyness (ITM, ATM, OTM), and minimum premium. Dynamically screens underlying equities using the Stock Screener first (with fallback to curated universe), computes Bull/Bear volume ratios, and aggregates top institutional ticker leaderboards.",
+    apiEndpoint: "GET /api/options/flows/live · GET /api/options/flows/summary",
     targetTab: "options-flows",
+    keyParameters: "minPremium: $100k, volOiRatio: > 1.5x, tradeType: SWEEP | BLOCK, aggression: ASK",
+    governingDecisionRuleId: "stock-screener-logic",
     steps: [
       {
         step: "Step 1",
-        title: "Screener-First Underlyings Resolution",
-        description: "Options Flow queries DynamicMarketScreener first to obtain active multi-exchange equities. DynamicMarketScreener attempts live all-exchange discovery, falling back to the curated universe only if offline. Options Flow partitions these screened equities into Large Cap (>= $10B), Mid Cap ($2B-$10B), and Small Cap (<$2B) sorted by absolute daily momentum.",
+        title: "Dynamic Universe Resolution",
+        description: "Queries DynamicMarketScreener to obtain active, liquid underlyings partitioned by mega/large/mid caps rather than using a static list.",
       },
       {
         step: "Step 2",
-        title: "Anomaly Scoring & Vol/OI",
-        description: "Flags aggressive trades executed above the ask price with trade volume exceeding total existing open interest (Vol/OI > 1.0).",
+        title: "Flow Ingestion & Normalization",
+        description: "Ingests raw option trade prints, normalizing strikes, expirations, spot prices, bid/ask sizes, and executed premiums.",
       },
       {
         step: "Step 3",
-        title: "Net Premium Sentiment",
-        description: "Aggregates total dollar premium across calls bought at ask / puts sold at bid (Bullish) versus puts bought at ask / calls sold at bid (Bearish).",
+        title: "Anomaly & Sweep Classification",
+        description: "Flags prints where Volume exceeds Open Interest (>1.5x) or single order premium exceeds $100k+ executed aggressively at the ask (Sweeps).",
       },
       {
         step: "Step 4",
-        title: "Cross-Asset Intelligence",
-        description: "Correlates options flow with corporate insider SEC Form 4 filings and congressional trading disclosures.",
+        title: "Sentiment Aggregation & Leaderboards",
+        description: "Computes net premium delta and ranks top bullish and bearish tickers in live visual leaderboards.",
       },
     ],
     keyFeatures: [
-      "Screener-Driven Dynamic Discovery: Options Flow queries the Stock Screener first to identify liquid, high-momentum market movers across exchanges, never defaulting to a static ticker list.",
-      "Real-time institutional flow feed with filterable trade sizes ($50K+, $250K+, $1M+).",
-      "Dual Leaderboards: Top 10 Net Bullish Tickers vs Top 10 Net Bearish Tickers.",
-      "Volume-to-Open-Interest (Vol/OI) anomaly flags highlighting unusual contract activity.",
-      "Integrated Congressional stock disclosures and corporate insider purchases.",
+      "Integrated directly with Stock Screener as single source of truth for dynamic underlyings.",
+      "Sweep vs Block trade discrimination with aggression tags (Above Ask, At Ask, Below Bid).",
+      "Dynamic Bull/Bear sentiment ratios and institutional volume leaderboards.",
+      "Live audio/visual alert badges for whale prints ($500k+ premium).",
+      "Integrated 🛡️ Risk Analysis modal on every flow print for instant defense playbooks.",
     ],
     dataSources: [
-      "Stock Screener (DynamicMarketScreener) for live dynamic equity discovery (Nasdaq/Yahoo feeds with curated fallback)",
-      "Institutional Options Consolidated Tape feeds (CTA / OPRA)",
-      "SEC EDGAR Form 4 corporate insider transaction filings",
-      "US House & Senate financial disclosure reports",
+      "Stock Screener Dynamic Listings (api.nasdaq.com + Yahoo FOSS)",
+      "Live Options Trade Prints & Quotes Feed",
+      "Historical Open Interest & Implied Volatility Surface",
     ],
     faq: {
-      question: "What makes an option trade classified as an institutional 'Sweep'?",
-      answer: "A sweep order occurs when an institutional buyer splits a massive order across multiple exchanges simultaneously to fill as quickly as possible, intentionally taking out the best ask prices before market makers can adjust quotes.",
+      question: "What makes a trade print a 'Sweep'?",
+      answer: "A Sweep is an order executed across multiple option exchanges simultaneously at or above the ask with ≥$100,000 premium, indicating institutional urgency.",
     },
-    sampleQueryOrAction: "View live options flow for tickers with >$500K net bullish premium",
+    sampleQueryOrAction: "Show unusual bullish options sweeps over $100k premium today",
   },
+
   {
-    id: "agentic-brokerage",
+    id: "strategy-builder",
+    codeId: "A5",
     number: 5,
-    title: "Agentic Brokerage & Human-in-the-Loop (HITL) Execution",
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Visual Multi-Leg Strategy Builder & Expiration Payoff",
+    category: "options",
+    categoryLabel: "Options",
+    badge: "Interactive Payoff Modeler",
+    badgeColor: "cyan",
+    subtitle: "Construct custom 1-to-4 leg positions with real-time expiration & T+0 curves, breakevens, and LLM comparison.",
+    overview: "Construct custom 1-to-4 leg options positions with real-time expiration and pre-expiration (T+0) payoff diagrams. Automatically computes upper and lower breakeven points, maximum theoretical profit, maximum capital at risk, return on risk (RoR), and aggregate portfolio Greeks. Includes LLM-powered multi-strategy comparison and idea generation.",
+    apiEndpoint: "POST /api/trading/options/compare · POST /api/trading/options/llm-ideas",
+    targetTab: "trading",
+    keyParameters: "legs: 1-4, payoffModel: Expiration + T+0, breakevenSolver: true, targetPrice: spot*1.05",
+    governingDecisionRuleId: "strategy-selection-rules",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Leg Assembly",
+        description: "Add up to 4 options or stock legs specifying action (BUY/SELL), type (CALL/PUT/STOCK), strike, quantity, and expiration.",
+      },
+      {
+        step: "Step 2",
+        title: "2D Payoff Curve Modeling",
+        description: "Computes expiration curve PnL(S) = sum(leg_pnl(S)) across underlying prices from 0.5x to 1.5x spot, plus intermediate T+0 Black-Scholes curve.",
+      },
+      {
+        step: "Step 3",
+        title: "Boundary & Greeks Rollup",
+        description: "Solves for upper and lower breakeven points, max gain, max loss, and rolls up aggregate Net Delta, Gamma, Theta, and Vega.",
+      },
+      {
+        step: "Step 4",
+        title: "Staged Execution & Risk Analysis",
+        description: "One-click transition to 🛡️ Risk Analysis or E*TRADE order preview draft.",
+      },
+    ],
+    keyFeatures: [
+      "Dynamic payoff diagram rendering at expiration and pre-expiration (T+0).",
+      "Automatic calculation of exact breakeven points and maximum theoretical drawdown.",
+      "Multi-leg Greeks aggregation: Net Delta, Net Gamma, Net Theta, Net Vega.",
+      "One-click transition from visual builder to E*TRADE order preview or Risk Modal.",
+    ],
+    dataSources: [
+      "Live Option Chain Pricing (E*TRADE & Yahoo FOSS)",
+      "Black-Scholes Analytical Pricing & Payoff Math Models",
+      "Cloudflare Workers AI (@cloudflare/ai-chat / Llama 3.3 70B)",
+    ],
+    faq: {
+      question: "Can I simulate multi-expiration diagonal spreads in the builder?",
+      answer: "Yes. Each leg supports independent expiration selection, allowing calendar and diagonal spread evaluation with time decay progression.",
+    },
+    sampleQueryOrAction: "Build an Iron Condor on SPY with 45 DTE and $5 wide wings",
+  },
+
+  {
+    id: "institutional-risk",
+    codeId: "A6",
+    number: 6,
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Institutional Risk Management, Defense Playbooks & Portfolio Exposure",
+    category: "risk",
+    categoryLabel: "Risk & Hedging",
+    badge: "Institutional Risk Matrix",
+    badgeColor: "orange",
+    subtitle: "Anatomy of risk across all strategies and trades: NAV position sizing (2-5%), 50% profit-taking, 2x stop-loss, and multi-point stress testing.",
+    overview: "Provides institutional-grade risk management and defense playbooks across all strategies, contracts, flows, and trades in the platform. Formulates risk anatomy (Capital at Risk, Dollar Delta, Gamma risk, Vega exposure, POP, Probability of Touch, Breakeven cushions, Dividend/Early assignment hazard, Stress tests) and defense playbooks (NAV sizing, 50% profit rule, 2x stop-loss, roll out in time, roll untested wing, invert spreads). Integrates universal '🛡️ Risk Analysis' buttons and 1-click dispatch to multi-agent chat.",
+    apiEndpoint: "GET /api/etrade/positions · GET /api/etrade/accounts",
+    targetTab: "trading",
+    keyParameters: "capitalBudgetPct: 2-5%, profitTargetPct: 50%, stopLossMultiplier: 2.0x, stressTest: -20% to +20%",
+    governingDecisionRuleId: "additional-decisioning-gates",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Risk Anatomy Decomposition",
+        description: "Decomposes candidate or active position into max loss, capital at risk, full Greeks matrix, directional drift sensitivity, and probability of touch.",
+      },
+      {
+        step: "Step 2",
+        title: "NAV Position Sizing Audit",
+        description: "Calculates conservative (2%), standard (3%), and aggressive (5%) maximum contract sizing based on account NAV purchasing power.",
+      },
+      {
+        step: "Step 3",
+        title: "Defense Rule Playbook",
+        description: "Formulates explicit exit rules: 50% profit rule for credit spreads, 75-100% for debits, and 2x credit received stop-loss preservation.",
+      },
+      {
+        step: "Step 4",
+        title: "Tactical Defensive Adjustments & AI Dispatch",
+        description: "Recommends rolling out in time for credit, rolling untested wings closer to spot, inverting strikes, or delta-hedging with 1-click AI prompt handoff.",
+      },
+    ],
+    keyFeatures: [
+      "Universal '🛡️ Risk Analysis' button present on every strategy card, builder, screener, flow print, and order ticket.",
+      "NAV-based capital budget calculations ensuring traders never over-allocate capital.",
+      "Multi-point stress test scenario matrix simulating -20%, -10%, -5%, +5%, +10%, and +20% market shocks.",
+      "Early assignment & dividend ex-date risk audit for short American options.",
+    ],
+    dataSources: [
+      "E*TRADE Accounts & Positions API (api.etrade.com/v1/accounts/{accountIdKey}/portfolio)",
+      "RiskManagementEngine (src/client/options/riskManagementEngine.ts)",
+      "Normal Cumulative Distribution Function (CDF) and Black-Scholes Greeks Math",
+    ],
+    faq: {
+      question: "What is the 50% profit rule for credit spreads?",
+      answer: "Institutional traders routinely close credit spreads when 50% of maximum credit is captured. This dramatically increases win rate and frees capital from diminishing theta returns.",
+    },
+    sampleQueryOrAction: "Evaluate risk anatomy and defense rules for NVDA 120/115 Put Credit Spread",
+  },
+
+  {
+    id: "foss-research",
+    codeId: "A7",
+    number: 7,
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Zero-Credential FOSS Equity & Crypto Research",
+    category: "research",
+    categoryLabel: "FOSS Research",
+    badge: "Zero-Credential FOSS",
+    badgeColor: "green",
+    subtitle: "100% free fundamental ratios (P/E, PEG, EV/EBITDA), analyst consensus, historical OHLCV chart bars, and crypto NBBO quotes.",
+    overview: "100% free, credential-less equity and cryptocurrency research powered by Yahoo Finance open-source endpoints and Alpaca free data APIs. Ingests valuation metrics (P/E, forward P/E, PEG, Price-to-Book, EV/EBITDA), analyst consensus price targets, historical OHLCV chart bars (daily, hourly, 5-minute), and crypto Level 1 NBBO bid/ask quotes without requiring brokerage API keys.",
+    apiEndpoint: "GET /api/foss/quote · GET /api/foss/fundamentals · GET /api/foss/bars",
+    targetTab: "research",
+    keyParameters: "symbol: NVDA | BTC/USD, modules: price,summaryDetail, interval: 1d, range: 1mo",
+    governingDecisionRuleId: "stock-screener-logic",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Session Cookie Handshake",
+        description: "Exchanges session handshake headers with fc.yahoo.com to obtain crumb authorization tokens autonomously.",
+      },
+      {
+        step: "Step 2",
+        title: "Fundamentals & Valuation Ingestion",
+        description: "Queries quoteSummary modules for market cap, enterprise value, trailing/forward P/E, PEG, and analyst consensus.",
+      },
+      {
+        step: "Step 3",
+        title: "Historical OHLCV Chart Aggregation",
+        description: "Retrieves 1-month daily or intraday candle bars to plot price action and compute moving averages.",
+      },
+      {
+        step: "Step 4",
+        title: "Crypto NBBO Tape Integration",
+        description: "Ingests live cryptocurrency bid/ask quotes from Alpaca crypto market data feeds for digital asset pairs.",
+      },
+    ],
+    keyFeatures: [
+      "Zero API keys, zero authentication credentials required.",
+      "Comprehensive valuation fundamentals: P/E, Forward P/E, PEG, Price/Book, EV/EBITDA.",
+      "High-resolution historical chart bars with volume histogram.",
+      "Seamless integration with FOSS Alpaca order execution for trading.",
+    ],
+    dataSources: [
+      "Yahoo Finance Quote Summary (query1.finance.yahoo.com/v10/finance/quoteSummary)",
+      "Yahoo Finance Chart Bars (query1.finance.yahoo.com/v8/finance/chart)",
+      "Alpaca Market Data API (data.alpaca.markets/v2/stocks & crypto)",
+    ],
+    faq: {
+      question: "Can I use FOSS research if I do not have an E*TRADE account?",
+      answer: "Yes. FOSS research is completely independent and operates with 100% free zero-credential public endpoints.",
+    },
+    sampleQueryOrAction: "Get fundamental valuation ratios and analyst consensus target for NVDA",
+  },
+
+  {
+    id: "nlq-chat",
+    codeId: "A8",
+    number: 8,
+    track: "analysis",
+    trackLabel: "Analysis · Read-Only",
+    title: "Conversational Financial Intelligence & NLQ Analytics",
+    category: "nlq",
+    categoryLabel: "NLQ & Chat",
+    badge: "LLM Judge & RAG",
+    badgeColor: "purple",
+    subtitle: "Natural language query planner and LLM Judge router converting plain queries into parameter-bound scans, RAG retrievals, and memory updates.",
+    overview: "Natural Language Query (NLQ) engine converting user questions into parameter-bound SQLite queries, market scans, and options evaluations. Integrates the LLM Judge router to classify intents (search, trading, research, payments, tasks, memory) with confidence scoring. Backed by Cloudflare Workers AI and Vectorize RAG knowledge retrieval.",
+    apiEndpoint: "POST /api/nlq · POST /api/chat · POST /nlq/webhook",
+    targetTab: "chat",
+    keyParameters: "model: glm-4.7-flash, judgeRouting: true, vectorSearch: true, memoryVault: DO SQLite",
+    governingDecisionRuleId: "pickbesttrades-engine",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Intent Classification & LLM Judge",
+        description: "Classifies user query across 6 domains (search, trading, research, payments, tasks, memory) with confidence grading.",
+      },
+      {
+        step: "Step 2",
+        title: "Sub-Agent Tool Coordination",
+        description: "Routes query to specialized sub-agents: options scanner, FOSS equity research, RAG knowledge search, or payment intent drafter.",
+      },
+      {
+        step: "Step 3",
+        title: "Transactional Memory & Knowledge Retrieval",
+        description: "Queries Durable Object SQLite tables (mas_messages, mas_events, mas_memory) and Vectorize indexes for relevant facts.",
+      },
+      {
+        step: "Step 4",
+        title: "Streaming Synthesis & UI Action Cards",
+        description: "Streams response via WebSocket, rendering interactive trade cards, payoff graphs, and 1-click execution tickets.",
+      },
+    ],
+    keyFeatures: [
+      "Natural language understanding mapped directly to 72-strategy catalog.",
+      "Dual-engine AI routing: Cloudflare Workers AI (glm-4.7-flash) with deterministic screener fallback.",
+      "Durable memory vault storing user preferences and facts across sessions.",
+      "Omnichannel support: Web chat, Slack events, inbound email, and WebRTC voice.",
+    ],
+    dataSources: [
+      "Cloudflare Workers AI (glm-4.7-flash / Llama 3.3 70B)",
+      "Cloudflare AI Search RAG (Vectorize index retrieval)",
+      "Durable Object transactional SQLite storage (mas_messages, mas_events, mas_memory)",
+    ],
+    faq: {
+      question: "What happens if Workers AI daily neuron allocation is exhausted?",
+      answer: "The orchestrator automatically detects Error 4006 and engages deterministic rule-based screening fallbacks with full diagnostic remediation cards in chat.",
+    },
+    sampleQueryOrAction: "Find top scoring options opportunities on TSLA with balanced risk",
+  },
+
+  // =========================================================================
+  // EXECUTION TRACK (E1 - E6)
+  // =========================================================================
+  {
+    id: "etrade-trading",
+    codeId: "E1",
+    number: 9,
+    track: "execution",
+    trackLabel: "Execution · HITL Guarded",
+    title: "Brokerage Order Preview & Human-in-the-Loop (HITL) Execution (E*TRADE)",
     category: "brokerage",
     categoryLabel: "Brokerage",
-    badge: "OAuth 1.0a · HITL Safe",
+    badge: "DID-Attested HITL Guardrails",
     badgeColor: "orange",
-    subtitle: "Two-phase order preview, Human-in-the-Loop authorization guards, E*TRADE OAuth lifecycle, and omnichannel execution.",
-    overview: "Enables autonomous agents to formulate trade ideas while enforcing strict Human-in-the-Loop (HITL) safety. Orders are first previewed with the broker to verify buying power, commissions, and margin before requiring explicit human authorization prior to live placement.",
-    apiEndpoint: "POST /api/etrade/preview · POST /api/etrade/place-order",
+    subtitle: "Safe order placement with mandatory two-phase commit: agent previews commissions and margins, signs with DID, and requires user approval.",
+    overview: "Enforces strict safety guardrails for real-world trading. The AI agent NEVER places orders autonomously without explicit human authorization. Orders are first prepared as an order preview draft (signed with Decentralized Identifier did:agent:openaimp:trading), showing estimated total, commission, and margin impact. Execution only proceeds when the user explicitly approves the proposal in the UI or chat.",
+    apiEndpoint: "POST /api/etrade/order/preview · POST /api/etrade/order/execute",
     targetTab: "trading",
+    keyParameters: "previewId: required, didStamp: 'did:agent:openaimp:trading', humanConfirmation: true",
+    governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
         step: "Step 1",
-        title: "OAuth 1.0a Handshake",
-        description: "Authenticates with E*TRADE via 3-legged OAuth, storing access tokens securely in Cloudflare KV with automated midnight ET renewals.",
+        title: "Order Proposal Drafting",
+        description: "Agent or user drafts an order ticket with symbol, action (BUY/SELL), quantity, order type (LIMIT/MARKET), and price.",
       },
       {
         step: "Step 2",
-        title: "Phase 1: Broker Preview",
-        description: "The AI agent or user submits an order preview request to E*TRADE REST API. The broker returns an exact previewId, estimated commission, and margin impact.",
+        title: "E*TRADE Preview Handshake",
+        description: "Calls E*TRADE Preview API to validate account buying power, calculate exact commissions/fees, and obtain a previewId.",
       },
       {
         step: "Step 3",
-        title: "Human-in-the-Loop (HITL) Guard",
-        description: "The platform halts execution and presents an explicit visual trade card. NO SHARES OR CONTRACTS ARE BOUGHT until the human clicks 'Authorize Order'.",
+        title: "DID Attestation & Human Review",
+        description: "Signs proposal with Agent DID and displays draft modal in UI. Requires user to review details and click 'Confirm & Execute'.",
       },
       {
         step: "Step 4",
-        title: "Phase 2: Live Placement",
-        description: "Upon human approval, the platform submits the verified previewId with a fresh clientOrderId, confirming order execution with the broker.",
+        title: "Authorized Execution & Audit Logging",
+        description: "Submits previewId to E*TRADE Place Order API and commits transaction receipt to the persistent SQLite order ledger.",
       },
     ],
     keyFeatures: [
-      "Aspect-Oriented Security Guards ensuring no unapproved trades ever execute.",
-      "Omnichannel execution: Review and authorize trades via Web UI, Slack Block Kit, or Cloudflare Email.",
-      "Seamless environment switching between Sandboxed TEST (apisb.etrade.com) and Live PROD (api.etrade.com).",
-      "Automatic timeout recovery with unique clientOrderId regeneration.",
+      "Zero unconfirmed live executions: 100% Human-in-the-Loop guaranteed.",
+      "Cryptographic proposal signing with W3C Decentralized Identifier (did:agent:openaimp:trading).",
+      "Two-phase commit protocol: Preview Handshake -> Human Approval -> Place Execution.",
+      "Automatic token renewal via background cron before midnight expiration.",
     ],
     dataSources: [
-      "E*TRADE Accounts & Order Preview API (v1/accounts/{key}/orders/preview)",
-      "E*TRADE Order Placement API (v1/accounts/{key}/orders/place)",
-      "Cloudflare KV encrypted token and OAuth state storage",
+      "E*TRADE Order Preview API (api.etrade.com/v1/accounts/{accountIdKey}/orders/preview)",
+      "E*TRADE Place Order API (api.etrade.com/v1/accounts/{accountIdKey}/orders/place)",
+      "W3C DID Cryptographic Attestation Service (src/agents/did.ts)",
     ],
     faq: {
-      question: "Can an AI agent execute a trade on my brokerage without my knowledge?",
-      answer: "No. The platform implements an uncompromising Aspect-Oriented Human-in-the-Loop (HITL) guard. The agent can only generate previews. Live order submission requires an explicit cryptographic human click in the UI or interactive Slack card.",
+      question: "Can an AI agent place a live trade without me clicking Confirm?",
+      answer: "No. The system enforces zero autonomous trading. Orders remain in 'preview' status until an authenticated human clicks Confirm or submits an approved approval token.",
     },
-    sampleQueryOrAction: "Preview buy 10 NVDA limit $125.00 via E*TRADE",
+    sampleQueryOrAction: "Preview buy order for 1x NVDA 130 Call expiring next month",
   },
+
   {
-    id: "scheduled-screening",
-    number: 6,
-    title: "Durable Timers & Scheduled Screening Schedulers",
-    category: "scheduled",
-    categoryLabel: "Schedulers",
-    badge: "Cloudflare Durable Objects",
+    id: "alpaca-trading",
+    codeId: "E2",
+    number: 10,
+    track: "execution",
+    trackLabel: "Execution · HITL Guarded",
+    title: "Direct Equities & Crypto Order Placement (Alpaca Broker API)",
+    category: "brokerage",
+    categoryLabel: "Brokerage",
+    badge: "Direct Broker API",
     badgeColor: "blue",
-    subtitle: "Recurring options screens powered by Durable Objects with automated Slack & Email notifications.",
-    overview: "Allows users to set up persistent, unattended market screening schedules. Powered by Cloudflare Durable Timers, the system executes periodic screens across target symbols and dispatches alerts when predefined win-probability or return thresholds are met.",
-    apiEndpoint: "GET /api/trading/options/schedules · POST /api/trading/options/schedules",
-    targetTab: "trading",
+    subtitle: "Places equity and cryptocurrency market, limit, and stop orders with fractional shares and extended-hours execution.",
+    overview: "Places equity and cryptocurrency market, limit, and stop orders through Alpaca Securities. Supports fractional share buying, crypto trading pairs (BTC/USD, ETH/USD, SOL/USD), extended-hours session execution, and real-time buying power validation.",
+    apiEndpoint: "POST /api/trading/alpaca/order · GET /api/trading/alpaca/orders",
+    targetTab: "research",
+    keyParameters: "side: buy|sell, type: limit|market, timeInForce: day|gtc, fractional: true",
+    governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
         step: "Step 1",
-        title: "Schedule Creation",
-        description: "Define monitored symbols (e.g., NVDA, TSLA, AAPL), screening intervals (hourly, market open, daily), and strategy criteria (e.g. credit spreads with POP > 75%).",
+        title: "Account & Buying Power Verification",
+        description: "Checks Alpaca account status, available cash, and margin buying power before staging orders.",
       },
       {
         step: "Step 2",
-        title: "Durable Timer Alarm",
-        description: "Cloudflare Durable Objects register persistent timer alarms that wake up autonomously across global edge runtimes.",
+        title: "Order Staging & Route Selection",
+        description: "Configures fractional shares, limit prices, stop triggers, and extended-hours flags.",
       },
       {
         step: "Step 3",
-        title: "Autonomous Background Screen",
-        description: "The scheduled task fetches updated option chains, evaluates candidate strategies against user criteria, and records audit logs.",
+        title: "Broker API Submission",
+        description: "Submits order payload to Alpaca Trading API endpoint with client order identifier for idempotency.",
       },
       {
         step: "Step 4",
-        title: "Omnichannel Dispatch",
-        description: "If viable strategies match user criteria, the task dispatches rich notification cards to configured Slack webhooks and email inboxes.",
+        title: "Fill Confirmation & Position Update",
+        description: "Monitors execution fills and synchronizes new position quantities in the portfolio ledger.",
       },
     ],
     keyFeatures: [
-      "Serverless persistence: schedules survive worker restarts via Durable Object storage.",
-      "Multi-symbol rotation: screens baskets of tickers sequentially to respect broker rate limits.",
-      "Omnichannel dispatch: instant alerts via Slack Block Kit and Cloudflare Email Worker.",
-      "Full audit trail: view past execution timestamps, matched opportunities, and error states.",
+      "Direct equity and cryptocurrency execution via Alpaca Securities.",
+      "Fractional share support allowing dollar-based allocations.",
+      "Extended-hours execution (pre-market and after-hours).",
+      "Idempotent order placement preventing duplicate order submissions.",
     ],
     dataSources: [
-      "Cloudflare Durable Object Alarms API",
-      "E*TRADE Automated Option Chain Screening Pipeline",
-      "Slack Incoming Webhooks & Cloudflare Email Workers",
+      "Alpaca Orders API (api.alpaca.markets/v2/orders)",
+      "Alpaca Account API (api.alpaca.markets/v2/account)",
+      "Alpaca Positions API (api.alpaca.markets/v2/positions)",
     ],
     faq: {
-      question: "Do I need to keep my browser open for scheduled screening to run?",
-      answer: "No. Schedulers run entirely in the cloud on Cloudflare Durable Objects. They execute autonomously even when all browser tabs are closed.",
+      question: "Does Alpaca support fractional share orders?",
+      answer: "Yes. Equity market orders support fractional shares by specifying notional dollar amounts (e.g. buy $50 of NVDA).",
     },
-    sampleQueryOrAction: "Schedule a daily market-open credit spread scan for NVDA and TSLA",
+    sampleQueryOrAction: "Place market order to buy $100 of NVDA via Alpaca",
   },
+
   {
-    id: "nlq-voice",
-    number: 7,
-    title: "Natural Language Query (NLQ) & Voice Trading",
-    category: "nlq",
-    categoryLabel: "AI & Voice",
-    badge: "Multi-Agent LLM · Voice",
-    badgeColor: "green",
-    subtitle: "Conversational market screening, LLM strategy validation, and verbal speech-to-trade interaction.",
-    overview: "Translates plain English queries into structured market screening parameters, options trade setups, and database searches. Includes a voice recognition engine allowing verbal order previews and spoken trade confirmations.",
-    apiEndpoint: "POST /api/trading/options/nlq · POST /api/chat",
-    targetTab: "chat",
-    steps: [
-      {
-        step: "Step 1",
-        title: "Natural Language Input",
-        description: "User types or speaks a query: 'Find me bullish options on NVDA with max loss under $30' or 'Screen oversold tech stocks'.",
-      },
-      {
-        step: "Step 2",
-        title: "Intent Parsing & Routing",
-        description: "The Multi-Agent Orchestrator classifies intent, extracts symbol, risk caps, expiration targets, and maps to the appropriate tool command.",
-      },
-      {
-        step: "Step 3",
-        title: "LLM Strategy Validation",
-        description: "Validates candidate strategies against current macroeconomic factors and historical volatility using Cloudflare Workers AI.",
-      },
-      {
-        step: "Step 4",
-        title: "Interactive Card & Spoken Confirmation",
-        description: "Renders an actionable visual trade card and speaks the confirmation aloud using browser speech synthesis.",
-      },
-    ],
-    keyFeatures: [
-      "Understands complex constraint prompts (budget limits, sentiment, DTE ranges, reward/risk).",
-      "Web Speech API integration for verbal voice trading and audible trade readouts.",
-      "Direct handoff from chat dialogue to E*TRADE order preview ticket.",
-      "Multi-turn agent memory maintaining conversational context across queries.",
-    ],
-    dataSources: [
-      "Cloudflare Workers AI LLM models (@cf/meta/llama-3.1-8b-instruct)",
-      "Web Speech API (SpeechRecognition & SpeechSynthesis)",
-      "Agent Context Memory & Vector Knowledge bases",
-    ],
-    faq: {
-      question: "What kind of options questions can the NLQ agent answer?",
-      answer: "The NLQ engine handles constraint screening ('maxloss <= 30', 'max return vs max chance'), strategy combinations ('butterflies and diagonals'), volatility scenarios ('post-earnings crush'), and portfolio questions.",
-    },
-    sampleQueryOrAction: "Find me combinations of options like butterflies and diagonals on TSLA",
-  },
-  {
-    id: "payments-mcp",
-    number: 8,
-    title: "x402 Micropayments, DIDs & Paid MCP Tools",
-    category: "payments",
-    categoryLabel: "Micropayments",
-    badge: "HTTP 402 · USDC Cryptographic",
+    id: "schedulers",
+    codeId: "E3",
+    number: 11,
+    track: "execution",
+    trackLabel: "Execution · Autonomous Daemon",
+    title: "Autonomous Background Cron, Interval Alarms & Token Lifecycle",
+    category: "scheduled",
+    categoryLabel: "Automation",
+    badge: "Cloudflare DO Alarms",
     badgeColor: "purple",
-    subtitle: "Autonomous agent micropayments, Decentralized Identifiers (DIDs), and pay-per-query Model Context Protocol tools.",
-    overview: "Implements the emerging HTTP 402 Payment Required web standard. Enables AI agents and human users to pay per query using decentralized USDC transfers with cryptographic DID signatures to unlock high-compute options scans and proprietary MCP tools.",
-    apiEndpoint: "POST /api/premium/options-scan · POST /api/mcp",
-    targetTab: "payments",
+    subtitle: "24/7 background automation: auto-renews E*TRADE OAuth access tokens daily at 23:00 ET, runs scans every 5 min, and broadcasts WebSocket alerts.",
+    overview: "24/7 background automation powered by Cloudflare Durable Object Alarms. Automatically renews E*TRADE OAuth access tokens daily at 23:00 ET before midnight expiration, triggers market screening scans every 5 minutes (300 seconds), processes queued async jobs, and broadcasts live alerts over WebSockets.",
+    apiEndpoint: "POST /api/schedules/trigger-renew · POST /api/schedules/trigger-screen",
+    targetTab: "trading",
+    keyParameters: "cron: '0 23 * * *' (renew), interval: 300s (screen), keepAliveWhile: active",
+    governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
         step: "Step 1",
-        title: "HTTP 402 Challenge",
-        description: "When an agent requests a premium computation, the server returns HTTP 402 Payment Required with an x402 payment challenge specifying exact amount and token.",
+        title: "Alarm Registration",
+        description: "Schedules recurring Durable Object alarms using schedule() and scheduleEvery() lifecycle methods.",
       },
       {
         step: "Step 2",
-        title: "Decentralized Settlement",
-        description: "The client or agent wallet submits a micro-transfer on the configured network (Base, Arbitrum, or Solana).",
+        title: "OAuth Token Renewal Daemon",
+        description: "Executes daily at 23:00 ET. Calls E*TRADE renew_access_token API to prevent session expiration at midnight.",
       },
       {
         step: "Step 3",
-        title: "Cryptographic DID Signature",
-        description: "A cryptographic proof and payment signature are generated tying the transaction hash to the requester's Decentralized Identifier (DID).",
+        title: "Autonomous Opportunity Scanner",
+        description: "Fires every 5 minutes. Evaluates symbol baskets, filters by composite score threshold, and flags breakout candidates.",
       },
       {
         step: "Step 4",
-        title: "Instant Verification & Service Fulfillment",
-        description: "The server verifies the on-chain receipt, fulfills the compute request, and issues the premium options scan results.",
+        title: "WebSocket Broadcast & Async Job Ledger",
+        description: "Pushes scan notifications over WebSockets and records execution results in mas_async_jobs.",
       },
     ],
     keyFeatures: [
-      "Standard-compliant HTTP 402 header exchange and automated retry loop.",
-      "Decentralized Identifiers (W3C DID standard) for autonomous agent identity.",
-      "Pay-per-query access to compute-heavy Model Context Protocol (MCP) tool endpoints.",
+      "Zero-downtime E*TRADE OAuth session maintenance without requiring re-login.",
+      "Unattended market scanning across customizable ticker baskets.",
+      "Fault-tolerant async job processing with automatic retry policies.",
+      "Live WebSocket notifications pushed directly to active client sessions.",
+    ],
+    dataSources: [
+      "E*TRADE OAuth Token Renewal (api.etrade.com/oauth/renew_access_token)",
+      "Cloudflare Durable Object Alarm Engine",
+      "Durable Async Job Ledger (mas_async_jobs)",
+    ],
+    faq: {
+      question: "What happens if the token renewal cron misses a cycle?",
+      answer: "The scheduler logs an audit alert and falls back to a 15-minute retry loop. If the token expires past midnight, the UI prompts for a fresh PIN handshake.",
+    },
+    sampleQueryOrAction: "Trigger manual token renewal and run autonomous options analysis",
+  },
+
+  {
+    id: "omnichannel-trading",
+    codeId: "E4",
+    number: 12,
+    track: "execution",
+    trackLabel: "Execution · Multi-Gateway",
+    title: "Omnichannel Execution & One-Click Approvals (Slack, Email, Voice)",
+    category: "brokerage",
+    categoryLabel: "Omnichannel",
+    badge: "Slack, Email & Voice",
+    badgeColor: "green",
+    subtitle: "Interact anywhere: Slack Block Kit buttons, inbound email with .xlsx workbooks, HMAC-signed 1-click mobile approval URLs, and duplex WebSockets.",
+    overview: "Multi-channel execution gateway allowing traders to interact with the platform from anywhere: Slack mentions with Block Kit visual cards, inbound email parsing with attached .xlsx workbooks, secure HMAC-signed 1-click mobile trade approval links (/trade/approve), and full-duplex WebRTC voice sessions.",
+    apiEndpoint: "POST /slack/events · GET /trade/approve · POST /api/trading/reports/email",
+    targetTab: "trading",
+    keyParameters: "hmacSignature: sha256, approvalTtl: 300s, voiceProtocol: audio/pcm",
+    governingDecisionRuleId: "additional-decisioning-gates",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Channel Ingestion",
+        description: "Ingests messages from Slack webhooks, Cloudflare Worker inbound email, or audio voice WebSockets.",
+      },
+      {
+        step: "Step 2",
+        title: "NLQ Intent Mapping",
+        description: "The shared NLQ planner parses trade parameters and formats structured visual cards.",
+      },
+      {
+        step: "Step 3",
+        title: "Cryptographic Approval Link",
+        description: "Generates tamper-proof HMAC-SHA256 one-click approval links (/trade/approve?orderId=...&sig=...).",
+      },
+      {
+        step: "Step 4",
+        title: "Omnichannel Execution & Receipt",
+        description: "User clicks approval link on mobile; broker executes order and dispatches confirmation back to the channel.",
+      },
+    ],
+    keyFeatures: [
+      "Slack Block Kit cards with interactive 'Approve Trade' buttons.",
+      "Email quantitative workbooks in native .xlsx format.",
+      "HMAC-SHA256 signed one-click trade approval links with 5-minute expiry.",
+      "Real-time voice trading over full-duplex WebSocket audio sessions.",
+    ],
+    dataSources: [
+      "Slack Web API (chat.postMessage)",
+      "Cloudflare EMAIL Worker Binding",
+      "Outbound HMAC-SHA256 Webhooks (OUTBOUND_WEBHOOK_URL)",
+    ],
+    faq: {
+      question: "How are one-click trade approval links secured against replay attacks?",
+      answer: "Each approval link is signed with an HMAC-SHA256 secret, contains a unique order draft nonce, and strictly expires after 300 seconds (5 minutes).",
+    },
+    sampleQueryOrAction: "Dispatch trade report with .xlsx attachment to analyst@example.com",
+  },
+
+  {
+    id: "micropayments",
+    codeId: "E5",
+    number: 13,
+    track: "execution",
+    trackLabel: "Execution · Settlement",
+    title: "Agentic Micropayments, Gateways & x402 Protocol Settlement",
+    category: "payments",
+    categoryLabel: "Payments",
+    badge: "HTTP 402 & Gateways",
+    badgeColor: "orange",
+    subtitle: "Payment intent drafting across Stripe, PayPal, Lemon Squeezy, plus HTTP 402 pay-per-query access to compute-heavy MCP tools with on-chain receipts.",
+    overview: "Multi-processor payment intent drafting and execution with human confirmation across traditional gateways (Stripe, PayPal, Lemon Squeezy) and next-generation HTTP 402 (x402) pay-per-use micropayments. Enables external MCP clients to access premium scanning tools by paying $0.05 USDC per query with verifiable cryptographic receipts.",
+    apiEndpoint: "POST /api/payments/create · POST /mcp/scanner (x402)",
+    targetTab: "payments",
+    keyParameters: "amount: $0.05 USDC, protocol: x402, chains: Base|Ethereum|Solana",
+    governingDecisionRuleId: "additional-decisioning-gates",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Payment Intent Drafting",
+        description: "Agent creates draft payment intent with amount, currency, and recipient. Never executes without human confirmation.",
+      },
+      {
+        step: "Step 2",
+        title: "x402 Challenge Generation",
+        description: "For MCP tools, responds with HTTP 402 Payment Required containing destination wallet address and price.",
+      },
+      {
+        step: "Step 3",
+        title: "Cryptographic Proof Verification",
+        description: "x402Verifier verifies transaction signature on Base, Ethereum, or Solana blockchains.",
+      },
+      {
+        step: "Step 4",
+        title: "Resource Settlement & Ledgering",
+        description: "Grants access to premium query and writes receipt to immutable payment ledger.",
+      },
+    ],
+    keyFeatures: [
+      "Traditional payment gateway integration: Stripe, PayPal, Lemon Squeezy.",
+      "HTTP 402 pay-per-query access to compute-heavy Model Context Protocol (MCP) tools.",
       "Cryptographic ledger recording receipts and verifiable payment proofs.",
+      "Human confirmation required for all outgoing payment drafts.",
     ],
     dataSources: [
       "x402 Payment Protocol & Challenge Verifier Service",
@@ -506,10 +839,67 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "W3C Decentralized Identifier (DID) cryptographic registries",
     ],
     faq: {
-      question: "Can I use the platform without paying crypto micropayments?",
-      answer: "Yes. All standard screening, options discovery, research, and brokerage features include free tiers. The x402 protocol is reserved for premium heavy compute and paid external MCP tools.",
+      question: "Can I use the platform without crypto micropayments?",
+      answer: "Yes. All standard screening, options discovery, research, and brokerage features include free tiers. The x402 protocol is reserved for premium external MCP tool calls.",
     },
     sampleQueryOrAction: "View active DID credentials and test HTTP 402 payment challenge",
+  },
+
+  {
+    id: "observability-audit",
+    codeId: "E6",
+    number: 14,
+    track: "execution",
+    trackLabel: "Execution · Immutable Ledger",
+    title: "Enterprise Observability & Cryptographic Audit Ledger Execution",
+    category: "audit",
+    categoryLabel: "Audit & Telemetry",
+    badge: "Cryptographic WAL",
+    badgeColor: "cyan",
+    subtitle: "Records immutable audit events for every system action, judge evaluation, payment lifecycle transition, order preview, and execution to SQLite WAL.",
+    overview: "Records immutable audit events for every system action: routing decisions, judge evaluations, payment lifecycle transitions, order previews, and executions. Publishes events to the SQLite event store and streams telemetry to external observability collectors.",
+    apiEndpoint: "GET /api/audit · POST /api/audit/event",
+    targetTab: "audit",
+    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: 90d",
+    governingDecisionRuleId: "additional-decisioning-gates",
+    steps: [
+      {
+        step: "Step 1",
+        title: "Event Interception",
+        description: "Aspect-oriented logging aspects intercept function execution, recording timing, inputs, and outcomes.",
+      },
+      {
+        step: "Step 2",
+        title: "Cryptographic Hash Chaining",
+        description: "Each event is hashed with SHA-256 and chained to previous event hashes to guarantee immutability.",
+      },
+      {
+        step: "Step 3",
+        title: "SQLite WAL Commitment",
+        description: "Writes event records to mas_events transactional table in Durable Object SQLite storage.",
+      },
+      {
+        step: "Step 4",
+        title: "Telemetry Stream & UI Ledger",
+        description: "Streams events to UI audit viewer and external log telemetry endpoints in real time.",
+      },
+    ],
+    keyFeatures: [
+      "Cryptographically verifiable audit log of all agent routing decisions and order previews.",
+      "Aspect-oriented error logging with externalized error codes and remediation guides.",
+      "Real-time event streaming over WebSockets to client UI.",
+      "Zero data loss with Durable Object SQLite Write-Ahead Logging (WAL).",
+    ],
+    dataSources: [
+      "SQLite Transactional WAL Store (mas_events)",
+      "Cloudflare Workers Telemetry & Metrics",
+      "Aspect-Oriented Logging Engine (src/aspects/loggingAspect.ts)",
+    ],
+    faq: {
+      question: "Are audit events preserved if the browser disconnects?",
+      answer: "Yes. All audit events are stored persistently in the server-side Cloudflare Durable Object SQLite database and survive browser reloads.",
+    },
+    sampleQueryOrAction: "Inspect recent audit logs for order preview and judge routing events",
   },
 ];
 
@@ -519,7 +909,11 @@ export interface WorkflowsHubProps {
 }
 
 export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps) {
-  const [activeTab, setActiveTab] = useState<"workflows" | "faq" | "improvements" | "decisioning">("faq");
+  // Primary Navigation
+  const [activeTab, setActiveTab] = useState<"faq" | "workflows" | "decisioning" | "matrix" | "improvements">("faq");
+
+  // Workflows Tab State
+  const [trackFilter, setTrackFilter] = useState<"all" | "analysis" | "execution">("all");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string>("stock-screener");
@@ -533,15 +927,21 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
   const [decisioningSearchQuery, setDecisioningSearchQuery] = useState<string>("");
   const [expandedDecisioningId, setExpandedDecisioningId] = useState<string>("stock-screener-logic");
 
+  // Capability Matrix Search
+  const [matrixSearchQuery, setMatrixSearchQuery] = useState<string>("");
+
   const categories = [
-    { id: "all", label: "All Workflows (8)" },
-    { id: "stocks", label: "📈 Stock Screener" },
-    { id: "options", label: "🎯 Options Research" },
-    { id: "flows", label: "🌊 Options Flows" },
-    { id: "brokerage", label: "🤖 Agentic Brokerage" },
-    { id: "scheduled", label: "⏰ Schedulers" },
-    { id: "nlq", label: "💬 NLQ & Voice" },
-    { id: "payments", label: "💳 Micropayments" },
+    { id: "all", label: "All Categories" },
+    { id: "stocks", label: "📈 Equities" },
+    { id: "options", label: "🎯 Options" },
+    { id: "flows", label: "🌊 Market Flows" },
+    { id: "risk", label: "🛡️ Risk & Hedging" },
+    { id: "research", label: "🔬 FOSS Research" },
+    { id: "brokerage", label: "🤖 Brokerage" },
+    { id: "scheduled", label: "⏰ Automation" },
+    { id: "nlq", label: "💬 NLQ & Chat" },
+    { id: "payments", label: "💳 Payments" },
+    { id: "audit", label: "📋 Audit" },
   ];
 
   const faqCategories = [
@@ -558,21 +958,24 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
   const filteredWorkflows = useMemo(() => {
     return PLATFORM_WORKFLOWS.filter((wf) => {
+      const matchesTrack = trackFilter === "all" || wf.track === trackFilter;
       const matchesCategory = selectedCategory === "all" || wf.category === selectedCategory;
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
+        wf.codeId.toLowerCase().includes(q) ||
         wf.title.toLowerCase().includes(q) ||
         wf.subtitle.toLowerCase().includes(q) ||
         wf.overview.toLowerCase().includes(q) ||
+        (wf.keyParameters && wf.keyParameters.toLowerCase().includes(q)) ||
         wf.keyFeatures.some((f) => f.toLowerCase().includes(q)) ||
         wf.steps.some((s) => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)) ||
         wf.faq.question.toLowerCase().includes(q) ||
         wf.faq.answer.toLowerCase().includes(q);
 
-      return matchesCategory && matchesSearch;
+      return matchesTrack && matchesCategory && matchesSearch;
     });
-  }, [selectedCategory, searchQuery]);
+  }, [trackFilter, selectedCategory, searchQuery]);
 
   const filteredFaqs = useMemo(() => {
     return FAQ_QUESTIONS.filter((faq) => {
@@ -582,25 +985,15 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
         !q ||
         faq.question.toLowerCase().includes(q) ||
         faq.summary.toLowerCase().includes(q) ||
+        (faq.quickTakeaway && faq.quickTakeaway.toLowerCase().includes(q)) ||
         faq.theoreticalContext.toLowerCase().includes(q) ||
         faq.keyParameters.toLowerCase().includes(q) ||
+        (faq.parameterBadges && faq.parameterBadges.some((p) => p.label.toLowerCase().includes(q) || p.value.toLowerCase().includes(q))) ||
         faq.methods.some((m) => m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q));
 
       return matchesCategory && matchesSearch;
     });
   }, [faqCategory, faqSearchQuery]);
-
-  const toggleExpand = (id: string) => {
-    setExpandedId((prev) => (prev === id ? "" : id));
-  };
-
-  const toggleExpandFaq = (id: string) => {
-    setExpandedFaqId((prev) => (prev === id ? "" : id));
-  };
-
-  const toggleExpandDecisioning = (id: string) => {
-    setExpandedDecisioningId((prev) => (prev === id ? "" : id));
-  };
 
   const filteredDecisioning = useMemo(() => {
     return DECISIONING_SECTIONS.filter((sec) => {
@@ -610,6 +1003,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
         sec.title.toLowerCase().includes(q) ||
         sec.subtitle.toLowerCase().includes(q) ||
         sec.overview.toLowerCase().includes(q) ||
+        (sec.governedWorkflows && sec.governedWorkflows.some((gw) => gw.toLowerCase().includes(q))) ||
         sec.rules.some(
           (r) =>
             r.name.toLowerCase().includes(q) ||
@@ -623,6 +1017,36 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
     });
   }, [decisioningSearchQuery]);
 
+  const filteredMatrix = useMemo(() => {
+    const q = matrixSearchQuery.toLowerCase().trim();
+    if (!q) return CAPABILITY_MATRIX;
+    return CAPABILITY_MATRIX.filter(
+      (row) =>
+        row.question.toLowerCase().includes(q) ||
+        row.primaryWorkflow.toLowerCase().includes(q) ||
+        row.secondaryWorkflow.toLowerCase().includes(q) ||
+        row.keyInputParameter.toLowerCase().includes(q) ||
+        row.optimalOutputStructure.toLowerCase().includes(q)
+    );
+  }, [matrixSearchQuery]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedId((prev) => (prev === id ? "" : id));
+  };
+
+  const toggleExpandFaq = (id: string) => {
+    setExpandedFaqId((prev) => (prev === id ? "" : id));
+  };
+
+  const toggleExpandDecisioning = (id: string) => {
+    setExpandedDecisioningId((prev) => (prev === id ? "" : id));
+  };
+
+  const jumpToDecisionRule = (ruleId: string) => {
+    setActiveTab("decisioning");
+    setExpandedDecisioningId(ruleId);
+  };
+
   return (
     <div className="workflows-hub-container">
       {/* Hero Header */}
@@ -631,9 +1055,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           <div className="workflows-hero-title-group">
             <div className="workflows-hero-icon">🧭</div>
             <div>
-              <h1 className="workflows-hero-title">Platform Workflows, Playbooks &amp; Solutions FAQ</h1>
+              <h1 className="workflows-hero-title">Platform Workflows, Playbooks &amp; Solutions Hub</h1>
               <p className="workflows-hero-subtitle">
-                Complete architectural documentation, step-by-step pipeline workflows, solutions to the 8 core quantitative scenarios, and architectural optimization proposals.
+                Authoritative architectural specification of all 14 operational workflows (8 Analysis · 6 Execution), step-by-step playbooks for the 8 core quantitative scenarios, algorithmic decision rules, and capability lookup matrix.
               </p>
             </div>
           </div>
@@ -644,23 +1068,23 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
       <div className="workflows-stats-bar">
         <div className="workflows-stat-card">
           <span className="workflows-stat-label">Core Workflows</span>
-          <span className="workflows-stat-value">8 End-to-End</span>
-          <span className="workflows-stat-desc">Stocks, Strategy Discovery, Raw Screener, Flows, Brokerage, Timers, NLQ, x402</span>
+          <span className="workflows-stat-value">14 End-to-End</span>
+          <span className="workflows-stat-desc">8 Analysis (A1–A8) · 6 Execution (E1–E6)</span>
         </div>
         <div className="workflows-stat-card">
-          <span className="workflows-stat-label">Core Scenarios (FAQs)</span>
-          <span className="workflows-stat-value">8 Quantitative Guides</span>
-          <span className="workflows-stat-desc">24 Step-by-Step Execution Methods with mathematical models</span>
+          <span className="workflows-stat-label">Quantitative Playbooks</span>
+          <span className="workflows-stat-value">8 Scenarios</span>
+          <span className="workflows-stat-desc">24 Step-by-Step Multi-Path Solutions</span>
         </div>
         <div className="workflows-stat-card">
-          <span className="workflows-stat-label">Strategy Library</span>
-          <span className="workflows-stat-value">72 Pre-Built Setups</span>
-          <span className="workflows-stat-desc">Butterflies, Diagonals, Condors, Vertical Spreads, and Collars</span>
+          <span className="workflows-stat-label">Decisioning Engines</span>
+          <span className="workflows-stat-value">6 Deterministic Models</span>
+          <span className="workflows-stat-desc">Mathematical formulations &amp; 15 rejection gates</span>
         </div>
         <div className="workflows-stat-card">
-          <span className="workflows-stat-label">Safety &amp; Compliance</span>
+          <span className="workflows-stat-label">Execution Guardrails</span>
           <span className="workflows-stat-value">100% HITL Safe</span>
-          <span className="workflows-stat-desc">Aspect-Oriented guards prevent unverified execution</span>
+          <span className="workflows-stat-desc">W3C DID attestation &amp; mandatory confirmation</span>
         </div>
       </div>
 
@@ -671,32 +1095,39 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           className={`workflows-nav-tab ${activeTab === "faq" ? "active" : ""}`}
           onClick={() => setActiveTab("faq")}
         >
-          ❓ Questions, FAQs &amp; Solutions (8 Core Scenarios)
+          💡 Quantitative Playbooks (8 Core FAQs)
         </button>
         <button
           type="button"
           className={`workflows-nav-tab ${activeTab === "workflows" ? "active" : ""}`}
           onClick={() => setActiveTab("workflows")}
         >
-          🧭 Platform Workflows (8)
-        </button>
-        <button
-          type="button"
-          className={`workflows-nav-tab ${activeTab === "improvements" ? "active" : ""}`}
-          onClick={() => setActiveTab("improvements")}
-        >
-          🚀 Workflow Improvements &amp; Analysis
+          🧭 Platform Workflows (14 Track A &amp; E)
         </button>
         <button
           type="button"
           className={`workflows-nav-tab ${activeTab === "decisioning" ? "active" : ""}`}
           onClick={() => setActiveTab("decisioning")}
         >
-          📐 Search, Selection &amp; Ranking Decision Logic (6)
+          ⚖️ Algorithmic Decisioning Rules (6 Engines)
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "matrix" ? "active" : ""}`}
+          onClick={() => setActiveTab("matrix")}
+        >
+          📋 Capability &amp; Lookup Matrix
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "improvements" ? "active" : ""}`}
+          onClick={() => setActiveTab("improvements")}
+        >
+          🚀 Optimization Roadmap (6 Enhancements)
         </button>
       </div>
 
-      {/* VIEW 1: QUESTIONS, FAQS & SOLUTIONS (THE 8 CORE QUESTIONS) */}
+      {/* VIEW 1: QUANTITATIVE PLAYBOOKS & FAQS (THE 8 CORE QUESTIONS) */}
       {activeTab === "faq" && (
         <div className="faq-section-container" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           {/* FAQ Search & Category Filter */}
@@ -706,7 +1137,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
               <input
                 type="text"
                 className="workflows-search-input"
-                placeholder="Search questions, mathematical formulas, execution methods, or tickers…"
+                placeholder="Search scenarios, parameters, execution methods, formulas, or tickers…"
                 value={faqSearchQuery}
                 onChange={(e) => setFaqSearchQuery(e.target.value)}
               />
@@ -751,25 +1182,37 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                   {isOpen && (
                     <div className="faq-card-body">
-                      {/* Theoretical & Mathematical Formulation Box */}
-                      <div className="faq-theory-box">
-                        <div className="faq-theory-title">
-                          <span>📐</span> Quantitative Theory &amp; Mathematical Formulation
+                      {/* Quick Takeaway Banner */}
+                      {faq.quickTakeaway && (
+                        <div className="faq-quick-takeaway">
+                          <span className="faq-quick-takeaway-label">
+                            <span>⚡</span> Quick Solution &amp; Recommended Action (TL;DR)
+                          </span>
+                          <span className="faq-quick-takeaway-text">{faq.quickTakeaway}</span>
                         </div>
-                        <div className="faq-theory-content">
-                          {faq.theoreticalContext}
-                        </div>
-                        {faq.mathematicalBasis && (
-                          <div className="faq-formula-badge">
-                            Formula: {faq.mathematicalBasis}
+                      )}
+
+                      {/* Key Parameter Badges Row */}
+                      {faq.parameterBadges && faq.parameterBadges.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                          <span style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", fontWeight: 700 }}>
+                            ⚙️ Key Input Parameters &amp; Filter Settings
+                          </span>
+                          <div className="faq-param-badges">
+                            {faq.parameterBadges.map((badge, bIdx) => (
+                              <div key={bIdx} className="faq-param-badge" title={badge.hint}>
+                                <span className="faq-param-badge-label">{badge.label}:</span>
+                                <span className="faq-param-badge-val">{badge.value}</span>
+                              </div>
+                            ))}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       {/* 3 Distinct Execution Methods */}
                       <div>
                         <h4 style={{ fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#38bdf8", margin: "0 0 0.75rem 0" }}>
-                          ⚡ Multi-Method Platform Solutions (3 Execution Paths)
+                          🚀 Multi-Method Execution Paths (3 Ways to Run)
                         </h4>
                         <div className="faq-methods-grid">
                           {faq.methods.map((method, mIdx) => (
@@ -792,6 +1235,28 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                                   {method.samplePayloadOrCommand}
                                 </div>
                               )}
+                              <div style={{ marginTop: "auto", paddingTop: "0.5rem", display: "flex", gap: "0.4rem" }}>
+                                {method.targetTab && onNavigateTab && method.targetTab !== "chat" && (
+                                  <button
+                                    type="button"
+                                    className="workflow-cta-btn"
+                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem" }}
+                                    onClick={() => onNavigateTab(method.targetTab!)}
+                                  >
+                                    Open Tab →
+                                  </button>
+                                )}
+                                {onSendPrompt && (
+                                  <button
+                                    type="button"
+                                    className="workflow-cta-btn"
+                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem", background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                                    onClick={() => onSendPrompt(method.samplePayloadOrCommand || faq.samplePrompt, faq.question)}
+                                  >
+                                    Ask Agent 💬
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -801,20 +1266,44 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                       <div style={{ background: "rgba(15, 23, 42, 0.7)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px", padding: "0.85rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
                         <div>
                           <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
-                            🎯 Optimal Output Structure
+                            🎯 Expected Visual Output Structure
                           </div>
                           <div style={{ fontSize: "0.85rem", color: "#f8fafc", marginTop: "0.2rem" }}>
                             {faq.optimalOutputStructure}
                           </div>
                         </div>
-                        <div style={{ fontSize: "0.78rem", color: "#38bdf8", fontFamily: "monospace", background: "rgba(0,0,0,0.3)", padding: "0.3rem 0.6rem", borderRadius: "4px" }}>
-                          Key Parameters: {faq.keyParameters}
-                        </div>
+                        {faq.relatedDecisionRuleId && (
+                          <button
+                            type="button"
+                            className="workflow-rule-link"
+                            onClick={() => jumpToDecisionRule(faq.relatedDecisionRuleId!)}
+                          >
+                            <span>⚖️</span> View Governing Decision Rule →
+                          </button>
+                        )}
                       </div>
+
+                      {/* Collapsible Theoretical & Mathematical Deep-Dive */}
+                      <details className="faq-theory-accordion">
+                        <summary className="faq-theory-summary">
+                          <span>📐 Quantitative Theory &amp; Mathematical Formulation (Expand / Collapse)</span>
+                          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>▼</span>
+                        </summary>
+                        <div className="faq-theory-inner">
+                          <div className="faq-theory-content">
+                            {faq.theoreticalContext}
+                          </div>
+                          {faq.mathematicalBasis && (
+                            <div className="faq-formula-badge">
+                              Exact Formula: {faq.mathematicalBasis}
+                            </div>
+                          )}
+                        </div>
+                      </details>
 
                       {/* Action Footer */}
                       <div className="workflow-action-footer">
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Primary Workflow:</span>
                           <span className="workflow-tag-badge green">{faq.primaryWorkflow}</span>
                           <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Secondary:</span>
@@ -855,69 +1344,48 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
               );
             })}
           </div>
-
-          {/* Capability vs Workflows Summary Matrix */}
-          <div className="faq-matrix-container">
-            <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "0.98rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span>📊</span> Capability Matrix: Question vs Primary Workflows
-            </h4>
-            <p style={{ margin: "0 0 1rem", color: "#94a3b8", fontSize: "0.82rem" }}>
-              Quick architectural reference showing which platform workflow is best suited to answer each question, key input parameters, and ideal visual output structures.
-            </p>
-            <div style={{ overflowX: "auto" }}>
-              <table className="faq-matrix-table">
-                <thead>
-                  <tr>
-                    <th>User Question / Scenario</th>
-                    <th>Primary Workflow</th>
-                    <th>Secondary Workflow</th>
-                    <th>Key Input Parameter</th>
-                    <th>Optimal Output Structure</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {CAPABILITY_MATRIX.map((row, rIdx) => (
-                    <tr key={rIdx}>
-                      <td style={{ fontWeight: 600, color: "#ffffff" }}>&ldquo;{row.question}&rdquo;</td>
-                      <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
-                      <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
-                      <td style={{ fontFamily: "monospace", color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
-                      <td style={{ color: "#cbd5e1" }}>{row.optimalOutputStructure}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="workflow-cta-btn"
-                          style={{ padding: "0.25rem 0.6rem", fontSize: "0.74rem" }}
-                          onClick={() => {
-                            if (onNavigateTab) {
-                              onNavigateTab(row.targetTab);
-                            }
-                          }}
-                        >
-                          Try →
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* VIEW 2: WORKFLOWS PLAYBOOK (THE 8 PLATFORM WORKFLOWS) */}
+      {/* VIEW 2: PLATFORM WORKFLOWS (ALL 14 ANALYSIS & EXECUTION WORKFLOWS) */}
       {activeTab === "workflows" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* Search & Filter Strip */}
+          {/* Track Filter Tabs */}
+          <div className="workflow-track-tabs">
+            <span style={{ fontSize: "0.8rem", color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
+              Operational Track:
+            </span>
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "all" ? "active" : ""}`}
+              onClick={() => setTrackFilter("all")}
+            >
+              All Workflows (14)
+            </button>
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "analysis" ? "active" : ""}`}
+              onClick={() => setTrackFilter("analysis")}
+            >
+              📊 Analysis Track (A1–A8)
+            </button>
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "execution" ? "active" : ""}`}
+              onClick={() => setTrackFilter("execution")}
+            >
+              ⚡ Execution Track (E1–E6)
+            </button>
+          </div>
+
+          {/* Search & Category Filter Strip */}
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
               <span className="workflows-search-icon">🔍</span>
               <input
                 type="text"
                 className="workflows-search-input"
-                placeholder="Search workflows, indicators, delay rules, APIs, or strategies…"
+                placeholder="Search workflows by code (A1..E6), name, APIs, endpoints, or parameters…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -947,10 +1415,13 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                   {/* Card Header (Click to toggle) */}
                   <div className="workflow-card-header" onClick={() => toggleExpand(wf.id)}>
                     <div className="workflow-header-left">
-                      <div className="workflow-number-badge">0{wf.number}</div>
+                      <div className={`workflow-code-badge ${wf.track}`}>
+                        {wf.codeId}
+                      </div>
                       <div className="workflow-header-titles">
                         <h3 className="workflow-title">
                           {wf.title}
+                          <span className={`workflow-track-pill ${wf.track}`}>{wf.trackLabel}</span>
                           <span className={`workflow-tag-badge ${wf.badgeColor}`}>{wf.badge}</span>
                         </h3>
                         <p className="workflow-subtitle">{wf.subtitle}</p>
@@ -965,9 +1436,28 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                   {/* Card Body (Expanded view) */}
                   {isOpen && (
                     <div className="workflow-card-body">
+                      {/* Overview text */}
                       <p style={{ fontSize: "0.86rem", color: "#cbd5e1", lineHeight: 1.5, margin: 0 }}>
                         {wf.overview}
                       </p>
+
+                      {/* Key Parameters Banner */}
+                      {wf.keyParameters && (
+                        <div style={{ background: "rgba(15, 23, 42, 0.75)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "6px", padding: "0.6rem 0.9rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                          <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                            ⚙️ <strong style={{ color: "#38bdf8" }}>Primary Parameters:</strong> <code style={{ color: "#f8fafc" }}>{wf.keyParameters}</code>
+                          </span>
+                          {wf.governingDecisionRuleId && (
+                            <button
+                              type="button"
+                              className="workflow-rule-link"
+                              onClick={() => jumpToDecisionRule(wf.governingDecisionRuleId!)}
+                            >
+                              <span>⚖️</span> Governing Decision Rule →
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                       {/* Flowchart Timeline */}
                       <div>
@@ -1018,7 +1508,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Upstream APIs & Cloudflare Metrics Breakdown */}
                       {wf.apiMetrics && wf.apiMetrics.length > 0 && (
-                        <div className="workflow-api-metrics-panel" style={{ marginTop: "1rem", background: "rgba(15, 23, 42, 0.75)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "8px", padding: "1rem" }}>
+                        <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "rgba(15, 23, 42, 0.75)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "8px", padding: "1rem" }}>
                           <h5 style={{ margin: "0 0 0.75rem", color: "#38bdf8", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                             <span>📊</span> Upstream Subrequests &amp; Cloudflare Worker API Metrics
                           </h5>
@@ -1102,135 +1592,23 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
             {filteredWorkflows.length === 0 && (
               <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#64748b" }}>
                 <p style={{ fontSize: "1.2rem", margin: "0 0 0.5rem 0" }}>🔍 No workflows match your search query.</p>
-                <p style={{ fontSize: "0.85rem", margin: 0 }}>Try clearing filters or search for terms like &quot;options&quot;, &quot;screener&quot;, &quot;hitl&quot;, or &quot;nasdaq&quot;.</p>
+                <p style={{ fontSize: "0.85rem", margin: 0 }}>Try clearing filters or search for terms like &quot;A1&quot;, &quot;E1&quot;, &quot;options&quot;, &quot;screener&quot;, &quot;hitl&quot;, or &quot;nasdaq&quot;.</p>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* VIEW 3: WORKFLOW IMPROVEMENTS & ARCHITECTURAL ANALYSIS */}
-      {activeTab === "improvements" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* Architectural Analysis Hero Note */}
-          <div style={{ background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
-            <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "1.05rem" }}>
-              🏗️ Architectural Optimization Analysis (Pure Analysis — No Implementation)
-            </h4>
-            <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.86rem", lineHeight: 1.55 }}>
-              To elevate the platform from a single-symbol screener to an institutional-grade algorithmic execution system that answers complex multi-constraint questions optimally, the following 6 architectural enhancements have been formulated. These recommendations analyze cross-sectional batching, Pareto multi-objective optimization, declarative constraint solvers, and volatility surface modeling.
-            </p>
-          </div>
-
-          {/* Styled Architecture Flowchart Diagram */}
-          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              📐 System Optimization Flowchart
-            </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", padding: "0.5rem 0" }}>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
-                1. Natural Language / Multi-Constraint Query
-              </div>
-              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
-                2. Cross-Sectional Constraint Compiler
-              </div>
-              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
-                3. High-Performance Pricing &amp; SVI Vol Engine
-              </div>
-              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
-                4. Multi-Objective Pareto Frontier Solver
-              </div>
-              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(2, 132, 199, 0.3)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid #38bdf8", fontSize: "0.8rem", color: "#38bdf8", fontWeight: 700 }}>
-                5. Interactive 2D Payoff &amp; Order Staging
-              </div>
-            </div>
-          </div>
-
-          {/* The 6 Improvement Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.25rem" }}>
-            {WORKFLOW_IMPROVEMENTS.map((imp) => (
-              <div key={imp.id} className="improvement-card">
-                <div className="improvement-header">
-                  <div className="improvement-title">
-                    <span className="improvement-num">0{imp.number}</span>
-                    <span>{imp.title}</span>
-                  </div>
-                </div>
-
-                <div className="improvement-block">
-                  <span className="improvement-block-label limitation">⚠️ Current System Limitation:</span>
-                  <p className="improvement-block-desc">{imp.currentLimitation}</p>
-                </div>
-
-                <div className="improvement-block">
-                  <span className="improvement-block-label enhancement">💡 Proposed Architectural Enhancement:</span>
-                  <p className="improvement-block-desc">{imp.proposedEnhancement}</p>
-                </div>
-
-                <div className="improvement-block">
-                  <span className="improvement-block-label impact">🚀 Expected Impact:</span>
-                  <p className="improvement-block-desc" style={{ color: "#4ade80" }}>{imp.impact}</p>
-                </div>
-
-                <div style={{ marginTop: "0.35rem", display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>Target Components:</span>
-                  {imp.targetComponents.map((comp, cIdx) => (
-                    <span key={cIdx} style={{ fontSize: "0.72rem", fontFamily: "monospace", background: "rgba(0,0,0,0.3)", color: "#38bdf8", padding: "0.15rem 0.4rem", borderRadius: "4px" }}>
-                      {comp}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Capability Matrix in Improvements View too */}
-          <div className="faq-matrix-container">
-            <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "0.98rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span>📊</span> Optimization Mapping: Questions vs Workflows
-            </h4>
-            <div style={{ overflowX: "auto" }}>
-              <table className="faq-matrix-table">
-                <thead>
-                  <tr>
-                    <th>User Question / Scenario</th>
-                    <th>Primary Workflow</th>
-                    <th>Secondary Workflow</th>
-                    <th>Key Input Parameter</th>
-                    <th>Optimal Output Structure</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {CAPABILITY_MATRIX.map((row, rIdx) => (
-                    <tr key={rIdx}>
-                      <td style={{ fontWeight: 600, color: "#ffffff" }}>&ldquo;{row.question}&rdquo;</td>
-                      <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
-                      <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
-                      <td style={{ fontFamily: "monospace", color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
-                      <td style={{ color: "#cbd5e1" }}>{row.optimalOutputStructure}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW 4: SEARCH, SELECTION & RANKING DECISION LOGIC */}
+      {/* VIEW 3: ALGORITHMIC DECISIONING RULES (6 ENGINES) */}
       {activeTab === "decisioning" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           {/* Decisioning Hero Note */}
           <div style={{ background: "rgba(6, 182, 212, 0.08)", border: "1px solid rgba(6, 182, 212, 0.3)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "#22d3ee", fontSize: "1.05rem" }}>
-              📐 Deterministic Decision Logic, Scoring Equations &amp; Selection Gates
+              📐 Deterministic Decision Logic, Scoring Equations &amp; Selection Gates (6 Engines)
             </h4>
             <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.86rem", lineHeight: 1.55 }}>
-              Comprehensive documentation of the mathematical formulas, boundary constraints, sorting comparators, and automated safety gates powering the Options Screener, Strategy Engine, Recommendation Agent (<code>pickBestTrades</code>), and live Brokerage Handshake.
+              Comprehensive documentation of the mathematical formulas, boundary constraints, sorting comparators, and automated safety gates powering the Stock Screener (A1), Options Screener (A3), Strategy Engine (A2), Recommendation Agent (<code>pickBestTrades</code>), and live Brokerage Handshake (E1).
             </p>
           </div>
 
@@ -1263,6 +1641,11 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                         <h3 className="workflow-title">
                           {sec.title}
                           <span className={`workflow-tag-badge ${sec.badgeColor}`}>{sec.badge}</span>
+                          {sec.governedWorkflows && (
+                            <span style={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#22d3ee", background: "rgba(6, 182, 212, 0.15)", padding: "0.15rem 0.45rem", borderRadius: "4px" }}>
+                              Governs: {sec.governedWorkflows.join(", ")}
+                            </span>
+                          )}
                         </h3>
                         <p className="workflow-subtitle">{sec.subtitle}</p>
                       </div>
@@ -1389,13 +1772,159 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
 
-            {filteredDecisioning.length === 0 && (
-              <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#64748b" }}>
-                <p style={{ fontSize: "1.2rem", margin: "0 0 0.5rem 0" }}>🔍 No decision logic matches your search query.</p>
-                <p style={{ fontSize: "0.85rem", margin: 0 }}>Try clearing filters or search for terms like &quot;screener&quot;, &quot;scoring&quot;, &quot;pickbesttrades&quot;, or &quot;weights&quot;.</p>
+      {/* VIEW 4: CAPABILITY & LOOKUP MATRIX */}
+      {activeTab === "matrix" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Matrix Header Callout */}
+          <div style={{ background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+            <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "1.05rem" }}>
+              📊 Interactive Capability &amp; Lookup Matrix
+            </h4>
+            <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.86rem", lineHeight: 1.55 }}>
+              Quick architectural reference showing which platform workflow is best suited to answer each question, key input parameters, and ideal visual output structures. Click &quot;Try Now&quot; to jump directly into the target platform tab.
+            </p>
+          </div>
+
+          {/* Matrix Search */}
+          <div className="workflows-filter-strip">
+            <div className="workflows-search-box">
+              <span className="workflows-search-icon">🔍</span>
+              <input
+                type="text"
+                className="workflows-search-input"
+                placeholder="Search capability matrix by question, workflow, or parameter…"
+                value={matrixSearchQuery}
+                onChange={(e) => setMatrixSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Matrix Table */}
+          <div className="faq-matrix-container" style={{ marginTop: 0 }}>
+            <div style={{ overflowX: "auto" }}>
+              <table className="faq-matrix-table">
+                <thead>
+                  <tr>
+                    <th>User Question / Scenario</th>
+                    <th>Primary Workflow</th>
+                    <th>Secondary Workflow</th>
+                    <th>Key Input Parameter</th>
+                    <th>Optimal Output Structure</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMatrix.map((row, rIdx) => (
+                    <tr key={rIdx}>
+                      <td style={{ fontWeight: 600, color: "#ffffff" }}>&ldquo;{row.question}&rdquo;</td>
+                      <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
+                      <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
+                      <td style={{ fontFamily: "monospace", color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
+                      <td style={{ color: "#cbd5e1" }}>{row.optimalOutputStructure}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="workflow-cta-btn"
+                          style={{ padding: "0.25rem 0.6rem", fontSize: "0.74rem" }}
+                          onClick={() => {
+                            if (onNavigateTab) {
+                              onNavigateTab(row.targetTab);
+                            }
+                          }}
+                        >
+                          Try Now →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 5: WORKFLOW IMPROVEMENTS & ARCHITECTURAL ROADMAP */}
+      {activeTab === "improvements" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Architectural Analysis Hero Note */}
+          <div style={{ background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+            <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "1.05rem" }}>
+              🏗️ Architectural Optimization Roadmap (Pure Analysis &amp; Design)
+            </h4>
+            <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.86rem", lineHeight: 1.55 }}>
+              To elevate the platform from a single-symbol screener to an institutional-grade algorithmic execution system that answers complex multi-constraint questions optimally, the following 6 architectural enhancements have been formulated. These recommendations analyze cross-sectional batching, Pareto multi-objective optimization, declarative constraint solvers, and volatility surface modeling.
+            </p>
+          </div>
+
+          {/* Styled Architecture Flowchart Diagram */}
+          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              📐 System Optimization Flowchart
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", padding: "0.5rem 0" }}>
+              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+                1. Natural Language / Multi-Constraint Query
               </div>
-            )}
+              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
+              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+                2. Cross-Sectional Constraint Compiler
+              </div>
+              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
+              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+                3. High-Performance Pricing &amp; SVI Vol Engine
+              </div>
+              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
+              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+                4. Multi-Objective Pareto Frontier Solver
+              </div>
+              <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
+              <div style={{ background: "rgba(2, 132, 199, 0.3)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid #38bdf8", fontSize: "0.8rem", color: "#38bdf8", fontWeight: 700 }}>
+                5. Interactive 2D Payoff &amp; Order Staging
+              </div>
+            </div>
+          </div>
+
+          {/* The 6 Improvement Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.25rem" }}>
+            {WORKFLOW_IMPROVEMENTS.map((imp) => (
+              <div key={imp.id} className="improvement-card">
+                <div className="improvement-header">
+                  <div className="improvement-title">
+                    <span className="improvement-num">0{imp.number}</span>
+                    <span>{imp.title}</span>
+                  </div>
+                </div>
+
+                <div className="improvement-block">
+                  <span className="improvement-block-label limitation">⚠️ Current System Limitation:</span>
+                  <p className="improvement-block-desc">{imp.currentLimitation}</p>
+                </div>
+
+                <div className="improvement-block">
+                  <span className="improvement-block-label enhancement">💡 Proposed Architectural Enhancement:</span>
+                  <p className="improvement-block-desc">{imp.proposedEnhancement}</p>
+                </div>
+
+                <div className="improvement-block">
+                  <span className="improvement-block-label impact">🚀 Expected Impact:</span>
+                  <p className="improvement-block-desc" style={{ color: "#4ade80" }}>{imp.impact}</p>
+                </div>
+
+                <div style={{ marginTop: "0.35rem", display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>Target Components:</span>
+                  {imp.targetComponents.map((comp, cIdx) => (
+                    <span key={cIdx} style={{ fontSize: "0.72rem", fontFamily: "monospace", background: "rgba(0,0,0,0.3)", color: "#38bdf8", padding: "0.15rem 0.4rem", borderRadius: "4px" }}>
+                      {comp}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

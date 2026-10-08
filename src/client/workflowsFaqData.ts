@@ -8,6 +8,12 @@ export interface FaqExecutionMethod {
   targetTab?: string;
 }
 
+export interface ParameterBadge {
+  label: string;
+  value: string;
+  hint?: string;
+}
+
 export interface FaqQuestionItem {
   id: string;
   number: number;
@@ -15,6 +21,9 @@ export interface FaqQuestionItem {
   category: "opportunities" | "budget-risk" | "chance-return" | "combinations" | "liquidity" | "directional" | "defined-risk" | "least-risk";
   categoryLabel: string;
   summary: string;
+  quickTakeaway?: string;
+  parameterBadges?: ParameterBadge[];
+  relatedDecisionRuleId?: string;
   theoreticalContext: string;
   mathematicalBasis?: string;
   methods: FaqExecutionMethod[];
@@ -65,6 +74,7 @@ export interface DecisioningSection {
   subtitle: string;
   badge: string;
   badgeColor: "green" | "blue" | "purple" | "orange" | "cyan";
+  governedWorkflows?: string[];
   overview: string;
   rules: DecisioningRule[];
   matrixOrWeights?: DecisioningMatrixRow[];
@@ -84,6 +94,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "opportunities",
     categoryLabel: "Opportunity Ranking",
     summary: "Ranks multi-leg strategies by a multivariate composite score balancing Expected Value (EV), win rate (POP), bid-ask liquidity, and net theta yield.",
+    quickTakeaway: "Open Strategy Discovery with 50% Balanced EV bias, or prompt the AI agent. The engine scans 72 strategies and scores them across EV, win rate (POP), liquidity, and theta yield.",
+    parameterBadges: [
+      { label: "Optimization Bias", value: "50% (Balanced EV)", hint: "Balances POP vs return" },
+      { label: "Sentiment", value: "Bullish / Neutral / Bearish", hint: "Directional posture" },
+      { label: "Liquidity Floor", value: "Vol ≥ 500, OI ≥ 1,000", hint: "Prevents execution slippage" },
+      { label: "Scoring Model", value: "6-Factor Dot Product", hint: "Dot product of normalized vectors" },
+    ],
+    relatedDecisionRuleId: "multivariate-scoring-criteria",
     theoreticalContext: "The platform evaluates opportunities using a Multivariate Composite Opportunity Score (S_composite ∈ [0, 100]) weighted across five dimensions:\n\nS_composite = w_thesis * S_thesis + w_EV * S_EV + w_POP * S_POP + w_liq * S_liq + w_theta * S_theta\n\nWhere S_EV is Risk-adjusted Expected Value (Return on Risk vs Collateral at Risk), S_POP is Probability of Profit calculated via Black-Scholes cumulative log-normal distribution N(d2), S_liq is bid-ask spread tightness and open interest depth, and S_theta is positive time decay yield versus negative carry burden.",
     mathematicalBasis: "EV = (POP * MaxProfit) - ((1 - POP) * MaxLoss) / Collateral",
     methods: [
@@ -142,6 +160,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "budget-risk",
     categoryLabel: "Budget & Risk Caps",
     summary: "Filters for micro-debit vertical spreads, out-of-the-money long options, or narrow butterflies where total risk is capped at $30.",
+    quickTakeaway: "Set Budget filter to $30 and Min R:R to ≥ 1:1 in Strategy Discovery, or filter Raw Contracts Screener with Max Ask ≤ $0.30. Guarantees maximum dollar loss never exceeds $30.",
+    parameterBadges: [
+      { label: "Budget Cap", value: "≤ $30.00", hint: "Strict maximum risk ceiling" },
+      { label: "Min R:R", value: "≥ 1.0 (1:1)", hint: "Ensures Max Profit > Max Loss" },
+      { label: "Max Debit", value: "≤ $0.30 / share", hint: "$30 per 100-share contract" },
+      { label: "Structures", value: "Verticals / Micro-Debits", hint: "Defined-risk spreads" },
+    ],
+    relatedDecisionRuleId: "strategy-selection-rules",
     theoreticalContext: "A trade requiring MaxProfit > 0 and MaxLoss ≤ $30.00 requires either:\n1. A micro-debit vertical spread (e.g. 50¢-wide or $1.00-wide debit spread trading for ≤ $0.30 net debit = $30 total risk).\n2. A low-cost out-of-the-money single call/put on a lower-priced underlying trading at premium ≤ $0.30 ($30.00 total cost per 100-share contract).\n3. A narrow credit spread where strike width minus net credit received ≤ $0.30.",
     mathematicalBasis: "NetDebit <= $0.30  ==>  MaxLoss = NetDebit * 100 <= $30.00",
     methods: [
@@ -201,6 +227,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "chance-return",
     categoryLabel: "Pareto Optimization",
     summary: "Balances Probability of Profit (POP) against Return-on-Risk (RoR%) to find Pareto-optimal setups along the efficiency frontier.",
+    quickTakeaway: "Set Optimization Bias Slider to 50% (Balanced EV) or select asymmetric Broken Wing Butterflies / Jade Lizards. Finds the Pareto Efficient Frontier balancing win probability with percentage return.",
+    parameterBadges: [
+      { label: "Optimization Bias", value: "50% (Balanced EV)", hint: "Geometric mean of POP and return" },
+      { label: "Efficiency Goal", value: "Pareto-Optimal Frontier", hint: "Non-dominated payoff profiles" },
+      { label: "Asymmetric Setups", value: "Broken Wing Butterfly / Jade Lizard", hint: "Zero risk on one side" },
+      { label: "Target Metric", value: "Max Expected Value (EV)", hint: "EV = POP*Profit - (1-POP)*Loss" },
+    ],
+    relatedDecisionRuleId: "multivariate-scoring-criteria",
     theoreticalContext: "In options pricing, Probability of Profit (Chance) and Return-on-Risk (Return) are naturally inversely correlated:\n• Out-of-the-Money options have high maximum return (low cost, high leverage) but low POP.\n• Deep In-the-Money or credit spreads have high POP (75–90%) but lower percentage returns.\nFinding structures that maximize both means finding the Pareto-Optimal Frontier—maximizing Expected Value: EV = (POP * Profit) - ((1 - POP) * Loss).",
     mathematicalBasis: "Pareto Frontier: argmax_{legs} [ POP(legs), RoR%(legs) ]",
     methods: [
@@ -257,6 +291,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "combinations",
     categoryLabel: "Multi-Leg Structures",
     summary: "Builds and evaluates complex combinations across multiple strikes (Butterflies/Condors) and different expiration cycles (Diagonals/Calendars).",
+    quickTakeaway: "Click 'Choose Strategy (72+)' in Strategy Discovery and select 'Butterflies' or 'Diagonals & Calendars', or assemble custom multi-expiry legs in the Visual Payoff Builder.",
+    parameterBadges: [
+      { label: "Strategy Groups", value: "Butterflies / Calendars / Diagonals", hint: "Multi-strike & multi-expiry" },
+      { label: "Leg Multiplier", value: "3 to 4 Legs", hint: "Wing/center structure" },
+      { label: "Visualizer", value: "2D Date Payoff Matrix", hint: "Simulates time decay across cycles" },
+      { label: "Target Horizon", value: "Multi-DTE (14d short / 60d long)", hint: "Diagonal theta harvesting" },
+    ],
+    relatedDecisionRuleId: "strategy-selection-rules",
     theoreticalContext: "Combinations involve multi-leg structures with different strikes (Butterflies, Iron Condors) or different expiration cycles (Diagonals, Calendars, Double Diagonals).\n• Long Butterfly: 3 strikes (Buy 1 Lower, Sell 2 Middle, Buy 1 Upper) designed for range-bound pinning.\n• Diagonal Spread: Buy longer DTE option, sell shorter DTE option at different strike (e.g. Poor Man's Covered Call).",
     mathematicalBasis: "Butterfly: +1 C(K1, T) - 2 C(K2, T) + 1 C(K3, T) where K2 - K1 = K3 - K2",
     methods: [
@@ -315,6 +357,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "liquidity",
     categoryLabel: "Liquidity & Greeks",
     summary: "Filters contract chains by institutional liquidity thresholds (Volume ≥ 500, OI ≥ 1,000, Spread ≤ 5%) while sorting by Implied Volatility.",
+    quickTakeaway: "Open Raw Contracts Screener with Min Volume: 500, Min OI: 1,000, Max Spread: 5.0%, and Sort by: Implied Volatility; or check Options Flows for Sweeps with Vol/OI > 1.5x.",
+    parameterBadges: [
+      { label: "Volume Floor", value: "≥ 500 contracts", hint: "Active trading requirement" },
+      { label: "Open Interest", value: "≥ 1,000 contracts", hint: "Market depth floor" },
+      { label: "Spread Tightness", value: "≤ 5.0% of midpoint", hint: "Low slippage gate" },
+      { label: "Vol/OI Anomaly", value: "> 1.5x Spike", hint: "Institutional accumulation flag" },
+    ],
+    relatedDecisionRuleId: "options-screener-logic",
     theoreticalContext: "• High Implied Volatility (IV): Provides elevated premium yields for sellers and massive explosive potential for long gamma buyers.\n• High Volume & Liquidity: Essential for trade execution quality (tight bid-ask spread ≤ 5%, high open interest preventing slippage).\n• Volume-to-Open-Interest (Vol/OI): Anomaly metric where Vol/OI > 1.5 flags institutional positioning.",
     mathematicalBasis: "Spread% = (Ask - Bid) / Mid <= 0.05  AND  Volume >= 500  AND  OI >= 1000",
     methods: [
@@ -372,6 +422,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "directional",
     categoryLabel: "Directional Bias",
     summary: "Filters strategy catalog by extreme positive Delta (Δ ≥ +0.60) for bullish leverage or extreme negative Delta (Δ ≤ -0.60) for bearish breakdown protection.",
+    quickTakeaway: "Toggle '🚀 Very Bullish' (Delta ≥ +0.60, Bull Call/Synthetic Long) or '🩸 Very Bearish' (Delta ≤ -0.60, Bear Put/Synthetic Short) in Strategy Discovery, or check Net Sentiment Leaderboards in Options Flows.",
+    parameterBadges: [
+      { label: "Bullish Delta", value: "Δ ≥ +0.60 to +1.00", hint: "Aggressive upward replication" },
+      { label: "Bearish Delta", value: "Δ ≤ -0.60 to -1.00", hint: "Downside crash leverage" },
+      { label: "Top Setups", value: "Synthetic Futures / Ratio Spreads", hint: "Maximum directional sensitivity" },
+      { label: "Flow Confirmation", value: "Net Bullish / Bearish Tape", hint: "Ask-side prints confirmation" },
+    ],
+    relatedDecisionRuleId: "strategy-selection-rules",
     theoreticalContext: "• Most Bullish Combos: Offer maximum positive Delta (Δ ≥ +0.60 to +1.0) with uncapped or high multiple upside (e.g. Long Synthetic Future, Bull Call Debit Spread, Long Call, Super Bullish Risk Reversal).\n• Most Bearish Combos: Offer maximum negative Delta (Δ ≤ -0.60 to -1.0) with strong downside leverage (e.g. Short Synthetic Future, Bear Put Debit Spread, Long Put, Bear Put Ratio Spread).",
     mathematicalBasis: "Net Delta = sum( leg_quantity_i * delta_i ). Bullish: Delta > 0.60, Bearish: Delta < -0.60",
     methods: [
@@ -428,6 +486,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "defined-risk",
     categoryLabel: "Risk Categorization",
     summary: "Categorizes setups into strictly capped loss structures (Defined Risk: Spreads, Condors, Butterflies) versus unlimited margin loss structures (Undefined Risk: Naked Calls/Puts).",
+    quickTakeaway: "Inspect the visual '🛡️ Defined Risk' (green) or '⚠️ Undefined Risk' (red) tags on strategy cards, or enforce `riskPolicy: defined_only` in automated scans to eliminate naked options.",
+    parameterBadges: [
+      { label: "Defined Risk", value: "Max Loss < ∞ (Explicit Dollar Cap)", hint: "Spreads, condors, butterflies" },
+      { label: "Undefined Risk", value: "Max Loss = ∞ (Uncapped)", hint: "Naked calls, naked puts, straddles" },
+      { label: "Policy Filter", value: "riskPolicy: 'defined_only'", hint: "Prunes all unlimited loss setups" },
+      { label: "Broker Tier", value: "Tier 2 vs Tier 4 Margin", hint: "Margin requirement clearance" },
+    ],
+    relatedDecisionRuleId: "additional-decisioning-gates",
     theoreticalContext: "• Defined Risk: Maximum dollar loss is strictly known and capped prior to trade entry (e.g. Long Calls, Long Puts, Vertical Spreads, Iron Condors, Butterflies). Unlimited catastrophic loss is mathematically impossible.\n• Undefined Risk: Maximum potential loss is unlimited or significantly exceeds initial collateral (e.g. Naked Short Calls, Naked Short Puts, Short Straddles, Short Strangles). Requires highest broker margin approval.",
     mathematicalBasis: "Defined Risk: MaxLoss < infinity (explicit dollar cap). Undefined Risk: MaxLoss = infinity",
     methods: [
@@ -484,6 +550,14 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "least-risk",
     categoryLabel: "Capital Preservation",
     summary: "Targets trades with either minimum dollar capital at risk (Max Loss ≤ $25) or maximum statistical probability of profit (POP ≥ 85-92% with deep safety cushion).",
+    quickTakeaway: "Move Optimization Slider to 100% (Max Chance) for deep OTM credit spreads with POP ≥ 88-92% and 10-15% safety cushion, or set Budget: $25 for negligible absolute dollar risk.",
+    parameterBadges: [
+      { label: "Max Chance Bias", value: "100% Slider (Max POP)", hint: "2 standard deviations OTM" },
+      { label: "Statistical Win Rate", value: "POP ≥ 88% – 92%", hint: "High-probability credit harvesting" },
+      { label: "Safety Cushion", value: "≥ 10% – 15% drop allowed", hint: "Underlying can fall before loss" },
+      { label: "Dollar Floor", value: "Collars / Protective Puts", hint: "Full downside hedge protection" },
+    ],
+    relatedDecisionRuleId: "pickbesttrades-engine",
     theoreticalContext: "'Least Risk' represents two distinct objectives in quantitative trading:\n1. Minimum Capital at Risk (Absolute Lowest Dollar Risk): Tiny net debit outlay (≤ $20) so maximum possible loss is negligible.\n2. Highest Statistical Safety (Lowest Probability of Loss): Wide credit spreads or collars with deep safety cushion (≥ 10–15% drop before losing money) and POP ≥ 85–90%.",
     mathematicalBasis: "Safety Cushion = (Spot - Breakeven) / Spot >= 0.10  AND  POP >= 0.85",
     methods: [
@@ -666,6 +740,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "Dynamic All-Exchange Discovery, Fallback Decision Tree, Indicators & Options Flow Integration",
     badge: "Equity Screener",
     badgeColor: "green",
+    governedWorkflows: ["A1", "A4"],
     overview: "The Stock Screener (DynamicMarketScreener) discovers and evaluates equities across all US exchanges (NASDAQ, NYSE, AMEX). Options Flow and downstream modules do NOT default to a static list as their first option — they query DynamicMarketScreener first. The screener queries live all-exchange listings from api.nasdaq.com, and if that API is rate-limited, blocked, or unavailable, it decides whether to use a dynamic feed or fall back to the externalized curated universe (src/config/curatedStockUniverse.json).",
     rules: [
       {
@@ -726,6 +801,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "Multivariate Contract Filtering, Moneyness Bounds, Technical Signals & Rejection Ledgers",
     badge: "Options Screener",
     badgeColor: "blue",
+    governedWorkflows: ["A3"],
     overview: "The Raw Contracts Screener evaluates individual call and put option contracts against strict institutional liquidity, risk, and pricing constraints. Sanitization normalizes user inputs, clamps negative bounds, and computes auditable rejection ledgers detailing exactly why each non-qualifying contract was omitted.",
     rules: [
       {
@@ -796,6 +872,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "72-Strategy Catalog Resolution, Combinatorial Strike Generation & Horizon Pruning",
     badge: "Strategy Generation",
     badgeColor: "green",
+    governedWorkflows: ["A2", "A5"],
     overview: "The Strategy Discovery and Recommendation engines generate viable multi-leg option strategies from a 72-strategy catalog (OptionStrat-grade). The engine matches market sentiment, generates strike ladders, applies user optimization bias, and prunes invalid or illiquid structures.",
     rules: [
       {
@@ -848,6 +925,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "Mathematical Formulations for Expected Value, Liquidity, Freshness & OptionStrat Discovery",
     badge: "Mathematical Scoring",
     badgeColor: "purple",
+    governedWorkflows: ["A2"],
     overview: "Every candidate strategy is evaluated across a 6-dimensional scoring model in the core engine and a 4-factor composite in the visual Discovery engine. These formulations eliminate subjective bias and rank trades mathematically.",
     rules: [
       {
@@ -908,6 +986,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "Profile-Weighted Composite Re-Ranking, Blocker Detection, Confidence Grading & Trade Plans",
     badge: "Recommendation Agent",
     badgeColor: "orange",
+    governedWorkflows: ["A2", "E1"],
     overview: "The RecommendationAgent re-ranks qualifying strategies against user risk profiles (Conservative, Balanced, Aggressive) and selects a single best trade. It validates blockers, assigns confidence ratings, computes score margins over runner-ups, and formulates an actionable trade plan. Human approval is strictly required before any live execution.",
     rules: [
       {
@@ -967,6 +1046,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     subtitle: "Undefined Risk Safeguards, Arbitrage Rejection, Autonomous Schedulers & Brokerage Handshake",
     badge: "Execution Safeguards",
     badgeColor: "cyan",
+    governedWorkflows: ["A6", "E1", "E3", "E5"],
     overview: "To guarantee regulatory compliance, capital protection, and unattended stability, the platform enforces hard exclusion gates across strategy catalogs, options tape parsing, background schedulers, and live brokerage placement.",
     rules: [
       {
