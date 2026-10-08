@@ -80,13 +80,15 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
     ],
     keyFeatures: [
-      "Dynamic all-exchange discovery: no static hardcoded ticker lists.",
+      "Dynamic all-exchange discovery with live Nasdaq, NYSE, and AMEX support.",
+      "Externalized curated stock universe (src/config/curatedStockUniverse.json) with sector, exchange, and market-cap tags as a resilient alternative to upstream Nasdaq API rate limits.",
       "Dual provider flexibility: E*TRADE broker mode or 100% zero-credential Yahoo Finance FOSS mode.",
       "Auditable scan ledger detailing why each security matched or failed criteria.",
       "Sortable results by 1D change %, volume, market cap, and RSI momentum.",
     ],
     dataSources: [
       "Nasdaq Official Screener API (api.nasdaq.com/api/screener/stocks)",
+      "Externalized Curated Stock Universe (src/config/curatedStockUniverse.json)",
       "Yahoo Finance Chart & Summary API (query1/query2.finance.yahoo.com)",
       "Yahoo Finance Cookie Crumb Handshake (fc.yahoo.com)",
       "E*TRADE Market Quote & Orders API (api.etrade.com/v1/market/quote)",

@@ -10,7 +10,7 @@
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
 import { YahooFinanceProvider } from "../services/fossResearch";
-import { YFINANCE_MARKET_UNIVERSE } from "./screener";
+import { YFINANCE_MARKET_UNIVERSE } from "../config/curatedStockUniverse";
 
 export class YFinanceMarketScreener implements IMarketScreener {
   private yfProvider: YahooFinanceProvider;

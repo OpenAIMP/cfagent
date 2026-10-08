@@ -11,172 +11,18 @@ import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQ
 import type { IMarketScreener } from "./interfaces";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
 
-export interface YFinanceSecurityDefinition {
-  symbol: string;
-  companyName: string;
-  sector: string;
-}
+import {
+  CURATED_STOCK_UNIVERSE,
+  YFINANCE_MARKET_UNIVERSE,
+  getCuratedStockListings,
+  getCuratedStockUniverse,
+  setCuratedStockUniverse,
+  type CuratedStockSecurity,
+  type YFinanceSecurityDefinition,
+} from "../config/curatedStockUniverse";
 
-// Yahoo Finance-only ticker metadata; E*TRADE scans use live market discovery below.
-export const YFINANCE_MARKET_UNIVERSE: YFinanceSecurityDefinition[] = [
-  // Financials & Fintech (18)
-  { symbol: "JPM", companyName: "JPMorgan Chase & Co.", sector: "Financial" },
-  { symbol: "MS", companyName: "Morgan Stanley", sector: "Financial" },
-  { symbol: "GS", companyName: "The Goldman Sachs Group, Inc.", sector: "Financial" },
-  { symbol: "BAC", companyName: "Bank of America Corporation", sector: "Financial" },
-  { symbol: "WFC", companyName: "Wells Fargo & Company", sector: "Financial" },
-  { symbol: "C", companyName: "Citigroup Inc.", sector: "Financial" },
-  { symbol: "V", companyName: "Visa Inc.", sector: "Financial" },
-  { symbol: "MA", companyName: "Mastercard Incorporated", sector: "Financial" },
-  { symbol: "AXP", companyName: "American Express Company", sector: "Financial" },
-  { symbol: "BLK", companyName: "BlackRock, Inc.", sector: "Financial" },
-  { symbol: "SCHW", companyName: "The Charles Schwab Corporation", sector: "Financial" },
-  { symbol: "BX", companyName: "Blackstone Inc.", sector: "Financial" },
-  { symbol: "COIN", companyName: "Coinbase Global, Inc.", sector: "Financial" },
-  { symbol: "PYPL", companyName: "PayPal Holdings, Inc.", sector: "Financial" },
-  { symbol: "SQ", companyName: "Block, Inc.", sector: "Financial" },
-  { symbol: "HOOD", companyName: "Robinhood Markets, Inc.", sector: "Financial" },
-  { symbol: "PGR", companyName: "The Progressive Corporation", sector: "Financial" },
-  { symbol: "CB", companyName: "Chubb Limited", sector: "Financial" },
-
-  // Technology, Cloud & Software (20)
-  { symbol: "AAPL", companyName: "Apple Inc.", sector: "Technology" },
-  { symbol: "MSFT", companyName: "Microsoft Corporation", sector: "Technology" },
-  { symbol: "PLTR", companyName: "Palantir Technologies Inc.", sector: "Technology" },
-  { symbol: "CRM", companyName: "Salesforce, Inc.", sector: "Technology" },
-  { symbol: "ORCL", companyName: "Oracle Corporation", sector: "Technology" },
-  { symbol: "ADBE", companyName: "Adobe Inc.", sector: "Technology" },
-  { symbol: "INTU", companyName: "Intuit Inc.", sector: "Technology" },
-  { symbol: "IBM", companyName: "International Business Machines Corporation", sector: "Technology" },
-  { symbol: "CSCO", companyName: "Cisco Systems, Inc.", sector: "Technology" },
-  { symbol: "NOW", companyName: "ServiceNow, Inc.", sector: "Technology" },
-  { symbol: "SNOW", companyName: "Snowflake Inc.", sector: "Technology" },
-  { symbol: "UBER", companyName: "Uber Technologies, Inc.", sector: "Technology" },
-  { symbol: "ABNB", companyName: "Airbnb, Inc.", sector: "Technology" },
-  { symbol: "PANW", companyName: "Palo Alto Networks, Inc.", sector: "Technology" },
-  { symbol: "CRWD", companyName: "CrowdStrike Holdings, Inc.", sector: "Technology" },
-  { symbol: "FTNT", companyName: "Fortinet, Inc.", sector: "Technology" },
-  { symbol: "ZS", companyName: "Zscaler, Inc.", sector: "Technology" },
-  { symbol: "DDOG", companyName: "Datadog, Inc.", sector: "Technology" },
-  { symbol: "NET", companyName: "Cloudflare, Inc.", sector: "Technology" },
-  { symbol: "DELL", companyName: "Dell Technologies Inc.", sector: "Technology" },
-
-  // Semiconductors & AI Hardware (16)
-  { symbol: "NVDA", companyName: "NVIDIA Corporation", sector: "Semiconductors" },
-  { symbol: "AMD", companyName: "Advanced Micro Devices, Inc.", sector: "Semiconductors" },
-  { symbol: "AVGO", companyName: "Broadcom Inc.", sector: "Semiconductors" },
-  { symbol: "TSM", companyName: "Taiwan Semiconductor Manufacturing Co.", sector: "Semiconductors" },
-  { symbol: "INTC", companyName: "Intel Corporation", sector: "Semiconductors" },
-  { symbol: "QCOM", companyName: "QUALCOMM Incorporated", sector: "Semiconductors" },
-  { symbol: "TXN", companyName: "Texas Instruments Incorporated", sector: "Semiconductors" },
-  { symbol: "AMAT", companyName: "Applied Materials, Inc.", sector: "Semiconductors" },
-  { symbol: "MU", companyName: "Micron Technology, Inc.", sector: "Semiconductors" },
-  { symbol: "LRCX", companyName: "Lam Research Corporation", sector: "Semiconductors" },
-  { symbol: "ADI", companyName: "Analog Devices, Inc.", sector: "Semiconductors" },
-  { symbol: "KLAC", companyName: "KLA Corporation", sector: "Semiconductors" },
-  { symbol: "ARM", companyName: "Arm Holdings plc", sector: "Semiconductors" },
-  { symbol: "ASML", companyName: "ASML Holding N.V.", sector: "Semiconductors" },
-  { symbol: "MRVL", companyName: "Marvell Technology, Inc.", sector: "Semiconductors" },
-  { symbol: "SMCI", companyName: "Super Micro Computer, Inc.", sector: "Semiconductors" },
-
-  // Consumer Discretionary & Retail (14)
-  { symbol: "AMZN", companyName: "Amazon.com, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "TSLA", companyName: "Tesla, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "HD", companyName: "The Home Depot, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "LOW", companyName: "Lowe's Companies, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "NKE", companyName: "NIKE, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "SBUX", companyName: "Starbucks Corporation", sector: "Consumer Discretionary" },
-  { symbol: "MCD", companyName: "McDonald's Corporation", sector: "Consumer Discretionary" },
-  { symbol: "BKNG", companyName: "Booking Holdings Inc.", sector: "Consumer Discretionary" },
-  { symbol: "TJX", companyName: "The TJX Companies, Inc.", sector: "Consumer Discretionary" },
-  { symbol: "TGT", companyName: "Target Corporation", sector: "Consumer Discretionary" },
-  { symbol: "COST", companyName: "Costco Wholesale Corporation", sector: "Consumer Discretionary" },
-  { symbol: "LULU", companyName: "Lululemon Athletica Inc.", sector: "Consumer Discretionary" },
-  { symbol: "GM", companyName: "General Motors Company", sector: "Consumer Discretionary" },
-  { symbol: "F", companyName: "Ford Motor Company", sector: "Consumer Discretionary" },
-
-  // Communication Services & Media (10)
-  { symbol: "GOOGL", companyName: "Alphabet Inc. (Class A)", sector: "Communication Services" },
-  { symbol: "GOOG", companyName: "Alphabet Inc. (Class C)", sector: "Communication Services" },
-  { symbol: "META", companyName: "Meta Platforms, Inc.", sector: "Communication Services" },
-  { symbol: "NFLX", companyName: "Netflix, Inc.", sector: "Communication Services" },
-  { symbol: "DIS", companyName: "The Walt Disney Company", sector: "Communication Services" },
-  { symbol: "CMCSA", companyName: "Comcast Corporation", sector: "Communication Services" },
-  { symbol: "VZ", companyName: "Verizon Communications Inc.", sector: "Communication Services" },
-  { symbol: "T", companyName: "AT&T Inc.", sector: "Communication Services" },
-  { symbol: "SPOT", companyName: "Spotify Technology S.A.", sector: "Communication Services" },
-  { symbol: "TMUS", companyName: "T-Mobile US, Inc.", sector: "Communication Services" },
-
-  // Healthcare, Pharma & Biotech (14)
-  { symbol: "LLY", companyName: "Eli Lilly and Company", sector: "Healthcare" },
-  { symbol: "UNH", companyName: "UnitedHealth Group Incorporated", sector: "Healthcare" },
-  { symbol: "JNJ", companyName: "Johnson & Johnson", sector: "Healthcare" },
-  { symbol: "ABBV", companyName: "AbbVie Inc.", sector: "Healthcare" },
-  { symbol: "PFE", companyName: "Pfizer Inc.", sector: "Healthcare" },
-  { symbol: "MRK", companyName: "Merck & Co., Inc.", sector: "Healthcare" },
-  { symbol: "TMO", companyName: "Thermo Fisher Scientific Inc.", sector: "Healthcare" },
-  { symbol: "ABT", companyName: "Abbott Laboratories", sector: "Healthcare" },
-  { symbol: "DHR", companyName: "Danaher Corporation", sector: "Healthcare" },
-  { symbol: "BMY", companyName: "Bristol-Myers Squibb Company", sector: "Healthcare" },
-  { symbol: "AMGN", companyName: "Amgen Inc.", sector: "Healthcare" },
-  { symbol: "GILD", companyName: "Gilead Sciences, Inc.", sector: "Healthcare" },
-  { symbol: "ISRG", companyName: "Intuitive Surgical, Inc.", sector: "Healthcare" },
-  { symbol: "VRTX", companyName: "Vertex Pharmaceuticals Incorporated", sector: "Healthcare" },
-
-  // Energy & Clean Tech (10)
-  { symbol: "XOM", companyName: "Exxon Mobil Corporation", sector: "Energy" },
-  { symbol: "CVX", companyName: "Chevron Corporation", sector: "Energy" },
-  { symbol: "COP", companyName: "ConocoPhillips", sector: "Energy" },
-  { symbol: "SLB", companyName: "Schlumberger Limited", sector: "Energy" },
-  { symbol: "EOG", companyName: "EOG Resources, Inc.", sector: "Energy" },
-  { symbol: "MPC", companyName: "Marathon Petroleum Corporation", sector: "Energy" },
-  { symbol: "PSX", companyName: "Phillips 66", sector: "Energy" },
-  { symbol: "VLO", companyName: "Valero Energy Corporation", sector: "Energy" },
-  { symbol: "OXY", companyName: "Occidental Petroleum Corporation", sector: "Energy" },
-  { symbol: "FSLR", companyName: "First Solar, Inc.", sector: "Energy" },
-
-  // Industrials, Aerospace & Defense (12)
-  { symbol: "CAT", companyName: "Caterpillar Inc.", sector: "Industrials" },
-  { symbol: "GE", companyName: "GE Aerospace", sector: "Industrials" },
-  { symbol: "HON", companyName: "Honeywell International Inc.", sector: "Industrials" },
-  { symbol: "UNP", companyName: "Union Pacific Corporation", sector: "Industrials" },
-  { symbol: "BA", companyName: "The Boeing Company", sector: "Industrials" },
-  { symbol: "LMT", companyName: "Lockheed Martin Corporation", sector: "Industrials" },
-  { symbol: "RTX", companyName: "RTX Corporation", sector: "Industrials" },
-  { symbol: "DE", companyName: "Deere & Company", sector: "Industrials" },
-  { symbol: "UPS", companyName: "United Parcel Service, Inc.", sector: "Industrials" },
-  { symbol: "FDX", companyName: "FedEx Corporation", sector: "Industrials" },
-  { symbol: "GD", companyName: "General Dynamics Corporation", sector: "Industrials" },
-  { symbol: "EMR", companyName: "Emerson Electric Co.", sector: "Industrials" },
-
-  // Materials & Chemicals (6)
-  { symbol: "LIN", companyName: "Linde plc", sector: "Materials" },
-  { symbol: "SHW", companyName: "The Sherwin-Williams Company", sector: "Materials" },
-  { symbol: "FCX", companyName: "Freeport-McMoRan Inc.", sector: "Materials" },
-  { symbol: "NEM", companyName: "Newmont Corporation", sector: "Materials" },
-  { symbol: "APD", companyName: "Air Products and Chemicals, Inc.", sector: "Materials" },
-  { symbol: "ECL", companyName: "Ecolab Inc.", sector: "Materials" },
-
-  // Consumer Staples (8)
-  { symbol: "PG", companyName: "The Procter & Gamble Company", sector: "Consumer Staples" },
-  { symbol: "PEP", companyName: "PepsiCo, Inc.", sector: "Consumer Staples" },
-  { symbol: "KO", companyName: "The Coca-Cola Company", sector: "Consumer Staples" },
-  { symbol: "WMT", companyName: "Walmart Inc.", sector: "Consumer Staples" },
-  { symbol: "PM", companyName: "Philip Morris International Inc.", sector: "Consumer Staples" },
-  { symbol: "MO", companyName: "Altria Group, Inc.", sector: "Consumer Staples" },
-  { symbol: "MDLZ", companyName: "Mondelez International, Inc.", sector: "Consumer Staples" },
-  { symbol: "CL", companyName: "Colgate-Palmolive Company", sector: "Consumer Staples" },
-
-  // Utilities & Real Estate (8)
-  { symbol: "NEE", companyName: "NextEra Energy, Inc.", sector: "Utilities" },
-  { symbol: "SO", companyName: "The Southern Company", sector: "Utilities" },
-  { symbol: "DUK", companyName: "Duke Energy Corporation", sector: "Utilities" },
-  { symbol: "CEG", companyName: "Constellation Energy Corporation", sector: "Utilities" },
-  { symbol: "PLD", companyName: "Prologis, Inc.", sector: "Real Estate" },
-  { symbol: "AMT", companyName: "American Tower Corporation", sector: "Real Estate" },
-  { symbol: "EQIX", companyName: "Equinix, Inc.", sector: "Real Estate" },
-  { symbol: "SPG", companyName: "Simon Property Group, Inc.", sector: "Real Estate" },
-];
+export type { CuratedStockSecurity, YFinanceSecurityDefinition };
+export { CURATED_STOCK_UNIVERSE, YFINANCE_MARKET_UNIVERSE, getCuratedStockListings, getCuratedStockUniverse, setCuratedStockUniverse };
 
 export function calculateDynamicRsi(
   symbol: string,
@@ -652,15 +498,7 @@ export class DynamicMarketScreener implements IMarketScreener {
     try {
       listings = DynamicMarketScreener.testListingsFixture ?? await fetchAllUsStockListings();
       if (!DynamicMarketScreener.testListingsFixture && (!listings || listings.length === 0)) {
-        listings = YFINANCE_MARKET_UNIVERSE.map((item, idx) => ({
-          symbol: item.symbol,
-          companyName: item.companyName,
-          exchange: (idx % 3 === 0 ? "nasdaq" : idx % 3 === 1 ? "nyse" : "amex") as "nasdaq" | "nyse" | "amex",
-          lastPrice: 150.0,
-          change: 1.25,
-          changePercent: 0.85,
-          marketCap: 50e9,
-        }));
+        listings = getCuratedStockListings();
       }
     } catch (error) {
       if (DynamicMarketScreener.testListingsFixture !== null && DynamicMarketScreener.testListingsFixture !== undefined) {
@@ -677,15 +515,7 @@ export class DynamicMarketScreener implements IMarketScreener {
           },
         };
       }
-      listings = YFINANCE_MARKET_UNIVERSE.map((item, idx) => ({
-        symbol: item.symbol,
-        companyName: item.companyName,
-        exchange: (idx % 3 === 0 ? "nasdaq" : idx % 3 === 1 ? "nyse" : "amex") as "nasdaq" | "nyse" | "amex",
-        lastPrice: 150.0,
-        change: 1.25,
-        changePercent: 0.85,
-        marketCap: 50e9,
-      }));
+      listings = getCuratedStockListings();
     }
 
     for (const listing of listings) sourceCounts[listing.exchange] = (sourceCounts[listing.exchange] || 0) + 1;
@@ -712,6 +542,7 @@ export class DynamicMarketScreener implements IMarketScreener {
         },
       };
     }
+    const isCuratedUniverse = !DynamicMarketScreener.testListingsFixture && listings.length === getCuratedStockUniverse().length;
     const quotes: ETradeQuote[] = selectedListings.map((listing) => ({
       symbol: listing.symbol,
       companyName: listing.companyName,
@@ -730,7 +561,9 @@ export class DynamicMarketScreener implements IMarketScreener {
       week52High: 0,
       week52Low: 0,
       quoteStatus: "AS_OF_UNKNOWN",
-      source: "Nasdaq all-exchange stock listings (source quote time unavailable)",
+      source: isCuratedUniverse
+        ? "Curated externalized stock universe (Nasdaq, NYSE, AMEX)"
+        : "Nasdaq all-exchange stock listings (source quote time unavailable)",
       timestamp: "",
     }));
 
@@ -765,7 +598,9 @@ export class DynamicMarketScreener implements IMarketScreener {
     }
 
     const result = this.screenWithQuotes(quotes, filter, false);
-    const message = `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
+    const message = isCuratedUniverse
+      ? `Loaded ${listings.length.toLocaleString()} curated listings from externalized universe across Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters.`
+      : `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
     return {
       ...result,
       discovery: {

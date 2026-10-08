@@ -17,7 +17,14 @@
         "highDeltaThreshold": 0.65,
         "highIvThreshold": 0.70,
         "lowIvThreshold": 0.30,
-        "atmBandPct": 0.02
+        "atmBandPct": 0.02,
+        "curatedUniversePath": "src/config/curatedStockUniverse.json",
+        "curatedUniverseEnabled": true
+      },
+      "stockScreener": {
+        "curatedUniversePath": "src/config/curatedStockUniverse.json",
+        "curatedUniverseEnabled": true,
+        "providerPreference": ["nasdaq_api", "curated_universe", "yahoo_finance"]
       },
       "strategyEngine": {
         "riskFreeRate": 0.04,
