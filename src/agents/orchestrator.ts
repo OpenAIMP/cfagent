@@ -34,6 +34,7 @@ import {
   synthesizeFallbackRanking,
   groupRawOptionsIdeasChains,
 } from "../trading/options/llmIdeas";
+import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -3082,37 +3083,52 @@ Agentic Best Practices & Workflow Rules:
             retrievedChains.push(c);
           }
         } else {
-          const expirations = await etrade.client.getOptionExpireDates(symbol);
+          let expirations = await etrade.client.getOptionExpireDates(symbol);
           if (expirations.length === 0) {
-            throw new Error(etrade.client.lastError || `E*TRADE returned no option expirations for ${symbol}.`);
-          }
-          retrievedExpirations = expirations;
-
-          // Target up to 18 most active expirations across near, mid, and long term to prevent unconstrained latency
-          const targetExpirations = expirations.length > 18
-            ? [...expirations.slice(0, 10), ...expirations.slice(10, 16), ...expirations.slice(-2)]
-            : expirations;
-
-          // Fetch option chains with concurrency chunking (4 parallel requests at a time)
-          const chunkSize = 4;
-          for (let i = 0; i < targetExpirations.length; i += chunkSize) {
-            const chunk = targetExpirations.slice(i, i + chunkSize);
-            const chunkChains = await Promise.all(
-              chunk.map((expiry) =>
-                etrade.client.getOptionChains({
-                  symbol,
-                  expiryYear: expiry.year,
-                  expiryMonth: expiry.month,
-                  expiryDay: expiry.day,
-                  includeWeekly: true,
-                  chainType: "CALLPUT",
-                  includeRawResponse: true,
-                })
-              )
-            );
-            for (const chain of chunkChains) {
-              if (chain) retrievedChains.push(chain);
+            // Fall back to unscoped option chain request if expiration calendar endpoint was empty
+            const fallbackChain = await etrade.client.getOptionChains({
+              symbol,
+              includeWeekly: true,
+              chainType: "CALLPUT",
+              includeRawResponse: true,
+            }).catch(() => null);
+            if (fallbackChain && fallbackChain.selectedExpiry && fallbackChain.pairs.length > 0) {
+              expirations = [fallbackChain.selectedExpiry];
+              retrievedChains.push(fallbackChain);
             }
+          }
+
+          if (expirations.length > 0 && retrievedChains.length === 0) {
+            retrievedExpirations = expirations;
+
+            // Target up to 18 most active expirations across near, mid, and long term to prevent unconstrained latency
+            const targetExpirations = expirations.length > 18
+              ? [...expirations.slice(0, 10), ...expirations.slice(10, 16), ...expirations.slice(-2)]
+              : expirations;
+
+            // Fetch option chains with concurrency chunking (4 parallel requests at a time)
+            const chunkSize = 4;
+            for (let i = 0; i < targetExpirations.length; i += chunkSize) {
+              const chunk = targetExpirations.slice(i, i + chunkSize);
+              const chunkChains = await Promise.all(
+                chunk.map((expiry) =>
+                  etrade.client.getOptionChains({
+                    symbol,
+                    expiryYear: expiry.year,
+                    expiryMonth: expiry.month,
+                    expiryDay: expiry.day,
+                    includeWeekly: true,
+                    chainType: "CALLPUT",
+                    includeRawResponse: true,
+                  })
+                )
+              );
+              for (const chain of chunkChains) {
+                if (chain) retrievedChains.push(chain);
+              }
+            }
+          } else if (expirations.length > 0) {
+            retrievedExpirations = expirations;
           }
 
           if (retrievedChains.length > 0) {
@@ -3121,10 +3137,29 @@ Agentic Best Practices & Workflow Rules:
           }
         }
 
-        const contractCount = retrievedChains.reduce(
+        let contractCount = retrievedChains.reduce(
           (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
           0,
         );
+
+        if (contractCount === 0) {
+          const isTestEnv = requestedEnv === "TEST" || !etrade.client.getEnvConfig().isLive;
+          if (isTestEnv) {
+            const synthetic = generateSyntheticOptionChains(symbol);
+            retrievedExpirations = synthetic.expirations;
+            retrievedChains.length = 0;
+            for (const sc of synthetic.chains) {
+              retrievedChains.push(sc);
+            }
+            contractCount = retrievedChains.reduce(
+              (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
+              0,
+            );
+          } else {
+            throw new Error(etrade.client.lastError || `E*TRADE returned no option contracts for ${symbol} in PROD environment; no LLM request was sent.`);
+          }
+        }
+
         if (contractCount === 0) {
           throw new Error(`E*TRADE returned no option contracts for ${symbol}; no LLM request was sent.`);
         }
@@ -3319,10 +3354,30 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data.";
+        const failedContractCount = retrievedChains.reduce(
+          (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
+          0,
+        );
+        const fallbackLlmInput = retrievedChains.length > 0 ? {
+          id: "all",
+          label: "All Expirations",
+          symbol,
+          question,
+          expirations: retrievedExpirations,
+          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
+          systemPrompt: "Normalized options contract dataset",
+          userPrompt: question,
+          selection: {
+            contractsAvailable: failedContractCount,
+            contractsIncluded: failedContractCount,
+            truncated: false,
+          },
+        } : undefined;
         return Response.json({
           error,
           mode: "raw_etrade_options_ideas",
           llm: { status: "error", model: this.env.AI_MODEL || DEFAULT_AI_MODEL, error },
+          llmInput: fallbackLlmInput,
           retrievedData: {
             symbol,
             question,
@@ -3332,10 +3387,7 @@ Agentic Best Practices & Workflow Rules:
           dataCoverage: {
             expirationCount: retrievedExpirations.length,
             chainCount: retrievedChains.length,
-            contractCount: retrievedChains.reduce(
-              (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
-              0,
-            ),
+            contractCount: failedContractCount,
             sentContractCount: 0,
             estimatedInputTokens: 0,
             inputTruncated: false,

@@ -2151,7 +2151,12 @@ export class ETradeRestClient {
         });
       }
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Option Expire Date API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "optionexpiredate", errorText);
+        return [];
+      }
       const data = (await res.json().catch(() => ({}))) as any;
       let rawDates = data?.OptionExpireDateResponse?.ExpirationDate;
       if (!rawDates) return [];
@@ -2163,7 +2168,10 @@ export class ETradeRestClient {
         day: Number(d.day || 0),
         expiryType: d.expiryType ? String(d.expiryType) : undefined,
       }));
-    } catch {
+    } catch (err) {
+      if (!this.lastError) {
+        this.lastError = err instanceof Error ? err.message : "Failed to fetch option expire dates.";
+      }
       return [];
     }
   }

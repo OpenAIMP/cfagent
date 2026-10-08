@@ -12,8 +12,9 @@ export async function fetchOptionsDataForExport(
   symbol: string,
   activeEnv: "TEST" | "PROD" = "TEST",
   userLogin?: string
-): Promise<{ retrievedData: RetrievedOptionsDataExport; llmInput: RawOptionsIdeasExport }> {
-  const query = `Retrieve complete raw option chains and normalized LLM contract datasets for ${symbol}.`;
+): Promise<{ retrievedData: RetrievedOptionsDataExport; llmInput?: RawOptionsIdeasExport }> {
+  const sym = symbol.trim().toUpperCase() || "SPY";
+  const query = `Retrieve complete raw option chains and normalized LLM contract datasets for ${sym}.`;
   const response = await fetch("/api/trading/options/llm-ideas", {
     method: "POST",
     headers: {
@@ -22,18 +23,31 @@ export async function fetchOptionsDataForExport(
       ...(userLogin ? { "x-user-login": userLogin } : {}),
     },
     body: JSON.stringify({
-      symbol: symbol.trim().toUpperCase(),
+      symbol: sym,
       question: query,
     }),
   });
 
-  const data = (await response.json()) as any;
-  if (!response.ok && (!data || !data.retrievedData)) {
-    throw new Error(data?.error || `Failed to retrieve options data for ${symbol}.`);
+  const data = (await response.json().catch(() => null)) as any;
+
+  if (!response.ok) {
+    const hasChains = Boolean(
+      data?.retrievedData?.optionChains &&
+      Array.isArray(data.retrievedData.optionChains) &&
+      data.retrievedData.optionChains.length > 0
+    );
+    if (!hasChains) {
+      throw new Error(data?.error || `Failed to retrieve options data for ${sym} (HTTP ${response.status}).`);
+    }
   }
 
-  if (!data.retrievedData) {
-    throw new Error("No option chain data was returned by the broker.");
+  if (!data || !data.retrievedData) {
+    throw new Error(data?.error || `No option chain data was returned for ${sym}.`);
+  }
+
+  const rawChains = Array.isArray(data.retrievedData.optionChains) ? data.retrievedData.optionChains : [];
+  if (rawChains.length === 0) {
+    throw new Error(data?.error || `No option contracts were returned for ${sym} by the broker. Verify ticker and market hours.`);
   }
 
   return {
@@ -42,12 +56,45 @@ export async function fetchOptionsDataForExport(
   };
 }
 
+export function buildExportInput(
+  symbol: string,
+  retrievedData: RetrievedOptionsDataExport,
+  llmInput?: RawOptionsIdeasExport
+): RawOptionsIdeasExport {
+  if (llmInput && llmInput.optionChains && Array.isArray(llmInput.optionChains) && llmInput.optionChains.length > 0) {
+    return llmInput;
+  }
+
+  const sym = symbol.trim().toUpperCase() || "SPY";
+  const chains = retrievedData.optionChains || [];
+  const expirations = retrievedData.expirations || [];
+  const contractsCount = chains.reduce((acc: number, c: any) => {
+    const pairs = c?.pairs || c?.OptionPair || [];
+    return acc + (Array.isArray(pairs) ? pairs.length * 2 : 0);
+  }, 0);
+
+  return {
+    symbol: sym,
+    question: `Normalized option chains and contract analytics for ${sym}`,
+    expirations,
+    optionChains: chains,
+    systemPrompt: `You are an expert options strategist. Analyze the normalized option chain dataset for ${sym} and identify the strongest risk-defined strategies.`,
+    userPrompt: `Underlying: ${sym}\nExpirations available: ${expirations.length}\nOption chains: ${chains.length}\nTotal contracts: ${contractsCount}`,
+    selection: {
+      contractsAvailable: contractsCount,
+      contractsIncluded: contractsCount,
+      truncated: false,
+    },
+  };
+}
+
 export async function downloadRawOptionsData(
   symbol: string,
   activeEnv: "TEST" | "PROD" = "TEST",
   userLogin?: string
 ): Promise<void> {
-  const { retrievedData } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
+  const sym = symbol.trim().toUpperCase() || "SPY";
+  const { retrievedData } = await fetchOptionsDataForExport(sym, activeEnv, userLogin);
   await downloadRetrievedOptionsDataXls(retrievedData);
 }
 
@@ -56,20 +103,9 @@ export async function downloadNormalizedOptionsData(
   activeEnv: "TEST" | "PROD" = "TEST",
   userLogin?: string
 ): Promise<void> {
-  const { retrievedData, llmInput } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
-  const inputToExport: RawOptionsIdeasExport = llmInput || {
-    id: "all",
-    label: "All Expirations",
-    symbol,
-    question: `Normalized option chains for ${symbol}`,
-    expirations: retrievedData.expirations,
-    optionChains: retrievedData.optionChains,
-    systemPrompt: "Normalized option dataset for LLM analysis",
-    userPrompt: `Analysis of option chains for ${symbol}`,
-    selection: {
-      contractCount: retrievedData.optionChains.reduce((acc: number, c: any) => acc + (c.pairs?.length || 0) * 2, 0),
-    },
-  };
+  const sym = symbol.trim().toUpperCase() || "SPY";
+  const { retrievedData, llmInput } = await fetchOptionsDataForExport(sym, activeEnv, userLogin);
+  const inputToExport = buildExportInput(sym, retrievedData, llmInput);
   await downloadRawOptionsIdeasXls(inputToExport);
 }
 
@@ -78,21 +114,12 @@ export async function downloadBothOptionsData(
   activeEnv: "TEST" | "PROD" = "TEST",
   userLogin?: string
 ): Promise<void> {
-  const { retrievedData, llmInput } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
+  const sym = symbol.trim().toUpperCase() || "SPY";
+  const { retrievedData, llmInput } = await fetchOptionsDataForExport(sym, activeEnv, userLogin);
   await downloadRetrievedOptionsDataXls(retrievedData);
-  const inputToExport: RawOptionsIdeasExport = llmInput || {
-    id: "all",
-    label: "All Expirations",
-    symbol,
-    question: `Normalized option chains for ${symbol}`,
-    expirations: retrievedData.expirations,
-    optionChains: retrievedData.optionChains,
-    systemPrompt: "Normalized option dataset for LLM analysis",
-    userPrompt: `Analysis of option chains for ${symbol}`,
-    selection: {
-      contractCount: retrievedData.optionChains.reduce((acc: number, c: any) => acc + (c.pairs?.length || 0) * 2, 0),
-    },
-  };
+  // Introduce small delay to prevent browser popup blockers from suppressing consecutive file downloads
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const inputToExport = buildExportInput(sym, retrievedData, llmInput);
   await downloadRawOptionsIdeasXls(inputToExport);
 }
 
@@ -133,7 +160,7 @@ export function OptionsDataDownloadDropdown({
   }, [isOpen]);
 
   const handleDownload = async (type: "raw" | "normalized" | "both") => {
-    const sym = symbol.trim().toUpperCase() || "TSLA";
+    const sym = symbol.trim().toUpperCase() || "SPY";
     setDownloading(type);
     setErrorMessage("");
     setStatusMessage(`Retrieving complete chains for ${sym}…`);
@@ -153,6 +180,7 @@ export function OptionsDataDownloadDropdown({
         setIsOpen(false);
       }, 2500);
     } catch (err) {
+      setStatusMessage("");
       setErrorMessage(err instanceof Error ? err.message : "Failed to download options data.");
     } finally {
       setDownloading(null);
