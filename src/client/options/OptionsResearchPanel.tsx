@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState, createContext } from "react";
+import { useContext, useEffect, useMemo, useState, createContext, useRef } from "react";
 import { apiFetch as fetch } from "../apiFetch";
 import type {
   ExpectedIvDirection,
@@ -662,6 +662,40 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [chainRefreshedAt, setChainRefreshedAt] = useState<string | null>(null);
   const [chainRefreshError, setChainRefreshError] = useState("");
 
+  // Auto-refresh configuration state (persisted to localStorage)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("cfagent_options_research_autorefresh_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("cfagent_options_research_autorefresh_interval");
+      return stored ? Number(stored) || 30 : 30;
+    } catch {
+      return 30;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cfagent_options_research_autorefresh_enabled", String(autoRefreshEnabled));
+    } catch {
+      // ignore storage errors
+    }
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cfagent_options_research_autorefresh_interval", String(autoRefreshInterval));
+    } catch {
+      // ignore storage errors
+    }
+  }, [autoRefreshInterval]);
+
   const refreshChain = async () => {
     setChainRefreshing(true);
     setChainRefreshError("");
@@ -697,6 +731,22 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       setChainRefreshing(false);
     }
   };
+
+  // Periodic auto-refresh timer
+  const refreshChainRef = useRef(refreshChain);
+  refreshChainRef.current = refreshChain;
+
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+    const ms = Math.max(5, autoRefreshInterval) * 1000;
+    const intervalId = window.setInterval(() => {
+      if (symbol.trim() && !chainRefreshing) {
+        void refreshChainRef.current();
+      }
+    }, ms);
+    return () => window.clearInterval(intervalId);
+  }, [autoRefreshEnabled, autoRefreshInterval, symbol, chainRefreshing]);
+
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
   const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
   useEffect(() => {
@@ -964,6 +1014,41 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             <span>{chainRefreshing ? "Refreshing…" : "Refresh Options"}</span>
             {chainRefreshedAt && <small className="options-refresh-timestamp">({chainRefreshedAt})</small>}
           </button>
+          <div className={`options-autorefresh-group ${autoRefreshEnabled ? "active" : ""}`}>
+            <button
+              type="button"
+              className={`btn-options-autorefresh ${autoRefreshEnabled ? "active" : ""}`}
+              onClick={() => setAutoRefreshEnabled((prev) => !prev)}
+              title={
+                autoRefreshEnabled
+                  ? `Auto-refresh active every ${autoRefreshInterval}s (click to turn off)`
+                  : "Turn on auto-refresh for options chain"
+              }
+              aria-pressed={autoRefreshEnabled}
+            >
+              <span className={`autorefresh-dot ${autoRefreshEnabled ? "active" : ""}`} />
+              <span>Auto-Refresh</span>
+              <span className={`autorefresh-badge ${autoRefreshEnabled ? "on" : "off"}`}>
+                {autoRefreshEnabled ? "ON" : "OFF"}
+              </span>
+            </button>
+            {autoRefreshEnabled && (
+              <select
+                className="options-autorefresh-select"
+                value={autoRefreshInterval}
+                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+                title="Select auto-refresh interval"
+                aria-label="Auto-refresh interval"
+              >
+                <option value={10}>10s</option>
+                <option value={15}>15s</option>
+                <option value={30}>30s</option>
+                <option value={60}>1m</option>
+                <option value={120}>2m</option>
+                <option value={300}>5m</option>
+              </select>
+            )}
+          </div>
           {screenMeta && (
             <div className="options-scan-meta-pill" title="Screen evaluation metrics">
               {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible

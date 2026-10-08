@@ -1045,3 +1045,57 @@
   color: #94a3b8;
   font-weight: 400;
 }
+
+/* Auto-Refresh Control Group */
+.options-autorefresh-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 4px;
+  border-radius: 7px;
+  transition: all 0.2s ease;
+}
+
+.options-autorefresh-group.active {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
+.btn-options-autorefresh {
+  background: transparent;
+  border: 0;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.btn-options-autorefresh.active {
+  color: #34d399;
+}
+
+.options-autorefresh-select {
+  background: #0b1120;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  border-radius: 5px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.options-autorefresh-select:hover,
+.options-autorefresh-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
