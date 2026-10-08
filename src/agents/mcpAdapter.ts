@@ -58,6 +58,10 @@ export function createAgentMcpTools(context: McpToolContext) {
   if (tools["knowledge_search"]) {
     tools["searchKnowledge"] = tools["knowledge_search"];
   }
+  if (tools["query_platform_knowledge"]) {
+    tools["queryPlatformKnowledge"] = tools["query_platform_knowledge"];
+    tools["getPlatformCapabilities"] = tools["query_platform_knowledge"];
+  }
   if (tools["draft_payment"]) {
     tools["draftPayment"] = tools["draft_payment"];
   }

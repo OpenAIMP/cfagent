@@ -853,46 +853,62 @@ function AgentChatTabContent({
             <div className="hero-icon">⚡</div>
             <h3>Enterprise Multi-Agent Studio</h3>
             <p>
-              Your prompt is analyzed by an <strong>LLM Judge</strong> router and orchestrated across specialized sub-agents with Cloudflare Workers AI and transactional SQLite persistence.
+              Ask any question about platform capabilities, workflows, algorithmic decisioning, or command tools directly through chat. Your prompt is routed by an <strong>LLM Judge</strong> and orchestrated across specialized sub-agents with Cloudflare Workers AI and transactional SQLite persistence.
             </p>
             <div className="quick-chips">
               <button
                 type="button"
-                className="chip-btn"
+                className="chip-btn highlight-chip"
                 disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Search the knowledge base: What features are available in Cloudflare Workers AI?")}
+                onClick={() => handleChipClick("What are the capabilities of this platform and how do I use the 8 core workflows?", "Platform Capabilities")}
               >
-                🔍 Search Knowledge Base
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
-                disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Draft a payment refund of $120.00 USD for customer Acme Logistics")}
-              >
-                💳 Prepare Payment Draft
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
-                disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday")}
-              >
-                📋 Draft High-Priority Task
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
-                disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs")}
-              >
-                🧠 Store Session Fact
+                ⚡ What can this platform do?
               </button>
               <button
                 type="button"
                 className="chip-btn highlight-chip"
                 disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca")}
+                onClick={() => handleChipClick("How do I use the Stock Screener to find oversold tech stocks with RSI < 35?", "Stock Screener Guide")}
+              >
+                📈 How do I screen stocks?
+              </button>
+              <button
+                type="button"
+                className="chip-btn highlight-chip"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("How do I screen for options strategies with max profit > 0 and max loss <= $30?", "Options Strategy Guide")}
+              >
+                🎯 Options: Max Profit &amp; Loss &le; $30
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Explain how the PickBestTrades algorithm evaluates and scores setups.", "PickBestTrades Engine")}
+              >
+                🧠 How does PickBestTrades work?
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("How does Human-in-the-Loop (HITL) order execution and DID attestation work?", "Trading Safety Guide")}
+              >
+                🛡️ How does HITL order execution work?
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("How does the real-time Options Flow tracker identify institutional sweeps and sentiment?", "Options Flow Guide")}
+              >
+                🌊 How do options flow alerts work?
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca", "Equity Research")}
               >
                 🔬 Research NVDA (FOSS)
               </button>
@@ -900,9 +916,17 @@ function AgentChatTabContent({
                 type="button"
                 className="chip-btn"
                 disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Get live Alpaca quote and NBBO spread for BTC/USD")}
+                onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday", "Task Management")}
               >
-                📊 Quote BTC/USD (Alpaca)
+                📋 Draft High-Priority Task
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={isBusy || isResetting}
+                onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs", "Memory Management")}
+              >
+                🧠 Store Session Fact
               </button>
             </div>
           </div>
@@ -1037,6 +1061,85 @@ function AgentChatTabContent({
         </div>
       )}
 
+      {/* Persistent Capabilities & How-To Guide Strip */}
+      <div
+        className="capabilities-quick-bar"
+        style={{
+          display: "flex",
+          gap: "6px",
+          padding: "6px 12px",
+          overflowX: "auto",
+          borderTop: "1px solid rgba(255, 255, 255, 0.05)",
+          background: "rgba(15, 23, 42, 0.5)",
+          whiteSpace: "nowrap",
+          alignItems: "center",
+        }}
+      >
+        <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: "4px" }}>
+          💡 Guides:
+        </span>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("What are the capabilities of this platform and how do I use the 8 core workflows?", "Platform Capabilities")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(56, 189, 248, 0.12)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer" }}
+          title="Overview of all 8 platform workflows"
+        >
+          ⚡ Platform Capabilities
+        </button>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("How do I use the Stock Screener to find equities and what fallback logic does it use?", "Stock Screener Guide")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(34, 197, 94, 0.12)", color: "#4ade80", border: "1px solid rgba(34, 197, 94, 0.3)", cursor: "pointer" }}
+          title="Stock screener steps & fallback logic"
+        >
+          📈 Stock Screener
+        </button>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("How do I screen for options strategies with max profit > 0 and max loss <= $30?", "Options Strategy Guide")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(168, 85, 247, 0.12)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)", cursor: "pointer" }}
+          title="Screen options with budget risk limits"
+        >
+          🎯 Options: Max Profit & Loss
+        </button>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("Explain how the PickBestTrades algorithm evaluates and scores setups.", "PickBestTrades Engine")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(234, 179, 8, 0.12)", color: "#facc15", border: "1px solid rgba(234, 179, 8, 0.3)", cursor: "pointer" }}
+          title="Multivariate opportunity scoring"
+        >
+          🧠 PickBestTrades Logic
+        </button>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("How does Human-in-the-Loop (HITL) order execution and DID attestation work?", "Trading Safety Guide")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(239, 68, 68, 0.12)", color: "#f87171", border: "1px solid rgba(239, 68, 68, 0.3)", cursor: "pointer" }}
+          title="Safe trading with DID attestations"
+        >
+          🛡️ HITL Trading Guardrails
+        </button>
+        <button
+          type="button"
+          className="cap-pill-btn"
+          disabled={isBusy || isResetting}
+          onClick={() => handleChipClick("How does the real-time Options Flow tracker identify institutional sweeps and sentiment?", "Options Flow Guide")}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(6, 182, 212, 0.12)", color: "#22d3ee", border: "1px solid rgba(6, 182, 212, 0.3)", cursor: "pointer" }}
+          title="Smart money sweeps and sentiment"
+        >
+          🌊 Options Flows & Sweeps
+        </button>
+      </div>
+
       {/* Chat Input Bar */}
       <form className="chat-input-bar" onSubmit={handleSendChat}>
         <input
@@ -1048,7 +1151,7 @@ function AgentChatTabContent({
               ? "Resetting session…"
               : isBusy
               ? "Agent is processing response…"
-              : "Ask a question, query knowledge base, draft a task, or save a memory…"
+              : "Ask about platform capabilities, workflows, how to screen, draft orders, or query data…"
           }
           disabled={isBusy || isResetting}
           autoFocus

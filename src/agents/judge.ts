@@ -66,14 +66,14 @@ export class LLMJudge {
     }
 
     // Fast-path heuristics for sub-agents (0ms latency, 100% reliable)
+    if (/\b(how\s+to|how\s+do\s+i|how\s+can\s+i|how\s+does|what\s+are|what\s+is|what\s+can|explain|capabilities|workflows?|playbook|decisioning|pickbesttrades|how\s+to\s+use|search|find|lookup|docs|documentation|knowledge|features|pricing|faq)\b/i.test(lower)) {
+      return { agent: "search", confidence: 0.98, reason: "Platform capability, workflow documentation, or knowledge inquiry", needsConfirmation: false };
+    }
     if (/\b(yfinance|yahoo\s*finance|alpaca|fundamentals|valuation|p\/e\b|peg\s*ratio|price\s*to\s*book|beta|analyst\s*ratings?|price\s*targets?|historical\s*bars|ohlcv|foss|research\s+[a-z]{1,5}|snapshot\s+[a-z]{1,5})\b/i.test(lower)) {
       return { agent: "research", confidence: 0.96, reason: "FOSS market research and quoting intent (Yahoo Finance / Alpaca)", needsConfirmation: false };
     }
     if (/\b(etrade|stock|stocks|equities|equity|shares|screener|screening|scan\s+stocks|market\s+scan|ticker|rsi|macd|buy\s+\d+|sell\s+\d+|portfolio|positions|brokerage)\b/i.test(lower)) {
       return { agent: "trading", confidence: 0.95, reason: "Stock screening and E*TRADE trading intent detected", needsConfirmation: true };
-    }
-    if (/\b(search|find|lookup|docs|documentation|knowledge|what is|how to|features|pricing|capabilities)\b/i.test(lower)) {
-      return { agent: "search", confidence: 0.95, reason: "Knowledge search query", needsConfirmation: false };
     }
     if (/\b(pay|payment|charge|refund|invoice|payout|billing|dollar|\$|usd|transfer)\b/i.test(lower)) {
       return { agent: "payments", confidence: 0.95, reason: "Payment operation detected", needsConfirmation: true };

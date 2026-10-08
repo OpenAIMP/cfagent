@@ -52,12 +52,14 @@ import {
   DurableTWAPOrderCommand,
 } from "./cloudflareAgentCommands";
 
+import { searchPlatformKnowledge } from "../services/platformKnowledge";
+
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
  */
 export class KnowledgeSearchCommand implements IMcpToolCommand<{ query: string }> {
   readonly name = "knowledge_search";
-  readonly description = "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval.";
+  readonly description = "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval, with automatic fallback to platform capabilities and workflows.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -73,23 +75,50 @@ export class KnowledgeSearchCommand implements IMcpToolCommand<{ query: string }
     const query = String(input.query || "").trim();
     if (!query) throw new Error("query is required");
 
+    const isPlatformQuery = /\b(platform|capability|capabilities|workflow|workflows|screener|screening|options\s*flow|builder|payoff|hitl|guardrail|etrade|did|schedule|cron|nlq|how\s+to|pickbesttrades|faq)\b/i.test(query);
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch(`${context.env.AI_SEARCH_ENDPOINT}/search`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: query }] }),
-        signal: controller.signal,
-      });
+      const endpoint = (context.env as any)?.AI_SEARCH_ENDPOINT;
+      let chunks: any[] = [];
+      if (endpoint) {
+        const response = await fetch(`${endpoint}/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [{ role: "user", content: query }] }),
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          const data = (await response.json()) as any;
+          const rawChunks = data?.result?.chunks ?? (Array.isArray(data) ? data : []);
+          chunks = Array.isArray(rawChunks) ? rawChunks : [];
+        }
+      }
       clearTimeout(timeout);
 
-      if (!response.ok) {
-        return { error: `AI Search upstream returned ${response.status}`, query, count: 0, chunks: [] };
+      // If no chunks from external AI search or if this is a platform query, ground with platform knowledge
+      if (chunks.length === 0 || isPlatformQuery) {
+        const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
+        if (platformResult.count > 0) {
+          context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: platformResult.count, source: "platform_knowledge" });
+          return {
+            query,
+            count: platformResult.count,
+            chunks: platformResult.results.map((r) => ({
+              id: r.id,
+              title: r.title,
+              text: `${r.summary}\n\nDetails: ${r.details}\n\nHow to Use:\n${r.howToUse.join("\n")}`,
+              targetTab: r.targetTab,
+              samplePrompt: r.samplePrompt,
+              score: 1.0,
+            })),
+            answer: platformResult.formattedAnswer,
+            message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
+          };
+        }
       }
-      const data = (await response.json()) as any;
-      const rawChunks = data?.result?.chunks ?? (Array.isArray(data) ? data : []);
-      const chunks = Array.isArray(rawChunks) ? rawChunks : [];
+
       context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: chunks.length });
       return {
         query,
@@ -101,8 +130,59 @@ export class KnowledgeSearchCommand implements IMcpToolCommand<{ query: string }
       };
     } catch (err: any) {
       clearTimeout(timeout);
+      const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
+      if (platformResult.count > 0) {
+        return {
+          query,
+          count: platformResult.count,
+          chunks: platformResult.results.map((r) => ({
+            id: r.id,
+            title: r.title,
+            text: `${r.summary}\n\nDetails: ${r.details}\n\nHow to Use:\n${r.howToUse.join("\n")}`,
+            targetTab: r.targetTab,
+            samplePrompt: r.samplePrompt,
+            score: 1.0,
+          })),
+          answer: platformResult.formattedAnswer,
+          message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
+        };
+      }
       return { error: err.message || "Search request failed", query, count: 0, chunks: [] };
     }
+  }
+}
+
+/**
+ * 1b. Query Platform Knowledge & Capabilities Command
+ */
+export class QueryPlatformKnowledgeCommand implements IMcpToolCommand<{ query: string; category?: string }> {
+  readonly name = "query_platform_knowledge";
+  readonly description = "Retrieve authoritative information on platform capabilities, 8 core workflows, 8 quantitative FAQs/playbooks, 6 decisioning & logic engines (including PickBestTrades and screeners), and step-by-step instructions on how to use them through chat or UI tabs.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      query: { type: "string", description: "Question or topic regarding platform capabilities, workflows, or usage" },
+      category: { type: "string", description: "Optional category filter (e.g. stocks, options, flows, brokerage, scheduled, nlq, all)" },
+    },
+    required: ["query"],
+  };
+  readonly zodSchema = z.object({
+    query: z.string().min(1).describe("Question or topic regarding platform capabilities, workflows, or usage"),
+    category: z.string().optional().describe("Optional category filter"),
+  });
+
+  async execute(input: { query: string; category?: string }, context: McpToolContext) {
+    const query = String(input.query || "").trim();
+    if (!query) throw new Error("query is required");
+
+    const result = searchPlatformKnowledge(query, { category: input.category, maxResults: 5 });
+    context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: result.count });
+    return {
+      query,
+      count: result.count,
+      results: result.results,
+      answer: result.formattedAnswer,
+    };
   }
 }
 
@@ -893,6 +973,7 @@ export class McpToolFactory {
   static {
     // Register platform, async-job, and domain capability commands.
     this.registerTool(new KnowledgeSearchCommand());
+    this.registerTool(new QueryPlatformKnowledgeCommand());
     this.registerTool(new DraftPaymentCommand());
     this.registerTool(new ConfirmPaymentDraftCommand());
     this.registerTool(new GetPaymentGatewaysCommand());
