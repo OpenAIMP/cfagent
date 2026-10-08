@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ScreenedOptionContractItem } from "../../types";
-import { DEFAULT_AI_MODEL, getWorkersAIModel } from "../../agents/model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "../../agents/model";
 import type { RiskProfile } from "./recommendationAgent";
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
 
@@ -171,15 +171,16 @@ async function generateSelections(
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
 ): Promise<LlmCandidateResponse> {
-  if (candidates.length === 0) return { model: env.AI_MODEL || DEFAULT_AI_MODEL, ranked: [] };
+  const resolvedModel = resolveAiModelName(env, "optionsComparison");
+  if (candidates.length === 0) return { model: resolvedModel, ranked: [] };
   const { text } = await generateText({
-    model: getWorkersAIModel(env),
+    model: getWorkersAIModel(env, "optionsComparison"),
     temperature: 0,
     system: LLM_SYSTEM_PROMPT,
     prompt: comparisonPrompt(request, riskProfile, contracts, candidates),
   });
   return {
-    model: env.AI_MODEL || DEFAULT_AI_MODEL,
+    model: resolvedModel,
     ranked: parseLlmCandidateSelections(text, candidates),
   };
 }

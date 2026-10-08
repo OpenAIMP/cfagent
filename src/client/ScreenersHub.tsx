@@ -229,6 +229,43 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           {(rows.length > 0 || summary) && (
             rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
               <div className="options-table-scroll">
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.55rem 0.9rem",
+                  background: "rgba(15, 23, 42, 0.7)",
+                  border: "1px solid rgba(56, 189, 248, 0.25)",
+                  borderRadius: "6px",
+                  marginBottom: "0.75rem",
+                  fontSize: "0.8rem",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ color: "#38bdf8", fontWeight: 600 }}>📡 Feed Source:</span>
+                    <span style={{ color: "#f8fafc" }}>
+                      {String(rows[0]?.source || activeProvider?.label || "Live Market Feed")}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <span style={{
+                      padding: "0.2rem 0.55rem",
+                      borderRadius: "4px",
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      background: String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(34, 197, 94, 0.2)",
+                      color: String(rows[0]?.source || "").includes("Curated") ? "#fbbf24" : "#4ade80",
+                      border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)"}`,
+                    }}>
+                      {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE CURATED UNIVERSE" : "🌐 LIVE REST API FEED"}
+                    </span>
+                    <span style={{ color: "#94a3b8", fontSize: "0.74rem" }}>
+                      Quote Status: <code style={{ color: "#cbd5e1" }}>{String(rows[0]?.quoteStatus || "AS_OF_UNKNOWN")}</code>
+                    </span>
+                  </div>
+                </div>
+
                 <table className="options-comparison-table">
                   <thead><tr>{Object.keys(rows[0]).map((key) => <th key={key}>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</th>)}</tr></thead>
                   <tbody>{rows.map((row, index) => (

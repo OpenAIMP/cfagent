@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "../apiFetch";
-import type { EtapiConfig } from "../../config/etapiConfig";
+import type { EtapiConfig, AiModelDefinition } from "../../config/etapiConfig";
 
 interface EtapiConfigModalProps {
   isOpen: boolean;
@@ -21,7 +21,7 @@ export function EtapiConfigModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"strategy" | "screener" | "weights" | "scanner">("strategy");
+  const [activeTab, setActiveTab] = useState<"strategy" | "screener" | "weights" | "scanner" | "ai">("strategy");
 
   // Editable fields state
   const [riskFreeRatePct, setRiskFreeRatePct] = useState("4.0");
@@ -46,6 +46,26 @@ export function EtapiConfigModal({
   const [bullishFactor, setBullishFactor] = useState("1.05");
   const [bearishFactor, setBearishFactor] = useState("0.95");
   const [largeMoveFactor, setLargeMoveFactor] = useState("1.10");
+
+  // AI & Safety Limits state
+  const [availableModels, setAvailableModels] = useState<AiModelDefinition[]>([
+    { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash (Flagship, 131k context)", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "flagship" },
+    { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Instruct FP8 Fast", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "reasoning" },
+    { id: "@cf/meta/llama-3.1-70b-instruct", name: "Llama 3.1 70B Instruct", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "general" },
+    { id: "@cf/qwen/qwen2.5-72b-instruct", name: "Qwen 2.5 72B Instruct", provider: "workers-ai", contextWindow: 32768, supportsTools: true, supportsStreaming: true, category: "analytical" },
+    { id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", name: "DeepSeek R1 Distill Qwen 32B", provider: "workers-ai", contextWindow: 65536, supportsTools: false, supportsStreaming: true, category: "reasoning" },
+  ]);
+  const [selectedDefaultModel, setSelectedDefaultModel] = useState("@cf/zai-org/glm-4.7-flash");
+  const [selectedFallbackModel, setSelectedFallbackModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  const [selectedIdeasModel, setSelectedIdeasModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  const [selectedComparisonModel, setSelectedComparisonModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  const [selectedNlqModel, setSelectedNlqModel] = useState("@cf/zai-org/glm-4.7-flash");
+  const [temperatureDeterministic, setTemperatureDeterministic] = useState("0.0");
+  const [temperatureAnalytical, setTemperatureAnalytical] = useState("0.2");
+  const [temperatureCreative, setTemperatureCreative] = useState("0.7");
+  const [maxOrderQuantity, setMaxOrderQuantity] = useState("10000");
+  const [maxOrderTotalUsd, setMaxOrderTotalUsd] = useState("500000");
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState("90");
 
   const loadConfig = async () => {
     setLoading(true);
@@ -96,6 +116,28 @@ export function EtapiConfigModal({
       setBullishFactor(String(cfg.opportunityScanner.targetFactors.bullish));
       setBearishFactor(String(cfg.opportunityScanner.targetFactors.bearish));
       setLargeMoveFactor(String(cfg.opportunityScanner.targetFactors.large_move));
+    }
+    if (cfg.ai) {
+      if (cfg.ai.availableModels && cfg.ai.availableModels.length > 0) {
+        setAvailableModels(cfg.ai.availableModels);
+      }
+      if (cfg.ai.defaultModel) setSelectedDefaultModel(cfg.ai.defaultModel);
+      if (cfg.ai.fallbackModel) setSelectedFallbackModel(cfg.ai.fallbackModel);
+      if (cfg.ai.taskModels) {
+        if (cfg.ai.taskModels.optionsIdeas) setSelectedIdeasModel(cfg.ai.taskModels.optionsIdeas);
+        if (cfg.ai.taskModels.optionsComparison) setSelectedComparisonModel(cfg.ai.taskModels.optionsComparison);
+        if (cfg.ai.taskModels.nlqValidation) setSelectedNlqModel(cfg.ai.taskModels.nlqValidation);
+      }
+      if (cfg.ai.temperatureDefaults) {
+        setTemperatureDeterministic(String(cfg.ai.temperatureDefaults.deterministic ?? 0.0));
+        setTemperatureAnalytical(String(cfg.ai.temperatureDefaults.analytical ?? 0.2));
+        setTemperatureCreative(String(cfg.ai.temperatureDefaults.creative ?? 0.7));
+      }
+    }
+    if (cfg.tradingConstraints) {
+      if (cfg.tradingConstraints.maxOrderQuantity) setMaxOrderQuantity(String(cfg.tradingConstraints.maxOrderQuantity));
+      if (cfg.tradingConstraints.maxOrderTotalUsd) setMaxOrderTotalUsd(String(cfg.tradingConstraints.maxOrderTotalUsd));
+      if (cfg.tradingConstraints.maxDiscountPercent) setMaxDiscountPercent(String(cfg.tradingConstraints.maxDiscountPercent));
     }
   };
 
@@ -154,6 +196,41 @@ export function EtapiConfigModal({
             large_move: Number(largeMoveFactor),
             range_bound: 1.0,
           },
+        },
+        ai: {
+          defaultModel: selectedDefaultModel,
+          fallbackModel: selectedFallbackModel,
+          fastModel: selectedDefaultModel,
+          reasoningModel: selectedFallbackModel,
+          availableModels,
+          taskModels: {
+            optionsIdeas: selectedIdeasModel,
+            optionsComparison: selectedComparisonModel,
+            nlqPlanning: selectedNlqModel,
+            nlqValidation: selectedNlqModel,
+            orchestrator: selectedDefaultModel,
+            marketResearch: selectedDefaultModel,
+          },
+          temperatureDefaults: {
+            deterministic: Number(temperatureDeterministic),
+            analytical: Number(temperatureAnalytical),
+            creative: Number(temperatureCreative),
+          },
+          maxTokens: {
+            nlq: 2048,
+            ideas: 4096,
+            comparison: 4096,
+            orchestrator: 2048,
+            search: 2048,
+          },
+        },
+        tradingConstraints: {
+          maxOrderQuantity: Number(maxOrderQuantity),
+          maxOrderTotalUsd: Number(maxOrderTotalUsd),
+          defaultOrderQuantity: 1,
+          maxDiscountPercent: Number(maxDiscountPercent),
+          maxPremiumPercent: 500,
+          requireHitlVoiceConfirmation: true,
         },
       };
 
@@ -344,6 +421,20 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("scanner")}
           >
             🎯 Opportunity Scanner
+          </button>
+          <button
+            type="button"
+            className="subnav-btn"
+            style={{
+              padding: "0.4rem 0.8rem",
+              fontSize: "0.82rem",
+              background: activeTab === "ai" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
+              color: activeTab === "ai" ? "#38bdf8" : "#94a3b8",
+              borderColor: activeTab === "ai" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+            }}
+            onClick={() => setActiveTab("ai")}
+          >
+            🤖 AI Models &amp; Guardrails
           </button>
         </div>
 
@@ -608,6 +699,197 @@ export function EtapiConfigModal({
                   style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
                 />
                 <span style={{ fontSize: "0.72rem", color: "#64748b" }}>1.10 = +10% volatility straddle assumption</span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "ai" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              <div style={{ padding: "0.85rem", background: "rgba(56, 189, 248, 0.06)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🧠</span> Workflow Model Selection
+                </h4>
+                <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "#94a3b8" }}>
+                  Configure which Cloudflare Workers AI model is assigned to each specific trading and intelligence workflow.
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                      Default Flagship Model:
+                    </label>
+                    <select
+                      value={selectedDefaultModel}
+                      onChange={(e) => setSelectedDefaultModel(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.category.toUpperCase()}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                      Fallback Resilience Model:
+                    </label>
+                    <select
+                      value={selectedFallbackModel}
+                      onChange={(e) => setSelectedFallbackModel(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.category.toUpperCase()}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                      Options Ideas Evaluator:
+                    </label>
+                    <select
+                      value={selectedIdeasModel}
+                      onChange={(e) => setSelectedIdeasModel(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.category.toUpperCase()}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                      Multi-Leg Options Comparator:
+                    </label>
+                    <select
+                      value={selectedComparisonModel}
+                      onChange={(e) => setSelectedComparisonModel(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.category.toUpperCase()}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ gridColumn: "span 2" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                      NLQ Natural Language Query Validator:
+                    </label>
+                    <select
+                      value={selectedNlqModel}
+                      onChange={(e) => setSelectedNlqModel(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.category.toUpperCase()}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: "0.85rem", background: "rgba(148, 163, 184, 0.05)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#e2e8f0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🌡️</span> Sampling Temperatures
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Deterministic (Orders):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      value={temperatureDeterministic}
+                      onChange={(e) => setTemperatureDeterministic(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Analytical (Screener):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      value={temperatureAnalytical}
+                      onChange={(e) => setTemperatureAnalytical(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Creative (Ideas):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      value={temperatureCreative}
+                      onChange={(e) => setTemperatureCreative(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: "0.85rem", background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#f87171", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>🛡️</span> Trading Safety Limits &amp; Constraints
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Max Order Shares:
+                    </label>
+                    <input
+                      type="number"
+                      value={maxOrderQuantity}
+                      onChange={(e) => setMaxOrderQuantity(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Max Total Value ($):
+                    </label>
+                    <input
+                      type="number"
+                      value={maxOrderTotalUsd}
+                      onChange={(e) => setMaxOrderTotalUsd(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                      Max Discount Limit (%):
+                    </label>
+                    <input
+                      type="number"
+                      value={maxDiscountPercent}
+                      onChange={(e) => setMaxDiscountPercent(e.target.value)}
+                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}

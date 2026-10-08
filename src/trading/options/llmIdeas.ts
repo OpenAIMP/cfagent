@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ETradeOptionChain, ETradeOptionChainContract, ETradeOptionExpireDate } from "../../types";
-import { DEFAULT_AI_MODEL, getWorkersAIModel } from "../../agents/model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "../../agents/model";
 
 const responseSchema = z.object({
   answer: z.string().min(1).max(5000),
@@ -691,8 +691,9 @@ export async function generateRawOptionsIdeas(
   ].join("\n");
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
+    const resolvedModel = resolveAiModelName(env, "optionsIdeas");
     const { text } = await generateText({
-      model: getWorkersAIModel(env),
+      model: getWorkersAIModel(env, "optionsIdeas"),
       temperature: 0,
       maxOutputTokens: 4096,
       system: input.systemPrompt,
@@ -701,7 +702,7 @@ export async function generateRawOptionsIdeas(
     try {
       const chainsToVerify = verificationChains && verificationChains.length > 0 ? verificationChains : input.optionChains;
       return {
-        model: env.AI_MODEL || DEFAULT_AI_MODEL,
+        model: resolvedModel,
         ...parseRawOptionsIdeas(text, chainsToVerify),
       };
     } catch (error) {
@@ -727,9 +728,10 @@ export async function generateRawOptionsIdeasRanking(
   const prompt = buildRawOptionsIdeasRankingPrompt(question, groups);
   if (prompt.completedGroupIds.length === 0) throw new Error("No completed expiration-group analyses are available to rank.");
   let lastError: unknown;
+  const resolvedModel = resolveAiModelName(env, "optionsIdeas");
   for (let attempt = 0; attempt < 2; attempt++) {
     const { text } = await generateText({
-      model: getWorkersAIModel(env),
+      model: getWorkersAIModel(env, "optionsIdeas"),
       temperature: 0,
       maxOutputTokens: 2048,
       system: prompt.systemPrompt,
@@ -739,21 +741,21 @@ export async function generateRawOptionsIdeasRanking(
     });
     try {
       return {
-        model: env.AI_MODEL || DEFAULT_AI_MODEL,
+        model: resolvedModel,
         ...parseRawOptionsIdeasRanking(text, prompt.completedGroupIds),
       };
     } catch (error) {
       lastError = error;
       if (attempt === 1) {
         return {
-          model: env.AI_MODEL || DEFAULT_AI_MODEL,
+          model: resolvedModel,
           ...synthesizeFallbackRanking(prompt.completedGroupIds, groups, text),
         };
       }
     }
   }
   return {
-    model: env.AI_MODEL || DEFAULT_AI_MODEL,
+    model: resolvedModel,
     ...synthesizeFallbackRanking(prompt.completedGroupIds, groups),
   };
 }

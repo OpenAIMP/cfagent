@@ -5,11 +5,19 @@ import {
   getStrategyEngineConfig,
   getOpportunityScannerConfig,
   getLlmIdeasConfig,
+  getAiConfig,
+  getVoiceConfig,
+  getTradingConstraints,
+  getExternalApisConfig,
+  getAvailableAiModels,
   setRuntimeEtapiConfigOverrides,
 } from "../src/config/etapiConfig";
+import { resolveAiModelName } from "../src/agents/model";
+import { normalizeVoiceTradingTranscript } from "../src/trading/voice/agent";
+import { DynamicMarketScreener } from "../src/trading/screener";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import { UnifiedOptionsService } from "../src/trading/options/unifiedOptionsService";
-import type { Env, ETradeOptionChain } from "../src/types";
+import type { Env, ETradeOptionChain, ScreenedStockItem } from "../src/types";
 
 describe("ETAPI Externalized Configuration & Unified Options Service", () => {
   beforeEach(() => {
@@ -191,4 +199,98 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
     expect(webhook.status).toBe("success");
     expect((webhook.result as any).config).toBeDefined();
   });
+
+  it("loads AI model configuration and resolves models dynamically by workflow task", () => {
+    const aiConfig = getAiConfig();
+    expect(aiConfig.defaultModel).toBe("@cf/zai-org/glm-4.7-flash");
+    expect(aiConfig.taskModels?.optionsIdeas).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    expect(aiConfig.taskModels?.nlqValidation).toBe("@cf/zai-org/glm-4.7-flash");
+
+    const models = getAvailableAiModels();
+    expect(models.length).toBeGreaterThanOrEqual(4);
+    expect(models.some((m) => m.id === "@cf/zai-org/glm-4.7-flash")).toBe(true);
+    expect(models.some((m) => m.id === "@cf/meta/llama-3.3-70b-instruct-fp8-fast")).toBe(true);
+
+    // Dynamic resolution
+    expect(resolveAiModelName({}, "optionsIdeas")).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    expect(resolveAiModelName({}, "nlqValidation")).toBe("@cf/zai-org/glm-4.7-flash");
+    expect(resolveAiModelName({}, "custom-model")).toBe("custom-model");
+    expect(resolveAiModelName({})).toBe("@cf/zai-org/glm-4.7-flash");
+
+    // Env override takes precedence when no task model is requested
+    expect(resolveAiModelName({ AI_MODEL: "@cf/qwen/qwen2.5-72b-instruct" })).toBe("@cf/qwen/qwen2.5-72b-instruct");
+  });
+
+  it("normalizes voice speech transcripts using externalized phonetic dictionary and ticker mappings", () => {
+    const voiceCfg = getVoiceConfig();
+    expect(voiceCfg.phoneticCorrections?.["text talks"]).toBe("tech stocks");
+    expect(voiceCfg.companyToTicker?.["apple"]).toBe("AAPL");
+
+    // Verify transcript normalization
+    const normalized1 = normalizeVoiceTradingTranscript("Screen all text talks");
+    expect(normalized1.toLowerCase()).toContain("tech stocks");
+
+    const normalized2 = normalizeVoiceTradingTranscript("Quote for Apple stock please");
+    expect(normalized2).toContain("AAPL");
+
+    const normalized3 = normalizeVoiceTradingTranscript("um like find NVDA please");
+    expect(normalized3).toBe("find NVDA");
+  });
+
+  it("loads trading constraints and external API configurations correctly", () => {
+    const constraints = getTradingConstraints();
+    expect(constraints.maxOrderQuantity).toBe(10000);
+    expect(constraints.maxOrderTotalUsd).toBe(500000);
+    expect(constraints.requireHitlVoiceConfirmation).toBe(true);
+
+    const extApis = getExternalApisConfig();
+    expect(extApis.nasdaqListings.pageSize).toBe(5000);
+    expect(extApis.nasdaqListings.timeoutMs).toBe(2500);
+    expect(extApis.nasdaqListings.exchanges).toContain("nasdaq");
+  });
+
+  it("DynamicMarketScreener supports gainersLosers = 'movers' and sorts by absolute change magnitude", () => {
+    const testUniverse: ScreenedStockItem[] = [
+      {
+        symbol: "FLAT",
+        companyName: "Flat Corp",
+        price: 50,
+        lastPrice: 50,
+        changePercent: 0.1,
+        volume: 500000,
+        rsi: 50,
+      } as ScreenedStockItem,
+      {
+        symbol: "BIGG",
+        companyName: "Big Gainer",
+        price: 120,
+        lastPrice: 120,
+        changePercent: 12.5,
+        volume: 1500000,
+        rsi: 65,
+      } as ScreenedStockItem,
+      {
+        symbol: "BIGL",
+        companyName: "Big Loser",
+        price: 80,
+        lastPrice: 80,
+        changePercent: -14.2,
+        volume: 2000000,
+        rsi: 30,
+      } as ScreenedStockItem,
+    ];
+
+    const screener = new DynamicMarketScreener(testUniverse);
+
+    const result = screener.screenStocks({
+      gainersLosers: "movers",
+    });
+
+    expect(result.stocks.length).toBe(3);
+    // Highest absolute magnitude should be first: BIGL (-14.2%) then BIGG (+12.5%) then FLAT (+0.1%)
+    expect(result.stocks[0].symbol).toBe("BIGL");
+    expect(result.stocks[1].symbol).toBe("BIGG");
+    expect(result.stocks[2].symbol).toBe("FLAT");
+  });
 });
+

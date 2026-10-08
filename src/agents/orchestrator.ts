@@ -1,5 +1,5 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import { convertToModelMessages, streamText, stepCountIs } from "ai";
+import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap } from "./nlq";
@@ -1135,18 +1135,16 @@ Agentic Best Practices & Workflow Rules:
 
       this.recordMessage("assistant", fallbackText, "orchestrator");
 
-      // Return a compliant AI SDK v5 text stream response
-      const payload = [
-        `data: ${JSON.stringify({ type: "text-start", id: "text-err-1" })}`,
-        `data: ${JSON.stringify({ type: "text-delta", delta: fallbackText })}`,
-        `data: ${JSON.stringify({ type: "text-end" })}`,
-        "data: [DONE]",
-        "",
-      ].join("\n\n");
-
-      return new Response(payload, {
-        headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+      // Return a compliant AI SDK v5 UI message stream response
+      const stream = createUIMessageStream({
+        execute: ({ writer }) => {
+          writer.write({ type: "text-start", id: "text-fallback-1" });
+          writer.write({ type: "text-delta", id: "text-fallback-1", delta: fallbackText });
+          writer.write({ type: "text-end", id: "text-fallback-1" });
+        },
       });
+
+      return createUIMessageStreamResponse({ stream });
     }
 
   }
@@ -3155,6 +3153,7 @@ Agentic Best Practices & Workflow Rules:
               "Identify this group's strongest strategy for the user's requested outlook. Explain exact contract legs using only symbols present in this group's supplied chains, why the strategy fits, and its material risks. If no supported strategy is suitable, state that instead of inventing one.",
             ].join("\n\n");
 
+            let inputExport: any = null;
             try {
               const limited = buildContextLimitedRawOptionsIdeasInput(
                 symbol,
@@ -3163,7 +3162,7 @@ Agentic Best Practices & Workflow Rules:
                 group.optionChains,
               );
               const llmInput = limited.input;
-              const inputExport = {
+              inputExport = {
                 id: group.id,
                 label: group.label,
                 symbol: llmInput.symbol,
@@ -3195,7 +3194,17 @@ Agentic Best Practices & Workflow Rules:
               };
             } catch (err) {
               return {
-                inputExport: null,
+                inputExport: inputExport ?? {
+                  id: group.id,
+                  label: group.label,
+                  symbol,
+                  question: groupQuestion,
+                  expirations: group.expirations,
+                  optionChains: group.optionChains.map((chain) => chain.raw ?? chain),
+                  systemPrompt: "",
+                  userPrompt: groupQuestion,
+                  selection: null,
+                },
                 result: {
                   id: group.id,
                   label: group.label,
@@ -3263,11 +3272,21 @@ Agentic Best Practices & Workflow Rules:
           }
         }
 
-        const firstInput = groupInputs[0];
+        const firstInput = groupInputs[0] || (retrievedChains.length > 0 ? {
+          id: "all",
+          label: "All Expirations",
+          symbol,
+          question,
+          expirations: retrievedExpirations,
+          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
+          systemPrompt: "Normalized options contract dataset",
+          userPrompt: question,
+          selection: { contractCount },
+        } : undefined);
         const llmInputExport = firstInput ? {
           ...firstInput,
           question,
-          groupInputs,
+          groupInputs: groupInputs.length > 0 ? groupInputs : [firstInput],
           finalRanking: {
             systemPrompt: finalAnalysis.systemPrompt,
             userPrompt: finalAnalysis.userPrompt,

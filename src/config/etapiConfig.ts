@@ -74,6 +74,77 @@ export interface EtapiCacheConfig {
   expirationsTtlSeconds: number;
 }
 
+export interface AiModelDefinition {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow: number;
+  supportsTools: boolean;
+  supportsStreaming: boolean;
+  category: "flagship" | "reasoning" | "fast" | "analytical" | "general";
+  description?: string;
+}
+
+export interface AiConfig {
+  defaultModel: string;
+  fallbackModel: string;
+  fastModel: string;
+  reasoningModel: string;
+  availableModels: AiModelDefinition[];
+  taskModels: {
+    nlqPlanning?: string;
+    nlqValidation?: string;
+    optionsIdeas?: string;
+    optionsComparison?: string;
+    orchestrator?: string;
+    marketResearch?: string;
+    searchAgent?: string;
+    [task: string]: string | undefined;
+  };
+  temperatureDefaults: {
+    deterministic: number;
+    analytical: number;
+    creative: number;
+  };
+  maxTokens: {
+    nlq: number;
+    ideas: number;
+    comparison: number;
+    orchestrator: number;
+    search: number;
+  };
+}
+
+export interface VoiceAgentConfig {
+  companyToTicker: Record<string, string>;
+  wordToNumber: Record<string, string>;
+  phoneticCorrections: Record<string, string>;
+  maxPromptLength: number;
+  defaultOrderType: string;
+}
+
+export interface TradingConstraintsConfig {
+  maxOrderQuantity: number;
+  maxOrderTotalUsd: number;
+  defaultOrderQuantity: number;
+  maxDiscountPercent: number;
+  maxPremiumPercent: number;
+  requireHitlVoiceConfirmation: boolean;
+}
+
+export interface ExternalApisConfig {
+  nasdaqListings: {
+    url: string;
+    pageSize: number;
+    timeoutMs: number;
+    exchanges: string[];
+  };
+  yahooFinance: {
+    timeoutMs: number;
+    maxRetries: number;
+  };
+}
+
 export interface EtapiConfig {
   screener: EtapiScreenerConfig;
   strategyEngine: EtapiStrategyEngineConfig;
@@ -81,6 +152,10 @@ export interface EtapiConfig {
   llmIdeas: EtapiLlmIdeasConfig;
   client: EtapiClientConfig;
   cache: EtapiCacheConfig;
+  ai: AiConfig;
+  voice: VoiceAgentConfig;
+  tradingConstraints: TradingConstraintsConfig;
+  externalApis: ExternalApisConfig;
 }
 
 const DEFAULT_SCORE_WEIGHTS: EtapiStrategyScoreWeights = {
@@ -147,6 +222,165 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     quoteTtlSeconds: 30,
     chainTtlSeconds: 60,
     expirationsTtlSeconds: 300,
+  },
+  ai: {
+    defaultModel: "@cf/zai-org/glm-4.7-flash",
+    fallbackModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    fastModel: "@cf/zai-org/glm-4.7-flash",
+    reasoningModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    availableModels: [
+      {
+        id: "@cf/zai-org/glm-4.7-flash",
+        name: "GLM 4.7 Flash (Flagship, 131k context)",
+        provider: "workers-ai",
+        contextWindow: 131072,
+        supportsTools: true,
+        supportsStreaming: true,
+        category: "flagship",
+        description: "High-speed reasoning, 131k context, native tool use, optimal for NLQ and trading execution",
+      },
+      {
+        id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        name: "Llama 3.3 70B Instruct FP8 Fast",
+        provider: "workers-ai",
+        contextWindow: 131072,
+        supportsTools: true,
+        supportsStreaming: true,
+        category: "reasoning",
+        description: "Deep multi-leg quantitative options reasoning and contract payoff evaluation",
+      },
+      {
+        id: "@cf/meta/llama-3.1-70b-instruct",
+        name: "Llama 3.1 70B Instruct",
+        provider: "workers-ai",
+        contextWindow: 131072,
+        supportsTools: true,
+        supportsStreaming: true,
+        category: "general",
+        description: "General financial Q&A, comprehensive explanations, and macro analysis",
+      },
+      {
+        id: "@cf/qwen/qwen2.5-72b-instruct",
+        name: "Qwen 2.5 72B Instruct",
+        provider: "workers-ai",
+        contextWindow: 32768,
+        supportsTools: true,
+        supportsStreaming: true,
+        category: "analytical",
+        description: "High precision mathematical reasoning, risk factor decomposition, and code synthesis",
+      },
+      {
+        id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+        name: "DeepSeek R1 Distill Qwen 32B",
+        provider: "workers-ai",
+        contextWindow: 65536,
+        supportsTools: false,
+        supportsStreaming: true,
+        category: "reasoning",
+        description: "Chain-of-thought deep analytical reasoning and scenario risk assessment",
+      },
+    ],
+    taskModels: {
+      nlqPlanning: "@cf/zai-org/glm-4.7-flash",
+      nlqValidation: "@cf/zai-org/glm-4.7-flash",
+      optionsIdeas: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      optionsComparison: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      orchestrator: "@cf/zai-org/glm-4.7-flash",
+      marketResearch: "@cf/zai-org/glm-4.7-flash",
+      searchAgent: "@cf/zai-org/glm-4.7-flash",
+    },
+    temperatureDefaults: {
+      deterministic: 0.0,
+      analytical: 0.2,
+      creative: 0.7,
+    },
+    maxTokens: {
+      nlq: 2048,
+      ideas: 4096,
+      comparison: 4096,
+      orchestrator: 2048,
+      search: 2048,
+    },
+  },
+  voice: {
+    companyToTicker: {
+      nvidia: "NVDA",
+      nvda: "NVDA",
+      apple: "AAPL",
+      aapl: "AAPL",
+      microsoft: "MSFT",
+      msft: "MSFT",
+      tesla: "TSLA",
+      tsla: "TSLA",
+      amazon: "AMZN",
+      amzn: "AMZN",
+      google: "GOOGL",
+      googl: "GOOGL",
+      alphabet: "GOOGL",
+      broadcom: "AVGO",
+      avgo: "AVGO",
+      amd: "AMD",
+      meta: "META",
+      palantir: "PLTR",
+      pltr: "PLTR",
+      coinbase: "COIN",
+      coin: "COIN",
+      jpmorgan: "JPM",
+      jpm: "JPM",
+      goldman: "GS",
+      gs: "GS",
+      schwab: "SCHW",
+      schw: "SCHW",
+      robinhood: "HOOD",
+      hood: "HOOD",
+      spy: "SPY",
+      qqq: "QQQ",
+    },
+    wordToNumber: {
+      one: "1",
+      two: "2",
+      three: "3",
+      four: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8",
+      nine: "9",
+      ten: "10",
+      fifteen: "15",
+      twenty: "20",
+      twentyfive: "25",
+      fifty: "50",
+      hundred: "100",
+    },
+    phoneticCorrections: {
+      "text talks": "tech stocks",
+      "text talk": "tech stock",
+      "tech talks": "tech stocks",
+      "talks": "stocks",
+    },
+    maxPromptLength: 500,
+    defaultOrderType: "MARKET",
+  },
+  tradingConstraints: {
+    maxOrderQuantity: 10000,
+    maxOrderTotalUsd: 500000,
+    defaultOrderQuantity: 1,
+    maxDiscountPercent: 90,
+    maxPremiumPercent: 500,
+    requireHitlVoiceConfirmation: true,
+  },
+  externalApis: {
+    nasdaqListings: {
+      url: "https://api.nasdaq.com/api/screener/stocks",
+      pageSize: 5000,
+      timeoutMs: 2500,
+      exchanges: ["nasdaq", "nyse", "amex"],
+    },
+    yahooFinance: {
+      timeoutMs: 5000,
+      maxRetries: 2,
+    },
   },
 };
 
@@ -249,4 +483,28 @@ export function getClientConfig(env?: Partial<Env>, overrideEnv?: string): Etapi
 
 export function getCacheConfig(env?: Partial<Env>, overrideEnv?: string): EtapiCacheConfig {
   return getEtapiConfig(env, overrideEnv).cache;
+}
+
+export function getAiConfig(env?: Partial<Env>, overrideEnv?: string): AiConfig {
+  const cfg = getEtapiConfig(env, overrideEnv);
+  return cfg.ai;
+}
+
+export function getVoiceConfig(env?: Partial<Env>, overrideEnv?: string): VoiceAgentConfig {
+  const cfg = getEtapiConfig(env, overrideEnv);
+  return cfg.voice;
+}
+
+export function getTradingConstraints(env?: Partial<Env>, overrideEnv?: string): TradingConstraintsConfig {
+  const cfg = getEtapiConfig(env, overrideEnv);
+  return cfg.tradingConstraints;
+}
+
+export function getExternalApisConfig(env?: Partial<Env>, overrideEnv?: string): ExternalApisConfig {
+  const cfg = getEtapiConfig(env, overrideEnv);
+  return cfg.externalApis;
+}
+
+export function getAvailableAiModels(env?: Partial<Env>, overrideEnv?: string): AiModelDefinition[] {
+  return getAiConfig(env, overrideEnv).availableModels;
 }

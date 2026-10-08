@@ -56,11 +56,21 @@ export async function downloadNormalizedOptionsData(
   activeEnv: "TEST" | "PROD" = "TEST",
   userLogin?: string
 ): Promise<void> {
-  const { llmInput } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
-  if (!llmInput) {
-    throw new Error("Normalized LLM input data was not generated.");
-  }
-  await downloadRawOptionsIdeasXls(llmInput);
+  const { retrievedData, llmInput } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
+  const inputToExport: RawOptionsIdeasExport = llmInput || {
+    id: "all",
+    label: "All Expirations",
+    symbol,
+    question: `Normalized option chains for ${symbol}`,
+    expirations: retrievedData.expirations,
+    optionChains: retrievedData.optionChains,
+    systemPrompt: "Normalized option dataset for LLM analysis",
+    userPrompt: `Analysis of option chains for ${symbol}`,
+    selection: {
+      contractCount: retrievedData.optionChains.reduce((acc: number, c: any) => acc + (c.pairs?.length || 0) * 2, 0),
+    },
+  };
+  await downloadRawOptionsIdeasXls(inputToExport);
 }
 
 export async function downloadBothOptionsData(
@@ -70,9 +80,20 @@ export async function downloadBothOptionsData(
 ): Promise<void> {
   const { retrievedData, llmInput } = await fetchOptionsDataForExport(symbol, activeEnv, userLogin);
   await downloadRetrievedOptionsDataXls(retrievedData);
-  if (llmInput) {
-    await downloadRawOptionsIdeasXls(llmInput);
-  }
+  const inputToExport: RawOptionsIdeasExport = llmInput || {
+    id: "all",
+    label: "All Expirations",
+    symbol,
+    question: `Normalized option chains for ${symbol}`,
+    expirations: retrievedData.expirations,
+    optionChains: retrievedData.optionChains,
+    systemPrompt: "Normalized option dataset for LLM analysis",
+    userPrompt: `Analysis of option chains for ${symbol}`,
+    selection: {
+      contractCount: retrievedData.optionChains.reduce((acc: number, c: any) => acc + (c.pairs?.length || 0) * 2, 0),
+    },
+  };
+  await downloadRawOptionsIdeasXls(inputToExport);
 }
 
 export interface OptionsDataDownloadDropdownProps {

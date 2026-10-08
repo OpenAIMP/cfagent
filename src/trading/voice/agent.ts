@@ -25,12 +25,13 @@ import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
+import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
 
 /**
  * Normalizes speech-to-text transcript for financial and trading intents.
  * Converts spoken numbers and common company names to stock symbols.
  */
-export function normalizeVoiceTradingTranscript(raw: string): string {
+export function normalizeVoiceTradingTranscript(raw: string, env?: Env): string {
   if (!raw) return "";
   let text = raw.trim();
 
@@ -42,65 +43,24 @@ export function normalizeVoiceTradingTranscript(raw: string): string {
     return match.replace(/\s+/g, "");
   });
 
-  // 2. Normalize spoken company names to canonical tickers
-  const companyToTicker: Record<string, string> = {
-    nvidia: "NVDA",
-    nvda: "NVDA",
-    apple: "AAPL",
-    aapl: "AAPL",
-    microsoft: "MSFT",
-    msft: "MSFT",
-    tesla: "TSLA",
-    tsla: "TSLA",
-    amazon: "AMZN",
-    amzn: "AMZN",
-    google: "GOOGL",
-    googl: "GOOGL",
-    alphabet: "GOOGL",
-    broadcom: "AVGO",
-    avgo: "AVGO",
-    amd: "AMD",
-    meta: "META",
-    palantir: "PLTR",
-    pltr: "PLTR",
-    coinbase: "COIN",
-    coin: "COIN",
-    jpmorgan: "JPM",
-    jpm: "JPM",
-    goldman: "GS",
-    gs: "GS",
-    schwab: "SCHW",
-    schw: "SCHW",
-    robinhood: "HOOD",
-    hood: "HOOD",
-    spy: "SPY",
-    qqq: "QQQ",
-  };
+  const voiceCfg = getVoiceConfig(env);
 
+  // 1c. Apply phonetic speech-to-text corrections (e.g. "text talks" -> "tech stocks")
+  const phonetic = voiceCfg.phoneticCorrections || {};
+  for (const [misheard, corrected] of Object.entries(phonetic)) {
+    const reg = new RegExp(`\\b${misheard}\\b`, "gi");
+    text = text.replace(reg, corrected);
+  }
+
+  // 2. Normalize spoken company names to canonical tickers from externalized config
+  const companyToTicker = voiceCfg.companyToTicker || {};
   for (const [name, sym] of Object.entries(companyToTicker)) {
     const reg = new RegExp(`\\b${name}\\b`, "gi");
     text = text.replace(reg, sym);
   }
 
-  // 3. Normalize spoken numbers for common trade quantities
-  const wordToNumber: Record<string, string> = {
-    one: "1",
-    two: "2",
-    three: "3",
-    four: "4",
-    five: "5",
-    six: "6",
-    seven: "7",
-    eight: "8",
-    nine: "9",
-    ten: "10",
-    fifteen: "15",
-    twenty: "20",
-    twentyfive: "25",
-    fifty: "50",
-    hundred: "100",
-  };
-
+  // 3. Normalize spoken numbers for common trade quantities from externalized config
+  const wordToNumber = voiceCfg.wordToNumber || {};
   for (const [word, num] of Object.entries(wordToNumber)) {
     const reg = new RegExp(`\\b${word}\\b`, "gi");
     text = text.replace(reg, num);
@@ -176,11 +136,24 @@ export class ETradeVoiceTradingService {
    */
   async processVoiceTurn(request: VoiceTradingTurnRequest): Promise<VoiceTradingTurnResponse> {
     const rawTranscript = (request.transcript || request.rawTranscript || "").trim();
-    const cleanTranscript = normalizeVoiceTradingTranscript(rawTranscript);
+    const cleanTranscript = normalizeVoiceTradingTranscript(rawTranscript, this.env);
     const timestamp = new Date().toISOString();
     const userLogin = request.userLogin || this.sessionId;
     const authorizerDid = `did:user:voice:${userLogin}`;
     const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
+
+    // 0. Conversational Open-Ended Single-Word Prompt (e.g. "Find", "Search", "Help")
+    if (/^(find|search|help|lookup|show me)$/i.test(cleanTranscript.trim())) {
+      const spokenText = "What would you like me to find? You can say 'Find top gainers and losers', 'Screen tech stocks', 'Quote NVDA', or ask for your portfolio balance.";
+      return {
+        success: true,
+        spokenText,
+        displayMarkdown: `### 🎙️ E*TRADE Voice Desk\n\n${spokenText}\n\n- *"Find top gainers and losers"*\n- *"Screen tech stocks"*\n- *"Quote NVDA"*\n- *"Buy 1 share of NVDA at market"*`,
+        actionType: "general",
+        proposerDid: AGENT_DIDS.TRADING,
+        timestamp,
+      };
+    }
 
     // -----------------------------------------------------------------------
     // 1. Detect Voice Approval Intent: "Confirm execution of order <id>" or "Approve order"
@@ -589,6 +562,21 @@ export class ETradeVoiceTradingService {
         const limitPriceStr: string | undefined = row.limitPrice && row.limitPrice !== "N/A (Market Order)" ? String(row.limitPrice) : undefined;
         const marketPriceStr: string | undefined = row.prevailingMarketPrice && row.prevailingMarketPrice !== "N/A" ? String(row.prevailingMarketPrice) : undefined;
         const relativeDesc: string | undefined = row.relativePricing || plan.tradingData?.relativePriceDescription;
+        const constraints = getTradingConstraints(this.env);
+        if (qty > constraints.maxOrderQuantity) {
+          const spoken = `Order rejected by safety constraints. Requested quantity of ${qty} exceeds the maximum limit of ${constraints.maxOrderQuantity} shares.`;
+          return {
+            success: false,
+            spokenText: tuneFinancialPronunciation(spoken),
+            displayMarkdown: `⚠️ **Order Safety Limit Exceeded**: Quantity \`${qty}\` exceeds maximum allowed limit of \`${constraints.maxOrderQuantity}\`.`,
+            actionType: "preview",
+            orderStatus: "rejected",
+            proposerDid: AGENT_DIDS.TRADING,
+            authorizerDid,
+            timestamp,
+          };
+        }
+
         const shareWord = qty === 1 ? "share" : "shares";
 
         let priceDesc = "";

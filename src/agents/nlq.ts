@@ -1,5 +1,5 @@
 import { generateText, generateObject } from "ai";
-import { getWorkersAIModel, DEFAULT_AI_MODEL } from "./model";
+import { getWorkersAIModel, DEFAULT_AI_MODEL, resolveAiModelName } from "./model";
 import { z } from "zod";
 import type { Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
@@ -777,8 +777,16 @@ export function planWithRules(question: string): NLQPlan {
     const exchangeMatch = question.match(/\b(nasdaq|nyse|amex)\b/i);
     if (exchangeMatch) filters.exchange = exchangeMatch[1].toUpperCase();
 
-    if (/\b(gainer|gainers|up|green)\b/i.test(question)) filters.gainersOnly = true;
-    if (/\b(loser|losers|down|red)\b/i.test(question)) filters.losersOnly = true;
+    const hasGainers = /\b(gainer|gainers|up|green)\b/i.test(question);
+    const hasLosers = /\b(loser|losers|down|red)\b/i.test(question);
+
+    if (hasGainers && hasLosers) {
+      filters.gainersLosers = "movers";
+    } else if (hasGainers) {
+      filters.gainersOnly = true;
+    } else if (hasLosers) {
+      filters.losersOnly = true;
+    }
 
     const resultLimitMatch = question.match(/\b(?:top|limit(?: to)?|show)\s+(\d+)\s+(?:stocks?|equities|listings)\b/i);
     if (resultLimitMatch) filters.limit = Number(resultLimitMatch[1]);
@@ -1131,7 +1139,7 @@ export async function validateNLQPlanWithLLM(
     plan.planSource = "llm_validated";
     return buildResult({
       validated: true,
-      model: hasAi ? (env?.AI_MODEL || DEFAULT_AI_MODEL) : "semantic-rules-validator",
+      model: hasAi ? resolveAiModelName(env, "nlqValidation") : "semantic-rules-validator",
       domain: plan.domain,
       action: plan.tradingData.action,
       interpretation: "Validated and corrected from stock screener to Options Strategy Scanner (Max profit > Max loss across liquid underlyings)",
@@ -1142,7 +1150,7 @@ export async function validateNLQPlanWithLLM(
 
   if (hasAi) {
     try {
-      const model = getWorkersAIModel(env);
+      const model = getWorkersAIModel(env, "nlqValidation");
       const { text } = await generateText({
         model,
         temperature: 0,
@@ -1156,7 +1164,7 @@ export async function validateNLQPlanWithLLM(
         const parsed = JSON.parse(match[0]);
         return buildResult({
           validated: true,
-          model: env?.AI_MODEL || DEFAULT_AI_MODEL,
+          model: resolveAiModelName(env, "nlqValidation"),
           domain: plan.domain,
           action: plan.tradingData?.action,
           interpretation: parsed.interpretation || `Validated as ${plan.tradingData?.action || plan.domain}`,

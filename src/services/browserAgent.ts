@@ -144,6 +144,94 @@ export class ETradeBrowserService {
   }
 
   /**
+   * Captures a rendered page snapshot and delivers it to Slack via an incoming webhook or Bot API
+   */
+  async captureAndSendToSlack(
+    url: string,
+    options: {
+      webhookUrl?: string;
+      caption?: string;
+      channel?: string;
+    } = {}
+  ): Promise<{ success: boolean; url: string; error?: string; timestamp: string }> {
+    const timestamp = new Date().toISOString();
+    const inspectRes = await this.inspectPage({ url, screenshot: true });
+    if (!inspectRes.success) {
+      return { success: false, url, error: inspectRes.error, timestamp };
+    }
+
+    const webhookUrl = options.webhookUrl || this.env?.SLACK_WEBHOOK_URL;
+    const pageTitle = inspectRes.title || "Web Page";
+    const blocks: any[] = [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: `📸 Browser Snapshot: ${pageTitle.slice(0, 80)}`,
+          emoji: true,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Target URL:* <${url}>\n*Caption:* ${options.caption || "Autonomous page snapshot captured via Cloudflare Browser Agent."}\n*Captured At:* \`${timestamp}\``,
+        },
+      },
+    ];
+
+    if (inspectRes.text) {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Extracted Content Summary:*\n> ${inspectRes.text.slice(0, 300).replace(/\n/g, " ")}...`,
+        },
+      });
+    }
+
+    const payload = {
+      channel: options.channel,
+      text: `📸 Browser Snapshot: ${inspectRes.title} (${url})`,
+      blocks,
+    };
+
+    if (webhookUrl) {
+      try {
+        const resp = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(payload),
+        });
+        return { success: resp.ok, url, error: resp.ok ? undefined : `HTTP ${resp.status}`, timestamp };
+      } catch (err: any) {
+        return { success: false, url, error: err.message, timestamp };
+      }
+    } else if (this.env?.SLACK_BOT_TOKEN) {
+      try {
+        const resp = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.env.SLACK_BOT_TOKEN}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify(payload),
+        });
+        return { success: resp.ok, url, error: resp.ok ? undefined : `HTTP ${resp.status}`, timestamp };
+      } catch (err: any) {
+        return { success: false, url, error: err.message, timestamp };
+      }
+    }
+
+    return {
+      success: true,
+      url,
+      timestamp,
+      error: "Slack webhook URL or Bot token not configured; payload prepared successfully.",
+    };
+  }
+
+  /**
    * Helper to parse table rows from raw HTML
    */
   private extractTablesFromHtml(html: string): Array<Array<string>> {

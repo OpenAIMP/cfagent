@@ -272,8 +272,10 @@ export class DynamicMarketScreener implements IMarketScreener {
         continue;
       }
 
+      const isMovers = filter.gainersLosers === "movers" || (Boolean(filter.gainersOnly) && Boolean(filter.losersOnly));
+
       // 7. Gainers Only: STRICT POSITIVE DAILY CHANGE REQUIRED
-      if (filter.gainersOnly || filter.gainersLosers === "gainers") {
+      if (!isMovers && (filter.gainersOnly || filter.gainersLosers === "gainers")) {
         if (stock.changePercent <= 0) {
           rejections.push({
             symbol: stock.symbol,
@@ -287,7 +289,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 8. Losers Only: STRICT NEGATIVE DAILY CHANGE REQUIRED
-      if (filter.losersOnly || filter.gainersLosers === "losers") {
+      if (!isMovers && (filter.losersOnly || filter.gainersLosers === "losers")) {
         if (stock.changePercent >= 0) {
           rejections.push({
             symbol: stock.symbol,
@@ -399,7 +401,9 @@ export class DynamicMarketScreener implements IMarketScreener {
     }
 
     // Sorting
-    if (filter.gainersOnly || filter.gainersLosers === "gainers") {
+    if (filter.gainersLosers === "movers" || (Boolean(filter.gainersOnly) && Boolean(filter.losersOnly))) {
+      passedStocks.sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent));
+    } else if (filter.gainersOnly || filter.gainersLosers === "gainers") {
       passedStocks.sort((a, b) => b.changePercent - a.changePercent);
     } else if (filter.losersOnly || filter.gainersLosers === "losers") {
       passedStocks.sort((a, b) => a.changePercent - b.changePercent);
@@ -411,7 +415,7 @@ export class DynamicMarketScreener implements IMarketScreener {
     let status: "matches_found" | "no_matches" | "SCAN_INVALID_DATA_MISMATCH" =
       passedStocks.length > 0 ? "matches_found" : "no_matches";
 
-    if (filter.gainersOnly) {
+    if (filter.gainersOnly && !(Boolean(filter.gainersOnly) && Boolean(filter.losersOnly))) {
       const invalid = passedStocks.find((s) => s.changePercent <= 0);
       if (invalid) {
         status = "SCAN_INVALID_DATA_MISMATCH";

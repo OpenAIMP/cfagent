@@ -14,7 +14,7 @@ export interface ScreeningProviderAdapter {
 export const SCREENING_PROVIDERS: ScreeningProviderAdapter[] = [
   {
     id: "etrade",
-    label: "E*TRADE API",
+    label: "Nasdaq All-Exchange Listing Feed (Live API)",
     kind: "broker-api",
     assetClasses: ["stocks"],
     endpointByAssetClass: {
@@ -26,7 +26,7 @@ export const SCREENING_PROVIDERS: ScreeningProviderAdapter[] = [
   },
   {
     id: "yahoo-finance",
-    label: "Yahoo Finance",
+    label: "Yahoo Finance FOSS Engine (Market Data API)",
     kind: "market-data-api",
     assetClasses: ["stocks"],
     endpointByAssetClass: { stocks: "/api/foss/screen" },

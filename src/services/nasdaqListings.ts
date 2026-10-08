@@ -43,16 +43,22 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
   };
 }
 
+import { getExternalApisConfig } from "../config/etapiConfig";
+
 export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Promise<NasdaqStockListing[]> {
-  const exchanges: NasdaqExchange[] = ["nasdaq", "nyse", "amex"];
-  const pageSize = 5000;
+  const extConfig = getExternalApisConfig();
+  const exchanges: NasdaqExchange[] = (extConfig?.nasdaqListings?.exchanges as NasdaqExchange[]) || ["nasdaq", "nyse", "amex"];
+  const pageSize = extConfig?.nasdaqListings?.pageSize || 5000;
+  const timeoutMs = extConfig?.nasdaqListings?.timeoutMs || 2500;
+  const baseUrl = extConfig?.nasdaqListings?.url || "https://api.nasdaq.com/api/screener/stocks";
+
   const pages = await Promise.all(exchanges.map(async (exchange) => {
     const listings: NasdaqStockListing[] = [];
     let offset = 0;
     let totalRecords = Number.POSITIVE_INFINITY;
 
     while (offset < totalRecords) {
-      const url = new URL("https://api.nasdaq.com/api/screener/stocks");
+      const url = new URL(baseUrl);
       url.searchParams.set("tableonly", "true");
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(offset));
@@ -61,7 +67,7 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       let response: Response;
       try {
         response = await fetcher(url.toString(), {
-          signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(2500) : undefined,
+          signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(timeoutMs) : undefined,
           headers: {
             Accept: "application/json, text/plain, */*",
             Origin: "https://www.nasdaq.com",

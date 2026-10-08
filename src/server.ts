@@ -18,6 +18,7 @@ import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./tradi
 import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
+import { ETradeBrowserService } from "./services/browserAgent";
 import {
   RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
@@ -519,6 +520,23 @@ export default {
       handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
 
       return new Response(null, { status: 101, webSocket: clientWs });
+    }
+
+    // --- Cloudflare Browser Agent: Webhook Snapshot API ---
+    if ((path === "/api/browser/snapshot" || path === "/browser/snapshot") && request.method === "POST") {
+      try {
+        const body = (await request.json()) as any;
+        const targetUrl = body.url || "https://etrade.com";
+        const browserService = new ETradeBrowserService(env);
+        const snapResult = await browserService.captureAndSendToSlack(targetUrl, {
+          webhookUrl: body.webhookUrl || env.SLACK_WEBHOOK_URL,
+          caption: body.caption,
+          channel: body.channel,
+        });
+        return Response.json(snapResult);
+      } catch (err: any) {
+        return Response.json({ success: false, error: err.message }, { status: 500 });
+      }
     }
 
     // --- Omnichannel Trading Agent: Slack Events Webhook ---

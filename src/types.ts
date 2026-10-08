@@ -62,6 +62,7 @@ export interface Env {
   SLACK_CLIENT_SECRET?: string;
   SLACK_SIGNING_SECRET?: string;
   SLACK_BOT_TOKEN?: string;
+  SLACK_WEBHOOK_URL?: string;
   // Cloudflare Voice Agent Configuration
   DEEPGRAM_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;
@@ -301,7 +302,7 @@ export interface StockScreenerFilter {
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
   momentum?: "bullish_breakout" | "bearish_pullback" | "high_relative_volume" | "any";
-  gainersLosers?: "gainers" | "losers" | "active" | "all";
+  gainersLosers?: "gainers" | "losers" | "active" | "all" | "movers";
   minVolume?: number;
   search?: string;
   limit?: number;
