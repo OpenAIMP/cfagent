@@ -20,6 +20,7 @@ import type {
   SlackInteractionResult,
   SlackBlockKitPayload,
   TransactionSnapData,
+  PreTradeApprovalDraft,
 } from "../types";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
@@ -43,6 +44,8 @@ export class SlackAgent extends AIChatAgent<Env> {
         orm,
         this.sessionKey() || "slack_agent_master"
       );
+    } else if (orm && (this.slackService as any).orm !== orm) {
+      (this.slackService as any).orm = orm;
     }
     return this.slackService;
   }
@@ -56,6 +59,18 @@ export class SlackAgent extends AIChatAgent<Env> {
 
   private getOrm(): DatabaseORM {
     return new DatabaseORM(this.ctx.storage.sql);
+  }
+
+  /**
+   * Dispatches a Pre-Trade Approval Ticket Block Kit card to Slack (Strict HITL Gate)
+   * Before executing any trade, a message must be sent to Slack and approved.
+   */
+  async sendPreTradeApprovalTicket(
+    draft: PreTradeApprovalDraft,
+    options: { channel?: string; threadTs?: string; webhookUrl?: string } = {}
+  ) {
+    const service = this.getSlackService(this.getOrm());
+    return service.sendPreTradeApprovalTicket(draft, options);
   }
 
   /**

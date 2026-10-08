@@ -12,6 +12,8 @@ import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/
 import { getDynamicLiveFlowItems } from "../trading/options/flows";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { getPlatformCapabilitiesDeskSummary } from "../services/platformKnowledge";
+import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeBrowserService } from "../services/browserAgent";
 
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
@@ -34,6 +36,8 @@ export const nlqPlanSchema = z.object({
           "quote",
           "preview_order",
           "execute_order",
+          "approve_order",
+          "cancel_order",
           "positions",
           "capabilities",
           "options_screen",
@@ -928,6 +932,42 @@ export function planWithRules(question: string): NLQPlan {
     };
   }
 
+  // 6b. Fast-path for conversational order approval & execution (Strict HITL)
+  const approveMatch = question.match(/^\s*(?:approve|authorize|confirm|execute)\s+(?:order\s+)?([a-zA-Z0-9_\-]+)\s*$/i);
+  if (approveMatch) {
+    const targetOrderId = approveMatch[1].trim();
+    return {
+      domain: "trading",
+      operation: "update",
+      tradingData: {
+        action: "execute_order",
+        symbol: targetOrderId,
+      },
+      terms: `execute ${targetOrderId}`,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
+  // 6c. Fast-path for conversational order cancellation
+  const cancelMatch = question.match(/^\s*(?:cancel|reject|abort|dismiss)\s+(?:order\s+)?([a-zA-Z0-9_\-]+)\s*$/i);
+  if (cancelMatch) {
+    const targetOrderId = cancelMatch[1].trim();
+    return {
+      domain: "trading",
+      operation: "update",
+      tradingData: {
+        action: "cancel_order",
+        symbol: targetOrderId,
+      },
+      terms: `cancel ${targetOrderId}`,
+      role: "any",
+      since: null,
+      limit: 1,
+    };
+  }
+
   // 7. Fast-path for E*TRADE Order Proposal / Preview
   const orderParams = extractOrderParameters(question);
   if (orderParams) {
@@ -1725,6 +1765,28 @@ export function executeNLQQuery(
         }
       }
 
+      // Dispatch Pre-Trade Approval Ticket to Slack (Strict HITL Gate)
+      if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
+        try {
+          const slackService = new ETradeSlackTradingService(env, orm, sessionId);
+          slackService.sendPreTradeApprovalTicket({
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            limitPrice: draft.limitPrice,
+            estimatedPrice: draft.estimatedPrice,
+            estimatedTotal: draft.estimatedTotal,
+            commission: draft.estimatedCommission,
+            proposerDid: draft.proposerDid,
+            expiresAt: draft.expiresAt,
+          }).catch(console.warn);
+        } catch {
+          // Non-blocking dispatch
+        }
+      }
+
       return {
         plan,
         domain: "trading",
@@ -1748,6 +1810,114 @@ export function executeNLQQuery(
             status: draft.status.toUpperCase(),
             safetyGuarantee: "No live trade submitted. Human approval required.",
             authorizationPrompt: `Reply 'approve ${draft.orderId}' or execute via Trading Hub.`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "execute_order" || action === "approve_order") {
+      const orderId = (plan.tradingData?.symbol || "").trim();
+      const existingTrade = orm.trades?.findById(orderId.toLowerCase()) || orm.trades?.findById(orderId);
+
+      if (!existingTrade) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Order draft '${orderId}' was not found. Orders must be previewed and drafted before authorization.`,
+          rows: [],
+          executedAt,
+        };
+      }
+
+      if (existingTrade.status !== "previewed") {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 1,
+          summary: `Order '${orderId}' cannot be executed. Current status is '${existingTrade.status.toUpperCase()}'. Only 'previewed' drafts may be authorized.`,
+          rows: [{ ...existingTrade }],
+          executedAt,
+        };
+      }
+
+      const effectiveAuthorizer = userDid || `did:user:slack:approver`;
+      const execRes = etrade.executeOrder(existingTrade.id, effectiveAuthorizer, "approved");
+
+      // Auto-dispatch visual snap receipt to Slack
+      if (execRes.status === "executed" || (execRes as any).success) {
+        if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
+          try {
+            const browserService = new ETradeBrowserService(env);
+            browserService.sendTransactionSnapToSlack({
+              transactionId: existingTrade.id,
+              symbol: existingTrade.symbol,
+              action: existingTrade.action,
+              quantity: existingTrade.quantity,
+              price: existingTrade.price,
+              orderType: existingTrade.orderType,
+              status: "EXECUTED",
+              totalValue: existingTrade.totalValue,
+              environment: (env?.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+              timestamp: executedAt,
+            }).catch(console.warn);
+          } catch {
+            // Non-blocking snap dispatch
+          }
+        }
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `✅ E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) APPROVED & EXECUTED. Broker Ref: ${execRes.executionId || "et_fill_confirmed"}. Stamped by ${effectiveAuthorizer}.`,
+        rows: [
+          {
+            orderId: existingTrade.id,
+            symbol: existingTrade.symbol,
+            action: existingTrade.action,
+            quantity: existingTrade.quantity,
+            status: "EXECUTED",
+            executionId: execRes.executionId,
+            authorizerDid: effectiveAuthorizer,
+            totalValue: `$${Number(existingTrade.totalValue || 0).toFixed(2)}`,
+            executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "cancel_order") {
+      const orderId = (plan.tradingData?.symbol || "").trim();
+      const existingTrade = orm.trades?.findById(orderId.toLowerCase()) || orm.trades?.findById(orderId);
+      const effectiveAuthorizer = userDid || `did:user:slack:canceller`;
+
+      if (existingTrade && orm.trades) {
+        orm.trades.update(existingTrade.id, {
+          status: "rejected",
+          authorizerDid: effectiveAuthorizer,
+          updatedAt: executedAt,
+        });
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `❌ Order draft '${orderId}' CANCELLED by ${effectiveAuthorizer}. No broker order submitted.`,
+        rows: [
+          {
+            orderId,
+            status: "REJECTED",
+            authorizerDid: effectiveAuthorizer,
+            cancelledAt: executedAt,
           },
         ],
         executedAt,

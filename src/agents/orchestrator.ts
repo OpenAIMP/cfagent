@@ -40,6 +40,7 @@ import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeBrowserService } from "../services/browserAgent";
 import { BrowserAgent } from "./browserAgent";
 import { SlackAgent } from "./slackAgent";
 import { ETradeVoiceTradingService } from "../trading/voice/agent";
@@ -2656,6 +2657,25 @@ Agentic Best Practices & Workflow Rules:
           console.warn("[OrchestratorAgent] Note: could not schedule expiration timer:", schedErr);
         }
 
+        // Dispatch Pre-Trade Approval Ticket Block Kit card to Slack (Strict HITL Gate)
+        try {
+          const slackService = new ETradeSlackTradingService(this.env, this.getOrm(), sessionId);
+          await slackService.sendPreTradeApprovalTicket({
+            orderId: preview.orderId,
+            symbol: preview.symbol,
+            action: preview.orderAction as any,
+            quantity: preview.quantity,
+            orderType: preview.orderType as any,
+            limitPrice: preview.limitPrice,
+            estimatedPrice: preview.estimatedPrice,
+            estimatedTotal: preview.estimatedTotal,
+            proposerDid: preview.proposerDid,
+            expiresAt: preview.expiresAt,
+          });
+        } catch (slackErr) {
+          console.warn("[OrchestratorAgent] Note: could not dispatch Slack pre-trade ticket:", slackErr);
+        }
+
         return Response.json(preview);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to preview trade order" }, { status: 500 });
@@ -2791,6 +2811,27 @@ Agentic Best Practices & Workflow Rules:
           status: result.status,
           executionId: result.executionId,
         });
+
+        // Automatically dispatch official transaction snap to Slack via ETradeBrowserService
+        if (result.status === "executed" || result.success) {
+          try {
+            const browserService = new ETradeBrowserService(this.env);
+            await browserService.sendTransactionSnapToSlack({
+              transactionId: orderId,
+              symbol,
+              action,
+              quantity,
+              price: existingRecord.price || (typeof limitPrice === "number" ? limitPrice : 0),
+              orderType,
+              status: "EXECUTED",
+              totalValue: existingRecord.totalValue || (quantity * (existingRecord.price || 0)),
+              environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+              timestamp: new Date().toISOString(),
+            });
+          } catch (snapErr) {
+            console.warn("[OrchestratorAgent] Note: could not send transaction snap to Slack:", snapErr);
+          }
+        }
 
         return Response.json(result);
       } catch (err) {

@@ -991,6 +991,22 @@ export interface EmailTradingResult {
   timestamp: string;
 }
 
+export interface PreTradeApprovalDraft {
+  orderId: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  quantity: number;
+  orderType?: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
+  limitPrice?: number;
+  estimatedPrice?: number | string;
+  estimatedTotal?: number | string;
+  commission?: number | string;
+  proposerDid?: string;
+  expiresAt?: string;
+  notes?: string;
+  channel?: string;
+}
+
 export interface SlackBlockKitPayload {
   channel?: string;
   text: string;
@@ -1001,7 +1017,7 @@ export interface SlackBlockKitPayload {
 
 export interface SlackEventResult {
   handled: boolean;
-  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored";
+  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap";
   response?: SlackBlockKitPayload;
   orderId?: string;
   challenge?: string;

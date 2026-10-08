@@ -16,6 +16,7 @@ import type {
   SlackEventResult,
   SlackInteractionResult,
   SlackBlockKitPayload,
+  PreTradeApprovalDraft,
 } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
@@ -23,6 +24,7 @@ import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
+import { ETradeBrowserService } from "../../services/browserAgent";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -72,7 +74,7 @@ export class ETradeSlackTradingService {
         };
       }
 
-      const rawText = (event.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+      const rawText = (event.text || "").replace(/<@[^>]+>/g, "").trim();
       const emailMatch = rawText.match(/\bemail(?:\s+(?:the\s+)?(?:results?|response))?\s+(?:to\s+)?<?([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>?/i);
       const emailTo = typeof event.email_to === "string" ? event.email_to.trim() : emailMatch?.[1];
       const queryText = emailMatch ? rawText.replace(emailMatch[0], "").trim() : rawText;
@@ -80,6 +82,244 @@ export class ETradeSlackTradingService {
       const threadTs = event.thread_ts || event.ts;
 
       const orm = this.orm || new DatabaseORM({ exec: () => [] });
+      const user = event.user || "unknown";
+      const authorizerDid = `did:user:slack:${user}`;
+
+      // 2a. Direct Conversational Pre-Trade Approval: "approve <orderId>" or "authorize <orderId>"
+      const approveMatch = rawText.match(/^(?:approve|authorize|confirm|execute)\s+([a-zA-Z0-9_\-]+)$/i);
+      if (approveMatch) {
+        const targetOrderId = approveMatch[1].trim();
+        const targetTrade = orm.trades?.findById(targetOrderId.toLowerCase()) || orm.trades?.findById(targetOrderId);
+
+        if (!targetTrade) {
+          const notFoundPayload: SlackBlockKitPayload = {
+            channel,
+            thread_ts: threadTs,
+            text: `⚠️ Order draft \`${targetOrderId}\` not found in database ledger.`,
+          };
+          await this.postSlackMessage(notFoundPayload);
+          return {
+            handled: true,
+            actionType: "rejection",
+            orderId: targetOrderId,
+            response: notFoundPayload,
+            timestamp,
+          };
+        }
+
+        if (targetTrade.status !== "previewed") {
+          const statusPayload: SlackBlockKitPayload = {
+            channel,
+            thread_ts: threadTs,
+            text: `ℹ️ Order \`${targetOrderId}\` is already in *${targetTrade.status.toUpperCase()}* status. Execution skipped.`,
+          };
+          await this.postSlackMessage(statusPayload);
+          return {
+            handled: true,
+            actionType: "rejection",
+            orderId: targetOrderId,
+            response: statusPayload,
+            timestamp,
+          };
+        }
+
+        const tradingService = new ETradeService(orm, this.env, this.sessionId);
+        let execRes: any;
+        try {
+          execRes = tradingService.executeOrder(targetTrade.id, authorizerDid, "approved");
+        } catch {
+          execRes = await tradingService.placeOrderRemote({
+            orderId: targetTrade.id,
+            symbol: targetTrade.symbol,
+            action: targetTrade.action,
+            quantity: targetTrade.quantity,
+            orderType: targetTrade.orderType,
+            limitPrice: targetTrade.price,
+            userLogin: this.sessionId,
+          });
+          if (orm.trades) {
+            orm.trades.update(targetTrade.id, {
+              status: execRes.success ? "executed" : "rejected",
+              authorizerDid,
+              orderRef: execRes.executionId || execRes.brokerOrderRef,
+              updatedAt: timestamp,
+            });
+          }
+        }
+
+        const isSuccess = execRes?.success ?? false;
+        const execId = execRes?.executionId || execRes?.brokerOrderRef || `et_exec_${Date.now()}`;
+
+        const executedPayload: SlackBlockKitPayload = {
+          channel,
+          thread_ts: threadTs,
+          text: isSuccess
+            ? `✅ Order \`${targetOrderId}\` APPROVED & EXECUTED on E*TRADE by <@${user}> (Ref: \`${execId}\`)`
+            : `❌ Execution failed for order \`${targetOrderId}\`: ${execRes?.message || "Failed"}`,
+          blocks: [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: isSuccess ? "✅ ORDER EXECUTED ON E*TRADE" : "❌ E*TRADE EXECUTION FAILED",
+                emoji: true,
+              },
+            },
+            {
+              type: "section",
+              fields: [
+                { type: "mrkdwn", text: `*Action:*\n${targetTrade.action} ${targetTrade.quantity} ${targetTrade.symbol}` },
+                { type: "mrkdwn", text: `*Broker Order ID:*\n\`${execId}\`` },
+                { type: "mrkdwn", text: `*Execution Total:*\n$${Number(targetTrade.totalValue || 0).toFixed(2)} USD` },
+                { type: "mrkdwn", text: `*Authorizer:*\n<@${user}>` },
+              ],
+            },
+            {
+              type: "context",
+              elements: [
+                {
+                  type: "mrkdwn",
+                  text: `Status: *${isSuccess ? "EXECUTED" : "REJECTED"}* • Stamped with Trading Agent DID (\`${AGENT_DIDS.TRADING}\`) • ${timestamp}`,
+                },
+              ],
+            },
+          ],
+        };
+
+        await this.postSlackMessage(executedPayload);
+
+        // Auto-dispatch visual snap receipt
+        if (isSuccess) {
+          try {
+            const browserService = new ETradeBrowserService(this.env);
+            await browserService.sendTransactionSnapToSlack({
+              transactionId: targetTrade.id,
+              symbol: targetTrade.symbol,
+              action: targetTrade.action,
+              quantity: targetTrade.quantity,
+              price: targetTrade.price,
+              orderType: targetTrade.orderType,
+              status: "EXECUTED",
+              totalValue: targetTrade.totalValue,
+              environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+              timestamp,
+            }, { channel });
+          } catch (snapErr) {
+            console.warn("[ETradeSlackAgent] Could not deliver snap receipt:", snapErr);
+          }
+        }
+
+        return {
+          handled: true,
+          actionType: "approval",
+          orderId: targetOrderId,
+          response: executedPayload,
+          proposerDid: AGENT_DIDS.TRADING,
+          authorizerDid,
+          timestamp,
+        };
+      }
+
+      // 2b. Direct Conversational Pre-Trade Cancellation: "cancel <orderId>" or "reject <orderId>"
+      const cancelMatch = rawText.match(/^(?:cancel|reject|abort|dismiss)\s+([a-zA-Z0-9_\-]+)$/i);
+      if (cancelMatch) {
+        const targetOrderId = cancelMatch[1].trim();
+        if (orm.trades) {
+          orm.trades.update(targetOrderId, { status: "rejected", updatedAt: timestamp, authorizerDid });
+        }
+
+        const cancelPayload: SlackBlockKitPayload = {
+          channel,
+          thread_ts: threadTs,
+          text: `❌ Order draft \`${targetOrderId}\` was CANCELLED by <@${user}>. No broker order submitted.`,
+          blocks: [
+            {
+              type: "header",
+              text: { type: "plain_text", text: "❌ ORDER DRAFT CANCELLED", emoji: true },
+            },
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `Order draft \`${targetOrderId}\` was cancelled by <@${user}>. No capital was moved and no order was routed to E*TRADE.`,
+              },
+            },
+            {
+              type: "context",
+              elements: [
+                { type: "mrkdwn", text: `Status: *CANCELLED* • Authorizer: \`${authorizerDid}\` • ${timestamp}` },
+              ],
+            },
+          ],
+        };
+
+        await this.postSlackMessage(cancelPayload);
+
+        return {
+          handled: true,
+          actionType: "rejection",
+          orderId: targetOrderId,
+          response: cancelPayload,
+          proposerDid: AGENT_DIDS.TRADING,
+          authorizerDid,
+          timestamp,
+        };
+      }
+
+      // 2c. Direct Conversational Snap: "snap <target>"
+      const snapMatch = rawText.match(/^snap\s+([a-zA-Z0-9_\-]+)$/i);
+      if (snapMatch) {
+        const target = snapMatch[1].trim();
+        const browserService = new ETradeBrowserService(this.env);
+        const trade = orm.trades?.findById(target.toLowerCase()) || orm.trades?.findById(target);
+
+        if (trade) {
+          const snapRes = await browserService.sendTransactionSnapToSlack({
+            transactionId: trade.id,
+            symbol: trade.symbol,
+            action: trade.action,
+            quantity: trade.quantity,
+            price: trade.price,
+            orderType: trade.orderType,
+            status: trade.status,
+            totalValue: trade.totalValue,
+            environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+            timestamp: trade.updatedAt || trade.createdAt,
+          }, { channel });
+
+          const snapMsg: SlackBlockKitPayload = {
+            channel,
+            thread_ts: threadTs,
+            text: `📸 Transaction snapshot generated for ${trade.symbol} (${trade.id}): ${snapRes.success ? "Delivered to Slack" : snapRes.error}`,
+          };
+          await this.postSlackMessage(snapMsg);
+          return {
+            handled: true,
+            actionType: "snap",
+            orderId: trade.id,
+            response: snapMsg,
+            timestamp,
+          };
+        } else {
+          const snapRes = await browserService.captureAndSendToSlack(`https://finance.yahoo.com/quote/${target.toUpperCase()}`, {
+            channel,
+            caption: `Market chart snapshot for ${target.toUpperCase()} requested by <@${user}>`,
+          });
+          const snapMsg: SlackBlockKitPayload = {
+            channel,
+            thread_ts: threadTs,
+            text: `📸 Browser Agent snapshot captured for ${target.toUpperCase()}: ${snapRes.success ? "Delivered to Slack" : snapRes.error}`,
+          };
+          await this.postSlackMessage(snapMsg);
+          return {
+            handled: true,
+            actionType: "snap",
+            response: snapMsg,
+            timestamp,
+          };
+        }
+      }
+
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
@@ -310,7 +550,7 @@ export class ETradeSlackTradingService {
               elements: [
                 {
                   type: "mrkdwn",
-                  text: `Draft ID: \`${orderId}\` • Trading Agent DID: \`${AGENT_DIDS.TRADING}\``,
+                  text: `Draft ID: \`${orderId}\` • Trading Agent DID: \`${AGENT_DIDS.TRADING}\` • Reply \`approve ${orderId}\` or click to authorize.`,
                 },
               ],
             },
@@ -581,6 +821,27 @@ export class ETradeSlackTradingService {
         },
       ];
 
+      // Auto-dispatch visual snap receipt to Slack on successful execution
+      if (isSuccess) {
+        try {
+          const browserService = new ETradeBrowserService(this.env);
+          await browserService.sendTransactionSnapToSlack({
+            transactionId: targetTrade.id,
+            symbol: targetTrade.symbol,
+            action: targetTrade.action,
+            quantity: targetTrade.quantity,
+            price: targetTrade.price,
+            orderType: targetTrade.orderType,
+            status: "EXECUTED",
+            totalValue: targetTrade.totalValue,
+            environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+            timestamp,
+          }, { channel: payload.channel?.id });
+        } catch (snapErr) {
+          console.warn("[ETradeSlackAgent] Could not deliver snap receipt:", snapErr);
+        }
+      }
+
       // Update message in Slack if response_url is available
       if (payload.response_url) {
         await this.postResponseUrl(payload.response_url, {
@@ -601,6 +862,38 @@ export class ETradeSlackTradingService {
         authorizerDid,
         timestamp,
       };
+    }
+
+    // Snap Trade Button Action
+    if (actionId === "snap_trade" || actionId === "etrade_snap_order") {
+      let targetTrade: any = null;
+      if (this.orm?.trades && orderId) {
+        targetTrade = this.orm.trades.findById(orderId);
+      }
+      if (targetTrade) {
+        const browserService = new ETradeBrowserService(this.env);
+        const snapRes = await browserService.sendTransactionSnapToSlack({
+          transactionId: targetTrade.id,
+          symbol: targetTrade.symbol,
+          action: targetTrade.action,
+          quantity: targetTrade.quantity,
+          price: targetTrade.price,
+          orderType: targetTrade.orderType,
+          status: targetTrade.status,
+          totalValue: targetTrade.totalValue,
+          environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+          timestamp: targetTrade.updatedAt || targetTrade.createdAt,
+        }, { channel: payload.channel?.id });
+
+        return {
+          success: snapRes.success,
+          actionId,
+          orderId,
+          status: "executed",
+          message: snapRes.success ? `Snapshot for ${targetTrade.symbol} delivered to Slack!` : (snapRes.error || "Failed"),
+          timestamp,
+        };
+      }
     }
 
     // 2. Cancel Draft Order
@@ -787,7 +1080,107 @@ export class ETradeSlackTradingService {
   }
 
   /**
-   * Post message to Slack using chat.postMessage API
+   * Dispatches a Pre-Trade Approval Ticket Block Kit card to Slack (Strict HITL Gate)
+   * Before executing any trade, a message must be sent to Slack and approved.
+   */
+  async sendPreTradeApprovalTicket(
+    draft: PreTradeApprovalDraft,
+    options: { channel?: string; threadTs?: string; webhookUrl?: string } = {}
+  ): Promise<{ success: boolean; payload: SlackBlockKitPayload; orderId: string }> {
+    const orderId = draft.orderId;
+    const actionStr = (draft.action || "BUY").toUpperCase();
+    const symbol = (draft.symbol || "EQUITY").toUpperCase();
+    const qty = Number(draft.quantity) || 1;
+    const orderType = draft.orderType || "MARKET";
+    const priceStr = typeof draft.estimatedPrice === "number"
+      ? `$${draft.estimatedPrice.toFixed(2)}`
+      : String(draft.estimatedPrice || (draft.limitPrice ? `$${draft.limitPrice.toFixed(2)}` : "Market"));
+    const totalStr = typeof draft.estimatedTotal === "number"
+      ? `$${draft.estimatedTotal.toFixed(2)}`
+      : String(draft.estimatedTotal || "$0.00");
+    const proposerDid = draft.proposerDid || AGENT_DIDS.TRADING;
+    const channel = options.channel || draft.channel;
+
+    const payload: SlackBlockKitPayload = {
+      channel,
+      thread_ts: options.threadTs,
+      text: `⚠️ ACTION REQUIRED: Authorize E*TRADE Order Preview: ${actionStr} ${qty} ${symbol} (${totalStr})`,
+      blocks: [
+        {
+          type: "header",
+          text: {
+            type: "plain_text",
+            text: `🛡️ Pre-Trade Authorization Required: ${actionStr} ${symbol}`,
+            emoji: true,
+          },
+        },
+        {
+          type: "section",
+          fields: [
+            { type: "mrkdwn", text: `*Order Action:*\n*${actionStr}*` },
+            { type: "mrkdwn", text: `*Symbol:*\n*${symbol}*` },
+            { type: "mrkdwn", text: `*Quantity:*\n${qty} shares` },
+            { type: "mrkdwn", text: `*Est. Price:*\n${priceStr}` },
+            { type: "mrkdwn", text: `*Order Type:*\n${orderType}` },
+            { type: "mrkdwn", text: `*Total Value:*\n*${totalStr}*` },
+          ],
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Agentic HITL Safety Guarantee:*\nAutonomous trade execution is strictly blocked. No capital has been moved. An order draft is held in the SQLite ledger (\`${orderId}\`). Before executing this trade, human authorization in Slack is required.`,
+          },
+        },
+        {
+          type: "actions",
+          block_id: "etrade_order_actions",
+          elements: [
+            {
+              type: "button",
+              text: { type: "plain_text", text: "✓ Approve & Submit", emoji: true },
+              style: "primary",
+              action_id: "etrade_approve_order",
+              value: orderId,
+            },
+            {
+              type: "button",
+              text: { type: "plain_text", text: "✕ Cancel Draft", emoji: true },
+              style: "danger",
+              action_id: "etrade_cancel_order",
+              value: orderId,
+            },
+            {
+              type: "button",
+              text: { type: "plain_text", text: "📸 Snap Receipt", emoji: true },
+              action_id: "snap_trade",
+              value: orderId,
+            },
+          ],
+        },
+        {
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: `Draft ID: \`${orderId}\` • Proposer DID: \`${proposerDid}\` • Reply \`approve ${orderId}\` or click to authorize.`,
+            },
+          ],
+        },
+      ],
+    };
+
+    const delivered = await this.postSlackMessage(payload);
+    return {
+      success: delivered,
+      payload,
+      orderId,
+    };
+  }
+
+  /**
+   * Post message to Slack using Webhook and/or chat.postMessage API (Dual Delivery)
+   * Patterned after cfpay & Cloudflare Agents Slack integration
    */
   async postSlackMessage(payload: SlackBlockKitPayload, deliveryStatus?: string): Promise<boolean> {
     if (deliveryStatus) {
@@ -801,25 +1194,51 @@ export class ETradeSlackTradingService {
       ];
     }
     const token = this.env.SLACK_BOT_TOKEN;
-    if (!token) {
+    const webhookUrl = this.env.SLACK_WEBHOOK_URL;
+
+    if (!token && !webhookUrl) {
       // In local or test mode, message is returned in result
       return false;
     }
 
-    try {
-      const res = await fetch("https://slack.com/api/chat.postMessage", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json; charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-      });
-      return res.ok;
-    } catch (err) {
-      console.warn("[ETradeSlackAgent] chat.postMessage failed:", err);
-      return false;
+    let delivered = false;
+
+    // 1. Deliver to incoming Webhook if configured
+    if (webhookUrl) {
+      try {
+        const res = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          delivered = true;
+        }
+      } catch (err) {
+        console.warn("[ETradeSlackAgent] webhook delivery failed:", err);
+      }
     }
+
+    // 2. Deliver via Bot API chat.postMessage if token is configured
+    if (token) {
+      try {
+        const res = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          delivered = true;
+        }
+      } catch (err) {
+        console.warn("[ETradeSlackAgent] chat.postMessage failed:", err);
+      }
+    }
+
+    return delivered;
   }
 
   /**

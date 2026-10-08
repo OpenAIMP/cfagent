@@ -433,4 +433,263 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
       expect(challengeJson.challenge).toBe("3eZbrAqvmAVdaMnujKqCnhPdAUpeA7nmBIKN1");
     });
   });
+
+  // =========================================================================
+  // 3. Human-in-the-Loop Pre-Trade Authorization & Trading via Slack
+  // =========================================================================
+  describe("HITL Pre-Trade Authorization & Conversational Trading via Slack", () => {
+    it("dispatches Pre-Trade Approval Ticket with Block Kit action buttons via dual delivery", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "ok",
+        json: async () => ({ ok: true }),
+      } as any);
+
+      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+
+      const ticketResult = await slackAgent.sendPreTradeApprovalTicket({
+        orderId: "ord_pretrade_101",
+        symbol: "NVDA",
+        action: "BUY",
+        quantity: 20,
+        orderType: "LIMIT",
+        limitPrice: 128.5,
+        estimatedPrice: 128.5,
+        estimatedTotal: 2570.0,
+        proposerDid: AGENT_DIDS.TRADING,
+        notes: "Limit buy order drafted by AI Trading Desk",
+      });
+
+      expect(ticketResult.orderId).toBe("ord_pretrade_101");
+      expect(ticketResult.payload.blocks).toBeDefined();
+
+      // Check header
+      const headerBlock = ticketResult.payload.blocks?.find((b: any) => b.type === "header");
+      expect(headerBlock?.text?.text).toContain("Pre-Trade Authorization Required: BUY NVDA");
+
+      // Check HITL Safety Guarantee
+      const safetyBlock = ticketResult.payload.blocks?.find((b: any) => b.text?.text?.includes("Agentic HITL Safety Guarantee"));
+      expect(safetyBlock).toBeDefined();
+      expect(safetyBlock?.text?.text).toContain("Autonomous trade execution is strictly blocked");
+
+      // Check interactive buttons
+      const actionsBlock = ticketResult.payload.blocks?.find((b: any) => b.type === "actions");
+      expect(actionsBlock).toBeDefined();
+      const actionIds = actionsBlock.elements.map((el: any) => el.action_id);
+      expect(actionIds).toContain("etrade_approve_order");
+      expect(actionIds).toContain("etrade_cancel_order");
+      expect(actionIds).toContain("snap_trade");
+
+      // Verify delivery to Slack webhook
+      expect(fetchSpy).toHaveBeenCalled();
+      const webhookCall = fetchSpy.mock.calls.find((c: any) => c[0] === mockEnv.SLACK_WEBHOOK_URL);
+      expect(webhookCall).toBeDefined();
+    });
+
+    it("handles conversational order approval in Slack, executes on E*TRADE, and posts visual snap", async () => {
+      // Seed a previewed draft in ORM
+      orm.trades.create({
+        id: "ord_conv_approve_777",
+        sessionId: `slack_${teamId}`,
+        symbol: "MSFT",
+        action: "BUY",
+        orderType: "LIMIT",
+        quantity: 10,
+        price: 430.0,
+        totalValue: 4300.0,
+        status: "previewed",
+        proposerDid: AGENT_DIDS.TRADING,
+        proofSignature: "sig_777",
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "ok",
+        json: async () => ({ ok: true }),
+      } as any);
+
+      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+
+      // Inbound Slack event: user says "approve ord_conv_approve_777"
+      const eventReq = new Request("https://agent.internal/slack/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "event_callback",
+          event: {
+            type: "app_mention",
+            user: "U_HUMAN_APPROVER",
+            text: "<@U_BOT> approve ord_conv_approve_777",
+            channel: "C_TRADING_ROOM",
+            ts: "1728364800.000100",
+          },
+        }),
+      });
+
+      const eventRes = await slackAgent.onRequest(eventReq);
+      expect(eventRes.status).toBe(200);
+      const resJson = await eventRes.json() as any;
+
+      expect(resJson.handled).toBe(true);
+      expect(resJson.actionType).toBe("approval");
+      expect(resJson.orderId).toBe("ord_conv_approve_777");
+      expect(resJson.authorizerDid).toBe("did:user:slack:U_HUMAN_APPROVER");
+
+      // Verify trade updated to executed in SQLite DB
+      const updatedTrade = orm.trades.findById("ord_conv_approve_777");
+      expect(updatedTrade?.status).toBe("executed");
+      expect(updatedTrade?.authorizerDid).toBe("did:user:slack:U_HUMAN_APPROVER");
+
+      // Verify delivery of snap confirmation receipt to Slack
+      const snapReceiptCall = fetchSpy.mock.calls.find((c: any) =>
+        typeof c[1]?.body === "string" && c[1].body.includes("MSFT") && c[1].body.includes("EXECUTED")
+      );
+      expect(snapReceiptCall).toBeDefined();
+    });
+
+    it("handles conversational order cancellation in Slack and updates ledger status to rejected", async () => {
+      orm.trades.create({
+        id: "ord_conv_cancel_555",
+        sessionId: `slack_${teamId}`,
+        symbol: "TSLA",
+        action: "SELL",
+        orderType: "MARKET",
+        quantity: 5,
+        price: 250.0,
+        totalValue: 1250.0,
+        status: "previewed",
+        proposerDid: AGENT_DIDS.TRADING,
+        proofSignature: "sig_555",
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "ok",
+        json: async () => ({ ok: true }),
+      } as any);
+
+      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+
+      const eventReq = new Request("https://agent.internal/slack/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "event_callback",
+          event: {
+            type: "message",
+            user: "U_TRADER_BOB",
+            text: "cancel ord_conv_cancel_555",
+            channel: "C_PRIVATE_DM",
+            ts: "1728364900.000200",
+          },
+        }),
+      });
+
+      const eventRes = await slackAgent.onRequest(eventReq);
+      expect(eventRes.status).toBe(200);
+      const resJson = await eventRes.json() as any;
+
+      expect(resJson.handled).toBe(true);
+      expect(resJson.actionType).toBe("rejection");
+      expect(resJson.orderId).toBe("ord_conv_cancel_555");
+
+      // Verify trade status marked rejected in DB
+      const cancelledTrade = orm.trades.findById("ord_conv_cancel_555");
+      expect(cancelledTrade?.status).toBe("rejected");
+    });
+
+    it("handles conversational snap command in Slack for an existing trade", async () => {
+      orm.trades.create({
+        id: "ord_conv_snap_333",
+        sessionId: `slack_${teamId}`,
+        symbol: "AMZN",
+        action: "BUY",
+        orderType: "LIMIT",
+        quantity: 12,
+        price: 180.0,
+        totalValue: 2160.0,
+        status: "executed",
+        proposerDid: AGENT_DIDS.TRADING,
+        proofSignature: "sig_333",
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "ok",
+        json: async () => ({ ok: true }),
+      } as any);
+
+      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+
+      const eventReq = new Request("https://agent.internal/slack/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "event_callback",
+          event: {
+            type: "message",
+            user: "U_SNAP_REQUESTER",
+            text: "snap ord_conv_snap_333",
+            channel: "C_SNAPS",
+            ts: "1728365000.000300",
+          },
+        }),
+      });
+
+      const eventRes = await slackAgent.onRequest(eventReq);
+      expect(eventRes.status).toBe(200);
+      const resJson = await eventRes.json() as any;
+
+      expect(resJson.handled).toBe(true);
+      expect(resJson.actionType).toBe("snap");
+      expect(resJson.orderId).toBe("ord_conv_snap_333");
+
+      // Check delivery to Slack
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
+    it("safely rejects conversational approval when order is already in executed status", async () => {
+      orm.trades.create({
+        id: "ord_already_executed",
+        sessionId: `slack_${teamId}`,
+        symbol: "AAPL",
+        action: "BUY",
+        orderType: "MARKET",
+        quantity: 10,
+        price: 220.0,
+        totalValue: 2200.0,
+        status: "executed",
+        proposerDid: AGENT_DIDS.TRADING,
+        proofSignature: "sig_exec",
+      });
+
+      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+
+      const eventReq = new Request("https://agent.internal/slack/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "event_callback",
+          event: {
+            type: "message",
+            user: "U_TRADER",
+            text: "approve ord_already_executed",
+            channel: "C_TRADES",
+          },
+        }),
+      });
+
+      const eventRes = await slackAgent.onRequest(eventReq);
+      expect(eventRes.status).toBe(200);
+      const resJson = await eventRes.json() as any;
+
+      expect(resJson.handled).toBe(true);
+      expect(resJson.actionType).toBe("rejection");
+      expect(resJson.response?.text).toContain("already in *EXECUTED* status");
+    });
+  });
 });
