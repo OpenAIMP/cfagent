@@ -14,7 +14,7 @@ export interface ScreeningProviderAdapter {
 export const SCREENING_PROVIDERS: ScreeningProviderAdapter[] = [
   {
     id: "etrade",
-    label: "Nasdaq All-Exchange Listing Feed (Live API)",
+    label: "Nasdaq All-Exchange Listing Feed (Live API · E*TRADE Execution)",
     kind: "broker-api",
     assetClasses: ["stocks"],
     endpointByAssetClass: {

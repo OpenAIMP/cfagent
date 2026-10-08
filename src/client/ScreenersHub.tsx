@@ -42,6 +42,14 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [discovery, setDiscovery] = useState<{
+    mode?: string;
+    candidateCount?: number;
+    listingCount?: number;
+    sourceCounts?: Record<string, number>;
+    message?: string;
+  } | null>(null);
+  const [scannedAt, setScannedAt] = useState<string>("");
 
   useEffect(() => {
     if (providers.length > 0 && !providers.some((provider) => provider.id === providerId)) {
@@ -59,6 +67,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     setError("");
     setRows([]);
     setSummary("");
+    setDiscovery(null);
     try {
       const filters = {
         ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
@@ -91,6 +100,14 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         validationError?: string;
         totalScanned?: number;
         matchedCount?: number;
+        discovery?: {
+          mode?: string;
+          candidateCount?: number;
+          listingCount?: number;
+          sourceCounts?: Record<string, number>;
+          message?: string;
+        };
+        scannedAt?: string;
       };
 
       if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
@@ -99,6 +116,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       const stockResults = data.stocks || [];
       setRows(stockResults.map((row) => Object.fromEntries(Object.entries(row))));
       setSummary(data.filterSummary || `${data.totalScanned ?? 0} scanned · ${data.matchedCount ?? stockResults.length} matched`);
+      setDiscovery(data.discovery || null);
+      setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
       onStocksLoaded?.(stockResults);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Screening request failed.");
@@ -179,6 +198,68 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
               </select>
             </label>
+
+            <div style={{
+              gridColumn: "1 / -1",
+              padding: "0.6rem 0.85rem",
+              background: "rgba(15, 23, 42, 0.65)",
+              border: "1px solid rgba(56, 189, 248, 0.2)",
+              borderRadius: "6px",
+              fontSize: "0.8rem",
+              color: "#cbd5e1",
+              lineHeight: "1.45",
+              marginBottom: "0.25rem",
+            }}>
+              {providerId === "etrade" ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
+                    <span style={{ color: "#38bdf8", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span style={{ color: "#f8fafc", fontWeight: 600 }}>
+                      Official Nasdaq All-Exchange Screener (<code style={{ color: "#38bdf8" }}>api.nasdaq.com/api/screener/stocks</code>)
+                    </span>
+                    <span style={{
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "4px",
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      background: "rgba(34, 197, 94, 0.15)",
+                      color: "#4ade80",
+                      border: "1px solid rgba(34, 197, 94, 0.3)",
+                    }}>
+                      ● LIVE REST API
+                    </span>
+                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
+                    • <strong>Coverage:</strong> ~8,000 live listings (Nasdaq, NYSE, AMEX).<br />
+                    • <strong>Execution Broker:</strong> Orders previewed and executed via E*TRADE REST API ({activeEnv}).<br />
+                    • <strong>Offline Fallback:</strong> Local static universe (src/config/curatedStockUniverse.json) is only used if the upstream Nasdaq API is unreachable.
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
+                    <span style={{ color: "#c084fc", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span style={{ color: "#f8fafc", fontWeight: 600 }}>
+                      Yahoo Finance FOSS Engine (<code style={{ color: "#c084fc" }}>query1.finance.yahoo.com</code>)
+                    </span>
+                    <span style={{
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "4px",
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      background: "rgba(168, 85, 247, 0.15)",
+                      color: "#c084fc",
+                      border: "1px solid rgba(168, 85, 247, 0.3)",
+                    }}>
+                      ● LIVE FOSS ENGINE
+                    </span>
+                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
+                    • <strong>Coverage:</strong> Free &amp; Open Source fundamental ratios, trailing/forward P/E, PEG, and analyst price targets without requiring broker API credentials.
+                  </div>
+                </div>
+              )}
+            </div>
             {providerSupportsFilter(activeProvider, assetClass, "search") && (
               <label className="options-field">
                 <span>Ticker or company search</span>
@@ -231,46 +312,108 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               <div className="options-table-scroll">
                 <div style={{
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "0.55rem 0.9rem",
-                  background: "rgba(15, 23, 42, 0.7)",
-                  border: "1px solid rgba(56, 189, 248, 0.25)",
-                  borderRadius: "6px",
-                  marginBottom: "0.75rem",
-                  fontSize: "0.8rem",
-                  flexWrap: "wrap",
-                  gap: "0.5rem",
+                  flexDirection: "column",
+                  gap: "0.6rem",
+                  padding: "0.85rem 1rem",
+                  background: "rgba(15, 23, 42, 0.85)",
+                  border: "1px solid rgba(56, 189, 248, 0.28)",
+                  borderRadius: "8px",
+                  marginBottom: "1rem",
+                  fontSize: "0.82rem",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ color: "#38bdf8", fontWeight: 600 }}>📡 Feed Source:</span>
-                    <span style={{ color: "#f8fafc" }}>
-                      {String(rows[0]?.source || activeProvider?.label || "Live Market Feed")}
-                    </span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.9rem" }}>📡 Feed Source &amp; Data Provenance</span>
+                      <span style={{
+                        padding: "0.2rem 0.6rem",
+                        borderRadius: "4px",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        background: String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(34, 197, 94, 0.2)",
+                        color: String(rows[0]?.source || "").includes("Curated") ? "#fbbf24" : "#4ade80",
+                        border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)"}`,
+                      }}>
+                        {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE STATIC SNAPSHOT" : "🌐 LIVE REST API FEED (api.nasdaq.com)"}
+                      </span>
+                    </div>
+                    <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
+                      Scanned at: <strong style={{ color: "#f8fafc" }}>{scannedAt || "Just now"}</strong> • Scope: <strong style={{ color: "#38bdf8" }}>{exchange} Listings</strong>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <span style={{
-                      padding: "0.2rem 0.55rem",
-                      borderRadius: "4px",
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      background: String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(34, 197, 94, 0.2)",
-                      color: String(rows[0]?.source || "").includes("Curated") ? "#fbbf24" : "#4ade80",
-                      border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)"}`,
-                    }}>
-                      {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE CURATED UNIVERSE" : "🌐 LIVE REST API FEED"}
-                    </span>
-                    <span style={{ color: "#94a3b8", fontSize: "0.74rem" }}>
-                      Quote Status: <code style={{ color: "#cbd5e1" }}>{String(rows[0]?.quoteStatus || "AS_OF_UNKNOWN")}</code>
-                    </span>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(2, 6, 23, 0.5)", borderRadius: "6px" }}>
+                    <div>
+                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
+                      <span style={{ color: "#f8fafc", fontWeight: 600, fontSize: "0.78rem" }}>
+                        {String(rows[0]?.source || "").includes("Yahoo")
+                          ? "query1.finance.yahoo.com/v8/finance/chart"
+                          : String(rows[0]?.source || "").includes("Curated")
+                          ? "src/config/curatedStockUniverse.json (Offline Fallback)"
+                          : "https://api.nasdaq.com/api/screener/stocks"}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>EXCHANGE UNIVERSE LOADED</span>
+                      <span style={{ color: "#f8fafc", fontWeight: 600, fontSize: "0.78rem" }}>
+                        {discovery?.sourceCounts ? (
+                          `Nasdaq: ${discovery.sourceCounts.nasdaq?.toLocaleString() || 0} • NYSE: ${discovery.sourceCounts.nyse?.toLocaleString() || 0} • AMEX: ${discovery.sourceCounts.amex?.toLocaleString() || 0}`
+                        ) : (
+                          `Live multi-exchange coverage (~8,000 listings across Nasdaq, NYSE, AMEX)`
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>EXECUTION BROKER</span>
+                      <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.78rem" }}>
+                        E*TRADE REST API · {activeEnv} (Orders &amp; Previews)
+                      </span>
+                    </div>
                   </div>
+
+                  {discovery?.message && (
+                    <div style={{ color: "#94a3b8", fontSize: "0.75rem", fontStyle: "italic" }}>
+                      ℹ️ {discovery.message}
+                    </div>
+                  )}
                 </div>
 
                 <table className="options-comparison-table">
                   <thead><tr>{Object.keys(rows[0]).map((key) => <th key={key}>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</th>)}</tr></thead>
                   <tbody>{rows.map((row, index) => (
                     <tr key={`${String(row.symbol || index)}:${index}`}>
-                      {Object.values(row).map((value, column) => <td key={column}>{displayValue(value)}</td>)}
+                      {Object.entries(row).map(([key, value], column) => (
+                        <td key={column}>
+                          {key === "source" ? (
+                            <span style={{
+                              display: "inline-block",
+                              padding: "0.15rem 0.45rem",
+                              borderRadius: "4px",
+                              fontSize: "0.72rem",
+                              fontWeight: 600,
+                              background: String(value).includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(56, 189, 248, 0.15)",
+                              color: String(value).includes("Curated") ? "#fbbf24" : "#38bdf8",
+                              border: `1px solid ${String(value).includes("Curated") ? "rgba(245, 158, 11, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
+                            }}>
+                              {String(value)}
+                            </span>
+                          ) : key === "validationStatus" ? (
+                            <span style={{
+                              display: "inline-block",
+                              padding: "0.15rem 0.45rem",
+                              borderRadius: "4px",
+                              fontSize: "0.72rem",
+                              fontWeight: 600,
+                              background: value === "PASS_CONFIRMED" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                              color: value === "PASS_CONFIRMED" ? "#4ade80" : "#f87171",
+                              border: `1px solid ${value === "PASS_CONFIRMED" ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                            }}>
+                              {String(value)}
+                            </span>
+                          ) : (
+                            displayValue(value)
+                          )}
+                        </td>
+                      ))}
                     </tr>
                   ))}</tbody>
                 </table>

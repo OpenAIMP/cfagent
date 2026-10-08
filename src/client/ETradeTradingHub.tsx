@@ -1468,7 +1468,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           {/* Screener Results Meta */}
           <div className="screener-results-header">
             <span className="results-count">
-              Live listings: <strong>{scanUniverseCount.toLocaleString()}</strong> • Matches: <strong>{screenerStocks.length}</strong> • Source: Nasdaq / NYSE / AMEX listings
+              Live listings: <strong>{scanUniverseCount.toLocaleString()}</strong> • Matches: <strong>{screenerStocks.length}</strong> • Feed Source: <strong>Official Nasdaq API (api.nasdaq.com)</strong> • Broker: <strong>E*TRADE API ({activeEnv})</strong>
             </span>
             <span className="results-timestamp">Last Scan: {scannedAt || "Just now"}</span>
           </div>
