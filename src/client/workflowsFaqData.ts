@@ -45,6 +45,37 @@ export interface CapabilityMatrixRow {
   targetTab: string;
 }
 
+export interface DecisioningRule {
+  name: string;
+  description: string;
+  formulaOrCode?: string;
+  parametersOrGates?: string[];
+}
+
+export interface DecisioningMatrixRow {
+  dimension: string;
+  weightOrValue: string;
+  details: string;
+}
+
+export interface DecisioningSection {
+  id: string;
+  number: number;
+  title: string;
+  subtitle: string;
+  badge: string;
+  badgeColor: "green" | "blue" | "purple" | "orange" | "cyan";
+  overview: string;
+  rules: DecisioningRule[];
+  matrixOrWeights?: DecisioningMatrixRow[];
+  concreteExample: {
+    title: string;
+    input: string;
+    evaluation: string;
+    verdict: string;
+  };
+}
+
 export const FAQ_QUESTIONS: FaqQuestionItem[] = [
   {
     id: "best-opportunities",
@@ -624,5 +655,301 @@ export const CAPABILITY_MATRIX: CapabilityMatrixRow[] = [
     keyInputParameter: "optimizationBias: 100 (Max Chance)",
     optimalOutputStructure: "Deep OTM credit spreads (POP >= 90%) or Collars",
     targetTab: "trading",
+  },
+];
+
+export const DECISIONING_SECTIONS: DecisioningSection[] = [
+  {
+    id: "options-screener-logic",
+    number: 1,
+    title: "Options Screener Search, Filter & Rank Logic",
+    subtitle: "Multivariate Contract Filtering, Moneyness Bounds, Technical Signals & Rejection Ledgers",
+    badge: "Contract Filtering",
+    badgeColor: "blue",
+    overview: "The Raw Contracts Screener evaluates individual call and put option contracts against strict institutional liquidity, risk, and pricing constraints. Sanitization normalizes user inputs, clamps negative bounds, and computes auditable rejection ledgers detailing exactly why each non-qualifying contract was omitted.",
+    rules: [
+      {
+        name: "Boundary Filtering & Normalization",
+        description: "Enforces multi-parameter thresholds across bid/ask spread, trading volume, open interest, expiration horizons, Greek risk dimensions, and quote freshness.",
+        parametersOrGates: [
+          "spreadPct <= maxSpreadPct (Bid-ask spread tightness relative to midpoint)",
+          "volume >= minVolume & openInterest >= minOpenInterest (Liquidity floors)",
+          "minDte <= DTE <= maxDte (Calendar horizon boundaries)",
+          "minDelta <= |Delta| <= maxDelta (Absolute directional sensitivity)",
+          "minGamma <= Gamma <= maxGamma & minTheta <= Theta <= maxTheta",
+          "minVega <= Vega <= maxVega & minRho <= Rho <= maxRho",
+          "minImpliedVolatility <= IV <= maxImpliedVolatility (Volatility bounds)",
+          "quoteAgeSeconds <= maxQuoteAgeSeconds (Freshness boundary; defaults to 60s)",
+        ],
+      },
+      {
+        name: "Moneyness Classification",
+        description: "Categorizes options into ITM, ATM, or OTM using a configurable At-The-Money percentage band (atmBandPct = 0.02, +/-2% of spot).",
+        formulaOrCode: "Call ATM: spot * 0.98 <= strike <= spot * 1.02\nCall ITM: strike < spot * 0.98 | Call OTM: strike > spot * 1.02\nPut ATM: spot * 0.98 <= strike <= spot * 1.02\nPut ITM: strike > spot * 1.02 | Put OTM: strike < spot * 0.98",
+      },
+      {
+        name: "Direction-Agnostic Technical Signals",
+        description: "Enriches each passing contract with heuristic market condition tags based on volume surges and Greek momentum.",
+        formulaOrCode: "volOiRatio >= 1.5x -> Unusual Volume Spike (Vol/OI: {ratio}x)\n|delta| >= 0.65 -> High Delta Momentum\nIV >= 70% -> High Implied Volatility Expansion\nIV <= 30% -> Low IV Value Opportunity\nOtherwise -> Liquid Standard Option",
+      },
+      {
+        name: "Deterministic Sorting & Tie-Breaking",
+        description: "Orders matching contracts according to user-selected sortBy key, with secondary tie-breakers on underlyingSymbol and strikePrice.",
+        parametersOrGates: [
+          "volume: Descending by contract trading volume",
+          "spreadPct: Ascending by bid/ask spread % (tightest first)",
+          "iv: Descending by implied volatility (highest volatility first)",
+          "volumeOiRatio: Descending by volume-to-open-interest spike ratio",
+          "dte: Ascending by days to expiration (nearest expiry first)",
+          "strikeDistance: Ascending by absolute distance % from underlying spot",
+        ],
+      },
+      {
+        name: "Auditable Rejection Ledger (15 Codes)",
+        description: "Maintains a machine-readable ledger capturing exact failure reasons for every contract evaluated.",
+        parametersOrGates: [
+          "ADJUSTED_CONTRACT: Excluded non-standard corporate action splits",
+          "INVALID_QUOTE: Zero or inverted bid/ask quotes (bid <= 0 or ask < bid)",
+          "SPREAD_TOO_WIDE: Spread % exceeds user or default threshold",
+          "PREMIUM_OUT_OF_RANGE: Midpoint price outside min/max dollar bounds",
+          "DTE_OUT_OF_RANGE: Expiration outside requested days-to-expiration window",
+          "DELTA_OUT_OF_RANGE: Absolute Delta outside min/max bounds",
+          "GAMMA_OUT_OF_RANGE / THETA_OUT_OF_RANGE / VEGA_OUT_OF_RANGE / RHO_OUT_OF_RANGE",
+          "IV_OUT_OF_RANGE: Implied volatility outside min/max range",
+          "VOLUME_TOO_LOW / OPEN_INTEREST_TOO_LOW: Failed minimum liquidity floor",
+          "MONEYNESS_MISMATCH: Contract does not match requested ITM/ATM/OTM flag",
+          "STRIKE_DISTANCE_TOO_WIDE: Strike distance % exceeds maximum boundary",
+        ],
+      },
+    ],
+    concreteExample: {
+      title: "Screening NVDA ATM Call Contracts",
+      input: "Symbol: NVDA (Spot: $125.00), Type: CALL, Min Volume: 500, Max Spread %: 4.0%, DTE: 14-45d, Moneyness: ATM",
+      evaluation: "Contract NVDA250221C00125000: Strike: 125.00, DTE: 28d, Bid: $6.20, Ask: $6.40 (Spread: 3.17%), Vol: 14,200, OI: 8,400. Distance: 0.00% (ATM band <= 2%).",
+      verdict: "PASSED -> Output as Row #1; tagged with 'Liquid Standard Option'. 1,142 other chain contracts rejected for DTE, volume, or spread.",
+    },
+  },
+  {
+    id: "strategy-selection-rules",
+    number: 2,
+    title: "Strategy Selection, Strike Placement & Expiration Horizon Rules",
+    subtitle: "72-Strategy Catalog Resolution, Combinatorial Strike Generation & Horizon Pruning",
+    badge: "Strategy Generation",
+    badgeColor: "green",
+    overview: "The Strategy Discovery and Recommendation engines generate viable multi-leg option strategies from a 72-strategy catalog (OptionStrat-grade). The engine matches market sentiment, generates strike ladders, applies user optimization bias, and prunes invalid or illiquid structures.",
+    rules: [
+      {
+        name: "Sentiment & Thesis Mapping",
+        description: "Filters candidate strategies based on market outlook, mapping 72 pre-built catalog structures to matching directional regimes.",
+        parametersOrGates: [
+          "Bullish / Very Bullish: Long Calls, Bull Call Spreads, Bull Put Spreads, Call Backspreads, Synthetic Longs, Covered Calls",
+          "Bearish / Very Bearish: Long Puts, Bear Put Spreads, Bear Call Spreads, Put Backspreads, Synthetic Shorts",
+          "Neutral / Range-Bound: Iron Condors, Iron Butterflies, Calendar Spreads, Long Butterflies, Jade Lizards, Double Diagonals",
+          "Directional / High Volatility: Long Straddles, Long Strangles, Reverse Iron Condors, Reverse Iron Butterflies",
+          "ALL: Evaluates complete 72-strategy library simultaneously",
+        ],
+      },
+      {
+        name: "Continuous Strike Ladder & Optimization Bias Shift",
+        description: "Dynamically constructs candidate strikes around the underlying spot price and shifts strikes based on the Optimization Bias slider (0 = Max Return, 50 = Balanced EV, 100 = Max Chance).",
+        formulaOrCode: "atmIndex = argmin(|strike - spot|)\nbiasShift = round(((50 - optimizationBias) / 50) * 3)\nTarget Strike Index = clamp(atmIndex + offset + biasShift, 0, strikes.length - 1)\n- Bias 0 (Max Return): Shifts +3 strikes OTM (higher leverage, lower POP)\n- Bias 50 (Balanced EV): Centers around ATM strikes\n- Bias 100 (Max Chance): Shifts -3 strikes ITM (higher win rate, lower multiple)",
+      },
+      {
+        name: "Expiration Horizon Grouping",
+        description: "Groups expiration cycles into three standardized trading horizons for combinatorial evaluation.",
+        parametersOrGates: [
+          "Near-Term: 0 to 30 days to expiration (high theta decay, gamma sensitive)",
+          "Mid-Term: 31 to 90 days to expiration (optimal swing trading & credit spreads)",
+          "Long-Term / LEAPS: 91+ days to expiration (macro directional & calendar spreads)",
+        ],
+      },
+      {
+        name: "Hard Exclusion & Liquidity Gates",
+        description: "Eliminates low-quality, illiquid, or budget-violating candidates before final ranking.",
+        parametersOrGates: [
+          "Penny Option Filter: All legs must trade >= $0.05 (unless user selected 'ALL' options mode)",
+          "Budget Cap Gate: riskOrCollateral <= userBudget (enforces strict maximum capital limits)",
+          "Reward/Risk Gate: (maxProfit / maxLoss) >= minRewardRisk (ensures favorable payoff asymmetry)",
+          "Deduplication Gate: Hashes leg signatures ('{side}_{strike}_{type}') to prevent duplicate combinations",
+        ],
+      },
+    ],
+    concreteExample: {
+      title: "Bullish Spread Discovery on TSLA",
+      input: "Symbol: TSLA, Spot: $240.00, Sentiment: Bullish, Budget: $400, Optimization Bias: 70 (Max Chance tilt), Horizon: 35 DTE",
+      evaluation: "Engine instantiates Bull Call and Bull Put spreads. Bias 70 shifts strikes 1 step ITM. Generates 235/230 Put Credit Spread (Sell 235P @ $7.20, Buy 230P @ $5.10). Net Credit: $2.10. Max Loss: $2.90 ($290 collateral <= $400 budget).",
+      verdict: "PASSED -> Ranked #1 Bullish Candidate with 76.4% POP and $290 max risk.",
+    },
+  },
+  {
+    id: "multivariate-scoring-criteria",
+    number: 3,
+    title: "Multivariate Strategy Scoring & Weighting Vectors",
+    subtitle: "Mathematical Formulations for Expected Value, Liquidity, Freshness & OptionStrat Discovery",
+    badge: "Mathematical Scoring",
+    badgeColor: "purple",
+    overview: "Every candidate strategy is evaluated across a 6-dimensional scoring model in the core engine and a 4-factor composite in the visual Discovery engine. These formulations eliminate subjective bias and rank trades mathematically.",
+    rules: [
+      {
+        name: "Strategy Engine 6-Factor Composite Formulation",
+        description: "Calculates overall score S as the dot product of normalized component scores and institutional weights.",
+        formulaOrCode: "S = w_thesis*S_thesis + w_RR*S_RR + w_liq*S_liq + w_fresh*S_fresh + w_iv*S_iv + w_theta*S_theta\nWeights: [0.30, 0.20, 0.20, 0.15, 0.10, 0.05]",
+      },
+      {
+        name: "Component 1: Thesis Alignment (w = 0.30)",
+        description: "Rewards strategies whose payoff aligns with the target price and expected directional magnitude.",
+        formulaOrCode: "If targetPnl > 0 and thesis aligned:\n  S_thesis = clamp(50 + 25 * log2(1 + max(0, targetRewardRisk)))\nElse if thesis aligned:\n  S_thesis = clamp(25 + targetRewardRisk * 10)\nElse: S_thesis = 10",
+      },
+      {
+        name: "Component 2: Target Reward / Risk (w = 0.20)",
+        description: "Measures return on risk relative to the user's minimum acceptable reward-to-risk threshold.",
+        formulaOrCode: "S_RR = clamp((targetRewardRisk / max(minRewardRisk, 0.25)) * 70)",
+      },
+      {
+        name: "Component 3: Liquidity Score (w = 0.20)",
+        description: "Blends bid/ask spread tightness (70% weight) with volume and open interest depth (30% weight) across all legs.",
+        formulaOrCode: "spreadScore = clamp(100 - spreadPct * 5)\nactivityScore = clamp(40 + 12 * log10(max(1, vol)) + 8 * log10(max(1, OI)))\nS_liq = mean(0.70 * spreadScore + 0.30 * activityScore)",
+      },
+      {
+        name: "Component 4: Quote Freshness (w = 0.15)",
+        description: "Penalizes stale or unverified quotes to prevent recommending unexecutable prices.",
+        formulaOrCode: "FRESH (< referenceAgeSeconds): S_fresh = 100\nSTALE (>= referenceAgeSeconds): S_fresh = 25\nUNKNOWN (no timestamp): S_fresh = 0",
+      },
+      {
+        name: "Component 5: Volatility Alignment (w = 0.10)",
+        description: "Scores net Vega exposure against expected volatility direction.",
+        formulaOrCode: "If expectedIvDirection == 'unchanged': S_iv = 70\nIf expectedIvDirection == 'rise' and netVega >= 0: S_iv = 100 (else 20)\nIf expectedIvDirection == 'fall' and netVega <= 0: S_iv = 100 (else 20)",
+      },
+      {
+        name: "Component 6: Theta Burden (w = 0.05)",
+        description: "Protects debit holders against excessive daily time decay relative to total collateral.",
+        formulaOrCode: "S_theta = clamp(100 - (max(0, -netTheta) / max(1, maxLoss)) * 10,000)",
+      },
+    ],
+    matrixOrWeights: [
+      { dimension: "Thesis Alignment", weightOrValue: "30%", details: "Payoff magnitude at target price & alignment with market outlook" },
+      { dimension: "Target Reward / Risk", weightOrValue: "20%", details: "Return on collateral relative to user minimum threshold" },
+      { dimension: "Execution Liquidity", weightOrValue: "20%", details: "70% bid/ask spread tightness + 30% log-scaled volume and open interest" },
+      { dimension: "Quote Freshness", weightOrValue: "15%", details: "100 pts for fresh real-time quotes, 25 for stale, 0 for unknown" },
+      { dimension: "Volatility Alignment", weightOrValue: "10%", details: "Net Vega alignment with expected IV expansion or contraction" },
+      { dimension: "Theta Decay Burden", weightOrValue: "5%", details: "Penalizes trades with negative theta burn exceeding collateral thresholds" },
+    ],
+    concreteExample: {
+      title: "Scoring an NVDA Bull Call Spread",
+      input: "Target Price: $140.00, Max Loss: $280, Target PnL: $420, Spread: 2.1%, Vol: 4,500, OI: 12,000, Quotes: FRESH",
+      evaluation: "S_thesis: 84.2, S_RR: 81.5, S_liq: 88.6, S_fresh: 100.0, S_iv: 70.0, S_theta: 94.0.",
+      verdict: "Composite Score: 86.4 / 100 -> Ranks in Top 2% across all evaluated spreads.",
+    },
+  },
+  {
+    id: "pickbesttrades-engine",
+    number: 4,
+    title: "Pick Best Trade Decision Engine (RecommendationAgent)",
+    subtitle: "Profile-Weighted Composite Re-Ranking, Blocker Detection, Confidence Grading & Trade Plans",
+    badge: "Recommendation Agent",
+    badgeColor: "orange",
+    overview: "The RecommendationAgent re-ranks qualifying strategies against user risk profiles (Conservative, Balanced, Aggressive) and selects a single best trade. It validates blockers, assigns confidence ratings, computes score margins over runner-ups, and formulates an actionable trade plan. Human approval is strictly required before any live execution.",
+    rules: [
+      {
+        name: "Risk Profile Weight Matrices",
+        description: "Applies tailored component weights based on the user's explicit risk tolerance.",
+        parametersOrGates: [
+          "Conservative: 35% Probability (POP) + 20% Capital Safety + 20% Engine Score + 15% Liquidity + 10% Reward/Risk",
+          "Balanced: 30% Engine Score + 25% Reward/Risk + 20% Probability + 15% Liquidity + 10% Capital Safety",
+          "Aggressive: 45% Reward/Risk + 25% Engine Score + 20% Liquidity + 10% Probability + 0% Capital Safety",
+        ],
+      },
+      {
+        name: "Hard Trade Blockers & Status Degradation",
+        description: "Identifies blocking conditions that degrade status from 'recommended' to 'research_only' or 'no_trade'.",
+        parametersOrGates: [
+          "No Candidates: If no candidate satisfies criteria -> status: 'no_trade', confidence: 'LOW'",
+          "Stale Market Data: If quoteFreshness != 'FRESH' -> Blocker: 'Quote data is STALE'; confidence downgraded to 'LOW'",
+          "Zero/Negative Profit: If maxProfit <= 0 after estimated fees -> Blocker: 'No positive maximum profit after fees'",
+          "Deficient Win Rate: If POP < 20% -> Blocker: 'Model-implied probability of profit is below 20%'",
+        ],
+      },
+      {
+        name: "Confidence Rating Grading",
+        description: "Assigns institutional confidence based on score margin over runner-up, execution liquidity, and win probability.",
+        formulaOrCode: "If dataFreshness != 'FRESH' or blockers.length > 0:\n  confidence = 'LOW'\nElse if margin_over_runner_up >= 5.0 and liquidityScore >= 60 and POP >= 35%:\n  confidence = 'HIGH'\nElse:\n  confidence = 'MEDIUM'",
+      },
+      {
+        name: "Executable Multi-Leg Trade Plan",
+        description: "Extracts contract-level trade ticket instructions with exact limit prices and broker parameters.",
+        parametersOrGates: [
+          "Action: BUY / SELL / BUY_TO_COVER / SELL_SHORT",
+          "Quantity: Leg multiplier count",
+          "Contract: Full OSI contract symbol",
+          "Option Type: CALL / PUT / STOCK",
+          "Strike & Expiration Date",
+          "Limit Price: Conservative ask-side entry for buys, bid-side for sells",
+          "Human-in-the-Loop Guard: humanApprovalRequired = true",
+        ],
+      },
+    ],
+    matrixOrWeights: [
+      { dimension: "Conservative Weights", weightOrValue: "35% POP · 20% Safety · 20% Engine · 15% Liq · 10% R:R", details: "Pushes wide credit spreads and deep ITM debits with high win rate and capital buffer" },
+      { dimension: "Balanced Weights", weightOrValue: "30% Engine · 25% R:R · 20% POP · 15% Liq · 10% Safety", details: "Pareto balance maximizing expected value (EV) and risk-adjusted return" },
+      { dimension: "Aggressive Weights", weightOrValue: "45% R:R · 25% Engine · 20% Liq · 10% POP · 0% Safety", details: "Prioritizes asymmetric out-of-the-money debit spreads with maximum leverage" },
+    ],
+    concreteExample: {
+      title: "Selecting the Best Trade on SPY",
+      input: "Symbol: SPY, Target: $585.00, Max Loss: $500, Risk Profile: Balanced, Candidates Evaluated: 18",
+      evaluation: "Rank 1: SPY 575/580 Call Spread (Score: 84.2). Rank 2: SPY 570/575 Call Spread (Score: 78.1). Margin: +6.1 points. Liquidity: 92/100. POP: 64.2%. Quotes: FRESH.",
+      verdict: "Status: 'recommended', Confidence: 'HIGH'. Trade Plan: Buy 1x SPY 575C @ $5.80, Sell 1x SPY 580C @ $3.20 (Net Debit: $2.60).",
+    },
+  },
+  {
+    id: "additional-decisioning-gates",
+    number: 5,
+    title: "Additional Decisioning Gates, Exclusion Rules & Background Automation",
+    subtitle: "Undefined Risk Safeguards, Arbitrage Rejection, Autonomous Schedulers & Brokerage Handshake",
+    badge: "Execution Safeguards",
+    badgeColor: "cyan",
+    overview: "To guarantee regulatory compliance, capital protection, and unattended stability, the platform enforces hard exclusion gates across strategy catalogs, options tape parsing, background schedulers, and live brokerage placement.",
+    rules: [
+      {
+        name: "Undefined Risk Exclusion Gate",
+        description: "Rejects strategies with uncapped catastrophic loss potential when operating under defined-risk policies.",
+        formulaOrCode: "If riskPolicy == 'defined_only' and maxLoss == null (or unbounded):\n  candidate.rejected = true\n  rejectionReason = 'UNDEFINED_RISK_PROHIBITED'\n- Omits naked short calls, naked short puts, short straddles, and short strangles",
+      },
+      {
+        name: "Apparent Riskless Profit Arbitrage Gate",
+        description: "Eliminates synthetic combinations that display constant positive profit across all price steps.",
+        formulaOrCode: "If expiryPnl is flat and > 0 across all prices:\n  candidate.rejected = true\n  rejectionReason = 'Apparent riskless profit almost always indicates stale/crossed quotes or unmodeled borrow and carry risk'",
+      },
+      {
+        name: "Autonomous Opportunity Scanner Target Multipliers",
+        description: "Applies standardized price target projections when running autonomous background scans without human prompts.",
+        parametersOrGates: [
+          "bullish: 1.05 (+5.0% price target projection from current spot)",
+          "bearish: 0.95 (-5.0% price target projection from current spot)",
+          "large_move: 1.10 (+10.0% directional volatility expansion projection)",
+          "range_bound: 1.00 (Pins price target directly to current spot price)",
+        ],
+      },
+      {
+        name: "Options Tape Sentiment Aggressiveness Gate",
+        description: "Classifies live institutional sweeps and blocks based on execution price relative to prevailing bid/ask quotes.",
+        formulaOrCode: "Execution Price >= Ask -> Aggressive Buyer (+Dollar Premium to Bullish for Calls, Bearish for Puts)\nExecution Price <= Bid -> Aggressive Seller (+Dollar Premium to Bearish for Calls, Bullish for Puts)\nMidpoint -> Split venue execution; neutral weighting",
+      },
+      {
+        name: "Brokerage Human-in-the-Loop (HITL) Execution Guard",
+        description: "Enforces two-phase cryptographic preview validation before submitting orders to E*TRADE.",
+        parametersOrGates: [
+          "Phase 1 (Preview): Broker validates margins, balances, and returns previewId",
+          "HITL Gate: Halts execution completely. Renders amber confirmation card with commission and total cost impact",
+          "Phase 2 (Place): Submits previewId with fresh clientOrderId only upon authenticated human trader click",
+          "Zero Autonomous Execution: AI agents cannot place live orders without human authorization",
+        ],
+      },
+    ],
+    concreteExample: {
+      title: "Blocking an Unhedged Naked Short Call",
+      input: "Strategy: Short Call on NVDA 135C with net credit of $4.20. Risk Policy: 'defined_only'.",
+      evaluation: "Engine detects netHighSlope < 0 (unbounded upside loss). Max Loss = Infinity.",
+      verdict: "REJECTED -> Logged in Strategy Rejection Ledger as 'UNDEFINED_RISK_PROHIBITED'. Never presented to user as viable candidate.",
+    },
   },
 ];

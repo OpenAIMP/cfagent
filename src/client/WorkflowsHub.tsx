@@ -4,9 +4,13 @@ import {
   FAQ_QUESTIONS,
   WORKFLOW_IMPROVEMENTS,
   CAPABILITY_MATRIX,
+  DECISIONING_SECTIONS,
   type FaqQuestionItem,
   type WorkflowImprovementItem,
   type CapabilityMatrixRow,
+  type DecisioningSection,
+  type DecisioningRule,
+  type DecisioningMatrixRow,
 } from "./workflowsFaqData";
 
 export interface WorkflowItem {
@@ -511,7 +515,7 @@ export interface WorkflowsHubProps {
 }
 
 export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps) {
-  const [activeTab, setActiveTab] = useState<"workflows" | "faq" | "improvements">("faq");
+  const [activeTab, setActiveTab] = useState<"workflows" | "faq" | "improvements" | "decisioning">("faq");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string>("stock-screener");
@@ -520,6 +524,10 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
   const [faqCategory, setFaqCategory] = useState<string>("all");
   const [faqSearchQuery, setFaqSearchQuery] = useState<string>("");
   const [expandedFaqId, setExpandedFaqId] = useState<string>("best-opportunities");
+
+  // Decisioning Logic Tab State
+  const [decisioningSearchQuery, setDecisioningSearchQuery] = useState<string>("");
+  const [expandedDecisioningId, setExpandedDecisioningId] = useState<string>("options-screener-logic");
 
   const categories = [
     { id: "all", label: "All Workflows (8)" },
@@ -586,6 +594,31 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
     setExpandedFaqId((prev) => (prev === id ? "" : id));
   };
 
+  const toggleExpandDecisioning = (id: string) => {
+    setExpandedDecisioningId((prev) => (prev === id ? "" : id));
+  };
+
+  const filteredDecisioning = useMemo(() => {
+    return DECISIONING_SECTIONS.filter((sec) => {
+      const q = decisioningSearchQuery.toLowerCase().trim();
+      if (!q) return true;
+      return (
+        sec.title.toLowerCase().includes(q) ||
+        sec.subtitle.toLowerCase().includes(q) ||
+        sec.overview.toLowerCase().includes(q) ||
+        sec.rules.some(
+          (r) =>
+            r.name.toLowerCase().includes(q) ||
+            r.description.toLowerCase().includes(q) ||
+            (r.formulaOrCode && r.formulaOrCode.toLowerCase().includes(q)) ||
+            (r.parametersOrGates && r.parametersOrGates.some((p) => p.toLowerCase().includes(q)))
+        ) ||
+        (sec.matrixOrWeights && sec.matrixOrWeights.some((m) => m.dimension.toLowerCase().includes(q) || m.details.toLowerCase().includes(q))) ||
+        (sec.concreteExample && (sec.concreteExample.title.toLowerCase().includes(q) || sec.concreteExample.evaluation.toLowerCase().includes(q)))
+      );
+    });
+  }, [decisioningSearchQuery]);
+
   return (
     <div className="workflows-hub-container">
       {/* Hero Header */}
@@ -649,6 +682,13 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           onClick={() => setActiveTab("improvements")}
         >
           🚀 Workflow Improvements &amp; Analysis
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "decisioning" ? "active" : ""}`}
+          onClick={() => setActiveTab("decisioning")}
+        >
+          📐 Search, Selection &amp; Ranking Decision Logic (5)
         </button>
       </div>
 
@@ -1173,6 +1213,185 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 4: SEARCH, SELECTION & RANKING DECISION LOGIC */}
+      {activeTab === "decisioning" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Decisioning Hero Note */}
+          <div style={{ background: "rgba(6, 182, 212, 0.08)", border: "1px solid rgba(6, 182, 212, 0.3)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+            <h4 style={{ margin: "0 0 0.5rem", color: "#22d3ee", fontSize: "1.05rem" }}>
+              📐 Deterministic Decision Logic, Scoring Equations &amp; Selection Gates
+            </h4>
+            <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.86rem", lineHeight: 1.55 }}>
+              Comprehensive documentation of the mathematical formulas, boundary constraints, sorting comparators, and automated safety gates powering the Options Screener, Strategy Engine, Recommendation Agent (<code>pickBestTrades</code>), and live Brokerage Handshake.
+            </p>
+          </div>
+
+          {/* Search Strip */}
+          <div className="workflows-filter-strip">
+            <div className="workflows-search-box">
+              <span className="workflows-search-icon">🔍</span>
+              <input
+                type="text"
+                className="workflows-search-input"
+                placeholder="Search decision rules, scoring weights, formulas, or rejection codes…"
+                value={decisioningSearchQuery}
+                onChange={(e) => setDecisioningSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Decisioning Sections Grid */}
+          <div className="workflows-grid">
+            {filteredDecisioning.map((sec) => {
+              const isOpen = expandedDecisioningId === sec.id;
+              return (
+                <div key={sec.id} className={`workflow-card ${isOpen ? "open" : ""}`}>
+                  <div className="workflow-card-header" onClick={() => toggleExpandDecisioning(sec.id)}>
+                    <div className="workflow-header-left">
+                      <div className="workflow-number-badge" style={{ background: "rgba(6, 182, 212, 0.15)", color: "#22d3ee", border: "1px solid rgba(6, 182, 212, 0.3)" }}>
+                        0{sec.number}
+                      </div>
+                      <div className="workflow-header-titles">
+                        <h3 className="workflow-title">
+                          {sec.title}
+                          <span className={`workflow-tag-badge ${sec.badgeColor}`}>{sec.badge}</span>
+                        </h3>
+                        <p className="workflow-subtitle">{sec.subtitle}</p>
+                      </div>
+                    </div>
+                    <div className="workflow-header-right">
+                      <span className="workflow-expand-caret">{isOpen ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="workflow-card-body">
+                      {/* Overview Box */}
+                      <p style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.55, margin: 0 }}>
+                        {sec.overview}
+                      </p>
+
+                      {/* Rules Grid */}
+                      <div>
+                        <h4 style={{ fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#22d3ee", margin: "0 0 0.75rem 0" }}>
+                          ⚙️ Mathematical Rules, Constraints &amp; Algorithmic Gates
+                        </h4>
+                        <div className="decisioning-rules-grid">
+                          {sec.rules.map((rule, rIdx) => (
+                            <div key={rIdx} className="decisioning-rule-card">
+                              <div className="decisioning-rule-title">
+                                <span>⚡</span> {rule.name}
+                              </div>
+                              <p className="decisioning-rule-desc">{rule.description}</p>
+                              
+                              {rule.formulaOrCode && (
+                                <div className="decisioning-code-block">
+                                  {rule.formulaOrCode}
+                                </div>
+                              )}
+
+                              {rule.parametersOrGates && rule.parametersOrGates.length > 0 && (
+                                <div className="decisioning-param-list">
+                                  {rule.parametersOrGates.map((param, pIdx) => (
+                                    <div key={pIdx} className="decisioning-param-item">
+                                      <span style={{ color: "#22d3ee" }}>▸</span>
+                                      <span>{param}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Matrix / Weights Table (if present) */}
+                      {sec.matrixOrWeights && sec.matrixOrWeights.length > 0 && (
+                        <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px", padding: "1rem" }}>
+                          <h4 style={{ margin: "0 0 0.6rem", color: "#38bdf8", fontSize: "0.84rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            📊 Dimension Weightings &amp; Profile Matrix
+                          </h4>
+                          <div style={{ overflowX: "auto" }}>
+                            <table className="faq-matrix-table" style={{ fontSize: "0.78rem" }}>
+                              <thead>
+                                <tr>
+                                  <th>Profile / Dimension</th>
+                                  <th>Weight Distribution / Formula</th>
+                                  <th>Strategic Behavior &amp; Tradeoff</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sec.matrixOrWeights.map((row, mIdx) => (
+                                  <tr key={mIdx}>
+                                    <td style={{ fontWeight: 600, color: "#ffffff" }}>{row.dimension}</td>
+                                    <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{row.weightOrValue}</td>
+                                    <td style={{ color: "#cbd5e1" }}>{row.details}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Concrete Example Box */}
+                      {sec.concreteExample && (
+                        <div className="decisioning-example-box">
+                          <div className="decisioning-example-header">
+                            <span>🧪</span> Real Production Example: {sec.concreteExample.title}
+                          </div>
+                          <div className="decisioning-example-step">
+                            <span className="label">📥 Input:</span>
+                            <span className="val">{sec.concreteExample.input}</span>
+                          </div>
+                          <div className="decisioning-example-step">
+                            <span className="label">⚙️ Engine:</span>
+                            <span className="val">{sec.concreteExample.evaluation}</span>
+                          </div>
+                          <div className="decisioning-example-step">
+                            <span className="label" style={{ color: "#4ade80" }}>🎯 Verdict:</span>
+                            <span className="val" style={{ color: "#86efac", fontWeight: 600 }}>{sec.concreteExample.verdict}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Footer */}
+                      <div className="workflow-action-footer">
+                        <div className="workflow-api-path">
+                          Architecture: <code>src/trading/options/ · src/client/options/</code>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          {onSendPrompt && (
+                            <button
+                              type="button"
+                              className="workflow-cta-btn"
+                              style={{ background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(6, 182, 212, 0.4)", color: "#22d3ee" }}
+                              onClick={() => {
+                                onSendPrompt(`Explain the decision logic and scoring for ${sec.title}`, sec.title);
+                              }}
+                            >
+                              Ask AI Agent 💬
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {filteredDecisioning.length === 0 && (
+              <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#64748b" }}>
+                <p style={{ fontSize: "1.2rem", margin: "0 0 0.5rem 0" }}>🔍 No decision logic matches your search query.</p>
+                <p style={{ fontSize: "0.85rem", margin: 0 }}>Try clearing filters or search for terms like &quot;screener&quot;, &quot;scoring&quot;, &quot;pickbesttrades&quot;, or &quot;weights&quot;.</p>
+              </div>
+            )}
           </div>
         </div>
       )}

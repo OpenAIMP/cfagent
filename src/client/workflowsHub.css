@@ -811,3 +811,128 @@
   margin: 0;
 }
 
+.workflow-tag-badge.cyan {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+}
+
+/* ==========================================================================
+   Decisioning, Ranking & Selection Rules Design System
+   ========================================================================== */
+.decisioning-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.decisioning-rule-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.decisioning-rule-card:hover {
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: translateY(-2px);
+}
+
+.decisioning-rule-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.decisioning-rule-desc {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.decisioning-code-block {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: #38bdf8;
+  white-space: pre-wrap;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.decisioning-param-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+
+.decisioning-param-item {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  line-height: 1.35;
+}
+
+.decisioning-param-item code {
+  color: #a5f3fc;
+  background: rgba(6, 182, 212, 0.12);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  font-size: 0.72rem;
+}
+
+.decisioning-example-box {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.decisioning-example-header {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.decisioning-example-step {
+  font-size: 0.79rem;
+  line-height: 1.45;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.decisioning-example-step .label {
+  font-weight: 700;
+  color: #94a3b8;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.decisioning-example-step .val {
+  color: #f1f5f9;
+}
+
+
