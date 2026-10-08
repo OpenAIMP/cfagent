@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { resolveErrorAspect } from "../aspects/errorCodes";
+import { logAspectEvent } from "../aspects/loggingAspect";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
@@ -685,6 +687,7 @@ interface AgentChatTabContentProps {
   ads: AdItem[];
   onAdClick: (ad: AdItem) => void;
   onOpenAdsTab: () => void;
+  onNavigateTab?: (tab: "chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research" | "options-flows" | "workflows") => void;
   onStatusChange: (status: "ready" | "streaming" | "submitted" | "error") => void;
   onResetSession: (purge?: boolean) => Promise<void>;
   isResetting: boolean;
@@ -699,6 +702,7 @@ function AgentChatTabContent({
   ads,
   onAdClick,
   onOpenAdsTab,
+  onNavigateTab,
   onStatusChange,
   onResetSession,
   isResetting,
@@ -711,7 +715,27 @@ function AgentChatTabContent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgent({ agent: "SearchAgent", name: user.login });
-  const { messages, sendMessage, status } = useAgentChat({ agent });
+  const { messages, sendMessage, status, error, connectionError } = useAgentChat({ agent });
+
+  const activeError = error || connectionError;
+  const errorAspect = useMemo(() => {
+    if (status === "error" || Boolean(activeError)) {
+      return resolveErrorAspect(activeError || "Agent connection or stream error");
+    }
+    return null;
+  }, [status, activeError]);
+
+  useEffect(() => {
+    if (errorAspect) {
+      logAspectEvent({
+        aspect: "ClientChat",
+        operationName: "streamError",
+        code: errorAspect.code,
+        level: "warn",
+        error: errorAspect.message,
+      });
+    }
+  }, [errorAspect]);
 
   useEffect(() => {
     onStatusChange(status);
@@ -1022,17 +1046,49 @@ function AgentChatTabContent({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error banner with working Retry and Reset & Clear History */}
-      {status === "error" && (
-        <div className="chat-error-banner">
-          <span className="error-banner-icon">⚠️</span>
-          <span className="error-banner-text">
-            Agent connection or stream error. Try sending a message or reset session:
-          </span>
-          <div className="error-banner-actions">
+      {/* Aspect-Oriented Error Diagnostic Card with Code, Cause & Actionable Resolution Playbook */}
+      {errorAspect && (
+        <div className="chat-error-diagnostic-card" role="alert">
+          <div className="chat-error-card-header">
+            <span className="error-badge-icon">⚠️</span>
+            <div className="error-title-group">
+              <div className="error-badge-row">
+                <span className="error-code-badge">{errorAspect.code}</span>
+                {errorAspect.isAiQuota && (
+                  <span className="error-quota-badge">Daily Free Quota Limit</span>
+                )}
+              </div>
+              <strong className="error-headline">{errorAspect.title}</strong>
+            </div>
+          </div>
+
+          <p className="error-diagnostic-desc">
+            {errorAspect.message}
+          </p>
+
+          <div className="error-resolution-box">
+            <div className="resolution-box-title">🛠️ What needs to be done to resolve this:</div>
+            <ol className="resolution-steps-list">
+              {errorAspect.resolutionSteps.map((step, idx) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="error-card-actions">
+            {errorAspect.suggestedTab && onNavigateTab && (
+              <button
+                type="button"
+                className="error-action-btn primary"
+                onClick={() => onNavigateTab(errorAspect.suggestedTab as any)}
+                title={`Navigate directly to ${errorAspect.suggestedTabLabel || errorAspect.suggestedTab}`}
+              >
+                🔍 {errorAspect.suggestedTabLabel || `Open ${errorAspect.suggestedTab.toUpperCase()} Tab`}
+              </button>
+            )}
             <button
               type="button"
-              className="error-banner-btn secondary"
+              className="error-action-btn secondary"
               disabled={isResetting}
               onClick={() => {
                 if (typeof (agent as any).reconnect === "function") {
@@ -1050,16 +1106,29 @@ function AgentChatTabContent({
             </button>
             <button
               type="button"
-              className="error-banner-btn"
+              className="error-action-btn danger"
               disabled={isResetting}
               onClick={() => onResetSession(true)}
               title="Reset conversation state and clear history"
             >
               {isResetting ? "Resetting…" : "Reset & Clear History"}
             </button>
+            <button
+              type="button"
+              className="error-action-btn copy"
+              onClick={() => {
+                const info = `Error Code: ${errorAspect.code}\nTitle: ${errorAspect.title}\nDetails: ${errorAspect.message}\nRemediation:\n${errorAspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+                navigator.clipboard.writeText(info);
+                alert("Diagnostic error information copied to clipboard.");
+              }}
+              title="Copy error code and diagnostic information"
+            >
+              📋 Copy Diagnostics
+            </button>
           </div>
         </div>
       )}
+
 
       {/* Persistent Capabilities & How-To Guide Strip */}
       <div
@@ -2031,6 +2100,10 @@ export function Chat({ user }: { user: User }) {
             onAdClick={handleAdClick}
             onOpenAdsTab={() => {
               setTab("ads");
+              setTbdMenuOpen(false);
+            }}
+            onNavigateTab={(targetTab) => {
+              setTab(targetTab as any);
               setTbdMenuOpen(false);
             }}
             onStatusChange={setChatStatus}

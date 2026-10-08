@@ -7,7 +7,7 @@
  * - Sensitive Data Masking: Redacts OAuth tokens, client secrets, and consumer keys from logs.
  */
 
-import { ETradeError, ETradeErrorCode } from "./errorCodes";
+import { ETradeError, ETradeErrorCode, AgentError, AgentErrorCode, resolveErrorAspect } from "./errorCodes";
 
 export interface AspectContext {
   operationName: string;
@@ -116,3 +116,111 @@ export async function withAspects<T>(
     throw new ETradeError(ETradeErrorCode.INTERNAL_ERROR, rawMessage, { durationMs });
   }
 }
+
+/**
+ * Standardized Aspect Event Logger for Cross-Cutting Observability
+ */
+export interface AspectEvent {
+  aspect: string;
+  operationName: string;
+  code?: string;
+  level?: "info" | "warn" | "error";
+  durationMs?: number;
+  message?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+  audit?: (event: string, category: string, payload: Record<string, unknown>) => void;
+}
+
+export function logAspectEvent(event: AspectEvent): void {
+  const level = event.level || "info";
+  const codeTag = event.code ? `[${event.code}]` : "";
+  const durationTag = event.durationMs !== undefined ? ` (${event.durationMs}ms)` : "";
+  const logPrefix = `[Aspect][${event.aspect}][${event.operationName}]${codeTag}`;
+  const details = event.message || event.error || "";
+
+  if (level === "error") {
+    console.error(`${logPrefix}${durationTag} ERROR:`, details, event.metadata || "");
+  } else if (level === "warn") {
+    console.warn(`${logPrefix}${durationTag} WARN:`, details, event.metadata || "");
+  } else {
+    console.info(`${logPrefix}${durationTag}`, details, event.metadata || "");
+  }
+
+  if (event.audit) {
+    const auditStatus = level === "error" ? "error" : level === "warn" ? "warning" : "completed";
+    event.audit(`${event.aspect.toLowerCase()}.${event.operationName.toLowerCase()}.${auditStatus}`, event.aspect.toLowerCase(), {
+      operationName: event.operationName,
+      code: event.code,
+      level,
+      durationMs: event.durationMs,
+      message: event.message,
+      error: event.error,
+      ...event.metadata,
+    });
+  }
+}
+
+export interface AgentAspectContext {
+  operationName: string;
+  userLogin?: string;
+  model?: string;
+  audit?: (event: string, category: string, payload: Record<string, unknown>) => void;
+}
+
+/**
+ * Aspect Wrapper for AI Agent operations: translates raw errors into externalized error codes and logs them as aspects.
+ */
+export async function withAgentAspect<T>(
+  context: AgentAspectContext,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  const start = performance.now();
+  const { operationName, userLogin, model, audit } = context;
+
+  logAspectEvent({
+    aspect: "Agent",
+    operationName,
+    level: "info",
+    message: `Starting execution for ${userLogin || "session"} using model ${model || "default"}`,
+  });
+
+  try {
+    const result = await fn();
+    const durationMs = Math.round(performance.now() - start);
+
+    logAspectEvent({
+      aspect: "Agent",
+      operationName,
+      level: "info",
+      durationMs,
+      message: "Completed successfully",
+      audit,
+    });
+
+    return result;
+  } catch (err: unknown) {
+
+    const durationMs = Math.round(performance.now() - start);
+    const resolved = resolveErrorAspect(err);
+
+    logAspectEvent({
+      aspect: "Agent",
+      operationName,
+      code: resolved.code,
+      level: "error",
+      durationMs,
+      error: resolved.message,
+      metadata: { remediation: resolved.remediation, resolutionSteps: resolved.resolutionSteps },
+      audit,
+    });
+
+    throw new AgentError(resolved.code as AgentErrorCode, resolved.message, {
+      durationMs,
+      remediation: resolved.remediation,
+      resolutionSteps: resolved.resolutionSteps,
+      rawError: resolved.rawError,
+    });
+  }
+}
+

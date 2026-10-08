@@ -2,7 +2,9 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap } from "./nlq";
+import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
+import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
@@ -1040,26 +1042,102 @@ Agentic Best Practices & Workflow Rules:
           }
         },
         onError: ({ error }: { error: unknown }) => {
-          const errMsg = error instanceof Error ? error.message : String(error);
-          console.error("[OrchestratorAgent] Chat stream error:", error);
-          this.audit("stream.error", "orchestrator", { error: errMsg });
+          const aspect = resolveErrorAspect(error);
+          logAspectEvent({
+            aspect: "ChatStream",
+            operationName: "streamError",
+            code: aspect.code,
+            level: "error",
+            error: aspect.message,
+            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+          });
         },
       });
 
       return result.toUIMessageStreamResponse({
         onError: (error: unknown) => {
-          console.error("[OrchestratorAgent] UI stream error:", error);
-          return error instanceof Error ? error.message : "Agent stream error.";
+          const aspect = resolveErrorAspect(error);
+          logAspectEvent({
+            aspect: "ChatStream",
+            operationName: "uiStreamError",
+            code: aspect.code,
+            level: "error",
+            error: aspect.message,
+            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+          });
+          return `[${aspect.code}] ${aspect.title}: ${aspect.message}\n\nRemediation:\n${aspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
         },
       });
     } catch (streamErr) {
-      const errorMsg = streamErr instanceof Error ? streamErr.message : "Error initializing agent stream";
-      this.audit("stream.error", "orchestrator", { error: errorMsg });
+      const aspect = resolveErrorAspect(streamErr);
+      logAspectEvent({
+        aspect: "ChatStream",
+        operationName: "streamInitializationError",
+        code: aspect.code,
+        level: "error",
+        error: aspect.message,
+        metadata: { userText, userLogin },
+        audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+      });
+      this.audit("stream.error", "orchestrator", { code: aspect.code, error: aspect.message });
+
+      // Attempt deterministic query execution (e.g. Stock Screener or Research query)
+      let deterministicSection = "";
+      if (userText && userText.trim().length > 0) {
+        try {
+          const { result } = await executeNaturalLanguageQuery(
+            orm,
+            sessionId,
+            userText,
+            this.env,
+            userLogin
+          );
+          if (result && result.status !== "error") {
+            if (Array.isArray(result.rows) && result.rows.length > 0) {
+              deterministicSection = [
+                "",
+                "---",
+                "### 📈 Deterministic Results (Executed without AI tokens):",
+                `Found **${result.count || result.rows.length}** results matching your criteria:`,
+                "",
+                ...result.rows.slice(0, 12).map((row: any) => {
+                  const sym = row.symbol || row.ticker || "";
+                  const name = row.companyName || row.name || "";
+                  const mcap = row.marketCap ? ` · MCap: ${formatMarketCap(Number(row.marketCap))}` : "";
+                  const price = row.price !== undefined ? ` · Price: $${Number(row.price).toFixed(2)}` : "";
+                  const change = row.changePct !== undefined ? ` (${row.changePct >= 0 ? "+" : ""}${Number(row.changePct).toFixed(2)}%)` : "";
+                  return `- **${sym}** ${name ? `(${name})` : ""}${price}${change}${mcap}`;
+                }),
+              ].join("\n");
+            } else if (result.summary) {
+              deterministicSection = `\n\n---\n### 📈 Deterministic Result:\n${result.summary}`;
+            }
+          }
+        } catch (fallbackQueryErr) {
+          console.warn("[OrchestratorAgent] Deterministic fallback query error:", fallbackQueryErr);
+        }
+      }
+
+
+      const fallbackText = [
+        `⚠️ **[${aspect.code}] ${aspect.title}**`,
+        "",
+        `**Diagnosis:** ${aspect.message}`,
+        "",
+        "**What needs to be done to resolve this:**",
+        ...aspect.resolutionSteps.map((step, idx) => `${idx + 1}. ${step}`),
+        "",
+        aspect.suggestedTab
+          ? `👉 **Direct Navigation:** Go to the **${aspect.suggestedTabLabel || aspect.suggestedTab}** from the navigation bar to run scans and queries directly with direct exchange feeds.`
+          : "",
+        deterministicSection,
+      ].filter(Boolean).join("\n");
+
+      this.recordMessage("assistant", fallbackText, "orchestrator");
 
       // Return a compliant AI SDK v5 text stream response
-      const fallbackText = "I encountered a temporary issue connecting to Workers AI. Please try sending your message again.";
       const payload = [
-        `data: ${JSON.stringify({ type: "text-start", id: "text-1" })}`,
+        `data: ${JSON.stringify({ type: "text-start", id: "text-err-1" })}`,
         `data: ${JSON.stringify({ type: "text-delta", delta: fallbackText })}`,
         `data: ${JSON.stringify({ type: "text-end" })}`,
         "data: [DONE]",
@@ -1070,6 +1148,7 @@ Agentic Best Practices & Workflow Rules:
         headers: { "Content-Type": "text/event-stream; charset=utf-8" },
       });
     }
+
   }
 
   async onRequest(request: Request): Promise<Response> {
