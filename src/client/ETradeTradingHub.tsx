@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   ETradeQuote,
@@ -694,6 +695,16 @@ export function ETradeTradingHub({
     }
   };
 
+  useEffect(() => {
+    const handleOpenDiag = () => {
+      runDiagnostics();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("open-etrade-diagnostics", handleOpenDiag);
+      return () => window.removeEventListener("open-etrade-diagnostics", handleOpenDiag);
+    }
+  }, [activeEnv]);
+
   const fetchOrders = async () => {
     setOrdersLoading(true);
     try {
@@ -1061,7 +1072,7 @@ export function ETradeTradingHub({
   return (
     <div className="etrade-trading-hub">
       {/* OAuth PIN Verification Modal */}
-      {showPinModal && (
+      {showPinModal && typeof document !== "undefined" && createPortal(
         <div className="modal-backdrop">
           <div className="etrade-pin-modal">
             <div className="modal-header">
@@ -1125,7 +1136,8 @@ export function ETradeTradingHub({
               </form>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
 
@@ -3071,7 +3083,7 @@ export function ETradeTradingHub({
         </div>
       )}
       {/* E*TRADE Live REST Diagnostics Modal */}
-      {showDiagnosticsModal && (
+      {showDiagnosticsModal && typeof document !== "undefined" && createPortal(
         <div className="modal-backdrop" onClick={() => setShowDiagnosticsModal(false)}>
           <div className="etrade-pin-modal diagnostics-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "680px" }}>
             <div className="modal-header">
@@ -3238,7 +3250,8 @@ export function ETradeTradingHub({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Dynamic ETAPI Engine Tuning & Configuration Modal */}

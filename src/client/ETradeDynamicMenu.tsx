@@ -399,11 +399,18 @@ export function SettingsMenu({
   };
 
   const onRunDiagnostics = () => {
+    setIsPinned(false);
+    setIsHovered(false);
     if (runDiagnostics) {
       runDiagnostics();
     } else {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("open-etrade-diagnostics"));
+      }
       setLocalDiagLoading(true);
-      fetch(`/api/broker/etrade/diagnostics?environment=${effectiveEnv}`)
+      fetch(`/api/etrade/diagnostics`, {
+        headers: { "x-environment": effectiveEnv },
+      })
         .then((r) => r.json())
         .then((data: any) => {
           if (data && data.status) {

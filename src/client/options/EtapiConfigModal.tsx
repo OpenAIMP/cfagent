@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "../apiFetch";
 import type { EtapiConfig, AiModelDefinition } from "../../config/etapiConfig";
 
@@ -286,7 +287,7 @@ export function EtapiConfigModal({
     }
   };
 
-  return (
+  const modalContent = (
     <div
       style={{
         position: "fixed",
@@ -961,4 +962,6 @@ export function EtapiConfigModal({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modalContent, document.body) : modalContent;
 }
