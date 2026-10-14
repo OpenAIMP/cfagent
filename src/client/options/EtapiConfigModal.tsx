@@ -43,6 +43,9 @@ export function EtapiConfigModal({
   const [volatilityWeight, setVolatilityWeight] = useState("10");
   const [freshnessWeight, setFreshnessWeight] = useState("15");
   const [thetaWeight, setThetaWeight] = useState("5");
+  const [popWeight, setPopWeight] = useState("15");
+  const [cushionWeight, setCushionWeight] = useState("8");
+  const [capitalWeight, setCapitalWeight] = useState("7");
 
   const [bullishFactor, setBullishFactor] = useState("1.05");
   const [bearishFactor, setBearishFactor] = useState("0.95");
@@ -103,6 +106,9 @@ export function EtapiConfigModal({
         setVolatilityWeight(String(Math.round(cfg.strategyEngine.scoreWeights.volatilityAlignment * 100)));
         setFreshnessWeight(String(Math.round(cfg.strategyEngine.scoreWeights.freshness * 100)));
         setThetaWeight(String(Math.round(cfg.strategyEngine.scoreWeights.thetaBurden * 100)));
+        setPopWeight(String(Math.round((cfg.strategyEngine.scoreWeights.popAlignment ?? 0) * 100)));
+        setCushionWeight(String(Math.round((cfg.strategyEngine.scoreWeights.cushion ?? 0) * 100)));
+        setCapitalWeight(String(Math.round((cfg.strategyEngine.scoreWeights.capitalEfficiency ?? 0) * 100)));
       }
     }
     if (cfg.screener) {
@@ -170,6 +176,9 @@ export function EtapiConfigModal({
             volatilityAlignment: Number(volatilityWeight) / 100,
             freshness: Number(freshnessWeight) / 100,
             thetaBurden: Number(thetaWeight) / 100,
+            popAlignment: Number(popWeight) / 100,
+            cushion: Number(cushionWeight) / 100,
+            capitalEfficiency: Number(capitalWeight) / 100,
           },
         },
         screener: {

@@ -68,6 +68,9 @@ export interface UnifiedOptionsRequest {
   allowedStrategies?: OptionStrategyType[];
   maxPlannedLoss?: number;
   minRewardRisk?: number;
+  /** Optimization bias (0 = max return, 100 = max chance); converted to
+   *  score weights server-side (issue #29). */
+  optimizationBias?: number;
   filter?: OptionScreenerFilter;
   channel?: OmnichannelContext;
   question?: string;
@@ -178,6 +181,7 @@ export class UnifiedOptionsService {
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
+            optimizationBias: req.optimizationBias,
           };
 
           const pipeline = new OptionsAgentPipeline(screener);
@@ -214,6 +218,7 @@ export class UnifiedOptionsService {
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
+            optimizationBias: req.optimizationBias,
           }, {
             riskProfile: req.riskProfile || "balanced",
           });
@@ -244,6 +249,7 @@ export class UnifiedOptionsService {
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
+            optimizationBias: req.optimizationBias,
           };
           const pipeline = new OptionsAgentPipeline(screener);
           const pipelineResult = await pipeline.run(strategyRequest, {
@@ -296,6 +302,7 @@ export class UnifiedOptionsService {
             maxPlannedLoss: req.maxPlannedLoss || 1000,
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
+            optimizationBias: req.optimizationBias,
           };
           const pipeline = new OptionsAgentPipeline(screener);
           const pipelineResult = await pipeline.run(strategyRequest, {

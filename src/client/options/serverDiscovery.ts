@@ -20,6 +20,10 @@ export interface ServerDiscoveryInputs {
   budget: number;
   minRewardRisk: number;
   expiration: ExpirationOption;
+  /** Panel bias slider (0 = max return, 100 = max chance). Since issue #29
+   *  slice 7 the server converts it to score weights; the Builder fallback
+   *  keeps applying it locally to analyzeStrategy. */
+  bias?: number;
 }
 
 type OptionThesis = "bullish" | "bearish" | "range_bound" | "large_move";
@@ -56,6 +60,7 @@ export function buildStrategyRequest(inputs: ServerDiscoveryInputs) {
     allowedStrategies: ["all"],
     maxDte: inputs.expiration.dte,
     candidateLimit: 24,
+    ...(inputs.bias !== undefined ? { optimizationBias: inputs.bias } : {}),
   };
 }
 

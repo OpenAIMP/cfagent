@@ -33,12 +33,15 @@
         "detailLimit": 5000,
         "maxLegs": 6,
         "scoreWeights": {
-          "thesisAlignment": 0.30,
-          "targetRewardRisk": 0.20,
-          "liquidity": 0.20,
-          "volatilityAlignment": 0.10,
-          "thetaBurden": 0.05,
-          "freshness": 0.15
+          "thesisAlignment": 0.205,
+          "targetRewardRisk": 0.154,
+          "liquidity": 0.138,
+          "volatilityAlignment": 0.069,
+          "thetaBurden": 0.034,
+          "freshness": 0.103,
+          "popAlignment": 0.154,
+          "cushion": 0.077,
+          "capitalEfficiency": 0.066
         }
       },
       "opportunityScanner": {

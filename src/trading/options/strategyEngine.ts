@@ -18,6 +18,10 @@ export interface StrategyRequest {
   expectedIvDirection: ExpectedIvDirection;
   maxPlannedLoss: number;
   minRewardRisk: number;
+  /** Optimization bias slider ported from the retired client ranker (issue #29):
+   *  0 = max return, 50 = balanced, 100 = max chance. Converted to score
+   *  weights by resolveScoreWeights; absent = balanced defaults. */
+  optimizationBias?: number;
   minDte?: number;
   maxDte?: number;
     minVolume?: number; // User-visible option-screen thresholds
@@ -74,7 +78,13 @@ export interface StrategyScoreBreakdown {
   volatilityAlignment: number;
   thetaBurden: number;
   freshness: number;
-  weights: Record<"thesisAlignment" | "targetRewardRisk" | "liquidity" | "volatilityAlignment" | "thetaBurden" | "freshness", number>;
+  /** Model-implied probability of profit, 0-100 (the client's "chance" lens). */
+  popAlignment: number;
+  /** Margin of safety: nearest breakeven distance from spot (client "cushion" lens). */
+  cushion: number;
+  /** Target profit per unit of capital at risk (client "capital efficiency" lens). */
+  capitalEfficiency: number;
+  weights: Record<"thesisAlignment" | "targetRewardRisk" | "liquidity" | "volatilityAlignment" | "thetaBurden" | "freshness" | "popAlignment" | "cushion" | "capitalEfficiency", number>;
 }
 
 export interface StrategyCandidate {
@@ -130,6 +140,52 @@ const DEFAULT_MAX_COMBINATIONS = baseEngineConfig.maxCombinations;
 const DETAIL_LIMIT = baseEngineConfig.detailLimit;
 const MAX_LEGS = baseEngineConfig.maxLegs;
 const SCORE_WEIGHTS: StrategyScoreBreakdown["weights"] = baseEngineConfig.scoreWeights;
+
+const NATIVE_WEIGHT_KEYS = ["thesisAlignment", "liquidity", "volatilityAlignment", "thetaBurden", "freshness"] as const;
+const NATIVE_BLOCK_SHARE = 0.55;
+const BIAS_BLOCK_SHARE = 0.45;
+
+/**
+ * The client ranker's bias interpolation, ported verbatim in shape
+ * (getOptimizationFactors in the retired client discovery engine):
+ * return weight falls and chance weight rises as bias goes 0 -> 100,
+ * safety rises mildly with bias, capital efficiency with return-seeking.
+ */
+export function optimizationBiasFactors(bias: number) {
+  const biasPct = Math.max(0, Math.min(100, bias));
+  const chanceRatio = biasPct / 100;
+  const returnRatio = 1 - chanceRatio;
+  return {
+    returnWeight: Math.round(10 + returnRatio * 50),
+    chanceWeight: Math.round(10 + chanceRatio * 50),
+    safetyWeight: Math.round(10 + chanceRatio * 15),
+    capitalWeight: Math.round(10 + returnRatio * 10),
+  };
+}
+
+/**
+ * Effective score weights for a request (issue #29). Without a bias, the
+ * configured weights apply unchanged. With a bias, the server-native
+ * factors keep 55% of the total (in their configured proportions) and the
+ * absorbed client lenses take 45%, split by optimizationBiasFactors:
+ * return -> targetRewardRisk, chance -> popAlignment, safety -> cushion,
+ * capital -> capitalEfficiency. Weights always sum to the configured total.
+ */
+export function resolveScoreWeights(bias?: number): StrategyScoreBreakdown["weights"] {
+  if (bias === undefined || !Number.isFinite(bias)) return SCORE_WEIGHTS;
+  const factors = optimizationBiasFactors(bias);
+  const factorTotal = factors.returnWeight + factors.chanceWeight + factors.safetyWeight + factors.capitalWeight;
+  const configuredTotal = Object.values(SCORE_WEIGHTS).reduce((sum, w) => sum + w, 0);
+  const nativeConfigured = NATIVE_WEIGHT_KEYS.reduce((sum, key) => sum + SCORE_WEIGHTS[key], 0);
+  const nativeScale = nativeConfigured > 0 ? (NATIVE_BLOCK_SHARE * configuredTotal) / nativeConfigured : 0;
+  const weights = { ...SCORE_WEIGHTS };
+  for (const key of NATIVE_WEIGHT_KEYS) weights[key] = SCORE_WEIGHTS[key] * nativeScale;
+  weights.targetRewardRisk = (BIAS_BLOCK_SHARE * configuredTotal * factors.returnWeight) / factorTotal;
+  weights.popAlignment = (BIAS_BLOCK_SHARE * configuredTotal * factors.chanceWeight) / factorTotal;
+  weights.cushion = (BIAS_BLOCK_SHARE * configuredTotal * factors.safetyWeight) / factorTotal;
+  weights.capitalEfficiency = (BIAS_BLOCK_SHARE * configuredTotal * factors.capitalWeight) / factorTotal;
+  return weights;
+}
 
 export const ALL_STRATEGY_TYPES: OptionStrategyType[] = defaultRegistry.ids();
 
@@ -399,6 +455,19 @@ function buildCandidate(
   const thetaBurden = clamp(100 - Math.max(0, -netTheta) / Math.max(1, risk.maxLoss) * 10_000);
   const freshness = dataFreshness === "FRESH" ? 100 : dataFreshness === "STALE" ? 25 : 0;
   const rewardRiskScore = clamp(targetRewardRisk / Math.max(request.minRewardRisk, 0.25) * 70);
+  // Absorbed client lenses (issue #29), formulas ported from the client
+  // engine's analyzeStrategy so both surfaces meant the same thing:
+  // cushion = nearest-breakeven distance from spot; capital efficiency =
+  // target profit per unit of capital at risk (maxLoss for defined risk).
+  const popAlignment = clamp(modelImpliedProbabilityOfProfit * 100);
+  const cushionPct = risk.breakevens.length > 0
+    ? Math.min(...risk.breakevens.map((b) => Math.abs(b - underlying))) / underlying * 100
+    : 0;
+  const cushion = clamp(Math.max(5, Math.min(100, Math.round(cushionPct * 4))));
+  const capitalEfficiency = risk.maxLoss > 0
+    ? clamp(Math.max(10, Math.min(100, Math.round(targetPnl / Math.max(100, risk.maxLoss) * 100))))
+    : 50;
+  const effectiveWeights = resolveScoreWeights(request.optimizationBias);
   const scoreBreakdown: StrategyScoreBreakdown = {
     thesisAlignment,
     targetRewardRisk: rewardRiskScore,
@@ -406,10 +475,13 @@ function buildCandidate(
     volatilityAlignment,
     thetaBurden,
     freshness,
-    weights: SCORE_WEIGHTS,
+    popAlignment,
+    cushion,
+    capitalEfficiency,
+    weights: effectiveWeights,
   };
-  const score = Object.entries(SCORE_WEIGHTS).reduce((sum, [key, weight]) =>
-    sum + scoreBreakdown[key as keyof typeof SCORE_WEIGHTS] * weight, 0);
+  const score = Object.entries(effectiveWeights).reduce((sum, [key, weight]) =>
+    sum + scoreBreakdown[key as keyof typeof effectiveWeights] * weight, 0);
   const warnings = [
     "Pre-expiry P/L is a Black-Scholes estimate, not a forecast or executable quote.",
     "Earnings and dividend dates are not connected; event risk is unverified.",
@@ -598,7 +670,7 @@ export function recommendOptionStrategies(
       modelVersion: "options-risk-v2",
       dataSource: "E*TRADE option-chain snapshot",
       assumptions: ["Candidates were withheld because earnings/dividend calendar verification is unavailable."],
-      scoreWeights: SCORE_WEIGHTS,
+      scoreWeights: resolveScoreWeights(request.optimizationBias),
       candidates: [],
       excluded: [{ reason: "Event-risk exclusion cannot be verified without an event calendar", count: contracts.length }],
     });
@@ -692,7 +764,7 @@ export function recommendOptionStrategies(
     modelVersion: "options-risk-v2",
     dataSource: "E*TRADE option-chain snapshot",
     assumptions,
-    scoreWeights: SCORE_WEIGHTS,
+    scoreWeights: resolveScoreWeights(request.optimizationBias),
     candidates: ranked,
     excluded: Array.from(rejected, ([reason, count]) => ({ reason, count })),
   });
