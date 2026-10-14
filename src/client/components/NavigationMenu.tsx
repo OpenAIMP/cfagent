@@ -537,167 +537,119 @@ export function NavigationMenu({
     );
   }
 
-  // 2. TOP NAV BAR LAYOUT
-  const primaryTopItems = NAVIGATION_ITEMS.slice(0, 6);
-  const overflowTopItems = NAVIGATION_ITEMS.slice(6);
-  const isOverflowActive = overflowTopItems.some((i) => i.id === activeTab);
-
+  // 2. TOP NAV BAR LAYOUT (Two-tier institutional layout with dedicated full menu bar)
   return (
-    <nav className="nextgentp-top-nav algonexus-top-nav" aria-label="Top Navigation Bar">
-      {/* Brand & Market Badges */}
-      <div className="top-nav-brand-section">
-        <div className="top-brand" onClick={() => onSelectTab("trading")}>
-          <NavIcons.NextGenLogo />
-          <span className="top-brand-name">NextGenTP</span>
-        </div>
+    <div className="nextgentp-top-nav-container" aria-label="Top Navigation">
+      {/* Tier 1: Brand, Status Badges, Stock Search, Quick Trade & Profile Controls */}
+      <div className="top-nav-utility-bar">
+        {/* Brand & Market Badges */}
+        <div className="top-nav-brand-section">
+          <div className="top-brand" onClick={() => onSelectTab("trading")}>
+            <NavIcons.NextGenLogo />
+            <span className="top-brand-name">NextGenTP</span>
+          </div>
 
-        {/* Institutional Status Badges */}
-        <div className="top-status-pills">
-          <span className="pill-pro">PRO</span>
-          <span className="pill-region">🇺🇸 US</span>
-          <button
-            type="button"
-            className={`pill-mode ${accountMode}`}
-            onClick={onToggleAccountMode}
-            title="Toggle Paper / Live execution mode"
-          >
-            <span className="mode-dot" />
-            <span>{accountMode === "paper" ? "Paper" : "Live"}</span>
-            <span className="chevron-down">▾</span>
-          </button>
-          <span className="pill-market-status">
-            <span className="market-dot closed" />
-            <span>Market CLOSED · opens Mon 09:30 ET</span>
-          </span>
-        </div>
-      </div>
-
-      {/* Primary Horizontal Tabs */}
-      <div className="top-nav-tabs">
-        {primaryTopItems.map((item) => {
-          const active = activeTab === item.id;
-          const Icon = item.icon;
-          return (
+          {/* Institutional Status Badges */}
+          <div className="top-status-pills">
+            <span className="pill-pro">PRO</span>
+            <span className="pill-region">🇺🇸 US</span>
             <button
-              key={item.id}
               type="button"
-              className={`top-nav-tab-btn ${active ? "active" : ""}`}
-              onClick={() => {
-                onSelectTab(item.id);
-                setDropdownOpen(false);
-              }}
-              title={item.description}
+              className={`pill-mode ${accountMode}`}
+              onClick={onToggleAccountMode}
+              title="Toggle Paper / Live execution mode"
             >
-              <Icon active={active} />
-              <span>{item.shortLabel}</span>
-              {item.badge && (
-                <span className={`item-badge badge-${item.badgeType || "default"}`}>
-                  {item.badge}
-                </span>
-              )}
+              <span className="mode-dot" />
+              <span>{accountMode === "paper" ? "Paper" : "Live"}</span>
+              <span className="chevron-down">▾</span>
             </button>
-          );
-        })}
+            <span className="pill-market-status">
+              <span className="market-dot closed" />
+              <span>Market CLOSED · opens Mon 09:30 ET</span>
+            </span>
+          </div>
+        </div>
 
-        {/* Overflow "More ▾" Dropdown */}
-        <div className="top-nav-dropdown-wrapper">
+        {/* Right Controls: Stock Search, Quick Trade, Extra Children, Theme Toggle, Switch to Left Nav, User Profile */}
+        <div className="top-nav-right-controls">
+          {/* Global Stock Search Bar */}
+          <StockSearchBar onSelectTab={onSelectTab} onAskAgent={onAskAgent} />
+
+          {/* Quick Trade Button */}
           <button
             type="button"
-            className={`top-nav-tab-btn dropdown-trigger ${isOverflowActive ? "active" : ""}`}
-            onClick={() => setDropdownOpen((prev) => !prev)}
-            aria-expanded={dropdownOpen}
-            aria-haspopup="menu"
+            className="nav-trade-btn"
+            onClick={() => onSelectTab("trading")}
+            title="Open Autopilot & Trading execution center"
           >
-            <span>More Platform</span>
-            <span className="chevron-down">▾</span>
+            Trade
           </button>
 
-          {dropdownOpen && (
-            <div className="top-nav-dropdown-menu" role="menu">
-              {overflowTopItems.map((item) => {
-                const active = activeTab === item.id;
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className={`dropdown-menu-item ${active ? "active" : ""}`}
-                    onClick={() => {
-                      onSelectTab(item.id);
-                      setDropdownOpen(false);
-                    }}
-                  >
-                    <Icon active={active} />
-                    <div className="dropdown-item-text">
-                      <span className="dropdown-item-label">{item.label}</span>
-                      <span className="dropdown-item-desc">{item.description}</span>
-                    </div>
-                    {item.badge && (
-                      <span className={`item-badge badge-${item.badgeType || "default"}`}>
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+          {headerChildren}
+
+          {/* Theme Switcher button */}
+          {onCycleTheme && (
+            <button
+              type="button"
+              className="top-theme-toggle-btn"
+              onClick={onCycleTheme}
+              title={`Theme: ${theme ? theme.toUpperCase() : "SYSTEM"} (Click to cycle Light / Dark / System)`}
+              aria-label="Toggle theme mode"
+            >
+              {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
+              <span className="theme-btn-text">{theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto"}</span>
+            </button>
           )}
-        </div>
-      </div>
 
-      {/* Right Controls: Stock Search, Trade Button, Extra Children, Theme Toggle, Switch to Left Nav, User Profile */}
-      <div className="top-nav-right-controls">
-        {/* Global Stock Search Bar */}
-        <StockSearchBar onSelectTab={onSelectTab} onAskAgent={onAskAgent} />
-
-        {/* Quick Trade Button */}
-        <button
-          type="button"
-          className="nav-trade-btn"
-          onClick={() => onSelectTab("trading")}
-          title="Open Autopilot & Trading execution center"
-        >
-          Trade
-        </button>
-
-        {headerChildren}
-
-        {/* Theme Switcher button */}
-        {onCycleTheme && (
+          {/* Layout Switcher button: Switch to Left Sidebar */}
           <button
             type="button"
-            className="top-theme-toggle-btn"
-            onClick={onCycleTheme}
-            title={`Theme: ${theme ? theme.toUpperCase() : "SYSTEM"} (Click to cycle Light / Dark / System)`}
-            aria-label="Toggle theme mode"
+            className="top-layout-switcher-btn"
+            onClick={() => onToggleLayout("left")}
+            title="Switch menu to Left Sidebar layout"
+            aria-label="Switch menu to Left Sidebar layout"
           >
-            {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-            <span className="theme-btn-text">{theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto"}</span>
+            <NavIcons.LayoutSidebar />
+            <span className="layout-btn-text">Left Sidebar</span>
           </button>
-        )}
 
-        {/* Layout Switcher button: Switch to Left Sidebar */}
-        <button
-          type="button"
-          className="top-layout-switcher-btn"
-          onClick={() => onToggleLayout("left")}
-          title="Switch menu to Left Sidebar layout"
-          aria-label="Switch menu to Left Sidebar layout"
-        >
-          <NavIcons.LayoutSidebar />
-          <span className="layout-btn-text">Left Sidebar</span>
-        </button>
-
-        {/* User Pill */}
-        <div className="top-user-pill" title={`Logged in as ${user.name} (@${user.login})`}>
-          <img src={user.avatar} alt={user.login} className="top-user-avatar" />
-          <span className="top-user-email">{user.login.includes("@") ? user.login : `${user.login}@nextgentp`}</span>
-          <a href="/auth/logout" className="top-logout-link" title="Sign out">
-            Sign out
-          </a>
+          {/* User Pill */}
+          <div className="top-user-pill" title={`Logged in as ${user.name} (@${user.login})`}>
+            <img src={user.avatar} alt={user.login} className="top-user-avatar" />
+            <span className="top-user-email">{user.login.includes("@") ? user.login : `${user.login}@nextgentp`}</span>
+            <a href="/auth/logout" className="top-logout-link" title="Sign out">
+              Sign out
+            </a>
+          </div>
         </div>
       </div>
-    </nav>
+
+      {/* Tier 2: Dedicated Top Navigation Menu Bar with all 12 items */}
+      <nav className="top-nav-menu-strip" aria-label="Top Navigation Menu">
+        <div className="top-menu-strip-inner">
+          {NAVIGATION_ITEMS.map((item) => {
+            const active = activeTab === item.id;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`top-menu-item-btn ${active ? "active" : ""}`}
+                onClick={() => onSelectTab(item.id)}
+                title={item.description}
+              >
+                <Icon active={active} />
+                <span className="top-menu-label">{item.label}</span>
+                {item.badge && (
+                  <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </div>
   );
 }
