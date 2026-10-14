@@ -5,7 +5,7 @@ import {
   calculateProbabilityOfProfit,
 } from "../src/client/options/blackScholes";
 import {
-  discoverStrategies,
+  analyzeStrategy,
   generateExpirations,
   generateStrikeLadder,
   evaluateStrategyPnL,
@@ -13,8 +13,20 @@ import {
   updateLegStrike,
   updateLegsExpiration,
 } from "../src/client/options/strategyDiscoveryEngine";
+import { STRATEGY_LIBRARY } from "../src/client/options/strategyLibrary";
 
-describe("Strategy Discovery and Black-Scholes Engine", () => {
+/**
+ * Builder-path strategy factory (issue #29: discovery ranking is server-side).
+ * Seeds a strategy from the template library through analyzeStrategy — the
+ * same path the Builder UI uses — instead of the retired client discovery ranker.
+ */
+function sampleStrategy(id: string, spot: number, target: number, expiration: { dte: number; date: string }, iv = 0.44, bias = 50) {
+  const def = STRATEGY_LIBRARY.find((d) => d.id === id)!;
+  const legs = def.buildLegs(spot, expiration.dte, expiration.date, iv);
+  return analyzeStrategy(def.name, def.category, def.subtitle, def.theses, legs, spot, target, expiration.dte, expiration.date, iv, def.description, bias);
+}
+
+describe("Builder modeling engine and Black-Scholes (discovery ranking is server-side, issue #29)", () => {
   it("computes accurate Black-Scholes call and put prices and Greeks", () => {
     const spot = 100;
     const strike = 100;
@@ -69,129 +81,9 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     expect(lowerSpotStrikes.length).toBeGreaterThan(30);
   });
 
-  it("discovers bullish strategies for TSLA matching OptionStrat format", () => {
-    const expirations = generateExpirations();
-    const strategies = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: 380.68,
-      sentiment: "bullish",
-      targetPrice: 545.82,
-      expiration: expirations[6],
-      optimizationBias: 50,
-    });
-
-    expect(strategies.length).toBeGreaterThanOrEqual(5);
-
-    const names = strategies.map((s) => s.name);
-    expect(names).toContain("Long Call");
-    expect(names).toContain("Covered Call");
-    expect(names).toContain("Cash-Secured Put");
-    expect(names).toContain("Bull Call Spread");
-    expect(names).toContain("Bull Put Spread");
-
-    const longCall = strategies.find((s) => s.name === "Long Call")!;
-    expect(longCall.maxLoss).toBeGreaterThan(0);
-    expect(longCall.maxProfit).toBeNull(); // unlimited upside
-    expect(longCall.targetProfit).toBeGreaterThan(0);
-    expect(longCall.miniPayoffPoints.length).toBeGreaterThanOrEqual(25);
-    expect(longCall.chanceOfProfit).toBeGreaterThan(0);
-
-    const bullCallSpread = strategies.find((s) => s.name === "Bull Call Spread")!;
-    expect(bullCallSpread.legs).toHaveLength(2);
-    expect(bullCallSpread.maxLoss).toBeGreaterThan(0);
-    expect(bullCallSpread.maxProfit).toBeGreaterThan(0);
-    expect(bullCallSpread.breakevens.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("discovers bearish strategies matching OptionStrat format", () => {
-    const expirations = generateExpirations();
-    const strategies = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 233.95,
-      sentiment: "bearish",
-      targetPrice: 195.0,
-      expiration: expirations[4],
-      optimizationBias: 50,
-    });
-
-    const names = strategies.map((s) => s.name);
-    expect(names).toContain("Long Put");
-    expect(names).toContain("Bear Put Spread");
-    expect(names).toContain("Bear Call Spread");
-    expect(names).toContain("Short Synthetic Future");
-
-    const shortFuture = strategies.find((s) => s.name === "Short Synthetic Future")!;
-    expect(shortFuture.legs).toHaveLength(2);
-    expect(shortFuture.breakevens).toHaveLength(1);
-    expect(shortFuture.breakevenText).toContain("Below");
-  });
-
-  it("discovers neutral and directional strategies", () => {
-    const expirations = generateExpirations();
-    const neutral = discoverStrategies({
-      symbol: "SPY",
-      currentPrice: 585.0,
-      sentiment: "neutral",
-      targetPrice: 585.0,
-      expiration: expirations[5],
-      optimizationBias: 50,
-    });
-
-    const neutralNames = neutral.map((s) => s.name);
-    expect(neutralNames).toContain("Iron Condor");
-    expect(neutralNames).toContain("Iron Butterfly");
-    expect(neutralNames).toContain("Short Straddle");
-
-    const directional = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 233.95,
-      sentiment: "directional",
-      targetPrice: 275.0,
-      expiration: expirations[5],
-      optimizationBias: 50,
-    });
-
-    const dirNames = directional.map((s) => s.name);
-    expect(dirNames).toContain("Long Straddle");
-    expect(dirNames).toContain("Long Strangle");
-  });
-
-  it("discovers all option strategies when sentiment is 'all' without premature truncation", () => {
-    const expirations = generateExpirations();
-    const allStrategies = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 233.95,
-      sentiment: "all",
-      targetPrice: 240.0,
-      expiration: expirations[5],
-      optimizationBias: 50,
-    });
-
-    // Verifies full breadth across all 72 catalog strategies + pre-built setups
-    expect(allStrategies.length).toBeGreaterThanOrEqual(70);
-    const names = new Set(allStrategies.map((s) => s.name));
-    expect(names.has("Long Call")).toBe(true);
-    expect(names.has("Long Put")).toBe(true);
-    expect(names.has("Iron Condor")).toBe(true);
-    expect(names.has("Iron Butterfly")).toBe(true);
-    expect(names.has("Bull Call Spread")).toBe(true);
-    expect(names.has("Bear Put Spread")).toBe(true);
-    expect(names.has("Jade Lizard")).toBe(true);
-    expect(names.has("Long Straddle")).toBe(true);
-  });
-
   it("evaluates strategy PnL across prices at expiration and at intermediate time t", () => {
     const expirations = generateExpirations();
-    const strategies = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: 380.0,
-      sentiment: "bullish",
-      targetPrice: 500.0,
-      expiration: expirations[4],
-      optimizationBias: 50,
-    });
-
-    const bullCallSpread = strategies.find((s) => s.name === "Bull Call Spread")!;
+    const bullCallSpread = sampleStrategy("bull_call_spread", 380.0, 500.0, expirations[4]);
     const pnlAtZero = evaluateStrategyPnL(bullCallSpread.legs, 0, 0, 0.44);
     const pnlAtHigh = evaluateStrategyPnL(bullCallSpread.legs, 800, 0, 0.44);
 
@@ -217,32 +109,16 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
 
     // Verify strategies have factors attached
     const expirations = generateExpirations();
-    const strats = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 233.95,
-      sentiment: "bullish",
-      targetPrice: 280.0,
-      expiration: expirations[5],
-      optimizationBias: 80,
-    });
+    const strat = sampleStrategy("bull_call_spread", 233.95, 280.0, expirations[5], 0.44, 80);
 
-    expect(strats[0].factors).toBeDefined();
-    expect(strats[0].factors!.chanceScore).toBeGreaterThan(0);
-    expect(strats[0].factors!.compositeScore).toBeGreaterThan(0);
+    expect(strat.factors).toBeDefined();
+    expect(strat.factors!.chanceScore).toBeGreaterThan(0);
+    expect(strat.factors!.compositeScore).toBeGreaterThan(0);
   });
 
   it("updates leg strike prices and recomputes Black-Scholes Greeks when slider moves", () => {
     const expirations = generateExpirations();
-    const strats = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: 380.0,
-      sentiment: "bullish",
-      targetPrice: 500.0,
-      expiration: expirations[4],
-      optimizationBias: 50,
-    });
-
-    const callStrategy = strats.find((s) => s.name === "Long Call")!;
+    const callStrategy = sampleStrategy("long_call", 380.0, 500.0, expirations[4]);
     const originalLeg = callStrategy.legs[0];
     const originalStrike = originalLeg.strike;
     const originalPrice = originalLeg.entryPrice;
@@ -269,16 +145,7 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     const nearExp = expirations[1]; // short DTE
     const farExp = expirations[expirations.length - 2]; // long DTE (LEAP)
 
-    const strats = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: 380.0,
-      sentiment: "bullish",
-      targetPrice: 500.0,
-      expiration: nearExp,
-      optimizationBias: 50,
-    });
-
-    const callStrategy = strats.find((s) => s.name === "Long Call") || strats[0];
+    const callStrategy = sampleStrategy("long_call", 380.0, 500.0, nearExp);
     const callLeg = callStrategy.legs.find((l) => l.optionType === "CALL") || callStrategy.legs[0];
     const shortTermPrice = callLeg.entryPrice;
 
@@ -295,16 +162,7 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
   it("verifies time decay progression between today, intermediate dates, and expiration", () => {
     const expirations = generateExpirations();
     const exp = expirations[5]; // e.g. 30-45 DTE
-    const strats = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 233.95,
-      sentiment: "bullish",
-      targetPrice: 300.0,
-      expiration: exp,
-      optimizationBias: 50,
-    });
-
-    const bullCall = strats.find((s) => s.name === "Bull Call Spread")!;
+    const bullCall = sampleStrategy("bull_call_spread", 233.95, 300.0, exp);
     const spot = 233.95;
 
     // PnL today (full time remaining)
@@ -390,15 +248,7 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
 
     // Straddle: Buy ATM Call + Buy ATM Put
     const expirations = generateExpirations();
-    const strats = discoverStrategies({
-      symbol: "TEST",
-      currentPrice: spot,
-      sentiment: "directional",
-      targetPrice: spot * 1.2,
-      expiration: expirations[5],
-      optimizationBias: 50,
-    });
-    const straddle = strats.find((s) => s.name === "Long Straddle")!;
+    const straddle = sampleStrategy("long_straddle", spot, spot * 1.2, expirations[5], iv);
     expect(straddle).toBeTruthy();
 
     const greeks = calculateNetGreeks(straddle.legs, spot, dte, iv);
@@ -439,17 +289,10 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
 
     const spot = 380;
     const expirations = generateExpirations();
-    const strats = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: spot,
-      sentiment: "bullish",
-      targetPrice: 450,
-      expiration: expirations[6],
-      optimizationBias: 50,
-    });
+    const strat = sampleStrategy("bull_call_spread", spot, 450, expirations[6]);
 
     const matrix = evaluate2dPayoffMatrix(
-      strats[0].legs,
+      strat.legs,
       spot,
       expirations[6].dte,
       expirations[6].date,
@@ -490,16 +333,7 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
 
     const spot = 100;
     const expirations = generateExpirations();
-    const strats = discoverStrategies({
-      symbol: "XYZ",
-      currentPrice: spot,
-      sentiment: "neutral",
-      targetPrice: spot,
-      expiration: expirations[4],
-      optimizationBias: 50,
-    });
-
-    const ironCondor = strats.find((s) => s.name === "Iron Condor")!;
+    const ironCondor = sampleStrategy("iron_condor", spot, spot, expirations[4]);
     expect(ironCondor).toBeTruthy();
     expect(ironCondor.legs.length).toBe(4);
 
@@ -559,90 +393,6 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
       expect(strat.legsCount).toBeGreaterThanOrEqual(1);
       const legs = strat.buildLegs(200, 30, "2026-11-20", 0.35, 0.04);
       expect(legs.length).toBeGreaterThanOrEqual(strat.legsCount);
-    }
-  });
-
-  it("filters illiquid option contracts under $0.05 and respects user budget in optimizer", () => {
-    const expirations = generateExpirations();
-    const exp = expirations[3];
-
-    // Discovery with low budget
-    const lowBudgetStrats = discoverStrategies({
-      symbol: "TSLA",
-      currentPrice: 380.0,
-      sentiment: "bullish",
-      targetPrice: 420.0,
-      budget: 500, // $500 max risk / collateral
-      expiration: exp,
-      optimizationBias: 50,
-    });
-
-    for (const strat of lowBudgetStrats) {
-      expect(strat.riskOrCollateral).toBeLessThanOrEqual(500);
-      for (const leg of strat.legs) {
-        if (leg.optionType !== "STOCK") {
-          expect(leg.entryPrice).toBeGreaterThanOrEqual(0.05);
-        }
-      }
-    }
-  });
-
-  it("evaluates all trends across bullish, bearish, neutral, and directional when sentiment is 'all'", () => {
-    const expirations = generateExpirations();
-    const exp = expirations[4];
-
-    const allTrendStrats = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 230.0,
-      sentiment: "all",
-      targetPrice: 230.0,
-      expiration: exp,
-      optimizationBias: 50,
-    });
-
-    expect(allTrendStrats.length).toBeGreaterThan(10);
-    const names = allTrendStrats.map((s) => s.name);
-    // Bullish
-    expect(names).toContain("Long Call");
-    expect(names).toContain("Bull Call Spread");
-    // Bearish
-    expect(names).toContain("Long Put");
-    expect(names).toContain("Bear Put Spread");
-    // Neutral
-    expect(names).toContain("Iron Condor");
-    // Directional
-    expect(names).toContain("Long Straddle");
-
-    // Each strategy has rewardRiskRatio populated (or null if uncapped)
-    for (const strat of allTrendStrats) {
-      if (strat.maxProfit !== null && strat.maxLoss !== null && strat.maxLoss > 0) {
-        expect(strat.rewardRiskRatio).toBeCloseTo(strat.maxProfit / strat.maxLoss, 1);
-      } else if (strat.maxProfit === null) {
-        expect(strat.rewardRiskRatio).toBeNull();
-      }
-    }
-  });
-
-  it("filters strategies by minimum Reward/Risk (Max Profit vs Max Loss) ratio", () => {
-    const expirations = generateExpirations();
-    const exp = expirations[2];
-
-    // Filter for reward/risk >= 2.0 (1:2 ratio)
-    const highRrStrats = discoverStrategies({
-      symbol: "NVDA",
-      currentPrice: 230.0,
-      sentiment: "all",
-      targetPrice: 230.0,
-      minRewardRisk: 2.0,
-      expiration: exp,
-      optimizationBias: 50,
-    });
-
-    expect(highRrStrats.length).toBeGreaterThan(0);
-    for (const strat of highRrStrats) {
-      if (strat.maxProfit !== null && strat.maxLoss !== null && strat.maxLoss > 0) {
-        expect(strat.maxProfit / strat.maxLoss).toBeGreaterThanOrEqual(2.0);
-      }
     }
   });
 

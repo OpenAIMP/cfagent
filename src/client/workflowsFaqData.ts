@@ -121,7 +121,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
           "Set sentiment to 'Bullish' or 'Neutral' and leave bias at 50%.",
           `The engine evaluates all ${LIBRARY_COUNT} catalog strategies and pins the #1 composite scored setup at the top.`,
         ],
-        samplePayloadOrCommand: 'discoverStrategies({ symbol: "NVDA", sentiment: "bullish", optimizationBias: 50 })',
+        samplePayloadOrCommand: 'POST /api/trading/options/strategies { "symbol": "NVDA", "thesis": "bullish" }',
         targetTab: "trading",
       },
       {
@@ -253,7 +253,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
           "Set Optimization Bias Slider to 50% for balanced Expected Value.",
           "Review top candidates for optimal balance between high win-rate and high percentage return.",
         ],
-        samplePayloadOrCommand: "discoverStrategies({ symbol: 'NVDA', optimizationBias: 50 })",
+        samplePayloadOrCommand: "POST /api/trading/options/strategies { symbol: 'NVDA' }",
         targetTab: "trading",
       },
       {
@@ -576,7 +576,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
           "Move Optimization Bias slider all the way to 100% (Max Chance).",
           "Engine selects wide credit spreads where underlying can drop 10-15% before loss begins.",
         ],
-        samplePayloadOrCommand: "discoverStrategies({ symbol: 'NVDA', optimizationBias: 100 })",
+        samplePayloadOrCommand: "POST /api/trading/options/strategies { symbol: 'NVDA', riskProfile: 'aggressive' }",
         targetTab: "trading",
       },
       {
