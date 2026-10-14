@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
+import { adjustFontScale, getStoredFontScale } from "../typography";
 
 export type NavTabId =
   | "trading"
@@ -569,6 +570,16 @@ export function NavigationMenu({
   lastRefreshedAt,
 }: NavigationMenuProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [navFontScale, setNavFontScale] = useState<number>(getStoredFontScale);
+
+  useEffect(() => {
+    function handleTypo(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.scale !== undefined) setNavFontScale(detail.scale);
+    }
+    window.addEventListener("typography-changed", handleTypo);
+    return () => window.removeEventListener("typography-changed", handleTypo);
+  }, []);
 
   const isTabVisible = (id: string) => {
     if (!visibleTabs) return true;
@@ -816,6 +827,39 @@ export function NavigationMenu({
               {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
             </button>
           )}
+
+          {/* Quick Font Size Controls */}
+          <div className="nav-font-size-ctrl" title="Adjust application font size throughout the app">
+            <button
+              type="button"
+              className="nav-font-btn"
+              onClick={() => {
+                const next = adjustFontScale(-0.05);
+                setNavFontScale(next);
+              }}
+              aria-label="Decrease font size"
+              title="Decrease font size (A-)"
+              disabled={navFontScale <= 0.75}
+            >
+              A-
+            </button>
+            <span className="nav-font-scale-text" title={`Current font zoom: ${Math.round(navFontScale * 100)}%`}>
+              {Math.round(navFontScale * 100)}%
+            </span>
+            <button
+              type="button"
+              className="nav-font-btn"
+              onClick={() => {
+                const next = adjustFontScale(0.05);
+                setNavFontScale(next);
+              }}
+              aria-label="Increase font size"
+              title="Increase font size (A+)"
+              disabled={navFontScale >= 1.5}
+            >
+              A+
+            </button>
+          </div>
 
           {/* Quick Trade Button */}
           <button

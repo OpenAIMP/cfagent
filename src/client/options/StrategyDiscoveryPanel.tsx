@@ -1752,8 +1752,7 @@ export function StrategyDiscoveryPanel({
               </button>
               <button
                 type="button"
-                className="strat-btn-action"
-                style={{ borderColor: "#f59e0b", color: "#fbbf24" }}
+                className="strat-btn-action risk-btn"
                 onClick={() => {
                   setRiskSubject({
                     title: currentStrategyName,
@@ -1846,7 +1845,7 @@ export function StrategyDiscoveryPanel({
             <span className="strat-quote-price">${quote.price.toFixed(2)}</span>
             <span className={`strat-quote-change ${quote.change >= 0 ? "gain" : "loss"}`}>
               {quote.change >= 0 ? "+" : ""}
-              {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+" : ""}${quote.change.toFixed(2)})
+              {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
             </span>
             <span className="strat-delayed-tag">↻ Realtime/Delayed</span>
             <button

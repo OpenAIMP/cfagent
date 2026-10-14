@@ -2,11 +2,13 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
 import { applyTheme, getStoredTheme, initThemeListener } from "./theme";
+import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
 import "./styles.css";
 
-// Initialize theme preference immediately before React mounts
+// Initialize theme and typography preferences immediately before React mounts
 applyTheme(getStoredTheme());
 initThemeListener();
+applyTypography(getStoredFontScale(), getStoredFontStyle());
 
 const devUser = import.meta.env.DEV
   ? {

@@ -11,6 +11,15 @@ import {
   getStoredAdBannerConfig,
   saveStoredAdBannerConfig,
 } from "./adBannerConfig";
+import {
+  FONT_STYLE_OPTIONS,
+  FONT_SCALE_PRESETS,
+  FontStyleId,
+  getStoredFontScale,
+  getStoredFontStyle,
+  applyTypography,
+  adjustFontScale,
+} from "./typography";
 
 export interface SettingsMenuProps {
   activeEnv?: "TEST" | "PROD";
@@ -241,6 +250,32 @@ export function SettingsMenu({
       setLocalEnv(activeEnv);
     }
   }, [activeEnv]);
+
+  // Global Typography Preferences
+  const [fontScale, setFontScale] = useState<number>(getStoredFontScale);
+  const [fontStyle, setFontStyle] = useState<FontStyleId>(getStoredFontStyle);
+
+  useEffect(() => {
+    function handleTypographyChange(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.scale !== undefined) setFontScale(detail.scale);
+      if (detail?.styleId) setFontStyle(detail.styleId);
+    }
+    window.addEventListener("typography-changed", handleTypographyChange);
+    return () => {
+      window.removeEventListener("typography-changed", handleTypographyChange);
+    };
+  }, []);
+
+  const handleFontScaleChange = (newScale: number) => {
+    setFontScale(newScale);
+    applyTypography(newScale, fontStyle);
+  };
+
+  const handleFontStyleChange = (newStyle: FontStyleId) => {
+    setFontStyle(newStyle);
+    applyTypography(fontScale, newStyle);
+  };
 
   const effectiveEnv = activeEnv || localEnv;
   const effectiveMask = maskAccount !== undefined ? maskAccount : localMask;
@@ -629,6 +664,70 @@ export function SettingsMenu({
                   </div>
                 </div>
               )}
+
+              {/* Global Font Size Settings */}
+              <div className="settings-pref-row">
+                <span className="pref-row-lbl">Font Size:</span>
+                <div className="settings-pref-btn-group font-size-controls-group">
+                  <button
+                    type="button"
+                    className="btn-pref-pill step-btn"
+                    onClick={() => {
+                      const next = adjustFontScale(-0.05);
+                      setFontScale(next);
+                    }}
+                    title="Decrease application font size"
+                    disabled={fontScale <= 0.75}
+                  >
+                    A-
+                  </button>
+                  <span className="font-scale-pct" title="Current font scale level">
+                    {Math.round(fontScale * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-pref-pill step-btn"
+                    onClick={() => {
+                      const next = adjustFontScale(0.05);
+                      setFontScale(next);
+                    }}
+                    title="Increase application font size"
+                    disabled={fontScale >= 1.5}
+                  >
+                    A+
+                  </button>
+                  {FONT_SCALE_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`btn-pref-pill ${Math.abs(fontScale - p.scale) < 0.03 ? "active" : ""}`}
+                      onClick={() => handleFontScaleChange(p.scale)}
+                      title={`Scale to ${p.label} (${p.pct})`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global Font Style (Typeface) Settings */}
+              <div className="settings-pref-row font-style-pref-row">
+                <span className="pref-row-lbl">Font Style:</span>
+                <div className="settings-pref-btn-group font-style-grid">
+                  {FONT_STYLE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`btn-pref-pill font-style-pill ${fontStyle === opt.id ? "active" : ""}`}
+                      onClick={() => handleFontStyleChange(opt.id)}
+                      title={`${opt.label} — ${opt.description}`}
+                      style={{ fontFamily: opt.fontFamily }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Navigation Layout Settings */}
               {onToggleLayout && (
