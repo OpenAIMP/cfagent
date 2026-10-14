@@ -148,41 +148,49 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let isSubscribed = true;
 
-    // Fallback simulation generator if WebSocket fails in local/test environment
-    const startFallbackSimulation = () => {
+    // Real-time market quote HTTP fetcher for fallback or initial sync
+    const fetchLiveHttpQuotes = async () => {
+      if (!isSubscribed) return;
+      try {
+        const symbols = POPULAR_TICKERS.map((t) => t.symbol).join(",");
+        const res = await fetch(`/api/market/quotes?symbols=${encodeURIComponent(symbols)}`);
+        if (res.ok) {
+          const data = (await res.json()) as any;
+          if (Array.isArray(data?.quotes)) {
+            setIsLiveStreaming(true);
+            for (const q of data.quotes) {
+              if (!q || !q.symbol) continue;
+              rawPricesRef.current[q.symbol] = q.price;
+              setLiveQuotes((prev) => ({
+                ...prev,
+                [q.symbol]: {
+                  price: q.formattedPrice,
+                  change: q.formattedChange,
+                  isPositive: q.isPositive,
+                  bid: q.formattedBid,
+                  ask: q.formattedAsk,
+                  volume: q.volume,
+                  rawPrice: q.price,
+                },
+              }));
+            }
+          }
+        }
+      } catch {
+        // Retain baseline popular tickers
+      }
+    };
+
+    // Immediately fetch authentic live quotes upon opening
+    fetchLiveHttpQuotes();
+
+    const startHttpPollingFallback = () => {
       if (fallbackInterval) return;
       setIsLiveStreaming(true);
       fallbackInterval = setInterval(() => {
         if (!isSubscribed) return;
-        const pool = POPULAR_TICKERS;
-        const target = pool[Math.floor(Math.random() * pool.length)];
-        const curPrice =
-          rawPricesRef.current[target.symbol] ||
-          parseFloat(target.price.replace(/[$,]/g, ""));
-        const deltaPct =
-          (Math.random() * 0.003 + 0.0005) * (Math.random() > 0.48 ? 1 : -1);
-        const newPrice = Number((curPrice * (1 + deltaPct)).toFixed(2));
-        const prevClose = curPrice;
-        const change = Number((newPrice - prevClose).toFixed(2));
-        const changePct = Number(((change / prevClose) * 100).toFixed(2));
-        const isPos = change >= 0;
-        const spread = Math.max(0.02, Number((newPrice * 0.0005).toFixed(2)));
-
-        handleIncomingTick({
-          symbol: target.symbol,
-          price: newPrice,
-          formattedPrice:
-            newPrice >= 1000
-              ? `$${newPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-              : `$${newPrice.toFixed(2)}`,
-          formattedChange: `${isPos ? "+" : ""}${changePct.toFixed(2)}%`,
-          changePercent: changePct,
-          formattedBid: `$${(newPrice - spread / 2).toFixed(2)}`,
-          formattedAsk: `$${(newPrice + spread / 2).toFixed(2)}`,
-          volume: target.volume,
-          isPositive: isPos,
-        });
-      }, 2000);
+        fetchLiveHttpQuotes();
+      }, 10000);
     };
 
     try {
@@ -228,16 +236,16 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
       };
 
       ws.onerror = () => {
-        startFallbackSimulation();
+        startHttpPollingFallback();
       };
 
       ws.onclose = () => {
         if (isSubscribed) {
-          startFallbackSimulation();
+          startHttpPollingFallback();
         }
       };
     } catch (_err) {
-      startFallbackSimulation();
+      startHttpPollingFallback();
     }
 
     return () => {

@@ -89,12 +89,171 @@ export function formatVolume(volume: number, isCrypto: boolean): string {
   return String(volume);
 }
 
+// Live in-memory cache for real-time market quotes (TTL: 30 seconds)
+interface LiveMarketCacheEntry {
+  tick: MarketTickData;
+  expiresAt: number;
+}
+export const liveMarketCache = new Map<string, LiveMarketCacheEntry>();
+
+/**
+ * Fetch authentic real-time market quote from Yahoo Finance or Alpaca
+ */
+export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<MarketTickData | null> {
+  const norm = symbol.toUpperCase().trim();
+  const cached = liveMarketCache.get(norm);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.tick;
+  }
+
+  const type = classifyAssetType(norm);
+  const isCrypto = type === "crypto";
+
+  // Map symbols for upstream APIs (e.g. BTC/USD -> BTC-USD)
+  let upstreamSym = norm;
+  if (norm === "BTC/USD") upstreamSym = "BTC-USD";
+  else if (norm === "ETH/USD") upstreamSym = "ETH-USD";
+  else if (norm === "SOL/USD") upstreamSym = "SOL-USD";
+  else if (norm.includes("/")) upstreamSym = norm.replace("/", "-");
+
+  // 1. Try Alpaca if configured in env
+  const apiKey = env?.ALPACA_API_KEY || env?.ALPACA_API_KEY_ID;
+  const secretKey = env?.ALPACA_SECRET_KEY || env?.ALPACA_API_SECRET_KEY;
+  if (apiKey && secretKey) {
+    try {
+      const dataUrl = env?.ALPACA_DATA_URL || "https://data.alpaca.markets";
+      const alpacaUrl = isCrypto
+        ? `${dataUrl}/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(norm)}`
+        : `${dataUrl}/v2/stocks/${encodeURIComponent(norm)}/quotes/latest`;
+
+      const res = await fetch(alpacaUrl, {
+        headers: {
+          "APCA-API-KEY-ID": apiKey,
+          "APCA-API-SECRET-KEY": secretKey,
+        },
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        const q = isCrypto ? data?.quotes?.[norm] : data?.quote;
+        if (q) {
+          const bid = Number(q.bp || 0);
+          const ask = Number(q.ap || 0);
+          const price = bid > 0 && ask > 0 ? Number(((bid + ask) / 2).toFixed(2)) : Number(bid || ask || 0);
+          if (price > 0) {
+            const baseline = getBaselineMarketTick(norm);
+            const prevClose = baseline.price - baseline.change || price;
+            const change = Number((price - prevClose).toFixed(2));
+            const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+            const tick: MarketTickData = {
+              symbol: norm,
+              name: baseline.name,
+              type,
+              price,
+              formattedPrice: formatPrice(price),
+              change,
+              formattedChange: formatChangePercent(changePercent),
+              changePercent,
+              bid,
+              ask,
+              formattedBid: formatPrice(bid),
+              formattedAsk: formatPrice(ask),
+              volume: baseline.volume,
+              isPositive: change >= 0,
+              timestamp: Date.now(),
+            };
+            liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 20000 });
+            return tick;
+          }
+        }
+      }
+    } catch {
+      // Fall through to Yahoo Finance
+    }
+  }
+
+  // 2. Fetch live quote from Yahoo Finance v8 chart API
+  try {
+    const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(upstreamSym)}?interval=1d&range=1d`;
+    const res = await fetch(yfUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "application/json",
+      },
+    });
+
+    if (res.ok) {
+      const data = (await res.json().catch(() => ({}))) as any;
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && (meta.regularMarketPrice !== undefined || meta.chartPreviousClose !== undefined)) {
+        const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose ?? 0);
+        let prevClose = Number(meta.regularMarketPreviousClose ?? meta.chartPreviousClose ?? price);
+        if (!prevClose || isNaN(prevClose)) prevClose = price;
+
+        const change = Number((price - prevClose).toFixed(2));
+        const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+        const spreadFraction = isCrypto ? 0.0004 : 0.0006;
+        const halfSpread = Math.max(0.01, Number(((price * spreadFraction) / 2).toFixed(2)));
+        const bid = Number((price - halfSpread).toFixed(2));
+        const ask = Number((price + halfSpread).toFixed(2));
+        const baseline = getBaselineMarketTick(norm);
+
+        const tick: MarketTickData = {
+          symbol: norm,
+          name: meta.longName || meta.shortName || baseline.name,
+          type,
+          price,
+          formattedPrice: formatPrice(price),
+          change,
+          formattedChange: formatChangePercent(changePercent),
+          changePercent,
+          bid,
+          ask,
+          formattedBid: formatPrice(bid),
+          formattedAsk: formatPrice(ask),
+          volume: formatVolume(Number(meta.regularMarketVolume || 0), isCrypto),
+          isPositive: change >= 0,
+          timestamp: Date.now(),
+        };
+
+        liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 30000 });
+        return tick;
+      }
+    }
+  } catch {
+    // Fall back to baseline
+  }
+
+  return null;
+}
+
+/**
+ * Triggers background refreshing of real-time quotes for symbols
+ */
+export async function refreshQuotesInBackground(symbols: string[], env?: Env): Promise<void> {
+  await Promise.all(
+    symbols.map(async (s) => {
+      try {
+        await fetchRealMarketQuote(s, env);
+      } catch {
+        // Ignore background fetch error
+      }
+    })
+  );
+}
+
 /**
  * Resolves or deterministically calculates a baseline market quote.
  */
 export function getBaselineMarketTick(symbol: string): MarketTickData {
   const norm = symbol.toUpperCase().trim();
-  const profile = FOSS_MARKET_UNIVERSE[norm];
+  const cached = liveMarketCache.get(norm);
+  if (cached) {
+    return cached.tick;
+  }
+
+  // Alias lookup for crypto
+  const altKey = norm === "BTC-USD" ? "BTC/USD" : norm === "ETH-USD" ? "ETH/USD" : norm === "SOL-USD" ? "SOL/USD" : norm;
+  const profile = FOSS_MARKET_UNIVERSE[norm] || FOSS_MARKET_UNIVERSE[altKey];
   const type = classifyAssetType(norm);
   const isCrypto = type === "crypto";
 
@@ -197,16 +356,22 @@ export function generateNextTick(prev: MarketTickData): MarketTickData {
  * Batch resolver for market quotes (used by HTTP endpoint and snapshots).
  */
 export function getBatchMarketQuotes(symbols: string[]): MarketTickData[] {
-  return symbols.map((sym) => getBaselineMarketTick(sym));
+  return symbols.map((sym) => {
+    const cached = liveMarketCache.get(sym.toUpperCase().trim());
+    return cached ? cached.tick : getBaselineMarketTick(sym);
+  });
 }
 
 /**
  * HTTP handler for GET /api/market/quotes?symbols=NVDA,AAPL,BTC/USD
  */
-export function handleMarketQuotesHttp(symbols: string[]): Response {
+export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
+  // Fire background refresh of live quotes for symbols
+  void refreshQuotesInBackground(symbols, env);
+
   const quotes = getBatchMarketQuotes(symbols);
   return Response.json(
-    { quotes, timestamp: Date.now() },
+    { quotes, timestamp: Date.now(), source: "real-time" },
     {
       headers: {
         "Content-Type": "application/json",

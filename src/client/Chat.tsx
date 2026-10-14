@@ -16,6 +16,7 @@ import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
 import { StockSearchBar } from "./components/StockSearchBar";
+import { MarketTickerTape } from "./components/MarketTickerTape";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 
@@ -2211,6 +2212,17 @@ export function Chat({ user }: { user: User }) {
             />
           </header>
         )}
+
+      {/* Real-Time Market Ticker Tape (Streaming Live Benchmark Quotes) */}
+      <MarketTickerTape
+        onSelectTab={(newTab) => {
+          setTab(newTab);
+          setTbdMenuOpen(false);
+        }}
+        onSelectSymbol={(sym) => {
+          handleAskAgent(`Quote and analyze ${sym}`);
+        }}
+      />
 
       {/* External Ad Network Monetization Strip */}
       {Boolean((adDisplayConfig as Record<string, boolean | undefined>)[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
