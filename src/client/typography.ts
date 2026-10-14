@@ -1,9 +1,12 @@
 /**
  * Global Typography & Font Scale System for NextGenTP
- * Provides centralized font scale and font style preferences across the entire application.
+ * Enforces a single universal font family ('Inter') system-wide
+ * and provides centralized font scale preferences.
  */
 
-export type FontStyleId = "jakarta" | "inter" | "roboto" | "jetbrains" | "outfit" | "system";
+export const UNIVERSAL_SYSTEM_FONT = "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+export type FontStyleId = "inter" | "jakarta" | "roboto" | "jetbrains" | "outfit" | "system";
 
 export interface FontStyleOption {
   id: FontStyleId;
@@ -15,46 +18,11 @@ export interface FontStyleOption {
 
 export const FONT_STYLE_OPTIONS: FontStyleOption[] = [
   {
-    id: "jakarta",
-    label: "Default",
-    category: "Modern Fintech",
-    fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
-    description: "Default institutional typography (Plus Jakarta Sans)",
-  },
-  {
     id: "inter",
-    label: "Inter",
-    category: "Clean Tech",
-    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
-    description: "Ultra-crisp institutional UI typography",
-  },
-  {
-    id: "roboto",
-    label: "Roboto",
-    category: "Standard",
-    fontFamily: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif",
-    description: "Familiar, dependable standard typography",
-  },
-  {
-    id: "outfit",
-    label: "Outfit",
-    category: "Geometric",
-    fontFamily: "'Outfit', sans-serif",
-    description: "Contemporary geometric presentation",
-  },
-  {
-    id: "jetbrains",
-    label: "JetBrains Mono",
-    category: "Quant / Terminal",
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-    description: "Quantitative trader and terminal monospace style",
-  },
-  {
-    id: "system",
-    label: "System Native",
-    category: "OS Native",
-    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    description: "Native operating system fonts without web font loading",
+    label: "Default (Inter)",
+    category: "Universal Standard",
+    fontFamily: UNIVERSAL_SYSTEM_FONT,
+    description: "Universal clean institutional typography across entire system",
   },
 ];
 
@@ -95,34 +63,32 @@ export function getStoredFontScale(): number {
 }
 
 /**
- * Retrieves the stored font style ID, defaulting to "jakarta".
+ * Retrieves the stored font style ID, always enforcing "inter".
+ * Purges any legacy multi-font selection to maintain single-font system integrity.
  */
 export function getStoredFontStyle(): FontStyleId {
-  if (typeof window === "undefined") return "jakarta";
-  try {
-    const saved = localStorage.getItem(FONT_STYLE_STORAGE_KEY) as FontStyleId;
-    if (saved && FONT_STYLE_OPTIONS.some((opt) => opt.id === saved)) {
-      return saved;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(FONT_STYLE_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
     }
-  } catch {
-    // Ignore storage errors
   }
-  return "jakarta";
+  return "inter";
 }
 
 /**
- * Applies the font scale and font style to the HTML root element and persists to localStorage.
+ * Applies the font scale to the HTML root element and enforces the universal Inter font.
  */
-export function applyTypography(scale: number, styleId: FontStyleId): void {
+export function applyTypography(scale: number, _styleId?: FontStyleId): void {
   if (typeof document === "undefined") return;
 
   const boundedScale = Math.round(Math.max(0.75, Math.min(1.5, scale)) * 100) / 100;
-  const styleOpt = FONT_STYLE_OPTIONS.find((opt) => opt.id === styleId) || FONT_STYLE_OPTIONS[0];
 
   document.documentElement.style.setProperty("--app-font-scale", String(boundedScale));
-  document.documentElement.style.setProperty("--font-sans", styleOpt.fontFamily);
-  document.documentElement.style.setProperty("--font-family-base", styleOpt.fontFamily);
-  document.documentElement.setAttribute("data-font-style", styleId);
+  document.documentElement.style.setProperty("--font-sans", UNIVERSAL_SYSTEM_FONT);
+  document.documentElement.style.setProperty("--font-family-base", UNIVERSAL_SYSTEM_FONT);
+  document.documentElement.setAttribute("data-font-style", "inter");
   document.documentElement.setAttribute("data-font-scale", String(boundedScale));
 
   // Determine preset name
@@ -137,7 +103,7 @@ export function applyTypography(scale: number, styleId: FontStyleId): void {
 
   try {
     localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(boundedScale));
-    localStorage.setItem(FONT_STYLE_STORAGE_KEY, styleId);
+    localStorage.removeItem(FONT_STYLE_STORAGE_KEY);
   } catch {
     // Ignore storage errors
   }
@@ -146,7 +112,7 @@ export function applyTypography(scale: number, styleId: FontStyleId): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("typography-changed", {
-        detail: { scale: boundedScale, styleId, fontFamily: styleOpt.fontFamily },
+        detail: { scale: boundedScale, styleId: "inter", fontFamily: UNIVERSAL_SYSTEM_FONT },
       })
     );
   }
@@ -158,7 +124,6 @@ export function applyTypography(scale: number, styleId: FontStyleId): void {
 export function adjustFontScale(delta: number): number {
   const current = getStoredFontScale();
   const next = Math.round((current + delta) * 100) / 100;
-  const style = getStoredFontStyle();
-  applyTypography(next, style);
+  applyTypography(next, "inter");
   return next;
 }

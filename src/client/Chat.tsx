@@ -2223,9 +2223,6 @@ export function Chat({ user }: { user: User }) {
                   {accountMode === "paper" ? "Paper" : "Live Execution"}
                 </span>
               </div>
-            </div>
-
-            <div className="sub-header-center">
               <MarketStatusPill variant="sub-header" />
             </div>
 
@@ -2266,7 +2263,7 @@ export function Chat({ user }: { user: User }) {
                 Trade
               </button>
 
-              {/* Unified Settings & Broker Menu */}
+              {/* Unified Settings & Broker Menu (Icon-only with hover) */}
               <SettingsMenu
                 userLogin={user.login}
                 userName={user.name}
@@ -2289,16 +2286,15 @@ export function Chat({ user }: { user: User }) {
                 {...(brokerProps || {})}
               />
 
-              {/* User Sign Out Link */}
+              {/* User Sign Out — Top Right Corner Fixed Icon with Hover Tooltip */}
               {user && (
                 <a
                   href="/auth/logout"
-                  className="top-nav-logout-btn"
-                  title={`Signed in as @${user.login} (${user.name}) · Click to Sign Out`}
+                  className="top-nav-logout-btn icon-only-logout"
+                  title={`Sign Out (@${user.login} · ${user.name})`}
                   aria-label="Sign out"
                 >
                   <span className="top-nav-logout-icon"><NavIcons.Logout /></span>
-                  <span className="top-nav-logout-text">Sign Out</span>
                 </a>
               )}
             </div>

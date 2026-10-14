@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   FONT_STYLE_OPTIONS,
   FONT_SCALE_PRESETS,
+  UNIVERSAL_SYSTEM_FONT,
   getStoredFontScale,
   getStoredFontStyle,
   applyTypography,
@@ -47,23 +48,20 @@ describe("Global Typography & Font Sizing System", () => {
     };
   });
 
-  describe("Defaults & Specification", () => {
+  describe("Single Universal Font Enforcement", () => {
     it("provides institutional default font scale of 1.0 (100%)", () => {
       expect(getStoredFontScale()).toBe(1.0);
     });
 
-    it("provides default font style of Plus Jakarta Sans", () => {
-      expect(getStoredFontStyle()).toBe("jakarta");
+    it("enforces single universal font style of Inter", () => {
+      expect(getStoredFontStyle()).toBe("inter");
+      expect(UNIVERSAL_SYSTEM_FONT).toContain("Inter");
     });
 
-    it("supports all required typefaces including Inter, Roboto, JetBrains Mono, Outfit", () => {
-      const ids = FONT_STYLE_OPTIONS.map((opt) => opt.id);
-      expect(ids).toContain("jakarta");
-      expect(ids).toContain("inter");
-      expect(ids).toContain("roboto");
-      expect(ids).toContain("jetbrains");
-      expect(ids).toContain("outfit");
-      expect(ids).toContain("system");
+    it("purges any legacy non-inter font preference on retrieval", () => {
+      store.set(FONT_STYLE_STORAGE_KEY, "jetbrains");
+      expect(getStoredFontStyle()).toBe("inter");
+      expect(store.has(FONT_STYLE_STORAGE_KEY)).toBe(false);
     });
 
     it("provides structured font scale presets matching standard readability tiers", () => {
@@ -73,16 +71,15 @@ describe("Global Typography & Font Sizing System", () => {
       expect(FONT_SCALE_PRESETS.find((p) => p.id === "large")?.scale).toBe(1.3);
     });
 
-    it("provides a 'Default' font option matching the default font size option pattern", () => {
-      const defaultFont = FONT_STYLE_OPTIONS.find((opt) => opt.id === "jakarta");
+    it("ensures default font option is Inter", () => {
+      const defaultFont = FONT_STYLE_OPTIONS.find((opt) => opt.id === "inter");
       expect(defaultFont).toBeDefined();
-      expect(defaultFont?.label).toBe("Default");
-      expect(defaultFont?.fontFamily).toContain("Plus Jakarta Sans");
+      expect(defaultFont?.fontFamily).toContain("Inter");
     });
   });
 
   describe("Application & Persistence", () => {
-    it("applies font scale and style to documentElement CSS properties", () => {
+    it("applies font scale and single Inter font to documentElement CSS properties", () => {
       applyTypography(1.15, "inter");
 
       expect(styleProps.get("--app-font-scale")).toBe("1.15");
@@ -90,14 +87,14 @@ describe("Global Typography & Font Sizing System", () => {
       expect(docAttrs.get("data-font-size")).toBe("comfortable");
       expect(docAttrs.get("data-font-style")).toBe("inter");
       expect(store.get(FONT_SCALE_STORAGE_KEY)).toBe("1.15");
-      expect(store.get(FONT_STYLE_STORAGE_KEY)).toBe("inter");
+      expect(store.has(FONT_STYLE_STORAGE_KEY)).toBe(false);
     });
 
     it("clamps font scale safely between 0.75 and 1.5", () => {
-      applyTypography(0.5, "roboto");
+      applyTypography(0.5);
       expect(getStoredFontScale()).toBe(0.75);
 
-      applyTypography(2.5, "outfit");
+      applyTypography(2.5);
       expect(getStoredFontScale()).toBe(1.5);
     });
 
@@ -113,9 +110,13 @@ describe("Global Typography & Font Sizing System", () => {
       expect(getStoredFontScale()).toBe(0.95);
     });
 
-    it("broadcasts typography-changed event on update", () => {
-      applyTypography(1.2, "jetbrains");
-      expect((globalThis as any).window.dispatchEvent).toHaveBeenCalled();
+    it("broadcasts typography-changed event on update with Inter font", () => {
+      applyTypography(1.2);
+      expect((globalThis as any).window.dispatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "typography-changed",
+        })
+      );
     });
   });
 });

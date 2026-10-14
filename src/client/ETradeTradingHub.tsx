@@ -1236,7 +1236,7 @@ export function ETradeTradingHub({
               )}
               <button
                 type="button"
-                className="btn-risk-analysis"
+                className="btn-universal-risk btn-risk-analysis"
                 style={{ padding: "0.6rem 1.1rem", fontSize: "0.85rem" }}
                 onClick={() => {
                   const price = activeDraft.limitPrice || activeDraft.estimatedPrice || 100;
@@ -1252,9 +1252,11 @@ export function ETradeTradingHub({
                     breakevenText: `Order Price: $${price.toFixed(2)}`,
                   });
                 }}
-                title="Analyze Pre-Trade Risk Profile and Defense Playbook"
+                title="Risk Analysis — Analyze pre-trade risk profile and defense playbook"
+                aria-label="Risk Analysis"
               >
-                🛡️ Risk Analysis
+                <span className="risk-shield-icon" aria-hidden="true">🛡️</span>
+                <span>Risk Analysis</span>
               </button>
               <button
                 type="button"
@@ -1861,12 +1863,21 @@ export function ETradeTradingHub({
                     className="btn-submit-preview"
                     style={{ flex: 1 }}
                     disabled={previewLoading || !orderSymbol.trim()}
+                    title="Generate cryptographic order preview with Trading Agent DID"
+                    aria-label="Preview Order with Agent DID"
                   >
-                    {previewLoading ? "Creating Cryptographic Preview…" : "⚡ Preview Order with Agent DID"}
+                    {previewLoading ? (
+                      "Creating Cryptographic Preview…"
+                    ) : (
+                      <>
+                        <span className="btn-preview-icon" aria-hidden="true" style={{ marginRight: "0.4rem" }}>📋</span>
+                        Preview Order with Agent DID
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
-                    className="btn-risk-analysis"
+                    className="btn-universal-risk btn-risk-analysis"
                     style={{ padding: "0.75rem 1rem", fontSize: "0.85rem" }}
                     disabled={!orderSymbol.trim()}
                     onClick={() => {
@@ -1885,9 +1896,11 @@ export function ETradeTradingHub({
                         breakevenText: `Execution/Limit: $${estPrice.toFixed(2)}`,
                       });
                     }}
-                    title="Run pre-trade institutional risk analysis"
+                    title="Risk Analysis — Run pre-trade institutional risk analysis"
+                    aria-label="Risk Analysis"
                   >
-                    🛡️ Risk Analysis
+                    <span className="risk-shield-icon" aria-hidden="true">🛡️</span>
+                    <span>Risk Analysis</span>
                   </button>
                 </div>
               </form>

@@ -12,11 +12,8 @@ import {
   saveStoredAdBannerConfig,
 } from "./adBannerConfig";
 import {
-  FONT_STYLE_OPTIONS,
   FONT_SCALE_PRESETS,
-  FontStyleId,
   getStoredFontScale,
-  getStoredFontStyle,
   applyTypography,
   adjustFontScale,
 } from "./typography";
@@ -251,15 +248,13 @@ export function SettingsMenu({
     }
   }, [activeEnv]);
 
-  // Global Typography Preferences
+  // Global Typography Preferences (Single Universal Font: Inter)
   const [fontScale, setFontScale] = useState<number>(getStoredFontScale);
-  const [fontStyle, setFontStyle] = useState<FontStyleId>(getStoredFontStyle);
 
   useEffect(() => {
     function handleTypographyChange(e: Event) {
       const detail = (e as CustomEvent).detail;
       if (detail?.scale !== undefined) setFontScale(detail.scale);
-      if (detail?.styleId) setFontStyle(detail.styleId);
     }
     window.addEventListener("typography-changed", handleTypographyChange);
     return () => {
@@ -269,12 +264,7 @@ export function SettingsMenu({
 
   const handleFontScaleChange = (newScale: number) => {
     setFontScale(newScale);
-    applyTypography(newScale, fontStyle);
-  };
-
-  const handleFontStyleChange = (newStyle: FontStyleId) => {
-    setFontStyle(newStyle);
-    applyTypography(fontScale, newStyle);
+    applyTypography(newScale);
   };
 
   const effectiveEnv = activeEnv || localEnv;
@@ -437,37 +427,24 @@ export function SettingsMenu({
     >
       <button
         type="button"
-        className={`etrade-dynamic-menu-trigger settings-menu-trigger ${isConnected ? "connected" : "disconnected"} ${isLive ? "prod" : "test"} ${isOpen ? "open" : ""} ${isPinned ? "pinned" : ""}`}
+        className={`etrade-dynamic-menu-trigger settings-menu-trigger icon-only-settings-btn ${isConnected ? "connected" : "disconnected"} ${isLive ? "prod" : "test"} ${isOpen ? "open" : ""} ${isPinned ? "pinned" : ""}`}
         onClick={handleTriggerClick}
         aria-haspopup="menu"
         aria-expanded={isOpen}
         title={
           isPinned
-            ? "Settings & Broker Menu pinned open (click to unpin)"
-            : `Settings & Broker Controls (${isLive ? "PROD (Live)" : "TEST (Sandbox)"}, E*TRADE, ETAPI, Preferences) — hover for details, click to pin`
+            ? "Settings pinned open (click to unpin)"
+            : `Settings (${isLive ? "PROD" : "TEST"}) — Broker, preferences, layout & themes`
         }
+        aria-label="Settings"
       >
         <span className="menu-settings-icon" aria-hidden="true">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </span>
-        <span className="menu-button-title">Settings</span>
         <span className={`menu-status-dot ${isConnected ? "connected" : "disconnected"}`} />
-        <span className={`menu-env-tag ${isLive ? "prod" : "test"}`}>{isLive ? "PROD" : "TEST"}</span>
-        <span className="menu-summary-label">
-          {isConnected
-            ? effectiveMask
-              ? "••••••"
-              : accountValue === undefined
-              ? "Connected"
-              : `$${accountValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-            : effectiveMask
-            ? "••••••"
-            : "Offline"}
-        </span>
-        <span className="menu-caret">{isPinned ? "📌" : "▾"}</span>
       </button>
 
       {isOpen && (
@@ -487,9 +464,6 @@ export function SettingsMenu({
               <span className={`etrade-env-badge ${isLive ? "prod" : "test"}`}>
                 {isLive ? "PROD (LIVE)" : "TEST (SANDBOX)"}
               </span>
-              <a href="/auth/logout" className="btn-settings-signout" title="Sign out of platform">
-                Sign out
-              </a>
             </div>
           </div>
 
@@ -720,25 +694,6 @@ export function SettingsMenu({
                       title={`Scale to ${p.label} (${p.pct})`}
                     >
                       {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Global Font Style (Typeface) Settings */}
-              <div className="settings-pref-row font-style-pref-row">
-                <span className="pref-row-lbl">Font Style:</span>
-                <div className="settings-pref-btn-group font-style-grid">
-                  {FONT_STYLE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className={`btn-pref-pill font-style-pill ${fontStyle === opt.id ? "active" : ""}`}
-                      onClick={() => handleFontStyleChange(opt.id)}
-                      title={opt.id === "jakarta" ? "Default (Plus Jakarta Sans) — Institutional typography" : `${opt.label} — ${opt.description}`}
-                      style={{ fontFamily: opt.fontFamily }}
-                    >
-                      {opt.label}
                     </button>
                   ))}
                 </div>

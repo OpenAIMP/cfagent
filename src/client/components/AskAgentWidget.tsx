@@ -231,10 +231,6 @@ export function AskAgentWidget({
     }
   };
 
-  // Auto-hide when user is in the full chat tab to avoid covering chat messages
-  if (activeTab === "chat") {
-    return null;
-  }
 
   return (
     <>
