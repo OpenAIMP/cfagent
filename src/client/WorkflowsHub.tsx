@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import "./workflowsHub.css";
+import { STRATEGY_LIBRARY } from "./options/strategyLibrary";
 import {
   FAQ_QUESTIONS,
   WORKFLOW_IMPROVEMENTS,
@@ -166,9 +167,9 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     title: "Options Strategy Discovery, Greeks Modeling & EV Scoring",
     category: "options",
     categoryLabel: "Options",
-    badge: "72-Strategy Catalog",
+    badge: `${STRATEGY_LIBRARY.length}-Strategy Catalog`,
     badgeColor: "blue",
-    subtitle: "Calibrates synthetic option pricing, computes analytical Black-Scholes Greeks, POP, and EV across 72 catalog structures.",
+    subtitle: `Calibrates synthetic option pricing, computes analytical Black-Scholes Greeks, POP, and EV across ${STRATEGY_LIBRARY.length} catalog structures.`,
     overview: "Evaluates multi-leg options structures (Iron Condors, Vertical Spreads, Butterflies, Calendars, Diagonals, Straddles, Strangles) against live calibrated option chains. Calculates Delta, Gamma, Theta, Vega, IV Rank, Probability of Profit (POP = N(d2)), and Expected Value (EV). Supports strict user budget and risk filtering (e.g. Max Loss <= $30, Max Profit > $0).",
     apiEndpoint: "POST /api/etrade/options/strategy · POST /api/trading/options/unified",
     targetTab: "trading",
@@ -183,7 +184,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 2",
         title: "Combinatorial Strike Ladder Generation",
-        description: "Generates candidate leg combinations across 72 catalog strategies, shifting strikes dynamically based on Optimization Bias (0=Max Return, 50=Balanced, 100=Max Chance).",
+        description: `Generates candidate leg combinations across ${STRATEGY_LIBRARY.length} catalog strategies, shifting strikes dynamically based on Optimization Bias (0=Max Return, 50=Balanced, 100=Max Chance).`,
       },
       {
         step: "Step 3",
@@ -197,7 +198,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
     ],
     keyFeatures: [
-      "72 distinct options strategies spanning directional, neutral, volatility, and income plays.",
+      `${STRATEGY_LIBRARY.length} distinct options strategies spanning directional, neutral, volatility, and income plays.`,
       "Strict parameter filtering: max loss, max profit, min win rate, strike bounds, and expiration windows.",
       "Black-Scholes analytical Greeks engine with continuous dividend and risk-free rate calibration.",
       "Expected Value (EV) calculation: EV = (POP * MaxProfit) - ((1 - POP) * MaxLoss) / Collateral.",
@@ -540,7 +541,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
     ],
     keyFeatures: [
-      "Natural language understanding mapped directly to 72-strategy catalog.",
+      `Natural language understanding mapped directly to ${STRATEGY_LIBRARY.length}-strategy catalog.`,
       "Dual-engine AI routing: Cloudflare Workers AI (glm-4.7-flash) with deterministic screener fallback.",
       "Durable memory vault storing user preferences and facts across sessions.",
       "Omnichannel support: Web chat, Slack events, inbound email, and WebRTC voice.",
