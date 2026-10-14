@@ -1249,7 +1249,7 @@ export function Chat({ user }: { user: User }) {
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
 
-  // AlgoNexus Navigation Layout state (flexible top or left sidebar)
+  // NextGenTP Navigation Layout state (flexible top or left sidebar)
   const [navLayout, setNavLayout] = useState<NavLayoutMode>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("cf_nav_layout");
@@ -2030,7 +2030,7 @@ export function Chat({ user }: { user: User }) {
               <div className="sub-header-user">
                 <img src={user.avatar} alt={user.login} className="sub-user-avatar" />
                 <span className="sub-user-email">
-                  {user.login.includes("@") ? user.login : `${user.login}@algonexus`}
+                  {user.login.includes("@") ? user.login : `${user.login}@nextgentp`}
                 </span>
                 <a href="/auth/logout" className="sub-logout-link" title="Sign out">
                   Sign out
@@ -2039,7 +2039,7 @@ export function Chat({ user }: { user: User }) {
             </div>
           </header>
         ) : (
-          <header className="app-header algonexus-top-header">
+          <header className="nextgentp-top-header algonexus-top-header app-header">
             <NavigationMenu
               layout="top"
               onToggleLayout={handleToggleNavLayout}

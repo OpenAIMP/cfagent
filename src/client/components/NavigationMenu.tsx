@@ -151,12 +151,11 @@ export const NavIcons = {
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
-  AlgoLogo: () => (
-    <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="8" fill="#0f172a" stroke="rgba(16, 185, 129, 0.4)" strokeWidth="1.5" />
-      <rect x="7" y="14" width="4.5" height="11" rx="2" fill="#10b981" />
-      <rect x="13.75" y="8" width="4.5" height="17" rx="2" fill="#34d399" />
-      <rect x="20.5" y="11" width="4.5" height="14" rx="2" fill="#059669" />
+  NextGenLogo: () => (
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#0b1329" stroke="rgba(16, 185, 129, 0.45)" strokeWidth="1.5" />
+      <path d="M7 23V9L15 23V9" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 14H26M22.5 10.5V23" stroke="#34d399" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   ),
 };
@@ -297,17 +296,17 @@ export function NavigationMenu({
   if (layout === "left") {
     return (
       <aside
-        className={`algonexus-sidebar ${collapsed ? "collapsed" : ""}`}
+        className={`nextgentp-sidebar algonexus-sidebar ${collapsed ? "collapsed" : ""}`}
         aria-label="Sidebar Navigation"
       >
         {/* Brand Header */}
         <div className="sidebar-brand-wrapper">
           <div className="sidebar-brand" onClick={() => onSelectTab("trading")}>
-            <NavIcons.AlgoLogo />
+            <NavIcons.NextGenLogo />
             {!collapsed && (
               <div className="brand-text-block">
-                <span className="brand-main-title">AlgoNexus</span>
-                <span className="brand-sub-badge">Agentic Trading OS</span>
+                <span className="brand-main-title">NextGenTP</span>
+                <span className="brand-sub-badge">Trading Platform</span>
               </div>
             )}
           </div>
@@ -499,12 +498,12 @@ export function NavigationMenu({
   const isOverflowActive = overflowTopItems.some((i) => i.id === activeTab);
 
   return (
-    <nav className="algonexus-top-nav" aria-label="Top Navigation Bar">
+    <nav className="nextgentp-top-nav algonexus-top-nav" aria-label="Top Navigation Bar">
       {/* Brand & Market Badges */}
       <div className="top-nav-brand-section">
         <div className="top-brand" onClick={() => onSelectTab("trading")}>
-          <NavIcons.AlgoLogo />
-          <span className="top-brand-name">AlgoNexus</span>
+          <NavIcons.NextGenLogo />
+          <span className="top-brand-name">NextGenTP</span>
         </div>
 
         {/* Institutional Status Badges */}
@@ -606,7 +605,7 @@ export function NavigationMenu({
       <div className="top-nav-right-controls">
         {headerChildren}
 
-        {/* Layout Switcher button */}
+        {/* Layout Switcher button: Switch to Left Sidebar */}
         <button
           type="button"
           className="top-layout-switcher-btn"
@@ -621,7 +620,7 @@ export function NavigationMenu({
         {/* User Pill */}
         <div className="top-user-pill" title={`Logged in as ${user.name} (@${user.login})`}>
           <img src={user.avatar} alt={user.login} className="top-user-avatar" />
-          <span className="top-user-email">{user.login.includes("@") ? user.login : `${user.login}@algonexus`}</span>
+          <span className="top-user-email">{user.login.includes("@") ? user.login : `${user.login}@nextgentp`}</span>
           <a href="/auth/logout" className="top-logout-link" title="Sign out">
             Sign out
           </a>
