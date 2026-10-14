@@ -805,6 +805,8 @@
   gap: 0.6rem;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .strat-card:hover,
@@ -1953,8 +1955,8 @@
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  margin-top: 0.45rem;
-  padding-top: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.55rem;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   width: 100%;
 }
