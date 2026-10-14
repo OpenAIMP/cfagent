@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
+import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 
 export type NavTabId =
@@ -800,10 +801,7 @@ export function NavigationMenu({
 
           {/* Institutional Market Status */}
           <div className="top-status-pills">
-            <span className="pill-market-status">
-              <span className="market-dot closed" />
-              <span>Market CLOSED · opens Mon 09:30 ET</span>
-            </span>
+            <MarketStatusPill variant="pill" />
           </div>
         </div>
 

@@ -22,6 +22,7 @@ import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
 import { StockSearchBar } from "./components/StockSearchBar";
 import { MarketTickerTape } from "./components/MarketTickerTape";
+import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 
@@ -2225,10 +2226,7 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             <div className="sub-header-center">
-              <div className="sub-header-market-pill">
-                <span className="market-dot closed" />
-                <span>Market CLOSED · opens Mon 09:30 ET</span>
-              </div>
+              <MarketStatusPill variant="sub-header" />
             </div>
 
             <div className="sub-header-right">
