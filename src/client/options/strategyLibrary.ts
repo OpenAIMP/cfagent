@@ -1,7 +1,7 @@
 /**
  * OptionStrat-Grade Strategy Library
- * Defines 72 pre-made options strategies covering the complete OptionStrat catalog:
- * - Bullish (18)
+ * Defines 73 pre-made options strategies covering the complete OptionStrat catalog:
+ * - Bullish (19)
  * - Bearish (15)
  * - Neutral (14)
  * - Volatility & Breakout (16)
