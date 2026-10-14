@@ -634,6 +634,84 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
       }
     }
   });
+
+  describe("Option Legs Dynamic Inspector (Add and Remove Capability)", () => {
+    it("supports adding and removing individual Call and Put legs", () => {
+      const spot = 200;
+      const dte = 30;
+      const iv = 0.35;
+      const r = 0.045;
+
+      const callLeg = updateLegStrike(
+        {
+          id: `CALL_205_BUY_1`,
+          side: "BUY",
+          optionType: "CALL",
+          strike: 205,
+          quantity: 1,
+          expirationDate: "2026-11-20",
+          dte,
+          entryPrice: 5.0,
+          bid: 4.9,
+          ask: 5.1,
+          impliedVolatility: iv,
+          delta: 0.5,
+          gamma: 0.02,
+          theta: -0.05,
+          vega: 0.12,
+        },
+        205,
+        spot,
+        dte,
+        iv,
+        r
+      );
+
+      const putLeg = updateLegStrike(
+        {
+          id: `PUT_195_BUY_2`,
+          side: "BUY",
+          optionType: "PUT",
+          strike: 195,
+          quantity: 1,
+          expirationDate: "2026-11-20",
+          dte,
+          entryPrice: 4.0,
+          bid: 3.9,
+          ask: 4.1,
+          impliedVolatility: iv,
+          delta: -0.4,
+          gamma: 0.02,
+          theta: -0.04,
+          vega: 0.11,
+        },
+        195,
+        spot,
+        dte,
+        iv,
+        r
+      );
+
+      // Start with both legs
+      let legs = [callLeg, putLeg];
+      expect(legs).toHaveLength(2);
+      expect(legs.some((l) => l.optionType === "CALL")).toBe(true);
+      expect(legs.some((l) => l.optionType === "PUT")).toBe(true);
+
+      // Remove Call leg by ID
+      legs = legs.filter((l) => l.id !== callLeg.id);
+      expect(legs).toHaveLength(1);
+      expect(legs.some((l) => l.optionType === "CALL")).toBe(false);
+      expect(legs[0].id).toBe(putLeg.id);
+
+      // Remove Put leg by Type
+      const matchingPuts = legs.filter((l) => l.optionType === "PUT");
+      expect(matchingPuts).toHaveLength(1);
+      legs = legs.filter((l) => l.id !== matchingPuts[matchingPuts.length - 1].id);
+      expect(legs).toHaveLength(0);
+      expect(legs.some((l) => l.optionType === "PUT")).toBe(false);
+    });
+  });
 });
 
 

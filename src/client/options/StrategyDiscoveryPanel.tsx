@@ -1103,6 +1103,24 @@ export function StrategyDiscoveryPanel({
     showToast(`Added Long ${defaultStrike}${optionType[0]} Leg`);
   };
 
+  // Remove specific option leg by ID
+  const handleRemoveLeg = (legId: string) => {
+    const targetLeg = builderLegs.find((l) => l.id === legId);
+    if (!targetLeg) return;
+    const updated = builderLegs.filter((l) => l.id !== legId);
+    setBuilderLegs(updated);
+    reanalyze(updated);
+    showToast(`Removed ${targetLeg.side} ${targetLeg.strike ? `$${targetLeg.strike.toFixed(2)} ` : ""}${targetLeg.optionType} leg`);
+  };
+
+  // Remove the most recently added option leg of given type
+  const handleRemoveLegByType = (optionType: "CALL" | "PUT") => {
+    const matching = builderLegs.filter((l) => l.optionType === optionType);
+    if (matching.length === 0) return;
+    const lastLeg = matching[matching.length - 1];
+    handleRemoveLeg(lastLeg.id);
+  };
+
   // Capability 11: Execute Leg Roll
   const handleExecuteRoll = (newDte: number, newExpDate: string, newStrike: number) => {
     if (!rollingLeg) return;
@@ -2163,20 +2181,52 @@ export function StrategyDiscoveryPanel({
                 </span>
               </div>
               <div className="strat-add-leg-btns">
-                <button
-                  type="button"
-                  className="strat-add-leg-btn call"
-                  onClick={() => handleAddLeg("CALL")}
-                >
-                  + Add Call
-                </button>
-                <button
-                  type="button"
-                  className="strat-add-leg-btn put"
-                  onClick={() => handleAddLeg("PUT")}
-                >
-                  + Add Put
-                </button>
+                <div className="strat-leg-btn-pair">
+                  <button
+                    type="button"
+                    className="strat-add-leg-btn call"
+                    onClick={() => handleAddLeg("CALL")}
+                    title="Add a new Call option leg"
+                  >
+                    + Add Call
+                  </button>
+                  <button
+                    type="button"
+                    className="strat-remove-leg-btn call"
+                    onClick={() => handleRemoveLegByType("CALL")}
+                    disabled={!builderLegs.some((l) => l.optionType === "CALL")}
+                    title={
+                      builderLegs.some((l) => l.optionType === "CALL")
+                        ? "Remove the last Call leg"
+                        : "No Call legs to remove"
+                    }
+                  >
+                    − Remove Call
+                  </button>
+                </div>
+                <div className="strat-leg-btn-pair">
+                  <button
+                    type="button"
+                    className="strat-add-leg-btn put"
+                    onClick={() => handleAddLeg("PUT")}
+                    title="Add a new Put option leg"
+                  >
+                    + Add Put
+                  </button>
+                  <button
+                    type="button"
+                    className="strat-remove-leg-btn put"
+                    onClick={() => handleRemoveLegByType("PUT")}
+                    disabled={!builderLegs.some((l) => l.optionType === "PUT")}
+                    title={
+                      builderLegs.some((l) => l.optionType === "PUT")
+                        ? "Remove the last Put leg"
+                        : "No Put legs to remove"
+                    }
+                  >
+                    − Remove Put
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2281,7 +2331,7 @@ export function StrategyDiscoveryPanel({
                         )}
                       </div>
 
-                      {/* Leg Actions: Exclude, Close, Roll */}
+                      {/* Leg Actions: Exclude, Close, Roll, Remove */}
                       <div className="strat-leg-actions-group">
                         <button
                           type="button"
@@ -2316,6 +2366,16 @@ export function StrategyDiscoveryPanel({
                           title="Roll to new strike or expiration date"
                         >
                           ↻ Roll
+                        </button>
+
+                        <button
+                          type="button"
+                          className="strat-leg-act-btn remove"
+                          onClick={() => handleRemoveLeg(leg.id)}
+                          title={`Remove this ${leg.side} ${leg.strike ? `$${leg.strike.toFixed(2)} ` : ""}${leg.optionType} leg from strategy`}
+                          aria-label={`Remove leg ${leg.side} ${leg.strike} ${leg.optionType}`}
+                        >
+                          ✕ Remove
                         </button>
                       </div>
                     </div>
