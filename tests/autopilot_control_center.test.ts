@@ -3,6 +3,8 @@ import {
   AutopilotControlCenter,
   AutopilotPolicyLimits,
   AutonomousActionItem,
+  mapAuditLogToAutonomousAction,
+  mapTradeRecordToAutonomousAction,
 } from "../src/client/components/AutopilotControlCenter";
 
 describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
@@ -104,6 +106,66 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
 
       expect(blockedAction.status).toBe("blocked");
       expect(blockedAction.policyCheckPassed).toBe(false);
+    });
+  });
+
+  describe("Live Backend Ledger Integration (mas_events & mas_trades)", () => {
+    it("maps backend mas_events audit records to live AutonomousActionItems", () => {
+      const rawEvent = {
+        id: "evt-trade-12345",
+        type: "alpaca.order_placed",
+        agent: "trading",
+        payload: {
+          symbol: "NVDA",
+          qty: 25,
+          side: "buy",
+          status: "filled",
+          proposerDid: "did:agent:openaimp:trading",
+          signature: "sig_ed25519_test_proof",
+        },
+        created_at: "2026-10-14T10:45:00.000Z",
+      };
+
+      const mapped = mapAuditLogToAutonomousAction(rawEvent);
+
+      expect(mapped.id).toBe("evt-trade-12345");
+      expect(mapped.actionType).toBe("order");
+      expect(mapped.symbol).toBe("NVDA");
+      expect(mapped.source).toBe("live");
+      expect(mapped.status).toBe("executed");
+      expect(mapped.policyCheckPassed).toBe(true);
+      expect(mapped.didAttestation.did).toBe("did:agent:openaimp:trading");
+      expect(mapped.didAttestation.signature).toBe("sig_ed25519_test_proof");
+    });
+
+    it("maps E*TRADE mas_trades records to live AutonomousActionItems", () => {
+      const rawTrade: any = {
+        id: "tr_etrade_99182",
+        sessionId: "session_user_1",
+        symbol: "AAPL",
+        action: "BUY",
+        orderType: "LIMIT",
+        quantity: 50,
+        price: 230.5,
+        totalValue: 11525,
+        status: "executed",
+        proposerDid: "did:agent:openaimp:trading",
+        authorizerDid: "did:agent:openaimp:orchestrator",
+        proofSignature: "sig_ed25519_aapl_proof_882a",
+        previewNotes: "Position size 7.2% ≤ 10.00% Limit",
+        createdAt: "2026-10-14T11:00:00.000Z",
+        updatedAt: "2026-10-14T11:00:05.000Z",
+      };
+
+      const mapped = mapTradeRecordToAutonomousAction(rawTrade);
+
+      expect(mapped.id).toBe("tr_etrade_99182");
+      expect(mapped.actionType).toBe("order");
+      expect(mapped.symbol).toBe("AAPL");
+      expect(mapped.source).toBe("live");
+      expect(mapped.status).toBe("executed");
+      expect(mapped.summary).toContain("BUY 50 shares @ $230.50");
+      expect(mapped.didAttestation.signature).toBe("sig_ed25519_aapl_proof_882a");
     });
   });
 });

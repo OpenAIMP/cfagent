@@ -1751,6 +1751,19 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    if (path.endsWith("/audit") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const type = String(body.type || "autopilot.policy_check");
+        const agent = (body.agent || "trading") as AgentName | "judge" | "nlq" | "orchestrator";
+        const payload = (body.payload && typeof body.payload === "object") ? body.payload : body;
+        this.audit(type, agent, payload);
+        return Response.json({ success: true, message: "Audit event recorded" });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
+      }
+    }
+
     // Persistent Memory facts endpoint
     if (path.endsWith("/memory")) {
       if (request.method === "GET") {

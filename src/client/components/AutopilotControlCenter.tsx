@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS, createDidAttestationSync } from "../../agents/did";
+import type { TradeRecord } from "../../types";
 
 export interface AutopilotPolicyLimits {
   maxPositionPct: number;
@@ -23,6 +24,181 @@ export interface AutonomousActionItem {
     did: string;
     signature: string;
   };
+  source?: "live" | "simulated";
+}
+
+export interface AuditLogRawEvent {
+  id: string;
+  type: string;
+  agent: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+/**
+ * Maps a backend SQLite WAL audit event (mas_events) to an autonomous action row.
+ */
+export function mapAuditLogToAutonomousAction(e: AuditLogRawEvent): AutonomousActionItem {
+  const payload = (e.payload && typeof e.payload === "object") ? e.payload : {};
+  let actionType: AutonomousActionItem["actionType"] = "policy_check";
+  const typeLower = (e.type || "").toLowerCase();
+
+  if (typeLower.includes("order") || typeLower.includes("trade") || typeLower.includes("alpaca.order")) {
+    actionType = "order";
+  } else if (
+    typeLower.includes("risk") ||
+    typeLower.includes("guardrail") ||
+    typeLower.includes("drawdown") ||
+    typeLower.includes("reserve")
+  ) {
+    actionType = "risk_guardrail";
+  } else if (typeLower.includes("rebalance") || typeLower.includes("allocation")) {
+    actionType = "rebalance";
+  } else {
+    actionType = "policy_check";
+  }
+
+  // Symbol resolution
+  const symbol = String(
+    payload.symbol ||
+    payload.ticker ||
+    (actionType === "risk_guardrail" ? "PORTFOLIO" : e.agent === "judge" ? "PORTFOLIO" : "SPY/QQQ")
+  ).toUpperCase();
+
+  // Summary generation
+  let summary = "";
+  if (payload.summary && typeof payload.summary === "string") {
+    summary = payload.summary;
+  } else if (typeLower === "alpaca.order_placed") {
+    summary = `Alpaca ${payload.side || "order"} ${payload.qty || ""} shares @ ${payload.status || "placed"}`;
+  } else if (typeLower === "etrade.order_executed") {
+    summary = `E*TRADE Executed: ${payload.action || payload.orderAction || "Order"} ${payload.quantity || ""} ${symbol}`;
+  } else if (typeLower === "etrade.order_previewed") {
+    summary = `E*TRADE Previewed: ${payload.action || payload.orderAction || "Order"} ${payload.quantity || ""} ${symbol}`;
+  } else if (typeLower === "route.decided") {
+    summary = `Route Decided: Routed to ${payload.targetAgent || payload.agent || "specialist"}`;
+  } else if (typeLower === "response.evaluated") {
+    summary = `Judge Response Evaluation (Score: ${payload.qualityScore ?? "Pass"})`;
+  } else if (typeLower === "etrade.screened") {
+    summary = `Market Screener (${payload.count ?? 0} matches screened)`;
+  } else {
+    summary = `${e.type.replace(/[._]/g, " ")} (${e.agent})`;
+  }
+
+  // Policy check rule
+  const policyCheckRule = String(
+    payload.policyCheckRule ||
+    payload.rule ||
+    (actionType === "order"
+      ? "Deterministic Risk Engine & Position Limit Check"
+      : actionType === "risk_guardrail"
+      ? "Institutional Drawdown & Reserve Guardrail"
+      : "Autonomous Multi-Agent DID Verification")
+  );
+
+  // Policy check passed
+  const policyCheckPassed =
+    !typeLower.includes("blocked") &&
+    !typeLower.includes("failed") &&
+    !typeLower.includes("rejected") &&
+    payload.policyCheckPassed !== false;
+
+  // Status
+  let status: AutonomousActionItem["status"] = "verified";
+  if (typeLower.includes("executed") || typeLower.includes("order_placed") || payload.status === "executed") {
+    status = "executed";
+  } else if (
+    typeLower.includes("blocked") ||
+    typeLower.includes("failed") ||
+    typeLower.includes("rejected") ||
+    payload.status === "blocked"
+  ) {
+    status = "blocked";
+  } else if (
+    typeLower.includes("preview") ||
+    payload.status === "routed_to_approval" ||
+    payload.status === "previewed"
+  ) {
+    status = "routed_to_approval";
+  }
+
+  // DID Attestation
+  const did = String(
+    payload.proposerDid ||
+    payload.did ||
+    (e.agent === "judge" ? AGENT_DIDS.JUDGE : e.agent === "trading" ? AGENT_DIDS.TRADING : AGENT_DIDS.ORCHESTRATOR)
+  );
+
+  const signature = String(
+    payload.proofSignature ||
+    payload.signature ||
+    `sig_ed25519_${e.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}`
+  );
+
+  // Formatted timestamp
+  let timestamp = e.created_at;
+  try {
+    const d = new Date(e.created_at);
+    if (!isNaN(d.getTime())) {
+      timestamp = d.toLocaleTimeString("en-US", { hour12: true });
+    }
+  } catch {}
+
+  return {
+    id: e.id,
+    timestamp,
+    actionType,
+    symbol,
+    summary,
+    policyCheckRule,
+    policyCheckPassed,
+    status,
+    didAttestation: {
+      did,
+      signature,
+    },
+    source: "live",
+  };
+}
+
+/**
+ * Maps an E*TRADE persistent trade record (mas_trades) to an autonomous action row.
+ */
+export function mapTradeRecordToAutonomousAction(t: TradeRecord): AutonomousActionItem {
+  let status: AutonomousActionItem["status"] = "verified";
+  if (t.status === "executed" || t.status === "submitted") {
+    status = "executed";
+  } else if (t.status === "rejected" || t.status === "cancelled" || t.status === "expired") {
+    status = "blocked";
+  } else if (t.status === "previewed" || t.status === "draft") {
+    status = "routed_to_approval";
+  }
+
+  let timestamp = t.createdAt;
+  try {
+    const d = new Date(t.createdAt);
+    if (!isNaN(d.getTime())) {
+      timestamp = d.toLocaleTimeString("en-US", { hour12: true });
+    }
+  } catch {}
+
+  const priceStr = t.price ? `$${Number(t.price).toFixed(2)}` : "MKT";
+
+  return {
+    id: t.id,
+    timestamp,
+    actionType: "order",
+    symbol: t.symbol,
+    summary: `${t.action} ${t.quantity} shares @ ${priceStr} (${t.orderType || "ORDER"})`,
+    policyCheckRule: t.previewNotes || "Position size ≤ Risk Engine Policy Threshold",
+    policyCheckPassed: t.status !== "rejected",
+    status,
+    didAttestation: {
+      did: t.proposerDid || AGENT_DIDS.TRADING,
+      signature: t.proofSignature || `sig_ed25519_${t.id.slice(0, 10)}`,
+    },
+    source: "live",
+  };
 }
 
 export interface AutopilotControlCenterProps {
@@ -42,7 +218,7 @@ const DEFAULT_LIMITS: AutopilotPolicyLimits = {
   riskProfile: "moderate",
 };
 
-const INITIAL_ACTIONS: AutonomousActionItem[] = [
+export const INITIAL_ACTIONS: AutonomousActionItem[] = [
   {
     id: "act-001",
     timestamp: "10:35:12 AM",
@@ -56,6 +232,7 @@ const INITIAL_ACTIONS: AutonomousActionItem[] = [
       did: AGENT_DIDS?.TRADING || "did:agent:openaimp:trading",
       signature: "sig_ed25519_nvda_p98a1",
     },
+    source: "simulated",
   },
   {
     id: "act-002",
@@ -70,6 +247,7 @@ const INITIAL_ACTIONS: AutonomousActionItem[] = [
       did: AGENT_DIDS.JUDGE,
       signature: "sig_ed25519_cash_c12b4",
     },
+    source: "simulated",
   },
   {
     id: "act-003",
@@ -84,6 +262,7 @@ const INITIAL_ACTIONS: AutonomousActionItem[] = [
       did: AGENT_DIDS.JUDGE,
       signature: "sig_ed25519_dd_d48e7",
     },
+    source: "simulated",
   },
   {
     id: "act-004",
@@ -98,6 +277,7 @@ const INITIAL_ACTIONS: AutonomousActionItem[] = [
       did: AGENT_DIDS?.ORCHESTRATOR || "did:agent:openaimp:orchestrator",
       signature: "sig_ed25519_aapl_e31f9",
     },
+    source: "simulated",
   },
 ];
 
@@ -145,6 +325,8 @@ export function AutopilotControlCenter({
   const [isSimulating, setIsSimulating] = useState(false);
   const [killSwitchModalOpen, setKillSwitchModalOpen] = useState(false);
   const [isKillSwitched, setIsKillSwitched] = useState(false);
+  const [isLoadingLive, setIsLoadingLive] = useState(false);
+  const [isLiveFeed, setIsLiveFeed] = useState(false);
 
   // Sync isRunning to localStorage
   useEffect(() => {
@@ -166,6 +348,72 @@ export function AutopilotControlCenter({
       localStorage.setItem("nextgen_autopilot_actions", JSON.stringify(actions));
     } catch {}
   }, [actions]);
+
+  // Fetch live autonomous events from backend SQLite WAL audit ledger & E*TRADE orders
+  const fetchLiveAutonomousActions = useCallback(async (_isManualRefresh = false) => {
+    setIsLoadingLive(true);
+    try {
+      const [auditRes, ordersRes] = await Promise.allSettled([
+        fetch("/api/audit?limit=50"),
+        fetch("/api/etrade/orders"),
+      ]);
+
+      const liveItems: AutonomousActionItem[] = [];
+
+      // 1. Process E*TRADE / mas_trades orders
+      if (ordersRes.status === "fulfilled" && ordersRes.value.ok) {
+        const data = (await ordersRes.value.json().catch(() => null)) as any;
+        const trades: TradeRecord[] = Array.isArray(data?.trades)
+          ? data.trades
+          : Array.isArray(data?.orders)
+          ? data.orders
+          : [];
+
+        for (const t of trades) {
+          liveItems.push(mapTradeRecordToAutonomousAction(t));
+        }
+      }
+
+      // 2. Process Durable Object mas_events audit log
+      if (auditRes.status === "fulfilled" && auditRes.value.ok) {
+        const data = (await auditRes.value.json().catch(() => null)) as any;
+        const events: AuditLogRawEvent[] = Array.isArray(data?.events) ? data.events : [];
+
+        for (const e of events) {
+          liveItems.push(mapAuditLogToAutonomousAction(e));
+        }
+      }
+
+      if (liveItems.length > 0) {
+        setIsLiveFeed(true);
+        setActions((prev) => {
+          // Keep simulated/local actions that are not yet in backend
+          const liveIds = new Set(liveItems.map((i) => i.id));
+          const localOnly = prev.filter((p) => !liveIds.has(p.id) && p.source === "simulated");
+          return [...liveItems, ...localOnly].slice(0, 50);
+        });
+      } else {
+        setIsLiveFeed(false);
+      }
+    } catch {
+      setIsLiveFeed(false);
+    } finally {
+      setIsLoadingLive(false);
+    }
+  }, []);
+
+  // Initial fetch and global refresh listener
+  useEffect(() => {
+    fetchLiveAutonomousActions();
+
+    const handleGlobalRefresh = () => {
+      fetchLiveAutonomousActions(true);
+    };
+    window.addEventListener("nextgen:refresh-all", handleGlobalRefresh);
+    return () => {
+      window.removeEventListener("nextgen:refresh-all", handleGlobalRefresh);
+    };
+  }, [fetchLiveAutonomousActions]);
 
   const handleToggleAutopilot = () => {
     if (isKillSwitched) {
@@ -193,7 +441,7 @@ export function AutopilotControlCenter({
     }
   };
 
-  // Run a real-time policy check simulation
+  // Run a real-time policy check simulation and record it to backend ledger
   const handleSimulateAutonomousAction = () => {
     setIsSimulating(true);
 
@@ -243,10 +491,32 @@ export function AutopilotControlCenter({
           did: attestation.proposerDid,
           signature: attestation.signature,
         },
+        source: "simulated",
       };
 
-      setActions((prev) => [newAction, ...prev.slice(0, 40)]);
+      setActions((prev) => [newAction, ...prev.slice(0, 49)]);
       setIsSimulating(false);
+
+      // Asynchronously persist to backend SQLite WAL audit ledger
+      fetch("/api/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "autopilot.policy_check",
+          agent: "trading",
+          payload: {
+            symbol: chosenSym,
+            summary: newAction.summary,
+            policyCheckRule: newAction.policyCheckRule,
+            policyCheckPassed: passed,
+            status,
+            proposerDid: attestation.proposerDid,
+            authorizerDid: attestation.authorizerDid,
+            proofSignature: attestation.signature,
+            amount: shares * 100,
+          },
+        }),
+      }).catch(() => {});
     }, 600);
   };
 
@@ -389,6 +659,16 @@ export function AutopilotControlCenter({
           <div className="actions-header-left">
             <h2 className="card-section-title">Recent autonomous actions</h2>
             <span className="actions-count-badge">{filteredActions.length}</span>
+            <span
+              className={`live-feed-badge ${isLiveFeed ? "live" : "cached"}`}
+              title={
+                isLiveFeed
+                  ? "Connected to live SQLite audit ledger (mas_events & mas_trades)"
+                  : "Using cached / local actions"
+              }
+            >
+              {isLoadingLive ? "🔄 Syncing…" : isLiveFeed ? "● Live Audit Ledger" : "Offline / Cache"}
+            </span>
           </div>
 
           <div className="actions-header-right">
@@ -423,6 +703,17 @@ export function AutopilotControlCenter({
                 Risk Guardrails
               </button>
             </div>
+
+            {/* Refresh Live Data Button */}
+            <button
+              type="button"
+              className="btn-refresh-feed"
+              onClick={() => fetchLiveAutonomousActions(true)}
+              disabled={isLoadingLive}
+              title="Refresh autonomous actions and audit trail from backend"
+            >
+              {isLoadingLive ? "🔄 Syncing…" : "↻ Refresh Feed"}
+            </button>
 
             {/* Test Simulation Button */}
             <button
@@ -478,6 +769,18 @@ export function AutopilotControlCenter({
                           {action.actionType.replace("_", " ").toUpperCase()}
                         </span>
                         <span className="action-summary-text">{action.summary}</span>
+                        {action.source && (
+                          <span
+                            className={`action-source-pill ${action.source}`}
+                            title={`Action origin: ${
+                              action.source === "live"
+                                ? "Live SQLite Audit Ledger / Brokerage"
+                                : "Local Policy Simulation"
+                            }`}
+                          >
+                            {action.source === "live" ? "📡 Live" : "🧪 Sim"}
+                          </span>
+                        )}
                       </td>
                       <td className="symbol-cell">
                         <span className="symbol-pill">{action.symbol}</span>
