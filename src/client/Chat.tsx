@@ -13,6 +13,12 @@ import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
+import {
+  AdBannerConfig,
+  getStoredAdBannerConfig,
+  saveStoredAdBannerConfig,
+} from "./adBannerConfig";
+import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
 import { StockSearchBar } from "./components/StockSearchBar";
 import { MarketTickerTape } from "./components/MarketTickerTape";
@@ -744,6 +750,7 @@ interface AgentChatTabContentProps {
   authExpired: boolean;
   pendingPrompt?: { prompt: string; sourceTab: string } | null;
   onClearPendingPrompt?: () => void;
+  showSponsorSpotlight?: boolean;
 }
 
 function AgentChatTabContent({
@@ -759,6 +766,7 @@ function AgentChatTabContent({
   authExpired,
   pendingPrompt,
   onClearPendingPrompt,
+  showSponsorSpotlight = false,
 }: AgentChatTabContentProps) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -858,8 +866,8 @@ function AgentChatTabContent({
 
   return (
     <div className="chat-view">
-      {/* Top Sponsor Spotlight Bar */}
-      {ads.length > 0 && (
+      {/* Top Sponsor Spotlight Bar (Configurable via Settings) */}
+      {showSponsorSpotlight && ads.length > 0 && (
         <div
           className="sponsor-spotlight-bar"
           style={{ borderColor: `${ads[0].accentColor}55` }}
@@ -1457,6 +1465,21 @@ export function Chat({ user }: { user: User }) {
     setPendingPrompt({ prompt: queryText, sourceTab: "Global Search / NextGenTP" });
     setTab("chat");
   };
+
+  // Configurable Ad & Sponsor Banner settings (externalized from workspace tabs)
+  const [adBannerConfig, setAdBannerConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
+  const [showPartnerDealsModal, setShowPartnerDealsModal] = useState<boolean>(false);
+
+  const handleUpdateAdBannerConfig = (newConfig: AdBannerConfig) => {
+    setAdBannerConfig(newConfig);
+    saveStoredAdBannerConfig(newConfig);
+  };
+
+  useEffect(() => {
+    const handleOpenDeals = () => setShowPartnerDealsModal(true);
+    window.addEventListener("open-partner-deals-modal", handleOpenDeals);
+    return () => window.removeEventListener("open-partner-deals-modal", handleOpenDeals);
+  }, []);
 
   // External Ads & Monetization state
   const [externalAds, setExternalAds] = useState<ExternalAdItem[]>([]);
@@ -2262,6 +2285,9 @@ export function Chat({ user }: { user: User }) {
                 autoRefreshEnabled={autoRefreshEnabled}
                 autoRefreshInterval={autoRefreshInterval}
                 onToggleAutoRefresh={handleToggleAutoRefresh}
+                adBannerConfig={adBannerConfig}
+                onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
+                onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
                 {...(brokerProps || {})}
               />
             </div>
@@ -2300,6 +2326,9 @@ export function Chat({ user }: { user: User }) {
                   autoRefreshEnabled={autoRefreshEnabled}
                   autoRefreshInterval={autoRefreshInterval}
                   onToggleAutoRefresh={handleToggleAutoRefresh}
+                  adBannerConfig={adBannerConfig}
+                  onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
+                  onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
                   {...(brokerProps || {})}
                 />
               }
@@ -2322,8 +2351,8 @@ export function Chat({ user }: { user: User }) {
         }}
       />
 
-      {/* External Ad Network Monetization Strip */}
-      {Boolean((adDisplayConfig as Record<string, boolean | undefined>)[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+      {/* External Ad Network Monetization Strip (Configurable via Settings) */}
+      {adBannerConfig.enabled && adBannerConfig.showAdNetworkStrip && Boolean(adBannerConfig.tabVisibility[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
         <div className="external-ad-banner-strip">
           <div className="ext-ad-badge-group">
             <span className="ext-network-badge">
@@ -2379,6 +2408,7 @@ export function Chat({ user }: { user: User }) {
             key={chatNonce}
             user={user}
             ads={ads}
+            showSponsorSpotlight={adBannerConfig.enabled && adBannerConfig.showSponsorSpotlight && Boolean(adBannerConfig.tabVisibility.chat)}
             onAdClick={handleAdClick}
             onOpenAdsTab={() => {
               setTab("ads");
@@ -3503,8 +3533,8 @@ export function Chat({ user }: { user: User }) {
               </div>
             </div>
 
-            {/* Google Ads Display Banner on Referrals Page */}
-            {googleAdsEnabled && adDisplayConfig.referrals && (
+            {/* Google Ads Display Banner on Referrals Page (Configurable via Settings) */}
+            {adBannerConfig.enabled && adBannerConfig.showGoogleAdUnits && Boolean(adBannerConfig.tabVisibility.referrals) && googleAdsEnabled && (
               <div className="referral-ad-slot">
                 <GoogleAdUnit
                   format="responsive"
@@ -4263,7 +4293,7 @@ export function Chat({ user }: { user: User }) {
                   </div>
                 </div>
 
-                {adDisplayConfig.ads && googleAdsEnabled && (
+                {adBannerConfig.enabled && adBannerConfig.showGoogleAdUnits && Boolean(adBannerConfig.tabVisibility.ads) && googleAdsEnabled && (
                   <div className="live-ad-preview-card">
                     <h5>Live Google Ads Preview</h5>
                     <GoogleAdUnit
@@ -4361,6 +4391,16 @@ export function Chat({ user }: { user: User }) {
         }}
         agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
         activeTab={tab}
+      />
+
+      {/* Externalized Partner Deals & Showcase Modal */}
+      <PartnerDealsModal
+        isOpen={showPartnerDealsModal}
+        onClose={() => setShowPartnerDealsModal(false)}
+        ads={ads}
+        externalAds={externalAds}
+        onAdClick={handleAdClick}
+        onExternalAdClick={handleExternalAdClick}
       />
     </div>
   );

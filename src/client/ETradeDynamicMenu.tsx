@@ -6,6 +6,11 @@ import {
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import {
+  AdBannerConfig,
+  getStoredAdBannerConfig,
+  saveStoredAdBannerConfig,
+} from "./adBannerConfig";
 
 export interface SettingsMenuProps {
   activeEnv?: "TEST" | "PROD";
@@ -57,6 +62,10 @@ export interface SettingsMenuProps {
   autoRefreshEnabled?: boolean;
   autoRefreshInterval?: number;
   onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
+  // Ads & Sponsor Banners Configuration
+  adBannerConfig?: AdBannerConfig;
+  onUpdateAdBannerConfig?: (config: AdBannerConfig) => void;
+  onOpenPartnerDeals?: () => void;
 }
 
 export type ETradeDynamicMenuProps = SettingsMenuProps;
@@ -95,6 +104,9 @@ export function SettingsMenu({
   autoRefreshEnabled,
   autoRefreshInterval,
   onToggleAutoRefresh,
+  adBannerConfig,
+  onUpdateAdBannerConfig,
+  onOpenPartnerDeals,
 }: SettingsMenuProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
@@ -151,6 +163,37 @@ export function SettingsMenu({
         new CustomEvent("cfagent-autorefresh-changed", { detail: { enabled, interval: nextInterval } })
       );
     }
+  };
+
+  // Local state for Ad / Sponsor banner configuration
+  const [localAdConfig, setLocalAdConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
+
+  useEffect(() => {
+    if (adBannerConfig) {
+      setLocalAdConfig(adBannerConfig);
+    }
+  }, [adBannerConfig]);
+
+  const effectiveAdConfig = adBannerConfig || localAdConfig;
+
+  const handleToggleAdMaster = (enabled: boolean) => {
+    const next: AdBannerConfig = {
+      ...effectiveAdConfig,
+      enabled,
+    };
+    setLocalAdConfig(next);
+    saveStoredAdBannerConfig(next);
+    onUpdateAdBannerConfig?.(next);
+  };
+
+  const handleToggleAdOption = (key: keyof AdBannerConfig, val: boolean) => {
+    const next: AdBannerConfig = {
+      ...effectiveAdConfig,
+      [key]: val,
+    };
+    setLocalAdConfig(next);
+    saveStoredAdBannerConfig(next);
+    onUpdateAdBannerConfig?.(next);
   };
 
   // Local state for visible navbar tabs if not controlled by parent
@@ -735,6 +778,122 @@ export function SettingsMenu({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Ads & Partner Banners Configuration (Externalized & Configurable) */}
+          <div className="etrade-panel-section settings-ads-section">
+            <div className="section-label-row">
+              <span>Ads &amp; Partner Banners</span>
+              <small>{effectiveAdConfig.enabled ? "Active (Customized)" : "Disabled (Clean Workspace)"}</small>
+            </div>
+
+            <p className="settings-section-desc">
+              Promotional banners and sponsor spotlights are externalized by default to keep workspace tabs clean. Toggle them on if desired, or browse deals on-demand.
+            </p>
+
+            <div className="settings-pref-row">
+              <span className="pref-row-lbl">Workspace Banners:</span>
+              <div className="settings-pref-btn-group">
+                <button
+                  type="button"
+                  className={`btn-pref-pill ${!effectiveAdConfig.enabled ? "active" : ""}`}
+                  onClick={() => handleToggleAdMaster(false)}
+                  title="Disable all promotional banners and ads across workspace tabs (Clean UI)"
+                >
+                  ⏹ OFF (Clean)
+                </button>
+                <button
+                  type="button"
+                  className={`btn-pref-pill ${effectiveAdConfig.enabled ? "active" : ""}`}
+                  onClick={() => handleToggleAdMaster(true)}
+                  title="Enable promotional banners and customize placements"
+                >
+                  ▶ ON
+                </button>
+              </div>
+            </div>
+
+            {effectiveAdConfig.enabled && (
+              <div className="settings-ads-suboptions">
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Sponsor Spotlight:</span>
+                  <div className="settings-pref-btn-group">
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${!effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showSponsorSpotlight", false)}
+                    >
+                      OFF
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showSponsorSpotlight", true)}
+                    >
+                      ON
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Ad Network Strip:</span>
+                  <div className="settings-pref-btn-group">
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${!effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showAdNetworkStrip", false)}
+                    >
+                      OFF
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showAdNetworkStrip", true)}
+                    >
+                      ON
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Google Ad Units:</span>
+                  <div className="settings-pref-btn-group">
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${!effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showGoogleAdUnits", false)}
+                    >
+                      OFF
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
+                      onClick={() => handleToggleAdOption("showGoogleAdUnits", true)}
+                    >
+                      ON
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Externalized Deals Showcase Action Button */}
+            <div className="settings-ads-external-actions">
+              <button
+                type="button"
+                className="btn-open-deals-showcase"
+                onClick={() => {
+                  if (onOpenPartnerDeals) {
+                    onOpenPartnerDeals();
+                  } else if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("open-partner-deals-modal"));
+                  }
+                }}
+                title="Open external Partner Deals & Offers showcase"
+              >
+                ⭐ Browse Partner Deals &amp; Cloud Credits (External) ↗
+              </button>
             </div>
           </div>
 
