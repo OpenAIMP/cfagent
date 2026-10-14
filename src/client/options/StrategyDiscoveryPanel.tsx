@@ -1260,6 +1260,16 @@ export function StrategyDiscoveryPanel({
           >
             💾 Save
           </button>
+          {onPreviewTrade && (
+            <button
+              type="button"
+              className="strat-action-chip trade-fast"
+              onClick={sendToFastOrder}
+              title={`Send ${currentStrategyName} to Trade Order Ticket`}
+            >
+              ⚡ Trade
+            </button>
+          )}
           <span className="strat-env-badge">
             ⚡ {activeEnv} · Black-Scholes
           </span>
@@ -1535,6 +1545,31 @@ export function StrategyDiscoveryPanel({
                   </div>
 
                   <div className="strat-card-actions-row">
+                    {onPreviewTrade && (
+                      <button
+                        type="button"
+                        className="strat-card-btn-trade"
+                        onClick={() => {
+                          const ctx: OptionsTradeContext = {
+                            symbol: activeSymbol,
+                            action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
+                            quantity: 1,
+                            underlyingPrice: quote.price,
+                            label: `${strat.name} (${selectedExpiration.date})`,
+                            legs: strat.legs.map(
+                              (leg) =>
+                                `${leg.side} ${leg.quantity} ${
+                                  leg.optionType === "STOCK" ? "Shares" : leg.strike + leg.optionType[0]
+                                } @ $${leg.entryPrice.toFixed(2)}`
+                            ),
+                          };
+                          onPreviewTrade(ctx);
+                        }}
+                        title={`Trade ${strat.name}: send to Order Ticket`}
+                      >
+                        ⚡ Trade
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="strat-card-btn-builder"
@@ -1683,8 +1718,13 @@ export function StrategyDiscoveryPanel({
               >
                 History 📈
               </button>
-              <button type="button" className="strat-btn-action" onClick={sendToFastOrder}>
-                Order Ticket ⚡
+              <button
+                type="button"
+                className="strat-btn-action strat-btn-trade-highlight"
+                onClick={sendToFastOrder}
+                title="Send current strategy legs to Trade Order Ticket"
+              >
+                ⚡ Trade / Order Ticket
               </button>
               <button
                 type="button"

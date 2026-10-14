@@ -2290,6 +2290,19 @@ export function Chat({ user }: { user: User }) {
                 onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
                 {...(brokerProps || {})}
               />
+
+              {/* User Sign Out Link */}
+              {user && (
+                <a
+                  href="/auth/logout"
+                  className="top-nav-logout-btn"
+                  title={`Signed in as @${user.login} (${user.name}) · Click to Sign Out`}
+                  aria-label="Sign out"
+                >
+                  <span className="top-nav-logout-icon"><NavIcons.Logout /></span>
+                  <span className="top-nav-logout-text">Sign Out</span>
+                </a>
+              )}
             </div>
           </header>
         ) : (

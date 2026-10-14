@@ -760,6 +760,15 @@ export function NavigationMenu({
               <NavIcons.Settings />
               {!collapsed && <span>Settings</span>}
             </button>
+            <a
+              href="/auth/logout"
+              className="sidebar-logout-btn"
+              title={`Sign out (@${user.login})`}
+              aria-label="Sign out"
+            >
+              <NavIcons.Logout />
+              {!collapsed && <span>Sign Out</span>}
+            </a>
           </div>
         </div>
       </aside>
@@ -819,6 +828,19 @@ export function NavigationMenu({
           </button>
 
           {headerChildren}
+
+          {/* Quick User Identity & Sign Out Link */}
+          {user && (
+            <a
+              href="/auth/logout"
+              className="top-nav-logout-btn"
+              title={`Signed in as @${user.login} (${user.name}) · Click to Sign Out`}
+              aria-label="Sign out"
+            >
+              <span className="top-nav-logout-icon"><NavIcons.Logout /></span>
+              <span className="top-nav-logout-text">Sign Out</span>
+            </a>
+          )}
         </div>
       </div>
 

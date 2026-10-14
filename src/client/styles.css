@@ -13157,3 +13157,120 @@ body.theme-light .nav-refresh-time {
   border-color: #cbd5e1;
   color: #0f172a;
 }
+
+/* ==========================================================================
+   Quick Sign Out Links & Strategy Trade Buttons
+   ========================================================================== */
+.top-nav-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  min-height: 26px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.top-nav-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  text-decoration: none;
+}
+
+.top-nav-logout-icon svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.top-nav-logout-text {
+  font-weight: 600;
+}
+
+.sidebar-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.sidebar-logout-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Strategy Discovery & Builder Trade Buttons */
+.strat-action-chip.trade-fast {
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+}
+
+.strat-action-chip.trade-fast:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(234, 88, 12, 0.5);
+}
+
+.strat-card-btn-trade {
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.3);
+}
+
+.strat-card-btn-trade:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+}
+
+.strat-btn-trade-highlight {
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35) !important;
+}
+
+.strat-btn-trade-highlight:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
+  transform: translateY(-1px);
+}
+
