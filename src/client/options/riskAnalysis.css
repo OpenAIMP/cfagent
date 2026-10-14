@@ -723,3 +723,68 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2);
 }
+
+/* ==========================================================================
+   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
+   ========================================================================= */
+
+[data-theme="light"] .risk-modal-container,
+body.theme-light .risk-modal-container {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .risk-modal-header,
+body.theme-light .risk-modal-header {
+  border-bottom-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+[data-theme="light"] .risk-modal-title-group h3,
+body.theme-light .risk-modal-title-group h3 {
+  color: #0f172a;
+}
+
+[data-theme="light"] .risk-modal-title-group p,
+body.theme-light .risk-modal-title-group p {
+  color: #475569;
+}
+
+[data-theme="light"] .risk-tab-btn,
+body.theme-light .risk-tab-btn {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+[data-theme="light"] .risk-tab-btn.active,
+body.theme-light .risk-tab-btn.active {
+  background: #ffffff;
+  color: #0284c7;
+  border-color: #0284c7;
+}
+
+[data-theme="light"] .risk-card,
+body.theme-light .risk-card,
+[data-theme="light"] .risk-playbook-item,
+body.theme-light .risk-playbook-item {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme="light"] .risk-close-btn,
+body.theme-light .risk-close-btn {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme="light"] .risk-close-btn:hover,
+body.theme-light .risk-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+

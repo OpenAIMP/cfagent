@@ -1150,5 +1150,58 @@
   border-color: #22d3ee;
 }
 
+/* ==========================================================================
+   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
+   ========================================================================== */
+
+[data-theme="light"] .workflows-hub-container,
+body.theme-light .workflows-hub-container {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+[data-theme="light"] .workflows-hero,
+body.theme-light .workflows-hero {
+  border-bottom-color: #e2e8f0;
+}
+
+[data-theme="light"] .workflows-hero-title,
+body.theme-light .workflows-hero-title {
+  color: #0f172a;
+  background: none;
+  -webkit-text-fill-color: #0f172a;
+}
+
+[data-theme="light"] .workflows-hero-desc,
+body.theme-light .workflows-hero-desc {
+  color: #475569;
+}
+
+[data-theme="light"] .workflow-card,
+body.theme-light .workflow-card,
+[data-theme="light"] .workflow-step-card,
+body.theme-light .workflow-step-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .workflow-card-title,
+body.theme-light .workflow-card-title {
+  color: #0f172a;
+}
+
+[data-theme="light"] .workflow-card-desc,
+body.theme-light .workflow-card-desc {
+  color: #475569;
+}
+
+[data-theme="light"] .workflow-diagram-wrap,
+body.theme-light .workflow-diagram-wrap {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+
 
 

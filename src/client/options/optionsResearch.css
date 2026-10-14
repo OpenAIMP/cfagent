@@ -1018,3 +1018,88 @@
     grid-column: 1;
   }
 }
+
+/* ==========================================================================
+   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
+   ========================================================================== */
+
+[data-theme="light"],
+body.theme-light,
+[data-theme="light"] .options-research-section,
+body.theme-light .options-research-section {
+  --opt-bg-base: #ffffff;
+  --opt-bg-surface: #ffffff;
+  --opt-bg-surface-elevated: #f8fafc;
+  --opt-bg-input: #ffffff;
+  --opt-border-subtle: #e2e8f0;
+  --opt-border-strong: #cbd5e1;
+  --opt-accent-cyan: #0284c7;
+  --opt-accent-blue: #0369a1;
+  --opt-text-main: #0f172a;
+  --opt-text-muted: #475569;
+  --opt-text-dim: #64748b;
+}
+
+[data-theme="light"] .options-research-section,
+body.theme-light .options-research-section {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .options-request-form,
+body.theme-light .options-request-form {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .options-form-group input,
+body.theme-light .options-form-group input,
+[data-theme="light"] .options-form-group select,
+body.theme-light .options-form-group select {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] .options-form-group input:focus,
+body.theme-light .options-form-group input:focus,
+[data-theme="light"] .options-form-group select:focus,
+body.theme-light .options-form-group select:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+[data-theme="light"] .options-candidate-card,
+body.theme-light .options-candidate-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .options-summary-strip,
+body.theme-light .options-summary-strip {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .options-stat-box,
+body.theme-light .options-stat-box {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .options-contracts-table th,
+body.theme-light .options-contracts-table th {
+  background: #f8fafc;
+  color: #334155;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+[data-theme="light"] .options-contracts-table td,
+body.theme-light .options-contracts-table td {
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+}
+

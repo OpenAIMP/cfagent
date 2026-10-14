@@ -65,3 +65,29 @@
   color: #94a3b8;
   font-size: 0.8rem;
 }
+
+/* ==========================================================================
+   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
+   ========================================================================== */
+
+[data-theme="light"] .research-report-actions,
+body.theme-light .research-report-actions {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme="light"] .research-report-controls input,
+body.theme-light .research-report-controls input,
+[data-theme="light"] .research-report-query textarea,
+body.theme-light .research-report-query textarea {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] .research-report-disclaimer,
+body.theme-light .research-report-disclaimer {
+  color: #475569;
+}
+

@@ -685,3 +685,52 @@
   background: #f43f5e;
   box-shadow: 0 0 6px #f43f5e;
 }
+
+/* ==========================================================================
+   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
+   ========================================================================== */
+
+[data-theme="light"] .scheduled-options-manager,
+body.theme-light .scheduled-options-manager {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sched-hero-banner,
+body.theme-light .sched-hero-banner {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .sched-hero-info h3,
+body.theme-light .sched-hero-info h3 {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sched-hero-info p,
+body.theme-light .sched-hero-info p {
+  color: #475569;
+}
+
+[data-theme="light"] .sched-card,
+body.theme-light .sched-card,
+[data-theme="light"] .sched-stat-card,
+body.theme-light .sched-stat-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .sched-audit-table th,
+body.theme-light .sched-audit-table th {
+  background: #f8fafc;
+  color: #334155;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+[data-theme="light"] .sched-audit-table td,
+body.theme-light .sched-audit-table td {
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+}
+
