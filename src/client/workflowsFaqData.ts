@@ -1,3 +1,8 @@
+import { STRATEGY_LIBRARY } from "./options/strategyLibrary";
+
+/** Live client strategy-library size, derived from the library itself so published counts cannot drift (issue #29). */
+const LIBRARY_COUNT = STRATEGY_LIBRARY.length;
+
 export interface FaqExecutionMethod {
   name: string;
   badge: string;
@@ -94,7 +99,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "opportunities",
     categoryLabel: "Opportunity Ranking",
     summary: "Ranks multi-leg strategies by a multivariate composite score balancing Expected Value (EV), win rate (POP), bid-ask liquidity, and net theta yield.",
-    quickTakeaway: "Open Strategy Discovery with 50% Balanced EV bias, or prompt the AI agent. The engine scans 72 strategies and scores them across EV, win rate (POP), liquidity, and theta yield.",
+    quickTakeaway: `Open Strategy Discovery with 50% Balanced EV bias, or prompt the AI agent. The engine scans ${LIBRARY_COUNT} strategies and scores them across EV, win rate (POP), liquidity, and theta yield.`,
     parameterBadges: [
       { label: "Optimization Bias", value: "50% (Balanced EV)", hint: "Balances POP vs return" },
       { label: "Sentiment", value: "Bullish / Neutral / Bearish", hint: "Directional posture" },
@@ -114,7 +119,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
           "Open Auto Options Research → 🎯 Strategy Discovery.",
           "Input underlying symbol (e.g. NVDA, TSLA, or SPY).",
           "Set sentiment to 'Bullish' or 'Neutral' and leave bias at 50%.",
-          "The engine evaluates all 72 catalog strategies and pins the #1 composite scored setup at the top.",
+          `The engine evaluates all ${LIBRARY_COUNT} catalog strategies and pins the #1 composite scored setup at the top.`,
         ],
         samplePayloadOrCommand: 'discoverStrategies({ symbol: "NVDA", sentiment: "bullish", optimizationBias: 50 })',
         targetTab: "trading",
@@ -255,7 +260,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
         name: "Method B: Broken Wing Butterflies & Ratio Spreads",
         badge: "Asymmetric Spreads",
         badgeColor: "purple",
-        description: "Select Broken Wing Butterfly or Jade Lizard from the 72-strategy library. These asymmetric structures eliminate risk on one side (70%+ POP) while retaining substantial profit at center strike.",
+        description: `Select Broken Wing Butterfly or Jade Lizard from the ${LIBRARY_COUNT}-strategy library. These asymmetric structures eliminate risk on one side (70%+ POP) while retaining substantial profit at center strike.`,
         actionSteps: [
           "In Strategy Discovery, click 'Choose Strategy' → select 'Broken Wing Butterfly'.",
           "Adjust center strike near expected pin target.",
@@ -291,7 +296,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     category: "combinations",
     categoryLabel: "Multi-Leg Structures",
     summary: "Builds and evaluates complex combinations across multiple strikes (Butterflies/Condors) and different expiration cycles (Diagonals/Calendars).",
-    quickTakeaway: "Click 'Choose Strategy (72+)' in Strategy Discovery and select 'Butterflies' or 'Diagonals & Calendars', or assemble custom multi-expiry legs in the Visual Payoff Builder.",
+    quickTakeaway: `Click 'Choose Strategy (${LIBRARY_COUNT}+)' in Strategy Discovery and select 'Butterflies' or 'Diagonals & Calendars', or assemble custom multi-expiry legs in the Visual Payoff Builder.`,
     parameterBadges: [
       { label: "Strategy Groups", value: "Butterflies / Calendars / Diagonals", hint: "Multi-strike & multi-expiry" },
       { label: "Leg Multiplier", value: "3 to 4 Legs", hint: "Wing/center structure" },
@@ -303,7 +308,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
     mathematicalBasis: "Butterfly: +1 C(K1, T) - 2 C(K2, T) + 1 C(K3, T) where K2 - K1 = K3 - K2",
     methods: [
       {
-        name: "Method A: 72-Strategy Library Modal",
+        name: `Method A: ${LIBRARY_COUNT}-Strategy Library Modal`,
         badge: "Strategy Catalog",
         badgeColor: "blue",
         description: "In Strategy Discovery, click 'Choose Strategy (50+)' to view curated categories: Butterflies, Diagonals & Calendars, Multi-Leg Hybrids, and Straddles/Strangles.",
@@ -344,7 +349,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
       },
     ],
     primaryWorkflow: "Strategy Discovery & Payoff Analyzer",
-    secondaryWorkflow: "72-Strategy Catalog Modal",
+    secondaryWorkflow: `${LIBRARY_COUNT}-Strategy Catalog Modal`,
     keyParameters: "Strategy Group: Butterfly / Diagonal, multi-expiry",
     optimalOutputStructure: "Multi-expiry or multi-wing payoff matrix with 2D calendar date progression",
     targetTab: "trading",
@@ -600,7 +605,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
       },
     ],
     primaryWorkflow: "Strategy Discovery & Payoff Analyzer",
-    secondaryWorkflow: "72-Strategy Catalog Modal",
+    secondaryWorkflow: `${LIBRARY_COUNT}-Strategy Catalog Modal`,
     keyParameters: "optimizationBias: 100 (Max Chance), budget: 25, POP ≥ 90%",
     optimalOutputStructure: "Deep OTM credit spreads (POP ≥ 90%) or Collars with explicit downside floor",
     targetTab: "trading",
@@ -693,7 +698,7 @@ export const CAPABILITY_MATRIX: CapabilityMatrixRow[] = [
   {
     question: "Combinations (Butterflies / Diagonals)",
     primaryWorkflow: "Strategy Discovery & Payoff Analyzer",
-    secondaryWorkflow: "72-Strategy Catalog Modal",
+    secondaryWorkflow: `${LIBRARY_COUNT}-Strategy Catalog Modal`,
     keyInputParameter: "Strategy Group: Butterfly / Diagonal",
     optimalOutputStructure: "Multi-expiry / multi-wing payoff matrix",
     targetTab: "trading",
@@ -725,7 +730,7 @@ export const CAPABILITY_MATRIX: CapabilityMatrixRow[] = [
   {
     question: "Least Risk",
     primaryWorkflow: "Strategy Discovery & Payoff Analyzer",
-    secondaryWorkflow: "72-Strategy Catalog Modal",
+    secondaryWorkflow: `${LIBRARY_COUNT}-Strategy Catalog Modal`,
     keyInputParameter: "optimizationBias: 100 (Max Chance)",
     optimalOutputStructure: "Deep OTM credit spreads (POP >= 90%) or Collars",
     targetTab: "trading",
@@ -869,21 +874,21 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     id: "strategy-selection-rules",
     number: 3,
     title: "Strategy Selection, Strike Placement & Expiration Horizon Rules",
-    subtitle: "72-Strategy Catalog Resolution, Combinatorial Strike Generation & Horizon Pruning",
+    subtitle: `${LIBRARY_COUNT}-Strategy Catalog Resolution, Combinatorial Strike Generation & Horizon Pruning`,
     badge: "Strategy Generation",
     badgeColor: "green",
     governedWorkflows: ["A2", "A5"],
-    overview: "The Strategy Discovery and Recommendation engines generate viable multi-leg option strategies from a 72-strategy catalog (OptionStrat-grade). The engine matches market sentiment, generates strike ladders, applies user optimization bias, and prunes invalid or illiquid structures.",
+    overview: `The Strategy Discovery and Recommendation engines generate viable multi-leg option strategies from a ${LIBRARY_COUNT}-strategy catalog (OptionStrat-grade). The engine matches market sentiment, generates strike ladders, applies user optimization bias, and prunes invalid or illiquid structures.`,
     rules: [
       {
         name: "Sentiment & Thesis Mapping",
-        description: "Filters candidate strategies based on market outlook, mapping 72 pre-built catalog structures to matching directional regimes.",
+        description: `Filters candidate strategies based on market outlook, mapping ${LIBRARY_COUNT} pre-built catalog structures to matching directional regimes.`,
         parametersOrGates: [
           "Bullish / Very Bullish: Long Calls, Bull Call Spreads, Bull Put Spreads, Call Backspreads, Synthetic Longs, Covered Calls",
           "Bearish / Very Bearish: Long Puts, Bear Put Spreads, Bear Call Spreads, Put Backspreads, Synthetic Shorts",
           "Neutral / Range-Bound: Iron Condors, Iron Butterflies, Calendar Spreads, Long Butterflies, Jade Lizards, Double Diagonals",
           "Directional / High Volatility: Long Straddles, Long Strangles, Reverse Iron Condors, Reverse Iron Butterflies",
-          "ALL: Evaluates complete 72-strategy library simultaneously",
+          `ALL: Evaluates complete ${LIBRARY_COUNT}-strategy library simultaneously`,
         ],
       },
       {
