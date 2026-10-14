@@ -131,5 +131,22 @@ export function createAgentMcpTools(context: McpToolContext) {
     },
   });
 
+  // 5. Multi-Stock Valuation Comparison Tool
+  tools["compare_stock_valuations"] = tool({
+    description: "Compare valuation metrics, P/E ratios, market caps, margins, and performance across peer stock tickers (e.g. NVDA, AMD, INTC).",
+    inputSchema: z.object({
+      symbols: z.array(z.string()).min(1).max(6).describe("List of stock tickers to compare (e.g. ['NVDA', 'AMD', 'INTC'])"),
+    }),
+    execute: async ({ symbols }) => {
+      const { FossResearchService } = await import("../services/fossResearch");
+      const service = new FossResearchService(context.env);
+      const comparison = await service.compareStocks(symbols);
+      context.audit("foss.compare_valuations", "research", { symbols, count: comparison.length });
+      return { count: comparison.length, comparison };
+    },
+  });
+  tools["compareValuations"] = tools["compare_stock_valuations"];
+  tools["compareStocks"] = tools["compare_stock_valuations"];
+
   return tools;
 }

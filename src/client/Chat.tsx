@@ -744,10 +744,12 @@ function AgentChatTabContent({
   useEffect(() => {
     if (pendingPrompt && status !== "streaming" && status !== "submitted" && !isResetting) {
       sendMessage({
+        text: pendingPrompt.prompt,
+        content: pendingPrompt.prompt,
         role: "user",
         parts: [{ type: "text", text: pendingPrompt.prompt }],
         metadata: { sourceTab: pendingPrompt.sourceTab, userLogin: user.login },
-      });
+      } as any);
       onClearPendingPrompt?.();
     }
   }, [pendingPrompt, status, isResetting, sendMessage, user.login, onClearPendingPrompt]);
@@ -772,10 +774,12 @@ function AgentChatTabContent({
 
     try {
       sendMessage({
+        text: input.trim(),
+        content: input.trim(),
         role: "user",
         parts: [{ type: "text", text: input.trim() }],
         metadata: { sourceTab: "Chat & Agents", userLogin: user.login },
-      });
+      } as any);
       setInput("");
     } catch (err) {
       console.error("Failed to send chat message:", err);
@@ -786,10 +790,12 @@ function AgentChatTabContent({
     if (isBusy || isResetting) return;
     try {
       sendMessage({
+        text: prompt,
+        content: prompt,
         role: "user",
         parts: [{ type: "text", text: prompt }],
         metadata: { sourceTab, userLogin: user.login },
-      });
+      } as any);
     } catch (err) {
       console.error("Failed to send chip action:", err);
     }

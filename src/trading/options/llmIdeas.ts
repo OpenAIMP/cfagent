@@ -156,6 +156,49 @@ export function groupRawOptionsIdeasChains(
       Boolean(group && group.optionChains.length > 0 && countContracts(group.optionChains) > 0));
 }
 
+export function sanitizeOptionChainForLlm(chain: ETradeOptionChain): ETradeOptionChain {
+  if (!chain) return chain;
+  const cleanValue = (val: any): any => {
+    if (!val || typeof val !== "object") {
+      if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"))) {
+        return undefined;
+      }
+      return val;
+    }
+    if (Array.isArray(val)) {
+      return val.map(cleanValue).filter((item) => item !== undefined);
+    }
+    const result: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      const lower = k.toLowerCase();
+      if (
+        lower === "quotedetail" ||
+        lower.endsWith("url") ||
+        lower.startsWith("@xmlns") ||
+        lower === "xmlns" ||
+        lower === "links" ||
+        lower === "link"
+      ) {
+        continue;
+      }
+      if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) {
+        continue;
+      }
+      const cleaned = cleanValue(v);
+      if (cleaned !== undefined) {
+        result[k] = cleaned;
+      }
+    }
+    return result;
+  };
+
+  const sanitizedRaw = chain.raw ? cleanValue(chain.raw) : undefined;
+  return {
+    ...chain,
+    raw: sanitizedRaw,
+  };
+}
+
 export function buildRawOptionsIdeasInput(
   symbol: string,
   question: string,
@@ -163,9 +206,10 @@ export function buildRawOptionsIdeasInput(
   optionChains: ETradeOptionChain[],
   selection?: RawOptionsIdeasInput["selection"],
 ): RawOptionsIdeasInput {
+  const sanitizedChains = optionChains.map(sanitizeOptionChainForLlm);
   const resolvedSelection = selection ?? {
-    contractsAvailable: countContracts(optionChains),
-    contractsIncluded: countContracts(optionChains),
+    contractsAvailable: countContracts(sanitizedChains),
+    contractsIncluded: countContracts(sanitizedChains),
     truncated: false,
   };
   const payload = {
@@ -173,7 +217,7 @@ export function buildRawOptionsIdeasInput(
     dataCoverage: resolvedSelection,
     etrade: {
       optionExpirations: expirations,
-      optionChains: optionChains.map((chain) => chain.raw ?? chain),
+      optionChains: sanitizedChains.map((chain) => chain.raw ?? chain),
     },
   };
   const userPrompt = [
@@ -184,7 +228,7 @@ export function buildRawOptionsIdeasInput(
     "INPUT_JSON:",
     JSON.stringify(payload),
   ].join("\n");
-  return { symbol, question, expirations, optionChains, systemPrompt: RAW_OPTIONS_IDEAS_SYSTEM_PROMPT, userPrompt, selection: resolvedSelection };
+  return { symbol, question, expirations, optionChains: sanitizedChains, systemPrompt: RAW_OPTIONS_IDEAS_SYSTEM_PROMPT, userPrompt, selection: resolvedSelection };
 }
 
 function estimateInputTokens(input: RawOptionsIdeasInput): number {
@@ -244,16 +288,19 @@ export function buildContextLimitedRawOptionsIdeasInput(
   expirations: ETradeOptionExpireDate[],
   optionChains: ETradeOptionChain[],
   tokenBudget = RAW_OPTIONS_IDEAS_INPUT_TOKEN_BUDGET,
+  maxAllowedModelTokens?: number,
 ): ContextLimitedRawOptionsIdeasInput {
-  const fullInput = buildRawOptionsIdeasInput(symbol, question, expirations, optionChains);
+  const effectiveBudget = maxAllowedModelTokens ? Math.min(tokenBudget, maxAllowedModelTokens) : tokenBudget;
+  const sanitizedChains = optionChains.map(sanitizeOptionChainForLlm);
+  const fullInput = buildRawOptionsIdeasInput(symbol, question, expirations, sanitizedChains);
   const fullTokens = estimateInputTokens(fullInput);
-  const allContractCount = countContracts(optionChains);
-  if (fullTokens <= tokenBudget) {
+  const allContractCount = countContracts(sanitizedChains);
+  if (fullTokens <= effectiveBudget) {
     return { input: fullInput, estimatedInputTokens: fullTokens, includedContractCount: allContractCount, truncated: false };
   }
 
   const targetStrikes = extractQuestionStrikes(question);
-  const buckets = optionChains.map((chain) =>
+  const buckets = sanitizedChains.map((chain) =>
     chain.pairs
       .map((pair, index) => ({ pair, index, priority: pairPriority(pair, chain.underlyingPrice, targetStrikes) }))
       .sort((left, right) => left.priority - right.priority),
@@ -268,11 +315,11 @@ export function buildContextLimitedRawOptionsIdeasInput(
   }
 
   const inputForCount = (count: number) => {
-    const selected = optionChains.map(() => new Set<number>());
+    const selected = sanitizedChains.map(() => new Set<number>());
     for (const candidate of orderedCandidates.slice(0, count)) {
       selected[candidate.chainIndex].add(candidate.pairIndex);
     }
-    const sampledChains = optionChains.map((chain, index) => withSelectedPairs(chain, selected[index]));
+    const sampledChains = sanitizedChains.map((chain, index) => withSelectedPairs(chain, selected[index]));
     const contractsIncluded = countContracts(sampledChains);
     return buildRawOptionsIdeasInput(symbol, question, expirations, sampledChains, {
       contractsAvailable: allContractCount,
@@ -290,7 +337,7 @@ export function buildContextLimitedRawOptionsIdeasInput(
     const middle = Math.floor((low + high) / 2);
     const candidateInput = inputForCount(middle);
     const candidateTokens = estimateInputTokens(candidateInput);
-    if (candidateTokens <= tokenBudget) {
+    if (candidateTokens <= effectiveBudget) {
       bestInput = candidateInput;
       bestCount = middle;
       bestTokens = candidateTokens;
@@ -301,7 +348,7 @@ export function buildContextLimitedRawOptionsIdeasInput(
   }
 
   if (!bestInput) {
-    throw new Error(`The question and raw option-chain metadata exceed the ${tokenBudget.toLocaleString()}-token input budget before any contracts can be included.`);
+    throw new Error(`The question and raw option-chain metadata exceed the ${effectiveBudget.toLocaleString()}-token input budget before any contracts can be included.`);
   }
   return {
     input: bestInput,

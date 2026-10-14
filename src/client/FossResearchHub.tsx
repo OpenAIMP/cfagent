@@ -90,6 +90,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [screenerSummary, setScreenerSummary] = useState("All Equities (Yahoo Finance Feed)");
   const [screenerLastScanned, setScreenerLastScanned] = useState<string>("");
   const [screenerError, setScreenerError] = useState("");
+  const [showAlpacaDrawerOnScreener, setShowAlpacaDrawerOnScreener] = useState(false);
 
   const researchAgentDid = "did:agent:openaimp:research";
 
@@ -160,6 +161,16 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     loadFundamentals(cleanSym);
     loadHistoricalBars(cleanSym, barTimeframe, barLimit, barProvider);
     loadAlpacaSnapshot(cleanSym);
+  };
+
+  const handleAnalyzeTicker = (sym: string) => {
+    const cleanSym = sym.toUpperCase().trim();
+    if (!cleanSym) return;
+    loadAllSymbolData(cleanSym);
+    if (subTab === "screener") {
+      setScreenerSearch(cleanSym);
+      fetchScreener({ search: cleanSym });
+    }
   };
 
   const loadResearchReport = async (sym: string) => {
@@ -393,7 +404,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
             onKeyDown={(e) => {
               if (e.key === "Enter" && symbolInput.trim()) {
-                loadAllSymbolData(symbolInput.trim());
+                handleAnalyzeTicker(symbolInput.trim());
               }
             }}
           />
@@ -401,7 +412,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             type="button"
             className="btn-load-symbol"
             onClick={() => {
-              if (symbolInput.trim()) loadAllSymbolData(symbolInput.trim());
+              if (symbolInput.trim()) handleAnalyzeTicker(symbolInput.trim());
             }}
           >
             🔍 Analyze Ticker
@@ -573,6 +584,219 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
           </div>
 
+          {/* Active Ticker Dual-Feed & Alpaca Real-Time Intelligence Card (On-Page Screener Integration) */}
+          <div className="active-ticker-dual-card" style={{
+            background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%)",
+            border: "1px solid rgba(56, 189, 248, 0.35)",
+            borderRadius: "14px",
+            padding: "1.25rem 1.5rem",
+            marginBottom: "1.25rem",
+            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", borderBottom: "1px solid rgba(148, 163, 184, 0.15)", paddingBottom: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <span style={{ fontSize: "1.75rem", fontWeight: 800, color: "#38bdf8", fontFamily: "var(--font-mono)" }}>
+                  {activeSymbol}
+                </span>
+                <span style={{ fontSize: "0.95rem", color: "#cbd5e1", fontWeight: 600 }}>
+                  {activeQuote?.name || yfinanceQuote?.name || `${activeSymbol} Equity`}
+                </span>
+                <span className="pill-badge" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.75rem", padding: "0.15rem 0.5rem", borderRadius: "4px" }}>
+                  Active Analyzed Security
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <span style={{ fontSize: "0.78rem", color: "#10b981", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                  Yahoo Finance Live
+                </span>
+                <span style={{ fontSize: "0.78rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block" }} />
+                  Alpaca Market Data v2 (On-Page)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => loadAllSymbolData(activeSymbol)}
+                  disabled={quoteLoading || snapshotLoading}
+                  style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  {quoteLoading || snapshotLoading ? "Refreshing…" : "🔄 Refresh Dual Feeds"}
+                </button>
+              </div>
+            </div>
+
+            {/* Dual Feed Columns: Yahoo Finance & Alpaca side-by-side */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
+              {/* Yahoo Finance Card */}
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "10px", padding: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    📊 Yahoo Finance Feed
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                    {yfinanceQuote?.marketState || "REGULAR"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", marginBottom: "0.75rem" }}>
+                  <span style={{ fontSize: "1.6rem", fontWeight: 800, color: "#f8fafc" }}>
+                    ${Number(yfinanceQuote?.price || activeQuote?.price || 0).toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: "0.9rem", fontWeight: 700, color: (yfinanceQuote?.change || 0) >= 0 ? "#10b981" : "#ef4444" }}>
+                    {(yfinanceQuote?.change || 0) >= 0 ? "+" : ""}{Number(yfinanceQuote?.change || 0).toFixed(2)} ({Number(yfinanceQuote?.changePercent || 0).toFixed(2)}%)
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.78rem" }}>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Bid / Ask: </span>
+                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.bid || 0).toFixed(2)} / ${Number(yfinanceQuote?.ask || 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Day Range: </span>
+                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.dayLow || 0).toFixed(2)} - ${Number(yfinanceQuote?.dayHigh || 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Volume: </span>
+                    <strong style={{ color: "#f1f5f9" }}>{Number(yfinanceQuote?.volume || 0).toLocaleString()}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>P/E Ratio: </span>
+                    <strong style={{ color: "#f1f5f9" }}>{yfinanceQuote?.peRatio ? Number(yfinanceQuote.peRatio).toFixed(1) : "N/A"}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alpaca Market Data v2 Card */}
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "10px", padding: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    🦙 Alpaca Market Data v2
+                  </span>
+                  <span className="pill-badge" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.3)", fontSize: "0.7rem", padding: "0.1rem 0.4rem", borderRadius: "4px" }}>
+                    {snapshot ? "Live Snapshot" : "Alpaca Feed"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", marginBottom: "0.75rem" }}>
+                  <span style={{ fontSize: "1.6rem", fontWeight: 800, color: "#f8fafc" }}>
+                    ${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || yfinanceQuote?.price || 0).toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+                    NBBO Spread: <strong style={{ color: "#f59e0b" }}>{alpacaQuote?.ask && alpacaQuote?.bid ? `$${(alpacaQuote.ask - alpacaQuote.bid).toFixed(3)}` : "—"}</strong>
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.78rem" }}>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>NBBO Bid/Ask: </span>
+                    <strong style={{ color: "#f1f5f9" }}>${Number(alpacaQuote?.bid || snapshot?.latestQuote?.bidPrice || 0).toFixed(2)} / ${Number(alpacaQuote?.ask || snapshot?.latestQuote?.askPrice || 0).toFixed(2)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Latest Trade: </span>
+                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.latestTrade ? `$${snapshot.latestTrade.price} (${snapshot.latestTrade.size} shs)` : "Live Trade Ready"}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Minute Bar: </span>
+                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.minuteBar ? `H: $${snapshot.minuteBar.high} L: $${snapshot.minuteBar.low}` : "Aggregating…"}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#94a3b8" }}>Daily VWAP: </span>
+                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.dailyBar?.vwap ? `$${Number(snapshot.dailyBar.vwap).toFixed(2)}` : "—"}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Action Navigation & Drawer Toggle */}
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingTop: "0.25rem" }}>
+              <span style={{ fontSize: "0.78rem", color: "#94a3b8", fontWeight: 600 }}>Deep-Dive Analysis:</span>
+              <button
+                type="button"
+                onClick={() => setSubTab("report")}
+                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer", fontWeight: 600 }}
+              >
+                🔬 In-Depth AI Research Report →
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAlpacaDrawerOnScreener(!showAlpacaDrawerOnScreener)}
+                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: showAlpacaDrawerOnScreener ? "#f59e0b" : "rgba(245, 158, 11, 0.15)", color: showAlpacaDrawerOnScreener ? "#000" : "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.4)", cursor: "pointer", fontWeight: 600 }}
+              >
+                {showAlpacaDrawerOnScreener ? "▲ Hide Alpaca Snapshot Drawer" : "▼ Expand Alpaca Snapshot Drawer (On-Page)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubTab("fundamentals")}
+                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)", cursor: "pointer" }}
+              >
+                ⚖️ Fundamentals & Multiples →
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubTab("bars")}
+                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", cursor: "pointer" }}
+              >
+                📈 Candlestick Bars →
+              </button>
+              {onTradeSymbol && (
+                <button
+                  type="button"
+                  onClick={() => onTradeSymbol(activeSymbol)}
+                  style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "linear-gradient(135deg, #10b981, #059669)", color: "#ffffff", border: "none", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}
+                >
+                  ⚡ Trade {activeSymbol} on E*TRADE
+                </button>
+              )}
+            </div>
+
+            {/* Expandable Alpaca Snapshot Drawer right inside the Screener page */}
+            {showAlpacaDrawerOnScreener && snapshot && (
+              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px dashed rgba(245, 158, 11, 0.5)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
+                <h4 style={{ margin: "0 0 0.5rem", color: "#f59e0b", fontSize: "0.95rem" }}>
+                  🦙 Alpaca Market Snapshot Live Inspection — {activeSymbol}
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
+                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "#94a3b8" }}>Latest Execution Trade</div>
+                    <div style={{ fontWeight: 700, color: "#f8fafc", fontSize: "1rem" }}>
+                      ${snapshot.latestTrade?.price || "N/A"}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                      Size: {snapshot.latestTrade?.size || 0} • {snapshot.latestTrade?.timestamp || "live"}
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "#94a3b8" }}>Minute Bar Snapshot</div>
+                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                      Close: ${snapshot.minuteBar?.close || "N/A"}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                      O: {snapshot.minuteBar?.open} H: {snapshot.minuteBar?.high} L: {snapshot.minuteBar?.low}
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "#94a3b8" }}>Daily Bar &amp; VWAP</div>
+                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                      VWAP: ${snapshot.dailyBar?.vwap ? Number(snapshot.dailyBar.vwap).toFixed(2) : "N/A"}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                      Volume: {snapshot.dailyBar?.volume?.toLocaleString() || 0}
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "#94a3b8" }}>Prev Daily Bar</div>
+                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                      Close: ${snapshot.prevDailyBar?.close || "N/A"}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                      H: {snapshot.prevDailyBar?.high} L: {snapshot.prevDailyBar?.low}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Screener Controls Bar */}
           <div className="screener-controls-bar" style={{ marginBottom: "1rem" }}>
             <div className="control-item search-item">
@@ -692,6 +916,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <th style={{ textAlign: "right" }}>Market Cap</th>
                     <th style={{ textAlign: "center" }}>RSI (14)</th>
                     <th>Momentum Signal</th>
+                    <th style={{ textAlign: "center" }}>Alpaca Feed</th>
                     <th style={{ textAlign: "center" }}>Actions</th>
                   </tr>
                 </thead>
@@ -735,6 +960,31 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                             Score: {stock.momentumScore || 50}/100
                           </span>
                         </div>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
+                          onClick={() => {
+                            setSymbolInput(stock.symbol);
+                            handleAnalyzeTicker(stock.symbol);
+                          }}
+                          style={{
+                            padding: "0.22rem 0.55rem",
+                            fontSize: "0.75rem",
+                            borderRadius: "4px",
+                            background: activeSymbol === stock.symbol ? "rgba(245, 158, 11, 0.25)" : "rgba(245, 158, 11, 0.12)",
+                            color: "#f59e0b",
+                            border: "1px solid rgba(245, 158, 11, 0.35)",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
+                            ? `🦙 $${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || 0).toFixed(2)}`
+                            : "🦙 Alpaca Quote"}
+                        </button>
                       </td>
                       <td style={{ textAlign: "center" }}>
                         <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>

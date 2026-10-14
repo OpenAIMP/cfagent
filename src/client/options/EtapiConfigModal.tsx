@@ -49,7 +49,7 @@ export function EtapiConfigModal({
 
   // AI & Safety Limits state
   const [availableModels, setAvailableModels] = useState<AiModelDefinition[]>([
-    { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash (Flagship, 131k context)", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "flagship" },
+    { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash (Flagship, 24k context)", provider: "workers-ai", contextWindow: 24000, supportsTools: true, supportsStreaming: true, category: "flagship" },
     { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Instruct FP8 Fast", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "reasoning" },
     { id: "@cf/meta/llama-3.1-70b-instruct", name: "Llama 3.1 70B Instruct", provider: "workers-ai", contextWindow: 131072, supportsTools: true, supportsStreaming: true, category: "general" },
     { id: "@cf/qwen/qwen2.5-72b-instruct", name: "Qwen 2.5 72B Instruct", provider: "workers-ai", contextWindow: 32768, supportsTools: true, supportsStreaming: true, category: "analytical" },

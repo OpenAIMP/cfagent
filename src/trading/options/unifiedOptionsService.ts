@@ -34,11 +34,13 @@ import {
 import { OpportunityScanner, type OpportunityScanResult } from "./opportunityScanner";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
+import { getModelContextWindow } from "../../agents/model";
 import { rankCandidatesWithLlm } from "./llmComparison";
 import {
   generateRawOptionsIdeas,
   groupRawOptionsIdeasChains,
   buildContextLimitedRawOptionsIdeasInput,
+  sanitizeOptionChainForLlm,
 } from "./llmIdeas";
 
 export type UnifiedOptionsAction =
@@ -315,9 +317,20 @@ export class UnifiedOptionsService {
           }
           const groups = groupRawOptionsIdeasChains(expirations, chains);
           const groupResults = [];
+          const modelContextWindow = getModelContextWindow(this.env, "optionsIdeas");
+          const maxOutputTokens = 4096;
+          const safetyBuffer = 1404;
+          const safeModelBudget = Math.max(4000, modelContextWindow - maxOutputTokens - safetyBuffer);
           for (const group of groups.slice(0, 3)) {
             try {
-              const limited = buildContextLimitedRawOptionsIdeasInput(symbol, `${question}\nAnalyze ${group.label}`, group.expirations, group.optionChains);
+              const limited = buildContextLimitedRawOptionsIdeasInput(
+                symbol,
+                `${question}\nAnalyze ${group.label}`,
+                group.expirations,
+                group.optionChains,
+                undefined,
+                safeModelBudget,
+              );
               const llmRes = await generateRawOptionsIdeas(this.env, limited.input, group.optionChains);
               groupResults.push({ id: group.id, label: group.label, status: "complete" as const, answer: llmRes.answer, contractSymbols: llmRes.contractSymbols });
             } catch (err: any) {

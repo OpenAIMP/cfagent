@@ -231,13 +231,13 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     availableModels: [
       {
         id: "@cf/zai-org/glm-4.7-flash",
-        name: "GLM 4.7 Flash (Flagship, 131k context)",
+        name: "GLM 4.7 Flash (Flagship, 24k context)",
         provider: "workers-ai",
-        contextWindow: 131072,
+        contextWindow: 24000,
         supportsTools: true,
         supportsStreaming: true,
         category: "flagship",
-        description: "High-speed reasoning, 131k context, native tool use, optimal for NLQ and trading execution",
+        description: "High-speed reasoning, 24k context, native tool use, optimal for NLQ and trading execution",
       },
       {
         id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",

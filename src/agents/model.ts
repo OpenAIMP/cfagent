@@ -38,3 +38,21 @@ export function getWorkersAIModel(env: Env, taskOrCustomModel?: string) {
   return createWorkersAI({ binding: env.AI })(modelName);
 }
 
+/**
+ * Resolves the hard model context window limit in tokens.
+ * Cloudflare Workers AI limits @cf/zai-org/glm-4.7-flash to 24,000 tokens (input + max output).
+ */
+export function getModelContextWindow(env?: Partial<Env>, taskOrCustomModel?: string): number {
+  try {
+    const modelName = resolveAiModelName(env, taskOrCustomModel);
+    if (modelName.includes("glm-4.7-flash")) return 24000;
+    const models = getAvailableAiModels(env);
+    const found = models.find((m) => m.id === modelName);
+    if (found?.contextWindow) return found.contextWindow;
+    if (modelName.includes("llama-3.3-70b")) return 131072;
+    return 24000;
+  } catch {
+    return 24000;
+  }
+}
+

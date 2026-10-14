@@ -10,6 +10,7 @@ import {
   extractAndRepairJson,
   repairTruncatedJson,
   synthesizeFallbackRanking,
+  sanitizeOptionChainForLlm,
 } from "../src/trading/options/llmIdeas";
 import {
   createOptionsIdeasReportXls,
@@ -478,5 +479,78 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(fallback.rankings[0].groupId).toBe("near-term");
     expect(fallback.rankings[1].groupId).toBe("long-term");
     expect(fallback.answer).toContain("Evaluated 2 expiration horizons");
+  });
+
+  it("sanitizes bulky quoteDetail URLs, schema namespaces, and transport boilerplate from raw option chains", () => {
+    const bloatedChain: ETradeOptionChain = {
+      symbol: "AAPL",
+      underlyingPrice: 230,
+      raw: {
+        nearPrice: 230,
+        quoteDetail: "https://apisb.etrade.com/v1/market/quote/AAPL:2026:10:17:CALL:230.000000.json",
+        xmlns: "http://etrade.com/schema",
+        OptionPair: [
+          {
+            Call: {
+              symbol: "AAPL--261017C00230000",
+              strikePrice: 230,
+              quoteDetail: "https://apisb.etrade.com/v1/market/quote/AAPL--261017C00230000.json",
+              bid: 5.5,
+              ask: 5.7,
+            },
+          },
+        ],
+      },
+      pairs: [
+        {
+          call: { symbol: "AAPL--261017C00230000", optionType: "CALL", strikePrice: 230, bid: 5.5, ask: 5.7, lastPrice: 5.6 },
+        },
+      ],
+    };
+
+    const sanitized = sanitizeOptionChainForLlm(bloatedChain);
+    const serialized = JSON.stringify(sanitized);
+
+    expect(serialized).not.toContain("https://apisb.etrade.com");
+    expect(serialized).not.toContain("quoteDetail");
+    expect(serialized).not.toContain("xmlns");
+    expect(serialized).toContain("AAPL--261017C00230000");
+    expect(serialized).toContain("230");
+  });
+
+  it("clamps token budget safely to prevent Cloudflare Workers AI Error 5021", () => {
+    // Generate many contracts
+    const massivePairs = Array.from({ length: 60 }, (_, i) => ({
+      call: {
+        symbol: `NVDA2610${String(10 + i).padStart(2, "0")}C00180000`,
+        optionType: "CALL" as const,
+        strikePrice: 150 + i,
+        bid: 2 + i * 0.1,
+        ask: 3 + i * 0.1,
+        lastPrice: 2.5 + i * 0.1,
+        volume: 1000 + i * 10,
+        openInterest: 5000 + i * 20,
+      },
+    }));
+    const heavyChain: ETradeOptionChain = {
+      symbol: "NVDA",
+      underlyingPrice: 180,
+      pairs: massivePairs,
+    };
+
+    // With a tight model limit of 5,000 tokens (simulating safe budget for 24k context)
+    const limited = buildContextLimitedRawOptionsIdeasInput(
+      "NVDA",
+      "Give me directional bullish call options strategies.",
+      expirations,
+      [heavyChain],
+      90000,
+      5000,
+    );
+
+    expect(limited.estimatedInputTokens).toBeLessThanOrEqual(5000);
+    expect(limited.truncated).toBe(true);
+    expect(limited.includedContractCount).toBeGreaterThan(0);
+    expect(limited.includedContractCount).toBeLessThan(60);
   });
 });

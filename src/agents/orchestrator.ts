@@ -1,6 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel, getModelContextWindow } from "./model";
 import { LLMJudge } from "./judge";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
@@ -33,6 +33,7 @@ import {
   generateRawOptionsIdeasRanking,
   synthesizeFallbackRanking,
   groupRawOptionsIdeasChains,
+  sanitizeOptionChainForLlm,
 } from "../trading/options/llmIdeas";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -81,9 +82,22 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
     if (!m || typeof m !== "object") continue;
     const item = m as any;
     const role = item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user";
-    const text = typeof item.content === "string" ? item.content.trim() : "";
-
+    
+    // Robustly extract text from content, parts, or text property
+    let text = typeof item.content === "string" ? item.content.trim() : "";
     let parts = Array.isArray(item.parts) ? [...item.parts].filter(Boolean) : [];
+
+    if (!text && parts.length > 0) {
+      text = parts
+        .filter((p: any) => p && p.type === "text" && typeof p.text === "string")
+        .map((p: any) => p.text)
+        .join("")
+        .trim();
+    }
+    if (!text && typeof item.text === "string") {
+      text = item.text.trim();
+    }
+
     if (parts.length === 0 && text) {
       parts = [{ type: "text", text }];
     }
@@ -104,9 +118,9 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
     // Merge consecutive user messages to maintain strictly alternating conversation flow
     if (valid.length > 0 && valid[valid.length - 1].role === "user" && role === "user") {
       const prev = valid[valid.length - 1];
-      const mergedText = `${prev.content}\n${text}`.trim();
-      prev.content = mergedText;
-      prev.parts = [{ type: "text", text: mergedText }];
+      const mergedText = [prev.content, text].filter(Boolean).join("\n").trim();
+      prev.content = mergedText || text || prev.content || "Hello";
+      prev.parts = [{ type: "text", text: prev.content }];
       continue;
     }
 
@@ -163,6 +177,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Proactively renews E*TRADE tokens before midnight ET
    */
   async autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void> {
+    if (typeof (this as any).waitUntilStable === "function") {
+      try {
+        await (this as any).waitUntilStable({ timeout: 30_000 });
+      } catch {
+        // Continue if timeout or unhandled
+      }
+    }
     const user = payload?.userLogin || this.sessionKey();
     const service = new ScheduledTasksService(this.env, this.getOrm(), user);
     const res = await service.autoRenewETradeTokens(user, payload?.env);
@@ -176,6 +197,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
   async autonomousMarketScreen(payload?: { sector?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
+    if (typeof (this as any).waitUntilStable === "function") {
+      try {
+        await (this as any).waitUntilStable({ timeout: 30_000 });
+      } catch {
+        // Continue if timeout or unhandled
+      }
+    }
     const runScreen = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
       const res = await service.autonomousMarketScreen(payload);
@@ -210,6 +238,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Runs cross-symbol options discovery and dispatches omnichannel push alerts
    */
   async autonomousOptionsAnalysis(payload?: AutonomousOptionsAnalysisOptions): Promise<void> {
+    if (typeof (this as any).waitUntilStable === "function") {
+      try {
+        await (this as any).waitUntilStable({ timeout: 30_000 });
+      } catch {
+        // Continue if timeout or unhandled
+      }
+    }
     const runAnalysis = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
       const res = await service.autonomousOptionsAnalysis(payload);
@@ -240,6 +275,31 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } else {
       await runAnalysis();
     }
+  }
+
+  /**
+   * Cloudflare Autonomous Chat Agents: submitMessages
+   * Conforms to Cloudflare Agents documentation (/autonomous-responses/ and /chat-agents/).
+   * Safely admits external turns (from webhooks, Slack, or cron jobs) into the conversation,
+   * waiting for stability before calling saveMessages to trigger an agent turn.
+   */
+  async submitMessages(
+    messagesOrFactory: any[] | ((messages: any[]) => any[]),
+    options?: { signal?: AbortSignal; timeoutMs?: number }
+  ): Promise<{ requestId?: string; status: "completed" | "skipped" | "aborted" }> {
+    if (typeof (this as any).waitUntilStable === "function") {
+      try {
+        await (this as any).waitUntilStable({ timeout: options?.timeoutMs ?? 30_000 });
+      } catch {
+        // Continue if timeout or unhandled
+      }
+    }
+    if (typeof (this as any).saveMessages === "function") {
+      return await (this as any).saveMessages(messagesOrFactory, options);
+    }
+    const resolved = typeof messagesOrFactory === "function" ? messagesOrFactory(this.messages as any) : messagesOrFactory;
+    await this.persistMessages(resolved as any);
+    return { status: "completed" };
   }
 
   /**
@@ -823,18 +883,23 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
 
   private extractMessageText(message: unknown): string {
     if (!message || typeof message !== "object") return "";
-    const m = message as { content?: unknown; parts?: Array<{ type?: string; text?: string }> };
+    const m = message as { content?: unknown; text?: unknown; parts?: Array<{ type?: string; text?: string }> };
 
     if (typeof m.content === "string" && m.content.trim()) {
       return m.content.trim();
     }
 
-    if (Array.isArray(m.parts)) {
-      return m.parts
+    if (Array.isArray(m.parts) && m.parts.length > 0) {
+      const extracted = m.parts
         .filter((p) => p && p.type === "text" && typeof p.text === "string")
         .map((p) => p.text)
         .join("")
         .trim();
+      if (extracted) return extracted;
+    }
+
+    if (typeof m.text === "string" && m.text.trim()) {
+      return m.text.trim();
     }
 
     return "";
@@ -3262,11 +3327,17 @@ Agentic Best Practices & Workflow Rules:
 
             let inputExport: any = null;
             try {
+              const modelContextWindow = getModelContextWindow(this.env, "optionsIdeas");
+              const maxOutputTokens = 4096;
+              const safetyBuffer = 1404; // 24000 - 4096 - 1404 = 18500
+              const safeModelBudget = Math.max(4000, modelContextWindow - maxOutputTokens - safetyBuffer);
               const limited = buildContextLimitedRawOptionsIdeasInput(
                 symbol,
                 groupQuestion,
                 group.expirations,
                 group.optionChains,
+                undefined,
+                safeModelBudget,
               );
               const llmInput = limited.input;
               inputExport = {
