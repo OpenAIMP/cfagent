@@ -163,17 +163,17 @@ const STORAGE_KEY_SAVED_TRADES = "etrade_saved_options_trades";
 
 // Popular stock & ETF presets including futures
 const POPULAR_TICKERS: StockQuoteState[] = [
-  { symbol: "WMT", price: 107.20, change: 0.0, changePercent: 0.0, companyName: "Walmart Inc.", delayed: true },
-  { symbol: "TSLA", price: 380.68, change: 1.95, changePercent: 0.51, companyName: "Tesla, Inc.", delayed: true },
-  { symbol: "NVDA", price: 233.95, change: 0.0, changePercent: 0.0, companyName: "NVIDIA Corporation", delayed: true },
+  { symbol: "TSLA", price: 368.44, change: -6.79, changePercent: -1.81, companyName: "Tesla, Inc.", delayed: true },
+  { symbol: "NVDA", price: 138.50, change: 1.20, changePercent: 0.87, companyName: "NVIDIA Corporation", delayed: true },
   { symbol: "AAPL", price: 232.50, change: 1.25, changePercent: 0.54, companyName: "Apple Inc.", delayed: true },
   { symbol: "SPY", price: 586.20, change: 2.10, changePercent: 0.36, companyName: "SPDR S&P 500 ETF Trust", delayed: true },
   { symbol: "QQQ", price: 494.30, change: 1.80, changePercent: 0.37, companyName: "Invesco QQQ Trust", delayed: true },
   { symbol: "MSFT", price: 428.15, change: -0.85, changePercent: -0.20, companyName: "Microsoft Corporation", delayed: true },
-  { symbol: "AMD", price: 172.40, change: 3.10, changePercent: 1.83, companyName: "Advanced Micro Devices", delayed: true },
+  { symbol: "AMD", price: 156.40, change: -1.10, changePercent: -0.70, companyName: "Advanced Micro Devices", delayed: true },
   { symbol: "AMZN", price: 186.50, change: 0.90, changePercent: 0.49, companyName: "Amazon.com, Inc.", delayed: true },
   { symbol: "GOOGL", price: 168.20, change: -0.40, changePercent: -0.24, companyName: "Alphabet Inc.", delayed: true },
   { symbol: "META", price: 588.60, change: 4.50, changePercent: 0.77, companyName: "Meta Platforms, Inc.", delayed: true },
+  { symbol: "WMT", price: 107.20, change: 0.0, changePercent: 0.0, companyName: "Walmart Inc.", delayed: true },
   { symbol: "IWM", price: 221.80, change: 0.75, changePercent: 0.34, companyName: "iShares Russell 2000 ETF", delayed: true },
   { symbol: "/ES", price: 5875.50, change: 14.25, changePercent: 0.24, companyName: "E-mini S&P 500 Futures", delayed: true },
   { symbol: "/NQ", price: 20420.00, change: 65.50, changePercent: 0.32, companyName: "E-mini Nasdaq 100 Futures", delayed: true },
@@ -253,6 +253,9 @@ export function StrategyDiscoveryPanel({
       delayed: true,
     }
   );
+  const [quotesCache, setQuotesCache] = useState<Record<string, StockQuoteState>>(() => ({
+    ...DEFAULT_QUOTES,
+  }));
 
   // Expirations schedule
   const expirations = useMemo(() => generateExpirations(), []);
@@ -502,6 +505,10 @@ export function StrategyDiscoveryPanel({
             delayed: true,
           };
           setQuote(freshQuote);
+          setQuotesCache((prev) => ({
+            ...prev,
+            [sym.toUpperCase()]: freshQuote,
+          }));
           if (builderLegs.length > 0) {
             const updated = builderLegs.map((l) =>
               updateLegStrike(l, l.strike, freshPrice, selectedExpiration.dte, builderIv / 100, engineConfig.riskFreeRate)
@@ -523,8 +530,9 @@ export function StrategyDiscoveryPanel({
       setIsQuoteRefreshing(false);
     }
 
-    if (DEFAULT_QUOTES[sym]) {
-      setQuote(DEFAULT_QUOTES[sym]);
+    const fallbackQuote = quotesCache[sym.toUpperCase()] || DEFAULT_QUOTES[sym.toUpperCase()];
+    if (fallbackQuote) {
+      setQuote(fallbackQuote);
     }
   };
 
@@ -590,11 +598,13 @@ export function StrategyDiscoveryPanel({
 
   const handleSelectSymbol = (sym: string) => {
     const clean = sym.trim().toUpperCase();
-    if (clean && clean !== activeSymbol) {
+    setShowSymbolSearchMenu(false);
+    if (!clean) return;
+
+    if (clean !== activeSymbol) {
       setActiveSymbol(clean);
       setSymbolInput(clean);
-      setShowSymbolSearchMenu(false);
-      const fallback = DEFAULT_QUOTES[clean] || {
+      const fallback = quotesCache[clean] || DEFAULT_QUOTES[clean] || {
         symbol: clean,
         price: clean.startsWith("/") ? 5000.0 : 150.0,
         change: 0.5,
@@ -1275,12 +1285,34 @@ export function StrategyDiscoveryPanel({
     });
   }, [strategyCategoryFilter, strategySearchQuery]);
 
-  // Autocomplete suggestions for stock search
+  // Autocomplete suggestions for stock search with synchronized live quotes
   const filteredTickers = useMemo(() => {
-    if (!symbolInput) return POPULAR_TICKERS.slice(0, 8);
-    const q = symbolInput.trim().toUpperCase();
-    return POPULAR_TICKERS.filter((t) => t.symbol.includes(q) || t.companyName.toUpperCase().includes(q));
-  }, [symbolInput]);
+    const q = symbolInput ? symbolInput.trim().toUpperCase() : "";
+    const baseList = q
+      ? POPULAR_TICKERS.filter((t) => t.symbol.includes(q) || t.companyName.toUpperCase().includes(q))
+      : POPULAR_TICKERS.slice(0, 8);
+
+    return baseList.map((t) => {
+      const sym = t.symbol.toUpperCase();
+      if (sym === activeSymbol.toUpperCase() && quote && quote.symbol.toUpperCase() === sym) {
+        return {
+          ...t,
+          price: quote.price,
+          change: quote.change,
+          changePercent: quote.changePercent,
+        };
+      }
+      if (quotesCache[sym]) {
+        return {
+          ...t,
+          price: quotesCache[sym].price,
+          change: quotesCache[sym].change,
+          changePercent: quotesCache[sym].changePercent,
+        };
+      }
+      return t;
+    });
+  }, [symbolInput, activeSymbol, quote, quotesCache]);
 
   return (
     <div className="strat-discovery-container">
@@ -1368,142 +1400,157 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           <div className="strat-discovery-header">
-            {/* Top Row: Symbol Input & Quote Price Badge */}
-            <form onSubmit={handleSymbolSubmit} className="strat-symbol-bar">
-              <div className="strat-symbol-input-wrap">
-                <label>Symbol:</label>
-                <input
-                  type="text"
-                  value={symbolInput}
-                  onChange={(e) => {
-                    setSymbolInput(e.target.value);
-                    setShowSymbolSearchMenu(true);
-                  }}
-                  onFocus={() => setShowSymbolSearchMenu(true)}
-                  placeholder="TSLA, /ES..."
-                />
-              </div>
-
-              <div className="strat-price-badge">
-                ${quote.price.toFixed(2)}
-                <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
-                  {quote.change >= 0 ? "+" : ""}
-                  {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
-                </span>
-                <span className="strat-delayed-tag">↻ Delayed</span>
-                <button
-                  type="button"
-                  className="strat-mini-refresh-btn"
-                  onClick={handleRefreshOptions}
-                  disabled={isQuoteRefreshing}
-                  title={`Refresh ${activeSymbol} quote & options`}
-                >
-                  <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span>
-                </button>
-              </div>
-            </form>
-
-            {/* Symbol Autocomplete Dropdown */}
-            {showSymbolSearchMenu && (
-              <div className="strat-symbol-dropdown-overlay" onClick={() => setShowSymbolSearchMenu(false)}>
-                <div className="strat-symbol-dropdown" onClick={(e) => e.stopPropagation()}>
-                  <div className="strat-dropdown-header">Stocks, ETFs & Futures</div>
-                  {filteredTickers.map((t) => (
-                    <div
-                      key={t.symbol}
-                      className="strat-dropdown-item"
-                      onClick={() => handleSelectSymbol(t.symbol)}
-                    >
-                      <span className="strat-dropdown-sym">{t.symbol}</span>
-                      <span className="strat-dropdown-name">{t.companyName}</span>
-                      <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
-                    </div>
-                  ))}
+            {/* Top Row: Symbol Input & Quote Price Badge (Left) + Sentiment Segmented Pill Bar (Right) */}
+            <div className="strat-discovery-top-bar">
+              <form onSubmit={handleSymbolSubmit} className="strat-symbol-bar">
+                <div className="strat-symbol-input-wrap">
+                  <span className="strat-search-icon">🔍</span>
+                  <label htmlFor="strat-sym-input">Symbol:</label>
+                  <input
+                    id="strat-sym-input"
+                    type="text"
+                    value={symbolInput}
+                    onChange={(e) => {
+                      setSymbolInput(e.target.value);
+                      setShowSymbolSearchMenu(true);
+                    }}
+                    onFocus={() => setShowSymbolSearchMenu(true)}
+                    placeholder="TSLA, /ES..."
+                    autoComplete="off"
+                    aria-label="Stock or ETF symbol"
+                  />
+                  {/* Inline Symbol Autocomplete Dropdown anchored directly below input */}
+                  {showSymbolSearchMenu && (
+                    <>
+                      <div className="strat-symbol-dropdown-backdrop" onClick={() => setShowSymbolSearchMenu(false)} />
+                      <div className="strat-symbol-dropdown" onClick={(e) => e.stopPropagation()}>
+                        <div className="strat-dropdown-header">Stocks, ETFs & Futures</div>
+                        <div className="strat-dropdown-list">
+                          {filteredTickers.map((t) => (
+                            <div
+                              key={t.symbol}
+                              className={`strat-dropdown-item ${t.symbol === activeSymbol ? "active" : ""}`}
+                              onClick={() => handleSelectSymbol(t.symbol)}
+                            >
+                              <div className="strat-dropdown-sym-col">
+                                <span className="strat-dropdown-sym">{t.symbol}</span>
+                                <span className="strat-dropdown-name">{t.companyName}</span>
+                              </div>
+                              <div className="strat-dropdown-price-col">
+                                <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                                <span className={`strat-dropdown-pill ${t.change >= 0 ? "gain" : "loss"}`}>
+                                  {t.change >= 0 ? "+" : ""}{t.changePercent.toFixed(2)}%
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
 
-            {/* Main Discovery Controls: Sentiment Buttons (Left) & Max Return / Max Chance Panel (Right) Side-by-Side */}
-            <div className="strat-discovery-top-row">
-              {/* Sentiment Selector Group (Ending in Bullish & Very Bullish directly beside the optimizer panel) */}
-              <div className="strat-sentiment-group strat-sentiment-selector" role="radiogroup" aria-label="Market sentiment">
+                <div className="strat-price-badge">
+                  <span className="strat-price-num">${quote.price.toFixed(2)}</span>
+                  <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
+                    {quote.change >= 0 ? "+" : ""}
+                    {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
+                  </span>
+                  <span className="strat-delayed-tag">↻ Delayed</span>
+                  <button
+                    type="button"
+                    className="strat-mini-refresh-btn"
+                    onClick={handleRefreshOptions}
+                    disabled={isQuoteRefreshing}
+                    title={`Refresh ${activeSymbol} quote & options`}
+                  >
+                    <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Sentiment Segmented Pill Bar */}
+              <div className="strat-sentiment-segmented-bar" role="radiogroup" aria-label="Market sentiment">
                 {SENTIMENT_ITEMS.map((item) => {
                   const isActive = sentiment === item.id;
                   return (
-                    <div
+                    <button
                       key={item.id}
-                      className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
+                      type="button"
+                      className={`strat-sentiment-pill ${item.id} ${isActive ? "active" : ""}`}
                       onClick={() => handleSentimentChange(item.id)}
                       role="radio"
                       aria-checked={isActive}
                       title={item.label}
                     >
-                      <div className="strat-sentiment-circle">
-                        {item.icon}
-                      </div>
+                      <span className="strat-sentiment-icon">{item.icon}</span>
                       <span className="strat-sentiment-label">{item.label}</span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+            </div>
 
-              {/* Right Column: Optimization Objective Regime & Evaluation Factors Breakdown */}
-              <div className="strat-discovery-right-col">
-                {/* Optimization Slider */}
+            {/* Middle Row: Unified Optimization Bias & Factor Weights Panel */}
+            <div className="strat-optimizer-panel">
+              {/* Left Column: Bias Slider & Regime Info */}
+              <div className="strat-opt-slider-col">
+                <div className="strat-opt-slider-meta">
+                  <span className="strat-opt-title">Optimization Bias</span>
+                  <span className="strat-opt-regime-badge">{optFactors.regime}</span>
+                </div>
                 <div className="strat-opt-slider-wrap">
-                  <span>← Max Return</span>
+                  <span className="strat-opt-bound">← Max Return</span>
                   <input
                     type="range"
                     min={0}
                     max={100}
                     value={optimizationBias}
                     onChange={(e) => setOptimizationBias(Number(e.target.value))}
+                    aria-label="Optimization bias slider"
                   />
-                  <span>Max Chance →</span>
+                  <span className="strat-opt-bound">Max Chance →</span>
                 </div>
+                <div className="strat-opt-regime-desc">{optFactors.regimeDescription}</div>
+              </div>
 
-                {/* Evaluation Factors UI Breakdown Panel */}
-                <div className="strat-opt-factors-panel">
-                  <div className="strat-opt-regime-row">
-                    <span className="strat-opt-regime-badge">{optFactors.regime}</span>
-                    <span className="strat-opt-regime-desc">{optFactors.regimeDescription}</span>
+              {/* Right Column: 4 Factor Weight Breakdown Cards */}
+              <div className="strat-opt-factors-col">
+                <div className="strat-factors-grid">
+                  <div className="strat-factor-card" title="Target Return & Leverage">
+                    <div className="strat-factor-header">
+                      <span className="strat-factor-title">Target Return</span>
+                      <span className="strat-factor-weight">{optFactors.returnWeight}%</span>
+                    </div>
+                    <div className="strat-factor-bar-bg">
+                      <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
+                    </div>
                   </div>
-                  <div className="strat-factors-grid">
-                    <div className="strat-factor-card" title="Target Return & Leverage">
-                      <div className="strat-factor-header">
-                        <span className="strat-factor-title">Target Return</span>
-                        <span className="strat-factor-weight">{optFactors.returnWeight}% wt</span>
-                      </div>
-                      <div className="strat-factor-bar-bg">
-                        <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
-                      </div>
+                  <div className="strat-factor-card" title="Win Probability (POP)">
+                    <div className="strat-factor-header">
+                      <span className="strat-factor-title">Win Prob (POP)</span>
+                      <span className="strat-factor-weight">{optFactors.chanceWeight}%</span>
                     </div>
-                    <div className="strat-factor-card" title="Win Probability (POP)">
-                      <div className="strat-factor-header">
-                        <span className="strat-factor-title">Win Prob (POP)</span>
-                        <span className="strat-factor-weight">{optFactors.chanceWeight}% wt</span>
-                      </div>
-                      <div className="strat-factor-bar-bg">
-                        <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
-                      </div>
+                    <div className="strat-factor-bar-bg">
+                      <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
                     </div>
-                    <div className="strat-factor-card" title="Breakeven Buffer">
-                      <div className="strat-factor-header">
-                        <span className="strat-factor-title">Breakeven</span>
-                        <span className="strat-factor-weight">{optFactors.safetyWeight}% wt</span>
-                      </div>
-                      <div className="strat-factor-bar-bg">
-                        <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
-                      </div>
+                  </div>
+                  <div className="strat-factor-card" title="Breakeven Buffer">
+                    <div className="strat-factor-header">
+                      <span className="strat-factor-title">Breakeven</span>
+                      <span className="strat-factor-weight">{optFactors.safetyWeight}%</span>
                     </div>
-                    <div className="strat-factor-card" title="Capital Efficiency">
-                      <div className="strat-factor-header">
-                        <span className="strat-factor-title">Cap. Efficiency</span>
-                        <span className="strat-factor-weight">{optFactors.capitalWeight}% wt</span>
-                      </div>
-                      <div className="strat-factor-bar-bg">
-                        <div className="strat-factor-bar-fill capital" style={{ width: `${optFactors.capitalWeight * 4.5}%` }} />
-                      </div>
+                    <div className="strat-factor-bar-bg">
+                      <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
+                    </div>
+                  </div>
+                  <div className="strat-factor-card" title="Capital Efficiency">
+                    <div className="strat-factor-header">
+                      <span className="strat-factor-title">Cap. Efficiency</span>
+                      <span className="strat-factor-weight">{optFactors.capitalWeight}%</span>
+                    </div>
+                    <div className="strat-factor-bar-bg">
+                      <div className="strat-factor-bar-fill capital" style={{ width: `${optFactors.capitalWeight * 4.5}%` }} />
                     </div>
                   </div>
                 </div>
@@ -1989,34 +2036,44 @@ export function StrategyDiscoveryPanel({
             </button>
           </div>
 
-          {/* Quick Symbol Autocomplete Overlay in Builder */}
-          {showSymbolSearchMenu && (
-            <div className="strat-symbol-dropdown-overlay" onClick={() => setShowSymbolSearchMenu(false)}>
-              <div className="strat-symbol-dropdown" onClick={(e) => e.stopPropagation()}>
-                <div className="strat-dropdown-search-wrap">
-                  <input
-                    type="text"
-                    value={symbolInput}
-                    onChange={(e) => setSymbolInput(e.target.value)}
-                    placeholder="Search symbol (e.g. NVDA, /ES)..."
-                    autoFocus
-                  />
-                </div>
-                <div className="strat-dropdown-header">Popular Stocks, ETFs & Futures</div>
-                {filteredTickers.map((t) => (
-                  <div
-                    key={t.symbol}
-                    className="strat-dropdown-item"
-                    onClick={() => handleSelectSymbol(t.symbol)}
-                  >
-                    <span className="strat-dropdown-sym">{t.symbol}</span>
-                    <span className="strat-dropdown-name">{t.companyName}</span>
-                    <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+            {/* Inline Symbol Autocomplete Popover in Builder */}
+            {showSymbolSearchMenu && (
+              <>
+                <div className="strat-symbol-dropdown-backdrop" onClick={() => setShowSymbolSearchMenu(false)} />
+                <div className="strat-symbol-dropdown builder" onClick={(e) => e.stopPropagation()}>
+                  <div className="strat-dropdown-search-wrap">
+                    <input
+                      type="text"
+                      value={symbolInput}
+                      onChange={(e) => setSymbolInput(e.target.value)}
+                      placeholder="Search symbol (e.g. NVDA, /ES)..."
+                      autoFocus
+                    />
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="strat-dropdown-header">Popular Stocks, ETFs & Futures</div>
+                  <div className="strat-dropdown-list">
+                    {filteredTickers.map((t) => (
+                      <div
+                        key={t.symbol}
+                        className={`strat-dropdown-item ${t.symbol === activeSymbol ? "active" : ""}`}
+                        onClick={() => handleSelectSymbol(t.symbol)}
+                      >
+                        <div className="strat-dropdown-sym-col">
+                          <span className="strat-dropdown-sym">{t.symbol}</span>
+                          <span className="strat-dropdown-name">{t.companyName}</span>
+                        </div>
+                        <div className="strat-dropdown-price-col">
+                          <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                          <span className={`strat-dropdown-pill ${t.change >= 0 ? "gain" : "loss"}`}>
+                            {t.change >= 0 ? "+" : ""}{t.changePercent.toFixed(2)}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
           {/* Expiration Timeline Chips in Builder (Scrollable with Navigation Arrows) */}
           <div className="strat-builder-exp-bar">
