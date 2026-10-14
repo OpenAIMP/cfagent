@@ -11645,6 +11645,76 @@ body.theme-light .nav-font-scale-text {
   box-shadow: 0 0 8px rgba(248, 113, 113, 0.9);
 }
 
+.ask-agent-minimized-wrap,
+.ask-agent-pill-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ask-agent-pill-btn.minimized {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.ask-agent-pill-btn.minimized .ask-agent-status-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  margin: 0;
+}
+
+.ask-agent-minimize-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 0.35rem;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ask-agent-minimize-trigger:hover {
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.5);
+  transform: scale(1.15);
+}
+
+.ask-agent-restore-pill-btn {
+  background: var(--bg-card, #1e293b);
+  border: 1px solid var(--border-subtle, #334155);
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.75rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+}
+
+.ask-agent-restore-pill-btn:hover {
+  color: var(--text-main, #f8fafc);
+  border-color: var(--accent-cyan, #38bdf8);
+  transform: scale(1.1);
+}
+
 /* Copilot Drawer Dialog */
 .ask-agent-drawer-card {
   position: fixed;
@@ -14749,6 +14819,47 @@ body.theme-light .btn-capability-copilot {
 body.theme-light .btn-capability-copilot:hover {
   background: #e0f2fe;
   border-color: #7dd3fc;
+}
+
+/* Light Theme Overrides for Ask Agent Floating Dock & Drawer */
+[data-theme="light"] .ask-agent-restore-pill-btn,
+body.theme-light .ask-agent-restore-pill-btn {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #64748b;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .ask-agent-restore-pill-btn:hover,
+body.theme-light .ask-agent-restore-pill-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #0284c7;
+}
+
+[data-theme="light"] .ask-agent-drawer-card,
+body.theme-light .ask-agent-drawer-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(16, 185, 129, 0.2);
+}
+
+[data-theme="light"] .ask-agent-header,
+body.theme-light .ask-agent-header {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+[data-theme="light"] .agent-main-title,
+body.theme-light .agent-main-title {
+  color: #0f172a;
+}
+
+[data-theme="light"] .ask-agent-footer-bar,
+body.theme-light .ask-agent-footer-bar {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
 }
 
 

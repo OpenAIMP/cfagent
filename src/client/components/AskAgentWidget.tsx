@@ -115,6 +115,24 @@ export function AskAgentWidget({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [isMinimized, setIsMinimized] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("cfagent_ask_agent_minimized") === "true";
+    }
+    return false;
+  });
+
+  const toggleMinimize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMinimized((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("cfagent_ask_agent_minimized", String(next));
+      }
+      return next;
+    });
+  };
+
   const currentPrompts = useMemo(() => {
     if (activeTab && TAB_QUICK_PROMPTS[activeTab]) {
       return TAB_QUICK_PROMPTS[activeTab];
@@ -213,26 +231,71 @@ export function AskAgentWidget({
     }
   };
 
+  // Auto-hide when user is in the full chat tab to avoid covering chat messages
+  if (activeTab === "chat") {
+    return null;
+  }
+
   return (
     <>
-      {/* Floating Trigger Pill (Docked bottom-right, matching AlgoNexus) */}
+      {/* Floating Trigger Pill (Docked bottom-right) */}
       <div className="ask-agent-floating-dock">
-        <button
-          type="button"
-          className={`ask-agent-pill-btn ${isOpen ? "active" : ""}`}
-          onClick={() => setIsOpen((prev) => !prev)}
-          title="Ask NextGenTP Agent Copilot"
-          aria-expanded={isOpen}
-          aria-label="Open Ask Agent Copilot"
-        >
-          <span className="ask-agent-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          </span>
-          <span className="ask-agent-label">Ask Agent</span>
-          <span className={`ask-agent-status-dot ${agentStatus.dotClass}`} title={`Status: ${agentStatus.label}`} />
-        </button>
+        {isMinimized ? (
+          <div className="ask-agent-minimized-wrap">
+            <button
+              type="button"
+              className={`ask-agent-pill-btn minimized ${isOpen ? "active" : ""}`}
+              onClick={() => setIsOpen((prev) => !prev)}
+              title="NextGenTP Agent Copilot (Click to open)"
+              aria-expanded={isOpen}
+              aria-label="Open Agent Copilot"
+            >
+              <span className="ask-agent-icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </span>
+              <span className={`ask-agent-status-dot ${agentStatus.dotClass}`} title={`Status: ${agentStatus.label}`} />
+            </button>
+            <button
+              type="button"
+              className="ask-agent-restore-pill-btn"
+              onClick={toggleMinimize}
+              title="Expand Ask Agent label"
+              aria-label="Expand button label"
+            >
+              ⤢
+            </button>
+          </div>
+        ) : (
+          <div className="ask-agent-pill-wrap">
+            <button
+              type="button"
+              className={`ask-agent-pill-btn ${isOpen ? "active" : ""}`}
+              onClick={() => setIsOpen((prev) => !prev)}
+              title="Ask NextGenTP Agent Copilot"
+              aria-expanded={isOpen}
+              aria-label="Open Ask Agent Copilot"
+            >
+              <span className="ask-agent-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </span>
+              <span className="ask-agent-label">Ask Agent</span>
+              <span className={`ask-agent-status-dot ${agentStatus.dotClass}`} title={`Status: ${agentStatus.label}`} />
+              <span
+                role="button"
+                className="ask-agent-minimize-trigger"
+                onClick={toggleMinimize}
+                title="Minimize Ask Agent button to compact circle"
+                aria-label="Minimize button"
+              >
+                —
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Floating Copilot Drawer Panel */}
