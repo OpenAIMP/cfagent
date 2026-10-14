@@ -42,81 +42,15 @@ import { SegmentedControl, PillGroup } from "../components/ui";
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
   label: string;
-  icon: React.ReactNode;
+  circleColor: string;
 }> = [
-  {
-    id: "all",
-    label: "ALL",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 3v18M3 12h18M6.3 6.3l11.4 11.4M6.3 17.7L17.7 6.3" />
-      </svg>
-    ),
-  },
-  {
-    id: "very_bearish",
-    label: "Very Bearish",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M19 5l-7 7-7-7" />
-        <path d="M19 12l-7 7-7-7" />
-      </svg>
-    ),
-  },
-  {
-    id: "bearish",
-    label: "Bearish",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="7" y1="7" x2="17" y2="17" />
-        <polyline points="17 7 17 17 7 17" />
-      </svg>
-    ),
-  },
-  {
-    id: "neutral",
-    label: "Neutral",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="5" y1="12" x2="19" y2="12" />
-        <polyline points="12 5 19 12 12 19" />
-      </svg>
-    ),
-  },
-  {
-    id: "directional",
-    label: "High Volatility",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="16 3 21 3 21 8" />
-        <line x1="4" y1="20" x2="21" y2="3" />
-        <polyline points="21 16 21 21 16 21" />
-        <line x1="15" y1="15" x2="21" y2="21" />
-        <line x1="4" y1="4" x2="9" y2="9" />
-      </svg>
-    ),
-  },
-  {
-    id: "bullish",
-    label: "Bullish",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="7" y1="17" x2="17" y2="7" />
-        <polyline points="7 7 17 7 17 17" />
-      </svg>
-    ),
-  },
-  {
-    id: "very_bullish",
-    label: "Very Bullish",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M5 19l7-7 7 7" />
-        <path d="M5 12l7-7 7 7" />
-      </svg>
-    ),
-  },
+  { id: "all", label: "ALL", circleColor: "#64748b" },
+  { id: "very_bearish", label: "Very Bearish", circleColor: "#ef4444" },
+  { id: "bearish", label: "Bearish", circleColor: "#f87171" },
+  { id: "neutral", label: "Neutral", circleColor: "#f59e0b" },
+  { id: "directional", label: "High Volatility", circleColor: "#a855f7" },
+  { id: "bullish", label: "Bullish", circleColor: "#22c55e" },
+  { id: "very_bullish", label: "Very Bullish", circleColor: "#10b981" },
 ];
 
 interface StrategyDiscoveryPanelProps {
@@ -1470,9 +1404,6 @@ export function StrategyDiscoveryPanel({
               ⚡ Trade
             </button>
           )}
-          <span className="strat-env-badge">
-            ⚡ {activeEnv} · Black-Scholes
-          </span>
         </div>
       </div>
 
@@ -1551,7 +1482,35 @@ export function StrategyDiscoveryPanel({
                 </div>
               </form>
 
-              {/* Sentiment Segmented Pill Bar */}
+              {/* Adjacent Optimization Bias Inline Control */}
+              <div className="strat-opt-adjacent-deck" title={optFactors.regimeDescription}>
+                <div className="strat-opt-adjacent-meta">
+                  <span className="strat-opt-title">Optimization Bias</span>
+                  <span className="strat-opt-regime-badge">{optFactors.regime}</span>
+                </div>
+                <div className="strat-opt-adjacent-slider-wrap">
+                  <span className="strat-opt-bound">← Return</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={optimizationBias}
+                    onChange={(e) => setOptimizationBias(Number(e.target.value))}
+                    aria-label="Optimization bias slider"
+                  />
+                  <span className="strat-opt-bound">Chance →</span>
+                </div>
+                <div className="strat-opt-adjacent-factors">
+                  <span className="strat-factor-chip" title="Target Return Weight">Ret: {optFactors.returnWeight}%</span>
+                  <span className="strat-factor-chip" title="Win Probability (POP)">Win: {optFactors.chanceWeight}%</span>
+                  <span className="strat-factor-chip" title="Breakeven Buffer">BE: {optFactors.safetyWeight}%</span>
+                  <span className="strat-factor-chip" title="Capital Efficiency">Eff: {optFactors.capitalWeight}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Second Row: Sentiment Segmented Bar with Colored Circles */}
+            <div className="strat-sentiment-row">
               <div className="strat-sentiment-segmented-bar" role="radiogroup" aria-label="Market sentiment">
                 {SENTIMENT_ITEMS.map((item) => {
                   const isActive = sentiment === item.id;
@@ -1565,77 +1524,11 @@ export function StrategyDiscoveryPanel({
                       aria-checked={isActive}
                       title={item.label}
                     >
-                      <span className="strat-sentiment-icon">{item.icon}</span>
+                      <span className="strat-sentiment-circle" style={{ backgroundColor: item.circleColor }} />
                       <span className="strat-sentiment-label">{item.label}</span>
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            {/* Middle Row: Unified Optimization Bias & Factor Weights Panel */}
-            <div className="strat-optimizer-panel">
-              {/* Left Column: Bias Slider & Regime Info */}
-              <div className="strat-opt-slider-col">
-                <div className="strat-opt-slider-meta">
-                  <span className="strat-opt-title">Optimization Bias</span>
-                  <span className="strat-opt-regime-badge">{optFactors.regime}</span>
-                </div>
-                <div className="strat-opt-slider-wrap">
-                  <span className="strat-opt-bound">← Max Return</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={optimizationBias}
-                    onChange={(e) => setOptimizationBias(Number(e.target.value))}
-                    aria-label="Optimization bias slider"
-                  />
-                  <span className="strat-opt-bound">Max Chance →</span>
-                </div>
-                <div className="strat-opt-regime-desc">{optFactors.regimeDescription}</div>
-              </div>
-
-              {/* Right Column: 4 Factor Weight Breakdown Cards */}
-              <div className="strat-opt-factors-col">
-                <div className="strat-factors-grid">
-                  <div className="strat-factor-card" title="Target Return & Leverage">
-                    <div className="strat-factor-header">
-                      <span className="strat-factor-title">Target Return</span>
-                      <span className="strat-factor-weight">{optFactors.returnWeight}%</span>
-                    </div>
-                    <div className="strat-factor-bar-bg">
-                      <div className="strat-factor-bar-fill return" style={{ width: `${optFactors.returnWeight}%` }} />
-                    </div>
-                  </div>
-                  <div className="strat-factor-card" title="Win Probability (POP)">
-                    <div className="strat-factor-header">
-                      <span className="strat-factor-title">Win Prob (POP)</span>
-                      <span className="strat-factor-weight">{optFactors.chanceWeight}%</span>
-                    </div>
-                    <div className="strat-factor-bar-bg">
-                      <div className="strat-factor-bar-fill chance" style={{ width: `${optFactors.chanceWeight}%` }} />
-                    </div>
-                  </div>
-                  <div className="strat-factor-card" title="Breakeven Buffer">
-                    <div className="strat-factor-header">
-                      <span className="strat-factor-title">Breakeven</span>
-                      <span className="strat-factor-weight">{optFactors.safetyWeight}%</span>
-                    </div>
-                    <div className="strat-factor-bar-bg">
-                      <div className="strat-factor-bar-fill safety" style={{ width: `${optFactors.safetyWeight * 3.5}%` }} />
-                    </div>
-                  </div>
-                  <div className="strat-factor-card" title="Capital Efficiency">
-                    <div className="strat-factor-header">
-                      <span className="strat-factor-title">Cap. Efficiency</span>
-                      <span className="strat-factor-weight">{optFactors.capitalWeight}%</span>
-                    </div>
-                    <div className="strat-factor-bar-bg">
-                      <div className="strat-factor-bar-fill capital" style={{ width: `${optFactors.capitalWeight * 4.5}%` }} />
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -1976,14 +1869,6 @@ export function StrategyDiscoveryPanel({
                 title="View single contract price history over time"
               >
                 History 📈
-              </button>
-              <button
-                type="button"
-                className="strat-btn-action strat-btn-trade-highlight"
-                onClick={sendToFastOrder}
-                title="Send current strategy legs to Trade Order Ticket"
-              >
-                ⚡ Trade / Order Ticket
               </button>
               <button
                 type="button"
@@ -2922,17 +2807,45 @@ export function StrategyDiscoveryPanel({
             </div>
           )}
 
-          {/* Controls Below Graph: Date Slider, Range Zoom, IV Slider */}
-          <div className="strat-graph-controls-bar">
-            {/* Capability 6: Days Until Expiration / Date Slider */}
-            <div className="strat-date-slider-row">
-              <span className="strat-slider-label">
+          {/* Controls Directly at Bottom of Chart: Unified Space-Conserving Bar */}
+          <div className="strat-chart-unified-footer-bar">
+            {/* Left: View Mode (Graph / Matrix) & Matrix Metrics */}
+            <div className="strat-footer-mode-group">
+              <SegmentedControl
+                ariaLabel="Payoff display mode"
+                value={builderDisplayMode}
+                onChange={(val) => setBuilderDisplayMode(val as "graph" | "table")}
+                options={[
+                  { id: "graph", label: "Graph", icon: "📈" },
+                  { id: "table", label: "Matrix Table", icon: "⊞" },
+                ]}
+                size="sm"
+              />
+
+              <PillGroup
+                ariaLabel="Matrix metric mode"
+                value={builderMetricMode}
+                onChange={(val) => setBuilderMetricMode(val as "pnl_dollar" | "pnl_pct" | "contract_val" | "collateral_pct")}
+                variant="cyan"
+                size="sm"
+                options={[
+                  { id: "pnl_dollar", label: "P/L ($)" },
+                  { id: "pnl_pct", label: "P/L (%)" },
+                  { id: "collateral_pct", label: "% Risk" },
+                  { id: "contract_val", label: "Value" },
+                ]}
+              />
+            </div>
+
+            {/* Center: Date Slider */}
+            <div className="strat-footer-date-group">
+              <span className="strat-footer-slider-label">
                 DATE:{" "}
                 {builderDateSliderPct === 100
-                  ? `At Expiration (${selectedExpiration.label})`
+                  ? `At Exp (${selectedExpiration.label})`
                   : builderDateSliderPct === 0
-                  ? `Today (${selectedExpiration.dte}d left)`
-                  : `In ${Math.round((builderDateSliderPct / 100) * selectedExpiration.dte)}d (${Math.round(tRemainingDays)}d left)`}
+                  ? `Today (${selectedExpiration.dte}d)`
+                  : `In ${Math.round((builderDateSliderPct / 100) * selectedExpiration.dte)}d (${Math.round(tRemainingDays)}d)`}
               </span>
               <input
                 type="range"
@@ -2940,110 +2853,67 @@ export function StrategyDiscoveryPanel({
                 max={100}
                 value={builderDateSliderPct}
                 onChange={(e) => setBuilderDateSliderPct(Number(e.target.value))}
-                className="strat-date-range-slider"
+                className="strat-date-range-slider compact"
               />
-              <span className="strat-slider-end">(At expiration)</span>
             </div>
 
-            {/* Subrow: Range Zoom & Capability 7: Implied Volatility Slider */}
-            <div className="strat-sliders-subrow">
-              <div className="strat-range-group">
-                <span>RANGE: ±{effectiveRangePct.toFixed(1)}%</span>
-                <div className="strat-zoom-btn-group">
+            {/* Right: Range Zoom & IV Adjustment */}
+            <div className="strat-footer-tools-group">
+              <div className="strat-zoom-btn-group compact">
+                <span className="strat-footer-sub-label">RANGE:</span>
+                <button
+                  type="button"
+                  className={`strat-zoom-btn ${builderZoomLevel === "x1" ? "active" : ""}`}
+                  onClick={() => setBuilderZoomLevel("x1")}
+                >
+                  ±20%
+                </button>
+                <button
+                  type="button"
+                  className={`strat-zoom-btn ${builderZoomLevel === "x2" ? "active" : ""}`}
+                  onClick={() => setBuilderZoomLevel("x2")}
+                >
+                  ±40%
+                </button>
+                <button
+                  type="button"
+                  className={`strat-zoom-btn ${builderZoomLevel === "x3" ? "active" : ""}`}
+                  onClick={() => setBuilderZoomLevel("x3")}
+                >
+                  ±70%
+                </button>
+              </div>
+
+              <div className="strat-footer-iv-group">
+                <span className="strat-footer-sub-label">IV: {builderIv.toFixed(1)}%</span>
+                <div className="strat-iv-presets mini">
                   <button
                     type="button"
-                    className={`strat-zoom-btn ${builderZoomLevel === "x1" ? "active" : ""}`}
-                    onClick={() => setBuilderZoomLevel("x1")}
+                    className="strat-iv-btn mini crush"
+                    onClick={() => setBuilderIv(Math.max(10, Number((builderIv * 0.75).toFixed(1))))}
+                    title="Simulate IV Crush (-25%)"
                   >
-                    ±20%
+                    -25%
                   </button>
                   <button
                     type="button"
-                    className={`strat-zoom-btn ${builderZoomLevel === "x2" ? "active" : ""}`}
-                    onClick={() => setBuilderZoomLevel("x2")}
+                    className="strat-iv-btn mini surge"
+                    onClick={() => setBuilderIv(Math.min(150, Number((builderIv * 1.25).toFixed(1))))}
+                    title="Simulate IV Expansion (+25%)"
                   >
-                    ±40%
+                    +25%
                   </button>
                   <button
                     type="button"
-                    className={`strat-zoom-btn ${builderZoomLevel === "x3" ? "active" : ""}`}
-                    onClick={() => setBuilderZoomLevel("x3")}
+                    className="strat-iv-btn mini reset"
+                    onClick={() => setBuilderIv(44.2)}
+                    title="Reset IV to baseline"
                   >
-                    ±70%
+                    ↺
                   </button>
                 </div>
               </div>
-
-              {/* Capability 7: IV Slider & Presets */}
-              <div className="strat-iv-group">
-                <div className="strat-iv-label-row">
-                  <span>IMPLIED VOLATILITY: {builderIv.toFixed(1)}%</span>
-                  <div className="strat-iv-presets">
-                    <button
-                      type="button"
-                      className="strat-iv-btn crush"
-                      onClick={() => setBuilderIv(Math.max(10, Number((builderIv * 0.75).toFixed(1))))}
-                      title="Simulate IV Crush post-earnings (-25%)"
-                    >
-                      -25% Crush
-                    </button>
-                    <button
-                      type="button"
-                      className="strat-iv-btn surge"
-                      onClick={() => setBuilderIv(Math.min(150, Number((builderIv * 1.25).toFixed(1))))}
-                      title="Simulate IV Expansion (+25%)"
-                    >
-                      +25% Surge
-                    </button>
-                    <button
-                      type="button"
-                      className="strat-iv-btn reset"
-                      onClick={() => setBuilderIv(44.2)}
-                      title="Reset IV to default baseline"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min={10}
-                  max={150}
-                  step={0.5}
-                  value={builderIv}
-                  onChange={(e) => setBuilderIv(Number(e.target.value))}
-                  className="strat-iv-range-slider"
-                />
-              </div>
             </div>
-          </div>
-
-          {/* Bottom View & Metric Mode Switchers */}
-          <div className="strat-bottom-mode-bar">
-            <SegmentedControl
-              ariaLabel="Payoff display mode"
-              value={builderDisplayMode}
-              onChange={(val) => setBuilderDisplayMode(val as "graph" | "table")}
-              options={[
-                { id: "graph", label: "Graph", icon: "📈" },
-                { id: "table", label: "Matrix Table", icon: "⊞" },
-              ]}
-              size="md"
-            />
-
-            <PillGroup
-              ariaLabel="Matrix metric mode"
-              value={builderMetricMode}
-              onChange={(val) => setBuilderMetricMode(val as "pnl_dollar" | "pnl_pct" | "contract_val" | "collateral_pct")}
-              variant="cyan"
-              size="sm"
-              options={[
-                { id: "pnl_dollar", label: "Profit / Loss $" },
-                { id: "pnl_pct", label: "Profit / Loss %" },
-                { id: "collateral_pct", label: "% of Risk" },
-                { id: "contract_val", label: "Contract Value" },
-              ]}
-            />
           </div>
         </div>
       )}
