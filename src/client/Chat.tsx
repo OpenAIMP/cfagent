@@ -9,7 +9,6 @@ import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub, type TradingSubTab } from "./ETradeTradingHub";
 import { SettingsMenu, ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { FossResearchHub } from "./FossResearchHub";
-import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
@@ -2136,23 +2135,6 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             <div className="sub-header-right">
-              {/* E*TRADE Dynamic Broker Account & Settings Menu */}
-              <SettingsMenu
-                userLogin={user.login}
-                userName={user.name}
-                userAvatar={user.avatar}
-                theme={theme}
-                onCycleTheme={handleCycleTheme}
-                currentLayout={navLayout}
-                onToggleLayout={handleToggleNavLayout}
-                accountMode={accountMode}
-                onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-                visibleTabs={visibleTabs}
-                onToggleTabVisibility={handleToggleTabVisibility}
-                onSetVisibleTabs={handleSetVisibleTabs}
-                {...(brokerProps || {})}
-              />
-
               {/* Global Stock Search Bar */}
               <StockSearchBar
                 onSelectTab={(newTab) => {
@@ -2175,39 +2157,22 @@ export function Chat({ user }: { user: User }) {
                 Trade
               </button>
 
-              <AsyncJobsPanel />
-
-              {/* Action icon cluster: Theme + Switch Layout + Logout grouped together as pure icons next to each other */}
-              <div className="top-icon-actions-cluster">
-                <button
-                  type="button"
-                  className="top-icon-action-btn theme-btn"
-                  onClick={handleCycleTheme}
-                  title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
-                  aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
-                >
-                  {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-                </button>
-
-                <button
-                  type="button"
-                  className="top-icon-action-btn layout-btn"
-                  onClick={() => handleToggleNavLayout("top")}
-                  title="Switch navigation menu to Top Nav Bar"
-                  aria-label="Switch to Top Menu"
-                >
-                  <NavIcons.LayoutTop />
-                </button>
-
-                <a
-                  href="/auth/logout"
-                  className="top-icon-action-btn logout-btn"
-                  title={`Sign out (@${user.login})`}
-                  aria-label="Sign out"
-                >
-                  <NavIcons.Logout />
-                </a>
-              </div>
+              {/* Unified Settings & Broker Menu */}
+              <SettingsMenu
+                userLogin={user.login}
+                userName={user.name}
+                userAvatar={user.avatar}
+                theme={theme}
+                onCycleTheme={handleCycleTheme}
+                currentLayout={navLayout}
+                onToggleLayout={handleToggleNavLayout}
+                accountMode={accountMode}
+                onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                visibleTabs={visibleTabs}
+                onToggleTabVisibility={handleToggleTabVisibility}
+                onSetVisibleTabs={handleSetVisibleTabs}
+                {...(brokerProps || {})}
+              />
             </div>
           </header>
         ) : (
@@ -2225,24 +2190,21 @@ export function Chat({ user }: { user: User }) {
               accountMode={accountMode}
               onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
               headerChildren={
-                <>
-                  <SettingsMenu
-                    userLogin={user.login}
-                    userName={user.name}
-                    userAvatar={user.avatar}
-                    theme={theme}
-                    onCycleTheme={handleCycleTheme}
-                    currentLayout={navLayout}
-                    onToggleLayout={handleToggleNavLayout}
-                    accountMode={accountMode}
-                    onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-                    visibleTabs={visibleTabs}
-                    onToggleTabVisibility={handleToggleTabVisibility}
-                    onSetVisibleTabs={handleSetVisibleTabs}
-                    {...(brokerProps || {})}
-                  />
-                  <AsyncJobsPanel />
-                </>
+                <SettingsMenu
+                  userLogin={user.login}
+                  userName={user.name}
+                  userAvatar={user.avatar}
+                  theme={theme}
+                  onCycleTheme={handleCycleTheme}
+                  currentLayout={navLayout}
+                  onToggleLayout={handleToggleNavLayout}
+                  accountMode={accountMode}
+                  onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                  visibleTabs={visibleTabs}
+                  onToggleTabVisibility={handleToggleTabVisibility}
+                  onSetVisibleTabs={handleSetVisibleTabs}
+                  {...(brokerProps || {})}
+                />
               }
               theme={theme}
               onCycleTheme={handleCycleTheme}

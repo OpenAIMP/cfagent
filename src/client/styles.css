@@ -7809,7 +7809,7 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 375px;
+  width: 395px;
   max-width: 95vw;
   max-height: calc(100vh - 110px);
   overflow-y: auto;
@@ -8319,6 +8319,260 @@ body {
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #475569;
+}
+
+/* ==========================================================================
+   Background & Async Tasks in SettingsMenu
+   ========================================================================== */
+.settings-async-tasks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.settings-async-jobs-box {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.async-jobs-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.async-status-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: #cbd5e1;
+}
+
+.async-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.async-dot.active {
+  background: #38bdf8;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.7);
+  animation: pulseDot 1.4s infinite ease-in-out;
+}
+
+.async-dot.idle {
+  background: #64748b;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.async-count-txt {
+  font-weight: 500;
+}
+
+.btn-async-mini-refresh {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 0.66rem;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-async-mini-refresh:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.async-jobs-empty-hint {
+  font-size: 0.68rem;
+  color: #64748b;
+  padding: 0.35rem 0;
+  font-style: italic;
+}
+
+.settings-async-jobs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 140px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.settings-async-job-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.68rem;
+}
+
+.job-item-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.job-item-label {
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-item-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1px;
+}
+
+.job-tag-status {
+  text-transform: uppercase;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.job-tag-status.running {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.job-tag-status.queued {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.job-tag-status.completed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.job-tag-status.failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.job-tag-time {
+  font-size: 0.62rem;
+  color: #94a3b8;
+}
+
+.btn-async-view-result {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 0.62rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-async-view-result:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: #ffffff;
+}
+
+.settings-async-result-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+}
+
+.async-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.66rem;
+}
+
+.result-job-id {
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+.btn-async-download {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 0.62rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.settings-async-result-body {
+  margin: 0;
+  padding: 0.4rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  font-size: 0.62rem;
+  max-height: 90px;
+  overflow-y: auto;
+  color: #cbd5e1;
+  scrollbar-width: thin;
+}
+
+/* Light Mode Overrides for Async Tasks */
+[data-theme="light"] .settings-async-jobs-box {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .async-status-pill-badge {
+  color: #334155;
+}
+
+[data-theme="light"] .btn-async-mini-refresh {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme="light"] .settings-async-job-item {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .job-item-label {
+  color: #0f172a;
+}
+
+[data-theme="light"] .settings-async-result-body {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1e293b;
 }
 
 .user-session-section {

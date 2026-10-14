@@ -5,6 +5,7 @@ import {
   DEFAULT_VISIBLE_NAV_TABS,
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
+import { AsyncJobsPanel } from "./AsyncJobsPanel";
 
 export interface SettingsMenuProps {
   activeEnv?: "TEST" | "PROD";
@@ -635,6 +636,15 @@ export function SettingsMenu({
                 );
               })}
             </div>
+          </div>
+
+          {/* Background Tasks & Async Work */}
+          <div className="etrade-panel-section settings-async-tasks-section">
+            <div className="section-label-row">
+              <span>Background Tasks</span>
+              <small>Async jobs &amp; execution queue</small>
+            </div>
+            <AsyncJobsPanel embedded />
           </div>
 
           {/* User Account & Session */}

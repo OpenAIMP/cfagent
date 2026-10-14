@@ -11,7 +11,11 @@ type AsyncJob = {
   error?: string;
 };
 
-export function AsyncJobsPanel() {
+export interface AsyncJobsPanelProps {
+  embedded?: boolean;
+}
+
+export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
   const [jobs, setJobs] = useState<AsyncJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<string>();
   const [result, setResult] = useState<unknown>();
@@ -62,6 +66,78 @@ export function AsyncJobsPanel() {
   };
 
   const activeCount = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
+
+  if (embedded) {
+    return (
+      <div className="settings-async-jobs-box">
+        <div className="async-jobs-subhead">
+          <div className="async-status-pill-badge">
+            <span className={`async-dot ${activeCount > 0 ? "active" : "idle"}`} />
+            <span className="async-count-txt">
+              {activeCount > 0 ? `${activeCount} task${activeCount === 1 ? "" : "s"} running` : "Idle / Queue clear"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-async-mini-refresh"
+            onClick={() => void refresh()}
+            title="Refresh background tasks"
+          >
+            🔄 Refresh
+          </button>
+        </div>
+
+        {error && <p className="async-jobs-error" role="alert">{error}</p>}
+
+        {jobs.length === 0 ? (
+          <div className="async-jobs-empty-hint">
+            <span>No background jobs recorded in this session.</span>
+          </div>
+        ) : (
+          <ul className="settings-async-jobs-list">
+            {jobs.slice(0, 5).map((job) => (
+              <li key={job.jobId} className={`settings-async-job-item status-${job.status}`}>
+                <div className="job-item-main">
+                  <span className="job-item-label" title={job.label}>{job.label}</span>
+                  <div className="job-item-tags">
+                    <span className={`job-tag-status ${job.status}`}>{job.status}</span>
+                    <span className="job-tag-time">
+                      {new Date(job.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                </div>
+                {(job.status === "completed" || job.status === "failed") && (
+                  <button
+                    type="button"
+                    className="btn-async-view-result"
+                    onClick={() => void openResult(job.jobId)}
+                    title={job.status === "completed" ? "Inspect job payload result" : "Inspect failure reason"}
+                  >
+                    {job.status === "completed" ? "Result" : "Error"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {selectedJob && result !== undefined && (
+          <div className="settings-async-result-container">
+            <div className="async-result-header">
+              <span className="result-job-id" title={selectedJob}>Task: {selectedJob.slice(0, 14)}…</span>
+              <button type="button" className="btn-async-download" onClick={downloadResult} title="Export JSON result">
+                📥 Export JSON
+              </button>
+            </div>
+            <pre className="settings-async-result-body">
+              {resultJson.slice(0, 10_000)}
+              {resultJson.length > 10_000 ? "\n… preview truncated; download full JSON." : ""}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <details className="async-jobs-panel">

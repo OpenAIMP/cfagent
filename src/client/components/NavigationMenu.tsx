@@ -610,21 +610,6 @@ export function NavigationMenu({
           )}
         </div>
 
-        {/* Account Mode Pill */}
-        {!collapsed && (
-          <div className="sidebar-mode-strip">
-            <span className="pill-pro">PRO</span>
-            <button
-              type="button"
-              className={`mode-toggle-pill ${accountMode}`}
-              onClick={onToggleAccountMode}
-              title="Click to toggle Paper / Live simulated execution mode"
-            >
-              <span className="mode-dot" />
-              <span className="mode-name">{accountMode === "paper" ? "Paper (Simulated)" : "Live Trading"}</span>
-            </button>
-          </div>
-        )}
 
         {/* Navigation Categories and Items */}
         <div className="sidebar-nav-scroll">
@@ -745,7 +730,7 @@ export function NavigationMenu({
           </div>
         </div>
 
-        {/* Sidebar Bottom Controls: User profile dock with Theme, Switch Layout & Logout grouped together */}
+        {/* Sidebar Bottom: User identity profile */}
         <div className="sidebar-footer">
           <div className="sidebar-user-dock">
             <img src={user.avatar} alt={user.login} className="sidebar-user-avatar" />
@@ -755,38 +740,6 @@ export function NavigationMenu({
                 <span className="sidebar-user-login">@{user.login}</span>
               </div>
             )}
-            <div className="sidebar-footer-actions">
-              {onCycleTheme && (
-                <button
-                  type="button"
-                  className="sidebar-icon-action-btn theme-btn"
-                  onClick={onCycleTheme}
-                  title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
-                  aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
-                >
-                  {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-                </button>
-              )}
-
-              <button
-                type="button"
-                className="sidebar-icon-action-btn layout-btn"
-                onClick={() => onToggleLayout("top")}
-                title="Switch navigation menu to Top Nav Bar"
-                aria-label="Switch to Top Menu"
-              >
-                <NavIcons.LayoutTop />
-              </button>
-
-              <a
-                href="/auth/logout"
-                className="sidebar-icon-action-btn logout-btn"
-                title={`Sign out (@${user.login})`}
-                aria-label="Sign out"
-              >
-                <NavIcons.Logout />
-              </a>
-            </div>
           </div>
         </div>
       </aside>
@@ -805,20 +758,8 @@ export function NavigationMenu({
             <span className="top-brand-name">NextGenTP</span>
           </div>
 
-          {/* Institutional Status Badges */}
+          {/* Institutional Market Status */}
           <div className="top-status-pills">
-            <span className="pill-pro">PRO</span>
-            <span className="pill-region">🇺🇸 US</span>
-            <button
-              type="button"
-              className={`pill-mode ${accountMode}`}
-              onClick={onToggleAccountMode}
-              title="Toggle Paper / Live execution mode"
-            >
-              <span className="mode-dot" />
-              <span>{accountMode === "paper" ? "Paper" : "Live"}</span>
-              <span className="chevron-down">▾</span>
-            </button>
             <span className="pill-market-status">
               <span className="market-dot closed" />
               <span>Market CLOSED · opens Mon 09:30 ET</span>
@@ -826,7 +767,7 @@ export function NavigationMenu({
           </div>
         </div>
 
-        {/* Right Controls: Stock Search, Quick Trade, Extra Children, Theme Toggle, Switch to Left Nav, User Profile */}
+        {/* Right Controls: Stock Search, Quick Trade, Settings Menu */}
         <div className="top-nav-right-controls">
           {/* Global Stock Search Bar */}
           <StockSearchBar onSelectTab={onSelectTab} onAskAgent={onAskAgent} />
@@ -842,40 +783,6 @@ export function NavigationMenu({
           </button>
 
           {headerChildren}
-
-          {/* Action icon cluster: Theme + Switch to Sidebar + Logout grouped together as pure icons next to each other */}
-          <div className="top-icon-actions-cluster">
-            {onCycleTheme && (
-              <button
-                type="button"
-                className="top-icon-action-btn theme-btn"
-                onClick={onCycleTheme}
-                title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
-                aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
-              >
-                {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="top-icon-action-btn layout-btn"
-              onClick={() => onToggleLayout("left")}
-              title="Switch menu to Left Sidebar layout"
-              aria-label="Switch menu to Left Sidebar layout"
-            >
-              <NavIcons.LayoutSidebar />
-            </button>
-
-            <a
-              href="/auth/logout"
-              className="top-icon-action-btn logout-btn"
-              title={`Sign out (@${user.login})`}
-              aria-label="Sign out"
-            >
-              <NavIcons.Logout />
-            </a>
-          </div>
         </div>
       </div>
 
