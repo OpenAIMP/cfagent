@@ -709,6 +709,7 @@ export interface FossQuote {
   symbol: string;
   provider: "yfinance" | "alpaca" | "hybrid";
   companyName?: string;
+  name?: string;
   price: number;
   lastPrice?: number;
   change: number;
@@ -721,12 +722,16 @@ export interface FossQuote {
   open: number;
   high: number;
   low: number;
+  dayHigh?: number;
+  dayLow?: number;
   previousClose: number;
   vwap?: number;
   trailingPE?: number;
+  peRatio?: number;
   marketCap?: number;
   rsi14?: number;
   macdSignal?: string;
+  marketState?: string;
   timestamp: string;
   currency?: string;
 }

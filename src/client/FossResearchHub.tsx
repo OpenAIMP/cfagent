@@ -602,7 +602,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   {activeSymbol}
                 </span>
                 <span style={{ fontSize: "0.95rem", color: "#cbd5e1", fontWeight: 600 }}>
-                  {activeQuote?.name || yfinanceQuote?.name || `${activeSymbol} Equity`}
+                  {activeQuote?.companyName || activeQuote?.name || yfinanceQuote?.companyName || yfinanceQuote?.name || `${activeSymbol} Equity`}
                 </span>
                 <span className="pill-badge" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.75rem", padding: "0.15rem 0.5rem", borderRadius: "4px" }}>
                   Active Analyzed Security
@@ -655,7 +655,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                   <div>
                     <span style={{ color: "#94a3b8" }}>Day Range: </span>
-                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.dayLow || 0).toFixed(2)} - ${Number(yfinanceQuote?.dayHigh || 0).toFixed(2)}</strong>
+                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.low ?? yfinanceQuote?.dayLow ?? 0).toFixed(2)} - ${Number(yfinanceQuote?.high ?? yfinanceQuote?.dayHigh ?? 0).toFixed(2)}</strong>
                   </div>
                   <div>
                     <span style={{ color: "#94a3b8" }}>Volume: </span>
@@ -663,7 +663,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                   <div>
                     <span style={{ color: "#94a3b8" }}>P/E Ratio: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{yfinanceQuote?.peRatio ? Number(yfinanceQuote.peRatio).toFixed(1) : "N/A"}</strong>
+                    <strong style={{ color: "#f1f5f9" }}>{yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio ? Number(yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio).toFixed(1) : "N/A"}</strong>
                   </div>
                 </div>
               </div>
