@@ -10052,6 +10052,47 @@ body {
   text-transform: uppercase;
 }
 
+.group-title-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.live-stream-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #10b981;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+.live-stream-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 6px #10b981;
+  animation: liveDotPulse 1.6s infinite ease-in-out;
+}
+
+@keyframes liveDotPulse {
+  0%, 100% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
 .group-count {
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 6px;
@@ -10150,7 +10191,7 @@ body {
 .ticker-price-col {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.65rem;
   flex-shrink: 0;
 }
 
@@ -10159,6 +10200,51 @@ body {
   font-size: 0.86rem;
   color: #f8fafc;
   font-family: var(--font-mono);
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: background-color 0.35s ease, color 0.35s ease, transform 0.2s ease;
+}
+
+.ticker-price-val.flash-up {
+  background-color: rgba(16, 185, 129, 0.28);
+  color: #10b981;
+  animation: tickFlashGreen 0.75s ease-out;
+}
+
+.ticker-price-val.flash-down {
+  background-color: rgba(239, 68, 68, 0.28);
+  color: #ef4444;
+  animation: tickFlashRed 0.75s ease-out;
+}
+
+@keyframes tickFlashGreen {
+  0% {
+    background-color: rgba(16, 185, 129, 0.65);
+    color: #34d399;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    transform: scale(1.04);
+  }
+  100% {
+    background-color: transparent;
+    color: #f8fafc;
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+@keyframes tickFlashRed {
+  0% {
+    background-color: rgba(239, 68, 68, 0.65);
+    color: #f87171;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+    transform: scale(1.04);
+  }
+  100% {
+    background-color: transparent;
+    color: #f8fafc;
+    box-shadow: none;
+    transform: scale(1);
+  }
 }
 
 .ticker-change-pill {
@@ -10177,6 +10263,16 @@ body {
 .ticker-change-pill.negative {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
+}
+
+.ticker-spread-text {
+  font-size: 0.64rem;
+  color: #64748b;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 .nav-row-icon,
@@ -10321,6 +10417,21 @@ body {
 [data-theme="light"] .stock-search-modal-footer {
   background: #f8fafc;
   border-top-color: #e2e8f0;
+}
+
+[data-theme="light"] .ticker-price-val.flash-up {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #059669;
+}
+
+[data-theme="light"] .ticker-price-val.flash-down {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+}
+
+[data-theme="light"] .ticker-spread-text {
+  background: rgba(0, 0, 0, 0.04);
+  color: #64748b;
 }
 
 [data-theme="light"] .key-hint kbd {

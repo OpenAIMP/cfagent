@@ -19,6 +19,7 @@ import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
+import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
 import {
   RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
@@ -522,6 +523,31 @@ export default {
       handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
 
       return new Response(null, { status: 101, webSocket: clientWs });
+    }
+
+    // --- Real-Time Market Data Quotes WebSocket Session (Issue #21) ---
+    if ((path === "/api/market/quotes/ws" || path === "/api/foss/quotes/ws") && request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      const [clientWs, serverWs] = Object.values(pair);
+      serverWs.accept();
+
+      handleMarketQuotesWebSocket(serverWs, env).catch(console.warn);
+
+      return new Response(null, { status: 101, webSocket: clientWs });
+    }
+
+    // --- Batch Market Quotes HTTP Endpoint (Fallback for non-WebSocket clients) ---
+    if ((path === "/api/market/quotes" || path === "/api/foss/quotes") && request.method === "GET") {
+      const symbolsParam = url.searchParams.get("symbols") || "";
+      const symbols = symbolsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return handleMarketQuotesHttp(
+        symbols.length > 0
+          ? symbols
+          : ["NVDA", "AAPL", "MSFT", "TSLA", "SPY", "QQQ", "BTC/USD", "ETH/USD", "SOL/USD"]
+      );
     }
 
     // --- Cloudflare Browser Agent: Webhook Snapshot API ---
