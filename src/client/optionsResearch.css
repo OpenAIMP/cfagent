@@ -3,22 +3,45 @@
    Harmonized with OptionStrat Dark Design System (#060b18 / #38bdf8)
    ========================================================================== */
 
-:root {
-  --opt-bg-base: #060b18;
-  --opt-bg-surface: #0b1329;
-  --opt-bg-surface-elevated: rgba(15, 23, 42, 0.75);
-  --opt-bg-input: #080e1b;
-  --opt-border-subtle: rgba(56, 189, 248, 0.16);
-  --opt-border-strong: rgba(56, 189, 248, 0.35);
-  --opt-accent-cyan: #38bdf8;
-  --opt-accent-blue: #0284c7;
-  --opt-accent-emerald: #10b981;
-  --opt-accent-amber: #f59e0b;
-  --opt-accent-rose: #ef4444;
-  --opt-text-main: #f8fafc;
-  --opt-text-muted: #94a3b8;
-  --opt-text-dim: #64748b;
-  --opt-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+:root,
+[data-theme="dark"],
+body.theme-dark,
+.dark {
+  --opt-bg-base: var(--color-surface);
+  --opt-bg-surface: var(--color-surface-raised);
+  --opt-bg-surface-elevated: var(--color-card-elevated);
+  --opt-bg-input: var(--color-surface-sunken);
+  --opt-border-subtle: var(--color-border-subtle);
+  --opt-border-strong: var(--color-border-medium);
+  --opt-accent-cyan: var(--color-accent);
+  --opt-accent-blue: var(--color-accent);
+  --opt-accent-emerald: var(--color-success);
+  --opt-accent-amber: var(--color-warning);
+  --opt-accent-rose: var(--color-danger);
+  --opt-text-main: var(--color-text-primary);
+  --opt-text-muted: var(--color-text-muted);
+  --opt-text-dim: var(--color-text-dim);
+  --opt-font-mono: var(--font-mono);
+}
+
+[data-theme="light"],
+body.theme-light,
+.light {
+  --opt-bg-base: var(--color-surface);
+  --opt-bg-surface: var(--color-surface-raised);
+  --opt-bg-surface-elevated: var(--color-card);
+  --opt-bg-input: var(--color-surface-sunken);
+  --opt-border-subtle: var(--color-border-subtle);
+  --opt-border-strong: var(--color-border-medium);
+  --opt-accent-cyan: var(--color-accent);
+  --opt-accent-blue: var(--color-accent);
+  --opt-accent-emerald: var(--color-success);
+  --opt-accent-amber: var(--color-warning);
+  --opt-accent-rose: var(--color-danger);
+  --opt-text-main: var(--color-text-primary);
+  --opt-text-muted: var(--color-text-muted);
+  --opt-text-dim: var(--color-text-dim);
+  --opt-font-mono: var(--font-mono);
 }
 
 .options-research-section {

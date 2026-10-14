@@ -1,7 +1,7 @@
+@import "./tokens.css";
+
 :root {
   --app-font-scale: 1;
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
   font-size: calc(15px * var(--app-font-scale, 1));
 }
 
@@ -5470,11 +5470,11 @@ body {
 
 .ticker-input {
   flex: 1;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid var(--border-subtle);
-  color: #ffffff;
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
+  color: var(--color-input-foreground);
   padding: 0.65rem 0.85rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -5482,10 +5482,10 @@ body {
 }
 
 .btn-peek-quote {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-subtle);
-  color: #e2e8f0;
-  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-md);
   padding: 0 1rem;
   font-size: 0.82rem;
   cursor: pointer;
@@ -5495,16 +5495,18 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
   padding: 0.5rem 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-top: 0.5rem;
   font-size: 0.8rem;
 }
 
 .quote-price {
   font-weight: 700;
-  color: #38bdf8;
+  color: var(--color-accent);
 }
 
 .action-toggle-grid {
@@ -5514,11 +5516,11 @@ body {
 }
 
 .action-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-subtle);
-  color: #94a3b8;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
   padding: 0.6rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-weight: 700;
   font-size: 0.85rem;
   cursor: pointer;
@@ -5526,15 +5528,15 @@ body {
 }
 
 .action-btn.buy.active {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: #10b981;
-  color: #34d399;
+  background: var(--color-success-subtle);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .action-btn.sell.active {
-  background: rgba(239, 68, 68, 0.25);
-  border-color: #ef4444;
-  color: #f87171;
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .quantity-stepper-row {
@@ -5544,12 +5546,12 @@ body {
 }
 
 .qty-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-subtle);
-  color: #ffffff;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-weight: bold;
   cursor: pointer;
 }
@@ -5557,11 +5559,11 @@ body {
 .qty-input {
   width: 90px;
   text-align: center;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid var(--border-subtle);
-  color: #ffffff;
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
+  color: var(--color-input-foreground);
   padding: 0.65rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 1rem;
   font-weight: bold;
 }
@@ -5573,25 +5575,25 @@ body {
 }
 
 .qty-chip {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #cbd5e1;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
   padding: 0.25rem 0.6rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   cursor: pointer;
 }
 
 .qty-chip.selected {
-  background: rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
-  color: #38bdf8;
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .order-calc-card {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
   padding: 1rem;
   display: flex;
   flex-direction: column;
@@ -5602,21 +5604,22 @@ body {
 .calc-row {
   display: flex;
   justify-content: space-between;
-  color: #94a3b8;
+  color: var(--color-text-muted);
 }
 
 .calc-row.total {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.5rem;
   margin-top: 0.25rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-weight: 700;
 }
 
 .calc-total-val {
-  color: #34d399;
+  color: var(--color-success);
   font-size: 1.15rem;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: var(--font-mono);
+  font-weight: 700;
 }
 
 .btn-submit-preview {
@@ -5703,24 +5706,30 @@ body {
 
 .summary-title {
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .summary-amount {
   font-size: 1.45rem;
   font-weight: 700;
-  color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 .summary-change {
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: var(--color-text-dim);
 }
 
 .summary-change.positive {
-  color: #34d399;
+  color: var(--color-success);
+}
+
+.summary-change.negative {
+  color: var(--color-danger);
 }
 
 /* NLQ Section */
@@ -12176,20 +12185,20 @@ body.theme-light .nav-font-scale-text {
 .autopilot-title {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   letter-spacing: -0.02em;
   margin: 0 0 0.4rem 0;
 }
 
 .autopilot-subtitle {
   font-size: 0.88rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin: 0;
   line-height: 1.5;
 }
 
 .account-highlight {
-  color: #f8fafc;
+  color: var(--color-text-primary);
   font-weight: 600;
 }
 
@@ -12206,16 +12215,17 @@ body.theme-light .nav-font-scale-text {
 }
 
 .autopilot-card {
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
   padding: 1.35rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-card);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .autopilot-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--color-border-medium);
 }
 
 /* Status Card */
@@ -12993,8 +13003,9 @@ body.theme-light .nav-font-scale-text {
   height: 26px !important;
   min-height: 26px !important;
   max-height: 26px !important;
-  background: rgba(6, 10, 20, 0.98) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  background: var(--color-surface-raised) !important;
+  border-bottom: 1px solid var(--color-border-subtle) !important;
+  color: var(--color-text-primary) !important;
   padding: 0 0.85rem !important;
   box-sizing: border-box !important;
   overflow: hidden !important;
@@ -13010,28 +13021,28 @@ body.theme-light .nav-font-scale-text {
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: #10b981;
+  color: var(--color-success);
   text-transform: uppercase;
   flex-shrink: 0;
   padding: 1px 6px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  border-radius: 4px;
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-xs);
 }
 
 .ticker-live-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--color-success);
   display: inline-block;
-  box-shadow: 0 0 6px #10b981;
+  box-shadow: 0 0 6px var(--color-success);
   animation: tickerPulse 2s infinite ease-in-out;
 }
 
 .ticker-live-dot.syncing {
-  background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
+  background: var(--color-warning);
+  box-shadow: 0 0 6px var(--color-warning);
 }
 
 @keyframes tickerPulse {
@@ -13059,15 +13070,15 @@ body.theme-light .nav-font-scale-text {
   gap: 0.35rem;
   padding: 1px 7px;
   height: 20px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   font-size: 0.68rem;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
   flex-shrink: 0;
-  color: #cbd5e1;
+  color: var(--color-text-secondary);
 }
 
 .ticker-tape-chip:hover {

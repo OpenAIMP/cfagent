@@ -40,6 +40,8 @@ export function applyTheme(mode: ThemeMode): void {
   
   document.documentElement.setAttribute("data-theme", effective);
   document.documentElement.setAttribute("data-theme-preference", mode);
+  document.documentElement.classList.toggle("dark", effective === "dark");
+  document.documentElement.classList.toggle("light", effective === "light");
   document.documentElement.style.colorScheme = effective;
 
   if (document.body) {

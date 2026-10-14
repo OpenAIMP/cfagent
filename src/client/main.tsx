@@ -3,12 +3,15 @@ import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
 import { applyTheme, getStoredTheme, initThemeListener } from "./theme";
 import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
+import { applyDensity, getStoredDensity } from "./designTokens";
+import "./tokens.css";
 import "./styles.css";
 
-// Initialize theme and typography preferences immediately before React mounts
+// Initialize theme, typography, and density preferences immediately before React mounts
 applyTheme(getStoredTheme());
 initThemeListener();
 applyTypography(getStoredFontScale(), getStoredFontStyle());
+applyDensity(getStoredDensity());
 
 const devUser = import.meta.env.DEV
   ? {

@@ -8,6 +8,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('nextgentp_theme') || 'system';
+        var eff = t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
+        document.documentElement.setAttribute('data-theme', eff);
+        document.documentElement.setAttribute('data-theme-preference', t);
+        document.documentElement.classList.toggle('dark', eff === 'dark');
+        document.documentElement.classList.toggle('light', eff === 'light');
+        document.documentElement.style.colorScheme = eff;
+        var scale = localStorage.getItem('nextgentp_font_scale');
+        if (scale) document.documentElement.style.setProperty('--app-font-scale', scale);
+        var style = localStorage.getItem('nextgentp_font_style');
+        if (style) document.documentElement.setAttribute('data-font-style', style);
+        var density = localStorage.getItem('nextgentp_density') || 'comfortable';
+        document.documentElement.setAttribute('data-density', density);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

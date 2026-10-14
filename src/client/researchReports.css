@@ -3,14 +3,26 @@
   gap: 0.75rem;
   margin: 1rem 0;
   padding: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
 }
 
 .research-report-actions h3,
 .research-report-actions p {
   margin: 0;
+}
+
+.research-report-actions h3 {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: 700;
+}
+
+.research-report-actions p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
 }
 
 .research-report-controls {
@@ -25,6 +37,9 @@
   display: grid;
   flex: 1 1 15rem;
   gap: 0.35rem;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 500;
 }
 
 .research-report-controls input,
@@ -32,20 +47,35 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0.55rem;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  border-radius: 0.4rem;
-  background: #0f172a;
-  color: #e2e8f0;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-input);
+  color: var(--color-input-foreground);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+}
+
+.research-report-controls input:focus,
+.research-report-query textarea:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
 }
 
 .research-report-actions button {
   min-height: 2.35rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #38bdf8;
-  border-radius: 0.4rem;
-  background: rgba(14, 165, 233, 0.15);
-  color: #e0f2fe;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
   cursor: pointer;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.research-report-actions button:hover:not(:disabled) {
+  opacity: 0.85;
+  transform: translateY(-1px);
 }
 
 .research-report-actions button:disabled {
@@ -53,41 +83,19 @@
   cursor: not-allowed;
 }
 
-.research-report-status {
-  color: #86efac;
+.research-report-actions progress {
+  width: 100%;
+  height: 0.5rem;
+  accent-color: var(--color-accent);
 }
 
 .research-report-error {
-  color: #fca5a5;
+  color: var(--color-danger);
+  font-size: var(--font-size-body-sm);
+  font-weight: 500;
 }
 
-.research-report-disclaimer {
-  color: #94a3b8;
-  font-size: 0.8rem;
+.research-report-meta {
+  color: var(--color-text-dim);
+  font-size: var(--font-size-caption);
 }
-
-/* ==========================================================================
-   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
-   ========================================================================== */
-
-[data-theme="light"] .research-report-actions,
-body.theme-light .research-report-actions {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  color: #0f172a;
-}
-
-[data-theme="light"] .research-report-controls input,
-body.theme-light .research-report-controls input,
-[data-theme="light"] .research-report-query textarea,
-body.theme-light .research-report-query textarea {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #0f172a;
-}
-
-[data-theme="light"] .research-report-disclaimer,
-body.theme-light .research-report-disclaimer {
-  color: #475569;
-}
-

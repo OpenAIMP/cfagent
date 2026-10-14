@@ -31,17 +31,17 @@
 }
 
 .risk-modal-container {
-  background: #0f172a;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  border-radius: 14px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-xl);
   width: 100%;
   max-width: 920px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75), 0 0 35px rgba(56, 189, 248, 0.15);
-  color: #f8fafc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: var(--shadow-lg);
+  color: var(--color-surface-raised-foreground);
+  font-family: var(--font-sans);
   overflow: hidden;
   animation: riskSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -554,22 +554,22 @@
 .risk-sizing-input-wrap {
   display: flex;
   align-items: center;
-  background: #0b1120;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-sm);
   padding: 0.35rem 0.65rem;
-  color: #f8fafc;
+  color: var(--color-input-foreground);
 }
 
 .risk-sizing-input-wrap span {
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin-right: 0.25rem;
 }
 
 .risk-sizing-input-wrap input {
   background: transparent;
   border: none;
-  color: #f8fafc;
+  color: var(--color-input-foreground);
   font-size: 0.95rem;
   font-weight: 700;
   width: 110px;
@@ -585,14 +585,14 @@
 .risk-sizing-contracts-val {
   font-size: 1.4rem;
   font-weight: 800;
-  color: #10b981;
+  color: var(--color-success);
 }
 
 /* AI Agent Chat Prompt Card */
 .risk-ai-card {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 10px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -609,20 +609,20 @@
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: #c084fc;
+  color: var(--color-accent);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .risk-ai-prompt-box {
-  background: #090d16;
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
   padding: 0.9rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
-  color: #e9d5ff;
+  color: var(--color-text-primary);
   line-height: 1.45;
   user-select: all;
 }
