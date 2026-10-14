@@ -572,6 +572,12 @@ body.theme-light .workflows-hero-subtitle {
 .screener-feed-callout,
 .strat-timeline-chip,
 .strat-exp-chip,
+.strat-metric-cell,
+.dual-feed-card,
+.workflows-cat-chip,
+.workflows-search-input,
+.dual-card-refresh-btn,
+.pill-badge,
 pre,
 code:not(.did-pill code) {
   border-radius: 8px !important;
@@ -588,7 +594,9 @@ code:not(.did-pill code) {
 .badge-danger,
 .badge-warning,
 .badge-info,
-.ad-net-tag {
+.ad-net-tag,
+.dual-card-status-pill,
+.dual-feed-snapshot-badge {
   border-radius: 9999px !important;
 }
 
@@ -852,6 +860,266 @@ body.theme-light .icon-only-logout:hover {
   background: var(--color-surface-hover) !important;
   border-color: var(--color-border-medium) !important;
   color: var(--color-text-primary) !important;
+}
+
+/* ==========================================================================
+   SYSTEMIC LIGHT THEME RULES: DID, REVENUE, ADS, SOCIAL & WORKFLOWS
+   ========================================================================== */
+
+/* Payments & DID Page */
+.payments-view {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+}
+
+.gateway-cards-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)) !important;
+  gap: 1.25rem !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.gateway-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+[data-theme="light"] .payments-view,
+body.theme-light .payments-view {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .agent-dids-ribbon .did-pill,
+body.theme-light .agent-dids-ribbon .did-pill {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #1e293b !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .did-pill code,
+body.theme-light .did-pill code {
+  color: #0369a1 !important;
+}
+
+[data-theme="light"] .did-role-tag,
+body.theme-light .did-role-tag {
+  background: #e0e7ff !important;
+  color: #3730a3 !important;
+}
+
+[data-theme="light"] .did-role-tag.authorizer,
+body.theme-light .did-role-tag.authorizer {
+  background: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+[data-theme="light"] .gateway-card,
+body.theme-light .gateway-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .gw-name-group h5,
+body.theme-light .gw-name-group h5 {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .gw-cap-tag,
+body.theme-light .gw-cap-tag {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+}
+
+[data-theme="light"] .gw-webhook-info,
+body.theme-light .gw-webhook-info {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Revenue & Monetization */
+[data-theme="light"] .rev-card,
+body.theme-light .rev-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .revenue-section-card,
+body.theme-light .revenue-section-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .revenue-section-card .card-header h4,
+body.theme-light .revenue-section-card .card-header h4 {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .revenue-section-card .card-header p,
+body.theme-light .revenue-section-card .card-header p {
+  color: #64748b !important;
+}
+
+/* Sponsored Offers & Marketplace */
+[data-theme="light"] .ad-spotlight-card,
+body.theme-light .ad-spotlight-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .ad-card-title,
+body.theme-light .ad-card-title {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .ad-card-tagline,
+body.theme-light .ad-card-tagline {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .ad-sponsor-label,
+body.theme-light .ad-sponsor-label {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .ad-stat-pill,
+body.theme-light .ad-stat-pill {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+}
+
+/* Developer Social Platforms / Referrals */
+[data-theme="light"] .referral-social-hub-card,
+body.theme-light .referral-social-hub-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .platform-card,
+body.theme-light .platform-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .platform-card:hover,
+body.theme-light .platform-card:hover {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .platform-info strong,
+body.theme-light .platform-info strong {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .platform-info span,
+body.theme-light .platform-info span {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .join-arrow,
+body.theme-light .join-arrow {
+  color: #94a3b8 !important;
+}
+
+/* Audit & Memory Vault */
+[data-theme="light"] .event-item,
+body.theme-light .event-item {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .event-payload,
+body.theme-light .event-payload {
+  background: #f8fafc !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+}
+
+[data-theme="light"] .memory-card-item,
+body.theme-light .memory-card-item {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Architecture Workflows Hub */
+[data-theme="light"] .workflows-stat-card,
+body.theme-light .workflows-stat-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .workflows-hero-title,
+body.theme-light .workflows-hero-title {
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
+[data-theme="light"] .workflows-hero-subtitle,
+body.theme-light .workflows-hero-subtitle {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .workflows-stat-value,
+body.theme-light .workflows-stat-value {
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .workflows-stat-label,
+body.theme-light .workflows-stat-label,
+[data-theme="light"] .workflows-stat-desc,
+body.theme-light .workflows-stat-desc {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .workflows-search-input,
+body.theme-light .workflows-search-input {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  border-radius: 8px !important;
+}
+
+[data-theme="light"] .workflows-cat-chip,
+body.theme-light .workflows-cat-chip {
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+  border-radius: 8px !important;
+}
+
+[data-theme="light"] .workflows-cat-chip.active,
+body.theme-light .workflows-cat-chip.active {
+  background: #e0f2fe !important;
+  border-color: #0284c7 !important;
+  color: #0284c7 !important;
 }
 
 

@@ -4,8 +4,8 @@ import { Chat } from "./Chat";
 import { applyTheme, getStoredTheme, initThemeListener } from "./theme";
 import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
 import { applyDensity, getStoredDensity } from "./designTokens";
-import "./tokens.css";
 import "./styles.css";
+import "./tokens.css";
 
 // Initialize theme, typography, and density preferences immediately before React mounts
 applyTheme(getStoredTheme());

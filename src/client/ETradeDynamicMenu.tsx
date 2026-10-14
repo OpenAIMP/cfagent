@@ -453,7 +453,7 @@ export function SettingsMenu({
           <div className="etrade-panel-header">
             <div className="etrade-panel-brand">
               <span className="brand-icon">⚡</span>
-              <div>
+              <div className="etrade-brand-text-row">
                 <h5>E*TRADE Brokerage API</h5>
                 <span className={`brand-status-text ${isConnected ? "connected" : "disconnected"}`}>
                   {isConnected ? "● OAuth Session Active" : "○ Offline / Not Connected"}

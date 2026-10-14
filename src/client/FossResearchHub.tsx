@@ -547,43 +547,33 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
           </div>
 
           {/* Active Ticker Dual-Feed & Alpaca Real-Time Intelligence Card (On-Page Screener Integration) */}
-          <div className="active-ticker-dual-card" style={{
-            background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%)",
-            border: "1px solid rgba(56, 189, 248, 0.35)",
-            borderRadius: "14px",
-            padding: "1.25rem 1.5rem",
-            marginBottom: "1.25rem",
-            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", borderBottom: "1px solid rgba(148, 163, 184, 0.15)", paddingBottom: "0.75rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <span style={{ fontSize: "1.75rem", fontWeight: 800, color: "#38bdf8", fontFamily: "var(--font-mono)" }}>
+          <div className="active-ticker-dual-card">
+            <div className="dual-card-top-bar">
+              <div className="dual-card-title-group">
+                <span className="dual-card-symbol">
                   {activeSymbol}
                 </span>
-                <span style={{ fontSize: "0.95rem", color: "#cbd5e1", fontWeight: 600 }}>
+                <span className="dual-card-company">
                   {activeQuote?.companyName || activeQuote?.name || yfinanceQuote?.companyName || yfinanceQuote?.name || `${activeSymbol} Equity`}
                 </span>
-                <span className="pill-badge" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.75rem", padding: "0.15rem 0.5rem", borderRadius: "4px" }}>
+                <span className="dual-card-status-pill">
                   Active Analyzed Security
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <span style={{ fontSize: "0.78rem", color: "#10b981", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+              <div className="dual-card-status-group">
+                <span className="dual-card-live-tag yahoo-live">
+                  <span className="status-dot green" />
                   Yahoo Finance Live
                 </span>
-                <span style={{ fontSize: "0.78rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block" }} />
+                <span className="dual-card-live-tag alpaca-live">
+                  <span className="status-dot amber" />
                   Alpaca Market Data v2 (On-Page)
                 </span>
                 <button
                   type="button"
+                  className="dual-card-refresh-btn"
                   onClick={() => loadAllSymbolData(activeSymbol)}
                   disabled={quoteLoading || snapshotLoading}
-                  style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "6px", cursor: "pointer" }}
                 >
                   {quoteLoading || snapshotLoading ? "Refreshing…" : "🔄 Refresh Dual Feeds"}
                 </button>
@@ -591,79 +581,79 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
 
             {/* Dual Feed Columns: Yahoo Finance & Alpaca side-by-side */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1rem" }}>
+            <div className="dual-feed-columns-grid">
               {/* Yahoo Finance Card */}
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "10px", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div className="dual-feed-card yahoo-card">
+                <div className="dual-feed-card-header">
+                  <span className="dual-feed-card-title yahoo-title">
                     📊 Yahoo Finance Feed
                   </span>
-                  <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                  <span className="dual-feed-market-state">
                     {yfinanceQuote?.marketState || "REGULAR"}
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", marginBottom: "0.75rem" }}>
-                  <span style={{ fontSize: "1.6rem", fontWeight: 800, color: "#f8fafc" }}>
+                <div className="dual-feed-price-row">
+                  <span className="dual-feed-price-val">
                     ${Number(yfinanceQuote?.price || activeQuote?.price || 0).toFixed(2)}
                   </span>
-                  <span style={{ fontSize: "0.9rem", fontWeight: 700, color: (yfinanceQuote?.change || 0) >= 0 ? "#10b981" : "#ef4444" }}>
+                  <span className={`dual-feed-change-val ${(yfinanceQuote?.change || 0) >= 0 ? "gain" : "loss"}`}>
                     {(yfinanceQuote?.change || 0) >= 0 ? "+" : ""}{Number(yfinanceQuote?.change || 0).toFixed(2)} ({Number(yfinanceQuote?.changePercent || 0).toFixed(2)}%)
                   </span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.78rem" }}>
+                <div className="dual-feed-stats-grid">
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Bid / Ask: </span>
-                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.bid || 0).toFixed(2)} / ${Number(yfinanceQuote?.ask || 0).toFixed(2)}</strong>
+                    <span className="dual-feed-stat-label">Bid / Ask: </span>
+                    <strong className="dual-feed-stat-val">${Number(yfinanceQuote?.bid || 0).toFixed(2)} / ${Number(yfinanceQuote?.ask || 0).toFixed(2)}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Day Range: </span>
-                    <strong style={{ color: "#f1f5f9" }}>${Number(yfinanceQuote?.low ?? yfinanceQuote?.dayLow ?? 0).toFixed(2)} - ${Number(yfinanceQuote?.high ?? yfinanceQuote?.dayHigh ?? 0).toFixed(2)}</strong>
+                    <span className="dual-feed-stat-label">Day Range: </span>
+                    <strong className="dual-feed-stat-val">${Number(yfinanceQuote?.low ?? yfinanceQuote?.dayLow ?? 0).toFixed(2)} - ${Number(yfinanceQuote?.high ?? yfinanceQuote?.dayHigh ?? 0).toFixed(2)}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Volume: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{Number(yfinanceQuote?.volume || 0).toLocaleString()}</strong>
+                    <span className="dual-feed-stat-label">Volume: </span>
+                    <strong className="dual-feed-stat-val">{Number(yfinanceQuote?.volume || 0).toLocaleString()}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>P/E Ratio: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio ? Number(yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio).toFixed(1) : "N/A"}</strong>
+                    <span className="dual-feed-stat-label">P/E Ratio: </span>
+                    <strong className="dual-feed-stat-val">{yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio ? Number(yfinanceQuote?.trailingPE || yfinanceQuote?.peRatio).toFixed(1) : "N/A"}</strong>
                   </div>
                 </div>
               </div>
 
               {/* Alpaca Market Data v2 Card */}
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "10px", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div className="dual-feed-card alpaca-card">
+                <div className="dual-feed-card-header">
+                  <span className="dual-feed-card-title alpaca-title">
                     🦙 Alpaca Market Data v2
                   </span>
-                  <span className="pill-badge" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.3)", fontSize: "0.7rem", padding: "0.1rem 0.4rem", borderRadius: "4px" }}>
+                  <span className="dual-feed-snapshot-badge">
                     {snapshot ? "Live Snapshot" : "Alpaca Feed"}
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", marginBottom: "0.75rem" }}>
-                  <span style={{ fontSize: "1.6rem", fontWeight: 800, color: "#f8fafc" }}>
+                <div className="dual-feed-price-row">
+                  <span className="dual-feed-price-val">
                     ${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || yfinanceQuote?.price || 0).toFixed(2)}
                   </span>
-                  <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-                    NBBO Spread: <strong style={{ color: "#f59e0b" }}>{alpacaQuote?.ask && alpacaQuote?.bid ? `$${(alpacaQuote.ask - alpacaQuote.bid).toFixed(3)}` : "—"}</strong>
+                  <span className="dual-feed-nbbo-val">
+                    NBBO Spread: <strong>{alpacaQuote?.ask && alpacaQuote?.bid ? `$${(alpacaQuote.ask - alpacaQuote.bid).toFixed(3)}` : "—"}</strong>
                   </span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.78rem" }}>
+                <div className="dual-feed-stats-grid">
                   <div>
-                    <span style={{ color: "#94a3b8" }}>NBBO Bid/Ask: </span>
-                    <strong style={{ color: "#f1f5f9" }}>${Number(alpacaQuote?.bid || snapshot?.latestQuote?.bidPrice || 0).toFixed(2)} / ${Number(alpacaQuote?.ask || snapshot?.latestQuote?.askPrice || 0).toFixed(2)}</strong>
+                    <span className="dual-feed-stat-label">NBBO Bid/Ask: </span>
+                    <strong className="dual-feed-stat-val">${Number(alpacaQuote?.bid || snapshot?.latestQuote?.bidPrice || 0).toFixed(2)} / ${Number(alpacaQuote?.ask || snapshot?.latestQuote?.askPrice || 0).toFixed(2)}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Latest Trade: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.latestTrade ? `$${snapshot.latestTrade.price} (${snapshot.latestTrade.size} shs)` : "Live Trade Ready"}</strong>
+                    <span className="dual-feed-stat-label">Latest Trade: </span>
+                    <strong className="dual-feed-stat-val">{snapshot?.latestTrade ? `$${snapshot.latestTrade.price} (${snapshot.latestTrade.size} shs)` : "Live Trade Ready"}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Minute Bar: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.minuteBar ? `H: $${snapshot.minuteBar.high} L: $${snapshot.minuteBar.low}` : "Aggregating…"}</strong>
+                    <span className="dual-feed-stat-label">Minute Bar: </span>
+                    <strong className="dual-feed-stat-val">{snapshot?.minuteBar ? `H: $${snapshot.minuteBar.high} L: $${snapshot.minuteBar.low}` : "Aggregating…"}</strong>
                   </div>
                   <div>
-                    <span style={{ color: "#94a3b8" }}>Daily VWAP: </span>
-                    <strong style={{ color: "#f1f5f9" }}>{snapshot?.dailyBar?.vwap ? `$${Number(snapshot.dailyBar.vwap).toFixed(2)}` : "—"}</strong>
+                    <span className="dual-feed-stat-label">Daily VWAP: </span>
+                    <strong className="dual-feed-stat-val">{snapshot?.dailyBar?.vwap ? `$${Number(snapshot.dailyBar.vwap).toFixed(2)}` : "—"}</strong>
                   </div>
                 </div>
               </div>

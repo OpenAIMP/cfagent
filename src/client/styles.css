@@ -2328,10 +2328,18 @@ body {
   color: #6ee7b7;
 }
 
+/* Payments & DID Page */
+.payments-view {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
 /* Gateway Status Cards */
 .gateway-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 1.25rem;
   width: 100%;
   box-sizing: border-box;
@@ -8112,6 +8120,13 @@ body.theme-light .did-verified-tag {
   gap: 0.6rem;
 }
 
+.etrade-brand-text-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 .brand-icon {
   font-size: 1.25rem;
 }
@@ -8121,14 +8136,28 @@ body.theme-light .did-verified-tag {
   font-size: 0.92rem;
   font-weight: 700;
   color: #f8fafc;
+  white-space: nowrap;
 }
 
 .brand-status-text {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
-.brand-status-text.connected { color: #86efac; }
-.brand-status-text.disconnected { color: #fcd34d; }
+.brand-status-text.connected {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.brand-status-text.disconnected {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
 
 .etrade-env-badge {
   font-size: 0.68rem;
@@ -10008,12 +10037,7 @@ body.theme-light .etrade-dynamic-dropdown-panel {
 }
 
 .sidebar-footer {
-  padding: 0.75rem 0.85rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  background: rgba(10, 15, 29, 0.8);
+  display: none !important;
 }
 
 .sidebar-theme-toggle-btn {
@@ -15916,9 +15940,18 @@ body.theme-light .etrade-panel-brand h5 {
   color: #0f172a !important;
 }
 
-[data-theme="light"] .etrade-panel-brand .brand-status-text,
-body.theme-light .etrade-panel-brand .brand-status-text {
-  color: #475569 !important;
+[data-theme="light"] .etrade-panel-brand .brand-status-text.connected,
+body.theme-light .etrade-panel-brand .brand-status-text.connected {
+  color: #047857 !important;
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+
+[data-theme="light"] .etrade-panel-brand .brand-status-text.disconnected,
+body.theme-light .etrade-panel-brand .brand-status-text.disconnected {
+  color: #b45309 !important;
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
 }
 
 [data-theme="light"] .settings-panel-section,
@@ -16518,6 +16551,272 @@ body.theme-light .etrade-provenance-code {
   color: var(--color-accent, #0284c7) !important;
   background: var(--color-muted, #f1f5f9) !important;
   border-color: var(--color-border-subtle, #cbd5e1) !important;
+}
+
+/* ==========================================================================
+   FOSS Research Hub: Active Ticker Dual Feed Real-Time Intelligence Card
+   ========================================================================== */
+.active-ticker-dual-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dual-card-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding-bottom: 0.75rem;
+}
+
+.dual-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dual-card-symbol {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.dual-card-company {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.dual-card-status-pill {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.dual-card-status-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dual-card-live-tag {
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.dual-card-live-tag.yahoo-live { color: #10b981; }
+.dual-card-live-tag.alpaca-live { color: #f59e0b; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.green { background: #10b981; }
+.status-dot.amber { background: #f59e0b; }
+
+.dual-card-refresh-btn {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.65rem;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.dual-card-refresh-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+}
+
+.dual-feed-columns-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.dual-feed-card {
+  border-radius: 10px;
+  padding: 1rem;
+}
+.dual-feed-card.yahoo-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+.dual-feed-card.alpaca-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.dual-feed-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.dual-feed-card-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.dual-feed-card-title.yahoo-title { color: #38bdf8; }
+.dual-feed-card-title.alpaca-title { color: #f59e0b; }
+
+.dual-feed-market-state {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.dual-feed-snapshot-badge {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.dual-feed-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.dual-feed-price-val {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.dual-feed-change-val {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.dual-feed-change-val.gain { color: #10b981; }
+.dual-feed-change-val.loss { color: #ef4444; }
+
+.dual-feed-nbbo-val {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+.dual-feed-nbbo-val strong { color: #f59e0b; }
+
+.dual-feed-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.dual-feed-stat-label {
+  color: #94a3b8;
+}
+
+.dual-feed-stat-val {
+  color: #f1f5f9;
+}
+
+/* Light Theme Overrides for Dual Feed Billboard */
+[data-theme="light"] .active-ticker-dual-card,
+body.theme-light .active-ticker-dual-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .dual-card-top-bar,
+body.theme-light .dual-card-top-bar {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+[data-theme="light"] .dual-card-symbol,
+body.theme-light .dual-card-symbol {
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .dual-card-company,
+body.theme-light .dual-card-company {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .dual-card-status-pill,
+body.theme-light .dual-card-status-pill {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+}
+
+[data-theme="light"] .dual-card-refresh-btn,
+body.theme-light .dual-card-refresh-btn {
+  background: #f0f9ff !important;
+  color: #0284c7 !important;
+  border-color: #bae6fd !important;
+}
+[data-theme="light"] .dual-card-refresh-btn:hover,
+body.theme-light .dual-card-refresh-btn:hover {
+  background: #e0f2fe !important;
+}
+
+[data-theme="light"] .dual-feed-card.yahoo-card,
+body.theme-light .dual-feed-card.yahoo-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .dual-feed-card.alpaca-card,
+body.theme-light .dual-feed-card.alpaca-card {
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
+}
+
+[data-theme="light"] .dual-feed-card-title.yahoo-title,
+body.theme-light .dual-feed-card-title.yahoo-title {
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .dual-feed-card-title.alpaca-title,
+body.theme-light .dual-feed-card-title.alpaca-title {
+  color: #b45309 !important;
+}
+
+[data-theme="light"] .dual-feed-price-val,
+body.theme-light .dual-feed-price-val {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .dual-feed-market-state,
+body.theme-light .dual-feed-market-state,
+[data-theme="light"] .dual-feed-nbbo-val,
+body.theme-light .dual-feed-nbbo-val,
+[data-theme="light"] .dual-feed-stat-label,
+body.theme-light .dual-feed-stat-label {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .dual-feed-stat-val,
+body.theme-light .dual-feed-stat-val {
+  color: #0f172a !important;
 }
 
 

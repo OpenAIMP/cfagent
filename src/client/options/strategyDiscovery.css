@@ -4139,7 +4139,7 @@ body.theme-light .strat-card-icon-btn.risk {
 .strat-metrics-strip.greeks .strat-metric-cell {
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(56, 189, 248, 0.2);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 0.4rem 0.55rem;
 }
 
@@ -4166,7 +4166,7 @@ body.theme-light .strat-card-icon-btn.risk {
 .strat-metrics-strip.side-by-side .strat-metric-cell {
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 0.4rem 0.55rem;
   box-sizing: border-box;
   min-width: 0;
@@ -4175,6 +4175,7 @@ body.theme-light .strat-card-icon-btn.risk {
 .strat-metrics-strip.side-by-side.greeks .strat-metric-cell {
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -5608,25 +5609,48 @@ body.theme-light .strat-metrics-strip {
 }
 
 [data-theme="light"] .strat-metrics-strip .strat-metric-cell,
-body.theme-light .strat-metrics-strip .strat-metric-cell {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+body.theme-light .strat-metrics-strip .strat-metric-cell,
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-metric-cell,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-metric-cell,
+[data-theme="light"] .strat-metrics-strip.greeks .strat-metric-cell,
+body.theme-light .strat-metrics-strip.greeks .strat-metric-cell {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
 }
 
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-metric-label,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-metric-label,
 [data-theme="light"] .strat-metric-label,
 body.theme-light .strat-metric-label {
-  color: #475569;
-  font-weight: 600;
+  color: #475569 !important;
+  font-weight: 700 !important;
 }
 
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-metric-val,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-metric-val,
 [data-theme="light"] .strat-metric-val,
 body.theme-light .strat-metric-val {
-  color: #0f172a;
+  color: #0f172a !important;
 }
 
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-metric-val.gain,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-metric-val.gain {
+  color: #047857 !important;
+}
+
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-metric-val.loss,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-metric-val.loss {
+  color: #b91c1c !important;
+}
+
+[data-theme="light"] .strat-metrics-strip.side-by-side.greeks .strat-greek-sub,
+body.theme-light .strat-metrics-strip.side-by-side.greeks .strat-greek-sub,
 [data-theme="light"] .strat-greek-sub,
 body.theme-light .strat-greek-sub {
-  color: #64748b;
+  color: #64748b !important;
+  font-weight: 500 !important;
 }
 
 [data-theme="light"] .strat-full-graph-wrap,

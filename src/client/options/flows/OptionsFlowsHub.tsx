@@ -480,14 +480,11 @@ export function OptionsFlowsHub({
         }
       />
 
-      {/* 15-Minute Delay Disclaimer Banner */}
+      {/* Live Options Flow Stream Status */}
       <div className="flows-delay-banner">
-        <div>
-          <span>Data is delayed by 15 minutes and only some alerts are shown - </span>
-          <button type="button" onClick={() => setShowUpgradeModal(true)}>
-            Upgrade
-          </button>
-          <span> for full access</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block", flexShrink: 0 }} />
+          <span style={{ fontWeight: 600 }}>Live Real-Time Stream: Dark Pool Sweeps, Unusual Block Trades &amp; Institutional Momentum</span>
         </div>
 
         <div className="flows-delay-banner-right">
