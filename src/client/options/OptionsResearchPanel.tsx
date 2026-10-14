@@ -713,8 +713,10 @@ type NlqResultView = {
   };
 };
 
+export type ResearchMode = "discovery" | "contracts" | "custom" | "nlq" | "llm-ideas" | "schedules";
+
 export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
-  const [researchMode, setResearchMode] = useState<"discovery" | "contracts" | "custom" | "nlq" | "llm-ideas" | "schedules">("discovery");
+  const [researchMode, setResearchMode] = useState<ResearchMode>("discovery");
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
   const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
   const [symbol, setSymbol] = useState("");
