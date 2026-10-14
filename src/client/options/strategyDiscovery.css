@@ -859,11 +859,11 @@
 
 .strat-timeline-chip,
 .strat-exp-chip {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
+  background: var(--color-surface, rgba(15, 23, 42, 0.85));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
+  color: var(--color-text-secondary, #94a3b8);
   padding: 0.35rem 0.65rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
@@ -879,9 +879,9 @@
 
 .strat-timeline-chip:hover,
 .strat-exp-chip:hover {
-  background: rgba(30, 41, 59, 0.95);
-  color: #f8fafc;
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-surface-hover, rgba(30, 41, 59, 0.95));
+  color: var(--color-text-primary, #f8fafc);
+  border-color: var(--color-primary, rgba(56, 189, 248, 0.4));
 }
 
 .strat-timeline-chip.active,
@@ -898,7 +898,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #94a3b8;
+  color: var(--color-text-secondary, #94a3b8);
   line-height: 1.1;
 }
 
@@ -910,7 +910,7 @@
 .strat-chip-day {
   font-size: 0.88rem;
   font-weight: 800;
-  color: #f8fafc;
+  color: var(--color-text-primary, #f8fafc);
   line-height: 1.1;
 }
 
@@ -5322,6 +5322,57 @@ body.theme-light .strat-implied-val {
 [data-theme="light"] .strat-implied-pct,
 body.theme-light .strat-implied-pct {
   color: #0369a1;
+}
+
+/* Light Mode: Expiration Timeline Chips */
+[data-theme="light"] .strat-timeline-chip,
+body.theme-light .strat-timeline-chip,
+[data-theme="light"] .strat-exp-chip,
+body.theme-light .strat-exp-chip {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .strat-timeline-chip:hover,
+body.theme-light .strat-timeline-chip:hover,
+[data-theme="light"] .strat-exp-chip:hover,
+body.theme-light .strat-exp-chip:hover {
+  background: #f1f5f9 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .strat-timeline-chip.active,
+body.theme-light .strat-timeline-chip.active,
+[data-theme="light"] .strat-exp-chip.active,
+body.theme-light .strat-exp-chip.active {
+  background: #0284c7 !important;
+  border-color: #0369a1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35) !important;
+}
+
+[data-theme="light"] .strat-chip-month,
+body.theme-light .strat-chip-month {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .strat-chip-day,
+body.theme-light .strat-chip-day {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .strat-timeline-chip.active .strat-chip-month,
+body.theme-light .strat-timeline-chip.active .strat-chip-month,
+[data-theme="light"] .strat-timeline-chip.active .strat-chip-day,
+body.theme-light .strat-timeline-chip.active .strat-chip-day,
+[data-theme="light"] .strat-exp-chip.active .strat-chip-month,
+body.theme-light .strat-exp-chip.active .strat-chip-month,
+[data-theme="light"] .strat-exp-chip.active .strat-chip-day,
+body.theme-light .strat-exp-chip.active .strat-chip-day {
+  color: #ffffff !important;
 }
 
 [data-theme="light"] .strat-rr-select,
