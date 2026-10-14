@@ -24,6 +24,7 @@ import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
 import { TabHoverItem } from "../TabHoverItem";
+import { CapabilityNavBar, type CapabilityTabItem } from "../components/CapabilityNavBar";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
@@ -983,113 +984,84 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         <p className="options-error" role="alert">Option chain data problem: {screenMeta.fetchErrors.map((item: { symbol?: string; reason?: string }) => `${item.symbol ?? ""} ${item.reason ?? ""}`.trim()).join("; ")}</p>
       )}
 
-      <div className="trading-subnav-bar options-subnav-bar" role="tablist" aria-label="Options Research Mode" style={{ margin: "0.25rem 0 0.85rem" }}>
-        <div className="options-subnav-links">
-          <TabHoverItem
-            eyebrow="ALGORITHMIC SELECTION ENGINE"
-            title="Strategy Discovery & Payoff Analyzer"
-            description="Explore multi-leg option strategies (Iron Condors, Spreads, Straddles, Covered Calls) matched to market sentiment with interactive payoff charts and Greeks."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "discovery"}
-              className={`subnav-btn ${researchMode === "discovery" ? "active" : ""}`}
-              onClick={() => setResearchMode("discovery")}
-            >
-              🎯 Strategy Discovery &amp; Payoff Analyzer
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="LIVE CHAIN FILTERING"
-            title="Raw Contracts Screener"
-            description="Directly filter individual Call and Put contracts across symbols, DTE windows, strikes, bid/ask spreads, volume, and Greeks."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "contracts"}
-              className={`subnav-btn ${researchMode === "contracts" ? "active" : ""}`}
-              onClick={() => setResearchMode("contracts")}
-            >
-              📋 Raw Contracts Screener
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="CONSTRAINED OPTION SCANNING"
-            title="Custom Thesis & Strategy Universe"
-            description="Declare specific target prices, target dates, and IV assumptions to filter and rank tailored candidate structures."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "custom"}
-              className={`subnav-btn ${researchMode === "custom" ? "active" : ""}`}
-              onClick={() => setResearchMode("custom")}
-            >
-              ⚙️ Custom Thesis &amp; Strategy Universe
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="AI-POWERED PROMPT SCREENING"
-            title="Natural Language Screen (NLQ)"
-            description="Ask questions in plain English like 'Find high IV call spreads on NVDA with 30 DTE' to run instant options filters."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "nlq"}
-              className={`subnav-btn ${researchMode === "nlq" ? "active" : ""}`}
-              onClick={() => setResearchMode("nlq")}
-            >
-              💬 Natural Language Screen (NLQ)
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="INDEPENDENT RAW-DATA LLM EXPERIMENT"
-            title="LLM Options Idea Experiment"
-            description="Divides chains into near/mid/long-term expiration cohorts for multi-stage LLM evaluation against raw market data."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "llm-ideas"}
-              className={`subnav-btn ${researchMode === "llm-ideas" ? "active" : ""}`}
-              onClick={() => setResearchMode("llm-ideas")}
-            >
-              🧪 LLM Idea Experiment &amp; Exporter
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="DURABLE TIMERS & AUTONOMOUS DISPATCH"
-            title="Scheduled Screening & Schedulers"
-            description="Create and monitor autonomous scheduled options scans powered by Cloudflare Durable Timers with Slack & Email notifications."
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={researchMode === "schedules"}
-              className={`subnav-btn ${researchMode === "schedules" ? "active" : ""}`}
-              onClick={() => setResearchMode("schedules")}
-            >
-              ⏰ Scheduled Screening &amp; Schedulers
-            </button>
-          </TabHoverItem>
-        </div>
-
-        <div className="options-subnav-tools">
-          {screenMeta && (
+      <CapabilityNavBar
+        ariaLabel="Options Research Mode"
+        activeTabId={researchMode}
+        onTabChange={(id) => setResearchMode(id as ResearchMode)}
+        tabs={[
+          {
+            id: "discovery",
+            label: "Strategy Discovery & Payoff Analyzer",
+            icon: "🎯",
+            tooltip: {
+              eyebrow: "ALGORITHMIC SELECTION ENGINE",
+              title: "Strategy Discovery & Payoff Analyzer",
+              description: "Explore multi-leg option strategies (Iron Condors, Spreads, Straddles, Covered Calls) matched to market sentiment with interactive payoff charts and Greeks.",
+            },
+          },
+          {
+            id: "contracts",
+            label: "Raw Contracts Screener",
+            icon: "📋",
+            tooltip: {
+              eyebrow: "LIVE CHAIN FILTERING",
+              title: "Raw Contracts Screener",
+              description: "Directly filter individual Call and Put contracts across symbols, DTE windows, strikes, bid/ask spreads, volume, and Greeks.",
+            },
+          },
+          {
+            id: "custom",
+            label: "Custom Thesis & Strategy Universe",
+            icon: "⚙️",
+            tooltip: {
+              eyebrow: "CONSTRAINED OPTION SCANNING",
+              title: "Custom Thesis & Strategy Universe",
+              description: "Declare specific target prices, target dates, and IV assumptions to filter and rank tailored candidate structures.",
+            },
+          },
+          {
+            id: "nlq",
+            label: "Natural Language Screen (NLQ)",
+            icon: "💬",
+            badge: "AI",
+            badgeType: "cyan",
+            tooltip: {
+              eyebrow: "AI-POWERED PROMPT SCREENING",
+              title: "Natural Language Screen (NLQ)",
+              description: "Ask questions in plain English like 'Find high IV call spreads on NVDA with 30 DTE' to run instant options filters.",
+            },
+          },
+          {
+            id: "llm-ideas",
+            label: "LLM Idea Experiment & Exporter",
+            icon: "🧪",
+            tooltip: {
+              eyebrow: "INDEPENDENT RAW-DATA LLM EXPERIMENT",
+              title: "LLM Options Idea Experiment",
+              description: "Divides chains into near/mid/long-term expiration cohorts for multi-stage LLM evaluation against raw market data.",
+            },
+          },
+          {
+            id: "schedules",
+            label: "Scheduled Screening & Schedulers",
+            icon: "⏰",
+            badge: "DURABLE",
+            badgeType: "emerald",
+            tooltip: {
+              eyebrow: "DURABLE TIMERS & AUTONOMOUS DISPATCH",
+              title: "Scheduled Screening & Schedulers",
+              description: "Create and monitor autonomous scheduled options scans powered by Cloudflare Durable Timers with Slack & Email notifications.",
+            },
+          },
+        ]}
+        rightContent={
+          screenMeta ? (
             <div className="options-scan-meta-pill" title="Screen evaluation metrics">
               {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
             </div>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {researchMode === "schedules" && (
         <ScheduledOptionsManager

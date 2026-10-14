@@ -29,6 +29,7 @@ import { FlowTradeDetailModal } from "./FlowTradeDetailModal";
 import { StrategyDiscoveryPanel } from "../StrategyDiscoveryPanel";
 import { RiskAnalysisModal } from "../RiskAnalysisModal";
 import type { RiskSubject } from "../riskManagementEngine";
+import { CapabilityNavBar } from "../../components/CapabilityNavBar";
 
 export type FlowSubTab = "summary" | "live" | "historical" | "news" | "congress" | "insider";
 
@@ -364,101 +365,119 @@ export function OptionsFlowsHub({
 
   return (
     <div className="options-flows-container">
-      {/* Top Bar with Sub-Tabs & Market Sentiment Gauge */}
-      <header className="flows-header-bar">
-        <nav className="flows-subtabs-nav">
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "summary" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("summary")}
-          >
-            Summary
-          </button>
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "live" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("live")}
-          >
-            Live Flow
-          </button>
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "historical" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("historical")}
-          >
-            Historical Flow
-          </button>
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "news" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("news")}
-          >
-            News Flow
-          </button>
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "congress" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("congress")}
-          >
-            Congress Flow
-          </button>
-          <button
-            type="button"
-            className={`flows-subtab-btn ${subTab === "insider" ? "active" : ""}`}
-            onClick={() => handleSwitchSubTab("insider")}
-          >
-            Insider Flow
-          </button>
-        </nav>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "4px 8px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 600 }}>
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
-            <span>LIVE</span>
-            {lastSyncTime && <span style={{ color: "#94a3b8", fontWeight: 400 }}>{lastSyncTime}</span>}
-          </div>
-          <button
-            type="button"
-            onClick={() => fetchLiveFlows(filterConfig)}
-            disabled={isRefreshing}
-            style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8", background: "rgba(30, 41, 59, 0.8)", border: "1px solid #334155", borderRadius: "6px", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
-            title="Fetch fresh real-time options flow prints"
-          >
-            {isRefreshing ? "Refreshing..." : "↻ Refresh"}
-          </button>
-        </div>
-
-        {/* Sentiment Gauge Pill (Screenshot 1 top right) */}
-        <div
-          className="flows-gauge-badge-wrap"
-          onClick={() => handleSwitchSubTab("summary")}
-          title="Overall Options Market Flow Sentiment Dial"
-        >
-          <svg className="flows-gauge-svg" viewBox="0 0 40 20">
-            <path
-              d="M 5 20 A 15 15 0 0 1 35 20"
-              fill="none"
-              stroke="#1e293b"
-              strokeWidth="5"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 5 20 A 15 15 0 0 1 28 8"
-              fill="none"
-              stroke="#0284c7"
-              strokeWidth="5"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 28 8 A 15 15 0 0 1 35 20"
-              fill="none"
-              stroke="#eab308"
-              strokeWidth="5"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span className="flows-gauge-text">{summaryData.bullishSentimentRatio}% Bullish</span>
-        </div>
-      </header>
+      {/* Universal Capability Navigation Bar */}
+      <CapabilityNavBar
+        ariaLabel="Institutional Options Flows"
+        activeTabId={subTab}
+        onTabChange={(id) => handleSwitchSubTab(id as FlowSubTab)}
+        className="flows-capability-nav"
+        tabs={[
+          {
+            id: "summary",
+            label: "Summary",
+            tooltip: {
+              eyebrow: "MARKET OVERVIEW",
+              title: "Options Flow Market Summary",
+              description: "Market-wide institutional options flow, aggregate bullish vs bearish sentiment, and top premium targets.",
+            },
+          },
+          {
+            id: "live",
+            label: "Live Flow",
+            badge: "LIVE",
+            badgeType: "live",
+            tooltip: {
+              eyebrow: "REAL-TIME ALERTS",
+              title: "Live Institutional Flow",
+              description: "Real-time block trades, sweeps, and multi-leg prints synthesized directly from live market feeds.",
+            },
+          },
+          {
+            id: "historical",
+            label: "Historical Flow",
+            tooltip: {
+              eyebrow: "FLOW ARCHIVE",
+              title: "Historical Options Flow",
+              description: "Aggregated past institutional flow patterns across major equity tickers.",
+            },
+          },
+          {
+            id: "news",
+            label: "News Flow",
+            tooltip: {
+              eyebrow: "CATALYST FEED",
+              title: "Real-Time News Flow",
+              description: "Real-time breaking market news tied directly to options volatility and unusual volume catalysts.",
+            },
+          },
+          {
+            id: "congress",
+            label: "Congress Flow",
+            tooltip: {
+              eyebrow: "CAPITOL HILL DISCLOSURES",
+              title: "Congressional Trading Flow",
+              description: "Capitol Hill financial disclosures and congressional trading disclosures filed under the STOCK Act.",
+            },
+          },
+          {
+            id: "insider",
+            label: "Insider Flow",
+            tooltip: {
+              eyebrow: "SEC FORM 4 FILINGS",
+              title: "Corporate Insider Flow",
+              description: "SEC Form 4 corporate insider purchases, sales, and option exercises by C-suite executives and board directors.",
+            },
+          },
+        ]}
+        rightContent={
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "4px 8px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 600 }}>
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+              <span>LIVE</span>
+              {lastSyncTime && <span style={{ color: "#94a3b8", fontWeight: 400 }}>{lastSyncTime}</span>}
+            </div>
+            <button
+              type="button"
+              onClick={() => fetchLiveFlows(filterConfig)}
+              disabled={isRefreshing}
+              style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8", background: "rgba(30, 41, 59, 0.8)", border: "1px solid #334155", borderRadius: "6px", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
+              title="Fetch fresh real-time options flow prints"
+            >
+              {isRefreshing ? "Refreshing..." : "↻ Refresh"}
+            </button>
+            <div
+              className="flows-gauge-badge-wrap"
+              onClick={() => handleSwitchSubTab("summary")}
+              title="Overall Options Market Flow Sentiment Dial"
+            >
+              <svg className="flows-gauge-svg" viewBox="0 0 40 20">
+                <path
+                  d="M 5 20 A 15 15 0 0 1 35 20"
+                  fill="none"
+                  stroke="#1e293b"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M 5 20 A 15 15 0 0 1 28 8"
+                  fill="none"
+                  stroke="#0284c7"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M 28 8 A 15 15 0 0 1 35 20"
+                  fill="none"
+                  stroke="#eab308"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="flows-gauge-text">{summaryData.bullishSentimentRatio}% Bullish</span>
+            </div>
+          </>
+        }
+      />
 
       {/* 15-Minute Delay Disclaimer Banner */}
       <div className="flows-delay-banner">

@@ -7,7 +7,7 @@ import {
   type ScreeningAssetClass,
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
-import { TabHoverItem } from "./TabHoverItem";
+import { CapabilityNavBar, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import "./optionsResearch.css";
 
 interface ScreenersHubProps {
@@ -126,68 +126,100 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     }
   };
 
+  const screenerTabs: CapabilityTabItem[] = useMemo(() => {
+    const descriptions: Record<string, { eyebrow: string; title: string; desc: string; icon: string }> = {
+      stocks: {
+        eyebrow: "EQUITIES SCREENING",
+        title: "Stock Universe Screener",
+        desc: "Screen common stocks and ETFs by price, volume, exchange, and trend.",
+        icon: "📈",
+      },
+      options: {
+        eyebrow: "DERIVATIVES · CONSOLIDATED",
+        title: "Options · Auto Options Research",
+        desc: "All options capabilities, raw contracts screening, and strategy discovery are in the dedicated Auto Options Research tab.",
+        icon: "⚡",
+      },
+      forex: {
+        eyebrow: "CURRENCY PAIRS",
+        title: "Forex Screener · Planned",
+        desc: "Screen foreign exchange pairs across global FX liquidity pools (adapter in development).",
+        icon: "💱",
+      },
+      futures: {
+        eyebrow: "COMMODITY & INDEX FUTURES",
+        title: "Futures Screener · Planned",
+        desc: "Screen E-mini index futures, energy, metals, and treasury contracts (adapter in development).",
+        icon: "📊",
+      },
+      commodities: {
+        eyebrow: "COMMODITY BENCHMARKS",
+        title: "Commodities Screener · Planned",
+        desc: "Screen physical commodity and spot contracts (adapter in development).",
+        icon: "🛢️",
+      },
+      bonds: {
+        eyebrow: "FIXED INCOME",
+        title: "Bonds & Yields · Planned",
+        desc: "Screen US Treasuries, corporate bonds, and yield curve spreads (adapter in development).",
+        icon: "🏛️",
+      },
+    };
+
+    return SCREENING_ASSET_CLASSES.map((asset) => {
+      const info = descriptions[asset.id] || {
+        eyebrow: "MARKET SCREENER",
+        title: asset.label,
+        desc: `Screen ${asset.label.toLowerCase()} across connected market data providers.`,
+        icon: "🔍",
+      };
+
+      return {
+        id: asset.id,
+        label: asset.label,
+        icon: info.icon,
+        badge: asset.available ? (asset.id === "stocks" ? "LIVE" : undefined) : "PLANNED",
+        badgeType: asset.available ? (asset.id === "stocks" ? "live" : "default") : "amber",
+        tooltip: {
+          eyebrow: info.eyebrow,
+          title: info.title,
+          description: info.desc,
+        },
+      };
+    });
+  }, []);
+
   return (
     <section className="trading-section screeners-hub">
-      <div className="trading-subnav-bar screeners-asset-tabs" role="tablist" aria-label="Instrument class" style={{ margin: "0.25rem 0 0.75rem" }}>
-        {SCREENING_ASSET_CLASSES.map((asset) => {
-          const descriptions: Record<string, { eyebrow: string; title: string; desc: string }> = {
-            stocks: {
-              eyebrow: "EQUITIES SCREENING",
-              title: "Stock Universe Screener",
-              desc: "Screen common stocks and ETFs by price, volume, exchange, and trend.",
-            },
-            options: {
-              eyebrow: "DERIVATIVES · CONSOLIDATED",
-              title: "Options · Planned in Hub (Active in Auto Options)",
-              desc: "All options capabilities, raw contracts screening, and strategy discovery are now in the dedicated Auto Options Research tab.",
-            },
-            forex: {
-              eyebrow: "CURRENCY PAIRS",
-              title: "Forex Screener · Planned",
-              desc: "Screen foreign exchange pairs across global FX liquidity pools (adapter in development).",
-            },
-            futures: {
-              eyebrow: "COMMODITY & INDEX FUTURES",
-              title: "Futures Screener · Planned",
-              desc: "Screen E-mini index futures, energy, metals, and treasury contracts (adapter in development).",
-            },
-            commodities: {
-              eyebrow: "COMMODITY BENCHMARKS",
-              title: "Commodities Screener · Planned",
-              desc: "Screen physical commodity and spot contracts (adapter in development).",
-            },
-            bonds: {
-              eyebrow: "FIXED INCOME",
-              title: "Bonds & Yields · Planned",
-              desc: "Screen US Treasuries, corporate bonds, and yield curve spreads (adapter in development).",
-            },
-          };
-          const info = descriptions[asset.id] || {
-            eyebrow: "MARKET SCREENER",
-            title: asset.label,
-            desc: `Screen ${asset.label.toLowerCase()} across connected market data providers.`,
-          };
-
-          return (
-            <TabHoverItem
-              key={asset.id}
-              eyebrow={info.eyebrow}
-              title={info.title}
-              description={info.desc}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={assetClass === asset.id}
-                className={`subnav-btn ${assetClass === asset.id ? "active" : ""}`}
-                onClick={() => setAssetClass(asset.id)}
+      <CapabilityNavBar
+        ariaLabel="Instrument class capabilities"
+        tabs={screenerTabs}
+        activeTabId={assetClass}
+        onTabChange={(id) => setAssetClass(id as ScreeningAssetClass)}
+        rightContent={
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+            {scannedAt && (
+              <span>
+                Last scan: <strong style={{ color: "var(--theme-text-main)" }}>{scannedAt}</strong>
+              </span>
+            )}
+            {rows.length > 0 && (
+              <span
+                style={{
+                  padding: "0.15rem 0.5rem",
+                  borderRadius: "4px",
+                  background: "var(--theme-card-bg)",
+                  border: "1px solid var(--theme-border-subtle)",
+                  fontWeight: 600,
+                  color: "var(--theme-accent)",
+                }}
               >
-                {asset.label}{asset.available ? "" : " · Planned"}
-              </button>
-            </TabHoverItem>
-          );
-        })}
-      </div>
+                {rows.length} matched
+              </span>
+            )}
+          </div>
+        }
+      />
 
       {assetClass === "stocks" ? (
         <>

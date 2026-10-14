@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
+import { CapabilityNavBar } from "./components/CapabilityNavBar";
 import type {
   FossQuote,
   FossCompanyFundamentals,
@@ -430,105 +431,93 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="trading-subnav-bar">
-        <TabHoverItem
-          eyebrow="FOSS MARKET SCREENER"
-          title="Yahoo Finance Screener"
-          description="Filter active stocks, top gainers, and top losers without requiring broker credentials."
-        >
-          <button
-            className={`subnav-btn ${subTab === "screener" ? "active" : ""}`}
-            onClick={() => {
-              setSubTab("screener");
-              if (screenerStocks.length === 0) fetchScreener();
-            }}
-          >
-            🔍 Yahoo Finance Screener
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="AI RESEARCH ENGINE"
-          title="Autonomous Research Report"
-          description="Deep AI-generated equity research synthesizing fundamentals, news, valuations, and risk factors."
-        >
-          <button
-            className={`subnav-btn ${subTab === "report" ? "active" : ""}`}
-            onClick={() => setSubTab("report")}
-          >
-            🔬 Autonomous Research Report
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="REAL-TIME QUOTE AGGREGATION"
-          title="Multi-Provider Quoting"
-          description="Compare bid/ask spreads, volume, and Level 1 quotes across Yahoo Finance and Alpaca."
-        >
-          <button
-            className={`subnav-btn ${subTab === "quoting" ? "active" : ""}`}
-            onClick={() => setSubTab("quoting")}
-          >
-            📊 Multi-Provider Quoting
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="FINANCIAL METRICS"
-          title="Fundamentals & Valuations"
-          description="Analyze balance sheets, P/E ratios, EBITDA, cash flow, and valuation multiples."
-        >
-          <button
-            className={`subnav-btn ${subTab === "fundamentals" ? "active" : ""}`}
-            onClick={() => setSubTab("fundamentals")}
-          >
-            ⚖️ Fundamentals &amp; Valuations
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="PRICE TIME-SERIES"
-          title="Historical OHLCV Bars"
-          description="Interactive historical candlesticks, moving averages, and volume across multiple timeframes."
-        >
-          <button
-            className={`subnav-btn ${subTab === "bars" ? "active" : ""}`}
-            onClick={() => setSubTab("bars")}
-          >
-            📈 Historical OHLCV Bars ({bars.length})
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="MARKET SNAPSHOT API"
-          title="Alpaca Market Snapshot"
-          description="Live minute-by-minute bar snapshots and latest trades via Alpaca Market Data v2."
-        >
-          <button
-            className={`subnav-btn ${subTab === "snapshot" ? "active" : ""}`}
-            onClick={() => setSubTab("snapshot")}
-          >
-            📷 Alpaca Market Snapshot
-          </button>
-        </TabHoverItem>
-
-        <TabHoverItem
-          eyebrow="PEER GROUP BENCHMARKING"
-          title="Multi-Stock Valuation Comparison"
-          description="Side-by-side comparison of valuation metrics, margins, and performance for multiple tickers."
-        >
-          <button
-            className={`subnav-btn ${subTab === "compare" ? "active" : ""}`}
-            onClick={() => {
-              setSubTab("compare");
-              if (comparisonResults.length === 0) runComparison(compareSymbolsInput);
-            }}
-          >
-            🔄 Multi-Stock Valuation Comparison
-          </button>
-        </TabHoverItem>
-      </div>
+      {/* Universal Capability Navigation Bar */}
+      <CapabilityNavBar
+        ariaLabel="Research &amp; Due Diligence Modes"
+        activeTabId={subTab}
+        onTabChange={(id) => {
+          const targetTab = id as typeof subTab;
+          setSubTab(targetTab);
+          if (targetTab === "screener" && screenerStocks.length === 0) fetchScreener();
+          if (targetTab === "compare" && comparisonResults.length === 0) runComparison(compareSymbolsInput);
+        }}
+        tabs={[
+          {
+            id: "screener",
+            label: "Yahoo Screener",
+            icon: "🔍",
+            tooltip: {
+              eyebrow: "FOSS MARKET SCREENER",
+              title: "Yahoo Finance Screener",
+              description: "Filter active stocks, top gainers, and top losers without requiring broker credentials.",
+            },
+          },
+          {
+            id: "report",
+            label: "Research Report",
+            icon: "🔬",
+            badge: "AI",
+            badgeType: "cyan",
+            tooltip: {
+              eyebrow: "AI RESEARCH ENGINE",
+              title: "Autonomous Research Report",
+              description: "Deep AI-generated equity research synthesizing fundamentals, news, valuations, and risk factors.",
+            },
+          },
+          {
+            id: "quoting",
+            label: "Multi-Provider Quotes",
+            icon: "📊",
+            tooltip: {
+              eyebrow: "REAL-TIME QUOTE AGGREGATION",
+              title: "Multi-Provider Quoting",
+              description: "Compare bid/ask spreads, volume, and Level 1 quotes across Yahoo Finance and Alpaca.",
+            },
+          },
+          {
+            id: "fundamentals",
+            label: "Fundamentals & Valuations",
+            icon: "⚖️",
+            tooltip: {
+              eyebrow: "FINANCIAL METRICS",
+              title: "Fundamentals & Valuations",
+              description: "Analyze balance sheets, P/E ratios, EBITDA, cash flow, and valuation multiples.",
+            },
+          },
+          {
+            id: "bars",
+            label: "Historical Price Bars",
+            icon: "📈",
+            badge: bars.length > 0 ? String(bars.length) : undefined,
+            badgeType: "default",
+            tooltip: {
+              eyebrow: "PRICE TIME-SERIES",
+              title: "Historical OHLCV Bars",
+              description: "Interactive historical candlesticks, moving averages, and volume across multiple timeframes.",
+            },
+          },
+          {
+            id: "snapshot",
+            label: "Alpaca Snapshot",
+            icon: "⚡",
+            tooltip: {
+              eyebrow: "MARKET SNAPSHOT API",
+              title: "Alpaca Market Snapshot",
+              description: "Live minute-by-minute bar snapshots and latest trades via Alpaca Market Data v2.",
+            },
+          },
+          {
+            id: "compare",
+            label: "Peer Comparison",
+            icon: "🔄",
+            tooltip: {
+              eyebrow: "PEER GROUP BENCHMARKING",
+              title: "Multi-Stock Valuation Comparison",
+              description: "Side-by-side comparison of valuation metrics, margins, and performance for multiple tickers.",
+            },
+          },
+        ]}
+      />
 
       <div className="nlq-quick-bar trading-context-chat">
         <div className="nlq-bar-input-wrap">

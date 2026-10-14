@@ -14541,3 +14541,180 @@ body.theme-light .btn-voice-mute {
   border-color: #cbd5e1 !important;
 }
 
+/* ==========================================================================
+   UNIVERSAL CAPABILITY NAVIGATION SYSTEM (CapabilityNavBar)
+   Enterprise-grade, high-density capability navigation for web-enabled systems
+   ========================================================================== */
+.capability-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 1rem;
+  min-height: 48px;
+  border-radius: 12px 12px 0 0;
+  margin-bottom: 1.25rem;
+  position: relative;
+  z-index: 50;
+  gap: 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.capability-tabs-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.capability-tabs-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.capability-tab-wrapper {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.capability-tab-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  padding: 0.8rem 0.85rem;
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  border-radius: 6px 6px 0 0;
+}
+
+.capability-tab-btn:hover:not(:disabled) {
+  color: var(--text-main);
+  background: var(--bg-muted);
+}
+
+.capability-tab-btn.active {
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.capability-tab-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 2.5px;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.7);
+  border-radius: 2px 2px 0 0;
+}
+
+.capability-tab-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.capability-tab-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.capability-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1rem;
+}
+
+.capability-tab-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.capability-tab-badge.badge-default {
+  background: var(--bg-tag);
+  color: var(--text-secondary);
+}
+
+.capability-tab-badge.badge-cyan {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.capability-tab-badge.badge-emerald {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.capability-tab-badge.badge-amber {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.capability-tab-badge.badge-live {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-weight: 800;
+}
+
+.capability-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Light Theme Overrides for CapabilityNavBar */
+[data-theme="light"] .capability-nav-bar,
+body.theme-light .capability-nav-bar {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .capability-tab-btn,
+body.theme-light .capability-tab-btn {
+  color: #64748b;
+}
+
+[data-theme="light"] .capability-tab-btn:hover:not(:disabled),
+body.theme-light .capability-tab-btn:hover:not(:disabled) {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .capability-tab-btn.active,
+body.theme-light .capability-tab-btn.active {
+  color: #0f172a;
+}
+
+[data-theme="light"] .capability-tab-btn.active::after,
+body.theme-light .capability-tab-btn.active::after {
+  background: #0284c7;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
+}
+
+
