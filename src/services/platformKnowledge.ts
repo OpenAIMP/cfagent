@@ -15,6 +15,11 @@ import {
   type CapabilityMatrixRow,
 } from "../client/workflowsFaqData";
 
+import { defaultRegistry } from "../trading/options/strategies/catalog";
+
+/** Live strategy-catalog size, derived from the server registry so published counts cannot drift (issue #29). */
+const STRATEGY_CATALOG_COUNT = defaultRegistry.list().length;
+
 export interface PlatformWorkflowSummary {
   id: string;
   number: number;
@@ -71,8 +76,8 @@ export const PLATFORM_WORKFLOWS_KNOWLEDGE: PlatformWorkflowSummary[] = [
     title: "Options Strategy Discovery & Greeks Engine",
     category: "options",
     categoryLabel: "Options",
-    badge: "72-Strategy Catalog",
-    subtitle: "Discover, filter, and score optimal option setups across 72 catalog strategies using calibrated pricing and Black-Scholes Greeks.",
+    badge: `${STRATEGY_CATALOG_COUNT}-Strategy Catalog`,
+    subtitle: "Discover, filter, and score optimal option setups across ${STRATEGY_CATALOG_COUNT} catalog strategies using calibrated pricing and Black-Scholes Greeks.",
     overview: "Evaluates multi-leg options structures (Iron Condors, Vertical Spreads, Butterflies, Calendars, Straddles, Strangles) against live calibrated option chains. Calculates Delta, Gamma, Theta, Vega, IV Rank, Probability of Profit (POP), and Expected Value (EV). Supports strict user budget and risk filtering (e.g. Max Loss <= $30, Max Profit > $0).",
     apiEndpoint: "POST /api/etrade/options/strategy · POST /api/etrade/options/screen",
     targetTab: "trading",
@@ -83,7 +88,7 @@ export const PLATFORM_WORKFLOWS_KNOWLEDGE: PlatformWorkflowSummary[] = [
       { step: "Step 4", title: "Filter & Score Evaluation", description: "Filters candidates by user criteria (max loss, max profit, delta range, DTE) and computes multivariate composite ranking score." },
     ],
     keyFeatures: [
-      "72 distinct options strategies spanning directional, neutral, volatility, and income plays.",
+      `${STRATEGY_CATALOG_COUNT} distinct options strategies spanning directional, neutral, volatility, and income plays.`,
       "Strict parameter filtering: max loss, max profit, min win rate, strike bounds, and expiration windows.",
       "Black-Scholes analytical Greeks engine with continuous dividend and risk-free rate calibration.",
       "Expected Value (EV) calculation: EV = (POP * MaxProfit) - ((1 - POP) * MaxLoss) / Collateral.",
@@ -522,8 +527,8 @@ function getAnalysisAndExecutionWorkflowsMarkdown(): string {
     `   - **Endpoints**: \`POST /api/etrade/screen\`, \`POST /api/foss/screen\`.`,
     ``,
     `2. **A2: Options Strategy Discovery, Greeks Modeling & EV Scoring**`,
-    `   - **Scope**: Evaluates 72 catalog options strategies against live option chains; computes Black-Scholes Greeks, IV Rank, and Expected Value (EV).`,
-    `   - **Components**: \`UnifiedOptionsService\`, \`OptionsStrategyRegistry\` (72 strategies), \`BlackScholesCalculator\`, \`CalibratedOptionChains\`.`,
+    `   - **Scope**: Evaluates ${STRATEGY_CATALOG_COUNT} catalog options strategies against live option chains; computes Black-Scholes Greeks, IV Rank, and Expected Value (EV).`,
+    `   - **Components**: \`UnifiedOptionsService\`, \`OptionsStrategyRegistry\` (${STRATEGY_CATALOG_COUNT} strategies), \`BlackScholesCalculator\`, \`CalibratedOptionChains\`.`,
     `   - **APIs Leveraged**: \`api.etrade.com/v1/market/optionchains\`, \`api.etrade.com/v1/market/optionexpiredate\`.`,
     `   - **Endpoints**: \`POST /api/etrade/options/strategy\`, \`POST /api/trading/options/unified\`.`,
     ``,
@@ -618,7 +623,7 @@ function getPlatformOverviewMarkdown(): string {
     `   - Fallback hierarchy: Nasdaq Screener API $\\rightarrow$ Yahoo FOSS $\\rightarrow$ Externalized Curated Universe (\`curatedStockUniverse.json\`).`,
     ``,
     `2. **Options Strategy Discovery & Greeks Engine** (Tab: \`trading\` | API: \`/api/etrade/options/strategy\`)`,
-    `   - Evaluates 72 catalog options strategies using Black-Scholes Greeks, IV rank, and Probability of Profit.`,
+    `   - Evaluates ${STRATEGY_CATALOG_COUNT} catalog options strategies using Black-Scholes Greeks, IV rank, and Probability of Profit.`,
     `   - Supports strict parameter filtering such as Max Loss $\\le$ $30 and Max Profit > $0.`,
     ``,
     `3. **Real-Time Options Flow & Institutional Activity Tracker** (Tab: \`options-flows\` | API: \`/api/options/flows\`)`,
@@ -658,7 +663,7 @@ function generateMarkdownAnswer(query: string, results: KnowledgeSearchResult[])
       `   - Fallback hierarchy: Nasdaq Screener API $\\rightarrow$ Yahoo FOSS $\\rightarrow$ Externalized Curated Universe (\`curatedStockUniverse.json\`).`,
       ``,
       `2. **Options Strategy Discovery & Greeks Engine** (Tab: \`trading\` | API: \`/api/etrade/options/strategy\`)`,
-      `   - Evaluates 72 catalog options strategies using Black-Scholes Greeks, IV rank, and Probability of Profit.`,
+      `   - Evaluates ${STRATEGY_CATALOG_COUNT} catalog options strategies using Black-Scholes Greeks, IV rank, and Probability of Profit.`,
       `   - Supports strict parameter filtering such as Max Loss $\\le$ $30 and Max Profit > $0.`,
       ``,
       `3. **Real-Time Options Flow & Institutional Activity Tracker** (Tab: \`options-flows\` | API: \`/api/options/flows\`)`,
@@ -801,7 +806,7 @@ export function getPlatformCapabilitiesDeskSummary(): PlatformCapabilitiesDeskSu
     `#### 📊 Market Analysis Capabilities`,
     `- 📈 **Real-Time Quotes**: Instant bid/ask NBBO, daily changes, and 52-week ranges. *(e.g. "Quote NVDA", "What is Apple trading at?")*`,
     `- 🔍 **Stock Screener & Movers**: Screen 8,000+ equities across NASDAQ, NYSE, and AMEX. *(e.g. "Find top gainers and losers", "Screen all tech stocks")*`,
-    `- ⚡ **Options Strategy Discovery**: 72 catalog strategies, calibrated pricing, and Black-Scholes Greeks. *(e.g. "Find bull call spreads on SPY", "Options ideas for NVDA")*`,
+    `- ⚡ **Options Strategy Discovery**: ${STRATEGY_CATALOG_COUNT} catalog strategies, calibrated pricing, and Black-Scholes Greeks. *(e.g. "Find bull call spreads on SPY", "Options ideas for NVDA")*`,
     `- 🌊 **Options Flow Tracker**: Detects unusual sweeps, blocks, and institutional sentiment. *(e.g. "Check unusual options flow")*`,
     `- 🛡️ **Portfolio & Risk Analysis**: Reconciled holdings, purchasing power, and dollar delta exposure. *(e.g. "What is my portfolio balance?", "Show my positions")*`,
     `- 🔬 **FOSS Fundamental Research**: P/E ratios, valuations, and analyst ratings without API credentials. *(e.g. "Valuation and P/E for MSFT")*`,

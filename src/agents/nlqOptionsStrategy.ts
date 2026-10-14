@@ -97,13 +97,6 @@ const BEST_TRADE = /\b(?:best|top)\s+(?:\w+\s+){0,3}(?:trades?|plays?|strateg(?:
 const PICK_TRADE = /\b(?:pick|choose|recommend|suggest|find)\s+(?:me\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+){0,3}(?:trades?|strateg(?:y|ies)|spreads?)\b/i;
 const STRATEGY_SCREEN = /\b(?:(?:find|screen|scan|search|show|get|list)?\s*(?:all\s+)?(?:options?\s+)?strateg(?:y|ies)(?:\s+(?:where|with|that|having|evaluated|ledger|screen|scan|screener))?|(?:all|every)\s+strateg(?:y|ies)|(?:debit|credit|vertical)\s+spreads?|straddles?|strangles?|iron\s+condors?|max\s*profit\s*(?:>|is\s*(?:more|greater|higher)\s*than)\s*max\s*loss)\b/i;
 
-const THESIS_DEFAULTS: Record<OptionThesis, OptionStrategyType[]> = {
-  bullish: ["long_call", "call_debit_spread", "put_credit_spread"],
-  bearish: ["long_put", "put_debit_spread", "call_credit_spread"],
-  range_bound: ["iron_condor", "call_credit_spread", "put_credit_spread"],
-  large_move: ["long_straddle", "long_strangle"],
-};
-
 function parseNumber(text: string): number {
   return Number(text.replace(/,/g, ""));
 }
