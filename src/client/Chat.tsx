@@ -14,6 +14,7 @@ import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
+import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 
 interface User {
   login: string;
@@ -1265,6 +1266,23 @@ export function Chat({ user }: { user: User }) {
   });
   const [accountMode, setAccountMode] = useState<"paper" | "live">("paper");
 
+  // Theme state: light | dark | system
+  const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
+
+  useEffect(() => {
+    return initThemeListener(() => {
+      setTheme(getStoredTheme());
+    });
+  }, []);
+
+  const handleCycleTheme = () => {
+    setTheme((prev) => {
+      const next: ThemeMode = prev === "light" ? "dark" : prev === "dark" ? "system" : "light";
+      applyTheme(next);
+      return next;
+    });
+  };
+
   const handleToggleNavLayout = (newLayout: NavLayoutMode) => {
     setNavLayout(newLayout);
     if (typeof window !== "undefined") {
@@ -1963,6 +1981,8 @@ export function Chat({ user }: { user: User }) {
           agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
           accountMode={accountMode}
           onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+          theme={theme}
+          onCycleTheme={handleCycleTheme}
         />
       )}
 
@@ -2016,6 +2036,18 @@ export function Chat({ user }: { user: User }) {
             <div className="sub-header-right">
               <AsyncJobsPanel />
 
+              {/* Theme Switcher Button */}
+              <button
+                type="button"
+                className="layout-switch-badge-btn theme-switch-btn"
+                onClick={handleCycleTheme}
+                title={`Theme: ${theme.toUpperCase()} (Click to cycle Light / Dark / System)`}
+                aria-label="Toggle theme mode"
+              >
+                {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
+                <span>{theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto"}</span>
+              </button>
+
               {/* Layout Switcher Pill Button */}
               <button
                 type="button"
@@ -2053,6 +2085,8 @@ export function Chat({ user }: { user: User }) {
               accountMode={accountMode}
               onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
               headerChildren={<AsyncJobsPanel />}
+              theme={theme}
+              onCycleTheme={handleCycleTheme}
             />
           </header>
         )}
