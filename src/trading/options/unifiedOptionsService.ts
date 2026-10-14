@@ -34,14 +34,7 @@ import {
 import { OpportunityScanner, type OpportunityScanResult } from "./opportunityScanner";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
-import { getModelContextWindow } from "../../agents/model";
 import { rankCandidatesWithLlm } from "./llmComparison";
-import {
-  generateRawOptionsIdeas,
-  groupRawOptionsIdeasChains,
-  buildContextLimitedRawOptionsIdeasInput,
-  sanitizeOptionChainForLlm,
-} from "./llmIdeas";
 
 export type UnifiedOptionsAction =
   | "screen"
@@ -285,66 +278,57 @@ export class UnifiedOptionsService {
 
         case "llm_ideas":
         case "llm_evaluate": {
+          // Issue #29 disposition: llm_ideas no longer performs an independent
+          // raw-chain analysis. That path duplicated the recommender
+          // generatively, with no access to the user's risk constraints and
+          // only contract-existence verification (SSOT Section 10, F-1/F-4).
+          // The action now follows the compare pattern: the quant pipeline
+          // runs first and the LLM evaluates ITS verified candidates,
+          // side-by-side, never overwriting the quant ranking.
           const symbol = (req.symbol || "NVDA").toUpperCase().trim();
           const question = req.question || "Find the strongest options strategy ideas across available chains.";
-          let expirations: any[] = [];
-          const chains: any[] = [];
-          const orm = this.orm || new DatabaseORM({ exec: () => [] });
-          const cached = orm.getOptionsChain ? orm.getOptionsChain(symbol) : null;
-          if (cached && cached.expirations.length > 0 && cached.chains.length > 0) {
-            expirations = cached.expirations;
-            for (const c of cached.chains) chains.push(c);
-          } else {
-            expirations = await etrade.client.getOptionExpireDates(symbol);
-            if (expirations.length > 0) {
-              const targetExp = expirations.slice(0, 12);
-              for (const exp of targetExp) {
-                const chain = await etrade.client.getOptionChains({
-                  symbol,
-                  expiryYear: exp.year,
-                  expiryMonth: exp.month,
-                  expiryDay: exp.day,
-                  includeWeekly: true,
-                  chainType: "CALLPUT",
-                  includeRawResponse: true,
-                });
-                if (chain) chains.push(chain);
-              }
-              if (orm.setOptionsChain && chains.length > 0) {
-                orm.setOptionsChain(symbol, expirations, chains, 600);
-              }
-            }
-          }
-          const groups = groupRawOptionsIdeasChains(expirations, chains);
-          const groupResults = [];
-          const modelContextWindow = getModelContextWindow(this.env, "optionsIdeas");
-          const maxOutputTokens = 4096;
-          const safetyBuffer = 1404;
-          const safeModelBudget = Math.max(4000, modelContextWindow - maxOutputTokens - safetyBuffer);
-          for (const group of groups.slice(0, 3)) {
-            try {
-              const limited = buildContextLimitedRawOptionsIdeasInput(
-                symbol,
-                `${question}\nAnalyze ${group.label}`,
-                group.expirations,
-                group.optionChains,
-                undefined,
-                safeModelBudget,
-              );
-              const llmRes = await generateRawOptionsIdeas(this.env, limited.input, group.optionChains);
-              groupResults.push({ id: group.id, label: group.label, status: "complete" as const, answer: llmRes.answer, contractSymbols: llmRes.contractSymbols });
-            } catch (err: any) {
-              groupResults.push({ id: group.id, label: group.label, status: "error" as const, error: err.message });
-            }
+          const strategyRequest: StrategyRequest = {
+            symbol,
+            thesis: req.thesis || "bullish",
+            targetPrice: req.targetPrice || 100,
+            targetDate: req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+            expectedIvDirection: req.expectedIvDirection || "unchanged",
+            maxPlannedLoss: req.maxPlannedLoss || 1000,
+            minRewardRisk: req.minRewardRisk || 1.5,
+            allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
+          };
+          const pipeline = new OptionsAgentPipeline(screener);
+          const pipelineResult = await pipeline.run(strategyRequest, {
+            riskProfile: req.riskProfile || "balanced",
+          });
+          const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
+          let llmJudgment: any = null;
+          try {
+            llmJudgment = await rankCandidatesWithLlm(
+              this.env,
+              strategyRequest,
+              req.riskProfile || "balanced",
+              pipelineResult.snapshot.contracts,
+              candidates
+            );
+          } catch (e: any) {
+            llmJudgment = { status: "error", error: e?.message || "LLM evaluation failed." };
           }
           executionData = {
-            mode: "raw_etrade_options_ideas",
+            mode: "llm_evaluation_of_quant_candidates",
+            deprecatedAction: req.action,
+            notice: "llm_ideas no longer analyzes raw chains independently (issue #29); it evaluates the quant pipeline's candidates, following the compare pattern.",
             symbol,
             question,
-            groups: groupResults,
-            dataCoverage: { expirationCount: expirations.length, chainCount: chains.length, contractCount: chains.reduce((acc, c) => acc + (c.pairs?.length || 0), 0) },
+            quant: {
+              ranked: pipelineResult.ranked.slice(0, 10),
+              scoreWeights: pipelineResult.strategies.scoreWeights,
+              candidateCount: candidates.length,
+            },
+            llm: llmJudgment?.status === "error" ? llmJudgment : { status: "complete", ...llmJudgment },
+            contracts: pipelineResult.snapshot.contracts,
           };
-          summary = `Raw LLM options analysis for ${symbol}: evaluated ${groups.length} expiration groups.`;
+          summary = `LLM evaluation of quant candidates for ${symbol}: evaluated ${candidates.length} candidates (llm_ideas retired as an independent recommender, issue #29).`;
           break;
         }
 

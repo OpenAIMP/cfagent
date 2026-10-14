@@ -1,3 +1,13 @@
+/**
+ * @deprecated Issue #29: independent LLM strategy generation over raw chains
+ * is retired as a product recommender path. The unified options service no
+ * longer calls this module — llm_ideas/llm_evaluate now follow the compare
+ * pattern (quant pipeline first; the LLM evaluates its verified candidates).
+ * This module remains only for the legacy orchestrator /llm-ideas endpoint
+ * and its tests, pending that endpoint's rerouting. Do not wire new product
+ * surfaces to it: it has no access to user risk constraints and verifies
+ * only that cited contracts exist (SSOT Section 10, findings F-1/F-2).
+ */
 import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ETradeOptionChain, ETradeOptionChainContract, ETradeOptionExpireDate } from "../../types";
