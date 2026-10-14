@@ -941,3 +941,577 @@ export function analyzeStrategy(
     factors,
   };
 }
+
+/**
+ * Master Strategy Discovery Generator: builds the exact strategies seen in OptionStrat
+ * based on ticker, current price, sentiment, target price, budget, expiration, and optimization slider.
+ */
+export function discoverStrategies(options: {
+  symbol: string;
+  currentPrice: number;
+  sentiment: SentimentType;
+  targetPrice: number;
+  budget?: number | null;
+  minRewardRisk?: number | null;
+  expiration: ExpirationOption;
+  optimizationBias: number; // 0 = Max Return (OTM), 100 = Max Chance (ITM)
+  baseIv?: number;
+  config?: Partial<StrategyDiscoveryConfig>;
+}): DiscoveredStrategy[] {
+  const { symbol, currentPrice: spot, sentiment, targetPrice, expiration, optimizationBias, baseIv = 0.442, config } = options;
+  const dte = expiration.dte;
+  const expiryDate = expiration.date;
+  const strikes = generateStrikeLadder(spot);
+  const r = config?.riskFreeRate ?? 0.04;
+
+  // Find ATM strike index
+  let atmIndex = 0;
+  let minDiff = Infinity;
+  strikes.forEach((k, idx) => {
+    const diff = Math.abs(k - spot);
+    if (diff < minDiff) {
+      minDiff = diff;
+      atmIndex = idx;
+    }
+  });
+
+  // Shift strikes based on optimizationBias (0 to 100)
+  // Max Return (0) -> pushes further OTM
+  // Max Chance (100) -> pushes ITM / safer
+  const biasShift = Math.round(((50 - optimizationBias) / 50) * 3);
+
+  const getStrike = (offset: number) => {
+    const idx = Math.max(0, Math.min(strikes.length - 1, atmIndex + offset + biasShift));
+    return strikes[idx];
+  };
+
+  const results: DiscoveredStrategy[] = [];
+
+  // ==========================================
+  // COMPLETE 72-STRATEGY CATALOG (OptionStrat Standard)
+  // When sentiment is "all" or matches, evaluate all 72 pre-built strategies
+  // ==========================================
+  for (const def of STRATEGY_LIBRARY) {
+    if (sentiment === "all" || def.theses.includes(sentiment)) {
+      try {
+        const legs = def.buildLegs(spot, dte, expiryDate, baseIv, r);
+        results.push(
+          analyzeStrategy(
+            def.name,
+            def.category,
+            def.subtitle,
+            def.theses,
+            legs,
+            spot,
+            targetPrice,
+            dte,
+            expiryDate,
+            baseIv,
+            def.description
+          )
+        );
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  // ==========================================
+  // BULLISH & VERY BULLISH STRATEGIES
+  // ==========================================
+  if (sentiment === "all" || sentiment === "bullish" || sentiment === "very_bullish") {
+    // 1. Long Call
+    const callStrike = sentiment === "very_bullish" ? getStrike(-4) : getStrike(-2); // deep in the money or near-ATM
+    const longCallLeg = makeLeg("BUY", "CALL", callStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Long Call",
+        "Single Leg",
+        `Buy ${callStrike}C`,
+        ["bullish", "very_bullish"],
+        [longCallLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Direct leveraged call option; unlimited upside potential with strictly defined capital risk."
+      )
+    );
+
+    // 2. Covered Call
+    const covCallStrike = getStrike(4);
+    const stockLeg = makeStockLeg("BUY", spot, 100, expiryDate, dte);
+    const shortCallLeg = makeLeg("SELL", "CALL", covCallStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Covered Call",
+        "Stock + Option",
+        `Own the underlying, Sell ${covCallStrike}C`,
+        ["bullish"],
+        [stockLeg, shortCallLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Generate cash yield against stock holdings with buffered downside."
+      )
+    );
+
+    // 3. Cash-Secured Put
+    const cspStrike = getStrike(-6);
+    const cspLeg = makeLeg("SELL", "PUT", cspStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Cash-Secured Put",
+        "Single Leg",
+        `Sell ${cspStrike}P, Have cash to buy shares if assigned`,
+        ["bullish"],
+        [cspLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Collect premium while setting a discounted target purchase price for the stock."
+      )
+    );
+
+    // 4. Short Put
+    results.push(
+      analyzeStrategy(
+        "Short Put",
+        "Single Leg",
+        `Sell ${cspStrike}P`,
+        ["bullish"],
+        [cspLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "High probability of profit option writing benefiting from theta decay."
+      )
+    );
+
+    // 5. Bull Call Spread (Call Debit Spread)
+    const bcsBuyStrike = getStrike(-1);
+    const bcsSellStrike = getStrike(6);
+    const bcsBuy = makeLeg("BUY", "CALL", bcsBuyStrike, spot, dte, expiryDate, baseIv);
+    const bcsSell = makeLeg("SELL", "CALL", bcsSellStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Bull Call Spread",
+        "Vertical Spread",
+        `Buy ${bcsBuyStrike}C, Sell ${bcsSellStrike}C`,
+        ["bullish", "very_bullish"],
+        [bcsBuy, bcsSell],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Defined-risk bullish vertical spread reducing entry cost via sold upside call."
+      )
+    );
+
+    // 6. Bull Put Spread (Put Credit Spread)
+    const bpsSellStrike = getStrike(-2);
+    const bpsBuyStrike = getStrike(-8);
+    const bpsSell = makeLeg("SELL", "PUT", bpsSellStrike, spot, dte, expiryDate, baseIv);
+    const bpsBuy = makeLeg("BUY", "PUT", bpsBuyStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Bull Put Spread",
+        "Vertical Spread",
+        `Buy ${bpsBuyStrike}P, Sell ${bpsSellStrike}P`,
+        ["bullish"],
+        [bpsBuy, bpsSell],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Collect upfront net credit that expires worthless if stock stays above the short strike."
+      )
+    );
+
+    // 7. Synthetic Long Future / Stock
+    const synStrike = getStrike(0);
+    const synCall = makeLeg("BUY", "CALL", synStrike, spot, dte, expiryDate, baseIv);
+    const synPut = makeLeg("SELL", "PUT", synStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Long Synthetic Future",
+        "Synthetic",
+        `Buy ${synStrike}C, Sell ${synStrike}P`,
+        ["very_bullish"],
+        [synCall, synPut],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Replicates 100 delta long stock performance with minimal upfront capital."
+      )
+    );
+  }
+
+  // ==========================================
+  // BEARISH & VERY BEARISH STRATEGIES
+  // ==========================================
+  if (sentiment === "all" || sentiment === "bearish" || sentiment === "very_bearish") {
+    // 1. Long Put
+    const putStrike = sentiment === "very_bearish" ? getStrike(4) : getStrike(1);
+    const longPutLeg = makeLeg("BUY", "PUT", putStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Long Put",
+        "Single Leg",
+        `Buy ${putStrike}P`,
+        ["bearish", "very_bearish"],
+        [longPutLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Direct bearish option capitalizing on underlying price drops and rising volatility."
+      )
+    );
+
+    // 2. Bear Put Spread (Put Debit Spread)
+    const bdsBuyStrike = getStrike(1);
+    const bdsSellStrike = getStrike(-5);
+    const bdsBuy = makeLeg("BUY", "PUT", bdsBuyStrike, spot, dte, expiryDate, baseIv);
+    const bdsSell = makeLeg("SELL", "PUT", bdsSellStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Bear Put Spread",
+        "Vertical Spread",
+        `Buy ${bdsBuyStrike}P, Sell ${bdsSellStrike}P`,
+        ["bearish", "very_bearish"],
+        [bdsBuy, bdsSell],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Defined-risk downside play selling a lower put to fund the higher put purchase."
+      )
+    );
+
+    // 3. Bear Call Spread (Call Credit Spread)
+    const bcsSellStrike = getStrike(1);
+    const bcsBuyStrike = getStrike(6);
+    const bcsSell = makeLeg("SELL", "CALL", bcsSellStrike, spot, dte, expiryDate, baseIv);
+    const bcsBuy = makeLeg("BUY", "CALL", bcsBuyStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Bear Call Spread",
+        "Vertical Spread",
+        `Sell ${bcsSellStrike}C, Buy ${bcsBuyStrike}C`,
+        ["bearish"],
+        [bcsSell, bcsBuy],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Credit vertical profiting from downward movement, stagnation, or modest rise."
+      )
+    );
+
+    // 4. Short Call
+    const shortCallStrike = getStrike(4);
+    const shortCallLeg = makeLeg("SELL", "CALL", shortCallStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Short Call",
+        "Single Leg",
+        `Sell ${shortCallStrike}C`,
+        ["bearish"],
+        [shortCallLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Naked call collection benefiting from stock decline or time decay; infinite upside risk."
+      )
+    );
+
+    // 5. Short Synthetic Future
+    const synStrike = getStrike(0);
+    const synPut = makeLeg("BUY", "PUT", synStrike, spot, dte, expiryDate, baseIv);
+    const synCall = makeLeg("SELL", "CALL", synStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Short Synthetic Future",
+        "Synthetic",
+        `Buy ${synStrike}P, Sell ${synStrike}C`,
+        ["very_bearish"],
+        [synPut, synCall],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Simulates short stock position using long put and short call at identical strikes."
+      )
+    );
+
+    // 6. Covered Put
+    const covPutStrike = getStrike(-4);
+    const stockShort = makeStockLeg("SELL", spot, 100, expiryDate, dte);
+    const covPutLeg = makeLeg("SELL", "PUT", covPutStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Covered Put",
+        "Stock + Option",
+        `Short the underlying, Sell ${covPutStrike}P`,
+        ["bearish"],
+        [stockShort, covPutLeg],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Bearish income strategy shorting shares while harvesting put premium."
+      )
+    );
+  }
+
+  // ==========================================
+  // NEUTRAL STRATEGIES (Range-Bound / Low Vol)
+  // ==========================================
+  if (sentiment === "all" || sentiment === "neutral") {
+    // 1. Iron Condor
+    const icPutBuy = makeLeg("BUY", "PUT", getStrike(-7), spot, dte, expiryDate, baseIv);
+    const icPutSell = makeLeg("SELL", "PUT", getStrike(-3), spot, dte, expiryDate, baseIv);
+    const icCallSell = makeLeg("SELL", "CALL", getStrike(3), spot, dte, expiryDate, baseIv);
+    const icCallBuy = makeLeg("BUY", "CALL", getStrike(7), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Iron Condor",
+        "Condor",
+        `Sell ${icPutSell.strike}P/${icCallSell.strike}C Wings ${icPutBuy.strike}P/${icCallBuy.strike}C`,
+        ["neutral"],
+        [icPutBuy, icPutSell, icCallSell, icCallBuy],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Premier range-bound strategy collecting maximum premium within a defined price corridor."
+      )
+    );
+
+    // 2. Iron Butterfly
+    const ibPutBuy = makeLeg("BUY", "PUT", getStrike(-5), spot, dte, expiryDate, baseIv);
+    const ibPutSell = makeLeg("SELL", "PUT", getStrike(0), spot, dte, expiryDate, baseIv);
+    const ibCallSell = makeLeg("SELL", "CALL", getStrike(0), spot, dte, expiryDate, baseIv);
+    const ibCallBuy = makeLeg("BUY", "CALL", getStrike(5), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Iron Butterfly",
+        "Butterfly",
+        `ATM Straddle at ${getStrike(0)}, Wings ±${getStrike(5) - getStrike(0)}`,
+        ["neutral"],
+        [ibPutBuy, ibPutSell, ibCallSell, ibCallBuy],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Targeted pinpoint pin play capitalizing on low volatility and maximum time decay."
+      )
+    );
+
+    // 3. Short Straddle
+    const ssAtm = getStrike(0);
+    const ssCall = makeLeg("SELL", "CALL", ssAtm, spot, dte, expiryDate, baseIv);
+    const ssPut = makeLeg("SELL", "PUT", ssAtm, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Short Straddle",
+        "Volatility",
+        `Sell ${ssAtm}C & ${ssAtm}P`,
+        ["neutral"],
+        [ssCall, ssPut],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "High credit income strategy profiting from volatility collapse near current price."
+      )
+    );
+
+    // 4. Short Strangle
+    const ssPutOtm = makeLeg("SELL", "PUT", getStrike(-3), spot, dte, expiryDate, baseIv);
+    const ssCallOtm = makeLeg("SELL", "CALL", getStrike(3), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Short Strangle",
+        "Volatility",
+        `Sell ${ssPutOtm.strike}P, Sell ${ssCallOtm.strike}C`,
+        ["neutral"],
+        [ssPutOtm, ssCallOtm],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Wider profit zone short strangle capturing dual-side theta premium decay."
+      )
+    );
+
+    // 5. Calendar Spread
+    const calStrike = getStrike(0);
+    const calShort = makeLeg("SELL", "CALL", calStrike, spot, Math.max(7, Math.round(dte * 0.4)), expiryDate, baseIv);
+    const calLong = makeLeg("BUY", "CALL", calStrike, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Call Calendar Spread",
+        "Time Spread",
+        `Sell Near ${calStrike}C, Buy Far ${calStrike}C`,
+        ["neutral"],
+        [calShort, calLong],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Exploits accelerated theta decay on front-month contract while retaining back-month value."
+      )
+    );
+  }
+
+  // ==========================================
+  // DIRECTIONAL / HIGH VOLATILITY STRATEGIES
+  // ==========================================
+  if (sentiment === "all" || sentiment === "directional") {
+    // 1. Long Straddle
+    const lsAtm = getStrike(0);
+    const lsCall = makeLeg("BUY", "CALL", lsAtm, spot, dte, expiryDate, baseIv);
+    const lsPut = makeLeg("BUY", "PUT", lsAtm, spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Long Straddle",
+        "Volatility",
+        `Buy ${lsAtm}C & ${lsAtm}P`,
+        ["directional"],
+        [lsCall, lsPut],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Pure volatility play profiting from explosive expansion in either direction."
+      )
+    );
+
+    // 2. Long Strangle
+    const lStranglePut = makeLeg("BUY", "PUT", getStrike(-3), spot, dte, expiryDate, baseIv);
+    const lStrangleCall = makeLeg("BUY", "CALL", getStrike(3), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Long Strangle",
+        "Volatility",
+        `Buy ${lStranglePut.strike}P, Buy ${lStrangleCall.strike}C`,
+        ["directional"],
+        [lStranglePut, lStrangleCall],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Cost-efficient volatility breakout structure with unbounded profit potential."
+      )
+    );
+
+    // 3. Reverse Iron Condor
+    const ricPutSell = makeLeg("SELL", "PUT", getStrike(-7), spot, dte, expiryDate, baseIv);
+    const ricPutBuy = makeLeg("BUY", "PUT", getStrike(-3), spot, dte, expiryDate, baseIv);
+    const ricCallBuy = makeLeg("BUY", "CALL", getStrike(3), spot, dte, expiryDate, baseIv);
+    const ricCallSell = makeLeg("SELL", "CALL", getStrike(7), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Reverse Iron Condor",
+        "Condor",
+        `Buy inner ${ricPutBuy.strike}P/${ricCallBuy.strike}C, Sell outer wings`,
+        ["directional"],
+        [ricPutSell, ricPutBuy, ricCallBuy, ricCallSell],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "Defined-risk breakout structure for major moves while hedging tail risk."
+      )
+    );
+
+    // 4. Reverse Iron Butterfly
+    const ribPutSell = makeLeg("SELL", "PUT", getStrike(-5), spot, dte, expiryDate, baseIv);
+    const ribPutBuy = makeLeg("BUY", "PUT", getStrike(0), spot, dte, expiryDate, baseIv);
+    const ribCallBuy = makeLeg("BUY", "CALL", getStrike(0), spot, dte, expiryDate, baseIv);
+    const ribCallSell = makeLeg("SELL", "CALL", getStrike(5), spot, dte, expiryDate, baseIv);
+    results.push(
+      analyzeStrategy(
+        "Reverse Iron Butterfly",
+        "Butterfly",
+        `Buy ATM Straddle at ${getStrike(0)}, Sell wings`,
+        ["directional"],
+        [ribPutSell, ribPutBuy, ribCallBuy, ribCallSell],
+        spot,
+        targetPrice,
+        dte,
+        expiryDate,
+        baseIv,
+        "High-leverage breakout trade on volatile events like earnings announcements."
+      )
+    );
+  }
+
+  let finalResults = results;
+
+  // Deduplicate strategies by name & leg signature so variations remain distinct
+  const seenStrategyKeys = new Set<string>();
+  finalResults = finalResults.filter((s) => {
+    const key = `${s.name}::${s.legs.map((l) => `${l.side}_${l.strike}_${l.optionType}`).join(";")}`;
+    if (seenStrategyKeys.has(key)) return false;
+    seenStrategyKeys.add(key);
+    return true;
+  });
+
+  // Filter out illiquid contracts only if user did NOT select "all" options
+  if (sentiment !== "all") {
+    const liquidResults = finalResults.filter((s) =>
+      s.legs.every((leg) => leg.optionType === "STOCK" || leg.entryPrice >= 0.05)
+    );
+    if (liquidResults.length > 0) {
+      finalResults = liquidResults;
+    }
+  }
+
+  // Filter by budget if provided
+  if (options.budget && options.budget > 0) {
+    finalResults = finalResults.filter((s) => s.riskOrCollateral <= options.budget!);
+  }
+
+  // Filter by minimum Reward/Risk ratio (Max Profit vs Max Loss) if provided
+  if (options.minRewardRisk && options.minRewardRisk > 0) {
+    finalResults = finalResults.filter((s) => {
+      if (s.maxProfit === null) return true; // unlimited profit exceeds any ratio
+      if (s.maxLoss === null || s.maxLoss <= 0) return false;
+      return (s.maxProfit / s.maxLoss) >= options.minRewardRisk!;
+    });
+  }
+
+  // Sort by composite score to match user's optimization bias
+  const sorted = finalResults.sort((a, b) => (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0));
+  const maxLimit = options.config?.maxCombinations ?? 5000;
+  return sorted.slice(0, maxLimit);
+}
