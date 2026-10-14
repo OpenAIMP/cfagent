@@ -1195,7 +1195,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                       {/* Key Parameter Badges Row */}
                       {faq.parameterBadges && faq.parameterBadges.length > 0 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                          <span style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", fontWeight: 700 }}>
+                          <span className="faq-param-heading">
                             ⚙️ Key Input Parameters &amp; Filter Settings
                           </span>
                           <div className="faq-param-badges">
@@ -1211,7 +1211,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* 3 Distinct Execution Methods */}
                       <div>
-                        <h4 style={{ fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#38bdf8", margin: "0 0 0.75rem 0" }}>
+                        <h4 className="faq-methods-heading">
                           🚀 Multi-Method Execution Paths (3 Ways to Run)
                         </h4>
                         <div className="faq-methods-grid">
