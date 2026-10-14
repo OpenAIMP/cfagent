@@ -1636,7 +1636,7 @@ export function StrategyDiscoveryPanel({
                     {onPreviewTrade && (
                       <button
                         type="button"
-                        className="strat-card-btn-trade"
+                        className="strat-card-icon-btn trade"
                         onClick={() => {
                           const ctx: OptionsTradeContext = {
                             symbol: activeSymbol,
@@ -1654,20 +1654,25 @@ export function StrategyDiscoveryPanel({
                           onPreviewTrade(ctx);
                         }}
                         title={`Trade ${strat.name}: send to Order Ticket`}
+                        aria-label={`Trade ${strat.name}`}
                       >
-                        ⚡ Trade
+                        <span className="strat-icon">⚡</span>
+                        <span className="strat-icon-tooltip">Trade</span>
                       </button>
                     )}
                     <button
                       type="button"
-                      className="strat-card-btn-builder"
+                      className="strat-card-icon-btn builder"
                       onClick={() => openInBuilder(strat)}
+                      title={`Open ${strat.name} in Interactive Builder`}
+                      aria-label={`Open ${strat.name} in Builder`}
                     >
-                      Open in Builder 📊
+                      <span className="strat-icon">📊</span>
+                      <span className="strat-icon-tooltip">Builder</span>
                     </button>
                     <button
                       type="button"
-                      className="strat-card-btn-eval"
+                      className="strat-card-icon-btn eval"
                       onClick={() => {
                         setEvaluatingStrategy({
                           symbol: activeSymbol,
@@ -1686,13 +1691,15 @@ export function StrategyDiscoveryPanel({
                           legs: strat.legs.map((l) => `${l.side} ${l.quantity} ${activeSymbol} ${selectedExpiration.date} $${l.strike} ${l.optionType}`),
                         });
                       }}
-                      title="Evaluate with Workers AI LLM"
+                      title={`Evaluate ${strat.name} with AI / LLM`}
+                      aria-label={`Evaluate ${strat.name} with LLM`}
                     >
-                      🧠 Evaluate with LLM
+                      <span className="strat-icon">🧠</span>
+                      <span className="strat-icon-tooltip">AI Eval</span>
                     </button>
                     <button
                       type="button"
-                      className="strat-card-btn-risk"
+                      className="strat-card-icon-btn risk"
                       onClick={() => {
                         setRiskSubject({
                           title: strat.name,
@@ -1729,9 +1736,11 @@ export function StrategyDiscoveryPanel({
                           },
                         });
                       }}
-                      title="Analyze Strategy Risk & Management Playbook"
+                      title={`Analyze ${strat.name} Risk & Management Playbook`}
+                      aria-label={`Risk Analysis for ${strat.name}`}
                     >
-                      🛡️ Risk Analysis
+                      <span className="strat-icon">🛡️</span>
+                      <span className="strat-icon-tooltip">Risk</span>
                     </button>
                   </div>
                 </div>

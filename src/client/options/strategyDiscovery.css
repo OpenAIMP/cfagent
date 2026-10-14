@@ -853,7 +853,7 @@
   display: block;
 }
 
-.strat-card-btn-builder {
+.strat-card-btn-builder:not(.strat-card-icon-btn) {
   background: #0284c7;
   color: #ffffff;
   border: none;
@@ -869,7 +869,7 @@
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
 }
 
-.strat-card-btn-builder:hover {
+.strat-card-btn-builder:not(.strat-card-icon-btn):hover {
   background: #0369a1;
   box-shadow: 0 6px 16px rgba(2, 132, 199, 0.55);
 }
@@ -1830,37 +1830,205 @@
 }
 
 /* ==========================================================================
-   DISCOVERY CARD DUAL ACTION ROW (BUILDER + EVALUATE WITH LLM)
+   DISCOVERY CARD THEMATIC ICON ACTIONS ROW (TRADE, BUILDER, AI EVAL, RISK)
+   Compact, sleek icon toolbar with hover micro-tooltips and smooth elevation
    ========================================================================== */
 .strat-card-actions-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.strat-card-btn-eval {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%);
-  border: 1px solid rgba(168, 85, 247, 0.45);
-  color: #e2e8f0;
-  border-radius: 6px;
-  padding: 0.45rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  transition: all 0.2s ease;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  width: 100%;
 }
 
-.strat-card-btn-eval:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.45) 0%, rgba(168, 85, 247, 0.45) 100%);
-  border-color: #c084fc;
-  color: #ffffff;
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
-  transform: translateY(-1px);
+.strat-card-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  outline: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  max-width: 58px;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.strat-card-icon-btn .strat-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.strat-card-icon-btn:hover .strat-icon {
+  transform: scale(1.18);
+}
+
+/* Hover Micro-Tooltip */
+.strat-card-icon-btn .strat-icon-tooltip {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #0b1120;
+  color: #f8fafc;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  z-index: 99;
+}
+
+.strat-card-icon-btn .strat-icon-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 4px;
+  border-style: solid;
+  border-color: rgba(56, 189, 248, 0.35) transparent transparent transparent;
+}
+
+.strat-card-icon-btn:hover .strat-icon-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 1. Trade Button (Amber / Orange theme) */
+.strat-card-icon-btn.trade {
+  background: rgba(234, 88, 12, 0.12) !important;
+  border-color: rgba(234, 88, 12, 0.3) !important;
+  color: #fb923c !important;
+}
+
+.strat-card-icon-btn.trade:hover {
+  background: rgba(234, 88, 12, 0.28) !important;
+  border-color: #f97316 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(234, 88, 12, 0.35) !important;
+  transform: translateY(-2px);
+}
+
+/* 2. Builder Button (Cyan / Blue theme) */
+.strat-card-icon-btn.builder {
+  background: rgba(2, 132, 199, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  color: #38bdf8 !important;
+  width: auto !important;
+}
+
+.strat-card-icon-btn.builder:hover {
+  background: rgba(2, 132, 199, 0.28) !important;
+  border-color: #38bdf8 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.35) !important;
+  transform: translateY(-2px);
+}
+
+/* 3. AI Evaluate Button (Purple / Indigo theme) */
+.strat-card-icon-btn.eval {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%) !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+  color: #c084fc !important;
+}
+
+.strat-card-icon-btn.eval:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(168, 85, 247, 0.3) 100%) !important;
+  border-color: #c084fc !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.35) !important;
+  transform: translateY(-2px);
+}
+
+/* 4. Risk Analysis Button (Gold / Amber theme) */
+.strat-card-icon-btn.risk {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  color: #fbbf24 !important;
+}
+
+.strat-card-icon-btn.risk:hover {
+  background: rgba(245, 158, 11, 0.28) !important;
+  border-color: #f59e0b !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35) !important;
+  transform: translateY(-2px);
+}
+
+/* Focus Visible Accessibility */
+.strat-card-icon-btn:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] .strat-card-actions-row,
+body.theme-light .strat-card-actions-row {
+  border-top-color: #e2e8f0;
+}
+
+[data-theme="light"] .strat-card-icon-btn .strat-icon-tooltip,
+body.theme-light .strat-card-icon-btn .strat-icon-tooltip {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .strat-card-icon-btn .strat-icon-tooltip::after,
+body.theme-light .strat-card-icon-btn .strat-icon-tooltip::after {
+  border-color: #cbd5e1 transparent transparent transparent;
+}
+
+[data-theme="light"] .strat-card-icon-btn.trade,
+body.theme-light .strat-card-icon-btn.trade {
+  background: #fff7ed !important;
+  border-color: #fdba74 !important;
+  color: #c2410c !important;
+}
+
+[data-theme="light"] .strat-card-icon-btn.builder,
+body.theme-light .strat-card-icon-btn.builder {
+  background: #f0f9ff !important;
+  border-color: #7dd3fc !important;
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .strat-card-icon-btn.eval,
+body.theme-light .strat-card-icon-btn.eval {
+  background: #faf5ff !important;
+  border-color: #d8b4fe !important;
+  color: #7e22ce !important;
+}
+
+[data-theme="light"] .strat-card-icon-btn.risk,
+body.theme-light .strat-card-icon-btn.risk {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
 }
 
 .strat-btn-action.eval-llm {
