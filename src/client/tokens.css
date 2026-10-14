@@ -16,8 +16,8 @@
      ========================================================================== */
 
   /* Typography Families — Enforced Universal Single Font (Inter) */
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --app-font-scale: 1;
 
   /* Spacing Scale */
@@ -101,7 +101,8 @@
 html,
 body,
 [data-font-style] {
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 /* Strict universal single font enforcement across all HTML elements, inputs, buttons, headings, tables, and text */
@@ -138,7 +139,7 @@ footer,
 nav,
 aside,
 main {
-  font-family: var(--font-sans) !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -148,12 +149,8 @@ code,
 kbd,
 samp,
 pre,
-.font-mono,
-.mono,
-[data-mono="true"],
-.sig-code,
 .code-block {
-  font-family: var(--font-mono) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
 /* ==========================================================================

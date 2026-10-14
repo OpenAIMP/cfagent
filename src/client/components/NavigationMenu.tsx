@@ -747,33 +747,6 @@ export function NavigationMenu({
             })}
           </div>
         </div>
-
-        {/* Sidebar Bottom: User identity profile & Settings */}
-        <div className="sidebar-footer">
-          <div className="sidebar-user-dock">
-            <img src={user.avatar} alt={user.login} className="sidebar-user-avatar" />
-            {!collapsed && (
-              <div className="sidebar-user-info">
-                <span className="sidebar-user-name">{user.name}</span>
-                <span className="sidebar-user-login">@{user.login}</span>
-              </div>
-            )}
-            <button
-              type="button"
-              className="sidebar-settings-btn"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(new CustomEvent("open-settings-menu"));
-                }
-              }}
-              title="Open Settings & Platform Configuration"
-              aria-label="Open Settings"
-            >
-              <NavIcons.Settings />
-              {!collapsed && <span>Settings</span>}
-            </button>
-          </div>
-        </div>
       </aside>
     );
   }

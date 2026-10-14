@@ -4,7 +4,7 @@
  * and provides centralized font scale preferences.
  */
 
-export const UNIVERSAL_SYSTEM_FONT = "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+export const UNIVERSAL_SYSTEM_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 export type FontStyleId = "inter" | "jakarta" | "roboto" | "jetbrains" | "outfit" | "system";
 
