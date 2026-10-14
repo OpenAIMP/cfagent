@@ -27,6 +27,9 @@ export interface StrategyLegItem {
   theta: number;
   vega: number;
   rho?: number;
+  vanna?: number;
+  charm?: number;
+  vomma?: number;
   /** Custom entered cost-basis per unit; shows blue dollar icon when set */
   customCostBasis?: number;
   /** When true, excluded from all P&L and Greeks calculations; displays crossed-out eye */
@@ -47,6 +50,10 @@ export interface NetOptionGreeks {
   netTheta: number;
   netVega: number;
   netRho: number;
+  netVanna?: number;
+  netCharm?: number;
+  netVomma?: number;
+  weightedIv?: number;
 }
 
 export interface RealizedUnrealizedPnl {
@@ -323,6 +330,10 @@ function makeLeg(
     gamma: bs.gamma,
     theta: bs.theta,
     vega: bs.vega,
+    rho: bs.rho,
+    vanna: bs.vanna,
+    charm: bs.charm,
+    vomma: bs.vomma,
   };
 }
 
@@ -349,6 +360,10 @@ function makeStockLeg(
     gamma: 0,
     theta: 0,
     vega: 0,
+    rho: 0,
+    vanna: 0,
+    charm: 0,
+    vomma: 0,
   };
 }
 
@@ -420,6 +435,10 @@ export function updateLegStrike(
     gamma: bs.gamma,
     theta: bs.theta,
     vega: bs.vega,
+    rho: bs.rho,
+    vanna: bs.vanna,
+    charm: bs.charm,
+    vomma: bs.vomma,
   };
 }
 
@@ -457,6 +476,10 @@ export function updateLegsExpiration(
       gamma: bs.gamma,
       theta: bs.theta,
       vega: bs.vega,
+      rho: bs.rho,
+      vanna: bs.vanna,
+      charm: bs.charm,
+      vomma: bs.vomma,
     };
   });
 }
@@ -476,6 +499,11 @@ export function calculateNetGreeks(
   let netTheta = 0;
   let netVega = 0;
   let netRho = 0;
+  let netVanna = 0;
+  let netCharm = 0;
+  let netVomma = 0;
+  let sumWeightedIv = 0;
+  let totalOptionQty = 0;
 
   const t = Math.max(0.5, dte) / 365;
 
@@ -497,7 +525,14 @@ export function calculateNetGreeks(
     netTheta += sign * qty * bs.theta * 100;
     netVega += sign * qty * bs.vega * 100;
     netRho += sign * qty * bs.rho * 100;
+    netVanna += sign * qty * bs.vanna * 100;
+    netCharm += sign * qty * bs.charm * 100;
+    netVomma += sign * qty * bs.vomma * 100;
+    totalOptionQty += qty;
+    sumWeightedIv += vol * qty;
   }
+
+  const weightedIv = totalOptionQty > 0 ? Number((sumWeightedIv / totalOptionQty).toFixed(4)) : iv;
 
   return {
     netDelta: Number(netDelta.toFixed(2)),
@@ -505,6 +540,10 @@ export function calculateNetGreeks(
     netTheta: Number(netTheta.toFixed(2)),
     netVega: Number(netVega.toFixed(2)),
     netRho: Number(netRho.toFixed(2)),
+    netVanna: Number(netVanna.toFixed(3)),
+    netCharm: Number(netCharm.toFixed(3)),
+    netVomma: Number(netVomma.toFixed(3)),
+    weightedIv,
   };
 }
 

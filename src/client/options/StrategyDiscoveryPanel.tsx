@@ -1090,6 +1090,10 @@ export function StrategyDiscoveryPanel({
         gamma: 0.02,
         theta: -0.05,
         vega: 0.12,
+        rho: 0.05,
+        vanna: 0.002,
+        charm: -0.001,
+        vomma: 0.005,
       },
       defaultStrike,
       spot,
@@ -2383,11 +2387,34 @@ export function StrategyDiscoveryPanel({
                     {/* Greeks & Strike Slider */}
                     <div className="strat-leg-body-row">
                       <div className="strat-leg-greeks-strip">
-                        <span>Δ {(leg.delta * (leg.side === "BUY" ? 1 : -1)).toFixed(2)}</span>
-                        <span>Γ {leg.gamma.toFixed(3)}</span>
-                        <span>Θ {(leg.theta * 100).toFixed(1)}/d</span>
-                        <span>ν {(leg.vega * 100).toFixed(1)}/1%</span>
-                        <span className="strat-spread-txt">
+                        <span className="strat-greek-chip iv" title="Implied Volatility (IV)">
+                          IV {leg.optionType === "STOCK" ? "—" : `${(leg.impliedVolatility * 100).toFixed(1)}%`}
+                        </span>
+                        <span className="strat-greek-chip delta" title="Delta (Δ): Price sensitivity per $1 underlying move">
+                          Δ {(leg.delta * (leg.side === "BUY" ? 1 : -1)).toFixed(2)}
+                        </span>
+                        <span className="strat-greek-chip gamma" title="Gamma (Γ): Delta rate of change per $1 underlying move">
+                          Γ {leg.gamma.toFixed(3)}
+                        </span>
+                        <span className="strat-greek-chip theta" title="Theta (θ): Time decay per day">
+                          θ {(leg.theta * 100).toFixed(1)}/d
+                        </span>
+                        <span className="strat-greek-chip vega" title="Vega (ν): Sensitivity per 1% change in implied volatility">
+                          ν {(leg.vega * 100).toFixed(1)}/1%
+                        </span>
+                        <span className="strat-greek-chip rho" title="Rho (ρ): Sensitivity per 1% change in interest rates">
+                          ρ {(((leg.rho ?? 0) * (leg.side === "BUY" ? 1 : -1)) * 100).toFixed(2)}/1%
+                        </span>
+                        <span className="strat-greek-chip vanna" title="Vanna: Delta sensitivity per 1% IV change (dDelta/dVol)">
+                          Vanna {(((leg.vanna ?? 0) * (leg.side === "BUY" ? 1 : -1)) * 100).toFixed(3)}
+                        </span>
+                        <span className="strat-greek-chip charm" title="Charm: Delta decay per calendar day (dDelta/dt)">
+                          Charm {(((leg.charm ?? 0) * (leg.side === "BUY" ? 1 : -1)) * 100).toFixed(3)}/d
+                        </span>
+                        <span className="strat-greek-chip vomma" title="Vomma: Vega convexity per 1% IV change (dVega/dVol)">
+                          Vomma {(((leg.vomma ?? 0) * (leg.side === "BUY" ? 1 : -1)) * 100).toFixed(3)}
+                        </span>
+                        <span className="strat-spread-txt" title="Real-time NBBO market bid/ask">
                           Bid: ${leg.bid.toFixed(2)} · Ask: ${leg.ask.toFixed(2)}
                         </span>
                       </div>
@@ -2590,6 +2617,38 @@ export function StrategyDiscoveryPanel({
                         ${netGreeks.netRho}/1%
                       </span>
                       <span className="strat-greek-sub">Rate sensitivity</span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">IV WEIGHTED:</span>
+                      <span className="strat-metric-val">
+                        {netGreeks.weightedIv !== undefined ? `${(netGreeks.weightedIv * 100).toFixed(1)}%` : "—"}
+                      </span>
+                      <span className="strat-greek-sub">Net implied vol</span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">VANNA:</span>
+                      <span className={`strat-metric-val ${(netGreeks.netVanna ?? 0) >= 0 ? "gain" : "loss"}`}>
+                        {(netGreeks.netVanna ?? 0) >= 0 ? "+" : ""}{netGreeks.netVanna ?? 0}
+                      </span>
+                      <span className="strat-greek-sub">Δ shift / 1% IV</span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">CHARM:</span>
+                      <span className={`strat-metric-val ${(netGreeks.netCharm ?? 0) >= 0 ? "gain" : "loss"}`}>
+                        {(netGreeks.netCharm ?? 0) >= 0 ? "+" : ""}{netGreeks.netCharm ?? 0}/d
+                      </span>
+                      <span className="strat-greek-sub">Δ decay / day</span>
+                    </div>
+
+                    <div className="strat-metric-cell">
+                      <span className="strat-metric-label">VOMMA:</span>
+                      <span className={`strat-metric-val ${(netGreeks.netVomma ?? 0) >= 0 ? "gain" : "loss"}`}>
+                        {(netGreeks.netVomma ?? 0) >= 0 ? "+" : ""}{netGreeks.netVomma ?? 0}
+                      </span>
+                      <span className="strat-greek-sub">ν shift / 1% IV</span>
                     </div>
                   </div>
                 </div>

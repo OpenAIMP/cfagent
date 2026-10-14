@@ -256,6 +256,12 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     expect(updatedLeg.entryPrice).toBeLessThan(originalPrice);
     // Delta should be lower for higher call strike
     expect(updatedLeg.delta).toBeLessThan(originalLeg.delta);
+    // Comprehensive Greeks & IV presence
+    expect(updatedLeg.impliedVolatility).toBeGreaterThan(0);
+    expect(typeof updatedLeg.rho).toBe("number");
+    expect(typeof updatedLeg.vanna).toBe("number");
+    expect(typeof updatedLeg.charm).toBe("number");
+    expect(typeof updatedLeg.vomma).toBe("number");
   });
 
   it("updates leg expiration dates and re-prices premiums when different dates are selected", () => {
@@ -404,6 +410,11 @@ describe("Strategy Discovery and Black-Scholes Engine", () => {
     expect(greeks.netTheta).toBeLessThan(0);
     // Vega should be positive (long volatility)
     expect(greeks.netVega).toBeGreaterThan(0);
+    expect(typeof greeks.netRho).toBe("number");
+    expect(typeof greeks.netVanna).toBe("number");
+    expect(typeof greeks.netCharm).toBe("number");
+    expect(typeof greeks.netVomma).toBe("number");
+    expect(greeks.weightedIv).toBeGreaterThan(0);
 
     // Test Realized & Unrealized P&L
     const pnlInitial = calculateRealizedAndUnrealizedPnl(straddle.legs, spot, dte, iv);

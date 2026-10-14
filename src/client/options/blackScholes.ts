@@ -10,6 +10,9 @@ export interface OptionGreeks {
   theta: number;
   vega: number;
   rho: number;
+  vanna: number;
+  charm: number;
+  vomma: number;
 }
 
 // Standard normal cumulative distribution function (Abramowitz & Stegun approximation)
@@ -64,6 +67,9 @@ export function blackScholes(
       theta: 0,
       vega: 0,
       rho: 0,
+      vanna: 0,
+      charm: 0,
+      vomma: 0,
     };
   }
 
@@ -77,6 +83,10 @@ export function blackScholes(
   const expQt = Math.exp(-q * t);
   const pdfD1 = normalPdf(d1);
 
+  // Common second-order Greeks across Call & Put
+  // Vanna: dDelta/dVol = -exp(-qt) * phi(d1) * d2 / vol (per 1% IV change: / 100)
+  const vanna = (-expQt * pdfD1 * d2) / (vol * 100);
+
   if (type === "CALL") {
     const cdfD1 = normalCdf(d1);
     const cdfD2 = normalCdf(d2);
@@ -87,6 +97,11 @@ export function blackScholes(
     const theta = thetaYears / 365; // per day
     const vega = (s * expQt * sqrtT * pdfD1) / 100; // per 1% IV change
     const rho = (k * t * expRt * cdfD2) / 100;
+    // Charm (Call): Delta decay per day
+    const charmYears = q * expQt * cdfD1 - expQt * pdfD1 * ((2 * (r - q) * t - d2 * vol * sqrtT) / (2 * t * vol * sqrtT));
+    const charm = charmYears / 365;
+    // Vomma (Volga): dVega/dVol per 1% IV change
+    const vomma = (vega * d1 * d2) / (vol * 100);
 
     return {
       price: Math.max(0, price),
@@ -95,6 +110,9 @@ export function blackScholes(
       theta,
       vega,
       rho,
+      vanna,
+      charm,
+      vomma,
     };
   } else {
     const cdfNegD1 = normalCdf(-d1);
@@ -106,6 +124,11 @@ export function blackScholes(
     const theta = thetaYears / 365; // per day
     const vega = (s * expQt * sqrtT * pdfD1) / 100;
     const rho = (-k * t * expRt * cdfNegD2) / 100;
+    // Charm (Put): Delta decay per day
+    const charmYears = -q * expQt * cdfNegD1 - expQt * pdfD1 * ((2 * (r - q) * t - d2 * vol * sqrtT) / (2 * t * vol * sqrtT));
+    const charm = charmYears / 365;
+    // Vomma (Volga): dVega/dVol per 1% IV change
+    const vomma = (vega * d1 * d2) / (vol * 100);
 
     return {
       price: Math.max(0, price),
@@ -114,6 +137,9 @@ export function blackScholes(
       theta,
       vega,
       rho,
+      vanna,
+      charm,
+      vomma,
     };
   }
 }

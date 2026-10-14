@@ -70,6 +70,10 @@ function createLeg(
     gamma: bs.gamma,
     theta: bs.theta,
     vega: bs.vega,
+    rho: bs.rho,
+    vanna: bs.vanna,
+    charm: bs.charm,
+    vomma: bs.vomma,
   };
 }
 
@@ -96,6 +100,10 @@ function createStockLeg(
     gamma: 0,
     theta: 0,
     vega: 0,
+    rho: 0,
+    vanna: 0,
+    charm: 0,
+    vomma: 0,
   };
 }
 
