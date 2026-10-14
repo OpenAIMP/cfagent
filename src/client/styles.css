@@ -9,79 +9,79 @@
 [data-theme="dark"],
 body.theme-dark {
   /* Surfaces & Backgrounds */
-  --bg-base: #060913;
-  --bg-surface: #0c1222;
-  --bg-card: rgba(18, 26, 47, 0.75);
-  --bg-card-solid: #0f172a;
-  --bg-card-hover: rgba(26, 37, 65, 0.9);
-  --bg-card-elevated: #162038;
-  --bg-subtle: #080f24;
-  --bg-input: rgba(15, 23, 42, 0.85);
-  --bg-muted: rgba(255, 255, 255, 0.05);
-  --bg-tag: rgba(255, 255, 255, 0.06);
+  --bg-base: var(--color-surface);
+  --bg-surface: var(--color-surface-raised);
+  --bg-card: var(--color-card);
+  --bg-card-solid: var(--color-card);
+  --bg-card-hover: var(--color-card-hover);
+  --bg-card-elevated: var(--color-card-elevated);
+  --bg-subtle: var(--color-surface-sunken);
+  --bg-input: var(--color-input);
+  --bg-muted: var(--color-muted);
+  --bg-tag: var(--color-tag);
 
   /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-medium: rgba(255, 255, 255, 0.16);
-  --border-focus: rgba(56, 189, 248, 0.6);
+  --border-subtle: var(--color-border-subtle);
+  --border-medium: var(--color-border-medium);
+  --border-focus: var(--color-border-focus);
 
   /* Typography */
-  --text-main: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
-  --text-inverse: #0f172a;
+  --text-main: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-dim: var(--color-text-dim);
+  --text-inverse: var(--color-text-inverse);
 
   /* Accents & Trading Signals */
-  --accent-primary: #10b981;
-  --accent-cyan: #38bdf8;
-  --accent-emerald: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-rose: #f43f5e;
+  --accent-primary: var(--color-primary);
+  --accent-cyan: var(--color-accent);
+  --accent-emerald: var(--color-success);
+  --accent-amber: var(--color-warning);
+  --accent-rose: var(--color-danger);
   --accent-purple: #a855f7;
   --accent-orange: #f97316;
-  --accent-gradient: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  --glow-shadow: 0 0 24px rgba(16, 185, 129, 0.2);
-  --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.4);
+  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
+  --glow-shadow: var(--glow-shadow);
+  --shadow-card: var(--shadow-card);
 }
 
 [data-theme="light"],
 body.theme-light {
   /* Surfaces & Backgrounds */
-  --bg-base: #f8fafc;
-  --bg-surface: #ffffff;
-  --bg-card: #ffffff;
-  --bg-card-solid: #ffffff;
-  --bg-card-hover: #f1f5f9;
-  --bg-card-elevated: #ffffff;
-  --bg-subtle: #f1f5f9;
-  --bg-input: #ffffff;
-  --bg-muted: rgba(0, 0, 0, 0.04);
-  --bg-tag: rgba(0, 0, 0, 0.04);
+  --bg-base: var(--color-surface);
+  --bg-surface: var(--color-surface-raised);
+  --bg-card: var(--color-card);
+  --bg-card-solid: var(--color-card);
+  --bg-card-hover: var(--color-card-hover);
+  --bg-card-elevated: var(--color-card-elevated);
+  --bg-subtle: var(--color-surface-sunken);
+  --bg-input: var(--color-input);
+  --bg-muted: var(--color-muted);
+  --bg-tag: var(--color-tag);
 
   /* Borders */
-  --border-subtle: #e2e8f0;
-  --border-medium: #cbd5e1;
-  --border-focus: rgba(2, 132, 199, 0.55);
+  --border-subtle: var(--color-border-subtle);
+  --border-medium: var(--color-border-medium);
+  --border-focus: var(--color-border-focus);
 
   /* Typography */
-  --text-main: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-dim: #94a3b8;
-  --text-inverse: #ffffff;
+  --text-main: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-dim: var(--color-text-dim);
+  --text-inverse: var(--color-text-inverse);
 
   /* Accents & Trading Signals */
-  --accent-primary: #059669;
-  --accent-cyan: #0284c7;
-  --accent-emerald: #16a34a;
-  --accent-amber: #d97706;
-  --accent-rose: #dc2626;
+  --accent-primary: var(--color-primary);
+  --accent-cyan: var(--color-accent);
+  --accent-emerald: var(--color-success);
+  --accent-amber: var(--color-warning);
+  --accent-rose: var(--color-danger);
   --accent-purple: #7c3aed;
   --accent-orange: #ea580c;
-  --accent-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --glow-shadow: 0 4px 20px rgba(16, 185, 129, 0.12);
-  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.06);
+  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
+  --glow-shadow: var(--glow-shadow);
+  --shadow-card: var(--shadow-card);
 }
 
 * {

@@ -94,6 +94,72 @@
 }
 
 /* ==========================================================================
+   DYNAMIC FONT STYLE PREFERENCES & UNIFIED TYPOGRAPHY ENFORCEMENT
+   ========================================================================== */
+
+[data-font-style="jakarta"],
+:root {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font-style="inter"] {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font-style="roboto"] {
+  --font-sans: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+[data-font-style="outfit"] {
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+[data-font-style="jetbrains"] {
+  --font-sans: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+[data-font-style="system"] {
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Strict single font enforcement across all HTML elements, inputs, buttons, and text */
+html,
+body,
+button,
+input,
+select,
+textarea,
+optgroup,
+label,
+p,
+span,
+a,
+li,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+th,
+td {
+  font-family: var(--font-sans) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Preserve monospace for code, raw JSON, and financial tickers */
+code,
+kbd,
+samp,
+pre,
+.font-mono,
+.mono,
+[data-mono="true"] {
+  font-family: var(--font-mono) !important;
+}
+
+/* ==========================================================================
    2. SEMANTIC TOKENS — DARK THEME (DEFAULT / EXPLICIT)
    ========================================================================== */
 
