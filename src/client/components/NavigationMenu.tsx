@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { ThemeMode } from "../theme";
+import { StockSearchBar } from "./StockSearchBar";
 
 export type NavTabId =
   | "trading"
@@ -49,6 +50,7 @@ export interface NavigationMenuProps {
   headerChildren?: React.ReactNode;
   theme?: ThemeMode;
   onCycleTheme?: () => void;
+  onAskAgent?: (query: string) => void;
 }
 
 // Crisp, modern SVG icons designed for institutional UI
@@ -313,6 +315,7 @@ export function NavigationMenu({
   headerChildren,
   theme,
   onCycleTheme,
+  onAskAgent,
 }: NavigationMenuProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -643,8 +646,21 @@ export function NavigationMenu({
         </div>
       </div>
 
-      {/* Right Controls: Extra Children, Theme Toggle, Switch to Left Nav, User Profile */}
+      {/* Right Controls: Stock Search, Trade Button, Extra Children, Theme Toggle, Switch to Left Nav, User Profile */}
       <div className="top-nav-right-controls">
+        {/* Global Stock Search Bar */}
+        <StockSearchBar onSelectTab={onSelectTab} onAskAgent={onAskAgent} />
+
+        {/* Quick Trade Button */}
+        <button
+          type="button"
+          className="nav-trade-btn"
+          onClick={() => onSelectTab("trading")}
+          title="Open Autopilot & Trading execution center"
+        >
+          Trade
+        </button>
+
         {headerChildren}
 
         {/* Theme Switcher button */}

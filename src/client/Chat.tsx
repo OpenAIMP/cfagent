@@ -14,6 +14,7 @@ import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
+import { StockSearchBar } from "./components/StockSearchBar";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 
 interface User {
@@ -1300,6 +1301,11 @@ export function Chat({ user }: { user: User }) {
     });
   };
 
+  const handleAskAgent = (queryText: string) => {
+    setPendingPrompt({ prompt: queryText, sourceTab: "Global Search / NextGenTP" });
+    setTab("chat");
+  };
+
   // External Ads & Monetization state
   const [externalAds, setExternalAds] = useState<ExternalAdItem[]>([]);
   const [externalAdsLoading, setExternalAdsLoading] = useState(false);
@@ -1983,6 +1989,7 @@ export function Chat({ user }: { user: User }) {
           onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
           theme={theme}
           onCycleTheme={handleCycleTheme}
+          onAskAgent={handleAskAgent}
         />
       )}
 
@@ -2034,6 +2041,28 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             <div className="sub-header-right">
+              {/* Global Stock Search Bar */}
+              <StockSearchBar
+                onSelectTab={(newTab) => {
+                  setTab(newTab);
+                  setTbdMenuOpen(false);
+                }}
+                onAskAgent={handleAskAgent}
+              />
+
+              {/* Trade Button (Orange/Amber pill matching reference) */}
+              <button
+                type="button"
+                className="nav-trade-btn sub-header-trade-btn"
+                onClick={() => {
+                  setTab("trading");
+                  setTbdMenuOpen(false);
+                }}
+                title="Quick Trade & Autopilot Center"
+              >
+                Trade
+              </button>
+
               <AsyncJobsPanel />
 
               {/* Theme Switcher Button */}
@@ -2087,6 +2116,7 @@ export function Chat({ user }: { user: User }) {
               headerChildren={<AsyncJobsPanel />}
               theme={theme}
               onCycleTheme={handleCycleTheme}
+              onAskAgent={handleAskAgent}
             />
           </header>
         )}
