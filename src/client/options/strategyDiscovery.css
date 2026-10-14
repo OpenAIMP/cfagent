@@ -91,49 +91,35 @@
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 1.25rem;
+  gap: 1.5rem;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   flex-wrap: wrap;
 }
 
-.strat-discovery-left-col {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 0.5rem;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-.strat-discovery-left-col .strat-symbol-bar {
-  margin: 0;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-}
-
-.strat-discovery-left-col .strat-sentiment-group {
-  margin: 0.2rem 0 0 0 !important;
-  padding: 2px 0 !important;
+.strat-discovery-top-row .strat-sentiment-group {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
   justify-content: flex-start !important;
-  gap: 0.5rem !important;
+  gap: 0.75rem !important;
+  flex: 0 1 auto !important;
+  margin: 0 !important;
+  padding: 4px 0 !important;
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
 }
 
-.strat-discovery-left-col .strat-sentiment-circle {
-  width: 40px;
-  height: 40px;
+.strat-discovery-top-row .strat-sentiment-circle {
+  width: 44px;
+  height: 44px;
 }
 
-.strat-discovery-left-col .strat-sentiment-label {
-  font-size: 0.7rem;
+.strat-discovery-top-row .strat-sentiment-label {
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .strat-discovery-right-col {
@@ -142,8 +128,8 @@
   align-items: stretch;
   justify-content: center;
   gap: 0.4rem;
-  flex: 1 1 420px;
-  min-width: 0;
+  flex: 1 1 450px;
+  min-width: 320px;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -186,12 +172,7 @@
     gap: 1rem;
   }
 
-  .strat-discovery-left-col {
-    align-items: flex-start;
-    width: 100%;
-  }
-
-  .strat-discovery-left-col .strat-sentiment-group {
+  .strat-discovery-top-row .strat-sentiment-group {
     justify-content: flex-start !important;
   }
 
@@ -206,6 +187,9 @@
   gap: 0.75rem;
   font-size: 1.15rem;
   font-weight: 700;
+  width: 100%;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
 }
 
 .strat-symbol-input-wrap {
