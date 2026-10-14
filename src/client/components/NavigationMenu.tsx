@@ -69,6 +69,9 @@ export interface NavigationMenuProps {
   onCycleTheme?: () => void;
   onAskAgent?: (query: string) => void;
   visibleTabs?: Record<string, boolean>;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  lastRefreshedAt?: string;
 }
 
 export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
@@ -561,6 +564,9 @@ export function NavigationMenu({
   onCycleTheme,
   onAskAgent,
   visibleTabs,
+  onRefresh,
+  isRefreshing,
+  lastRefreshedAt,
 }: NavigationMenuProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -781,10 +787,26 @@ export function NavigationMenu({
           </div>
         </div>
 
-        {/* Right Controls: Stock Search, Quick Trade, Settings Menu */}
+        {/* Right Controls: Stock Search, Universal Top Refresh, Quick Trade, Settings Menu */}
         <div className="top-nav-right-controls">
           {/* Global Stock Search Bar */}
           <StockSearchBar onSelectTab={onSelectTab} onAskAgent={onAskAgent} />
+
+          {/* Universal Top Bar Refresh Button */}
+          {onRefresh && (
+            <button
+              type="button"
+              className={`nav-refresh-btn ${isRefreshing ? "refreshing" : ""}`}
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              title={`Refresh active workspace & market data feeds${lastRefreshedAt ? ` (last refreshed: ${lastRefreshedAt})` : ""}`}
+              aria-label="Refresh workspace data"
+            >
+              <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
+              <span className="nav-refresh-text">Refresh</span>
+              {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
+            </button>
+          )}
 
           {/* Quick Trade Button */}
           <button

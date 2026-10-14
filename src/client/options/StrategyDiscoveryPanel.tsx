@@ -422,39 +422,7 @@ export function StrategyDiscoveryPanel({
   const [isQuoteRefreshing, setIsQuoteRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
-  // Auto-refresh configuration state (persisted to localStorage)
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
-    } catch {
-      return false;
-    }
-  });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem("cfagent_options_autorefresh_interval");
-      return stored ? Number(stored) || 30 : 30;
-    } catch {
-      return 30;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cfagent_options_autorefresh_enabled", String(autoRefreshEnabled));
-    } catch {
-      // ignore storage errors
-    }
-  }, [autoRefreshEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cfagent_options_autorefresh_interval", String(autoRefreshInterval));
-    } catch {
-      // ignore storage errors
-    }
-  }, [autoRefreshInterval]);
 
   // Fetch live or FOSS quote with optional notification and reanalysis
   const fetchQuoteData = async (sym: string, showNotification: boolean = false) => {
@@ -504,18 +472,19 @@ export function StrategyDiscoveryPanel({
     void fetchQuoteData(activeSymbol, false);
   }, [activeSymbol]);
 
-  // Periodic auto-refresh timer
+  // Universal app-refresh broadcast listener (triggered by top-bar Refresh button & global timer)
   const fetchQuoteDataRef = useRef(fetchQuoteData);
   fetchQuoteDataRef.current = fetchQuoteData;
 
   useEffect(() => {
-    if (!autoRefreshEnabled) return;
-    const ms = Math.max(5, autoRefreshInterval) * 1000;
-    const intervalId = window.setInterval(() => {
-      void fetchQuoteDataRef.current(activeSymbol, false);
-    }, ms);
-    return () => window.clearInterval(intervalId);
-  }, [autoRefreshEnabled, autoRefreshInterval, activeSymbol]);
+    const handleAppRefresh = () => {
+      void fetchQuoteDataRef.current(activeSymbol, true);
+    };
+    window.addEventListener("app-refresh", handleAppRefresh);
+    return () => {
+      window.removeEventListener("app-refresh", handleAppRefresh);
+    };
+  }, [activeSymbol]);
 
   const handleRefreshOptions = () => {
     void fetchQuoteData(activeSymbol, true);
@@ -1256,63 +1225,6 @@ export function StrategyDiscoveryPanel({
         </div>
 
         <div className="strat-top-controls-group">
-          <button
-            type="button"
-            className={`strat-action-chip refresh ${isQuoteRefreshing ? "refreshing" : ""}`}
-            onClick={handleRefreshOptions}
-            disabled={isQuoteRefreshing}
-            title={`Refresh options quotes & market data for ${activeSymbol}`}
-          >
-            <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span> {isQuoteRefreshing ? "Refreshing…" : "Refresh"}
-            {lastRefreshedAt && <span className="strat-chip-subtime">{lastRefreshedAt}</span>}
-          </button>
-          <div className={`strat-autorefresh-group ${autoRefreshEnabled ? "active" : ""}`}>
-            <button
-              type="button"
-              className={`strat-action-chip autorefresh ${autoRefreshEnabled ? "active" : ""}`}
-              onClick={() => {
-                const next = !autoRefreshEnabled;
-                setAutoRefreshEnabled(next);
-                if (next) {
-                  showToast(`Auto-refresh enabled (${autoRefreshInterval}s)`);
-                } else {
-                  showToast("Auto-refresh paused");
-                }
-              }}
-              title={
-                autoRefreshEnabled
-                  ? `Auto-refresh active every ${autoRefreshInterval}s (click to turn off)`
-                  : "Turn on auto-refresh for options quotes & market data"
-              }
-              aria-pressed={autoRefreshEnabled}
-            >
-              <span className={`autorefresh-dot ${autoRefreshEnabled ? "active" : ""}`} />
-              <span>Auto-Refresh</span>
-              <span className={`autorefresh-badge ${autoRefreshEnabled ? "on" : "off"}`}>
-                {autoRefreshEnabled ? "ON" : "OFF"}
-              </span>
-            </button>
-            {autoRefreshEnabled && (
-              <select
-                className="strat-autorefresh-select"
-                value={autoRefreshInterval}
-                onChange={(e) => {
-                  const nextVal = Number(e.target.value);
-                  setAutoRefreshInterval(nextVal);
-                  showToast(`Auto-refresh interval set to ${nextVal}s`);
-                }}
-                title="Select auto-refresh interval"
-                aria-label="Auto-refresh interval"
-              >
-                <option value={10}>10s</option>
-                <option value={15}>15s</option>
-                <option value={30}>30s</option>
-                <option value={60}>1m</option>
-                <option value={120}>2m</option>
-                <option value={300}>5m</option>
-              </select>
-            )}
-          </div>
           <button
             type="button"
             className="strat-action-chip highlight"

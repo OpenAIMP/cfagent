@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
@@ -1369,6 +1369,80 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
+  // Universal Workspace Refresh state (accessible everywhere from top bar)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>(() => {
+    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  });
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Centralized Global Auto-Refresh configuration (managed in Settings)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_global_autorefresh_enabled");
+      if (stored !== null) return stored === "true";
+      return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
+    }
+    return false;
+  });
+
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_global_autorefresh_interval");
+      if (stored) return Number(stored);
+      const fallback = localStorage.getItem("cfagent_options_autorefresh_interval");
+      if (fallback) return Number(fallback);
+    }
+    return 15;
+  });
+
+  const handleToggleAutoRefresh = (enabled: boolean, interval?: number) => {
+    setAutoRefreshEnabled(enabled);
+    const nextInterval = interval !== undefined ? interval : autoRefreshInterval;
+    if (interval !== undefined) setAutoRefreshInterval(interval);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfagent_global_autorefresh_enabled", String(enabled));
+      localStorage.setItem("cfagent_global_autorefresh_interval", String(nextInterval));
+      localStorage.setItem("cfagent_options_autorefresh_enabled", String(enabled));
+      localStorage.setItem("cfagent_options_autorefresh_interval", String(nextInterval));
+      localStorage.setItem("cfagent_options_research_autorefresh_enabled", String(enabled));
+      localStorage.setItem("cfagent_options_research_autorefresh_interval", String(nextInterval));
+      window.dispatchEvent(
+        new CustomEvent("cfagent-autorefresh-changed", {
+          detail: { enabled, interval: nextInterval },
+        })
+      );
+    }
+  };
+
+  const handleGlobalRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setLastRefreshedAt(now);
+
+    // Broadcast global refresh event so all active tab panels update simultaneously
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app-refresh", { detail: { timestamp: Date.now(), timeStr: now } }));
+    }
+
+    try {
+      fetch("/api/market/quotes").catch(() => {});
+    } catch {}
+
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 600);
+  }, []);
+
+  // Global Auto-Refresh periodic timer
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+    const intervalMs = Math.max(5, autoRefreshInterval) * 1000;
+    const timer = setInterval(() => {
+      handleGlobalRefresh();
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, autoRefreshInterval, handleGlobalRefresh]);
+
   const handleToggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -2144,6 +2218,20 @@ export function Chat({ user }: { user: User }) {
                 onAskAgent={handleAskAgent}
               />
 
+              {/* Universal Top Bar Refresh Button */}
+              <button
+                type="button"
+                className={`nav-refresh-btn ${isRefreshing ? "refreshing" : ""}`}
+                onClick={handleGlobalRefresh}
+                disabled={isRefreshing}
+                title={`Refresh active workspace & market data feeds${lastRefreshedAt ? ` (last refreshed: ${lastRefreshedAt})` : ""}`}
+                aria-label="Refresh workspace data"
+              >
+                <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
+                <span className="nav-refresh-text">Refresh</span>
+                {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
+              </button>
+
               {/* Trade Button (Orange/Amber pill matching reference) */}
               <button
                 type="button"
@@ -2171,6 +2259,9 @@ export function Chat({ user }: { user: User }) {
                 visibleTabs={visibleTabs}
                 onToggleTabVisibility={handleToggleTabVisibility}
                 onSetVisibleTabs={handleSetVisibleTabs}
+                autoRefreshEnabled={autoRefreshEnabled}
+                autoRefreshInterval={autoRefreshInterval}
+                onToggleAutoRefresh={handleToggleAutoRefresh}
                 {...(brokerProps || {})}
               />
             </div>
@@ -2189,6 +2280,9 @@ export function Chat({ user }: { user: User }) {
               agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
               accountMode={accountMode}
               onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+              onRefresh={handleGlobalRefresh}
+              isRefreshing={isRefreshing}
+              lastRefreshedAt={lastRefreshedAt}
               headerChildren={
                 <SettingsMenu
                   userLogin={user.login}
@@ -2203,6 +2297,9 @@ export function Chat({ user }: { user: User }) {
                   visibleTabs={visibleTabs}
                   onToggleTabVisibility={handleToggleTabVisibility}
                   onSetVisibleTabs={handleSetVisibleTabs}
+                  autoRefreshEnabled={autoRefreshEnabled}
+                  autoRefreshInterval={autoRefreshInterval}
+                  onToggleAutoRefresh={handleToggleAutoRefresh}
                   {...(brokerProps || {})}
                 />
               }

@@ -53,6 +53,10 @@ export interface SettingsMenuProps {
   visibleTabs?: Record<string, boolean>;
   onToggleTabVisibility?: (tabId: string) => void;
   onSetVisibleTabs?: (tabs: Record<string, boolean>) => void;
+  // Centralized Auto-Refresh Settings
+  autoRefreshEnabled?: boolean;
+  autoRefreshInterval?: number;
+  onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
 }
 
 export type ETradeDynamicMenuProps = SettingsMenuProps;
@@ -88,6 +92,9 @@ export function SettingsMenu({
   visibleTabs,
   onToggleTabVisibility,
   onSetVisibleTabs,
+  autoRefreshEnabled,
+  autoRefreshInterval,
+  onToggleAutoRefresh,
 }: SettingsMenuProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
@@ -106,6 +113,45 @@ export function SettingsMenu({
   const [localMask, setLocalMask] = useState(true);
   const [localMsg, setLocalMsg] = useState("");
   const [localDiagLoading, setLocalDiagLoading] = useState(false);
+
+  // Local state for auto-refresh configuration if not controlled by parent
+  const [localAutoRefreshEnabled, setLocalAutoRefreshEnabled] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_global_autorefresh_enabled");
+      if (stored !== null) return stored === "true";
+      return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
+    }
+    return false;
+  });
+  const [localAutoRefreshInterval, setLocalAutoRefreshInterval] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_global_autorefresh_interval");
+      if (stored) return Number(stored);
+      const fallback = localStorage.getItem("cfagent_options_autorefresh_interval");
+      if (fallback) return Number(fallback);
+    }
+    return 15;
+  });
+
+  const effectiveAutoRefreshEnabled = autoRefreshEnabled !== undefined ? autoRefreshEnabled : localAutoRefreshEnabled;
+  const effectiveAutoRefreshInterval = autoRefreshInterval !== undefined ? autoRefreshInterval : localAutoRefreshInterval;
+
+  const handleSetAutoRefresh = (enabled: boolean, interval?: number) => {
+    const nextInterval = interval !== undefined ? interval : effectiveAutoRefreshInterval;
+    setLocalAutoRefreshEnabled(enabled);
+    if (interval !== undefined) setLocalAutoRefreshInterval(interval);
+    if (onToggleAutoRefresh) {
+      onToggleAutoRefresh(enabled, nextInterval);
+    } else if (typeof window !== "undefined") {
+      localStorage.setItem("cfagent_global_autorefresh_enabled", String(enabled));
+      localStorage.setItem("cfagent_global_autorefresh_interval", String(nextInterval));
+      localStorage.setItem("cfagent_options_autorefresh_enabled", String(enabled));
+      localStorage.setItem("cfagent_options_autorefresh_interval", String(nextInterval));
+      window.dispatchEvent(
+        new CustomEvent("cfagent-autorefresh-changed", { detail: { enabled, interval: nextInterval } })
+      );
+    }
+  };
 
   // Local state for visible navbar tabs if not controlled by parent
   const [localVisibleTabs, setLocalVisibleTabs] = useState<Record<string, boolean>>(() => {
@@ -587,6 +633,48 @@ export function SettingsMenu({
                     >
                       🔴 Live Real
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Centralized Auto-Refresh Settings */}
+              <div className="settings-pref-row">
+                <span className="pref-row-lbl">Auto-Refresh:</span>
+                <div className="settings-pref-btn-group">
+                  <button
+                    type="button"
+                    className={`btn-pref-pill ${!effectiveAutoRefreshEnabled ? "active" : ""}`}
+                    onClick={() => handleSetAutoRefresh(false)}
+                    title="Pause automatic background refresh"
+                  >
+                    ⏹ OFF
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-pref-pill ${effectiveAutoRefreshEnabled ? "active" : ""}`}
+                    onClick={() => handleSetAutoRefresh(true)}
+                    title="Enable automatic background refresh"
+                  >
+                    ▶ ON
+                  </button>
+                </div>
+              </div>
+
+              {effectiveAutoRefreshEnabled && (
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Cadence:</span>
+                  <div className="settings-pref-btn-group">
+                    {[10, 15, 30, 60, 120, 300].map((sec) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        className={`btn-pref-pill ${effectiveAutoRefreshInterval === sec ? "active" : ""}`}
+                        onClick={() => handleSetAutoRefresh(true, sec)}
+                        title={`Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}`}
+                      >
+                        {sec < 60 ? `${sec}s` : `${sec / 60}m`}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}

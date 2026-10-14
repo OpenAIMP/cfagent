@@ -758,39 +758,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [chainRefreshError, setChainRefreshError] = useState("");
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
 
-  // Auto-refresh configuration state (persisted to localStorage)
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("cfagent_options_research_autorefresh_enabled") === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem("cfagent_options_research_autorefresh_interval");
-      return stored ? Number(stored) || 30 : 30;
-    } catch {
-      return 30;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cfagent_options_research_autorefresh_enabled", String(autoRefreshEnabled));
-    } catch {
-      // ignore storage errors
-    }
-  }, [autoRefreshEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cfagent_options_research_autorefresh_interval", String(autoRefreshInterval));
-    } catch {
-      // ignore storage errors
-    }
-  }, [autoRefreshInterval]);
 
   const refreshChain = async () => {
     setChainRefreshing(true);
@@ -828,20 +795,21 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     }
   };
 
-  // Periodic auto-refresh timer
+  // Universal app-refresh broadcast listener (triggered by top-bar Refresh button & global timer)
   const refreshChainRef = useRef(refreshChain);
   refreshChainRef.current = refreshChain;
 
   useEffect(() => {
-    if (!autoRefreshEnabled) return;
-    const ms = Math.max(5, autoRefreshInterval) * 1000;
-    const intervalId = window.setInterval(() => {
+    const handleAppRefresh = () => {
       if (symbol.trim() && !chainRefreshing) {
         void refreshChainRef.current();
       }
-    }, ms);
-    return () => window.clearInterval(intervalId);
-  }, [autoRefreshEnabled, autoRefreshInterval, symbol, chainRefreshing]);
+    };
+    window.addEventListener("app-refresh", handleAppRefresh);
+    return () => {
+      window.removeEventListener("app-refresh", handleAppRefresh);
+    };
+  }, [symbol, chainRefreshing]);
 
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
   const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
@@ -1115,52 +1083,6 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </div>
 
         <div className="options-subnav-tools">
-          <button
-            type="button"
-            className={`btn-options-refresh ${chainRefreshing ? "refreshing" : ""}`}
-            onClick={() => void refreshChain()}
-            disabled={chainRefreshing}
-            title={`Refresh options chain & market data${chainRefreshedAt ? ` (last refreshed: ${chainRefreshedAt})` : ""}`}
-          >
-            <span className={chainRefreshing ? "strat-spin" : ""}>↻</span>
-            <span>{chainRefreshing ? "Refreshing…" : "Refresh Options"}</span>
-            {chainRefreshedAt && <small className="options-refresh-timestamp">({chainRefreshedAt})</small>}
-          </button>
-          <div className={`options-autorefresh-group ${autoRefreshEnabled ? "active" : ""}`}>
-            <button
-              type="button"
-              className={`btn-options-autorefresh ${autoRefreshEnabled ? "active" : ""}`}
-              onClick={() => setAutoRefreshEnabled((prev) => !prev)}
-              title={
-                autoRefreshEnabled
-                  ? `Auto-refresh active every ${autoRefreshInterval}s (click to turn off)`
-                  : "Turn on auto-refresh for options chain"
-              }
-              aria-pressed={autoRefreshEnabled}
-            >
-              <span className={`autorefresh-dot ${autoRefreshEnabled ? "active" : ""}`} />
-              <span>Auto-Refresh</span>
-              <span className={`autorefresh-badge ${autoRefreshEnabled ? "on" : "off"}`}>
-                {autoRefreshEnabled ? "ON" : "OFF"}
-              </span>
-            </button>
-            {autoRefreshEnabled && (
-              <select
-                className="options-autorefresh-select"
-                value={autoRefreshInterval}
-                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
-                title="Select auto-refresh interval"
-                aria-label="Auto-refresh interval"
-              >
-                <option value={10}>10s</option>
-                <option value={15}>15s</option>
-                <option value={30}>30s</option>
-                <option value={60}>1m</option>
-                <option value={120}>2m</option>
-                <option value={300}>5m</option>
-              </select>
-            )}
-          </div>
           {screenMeta && (
             <div className="options-scan-meta-pill" title="Screen evaluation metrics">
               {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
