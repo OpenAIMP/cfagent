@@ -442,67 +442,142 @@
   font-weight: 700;
 }
 
-/* TARGET PRICE & BUDGET BAR */
+/* TARGET PRICE, IMPLIED MOVE, BUDGET & MIN R:R BAR (UNIFIED SINGLE ROW) */
 .strat-target-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
+  margin: 0.25rem 0;
 }
 
 .strat-input-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 0.75rem;
-  font-size: 0.85rem;
+  gap: 0.45rem;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(8, 15, 36, 0.85) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.strat-input-pill:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(20, 32, 58, 0.85) 0%, rgba(12, 22, 50, 0.95) 100%);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.15);
+  transform: translateY(-1px);
+}
+
+.strat-input-pill:focus-within {
+  border-color: #38bdf8;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(8, 15, 36, 0.95) 100%);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .strat-input-pill label {
-  color: var(--color-text-muted);
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.strat-pill-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 .strat-input-pill input {
   background: transparent;
   border: none;
   color: #f8fafc;
-  font-family: inherit;
-  font-size: 0.95rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.88rem;
   font-weight: 700;
-  width: 5rem;
+  width: 100%;
+  min-width: 2.8rem;
+  max-width: 4.8rem;
   outline: none;
+  padding: 0;
+  transition: color 0.15s ease;
 }
 
-.strat-target-pct {
+.strat-input-pill input:focus {
   color: #38bdf8;
-  font-size: 0.8rem;
+}
+
+.strat-currency-prefix {
+  color: #64748b;
   font-weight: 700;
+  font-size: 0.85rem;
+  margin-right: -0.2rem;
+  flex-shrink: 0;
+}
+
+.strat-pct-tag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.12rem 0.38rem;
+  border-radius: 4px;
+  line-height: 1.1;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.strat-pct-tag.gain {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.strat-pct-tag.loss {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .strat-implied-move-info {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: rgba(14, 165, 233, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.28);
-  border-radius: 6px;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.82rem;
-  color: #7dd3fc;
-  font-weight: 500;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(8, 15, 36, 0.85) 100%);
+  border-color: rgba(56, 189, 248, 0.28);
 }
 
-.strat-implied-move-info strong {
+.strat-implied-val {
   color: #38bdf8;
-  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  font-weight: 800;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.strat-implied-icon {
-  font-size: 0.9rem;
+.strat-implied-pct {
+  color: #7dd3fc;
+  font-size: 0.74rem;
+  font-weight: 600;
+  margin-left: 0.25rem;
+  opacity: 0.9;
+}
+
+@media (max-width: 900px) {
+  .strat-target-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* EXPIRATION TIMELINE CHIPS BAR (DISCOVERY & BUILDER) */
@@ -4941,6 +5016,74 @@ body.theme-light .strat-ruler-badge.put.short {
   background: rgba(239, 68, 68, 0.12);
   border-color: #dc2626;
   color: #b91c1c;
+}
+
+/* Light Mode: Target Price, Implied Move, Budget & Min R:R Pills */
+[data-theme="light"] .strat-input-pill,
+body.theme-light .strat-input-pill {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .strat-input-pill:hover,
+body.theme-light .strat-input-pill:hover {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: #0284c7;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
+}
+
+[data-theme="light"] .strat-input-pill:focus-within,
+body.theme-light .strat-input-pill:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+[data-theme="light"] .strat-input-pill label,
+body.theme-light .strat-input-pill label {
+  color: #475569;
+}
+
+[data-theme="light"] .strat-input-pill input,
+body.theme-light .strat-input-pill input {
+  color: #0f172a;
+}
+
+[data-theme="light"] .strat-input-pill input:focus,
+body.theme-light .strat-input-pill input:focus {
+  color: #0284c7;
+}
+
+[data-theme="light"] .strat-currency-prefix,
+body.theme-light .strat-currency-prefix {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .strat-implied-move-info,
+body.theme-light .strat-implied-move-info {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, #ffffff 100%);
+  border-color: rgba(2, 132, 199, 0.35);
+}
+
+[data-theme="light"] .strat-implied-val,
+body.theme-light .strat-implied-val {
+  color: #0284c7;
+}
+
+[data-theme="light"] .strat-implied-pct,
+body.theme-light .strat-implied-pct {
+  color: #0369a1;
+}
+
+[data-theme="light"] .strat-rr-select,
+body.theme-light .strat-rr-select {
+  color: #0284c7;
+}
+
+[data-theme="light"] .strat-rr-select option,
+body.theme-light .strat-rr-select option {
+  background: #ffffff;
+  color: #0f172a;
 }
 
 /* Light Mode: Option Legs Inspector (Screenshot 5 Fix) */

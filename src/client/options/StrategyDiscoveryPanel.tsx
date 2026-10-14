@@ -1510,28 +1510,38 @@ export function StrategyDiscoveryPanel({
               </div>
             </div>
 
-            {/* Target Price & Budget Bar */}
+            {/* Target Price, Implied Move, Budget & Min R:R Bar (Unified Single Row) */}
             <div className="strat-target-bar">
               <div className="strat-input-pill" title="Tap or edit to customize target price. Defaults to ±1x or ±2x implied move based on sentiment.">
-                <label>Target Price: $</label>
+                <span className="strat-pill-icon">🎯</span>
+                <label>Target:</label>
                 <input
                   type="number"
                   step="0.1"
                   value={targetPrice}
                   onChange={(e) => setTargetPrice(Number(e.target.value))}
+                  aria-label="Target price in dollars"
                 />
                 <span className={`strat-pct-tag ${targetPctChange >= 0 ? "gain" : "loss"}`}>
                   ({targetPctChange >= 0 ? `+${targetPctChange}%` : `${targetPctChange}%`})
                 </span>
               </div>
 
-              <div className="strat-implied-move-info" title="Market Implied Move calculated from options market IV and days to expiration">
-                <span className="strat-implied-icon">📐</span>
-                <span>Implied Move: <strong>±${computeImpliedMove(quote.price, builderIv, selectedExpiration.dte).toFixed(2)}</strong> (±{(((computeImpliedMove(quote.price, builderIv, selectedExpiration.dte) / (quote.price || 1)) * 100).toFixed(1))}%)</span>
+              <div className="strat-input-pill strat-implied-move-info" title="Market Implied Move calculated from options market IV and days to expiration">
+                <span className="strat-pill-icon">📐</span>
+                <label>Implied Move:</label>
+                <span className="strat-implied-val">
+                  ±${computeImpliedMove(quote.price, builderIv, selectedExpiration.dte).toFixed(2)}
+                  <span className="strat-implied-pct">
+                    (±{(((computeImpliedMove(quote.price, builderIv, selectedExpiration.dte) / (quote.price || 1)) * 100).toFixed(1))}%)
+                  </span>
+                </span>
               </div>
 
-              <div className="strat-input-pill">
-                <label>Budget: $</label>
+              <div className="strat-input-pill" title="Max capital budget to allocate">
+                <span className="strat-pill-icon">💰</span>
+                <label>Budget:</label>
+                <span className="strat-currency-prefix">$</span>
                 <input
                   type="text"
                   placeholder="None"
@@ -1540,15 +1550,18 @@ export function StrategyDiscoveryPanel({
                     const val = e.target.value.trim();
                     setBudget(val === "" ? null : Number(val) || null);
                   }}
+                  aria-label="Budget in dollars"
                 />
               </div>
 
-              <div className="strat-input-pill" title="Filter strategies by minimum Reward/Risk (Max Profit to Max Loss ratio)">
+              <div className="strat-input-pill strat-rr-pill" title="Filter strategies by minimum Reward/Risk (Max Profit to Max Loss ratio)">
+                <span className="strat-pill-icon">⚖️</span>
                 <label>Min R:R:</label>
                 <select
                   value={minRewardRiskRatio ?? ""}
                   onChange={(e) => setMinRewardRiskRatio(e.target.value === "" ? null : Number(e.target.value))}
                   className="strat-rr-select"
+                  aria-label="Minimum reward-to-risk ratio"
                 >
                   <option value="">Any R:R</option>
                   <option value="1">≥ 1:1 (Profit &gt; Loss)</option>
