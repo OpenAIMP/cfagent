@@ -232,63 +232,51 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               </select>
             </label>
 
-            <div style={{
-              gridColumn: "1 / -1",
-              padding: "0.6rem 0.85rem",
-              background: "rgba(15, 23, 42, 0.65)",
-              border: "1px solid rgba(56, 189, 248, 0.2)",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              color: "#cbd5e1",
-              lineHeight: "1.45",
-              marginBottom: "0.25rem",
-            }}>
+            <div className="screener-feed-callout">
               {providerId === "etrade" ? (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "#38bdf8", fontWeight: 700 }}>📡 Live Feed Source:</span>
-                    <span style={{ color: "#f8fafc", fontWeight: 600 }}>
-                      Official Nasdaq All-Exchange Screener (<code style={{ color: "#38bdf8" }}>api.nasdaq.com/api/screener/stocks</code>)
+                    <span style={{ color: "var(--color-primary, #38bdf8)", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span className="screener-feed-name" style={{ fontWeight: 600 }}>
+                      Official Nasdaq All-Exchange Screener (<code>api.nasdaq.com/api/screener/stocks</code>)
                     </span>
                     <span style={{
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "4px",
+                      padding: "0.15rem 0.55rem",
+                      borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
                       background: "rgba(34, 197, 94, 0.15)",
-                      color: "#4ade80",
+                      color: "#16a34a",
                       border: "1px solid rgba(34, 197, 94, 0.3)",
                     }}>
                       ● LIVE REST API
                     </span>
                   </div>
-                  <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
-                    • <strong>Coverage:</strong> ~8,000 live listings (Nasdaq, NYSE, AMEX).<br />
-                    • <strong>Execution Broker:</strong> Orders previewed and executed via E*TRADE REST API ({activeEnv}).<br />
-                    • <strong>Offline Fallback:</strong> Local static universe (src/config/curatedStockUniverse.json) is only used if the upstream Nasdaq API is unreachable.
+                  <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>
+                    • <strong>Coverage:</strong> ~8,000 live listings (Nasdaq, NYSE, AMEX) &middot; <strong>Broker:</strong> E*TRADE REST API ({activeEnv}) &middot; <strong>Fallback:</strong> Curated static universe.
                   </div>
                 </div>
               ) : (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "#c084fc", fontWeight: 700 }}>📡 Live Feed Source:</span>
-                    <span style={{ color: "#f8fafc", fontWeight: 600 }}>
-                      Yahoo Finance FOSS Engine (<code style={{ color: "#c084fc" }}>query1.finance.yahoo.com</code>)
+                    <span style={{ color: "#a855f7", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span className="screener-feed-name" style={{ fontWeight: 600 }}>
+                      Yahoo Finance FOSS Engine (<code>query1.finance.yahoo.com</code>)
                     </span>
                     <span style={{
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "4px",
+                      padding: "0.15rem 0.55rem",
+                      borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
                       background: "rgba(168, 85, 247, 0.15)",
-                      color: "#c084fc",
+                      color: "#9333ea",
                       border: "1px solid rgba(168, 85, 247, 0.3)",
                     }}>
                       ● LIVE FOSS ENGINE
                     </span>
                   </div>
-                  <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
-                    • <strong>Coverage:</strong> Free &amp; Open Source fundamental ratios, trailing/forward P/E, PEG, and analyst price targets without requiring broker API credentials.
+                  <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>
+                    • <strong>Coverage:</strong> Free &amp; Open Source fundamental ratios, trailing/forward P/E, PEG, and analyst price targets (no broker credentials required).
                   </div>
                 </div>
               )}

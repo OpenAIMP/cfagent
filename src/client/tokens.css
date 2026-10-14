@@ -552,7 +552,10 @@ body.theme-light .workflows-hero-subtitle {
 .builder-panel,
 .order-ticket-container,
 .screener-section,
-.events-stream {
+.events-stream,
+.research-header-banner,
+.omnichannel-header-card,
+.voice-header-card {
   border-radius: 14px !important;
 }
 
@@ -566,6 +569,9 @@ body.theme-light .workflows-hero-subtitle {
 .test-ad-btn,
 .danger-sm-btn,
 .google-ad-verified-badge,
+.screener-feed-callout,
+.strat-timeline-chip,
+.strat-exp-chip,
 pre,
 code:not(.did-pill code) {
   border-radius: 8px !important;
@@ -613,6 +619,9 @@ code:not(.did-pill code) {
 [data-theme="light"] .order-ticket-container,
 [data-theme="light"] .screener-section,
 [data-theme="light"] .events-stream,
+[data-theme="light"] .research-header-banner,
+[data-theme="light"] .omnichannel-header-card,
+[data-theme="light"] .voice-header-card,
 body.theme-light .rev-card,
 body.theme-light .revenue-section-card,
 body.theme-light .ad-spotlight-card,
@@ -636,7 +645,10 @@ body.theme-light .google-ad-container,
 body.theme-light .builder-panel,
 body.theme-light .order-ticket-container,
 body.theme-light .screener-section,
-body.theme-light .events-stream {
+body.theme-light .events-stream,
+body.theme-light .research-header-banner,
+body.theme-light .omnichannel-header-card,
+body.theme-light .voice-header-card {
   background: var(--color-card) !important;
   color: var(--color-card-foreground) !important;
   border: 1px solid var(--color-card-border) !important;
@@ -651,13 +663,15 @@ body.theme-light .events-stream {
 [data-theme="light"] .ad-badge-tag,
 [data-theme="light"] .did-pill,
 [data-theme="light"] .bullet-item,
+[data-theme="light"] .screener-feed-callout,
 body.theme-light .gw-cap-tag,
 body.theme-light .gw-webhook-info,
 body.theme-light .event-payload,
 body.theme-light .ad-stat-pill,
 body.theme-light .ad-badge-tag,
 body.theme-light .did-pill,
-body.theme-light .bullet-item {
+body.theme-light .bullet-item,
+body.theme-light .screener-feed-callout {
   background: var(--color-surface-sunken) !important;
   color: var(--color-text-secondary) !important;
   border-color: var(--color-border-subtle) !important;
