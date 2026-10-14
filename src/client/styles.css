@@ -1178,9 +1178,10 @@ body {
 }
 
 .audit-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  background: var(--color-card, var(--bg-card));
+  color: var(--color-card-foreground, var(--text-main));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -1195,7 +1196,7 @@ body {
   font-weight: 700;
   margin-bottom: 1rem;
   padding-bottom: 0.65rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle, var(--border-subtle));
 }
 
 .badge-count {
@@ -1203,7 +1204,7 @@ body {
   background: rgba(99, 102, 241, 0.2);
   color: #a5b4fc;
   padding: 0.15rem 0.5rem;
-  border-radius: 999px;
+  border-radius: 9999px;
 }
 
 .memory-list, .events-stream {
@@ -1215,9 +1216,10 @@ body {
 }
 
 .memory-card-item {
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  background: var(--color-card, rgba(0, 0, 0, 0.25));
+  color: var(--color-card-foreground, var(--text-main));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 0.75rem 0.95rem;
 }
 
@@ -1260,9 +1262,9 @@ body {
 }
 
 .event-item {
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  background: var(--color-card, rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 0.75rem 0.95rem;
 }
 
@@ -1276,8 +1278,8 @@ body {
 .event-agent-tag {
   font-size: 0.65rem;
   font-weight: 700;
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
 }
 
 .event-agent-tag.judge { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
@@ -1302,10 +1304,11 @@ body {
 .event-payload {
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: #94a3b8;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 0.5rem;
-  border-radius: 6px;
+  color: var(--color-text-secondary, #94a3b8);
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.3));
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-subtle, transparent);
   overflow-x: auto;
   max-height: 120px;
 }
@@ -1917,29 +1920,30 @@ body {
 .referral-form-card,
 .referral-list-card,
 .sponsor-submission-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  background: var(--color-card, var(--bg-card));
+  color: var(--color-card-foreground, var(--text-main));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 1.5rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-card, 0 4px 20px rgba(0, 0, 0, 0.25));
 }
 
 .card-header {
   margin-bottom: 1.25rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle, var(--border-subtle));
 }
 
 .card-header h4 {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin-bottom: 0.25rem;
 }
 
 .card-header p {
   font-size: 0.82rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted, var(--text-muted));
 }
 
 /* Form Controls */
@@ -2074,15 +2078,15 @@ body {
 }
 
 .referral-card-item {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.3));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 1rem 1.15rem;
   transition: all 0.15s ease;
 }
 
 .referral-card-item:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: var(--color-border-medium, rgba(99, 102, 241, 0.4));
   transform: translateY(-1px);
 }
 
@@ -2099,19 +2103,19 @@ body {
   color: #38bdf8;
   background: rgba(56, 189, 248, 0.12);
   padding: 0.15rem 0.5rem;
-  border-radius: 999px;
+  border-radius: 9999px;
 }
 
 .ref-clicks-pill {
   font-size: 0.72rem;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--color-text-dim, var(--text-dim));
 }
 
 .ref-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin-bottom: 0.3rem;
 }
 
@@ -2122,15 +2126,16 @@ body {
 }
 
 .ref-url-preview {
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 6px;
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
+  border-radius: 8px;
   padding: 0.4rem 0.6rem;
   font-size: 0.74rem;
-  color: #94a3b8;
+  color: var(--color-text-secondary, #94a3b8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border-subtle, transparent);
 }
 
 .ref-url-preview code {
@@ -2144,11 +2149,11 @@ body {
 }
 
 .visit-ref-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-main);
+  background: var(--color-surface-sunken, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--color-border-subtle, var(--border-subtle));
+  color: var(--color-text-primary, var(--text-main));
   padding: 0.35rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -2156,8 +2161,8 @@ body {
 }
 
 .visit-ref-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.16));
+  color: var(--color-text-primary, #ffffff);
 }
 
 .delete-ref-btn {
@@ -2185,9 +2190,10 @@ body {
 .ad-spotlight-card {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(145deg, rgba(22, 31, 55, 0.8) 0%, rgba(12, 18, 34, 0.9) 100%);
-  border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  background: var(--color-card, #0f172a);
+  color: var(--color-card-foreground, #f8fafc);
+  border: 1px solid var(--color-card-border, var(--border-subtle));
+  border-radius: 14px;
   padding: 1.5rem;
   transition: all 0.25s ease;
   backdrop-filter: blur(12px);
@@ -2197,6 +2203,8 @@ body {
 
 .ad-spotlight-card:hover {
   transform: translateY(-4px);
+  border-color: var(--color-border-medium, rgba(99, 102, 241, 0.4));
+  box-shadow: var(--shadow-md);
 }
 
 .ad-card-top {
@@ -2211,7 +2219,7 @@ body {
   font-weight: 800;
   letter-spacing: 0.06em;
   padding: 0.25rem 0.6rem;
-  border-radius: 6px;
+  border-radius: 8px;
   text-transform: uppercase;
 }
 
@@ -2224,7 +2232,7 @@ body {
 .ad-card-title {
   font-size: 1.15rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin-bottom: 0.45rem;
   line-height: 1.3;
 }
@@ -2246,11 +2254,11 @@ body {
 
 .ad-stat-pill {
   font-size: 0.72rem;
-  color: var(--text-dim);
-  background: rgba(0, 0, 0, 0.3);
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
+  color: var(--color-text-secondary, var(--text-dim));
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.3));
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border-subtle, var(--border-subtle));
 }
 
 .ad-card-action {
@@ -2292,15 +2300,15 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  padding: 0.3rem 0.65rem;
-  border-radius: 8px;
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(99, 102, 241, 0.3));
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
   font-size: 0.75rem;
 }
 
 .did-pill code {
-  color: #38bdf8;
+  color: var(--color-info, #38bdf8);
   font-family: var(--font-mono);
   font-size: 0.72rem;
 }
@@ -2311,8 +2319,8 @@ body {
   text-transform: uppercase;
   background: rgba(99, 102, 241, 0.25);
   color: #a5b4fc;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
 }
 
 .did-role-tag.authorizer {
@@ -2323,8 +2331,10 @@ body {
 /* Gateway Status Cards */
 .gateway-cards-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1.25rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 860px) {
@@ -2334,14 +2344,18 @@ body {
 }
 
 .gateway-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-card, var(--bg-card));
+  color: var(--color-card-foreground, var(--text-main));
+  border: 1px solid var(--color-card-border, var(--border-subtle));
   border-radius: 14px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   transition: all 0.2s ease;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .gateway-card.stripe { border-top: 3px solid #6366f1; }
@@ -2350,7 +2364,7 @@ body {
 
 .gateway-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: var(--color-border-medium, rgba(255, 255, 255, 0.18));
 }
 
 .gw-card-header {
@@ -2368,15 +2382,15 @@ body {
 .gw-name-group h5 {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin: 0;
 }
 
 .gw-mode-badge {
   font-size: 0.62rem;
   font-weight: 800;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
   letter-spacing: 0.05em;
 }
 
@@ -2392,22 +2406,31 @@ body {
 
 .gw-cap-tag {
   font-size: 0.68rem;
-  color: var(--text-dim);
-  background: rgba(0, 0, 0, 0.35);
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
+  color: var(--color-text-secondary, var(--text-dim));
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.35));
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-subtle, transparent);
 }
 
 .gw-webhook-info {
   margin-top: auto;
   font-size: 0.68rem;
-  color: var(--text-dim);
-  background: rgba(0, 0, 0, 0.25);
-  padding: 0.35rem 0.5rem;
-  border-radius: 6px;
+  color: var(--color-text-secondary, var(--text-dim));
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.25));
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--color-border-subtle, transparent);
+}
+
+.gw-webhook-info code {
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* Transaction Card Details */
@@ -2461,14 +2484,15 @@ body {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
   padding: 0.35rem 0.6rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.72rem;
   margin: 0.5rem 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: 1px solid var(--color-border-subtle, transparent);
 }
 
 .did-proof-tag {
@@ -2478,7 +2502,7 @@ body {
 }
 
 .tx-did-bar code {
-  color: #94a3b8;
+  color: var(--color-text-secondary, #94a3b8);
   font-family: var(--font-mono);
 }
 
@@ -2503,24 +2527,24 @@ body {
 
 .proof-inspect-btn {
   background: transparent;
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #a5b4fc;
+  border: 1px solid var(--color-border-medium, rgba(99, 102, 241, 0.35));
+  color: var(--color-primary, #a5b4fc);
   font-size: 0.72rem;
   font-weight: 600;
   padding: 0.3rem 0.65rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .proof-inspect-btn:hover {
-  background: rgba(99, 102, 241, 0.15);
-  color: #ffffff;
+  background: var(--color-primary-alpha, rgba(99, 102, 241, 0.15));
+  color: var(--color-text-primary, #ffffff);
 }
 
 .tx-date {
   font-size: 0.75rem;
-  color: var(--text-dim);
+  color: var(--color-text-dim, var(--text-dim));
 }
 
 /* Cryptographic DID Proof Modal */
@@ -2542,13 +2566,14 @@ body {
 }
 
 .did-modal-card {
-  background: #0c1222;
-  border: 1px solid rgba(99, 102, 241, 0.5);
-  border-radius: 18px;
+  background: var(--color-card, #0c1222);
+  color: var(--color-card-foreground, #ffffff);
+  border: 1px solid var(--color-card-border, rgba(99, 102, 241, 0.5));
+  border-radius: 14px;
   max-width: 600px;
   width: 90%;
   padding: 1.75rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-card, 0 20px 60px rgba(0, 0, 0, 0.6));
   animation: scaleIn 0.2s ease-out;
 }
 
@@ -2943,7 +2968,7 @@ body {
   border: 1px solid rgba(99, 102, 241, 0.35);
   color: #a5b4fc;
   padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
@@ -2967,21 +2992,21 @@ body {
 }
 
 .rev-card {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.08));
   border-radius: 14px;
   padding: 1.25rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-card, 0 4px 18px rgba(0, 0, 0, 0.25));
   backdrop-filter: blur(12px);
   transition: all 0.2s ease;
 }
 
 .rev-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(99, 102, 241, 0.35);
+  border-color: var(--color-border-medium, rgba(99, 102, 241, 0.35));
 }
 
 .rev-card.highlight-rev {
@@ -3013,45 +3038,45 @@ body {
 .rev-val {
   font-size: 1.45rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   font-family: var(--font-mono);
 }
 
 .rev-label {
   font-size: 0.76rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted, var(--text-muted));
   line-height: 1.3;
 }
 
 .revenue-section-card {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  background: var(--color-card, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 14px;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-card, 0 8px 32px rgba(0, 0, 0, 0.3));
   backdrop-filter: blur(14px);
 }
 
 .revenue-section-card .card-header h4 {
   font-size: 1.15rem;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin: 0 0 0.25rem 0;
 }
 
 .revenue-section-card .card-header p {
   font-size: 0.84rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted, var(--text-muted));
   margin: 0;
 }
 
 .ad-net-tag {
   font-size: 0.72rem;
   font-weight: 700;
-  padding: 0.2rem 0.5rem;
-  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
   text-transform: uppercase;
 }
 
@@ -3089,7 +3114,7 @@ body {
   border: 1px solid rgba(56, 189, 248, 0.3);
   color: #38bdf8;
   padding: 0.3rem 0.65rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.76rem;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -3106,7 +3131,7 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #f87171;
   padding: 0.25rem 0.55rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.74rem;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -3118,15 +3143,15 @@ body {
 }
 
 .create-subcard {
-  background: rgba(6, 9, 19, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
+  background: var(--color-surface-sunken, rgba(6, 9, 19, 0.6));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.05));
+  border-radius: 14px;
   padding: 1.25rem;
 }
 
 .create-subcard h5 {
   font-size: 0.95rem;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
   margin: 0 0 1rem 0;
 }
 
@@ -3155,9 +3180,9 @@ body {
 }
 
 .table-card {
-  background: rgba(6, 9, 19, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 12px;
+  background: var(--color-card, rgba(6, 9, 19, 0.6));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.07));
+  border-radius: 14px;
   padding: 1.15rem;
   display: flex;
   flex-direction: column;
@@ -3166,7 +3191,7 @@ body {
 }
 
 .table-card:hover {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: var(--color-border-medium, rgba(56, 189, 248, 0.35));
   transform: translateY(-2px);
 }
 
@@ -3347,10 +3372,10 @@ body {
 .referral-social-hub-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 1.5rem;
   margin-top: 1.75rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-card, 0 4px 20px rgba(0, 0, 0, 0.25));
 }
 
 .social-platform-grid {
@@ -3364,9 +3389,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.85rem;
-  background: rgba(6, 9, 19, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 12px;
+  background: var(--color-card, rgba(6, 9, 19, 0.7));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.07));
+  border-radius: 14px;
   padding: 0.9rem 1rem;
   text-decoration: none;
   color: inherit;
@@ -3376,10 +3401,10 @@ body {
 }
 
 .platform-card:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: var(--color-border-medium, rgba(99, 102, 241, 0.4));
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-  background: rgba(15, 23, 42, 0.9);
+  box-shadow: var(--shadow-md, 0 6px 16px rgba(0, 0, 0, 0.3));
+  background: var(--color-card-hover, rgba(15, 23, 42, 0.9));
 }
 
 .platform-icon {
@@ -3396,12 +3421,12 @@ body {
 
 .platform-info strong {
   font-size: 0.9rem;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
 }
 
 .platform-info span {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--color-text-muted, var(--text-muted));
 }
 
 .join-arrow {
@@ -3420,19 +3445,19 @@ body {
    Google Ads & Multi-Network Display Unit Component
    ======================================================== */
 .google-ad-container {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--color-card, rgba(15, 23, 42, 0.85));
+  border: 1px solid var(--color-card-border, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
   padding: 0.85rem 1.25rem;
   margin: 1.25rem 0;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-card, 0 4px 18px rgba(0, 0, 0, 0.3));
   position: relative;
   overflow: hidden;
   transition: all 0.2s ease;
 }
 
 .google-ad-container:hover {
-  border-color: rgba(66, 133, 244, 0.4);
+  border-color: var(--color-border-medium, rgba(66, 133, 244, 0.4));
 }
 
 .google-ad-header {

@@ -524,44 +524,179 @@ body.theme-light .workflows-hero-subtitle {
   color: var(--color-text-muted) !important;
 }
 
-/* Holistic Surfaces: All Cards, Stat Boxes, Panels & Containers */
-[data-theme="light"] .workflows-stat-card,
-[data-theme="light"] .referral-share-card,
-[data-theme="light"] .referral-stat-card,
-[data-theme="light"] .audit-panel,
-[data-theme="light"] .memory-card-item,
-[data-theme="light"] .events-stream,
+/* ==========================================================================
+   UNIVERSAL STANDARDIZED GEOMETRY (NO SHARP RECTANGULAR BOXES)
+   ========================================================================== */
+
+/* Outer Containers, Cards, Panels, Modules, Dialogs */
+.rev-card,
+.revenue-section-card,
+.ad-spotlight-card,
+.platform-card,
+.gateway-card,
+.event-item,
+.memory-card-item,
+.audit-panel,
+.info-card,
+.deal-card,
+.strategy-card,
+.referral-stat-card,
+.referral-share-card,
+.referral-social-hub-card,
+.workflows-stat-card,
+.create-subcard,
+.table-card,
+.stat-card,
+.referral-form-card,
+.google-ad-container,
+.builder-panel,
+.order-ticket-container,
+.screener-section,
+.events-stream {
+  border-radius: 14px !important;
+}
+
+/* Inner Chips, Tags, Code/Payload Containers, Forms, Buttons, and Inputs */
+.gw-cap-tag,
+.gw-webhook-info,
+.event-payload,
+.ad-badge-tag,
+.bullet-item,
+.calc-row,
+.test-ad-btn,
+.danger-sm-btn,
+.google-ad-verified-badge,
+pre,
+code:not(.did-pill code) {
+  border-radius: 8px !important;
+}
+
+/* Status Pills, Role Tags, Mode Indicators, Filter Badges */
+.did-pill,
+.did-role-tag,
+.gw-mode-badge,
+.ad-stat-pill,
+.event-agent-tag,
+.google-ad-pill,
+.badge-success,
+.badge-danger,
+.badge-warning,
+.badge-info,
+.ad-net-tag {
+  border-radius: 9999px !important;
+}
+
+/* ==========================================================================
+   HOLISTIC LIGHT THEME SURFACES: ALL CARDS, PANELS & CONTAINERS
+   ========================================================================== */
+[data-theme="light"] .rev-card,
+[data-theme="light"] .revenue-section-card,
+[data-theme="light"] .ad-spotlight-card,
+[data-theme="light"] .platform-card,
+[data-theme="light"] .gateway-card,
 [data-theme="light"] .event-item,
+[data-theme="light"] .memory-card-item,
+[data-theme="light"] .audit-panel,
 [data-theme="light"] .info-card,
-[data-theme="light"] .order-side-info,
-[data-theme="light"] .screener-controls-bar,
-[data-theme="light"] .screener-section,
+[data-theme="light"] .deal-card,
 [data-theme="light"] .strategy-card,
+[data-theme="light"] .referral-stat-card,
+[data-theme="light"] .referral-share-card,
+[data-theme="light"] .referral-social-hub-card,
+[data-theme="light"] .workflows-stat-card,
+[data-theme="light"] .create-subcard,
+[data-theme="light"] .table-card,
+[data-theme="light"] .stat-card,
+[data-theme="light"] .referral-form-card,
+[data-theme="light"] .google-ad-container,
 [data-theme="light"] .builder-panel,
 [data-theme="light"] .order-ticket-container,
-[data-theme="light"] .deal-card,
-body.theme-light .workflows-stat-card,
-body.theme-light .referral-share-card,
-body.theme-light .referral-stat-card,
-body.theme-light .audit-panel,
-body.theme-light .memory-card-item,
-body.theme-light .events-stream,
+[data-theme="light"] .screener-section,
+[data-theme="light"] .events-stream,
+body.theme-light .rev-card,
+body.theme-light .revenue-section-card,
+body.theme-light .ad-spotlight-card,
+body.theme-light .platform-card,
+body.theme-light .gateway-card,
 body.theme-light .event-item,
+body.theme-light .memory-card-item,
+body.theme-light .audit-panel,
 body.theme-light .info-card,
-body.theme-light .order-side-info,
-body.theme-light .screener-controls-bar,
-body.theme-light .screener-section,
+body.theme-light .deal-card,
 body.theme-light .strategy-card,
+body.theme-light .referral-stat-card,
+body.theme-light .referral-share-card,
+body.theme-light .referral-social-hub-card,
+body.theme-light .workflows-stat-card,
+body.theme-light .create-subcard,
+body.theme-light .table-card,
+body.theme-light .stat-card,
+body.theme-light .referral-form-card,
+body.theme-light .google-ad-container,
 body.theme-light .builder-panel,
 body.theme-light .order-ticket-container,
-body.theme-light .deal-card {
+body.theme-light .screener-section,
+body.theme-light .events-stream {
   background: var(--color-card) !important;
   color: var(--color-card-foreground) !important;
   border: 1px solid var(--color-card-border) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
-/* Secondary and descriptive card typography */
+/* Systemic Inner Chips, Tags, Code & Payload Containers */
+[data-theme="light"] .gw-cap-tag,
+[data-theme="light"] .gw-webhook-info,
+[data-theme="light"] .event-payload,
+[data-theme="light"] .ad-stat-pill,
+[data-theme="light"] .ad-badge-tag,
+[data-theme="light"] .did-pill,
+[data-theme="light"] .bullet-item,
+body.theme-light .gw-cap-tag,
+body.theme-light .gw-webhook-info,
+body.theme-light .event-payload,
+body.theme-light .ad-stat-pill,
+body.theme-light .ad-badge-tag,
+body.theme-light .did-pill,
+body.theme-light .bullet-item {
+  background: var(--color-surface-sunken) !important;
+  color: var(--color-text-secondary) !important;
+  border-color: var(--color-border-subtle) !important;
+}
+
+/* Systemic Headings Inside Cards */
+[data-theme="light"] .ad-card-title,
+[data-theme="light"] .platform-info strong,
+[data-theme="light"] .gw-name-group h5,
+[data-theme="light"] .revenue-section-card .card-header h4,
+[data-theme="light"] .create-subcard h5,
+[data-theme="light"] .referral-form-card .card-header h4,
+[data-theme="light"] .stat-meta .stat-label,
+[data-theme="light"] .event-type,
+[data-theme="light"] .table-card h5,
+[data-theme="light"] .referral-share-left h4,
+[data-theme="light"] .info-card h5,
+[data-theme="light"] .panel-title,
+body.theme-light .ad-card-title,
+body.theme-light .platform-info strong,
+body.theme-light .gw-name-group h5,
+body.theme-light .revenue-section-card .card-header h4,
+body.theme-light .create-subcard h5,
+body.theme-light .referral-form-card .card-header h4,
+body.theme-light .stat-meta .stat-label,
+body.theme-light .event-type,
+body.theme-light .table-card h5,
+body.theme-light .referral-share-left h4,
+body.theme-light .info-card h5,
+body.theme-light .panel-title {
+  color: var(--color-text-primary) !important;
+}
+
+/* Systemic Subtitles & Descriptions Inside Cards */
+[data-theme="light"] .ad-card-tagline,
+[data-theme="light"] .platform-info span,
+[data-theme="light"] .gw-webhook-info code,
+[data-theme="light"] .did-pill code,
+[data-theme="light"] .revenue-section-card .card-header p,
 [data-theme="light"] .workflows-stat-desc,
 [data-theme="light"] .workflows-stat-label,
 [data-theme="light"] .social-label,
@@ -569,25 +704,74 @@ body.theme-light .deal-card {
 [data-theme="light"] .audit-panel .panel-title span,
 [data-theme="light"] .mem-value,
 [data-theme="light"] .mem-date,
-[data-theme="light"] .bullet-item,
+body.theme-light .ad-card-tagline,
+body.theme-light .platform-info span,
+body.theme-light .gw-webhook-info code,
+body.theme-light .did-pill code,
+body.theme-light .revenue-section-card .card-header p,
 body.theme-light .workflows-stat-desc,
 body.theme-light .workflows-stat-label,
 body.theme-light .social-label,
 body.theme-light .referral-share-left p,
 body.theme-light .audit-panel .panel-title span,
 body.theme-light .mem-value,
-body.theme-light .mem-date,
-body.theme-light .bullet-item {
+body.theme-light .mem-date {
   color: var(--color-text-secondary) !important;
 }
 
-[data-theme="light"] .referral-share-left h4,
-[data-theme="light"] .info-card h5,
-[data-theme="light"] .panel-title,
-body.theme-light .referral-share-left h4,
-body.theme-light .info-card h5,
-body.theme-light .panel-title {
+/* Systemic Revenue Analytics Color Gradients & Contrast */
+[data-theme="light"] .rev-card .rev-val,
+body.theme-light .rev-card .rev-val {
   color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .rev-card .rev-label,
+body.theme-light .rev-card .rev-label {
+  color: var(--color-text-muted) !important;
+}
+
+[data-theme="light"] .rev-card.highlight-rev,
+body.theme-light .rev-card.highlight-rev {
+  background: #ecfdf5 !important;
+  border-color: #6ee7b7 !important;
+}
+[data-theme="light"] .rev-card.highlight-rev .rev-val,
+body.theme-light .rev-card.highlight-rev .rev-val {
+  color: #047857 !important;
+}
+
+[data-theme="light"] .rev-card.expense-card,
+body.theme-light .rev-card.expense-card {
+  background: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+}
+[data-theme="light"] .rev-card.expense-card .rev-val,
+body.theme-light .rev-card.expense-card .rev-val {
+  color: #b91c1c !important;
+}
+
+[data-theme="light"] .rev-card.net-profit-card,
+body.theme-light .rev-card.net-profit-card {
+  background: #eef2ff !important;
+  border-color: #a5b4fc !important;
+}
+[data-theme="light"] .rev-card.net-profit-card .rev-val,
+body.theme-light .rev-card.net-profit-card .rev-val {
+  color: #4338ca !important;
+}
+
+/* Hover States on Cards in Light Theme */
+[data-theme="light"] .platform-card:hover,
+[data-theme="light"] .ad-spotlight-card:hover,
+[data-theme="light"] .gateway-card:hover,
+[data-theme="light"] .rev-card:hover,
+body.theme-light .platform-card:hover,
+body.theme-light .ad-spotlight-card:hover,
+body.theme-light .gateway-card:hover,
+body.theme-light .rev-card:hover {
+  background: var(--color-card-hover) !important;
+  border-color: var(--color-border-medium) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 /* Input Fields & Text Areas */
@@ -655,4 +839,5 @@ body.theme-light .icon-only-logout:hover {
   border-color: var(--color-border-medium) !important;
   color: var(--color-text-primary) !important;
 }
+
 

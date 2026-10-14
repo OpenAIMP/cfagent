@@ -439,9 +439,9 @@
 
 /* Callout / FAQ Box */
 .workflow-faq-box {
-  background: rgba(2, 132, 199, 0.1);
-  border-left: 3px solid #38bdf8;
-  border-radius: 0 6px 6px 0;
+  background: var(--color-surface-sunken, rgba(2, 132, 199, 0.1));
+  border-left: 3px solid var(--color-info, #38bdf8);
+  border-radius: 8px;
   padding: 0.75rem 1rem;
   display: flex;
   flex-direction: column;
@@ -451,12 +451,12 @@
 .workflow-faq-question {
   font-size: 0.82rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-card-foreground, #ffffff);
 }
 
 .workflow-faq-answer {
   font-size: 0.78rem;
-  color: #cbd5e1;
+  color: var(--color-text-secondary, #cbd5e1);
   line-height: 1.4;
   margin: 0;
 }
