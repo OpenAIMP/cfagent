@@ -8198,6 +8198,129 @@ body {
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.15);
 }
 
+.settings-nav-tabs-section {
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  padding-top: 0.65rem;
+}
+
+.nav-tabs-preset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.preset-label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.nav-tabs-preset-buttons {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.btn-preset-mini {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  font-size: 0.64rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-preset-mini:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.nav-tabs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.3rem;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  scrollbar-width: thin;
+}
+
+.nav-tab-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.12s ease;
+  text-align: left;
+  user-select: none;
+}
+
+.nav-tab-toggle-pill.checked {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #34d399;
+}
+
+.nav-tab-toggle-pill.checked .tab-pill-check {
+  color: #10b981;
+  font-weight: 800;
+}
+
+.nav-tab-toggle-pill.unchecked {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #64748b;
+  opacity: 0.75;
+}
+
+.nav-tab-toggle-pill.unchecked:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+}
+
+.tab-pill-check {
+  font-size: 0.68rem;
+  width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-pill-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="light"] .nav-tab-toggle-pill.checked {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #047857;
+}
+
+[data-theme="light"] .nav-tab-toggle-pill.unchecked {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+}
+
+[data-theme="light"] .btn-preset-mini {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
 .user-session-section {
   border-top: 1px solid rgba(148, 163, 184, 0.15);
   padding-top: 0.65rem;

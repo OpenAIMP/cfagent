@@ -14,7 +14,7 @@ import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
-import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
+import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
 import { StockSearchBar } from "./components/StockSearchBar";
 import { MarketTickerTape } from "./components/MarketTickerTape";
 import { AskAgentWidget } from "./components/AskAgentWidget";
@@ -1339,6 +1339,37 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
+  // Visible navbar tabs customization state (persisted across sessions)
+  const [visibleTabs, setVisibleTabs] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("nextgentp_visible_nav_tabs");
+        if (saved) return { ...DEFAULT_VISIBLE_NAV_TABS, ...JSON.parse(saved) };
+      } catch {}
+    }
+    return DEFAULT_VISIBLE_NAV_TABS;
+  });
+
+  const handleToggleTabVisibility = (tabId: string) => {
+    setVisibleTabs((prev) => {
+      const next = {
+        ...prev,
+        [tabId]: prev[tabId] === false ? true : false,
+      };
+      if (typeof window !== "undefined") {
+        localStorage.setItem("nextgentp_visible_nav_tabs", JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const handleSetVisibleTabs = (newTabs: Record<string, boolean>) => {
+    setVisibleTabs(newTabs);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nextgentp_visible_nav_tabs", JSON.stringify(newTabs));
+    }
+  };
+
   const handleToggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -2038,6 +2069,7 @@ export function Chat({ user }: { user: User }) {
           theme={theme}
           onCycleTheme={handleCycleTheme}
           onAskAgent={handleAskAgent}
+          visibleTabs={visibleTabs}
         />
       )}
 
@@ -2115,6 +2147,9 @@ export function Chat({ user }: { user: User }) {
                 onToggleLayout={handleToggleNavLayout}
                 accountMode={accountMode}
                 onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                visibleTabs={visibleTabs}
+                onToggleTabVisibility={handleToggleTabVisibility}
+                onSetVisibleTabs={handleSetVisibleTabs}
                 {...(brokerProps || {})}
               />
 
@@ -2201,6 +2236,9 @@ export function Chat({ user }: { user: User }) {
                     onToggleLayout={handleToggleNavLayout}
                     accountMode={accountMode}
                     onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                    visibleTabs={visibleTabs}
+                    onToggleTabVisibility={handleToggleTabVisibility}
+                    onSetVisibleTabs={handleSetVisibleTabs}
                     {...(brokerProps || {})}
                   />
                   <AsyncJobsPanel />
@@ -2209,6 +2247,7 @@ export function Chat({ user }: { user: User }) {
               theme={theme}
               onCycleTheme={handleCycleTheme}
               onAskAgent={handleAskAgent}
+              visibleTabs={visibleTabs}
             />
           </header>
         )}

@@ -68,7 +68,79 @@ export interface NavigationMenuProps {
   theme?: ThemeMode;
   onCycleTheme?: () => void;
   onAskAgent?: (query: string) => void;
+  visibleTabs?: Record<string, boolean>;
 }
+
+export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
+  autopilot: true,
+  order: true,
+  portfolio: true,
+  ledger: true,
+  "options-flows": true,
+  options: true,
+  screeners: true,
+  scanner: true,
+  research: true,
+  chat: true,
+  voice: true,
+  omnichannel: true,
+  workflows: true,
+  endpoints: true,
+  nlq: true,
+  audit: true,
+  payments: true,
+  referrals: true,
+  ads: true,
+  revenue: true,
+};
+
+export const NAV_TAB_PRESETS: Record<string, Record<string, boolean>> = {
+  all: { ...DEFAULT_VISIBLE_NAV_TABS },
+  traderFocus: {
+    autopilot: true,
+    order: true,
+    portfolio: true,
+    ledger: true,
+    "options-flows": true,
+    options: true,
+    screeners: true,
+    scanner: false,
+    research: true,
+    chat: true,
+    voice: false,
+    omnichannel: false,
+    workflows: false,
+    endpoints: false,
+    nlq: false,
+    audit: false,
+    payments: false,
+    referrals: false,
+    ads: false,
+    revenue: false,
+  },
+  minimal: {
+    autopilot: true,
+    order: true,
+    portfolio: true,
+    ledger: false,
+    "options-flows": false,
+    options: false,
+    screeners: false,
+    scanner: false,
+    research: true,
+    chat: true,
+    voice: false,
+    omnichannel: false,
+    workflows: false,
+    endpoints: false,
+    nlq: false,
+    audit: false,
+    payments: false,
+    referrals: false,
+    ads: false,
+    revenue: false,
+  },
+};
 
 // Crisp, modern SVG icons designed for institutional UI
 export const NavIcons = {
@@ -488,14 +560,23 @@ export function NavigationMenu({
   theme,
   onCycleTheme,
   onAskAgent,
+  visibleTabs,
 }: NavigationMenuProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
+  const isTabVisible = (id: string) => {
+    if (!visibleTabs) return true;
+    return visibleTabs[id] !== false;
+  };
+
+  const filteredNavItems = NAVIGATION_ITEMS.filter((i) => isTabVisible(i.id));
+  const effectiveNavItems = filteredNavItems.length > 0 ? filteredNavItems : NAVIGATION_ITEMS.slice(0, 4);
+
   // Group items by category for sidebar navigation
-  const executionItems = NAVIGATION_ITEMS.filter((i) => i.category === "Execution");
-  const intelligenceItems = NAVIGATION_ITEMS.filter((i) => i.category === "Intelligence");
-  const playbookItems = NAVIGATION_ITEMS.filter((i) => i.category === "Playbooks");
-  const platformItems = NAVIGATION_ITEMS.filter((i) => i.category === "Platform");
+  const executionItems = effectiveNavItems.filter((i) => i.category === "Execution");
+  const intelligenceItems = effectiveNavItems.filter((i) => i.category === "Intelligence");
+  const playbookItems = effectiveNavItems.filter((i) => i.category === "Playbooks");
+  const platformItems = effectiveNavItems.filter((i) => i.category === "Platform");
 
   // 1. LEFT SIDEBAR LAYOUT
   if (layout === "left") {
@@ -801,7 +882,7 @@ export function NavigationMenu({
       {/* Tier 2: Dedicated Top Navigation Menu Bar with all items */}
       <nav className="top-nav-menu-strip" aria-label="Top Navigation Menu">
         <div className="top-menu-strip-inner">
-          {NAVIGATION_ITEMS.map((item) => {
+          {effectiveNavItems.map((item) => {
             const active = isTabActive(item.id, activeTab);
             const Icon = item.icon;
             return (
