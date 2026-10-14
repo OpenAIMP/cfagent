@@ -1,14 +1,14 @@
 {
-  "chat": true,
-  "nlq": true,
-  "audit": true,
-  "payments": true,
-  "referrals": true,
-  "ads": true,
-  "revenue": true,
+  "ads": false,
+  "audit": false,
+  "chat": false,
   "endpoints": false,
-  "trading": false,
-  "research": false,
+  "nlq": false,
   "options-flows": false,
+  "payments": false,
+  "referrals": false,
+  "research": false,
+  "revenue": false,
+  "trading": false,
   "workflows": false
 }

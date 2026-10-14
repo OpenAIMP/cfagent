@@ -10,6 +10,12 @@ describe("per-tab ad display configuration", () => {
     expect(adDisplayConfig.workflows).toBe(false);
   });
 
+  it("disables ad banners across all tabs through externalized configuration", () => {
+    Object.values(adDisplayConfig).forEach((enabled) => {
+      expect(enabled).toBe(false);
+    });
+  });
+
   it("defines an explicit ad visibility flag for every top-level tab", () => {
     expect(Object.keys(adDisplayConfig).sort()).toEqual([
       "ads",

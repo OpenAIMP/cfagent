@@ -1525,10 +1525,15 @@ body {
   cursor: pointer;
   white-space: nowrap;
   color: var(--text-muted);
-  font-size: 0.8rem;
-  padding: 0.55rem 0.75rem;
+  font-size: 0.72rem;
+  padding: 0 0.55rem;
+  height: 26px;
+  min-height: 26px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: 5px;
 }
 
 .async-jobs-panel > summary::-webkit-details-marker {
@@ -1543,13 +1548,14 @@ body {
 
 .async-jobs-count {
   display: inline-block;
-  margin-left: 0.45rem;
-  min-width: 1.2rem;
+  margin-left: 0.35rem;
+  min-width: 1rem;
   text-align: center;
   color: var(--text-main);
   background: var(--accent-primary);
   border-radius: 999px;
-  padding: 0.08rem 0.32rem;
+  padding: 0.04rem 0.25rem;
+  font-size: 0.62rem;
 }
 
 .async-jobs-content {
@@ -7712,17 +7718,21 @@ body {
 .etrade-dynamic-menu-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.42rem 0.85rem;
+  gap: 0.35rem;
+  padding: 0 0.55rem;
+  height: 26px;
+  min-height: 26px;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 8px;
+  border-radius: 5px;
   color: #f1f5f9;
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .etrade-dynamic-menu-trigger:hover,
@@ -7730,7 +7740,7 @@ body {
 .etrade-dynamic-menu-trigger.pinned {
   background: rgba(30, 41, 59, 0.98);
   border-color: #38bdf8;
-  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.28);
 }
 
 .etrade-dynamic-menu-trigger.prod {
@@ -7738,12 +7748,12 @@ body {
 }
 .etrade-dynamic-menu-trigger.prod:hover {
   border-color: #f87171;
-  box-shadow: 0 0 14px rgba(248, 113, 113, 0.25);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.22);
 }
 
 .menu-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   display: inline-block;
   flex-shrink: 0;
@@ -9249,62 +9259,88 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 1.5rem;
-  background: rgba(12, 18, 34, 0.9);
+  padding: 0 0.85rem;
+  background: rgba(10, 15, 29, 0.95);
   backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
   z-index: 100;
-  min-height: 58px;
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  box-sizing: border-box;
 }
 
 .sub-header-left {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .sub-header-brand-crumbs {
   display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .crumb-module {
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #f8fafc;
+  white-space: nowrap;
   letter-spacing: -0.01em;
 }
 
-.crumb-subtitle {
+.crumb-divider {
+  color: #475569;
   font-size: 0.72rem;
-  color: #94a3b8;
+  user-select: none;
+}
+
+.crumb-subtitle {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .sub-header-center {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .sub-header-market-pill {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 4px 12px;
+  gap: 0.35rem;
+  padding: 2px 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   color: #94a3b8;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  height: 22px;
 }
 
 .market-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .market-dot.closed {
@@ -9320,19 +9356,21 @@ body {
 .sub-header-right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.45rem;
+  flex-shrink: 0;
 }
 
 .layout-switch-badge-btn {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 6px;
+  gap: 0.35rem;
+  padding: 0 0.55rem;
+  height: 26px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #cbd5e1;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -9347,29 +9385,29 @@ body {
 .sub-header-user {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding-left: 0.65rem;
+  gap: 0.45rem;
+  padding-left: 0.5rem;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sub-user-avatar {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .sub-user-email {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #cbd5e1;
   font-weight: 500;
 }
 
 .sub-logout-link {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #94a3b8;
   text-decoration: none;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 0.15s ease;
@@ -9390,15 +9428,15 @@ body {
 .app-header.nextgentp-top-header,
 .app-header.algonexus-top-header {
   flex-shrink: 0 !important;
-  min-height: 98px !important;
+  min-height: 70px !important;
   height: auto !important;
   width: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
-  background: rgba(12, 18, 34, 0.98) !important;
+  background: rgba(10, 15, 29, 0.98) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
@@ -9422,77 +9460,103 @@ body {
   align-items: center !important;
   justify-content: space-between !important;
   width: 100% !important;
-  height: 56px !important;
-  min-height: 56px !important;
-  padding: 0 1.25rem !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  padding: 0 0.85rem !important;
   box-sizing: border-box !important;
-  gap: 1rem !important;
+  gap: 0.65rem !important;
 }
 
 .top-nav-brand-section {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.65rem;
   flex-shrink: 0;
 }
 
 .top-brand {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.45rem;
   cursor: pointer;
 }
 
+.top-brand svg {
+  width: 22px;
+  height: 22px;
+}
+
 .top-brand-name {
-  font-size: 1.15rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: #f8fafc;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .top-status-pills {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.35rem;
+}
+
+.pill-pro {
+  font-size: 0.62rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .pill-region {
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   color: #cbd5e1;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9999px;
-  padding: 2px 8px;
+  padding: 1px 6px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }
 
 .pill-mode {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
+  gap: 0.3rem;
+  font-size: 0.66rem;
   color: #cbd5e1;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9999px;
-  padding: 2px 8px;
+  padding: 1px 6px;
   cursor: pointer;
+  height: 20px;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }
 
 .chevron-down {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #94a3b8;
 }
 
 .pill-market-status {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.72rem;
+  gap: 0.35rem;
+  font-size: 0.66rem;
   color: #94a3b8;
-  padding: 2px 8px;
+  padding: 1px 7px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 9999px;
+  height: 20px;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }
 
 /* Tier 2: Dedicated Top Navigation Menu Bar with all 12 items */
@@ -9500,20 +9564,25 @@ body {
   display: flex !important;
   align-items: center !important;
   width: 100% !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  padding: 0 1.25rem !important;
-  background: rgba(10, 15, 29, 0.98) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 0.65rem !important;
+  background: rgba(8, 12, 23, 0.98) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
   box-sizing: border-box !important;
   overflow-x: auto !important;
-  scrollbar-width: thin !important;
+  scrollbar-width: none !important;
+}
+
+.top-nav-menu-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .top-menu-strip-inner {
   display: flex !important;
   align-items: center !important;
-  gap: 0.3rem !important;
+  gap: 0.2rem !important;
   height: 100% !important;
   white-space: nowrap !important;
 }
@@ -9521,14 +9590,14 @@ body {
 .top-menu-item-btn {
   display: flex !important;
   align-items: center !important;
-  gap: 0.45rem !important;
-  padding: 0 0.85rem !important;
-  height: 32px !important;
-  border-radius: 6px !important;
+  gap: 0.35rem !important;
+  padding: 0 0.65rem !important;
+  height: 26px !important;
+  border-radius: 5px !important;
   border: 1px solid transparent !important;
   background: transparent !important;
   color: #94a3b8 !important;
-  font-size: 0.8rem !important;
+  font-size: 0.74rem !important;
   font-weight: 500 !important;
   cursor: pointer !important;
   white-space: nowrap !important;
@@ -9537,19 +9606,22 @@ body {
   text-decoration: none !important;
 }
 
+.top-menu-item-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 .top-menu-item-btn:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
   color: #f8fafc !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 .top-menu-item-btn.active {
-  background: rgba(16, 185, 129, 0.16) !important;
-  border-color: rgba(16, 185, 129, 0.35) !important;
+  background: rgba(16, 185, 129, 0.14) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
   border-bottom: 2px solid #10b981 !important;
   color: #34d399 !important;
   font-weight: 700 !important;
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15) !important;
 }
 
 .top-menu-label {
@@ -9677,9 +9749,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #cbd5e1;
@@ -9688,6 +9760,11 @@ body {
   text-decoration: none;
   flex-shrink: 0;
   padding: 0;
+}
+
+.top-icon-action-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .top-icon-action-btn:hover {
@@ -9726,9 +9803,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: #94a3b8;
@@ -9737,6 +9814,11 @@ body {
   text-decoration: none;
   flex-shrink: 0;
   padding: 0;
+}
+
+.sidebar-icon-action-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .sidebar-icon-action-btn:hover {
@@ -10120,18 +10202,21 @@ body {
 .stock-search-trigger-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 0 0.65rem;
-  height: 32px;
+  border-radius: 5px;
+  padding: 0 0.55rem;
+  height: 26px;
+  min-height: 26px;
+  box-sizing: border-box;
   color: #94a3b8;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-family: var(--font-sans);
   transition: all 0.15s ease;
-  min-width: 175px;
+  min-width: 135px;
+  max-width: 175px;
   justify-content: space-between;
 }
 
@@ -10157,13 +10242,13 @@ body {
 }
 
 .stock-search-kbd {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-family: inherit;
   font-weight: 600;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 1px 4px;
   color: #94a3b8;
   line-height: 1.2;
 }
@@ -10173,15 +10258,17 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  padding: 0 1rem;
-  border-radius: 6px;
+  height: 26px;
+  min-height: 26px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: 5px;
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: #ffffff !important;
   background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.3);
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
