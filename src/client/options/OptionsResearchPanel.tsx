@@ -670,6 +670,9 @@ function StrategyCard({
             <span>Liquidity <b>{candidate.scoreBreakdown.liquidity.toFixed(0)}</b></span>
             <span>IV alignment <b>{candidate.scoreBreakdown.volatilityAlignment.toFixed(0)}</b></span>
             <span>Theta burden <b>{candidate.scoreBreakdown.thetaBurden.toFixed(0)}</b></span>
+            <span>POP <b>{candidate.scoreBreakdown.popAlignment.toFixed(0)}</b></span>
+            <span>Cushion <b>{candidate.scoreBreakdown.cushion.toFixed(0)}</b></span>
+            <span>Capital eff. <b>{candidate.scoreBreakdown.capitalEfficiency.toFixed(0)}</b></span>
             <span>Quote freshness <b>{candidate.scoreBreakdown.freshness.toFixed(0)}</b></span>
           </div>
           {targetScenarios.length > 0 && (
@@ -1418,7 +1421,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             <span>{result.modelVersion} · {new Date(result.generatedAt).toLocaleString()}</span>
           </div>
           <div className="options-score-policy">
-            Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}% · freshness {result.scoreWeights.freshness * 100}%
+            Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}% · freshness {result.scoreWeights.freshness * 100}% · POP {result.scoreWeights.popAlignment * 100}% · cushion {result.scoreWeights.cushion * 100}% · capital eff. {result.scoreWeights.capitalEfficiency * 100}%
           </div>
           {(screenMeta?.quoteQuality?.staleContractsReturned > 0 || screenMeta?.quoteQuality?.unknownFreshnessContracts > 0) && (
             <div className="options-stale-banner" role="alert">
