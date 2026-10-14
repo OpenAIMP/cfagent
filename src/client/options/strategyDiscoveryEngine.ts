@@ -216,7 +216,7 @@ export function generateStrikeLadder(spot: number): number[] {
   else step = 0.25;
 
   const center = Math.round(spot / step) * step;
-  const count = 28;
+  const count = 35;
   const strikes: number[] = [];
   for (let i = -count; i <= count; i++) {
     const strike = Number((center + i * step).toFixed(2));

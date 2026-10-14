@@ -343,6 +343,65 @@ export function StrategyDiscoveryPanel({
   const [saveTradeName, setSaveTradeName] = useState<string>("");
   const [saveTradeNotes, setSaveTradeNotes] = useState<string>("");
   const [showSavedTradesModal, setShowSavedTradesModal] = useState<boolean>(false);
+
+  // Scrollable container references for expirations and strike ruler
+  const builderExpScrollRef = useRef<HTMLDivElement>(null);
+  const discoveryExpScrollRef = useRef<HTMLDivElement>(null);
+  const strikeRulerScrollRef = useRef<HTMLDivElement>(null);
+
+  // Smooth horizontal scroll helper for arrow buttons
+  const scrollContainer = (ref: React.RefObject<HTMLDivElement | null>, delta: number) => {
+    if (ref.current) {
+      ref.current.scrollBy({ left: delta, behavior: "smooth" });
+    }
+  };
+
+  // Convert vertical mouse wheel to horizontal scrolling for smooth trackpad and mouse wheel navigation
+  const handleHorizontalWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      e.currentTarget.scrollLeft += e.deltaY;
+    }
+  };
+
+  // Auto-center ATM strike on the strike ruler
+  const centerRulerOnAtm = () => {
+    if (!strikeRulerScrollRef.current) return;
+    const atmTick = strikeRulerScrollRef.current.querySelector(".strat-ruler-tick.highlight");
+    if (atmTick) {
+      atmTick.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  };
+
+  // Auto-center active expiration chip
+  const centerActiveExpiration = (ref: React.RefObject<HTMLDivElement | null>) => {
+    if (!ref.current) return;
+    const activeChip = ref.current.querySelector(".strat-timeline-chip.active, .strat-exp-chip.active");
+    if (activeChip) {
+      activeChip.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  };
+
+  // Auto-center ruler on spot/ATM when symbol, spot, or builder view changes
+  useEffect(() => {
+    if (activeView === "builder") {
+      const timer = setTimeout(() => {
+        centerRulerOnAtm();
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [activeView, activeSymbol, quote.price]);
+
+  // Auto-center active expiration when expiration selection changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (activeView === "builder") {
+        centerActiveExpiration(builderExpScrollRef);
+      } else {
+        centerActiveExpiration(discoveryExpScrollRef);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedExpiration.date, activeView]);
   const [savedTrades, setSavedTrades] = useState<SavedOptionTrade[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_SAVED_TRADES);
@@ -782,12 +841,16 @@ export function StrategyDiscoveryPanel({
   const maxStrike = strikeLadder[strikeLadder.length - 1] || spot * 1.5;
   const strikeStep = strikeLadder.length > 1 ? Number((strikeLadder[1] - strikeLadder[0]).toFixed(2)) : 1;
 
-  // Visible ruler strikes centered around spot
+  // Visible ruler strikes: comprehensive scrollable ladder including all active option leg strikes
   const rulerStrikes = useMemo(() => {
-    const centerIdx = strikeLadder.findIndex((k) => Math.abs(k - spot) < strikeStep * 1.5);
-    const startIdx = Math.max(0, (centerIdx >= 0 ? centerIdx : 15) - 10);
-    return strikeLadder.slice(startIdx, startIdx + 21);
-  }, [strikeLadder, spot, strikeStep]);
+    const set = new Set<number>(strikeLadder);
+    for (const leg of builderLegs) {
+      if (leg.strike && leg.strike > 0) {
+        set.add(leg.strike);
+      }
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [strikeLadder, builderLegs]);
 
   // Re-analyze strategy helper
   const reanalyze = (updatedLegs: StrategyLegItem[]) => {
@@ -1476,19 +1539,43 @@ export function StrategyDiscoveryPanel({
               </div>
             </div>
 
-            {/* Expiration Timeline Chips */}
-            <div className="strat-timeline-row">
-              {expirations.map((exp) => (
-                <button
-                  key={exp.date}
-                  type="button"
-                  className={`strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
-                  onClick={() => handleSelectExpiration(exp)}
-                >
-                  <span className="strat-chip-month">{exp.monthGroup}</span>
-                  <span className="strat-chip-day">{exp.dayLabel}</span>
-                </button>
-              ))}
+            {/* Expiration Timeline Chips (Scrollable with Navigation Arrows) */}
+            <div className="strat-exp-chips-scroll-wrap">
+              <button
+                type="button"
+                className="strat-scroll-arrow left"
+                onClick={() => scrollContainer(discoveryExpScrollRef, -240)}
+                title="Scroll expirations left"
+                aria-label="Scroll expirations left"
+              >
+                ‹
+              </button>
+              <div
+                className="strat-timeline-row strat-exp-chips-scroll"
+                ref={discoveryExpScrollRef}
+                onWheel={handleHorizontalWheel}
+              >
+                {expirations.map((exp) => (
+                  <button
+                    key={exp.date}
+                    type="button"
+                    className={`strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
+                    onClick={() => handleSelectExpiration(exp)}
+                  >
+                    <span className="strat-chip-month">{exp.monthGroup}</span>
+                    <span className="strat-chip-day">{exp.dayLabel}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="strat-scroll-arrow right"
+                onClick={() => scrollContainer(discoveryExpScrollRef, 240)}
+                title="Scroll expirations right"
+                aria-label="Scroll expirations right"
+              >
+                ›
+              </button>
             </div>
           </div>
 
@@ -1888,37 +1975,76 @@ export function StrategyDiscoveryPanel({
             </div>
           )}
 
-          {/* Expiration Timeline Chips in Builder */}
+          {/* Expiration Timeline Chips in Builder (Scrollable with Navigation Arrows) */}
           <div className="strat-builder-exp-bar">
             <div className="strat-builder-exp-title">
               EXPIRATION: <span className="highlight">{selectedExpiration.label}</span> ({selectedExpiration.dte} DTE)
             </div>
-            <div className="strat-exp-chips-scroll">
-              {expirations.map((exp) => (
-                <button
-                  key={exp.date}
-                  type="button"
-                  className={`strat-exp-chip strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
-                  onClick={() => handleBuilderExpirationChange(exp)}
-                  title={`${exp.label} (${exp.dte} DTE)`}
-                >
-                  <span className="strat-chip-month">{exp.monthGroup}</span>
-                  <span className="strat-chip-day">{exp.dayLabel}</span>
-                </button>
-              ))}
+            <div className="strat-exp-chips-scroll-wrap">
+              <button
+                type="button"
+                className="strat-scroll-arrow left"
+                onClick={() => scrollContainer(builderExpScrollRef, -240)}
+                title="Scroll expirations left"
+                aria-label="Scroll expirations left"
+              >
+                ‹
+              </button>
+              <div
+                className="strat-exp-chips-scroll"
+                ref={builderExpScrollRef}
+                onWheel={handleHorizontalWheel}
+              >
+                {expirations.map((exp) => (
+                  <button
+                    key={exp.date}
+                    type="button"
+                    className={`strat-exp-chip strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
+                    onClick={() => handleBuilderExpirationChange(exp)}
+                    title={`${exp.label} (${exp.dte} DTE)`}
+                  >
+                    <span className="strat-chip-month">{exp.monthGroup}</span>
+                    <span className="strat-chip-day">{exp.dayLabel}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="strat-scroll-arrow right"
+                onClick={() => scrollContainer(builderExpScrollRef, 240)}
+                title="Scroll expirations right"
+                aria-label="Scroll expirations right"
+              >
+                ›
+              </button>
             </div>
           </div>
 
-          {/* Capability 3: Strike Ruler with Volume Bars & Call/Put Badges */}
+          {/* Capability 3: Strike Ruler with Volume Bars & Call/Put Badges (Scrollable with ATM Centering & Nav Arrows) */}
           <div className="strat-strike-ruler-wrap">
             <div className="strat-strike-ruler-header">
-              <span className="strat-strike-ruler-title">STRIKE RULER:</span>
+              <div className="strat-ruler-title-group">
+                <span className="strat-strike-ruler-title">STRIKE RULER:</span>
+                {rulerStrikes.length > 0 && (
+                  <span className="strat-ruler-range-hint">
+                    {rulerStrikes.length} strikes (${rulerStrikes[0]} – ${rulerStrikes[rulerStrikes.length - 1]})
+                  </span>
+                )}
+              </div>
               <div className="strat-ruler-quick-tools">
                 <span className="strat-ruler-legend">
                   <span className="dot call"></span> Call (Green)
                   <span className="dot put"></span> Put (Red)
                   <span className="dot vol"></span> Vol Bars
                 </span>
+                <button
+                  type="button"
+                  className="strat-ruler-shift-btn center-atm"
+                  onClick={centerRulerOnAtm}
+                  title={`Center strike ruler on ATM ($${spot.toFixed(2)})`}
+                >
+                  🎯 Center ATM
+                </button>
                 <button
                   type="button"
                   className="strat-ruler-shift-btn"
@@ -1946,50 +2072,74 @@ export function StrategyDiscoveryPanel({
               </div>
             </div>
 
-            <div className="strat-strike-ruler">
-              <div className="strat-ruler-ticks">
-                {rulerStrikes.map((k) => {
-                  const callBuy = builderLegs.find((l) => l.strike === k && l.optionType === "CALL" && l.side === "BUY" && !l.isClosed);
-                  const callSell = builderLegs.find((l) => l.strike === k && l.optionType === "CALL" && l.side === "SELL" && !l.isClosed);
-                  const putBuy = builderLegs.find((l) => l.strike === k && l.optionType === "PUT" && l.side === "BUY" && !l.isClosed);
-                  const putSell = builderLegs.find((l) => l.strike === k && l.optionType === "PUT" && l.side === "SELL" && !l.isClosed);
-                  const isAtm = Math.abs(k - spot) < strikeStep * 0.5;
+            <div className="strat-strike-ruler-container">
+              <button
+                type="button"
+                className="strat-ruler-nav-arrow left"
+                onClick={() => scrollContainer(strikeRulerScrollRef, -280)}
+                title="Scroll strikes left (lower strikes)"
+                aria-label="Scroll strikes left"
+              >
+                ‹
+              </button>
+              <div
+                className="strat-strike-ruler"
+                ref={strikeRulerScrollRef}
+                onWheel={handleHorizontalWheel}
+              >
+                <div className="strat-ruler-ticks">
+                  {rulerStrikes.map((k) => {
+                    const callBuy = builderLegs.find((l) => l.strike === k && l.optionType === "CALL" && l.side === "BUY" && !l.isClosed);
+                    const callSell = builderLegs.find((l) => l.strike === k && l.optionType === "CALL" && l.side === "SELL" && !l.isClosed);
+                    const putBuy = builderLegs.find((l) => l.strike === k && l.optionType === "PUT" && l.side === "BUY" && !l.isClosed);
+                    const putSell = builderLegs.find((l) => l.strike === k && l.optionType === "PUT" && l.side === "SELL" && !l.isClosed);
+                    const isAtm = Math.abs(k - spot) < strikeStep * 0.5;
 
-                  // Simulated volume heights for visual realism
-                  const distFromSpot = Math.abs(k - spot) / spot;
-                  const callVolHeight = Math.max(3, Math.min(22, Math.round(20 * Math.exp(-distFromSpot * 8))));
-                  const putVolHeight = Math.max(3, Math.min(22, Math.round(18 * Math.exp(-distFromSpot * 8))));
+                    // Simulated volume heights for visual realism
+                    const distFromSpot = Math.abs(k - spot) / spot;
+                    const callVolHeight = Math.max(3, Math.min(22, Math.round(20 * Math.exp(-distFromSpot * 8))));
+                    const putVolHeight = Math.max(3, Math.min(22, Math.round(18 * Math.exp(-distFromSpot * 8))));
 
-                  return (
-                    <div
-                      key={k}
-                      className={`strat-ruler-tick ${isAtm ? "highlight" : ""}`}
-                      onClick={(e) => {
-                        const firstLeg = builderLegs.find((l) => l.optionType !== "STOCK" && !l.isClosed);
-                        if (firstLeg) handleStrikeChange(firstLeg.id, k, e);
-                      }}
-                      title={`Strike $${k} (Click to set primary leg strike. Shift+Click moves all)`}
-                    >
-                      {/* Volume Indicator Bar (Call Volume - Green on Top) */}
-                      <div className="strat-vol-bar call" style={{ height: `${callVolHeight}px` }} title={`Call Volume at $${k}`} />
+                    return (
+                      <div
+                        key={k}
+                        className={`strat-ruler-tick ${isAtm ? "highlight atm" : ""}`}
+                        onClick={(e) => {
+                          const firstLeg = builderLegs.find((l) => l.optionType !== "STOCK" && !l.isClosed);
+                          if (firstLeg) handleStrikeChange(firstLeg.id, k, e);
+                        }}
+                        title={`Strike $${k}${isAtm ? " (ATM Spot)" : ""} · Click to set primary leg strike. Shift+Click moves all`}
+                      >
+                        {/* Volume Indicator Bar (Call Volume - Green on Top) */}
+                        <div className="strat-vol-bar call" style={{ height: `${callVolHeight}px` }} title={`Call Volume at $${k}`} />
 
-                      {/* Long Call (Top) or Short Call (Bottom) */}
-                      {callBuy && <div className="strat-ruler-badge call long">+{k}C</div>}
-                      {callSell && <div className="strat-ruler-badge call short">-{k}C</div>}
+                        {/* Long Call (Top) or Short Call (Bottom) */}
+                        {callBuy && <div className="strat-ruler-badge call long">+{k}C</div>}
+                        {callSell && <div className="strat-ruler-badge call short">-{k}C</div>}
 
-                      <div className="strat-ruler-tick-bar" />
-                      <span className="strat-ruler-price-txt">{k}</span>
+                        <div className="strat-ruler-tick-bar" />
+                        <span className="strat-ruler-price-txt">{k}</span>
 
-                      {/* Long Put (Top) or Short Put (Bottom) */}
-                      {putBuy && <div className="strat-ruler-badge put long">+{k}P</div>}
-                      {putSell && <div className="strat-ruler-badge put short">-{k}P</div>}
+                        {/* Long Put (Top) or Short Put (Bottom) */}
+                        {putBuy && <div className="strat-ruler-badge put long">+{k}P</div>}
+                        {putSell && <div className="strat-ruler-badge put short">-{k}P</div>}
 
-                      {/* Volume Indicator Bar (Put Volume - Red on Bottom) */}
-                      <div className="strat-vol-bar put" style={{ height: `${putVolHeight}px` }} title={`Put Volume at $${k}`} />
-                    </div>
-                  );
-                })}
+                        {/* Volume Indicator Bar (Put Volume - Red on Bottom) */}
+                        <div className="strat-vol-bar put" style={{ height: `${putVolHeight}px` }} title={`Put Volume at $${k}`} />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
+              <button
+                type="button"
+                className="strat-ruler-nav-arrow right"
+                onClick={() => scrollContainer(strikeRulerScrollRef, 280)}
+                title="Scroll strikes right (higher strikes)"
+                aria-label="Scroll strikes right"
+              >
+                ›
+              </button>
             </div>
           </div>
 
