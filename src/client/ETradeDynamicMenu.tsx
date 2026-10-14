@@ -486,9 +486,9 @@ export function SettingsMenu({
             </div>
           </div>
 
-          {/* Account Details Card */}
+          {/* Account Details Card (Single Horizontal Line) */}
           <div className="etrade-panel-account-card">
-            <div className="account-stat-row">
+            <div className="account-stat-cell">
               <span className="stat-lbl">Account Value</span>
               <span className="stat-val value-highlight">
                 {effectiveMask
@@ -501,7 +501,8 @@ export function SettingsMenu({
                     })}`}
               </span>
             </div>
-            <div className="account-stat-row">
+            <span className="account-stat-divider" aria-hidden="true" />
+            <div className="account-stat-cell">
               <span className="stat-lbl">Account #</span>
               <span className="stat-val acct-number">
                 {account?.accountId && account.accountId !== "unconnected"
@@ -510,15 +511,15 @@ export function SettingsMenu({
                     : account.accountId
                   : "••••4748"}
               </span>
-              <button
-                type="button"
-                className="btn-mask-mini"
-                onClick={toggleMask}
-                title={effectiveMask ? "Reveal account value" : "Mask account value"}
-              >
-                {effectiveMask ? "👁️ Show" : "🔒 Hide"}
-              </button>
             </div>
+            <button
+              type="button"
+              className="btn-mask-mini"
+              onClick={toggleMask}
+              title={effectiveMask ? "Reveal account value" : "Mask account value"}
+            >
+              {effectiveMask ? "👁️ Show" : "🔒 Hide"}
+            </button>
           </div>
 
           {/* Environment Switcher ("PROD...") */}
@@ -591,31 +592,20 @@ export function SettingsMenu({
                 </button>
               )}
             </div>
-
-            <details style={{ marginTop: "0.6rem", background: "rgba(0,0,0,0.25)", border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))", borderRadius: "6px", padding: "0.4rem 0.6rem" }}>
-              <summary style={{ cursor: "pointer", color: "var(--text-muted, #94a3b8)", fontSize: "0.75rem", fontWeight: 600 }}>
-                ⚙️ Technical Diagnostics &amp; Provenance
-              </summary>
-              <div style={{ marginTop: "0.4rem", fontSize: "0.74rem", color: "var(--text-secondary, #cbd5e1)", display: "grid", gap: "0.3rem" }}>
-                <div><strong>DID:</strong> <code style={{ color: "var(--accent-cyan, #38bdf8)", fontFamily: "var(--font-mono)" }}>did:agent:openaimp:trading</code></div>
-                <div><strong>Architecture:</strong> MCP &amp; OAuth 1.0a REST Client</div>
-                <div><strong>Attestation:</strong> Internal W3C DID Cryptographic Stamping</div>
-                <div><strong>Database:</strong> Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</div>
-              </div>
-            </details>
           </div>
 
-          {/* Tuning & Options Data Download */}
+          {/* Tuning & Options Data Download (Single Horizontal Line) */}
           <div className="etrade-panel-section">
             <div className="section-label-row">
               <span>Tuning &amp; Options Data</span>
-              <small>Export &amp; parameters</small>
+              <small>Parameters &amp; export</small>
             </div>
-            <div className="etrade-tools-cluster">
+            <div className="etrade-tools-cluster single-row">
               <button
                 type="button"
                 className="btn-menu-tuning"
                 onClick={handleOpenTuning}
+                title="Configure ETAPI trade engine and safety controls"
               >
                 ⚙️ ETAPI Engine Tuning
               </button>
@@ -634,7 +624,7 @@ export function SettingsMenu({
                   symbol={downloadSymbol.trim() || "NVDA"}
                   activeEnv={effectiveEnv}
                   userLogin={userLogin}
-                  label="📥 Download Data"
+                  label="📥 Options Data"
                   className="menu-data-download-btn"
                 />
               </div>
@@ -1021,6 +1011,34 @@ export function SettingsMenu({
               <small>Async jobs &amp; execution queue</small>
             </div>
             <AsyncJobsPanel embedded />
+          </div>
+
+          {/* Technical Diagnostics & Provenance (Relocated towards end of floating panel) */}
+          <div className="etrade-panel-section etrade-provenance-section">
+            <details className="etrade-provenance-drawer">
+              <summary className="etrade-provenance-summary">
+                <span>⚙️ Technical Diagnostics &amp; Provenance</span>
+                <span className="provenance-chevron" aria-hidden="true">▾</span>
+              </summary>
+              <div className="etrade-provenance-content">
+                <div className="etrade-provenance-row">
+                  <strong>DID:</strong>
+                  <code className="etrade-provenance-code">did:agent:openaimp:trading</code>
+                </div>
+                <div className="etrade-provenance-row">
+                  <strong>Architecture:</strong>
+                  <span>MCP &amp; OAuth 1.0a REST Client</span>
+                </div>
+                <div className="etrade-provenance-row">
+                  <strong>Attestation:</strong>
+                  <span>Internal W3C DID Cryptographic Stamping</span>
+                </div>
+                <div className="etrade-provenance-row">
+                  <strong>Database:</strong>
+                  <span>Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
+                </div>
+              </div>
+            </details>
           </div>
 
           {/* User Account & Session */}

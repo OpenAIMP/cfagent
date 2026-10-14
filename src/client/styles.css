@@ -8042,15 +8042,33 @@ body {
   color: #fca5a5;
 }
 
-/* Account Details Card */
+/* Account Details Card — Single Line Thematic Layout */
 .etrade-panel-account-card {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 8px;
-  padding: 0.75rem 0.85rem;
+  background: var(--color-surface-sunken, #080f24);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+  padding: 0.55rem 0.85rem;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.account-stat-cell {
+  display: inline-flex;
+  align-items: center;
   gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.account-stat-divider {
+  display: inline-block;
+  width: 1px;
+  height: 1.15rem;
+  background: var(--color-border-medium, rgba(148, 163, 184, 0.25));
+  flex-shrink: 0;
 }
 
 .account-stat-row {
@@ -8061,35 +8079,46 @@ body {
 }
 
 .stat-lbl {
-  color: #94a3b8;
-  font-size: 0.74rem;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.72rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .stat-val.value-highlight {
-  color: #38bdf8;
+  color: var(--color-accent, #38bdf8);
   font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.84rem;
 }
 
 .stat-val.acct-number {
-  color: #e2e8f0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--color-text-primary, #f8fafc);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .btn-mask-mini {
-  background: rgba(51, 65, 85, 0.8);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  color: #cbd5e1;
+  background: var(--color-surface-raised, rgba(51, 65, 85, 0.8));
+  border: 1px solid var(--color-border-medium, rgba(148, 163, 184, 0.3));
+  color: var(--color-text-secondary, #cbd5e1);
   font-size: 0.68rem;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-xs, 4px);
   cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
 }
 .btn-mask-mini:hover {
-  background: #475569;
-  color: #fff;
+  background: var(--color-surface-hover, #475569);
+  color: var(--color-text-primary, #fff);
+  border-color: var(--color-accent, #38bdf8);
 }
 
 /* Sections */
@@ -8196,51 +8225,78 @@ body {
   background: rgba(239, 68, 68, 0.25);
 }
 
-/* Tools Cluster */
-.etrade-tools-cluster {
+/* Tools Cluster — Single Horizontal Row Layout */
+.etrade-tools-cluster,
+.etrade-tools-cluster.single-row {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 0.45rem;
+  width: 100%;
 }
 
 .btn-menu-tuning {
-  width: 100%;
-  padding: 0.42rem 0.6rem;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #38bdf8;
-  font-size: 0.78rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  background: var(--color-accent-subtle, rgba(56, 189, 248, 0.12));
+  border: 1px solid var(--color-border-subtle, rgba(56, 189, 248, 0.35));
+  color: var(--color-accent, #38bdf8);
+  font-size: 0.76rem;
   font-weight: 600;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   text-align: center;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast, 0.15s ease);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .btn-menu-tuning:hover {
   background: rgba(56, 189, 248, 0.22);
+  border-color: var(--color-accent, #38bdf8);
 }
 
 .menu-download-row {
   display: flex;
-  gap: 0.4rem;
   align-items: center;
+  gap: 0.35rem;
+  flex: 1.25 1 0;
+  min-width: 0;
 }
 
 .menu-symbol-input {
-  width: 75px;
-  padding: 0.38rem 0.5rem;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 6px;
-  color: #f8fafc;
-  font-size: 0.78rem;
+  width: 68px;
+  flex-shrink: 0;
+  padding: 0.38rem 0.45rem;
+  background: var(--color-input, rgba(15, 23, 42, 0.9));
+  border: 1px solid var(--color-input-border, rgba(148, 163, 184, 0.3));
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-input-foreground, #f8fafc);
+  font-size: 0.76rem;
   font-weight: 700;
+  font-family: var(--font-mono, monospace);
   text-transform: uppercase;
   text-align: center;
+  transition: border-color var(--transition-fast, 0.15s ease);
+}
+.menu-symbol-input:focus {
+  outline: none;
+  border-color: var(--color-input-focus-border, #38bdf8);
 }
 
 .menu-download-row .menu-data-download-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+
+.menu-download-row .options-download-main-btn {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  padding: 0.42rem 0.55rem;
 }
 
 /* Message */
@@ -8783,6 +8839,90 @@ body {
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #1e293b;
+}
+
+/* Technical Diagnostics & Provenance Drawer (Relocated towards end of floating panel) */
+.etrade-provenance-section {
+  border-top: 1px solid var(--color-border-subtle, rgba(148, 163, 184, 0.15));
+  padding-top: 0.65rem;
+}
+
+.etrade-provenance-drawer {
+  background: var(--color-surface-sunken, #080f24);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+  padding: 0.5rem 0.75rem;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.etrade-provenance-drawer[open] {
+  border-color: var(--color-border-medium, rgba(56, 189, 248, 0.3));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.etrade-provenance-summary {
+  cursor: pointer;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  list-style: none;
+}
+
+.etrade-provenance-summary::-webkit-details-marker {
+  display: none;
+}
+
+.etrade-provenance-summary:hover {
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.provenance-chevron {
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #94a3b8);
+  transition: transform var(--transition-fast, 0.15s ease);
+}
+
+.etrade-provenance-drawer[open] .provenance-chevron {
+  transform: rotate(180deg);
+}
+
+.etrade-provenance-content {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+  font-size: 0.74rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.etrade-provenance-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.etrade-provenance-row strong {
+  color: var(--color-text-muted, #94a3b8);
+  font-weight: 600;
+  font-size: 0.72rem;
+  min-width: 84px;
+}
+
+.etrade-provenance-code {
+  color: var(--color-accent, #38bdf8);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  background: var(--color-muted, rgba(255, 255, 255, 0.05));
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-xs, 4px);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  word-break: break-all;
 }
 
 .user-session-section {
@@ -15719,6 +15859,101 @@ body.theme-light .results-table td {
 [data-theme="light"] .results-table tr:hover td,
 body.theme-light .results-table tr:hover td {
   background: #f8fafc !important;
+}
+
+/* Light Theme Overrides for Floating Settings Menu Enhancements */
+[data-theme="light"] .etrade-panel-account-card,
+body.theme-light .etrade-panel-account-card {
+  background: var(--color-surface-sunken, #f1f5f9) !important;
+  border-color: var(--color-border-subtle, #e2e8f0) !important;
+}
+
+[data-theme="light"] .account-stat-divider,
+body.theme-light .account-stat-divider {
+  background: var(--color-border-subtle, #cbd5e1) !important;
+}
+
+[data-theme="light"] .stat-lbl,
+body.theme-light .stat-lbl {
+  color: var(--color-text-muted, #475569) !important;
+}
+
+[data-theme="light"] .stat-val.value-highlight,
+body.theme-light .stat-val.value-highlight {
+  color: var(--color-accent, #0284c7) !important;
+}
+
+[data-theme="light"] .stat-val.acct-number,
+body.theme-light .stat-val.acct-number {
+  color: var(--color-text-primary, #0f172a) !important;
+}
+
+[data-theme="light"] .btn-mask-mini,
+body.theme-light .btn-mask-mini {
+  background: var(--color-surface-raised, #ffffff) !important;
+  border-color: var(--color-border-medium, #cbd5e1) !important;
+  color: var(--color-text-secondary, #334155) !important;
+}
+
+[data-theme="light"] .btn-mask-mini:hover,
+body.theme-light .btn-mask-mini:hover {
+  background: var(--color-surface-hover, #f1f5f9) !important;
+  color: var(--color-text-primary, #0f172a) !important;
+  border-color: var(--color-accent, #0284c7) !important;
+}
+
+[data-theme="light"] .btn-menu-tuning,
+body.theme-light .btn-menu-tuning {
+  background: var(--color-accent-subtle, rgba(2, 132, 199, 0.1)) !important;
+  border-color: rgba(2, 132, 199, 0.35) !important;
+  color: var(--color-accent, #0284c7) !important;
+}
+
+[data-theme="light"] .btn-menu-tuning:hover,
+body.theme-light .btn-menu-tuning:hover {
+  background: rgba(2, 132, 199, 0.18) !important;
+  border-color: var(--color-accent, #0284c7) !important;
+}
+
+[data-theme="light"] .menu-symbol-input,
+body.theme-light .menu-symbol-input {
+  background: var(--color-input, #ffffff) !important;
+  border-color: var(--color-input-border, #cbd5e1) !important;
+  color: var(--color-input-foreground, #0f172a) !important;
+}
+
+[data-theme="light"] .etrade-provenance-drawer,
+body.theme-light .etrade-provenance-drawer {
+  background: var(--color-surface-sunken, #f8fafc) !important;
+  border-color: var(--color-border-subtle, #e2e8f0) !important;
+}
+
+[data-theme="light"] .etrade-provenance-summary,
+body.theme-light .etrade-provenance-summary {
+  color: var(--color-text-muted, #475569) !important;
+}
+
+[data-theme="light"] .etrade-provenance-summary:hover,
+body.theme-light .etrade-provenance-summary:hover {
+  color: var(--color-text-primary, #0f172a) !important;
+}
+
+[data-theme="light"] .etrade-provenance-content,
+body.theme-light .etrade-provenance-content {
+  border-top-color: var(--color-border-subtle, #e2e8f0) !important;
+  color: var(--color-text-secondary, #334155) !important;
+}
+
+[data-theme="light"] .etrade-provenance-row strong,
+body.theme-light .etrade-provenance-row strong {
+  color: var(--color-text-muted, #475569) !important;
+}
+
+[data-theme="light"] .etrade-provenance-code,
+body.theme-light .etrade-provenance-code {
+  color: var(--color-accent, #0284c7) !important;
+  background: var(--color-muted, #f1f5f9) !important;
+  border-color: var(--color-border-subtle, #cbd5e1) !important;
 }
 
 
