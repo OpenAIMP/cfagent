@@ -7775,6 +7775,59 @@ body {
   100% { transform: scale(0.95); box-shadow: 0 0 4px #10b981; }
 }
 
+.menu-button-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-right: 0.15rem;
+  letter-spacing: -0.01em;
+}
+
+[data-theme="light"] .menu-button-title {
+  color: #0f172a;
+}
+
+.sidebar-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.55rem;
+  height: 24px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sidebar-settings-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.sidebar-settings-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+[data-theme="light"] .sidebar-settings-btn {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme="light"] .sidebar-settings-btn:hover {
+  background: #e0f2fe;
+  color: #0284c7;
+  border-color: #38bdf8;
+}
+
 .menu-env-tag {
   font-size: 0.68rem;
   font-weight: 800;
