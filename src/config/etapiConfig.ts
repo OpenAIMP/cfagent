@@ -25,6 +25,11 @@ export interface EtapiStrategyScoreWeights {
   volatilityAlignment: number;
   thetaBurden: number;
   freshness: number;
+  // Issue #29: the client engine's lenses, absorbed server-side (see
+  // strategyEngine.resolveScoreWeights for the bias mapping).
+  popAlignment: number;
+  cushion: number;
+  capitalEfficiency: number;
 }
 
 export interface EtapiStrategyEngineConfig {
@@ -158,13 +163,19 @@ export interface EtapiConfig {
   externalApis: ExternalApisConfig;
 }
 
+// Defaults equal resolveScoreWeights(undefined) — i.e. the balanced
+// (bias 50) blend of the server-native factors (55% of the total) and the
+// absorbed client lenses (45%: return / chance / safety / capital).
 const DEFAULT_SCORE_WEIGHTS: EtapiStrategyScoreWeights = {
-  thesisAlignment: 0.30,
-  targetRewardRisk: 0.20,
-  liquidity: 0.20,
-  volatilityAlignment: 0.10,
-  thetaBurden: 0.05,
-  freshness: 0.15,
+  thesisAlignment: 0.205,
+  targetRewardRisk: 0.154,
+  liquidity: 0.138,
+  volatilityAlignment: 0.069,
+  thetaBurden: 0.034,
+  freshness: 0.103,
+  popAlignment: 0.154,
+  cushion: 0.077,
+  capitalEfficiency: 0.066,
 };
 
 const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
