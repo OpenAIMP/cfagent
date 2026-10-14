@@ -6,7 +6,8 @@ import { resolveErrorAspect } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
-import { ETradeTradingHub } from "./ETradeTradingHub";
+import { ETradeTradingHub, type TradingSubTab } from "./ETradeTradingHub";
+import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { FossResearchHub } from "./FossResearchHub";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { TabHoverItem } from "./TabHoverItem";
@@ -22,6 +23,50 @@ interface User {
   login: string;
   name: string;
   avatar: string;
+}
+
+const TRADING_TABS = new Set<string>([
+  "trading",
+  "autopilot",
+  "order",
+  "orders",
+  "portfolio",
+  "ledger",
+  "screeners",
+  "scanner",
+  "options",
+  "voice",
+  "omnichannel",
+]);
+
+function isTradingTab(targetTab: string): boolean {
+  return TRADING_TABS.has(targetTab);
+}
+
+function mapTabToTradingSubTab(targetTab: string): TradingSubTab {
+  switch (targetTab) {
+    case "order":
+    case "orders":
+      return "order";
+    case "portfolio":
+      return "portfolio";
+    case "ledger":
+      return "ledger";
+    case "screeners":
+      return "screeners";
+    case "scanner":
+      return "scanner";
+    case "options":
+      return "options";
+    case "voice":
+      return "voice";
+    case "omnichannel":
+      return "omnichannel";
+    case "trading":
+    case "autopilot":
+    default:
+      return "autopilot";
+  }
 }
 
 interface AuditLogEvent {
@@ -1248,7 +1293,8 @@ function AgentChatTabContent({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<NavTabId>("trading");
+  const [tab, setTab] = useState<NavTabId>("autopilot");
+  const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
 
@@ -2002,8 +2048,24 @@ export function Chat({ user }: { user: User }) {
             <div className="sub-header-left">
               <div className="sub-header-brand-crumbs">
                 <span className="crumb-module">
-                  {tab === "trading"
+                  {tab === "autopilot" || tab === "trading"
                     ? "Autopilot Control Center"
+                    : tab === "order" || tab === "orders"
+                    ? "Fast Order Ticket & Preview"
+                    : tab === "portfolio"
+                    ? "Portfolio & Holdings"
+                    : tab === "ledger"
+                    ? "Order History Ledger"
+                    : tab === "screeners"
+                    ? "Multi-Asset Screeners"
+                    : tab === "scanner"
+                    ? "Equity Universe Scan"
+                    : tab === "options"
+                    ? "Auto Options Research"
+                    : tab === "voice"
+                    ? "Voice Trading Desk"
+                    : tab === "omnichannel"
+                    ? "Email & Slack Autonomous Agents"
                     : tab === "research"
                     ? "Market Research & Screeners"
                     : tab === "options-flows"
@@ -2042,6 +2104,9 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             <div className="sub-header-right">
+              {/* E*TRADE Dynamic Broker Account Menu */}
+              {brokerProps && <ETradeDynamicMenu {...brokerProps} />}
+
               {/* Global Stock Search Bar */}
               <StockSearchBar
                 onSelectTab={(newTab) => {
@@ -2056,10 +2121,10 @@ export function Chat({ user }: { user: User }) {
                 type="button"
                 className="nav-trade-btn sub-header-trade-btn"
                 onClick={() => {
-                  setTab("trading");
+                  setTab("order");
                   setTbdMenuOpen(false);
                 }}
-                title="Quick Trade & Autopilot Center"
+                title="Quick Trade & Fast Order Ticket"
               >
                 Trade
               </button>
@@ -2114,7 +2179,12 @@ export function Chat({ user }: { user: User }) {
               agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
               accountMode={accountMode}
               onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-              headerChildren={<AsyncJobsPanel />}
+              headerChildren={
+                <>
+                  {brokerProps && <ETradeDynamicMenu {...brokerProps} />}
+                  <AsyncJobsPanel />
+                </>
+              }
               theme={theme}
               onCycleTheme={handleCycleTheme}
               onAskAgent={handleAskAgent}
@@ -2123,7 +2193,7 @@ export function Chat({ user }: { user: User }) {
         )}
 
       {/* External Ad Network Monetization Strip */}
-      {adDisplayConfig[tab] && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+      {Boolean((adDisplayConfig as Record<string, boolean | undefined>)[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
         <div className="external-ad-banner-strip">
           <div className="ext-ad-badge-group">
             <span className="ext-network-badge">
@@ -4089,9 +4159,14 @@ export function Chat({ user }: { user: User }) {
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
-        <div className="trading-view" hidden={tab !== "trading"}>
+        <div className="trading-view" hidden={!isTradingTab(tab)}>
           <ETradeTradingHub
             user={user}
+            activeSubTab={mapTabToTradingSubTab(tab)}
+            onSelectSubTab={(newSubTab) => {
+              setTab(newSubTab as NavTabId);
+            }}
+            onBrokerPropsChange={setBrokerProps}
             onSendPrompt={(prompt, sourceTab) => {
               setPendingPrompt({ prompt, sourceTab: sourceTab || "E*TRADE Brokerage" });
               setTab("chat");
@@ -4108,7 +4183,7 @@ export function Chat({ user }: { user: User }) {
                 setTab("chat");
               }}
               onTradeSymbol={(symbol) => {
-                setTab("trading");
+                setTab("order");
               }}
             />
           </div>
@@ -4123,7 +4198,7 @@ export function Chat({ user }: { user: User }) {
                 setTab("chat");
               }}
               onTradeSymbol={(symbol) => {
-                setTab("trading");
+                setTab("order");
               }}
             />
           </div>

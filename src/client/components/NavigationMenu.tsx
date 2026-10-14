@@ -4,11 +4,21 @@ import { StockSearchBar } from "./StockSearchBar";
 
 export type NavTabId =
   | "trading"
-  | "research"
+  | "autopilot"
+  | "order"
+  | "orders"
+  | "portfolio"
+  | "ledger"
+  | "options"
   | "options-flows"
+  | "screeners"
+  | "scanner"
+  | "research"
+  | "chat"
+  | "voice"
+  | "omnichannel"
   | "workflows"
   | "endpoints"
-  | "chat"
   | "nlq"
   | "audit"
   | "payments"
@@ -17,6 +27,13 @@ export type NavTabId =
   | "revenue";
 
 export type NavLayoutMode = "left" | "top";
+
+export function isTabActive(itemTabId: NavTabId, currentTab: NavTabId): boolean {
+  if (itemTabId === currentTab) return true;
+  if ((itemTabId === "autopilot" || itemTabId === "trading") && (currentTab === "autopilot" || currentTab === "trading")) return true;
+  if ((itemTabId === "order" || itemTabId === "orders") && (currentTab === "order" || currentTab === "orders")) return true;
+  return false;
+}
 
 export interface NavItemDef {
   id: NavTabId;
@@ -61,11 +78,24 @@ export const NavIcons = {
       <circle cx="12" cy="12" r="4" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
     </svg>
   ),
-  Research: ({ active }: { active?: boolean; className?: string }) => (
+  Order: ({ active }: { active?: boolean; className?: string }) => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      <path d="M11 8v6M8 11h6" />
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+    </svg>
+  ),
+  Portfolio: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" fill={active ? "currentColor" : "none"} fillOpacity={0.15} />
+    </svg>
+  ),
+  Ledger: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <polyline points="10 9 9 9 8 9" />
     </svg>
   ),
   Options: ({ active }: { active?: boolean; className?: string }) => (
@@ -73,6 +103,48 @@ export const NavIcons = {
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
       <circle cx="15" cy="21" r="1.5" fill={active ? "currentColor" : "none"} />
       <circle cx="9" cy="3" r="1.5" fill={active ? "currentColor" : "none"} />
+    </svg>
+  ),
+  Bot: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="10" rx="2" />
+      <circle cx="12" cy="5" r="2" />
+      <path d="M12 7v4" />
+      <line x1="8" y1="16" x2="8.01" y2="16" strokeWidth="2.5" />
+      <line x1="16" y1="16" x2="16.01" y2="16" strokeWidth="2.5" />
+    </svg>
+  ),
+  Screeners: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" fill={active ? "currentColor" : "none"} fillOpacity={0.15} />
+    </svg>
+  ),
+  Scanner: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  ),
+  Research: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <path d="M11 8v6M8 11h6" />
+    </svg>
+  ),
+  Voice: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  ),
+  Omnichannel: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22,6 12,13 2,6" />
     </svg>
   ),
   Workflows: ({ active }: { active?: boolean; className?: string }) => (
@@ -191,20 +263,51 @@ export const NavIcons = {
 };
 
 export const NAVIGATION_ITEMS: NavItemDef[] = [
+  // Execution (Core Broker & Trading Desk)
   {
-    id: "trading",
-    label: "Autopilot Desk",
+    id: "autopilot",
+    label: "Autopilot Control",
     shortLabel: "Autopilot",
     category: "Execution",
     badge: "Live",
     badgeType: "live",
     icon: NavIcons.Autopilot,
-    description: "Autonomous execution within written policy, E*TRADE broker desk & real-time controls",
+    description: "Autonomous policy execution within limits, E*TRADE broker desk & real-time kill switch",
+  },
+  {
+    id: "order",
+    label: "Fast Order Ticket",
+    shortLabel: "Orders",
+    category: "Execution",
+    badge: "HITL",
+    badgeType: "pro",
+    icon: NavIcons.Order,
+    description: "Build and validate live equity orders with two-step preview validation & DID signing",
+  },
+  {
+    id: "portfolio",
+    label: "Portfolio & Holdings",
+    shortLabel: "Portfolio",
+    category: "Execution",
+    badge: "Live",
+    badgeType: "live",
+    icon: NavIcons.Portfolio,
+    description: "Inspect open equity and options holdings, cost basis, unrealized gain/loss & allocations",
+  },
+  {
+    id: "ledger",
+    label: "Order History Ledger",
+    shortLabel: "Ledger",
+    category: "Execution",
+    badge: "Audit",
+    badgeType: "pro",
+    icon: NavIcons.Ledger,
+    description: "Full chronological ledger of open, executed, and cancelled orders with upstream IDs",
   },
   {
     id: "options-flows",
     label: "Hedging (F&O)",
-    shortLabel: "Options",
+    shortLabel: "Hedging",
     category: "Execution",
     badge: "Sweeps",
     badgeType: "pro",
@@ -212,8 +315,40 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     description: "Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures",
   },
   {
+    id: "options",
+    label: "Auto Options Research",
+    shortLabel: "Options",
+    category: "Execution",
+    badge: "AI",
+    badgeType: "ai",
+    icon: NavIcons.Bot,
+    description: "Auto options-screening engine, ranking, thesis configuration & comparison workflows",
+  },
+
+  // Intelligence (Market Scans, AI Copilot, Voice & Alerts)
+  {
+    id: "screeners",
+    label: "Multi-Asset Screeners",
+    shortLabel: "Screeners",
+    category: "Intelligence",
+    badge: "Multi",
+    badgeType: "pro",
+    icon: NavIcons.Screeners,
+    description: "Screen equities, options, crypto, futures, and indices across connected market data providers",
+  },
+  {
+    id: "scanner",
+    label: "Equity Universe Scan",
+    shortLabel: "Universe",
+    category: "Intelligence",
+    badge: "Ticks",
+    badgeType: "live",
+    icon: NavIcons.Scanner,
+    description: "Scan NYSE, NASDAQ, and AMEX listings by price, market cap, and inspect Level 1 quotes",
+  },
+  {
     id: "research",
-    label: "Research & Screener",
+    label: "Research & Dual Feed",
     shortLabel: "Research",
     category: "Intelligence",
     badge: "FOSS",
@@ -230,6 +365,28 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     icon: NavIcons.Copilot,
     description: "Conversational trading copilot, natural language strategies, and agent chat",
   },
+  {
+    id: "voice",
+    label: "Voice Trading Desk",
+    shortLabel: "Voice Desk",
+    category: "Intelligence",
+    badge: "Audio",
+    badgeType: "ai",
+    icon: NavIcons.Voice,
+    description: "Hands-free voice recognition desk for querying quotes, screening setups, and trade confirmation",
+  },
+  {
+    id: "omnichannel",
+    label: "Email & Slack Agents",
+    shortLabel: "Omnichannel",
+    category: "Intelligence",
+    badge: "Relay",
+    badgeType: "new",
+    icon: NavIcons.Omnichannel,
+    description: "Autonomous alerts, trade approvals, and scheduled market briefings dispatched to Slack and Email",
+  },
+
+  // Playbooks
   {
     id: "workflows",
     label: "Workflows & FAQ",
@@ -258,6 +415,8 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     icon: NavIcons.Database,
     description: "Natural language SQLite query engine, schema inspector & table data browser",
   },
+
+  // Platform
   {
     id: "audit",
     label: "AI Transparency",
@@ -334,7 +493,7 @@ export function NavigationMenu({
       >
         {/* Brand Header */}
         <div className="sidebar-brand-wrapper">
-          <div className="sidebar-brand" onClick={() => onSelectTab("trading")}>
+          <div className="sidebar-brand" onClick={() => onSelectTab("autopilot")}>
             <NavIcons.NextGenLogo />
             {!collapsed && (
               <div className="brand-text-block">
@@ -376,10 +535,10 @@ export function NavigationMenu({
         {/* Navigation Categories and Items */}
         <div className="sidebar-nav-scroll">
           {/* Section: Execution */}
-          {!collapsed && <div className="sidebar-section-title">TRADING &amp; HEDGING</div>}
+          {!collapsed && <div className="sidebar-section-title">TRADING &amp; EXECUTION</div>}
           <div className="sidebar-items-group">
             {executionItems.map((item) => {
-              const active = activeTab === item.id;
+              const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
                 <button
@@ -408,7 +567,7 @@ export function NavigationMenu({
           {!collapsed && <div className="sidebar-section-title">INTELLIGENCE &amp; COPILOT</div>}
           <div className="sidebar-items-group">
             {intelligenceItems.map((item) => {
-              const active = activeTab === item.id;
+              const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
                 <button
@@ -437,7 +596,7 @@ export function NavigationMenu({
           {!collapsed && <div className="sidebar-section-title">PLAYBOOKS &amp; TOOLS</div>}
           <div className="sidebar-items-group">
             {playbookItems.map((item) => {
-              const active = activeTab === item.id;
+              const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
                 <button
@@ -466,7 +625,7 @@ export function NavigationMenu({
           {!collapsed && <div className="sidebar-section-title">PLATFORM &amp; BILLING</div>}
           <div className="sidebar-items-group">
             {platformItems.map((item) => {
-              const active = activeTab === item.id;
+              const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
                 <button
@@ -544,7 +703,7 @@ export function NavigationMenu({
       <div className="top-nav-utility-bar">
         {/* Brand & Market Badges */}
         <div className="top-nav-brand-section">
-          <div className="top-brand" onClick={() => onSelectTab("trading")}>
+          <div className="top-brand" onClick={() => onSelectTab("autopilot")}>
             <NavIcons.NextGenLogo />
             <span className="top-brand-name">NextGenTP</span>
           </div>
@@ -579,7 +738,7 @@ export function NavigationMenu({
           <button
             type="button"
             className="nav-trade-btn"
-            onClick={() => onSelectTab("trading")}
+            onClick={() => onSelectTab("autopilot")}
             title="Open Autopilot & Trading execution center"
           >
             Trade
@@ -624,11 +783,11 @@ export function NavigationMenu({
         </div>
       </div>
 
-      {/* Tier 2: Dedicated Top Navigation Menu Bar with all 12 items */}
+      {/* Tier 2: Dedicated Top Navigation Menu Bar with all items */}
       <nav className="top-nav-menu-strip" aria-label="Top Navigation Menu">
         <div className="top-menu-strip-inner">
           {NAVIGATION_ITEMS.map((item) => {
-            const active = activeTab === item.id;
+            const active = isTabActive(item.id, activeTab);
             const Icon = item.icon;
             return (
               <button

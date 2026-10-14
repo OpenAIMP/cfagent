@@ -46,13 +46,26 @@ interface NavShortcut {
 }
 
 const NAV_SHORTCUTS: NavShortcut[] = [
-  { id: "trading", label: "Autopilot Trading Center", category: "Execution", icon: "⚡" },
-  { id: "options-flows", label: "Options Scanner & Unusual Flow", category: "Intelligence", icon: "📊" },
+  { id: "autopilot", label: "Autopilot Control Center", category: "Execution", icon: "⚡" },
+  { id: "order", label: "Fast Order Ticket & Preview", category: "Execution", icon: "⚡" },
+  { id: "portfolio", label: "Portfolio & Holdings", category: "Execution", icon: "💼" },
+  { id: "ledger", label: "Order History Ledger", category: "Execution", icon: "📜" },
+  { id: "options-flows", label: "Options Scanner & Unusual Flow", category: "Execution", icon: "📊" },
+  { id: "options", label: "Auto Options Research", category: "Execution", icon: "🤖" },
+  { id: "screeners", label: "Multi-Asset Screeners", category: "Intelligence", icon: "🔎" },
+  { id: "scanner", label: "Equity Universe Scan", category: "Intelligence", icon: "📈" },
   { id: "research", label: "FOSS Equity & Crypto Research", category: "Intelligence", icon: "🔬" },
+  { id: "chat", label: "Copilot Ideas & Agent Chat", category: "Intelligence", icon: "💬" },
+  { id: "voice", label: "Voice Trading Desk", category: "Intelligence", icon: "🎙️" },
+  { id: "omnichannel", label: "Email & Slack Agents", category: "Intelligence", icon: "✉️" },
   { id: "workflows", label: "Workflows Hub (Playbooks A1..E6)", category: "Playbooks", icon: "🔄" },
-  { id: "endpoints", label: "MCP Agent Endpoints & Tools", category: "Platform", icon: "🔌" },
+  { id: "endpoints", label: "MCP Agent Endpoints & Tools", category: "Playbooks", icon: "🔌" },
+  { id: "nlq", label: "Database Explorer & NLQ Engine", category: "Playbooks", icon: "🗄️" },
   { id: "audit", label: "Audit Trail & Attestation Logs", category: "Platform", icon: "🛡️" },
   { id: "payments", label: "x402 Agent Payments & Balances", category: "Platform", icon: "💳" },
+  { id: "referrals", label: "Referrals & Rewards", category: "Platform", icon: "🎁" },
+  { id: "ads", label: "Sponsored Marketplace Deals", category: "Platform", icon: "📢" },
+  { id: "revenue", label: "Platform Revenue Analytics", category: "Platform", icon: "📈" },
 ];
 
 export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: StockSearchBarProps) {

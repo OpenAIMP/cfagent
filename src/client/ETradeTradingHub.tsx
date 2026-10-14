@@ -12,8 +12,7 @@ import {
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
 import { ScreenersHub } from "./ScreenersHub";
-import { TabHoverItem } from "./TabHoverItem";
-import { ETradeDynamicMenu } from "./ETradeDynamicMenu";
+import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
 import type { RiskSubject } from "./options/riskManagementEngine";
@@ -30,9 +29,25 @@ export interface User {
   avatar?: string;
 }
 
+export type TradingSubTab =
+  | "autopilot"
+  | "scanner"
+  | "screeners"
+  | "options"
+  | "llm-ideas"
+  | "order"
+  | "portfolio"
+  | "ledger"
+  | "nlq"
+  | "omnichannel"
+  | "voice";
+
 export interface ETradeTradingHubProps {
   user?: User;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  activeSubTab?: TradingSubTab;
+  onSelectSubTab?: (tab: TradingSubTab) => void;
+  onBrokerPropsChange?: (props: ETradeDynamicMenuProps) => void;
 }
 
 const NLQ_ROW_RENDER_LIMIT = 500;
@@ -42,9 +57,26 @@ function formatNlqColumn(key: string): string {
   return spaced.replace(/\bOi\b/g, "OI").replace(/\bIv\b/g, "IV").replace(/\bDte\b/g, "DTE").toUpperCase();
 }
 
-export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
+export function ETradeTradingHub({
+  user,
+  onSendPrompt,
+  activeSubTab,
+  onSelectSubTab,
+  onBrokerPropsChange,
+}: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"autopilot" | "scanner" | "screeners" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("autopilot");
+  const [subTab, setSubTab] = useState<TradingSubTab>(activeSubTab || "autopilot");
+
+  useEffect(() => {
+    if (activeSubTab && activeSubTab !== subTab) {
+      setSubTab(activeSubTab);
+      if (activeSubTab === "portfolio") {
+        fetchPositions();
+      } else if (activeSubTab === "ledger") {
+        fetchOrders();
+      }
+    }
+  }, [activeSubTab]);
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -782,6 +814,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setLastExecutionResult(null);
     setOrderError("");
     setSubTab("order");
+    onSelectSubTab?.("order");
     setAutoPreview(true);
   };
 
@@ -808,6 +841,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     setActiveDraft(null); // Invalidate any previous approval
     setLastExecutionResult(null);
     setSubTab("order");
+    onSelectSubTab?.("order");
   };
 
   const handlePreviewOrder = async (e: React.FormEvent) => {
@@ -970,6 +1004,39 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
   const accountValue = account?.netAccountValue;
   const isLive = activeEnv === "PROD" || brokerStatus?.environment === "live" || brokerStatus?.activeEnvironment === "PROD";
 
+  useEffect(() => {
+    onBrokerPropsChange?.({
+      activeEnv,
+      oauthStatus,
+      account,
+      brokerStatus,
+      maskAccount,
+      setMaskAccount,
+      diagnosticsLoading,
+      oauthLoading,
+      oauthMsg,
+      setOauthMsg,
+      handleSwitchEnvironment,
+      handleSwitchAndConnect,
+      runDiagnostics,
+      handleRenewOAuth,
+      handleRevokeOAuth,
+      handleStartOAuth,
+      onOpenEtapiTuning: () => setConfigModalOpen(true),
+      userLogin: user?.login,
+    });
+  }, [
+    activeEnv,
+    oauthStatus,
+    account,
+    brokerStatus,
+    maskAccount,
+    diagnosticsLoading,
+    oauthLoading,
+    oauthMsg,
+    user?.login,
+  ]);
+
   return (
     <div className="etrade-trading-hub">
       {/* OAuth PIN Verification Modal */}
@@ -1039,159 +1106,6 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           </div>
         </div>
       )}
-
-      {/* Navigation Sub-Tabs & Dynamic E*TRADE Menu */}
-      <div className="trading-subnav-bar">
-        <div className="trading-subnav-links">
-          <TabHoverItem
-            eyebrow="AUTONOMOUS POLICY EXECUTION & SAFEGUARDS"
-            title="Autopilot Control Center"
-            description="Manage autonomous policy limits, execution kill switch, risk controls, and inspect recent agent actions."
-          >
-            <button
-              className={`subnav-btn ${subTab === "autopilot" ? "active" : ""}`}
-              onClick={() => setSubTab("autopilot")}
-            >
-              ⚡ Autopilot Control Center
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="PROVIDER-EXTENSIBLE MARKET SCREENER"
-            title="Multi-Asset Screeners"
-            description="Screen equities, options, crypto, futures, and indices across connected market data providers."
-          >
-            <button
-              className={`subnav-btn ${subTab === "screeners" ? "active" : ""}`}
-              onClick={() => setSubTab("screeners")}
-            >
-              🔎 Multi-Asset Screeners
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="REAL-TIME LISTINGS SCAN"
-            title="Equity Universe Scan"
-            description="Scan NYSE, NASDAQ, and AMEX listings by price, market cap, daily change, and inspect Level 1 quotes."
-          >
-            <button
-              className={`subnav-btn ${subTab === "scanner" ? "active" : ""}`}
-              onClick={() => setSubTab("scanner")}
-            >
-              📈 Equity Universe Scan
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="AUTO OPTIONS RESEARCH · PAPER ONLY"
-            title="Auto Options Research"
-            description="Run an options-screening request in the background, or configure the thesis and constraints below to run the dedicated screen, ranking, or comparison workflow. Requests are logged to the shared Chat without leaving this tab. No orders are placed."
-          >
-            <button
-              className={`subnav-btn ${subTab === "options" ? "active" : ""}`}
-              onClick={() => setSubTab("options")}
-            >
-              🤖 Auto Options Research
-              {optionsJob !== "idle" && <span className={`options-job-badge ${optionsJob}`}>{optionsJob === "running" ? "running…" : "results ready"}</span>}
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="AGENTIC EXECUTION & HUMAN-IN-THE-LOOP"
-            title="Fast Order Ticket & Preview"
-            description="Build and validate live equity orders with two-step preview validation, human-in-the-loop attestation, and DID cryptographic signatures."
-          >
-            <button
-              className={`subnav-btn ${subTab === "order" ? "active" : ""}`}
-              onClick={() => setSubTab("order")}
-            >
-              ⚡ Fast Order Ticket &amp; Preview
-              {activeDraft && <span className="preview-indicator-badge">1 PREVIEW</span>}
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="LIVE POSITION TRACKING"
-            title="Portfolio & Holdings"
-            description="Inspect open equity and options holdings, cost basis, unrealized gain/loss, and portfolio allocation."
-          >
-            <button
-              className={`subnav-btn ${subTab === "portfolio" ? "active" : ""}`}
-              onClick={() => {
-                setSubTab("portfolio");
-                fetchPositions();
-              }}
-            >
-              💼 Portfolio &amp; Holdings ({positions.length})
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="AUDIT TRAIL & TRADE LOG"
-            title="Order History Ledger"
-            description="Full chronological ledger of open, executed, and cancelled orders with E*TRADE upstream order IDs and execution timestamps."
-          >
-            <button
-              className={`subnav-btn ${subTab === "ledger" ? "active" : ""}`}
-              onClick={() => {
-                setSubTab("ledger");
-                fetchOrders();
-              }}
-            >
-              📜 Order History Ledger ({orders.length})
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="OMNICHANNEL NOTIFICATIONS"
-            title="Email & Slack Agents"
-            description="Configure autonomous alerts, trade approvals, and scheduled market briefings dispatched to Slack and Email."
-          >
-            <button
-              className={`subnav-btn ${subTab === "omnichannel" ? "active" : ""}`}
-              onClick={() => setSubTab("omnichannel")}
-            >
-              💬 Email &amp; Slack Agents
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="REAL-TIME SPEECH INTERACTION"
-            title="Voice Trading Desk"
-            description="Hands-free voice recognition desk for querying quotes, screening setups, and confirming trade previews."
-          >
-            <button
-              className={`subnav-btn ${subTab === "voice" ? "active" : ""}`}
-              onClick={() => setSubTab("voice")}
-            >
-              🎙️ Voice Trading Desk
-            </button>
-          </TabHoverItem>
-        </div>
-
-        <div className="trading-subnav-actions">
-          <ETradeDynamicMenu
-            activeEnv={activeEnv}
-            oauthStatus={oauthStatus}
-            account={account}
-            brokerStatus={brokerStatus}
-            maskAccount={maskAccount}
-            setMaskAccount={setMaskAccount}
-            diagnosticsLoading={diagnosticsLoading}
-            oauthLoading={oauthLoading}
-            oauthMsg={oauthMsg}
-            setOauthMsg={setOauthMsg}
-            handleSwitchEnvironment={handleSwitchEnvironment}
-            handleSwitchAndConnect={handleSwitchAndConnect}
-            runDiagnostics={runDiagnostics}
-            handleRenewOAuth={handleRenewOAuth}
-            handleRevokeOAuth={handleRevokeOAuth}
-            handleStartOAuth={handleStartOAuth}
-            onOpenEtapiTuning={() => setConfigModalOpen(true)}
-            userLogin={user?.login}
-          />
-        </div>
-      </div>
 
       {subTab !== "options" && subTab !== "llm-ideas" && <div className="nlq-quick-bar trading-context-chat">
         <div className="nlq-bar-input-wrap">
@@ -1392,6 +1306,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
           onNavigateOrder={(sym) => {
             setOrderSymbol(sym);
             setSubTab("order");
+            onSelectSubTab?.("order");
           }}
         />
       )}
