@@ -37,6 +37,7 @@ import type { RiskSubject } from "./riskManagementEngine";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { OptionsTradeContext } from "./OptionsResearchPanel";
 import "./strategyDiscovery.css";
+import { SegmentedControl, PillGroup } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
@@ -2723,42 +2724,30 @@ export function StrategyDiscoveryPanel({
 
           {/* Bottom View & Metric Mode Switchers */}
           <div className="strat-bottom-mode-bar">
-            <div className="strat-mode-toggle-group">
-              <button
-                type="button"
-                className={`strat-mode-btn ${builderDisplayMode === "graph" ? "active" : ""}`}
-                onClick={() => setBuilderDisplayMode("graph")}
-              >
-                📈 Graph
-              </button>
-              <button
-                type="button"
-                className={`strat-mode-btn ${builderDisplayMode === "table" ? "active" : ""}`}
-                onClick={() => setBuilderDisplayMode("table")}
-              >
-                ⊞ Matrix Table
-              </button>
-            </div>
+            <SegmentedControl
+              ariaLabel="Payoff display mode"
+              value={builderDisplayMode}
+              onChange={(val) => setBuilderDisplayMode(val as "graph" | "table")}
+              options={[
+                { id: "graph", label: "Graph", icon: "📈" },
+                { id: "table", label: "Matrix Table", icon: "⊞" },
+              ]}
+              size="md"
+            />
 
-            <div className="strat-metric-toggle-group">
-              {(
-                [
-                  { id: "pnl_dollar", label: "Profit / Loss $" },
-                  { id: "pnl_pct", label: "Profit / Loss %" },
-                  { id: "collateral_pct", label: "% of Risk" },
-                  { id: "contract_val", label: "Contract Value" },
-                ] as const
-              ).map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={`strat-metric-pill ${builderMetricMode === m.id ? "active" : ""}`}
-                  onClick={() => setBuilderMetricMode(m.id)}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <PillGroup
+              ariaLabel="Matrix metric mode"
+              value={builderMetricMode}
+              onChange={(val) => setBuilderMetricMode(val as "pnl_dollar" | "pnl_pct" | "contract_val" | "collateral_pct")}
+              variant="cyan"
+              size="sm"
+              options={[
+                { id: "pnl_dollar", label: "Profit / Loss $" },
+                { id: "pnl_pct", label: "Profit / Loss %" },
+                { id: "collateral_pct", label: "% of Risk" },
+                { id: "contract_val", label: "Contract Value" },
+              ]}
+            />
           </div>
         </div>
       )}

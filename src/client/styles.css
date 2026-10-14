@@ -14862,4 +14862,234 @@ body.theme-light .ask-agent-footer-bar {
   color: #64748b;
 }
 
+/* ==========================================================================
+   COMPOSABLE UI PRIMITIVES: SegmentedControl & PillGroup
+   Modern, accessible, theme-consistent UI building blocks
+   ========================================================================== */
+
+/* SegmentedControl */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-muted, rgba(30, 41, 59, 0.7));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  user-select: none;
+}
+
+.segmented-control.size-sm {
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented-control.size-lg {
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  outline: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.segmented-control.size-sm .segmented-btn {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.76rem;
+  border-radius: 4px;
+}
+
+.segmented-control.size-lg .segmented-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.88rem;
+  border-radius: 8px;
+}
+
+.segmented-btn:hover:not(:disabled) {
+  color: var(--text-main, #f8fafc);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.segmented-btn.selected {
+  background: var(--bg-card, #1e293b);
+  color: var(--text-main, #f8fafc);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.segmented-btn:focus-visible {
+  outline: 2px solid var(--border-focus, #38bdf8);
+  outline-offset: -2px;
+}
+
+.segmented-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.segmented-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+.segmented-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--bg-tag, rgba(255, 255, 255, 0.1));
+  color: var(--text-secondary, #cbd5e1);
+}
+
+/* PillGroup */
+.pill-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-card, #1e293b);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pill-group.size-sm .pill-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
+}
+
+.pill-btn:hover:not(:disabled) {
+  color: var(--text-main, #f8fafc);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-muted, #0f172a);
+}
+
+.pill-group.variant-cyan .pill-btn.selected {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan, #38bdf8);
+  border-color: var(--accent-cyan, #38bdf8);
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.pill-group.variant-emerald .pill-btn.selected {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald, #10b981);
+  border-color: var(--accent-emerald, #10b981);
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.pill-btn:focus-visible {
+  outline: 2px solid var(--border-focus, #38bdf8);
+  outline-offset: -2px;
+}
+
+.pill-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Light Theme Overrides for SegmentedControl and PillGroup */
+[data-theme="light"] .segmented-control,
+body.theme-light .segmented-control {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .segmented-btn,
+body.theme-light .segmented-btn {
+  color: #64748b;
+}
+
+[data-theme="light"] .segmented-btn:hover:not(:disabled),
+body.theme-light .segmented-btn:hover:not(:disabled) {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .segmented-btn.selected,
+body.theme-light .segmented-btn.selected {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 1px #cbd5e1;
+}
+
+[data-theme="light"] .pill-btn,
+body.theme-light .pill-btn {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+[data-theme="light"] .pill-btn:hover:not(:disabled),
+body.theme-light .pill-btn:hover:not(:disabled) {
+  color: #0f172a;
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+[data-theme="light"] .pill-group.variant-cyan .pill-btn.selected,
+body.theme-light .pill-group.variant-cyan .pill-btn.selected {
+  background: #f0f9ff;
+  color: #0284c7;
+  border-color: #0284c7;
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.2);
+}
+
+/* Strategy Discovery Bottom Bar */
+.strat-bottom-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg-card, #111827);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  margin-top: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="light"] .strat-bottom-mode-bar,
+body.theme-light .strat-bottom-mode-bar {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
 
