@@ -1,5 +1,7 @@
 import React, { useState, useId } from "react";
 
+const CHART_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
 export interface ChartPoint {
   x: number;
   y: number;
@@ -294,7 +296,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               y={toY(val) + 4}
               fill="#94a3b8"
               fontSize="11"
-              fontFamily="monospace"
+              fontFamily={CHART_FONT}
               textAnchor="end"
             >
               {formatY(val)}
@@ -310,7 +312,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
             y={svgH - 12}
             fill="#94a3b8"
             fontSize="11"
-            fontFamily="monospace"
+            fontFamily={CHART_FONT}
             textAnchor="middle"
           >
             {formatX(val)}
@@ -406,7 +408,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 y={padT - 6}
                 fill="#f8fafc"
                 fontSize="9.5"
-                fontFamily="monospace"
+                fontFamily={CHART_FONT}
                 fontWeight="bold"
                 textAnchor="middle"
               >
@@ -435,7 +437,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 fill="#06b6d4"
                 fontSize="11"
                 fontWeight="bold"
-                fontFamily="monospace"
+                fontFamily={CHART_FONT}
                 textAnchor="middle"
               >
                 ${spotPrice.toFixed(2)}
@@ -462,7 +464,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               fill="#f97316"
               fontSize="11"
               fontWeight="bold"
-              fontFamily="monospace"
+              fontFamily={CHART_FONT}
               textAnchor="middle"
             >
               Target: ${targetPrice.toFixed(2)}
@@ -523,10 +525,10 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 stroke="rgba(56, 189, 248, 0.5)"
                 strokeWidth="1"
               />
-              <text x="8" y="16" fill="#94a3b8" fontSize="10" fontFamily="sans-serif">
+              <text x="8" y="16" fill="#94a3b8" fontSize="10" fontFamily={CHART_FONT}>
                 Price: <tspan fill="#ffffff" fontWeight="bold">{formatX(currentHoverX)}</tspan>
               </text>
-              <text x="8" y="34" fill="#94a3b8" fontSize="10" fontFamily="sans-serif">
+              <text x="8" y="34" fill="#94a3b8" fontSize="10" fontFamily={CHART_FONT}>
                 P/L:{" "}
                 <tspan
                   fill={(hoveredSecondaryY ?? hoveredPrimaryY ?? 0) >= 0 ? "#22c55e" : "#ef4444"}
@@ -536,7 +538,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 </tspan>
               </text>
               {hoverProbabilities && (
-                <text x="8" y="50" fill="#38bdf8" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
+                <text x="8" y="50" fill="#38bdf8" fontSize="9.5" fontFamily={CHART_FONT} fontWeight="bold">
                   {`← ${hoverProbabilities.probBelowPct}% | ${hoverProbabilities.probAbovePct}% →`}
                 </text>
               )}

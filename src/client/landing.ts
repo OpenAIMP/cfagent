@@ -23,7 +23,7 @@ export function renderLandingPage(appName?: string): string {
   <title>${name} — Agentic analysis &amp; trading</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0b0f19 55%, #030712 100%); color: #f3f4f6; line-height: 1.6; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0b0f19 55%, #030712 100%); color: #f3f4f6; line-height: 1.6; }
     header.hero { text-align: center; padding: 4rem 1.5rem 2rem; max-width: 820px; margin: 0 auto; }
     h1 { font-size: 2.4rem; letter-spacing: -0.02em; margin-bottom: .75rem; }
     .hero p { color: #94a3b8; font-size: 1.05rem; margin-bottom: 1.75rem; }

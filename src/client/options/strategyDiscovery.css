@@ -121,7 +121,8 @@
 }
 
 .strat-price-num {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
   color: #ffffff;
   font-size: 0.95rem;
@@ -379,7 +380,8 @@
   font-size: 0.72rem;
   font-weight: 700;
   color: #38bdf8;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-factor-bar-bg {
@@ -452,7 +454,8 @@
   background: transparent;
   border: none;
   color: #38bdf8;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-size: 1rem;
   font-weight: 700;
   width: 5.5rem;
@@ -746,7 +749,8 @@
   background: transparent;
   border: none;
   color: #f8fafc;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-size: 0.88rem;
   font-weight: 700;
   width: 100%;
@@ -798,7 +802,8 @@
 
 .strat-implied-val {
   color: #38bdf8;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
   font-size: 0.84rem;
   white-space: nowrap;
@@ -1323,7 +1328,8 @@
 }
 
 .strat-symbol-pill {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
   font-size: 0.92rem;
   letter-spacing: 0.03em;
@@ -1366,7 +1372,8 @@
   font-size: 1.15rem;
   font-weight: 800;
   color: #f8fafc;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
@@ -1378,7 +1385,8 @@
   border-radius: 5px;
   font-size: 0.78rem;
   font-weight: 700;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-quote-change.gain {
@@ -1531,7 +1539,8 @@
   flex-shrink: 0;
   font-size: 0.72rem;
   color: #64748b;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   position: relative;
   padding: 2px 0 4px 0;
@@ -1589,7 +1598,8 @@
 .strat-ruler-price-txt {
   font-size: 0.72rem;
   line-height: 1;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   color: #64748b;
   user-select: none;
 }
@@ -1683,7 +1693,8 @@
   font-size: 1.05rem;
   font-weight: 800;
   color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-metric-val.gain {
@@ -1913,7 +1924,8 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.82rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-matrix-table th {
@@ -2034,7 +2046,8 @@
   font-size: 0.7rem;
   font-weight: 700;
   color: #38bdf8;
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
@@ -2189,13 +2202,15 @@
   font-size: 0.95rem;
   font-weight: 800;
   color: #ffffff;
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-leg-delta {
   font-size: 0.75rem;
   color: #94a3b8;
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-leg-slider-controls {
@@ -2661,7 +2676,8 @@ body.theme-light .strat-card-icon-btn.risk {
 .llm-eval-legs-subtitle {
   font-size: 0.75rem;
   color: #94a3b8;
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .llm-eval-close-btn {
@@ -2953,7 +2969,8 @@ body.theme-light .strat-card-icon-btn.risk {
 
 .llm-contract-chip {
   font-size: 0.65rem;
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   background: rgba(56, 189, 248, 0.12);
   color: #7dd3fc;
   padding: 0.1rem 0.35rem;
@@ -3399,7 +3416,8 @@ body.theme-light .strat-card-icon-btn.risk {
   font-weight: 700;
   color: #38bdf8;
   font-size: 0.88rem;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-dropdown-name {
@@ -3422,7 +3440,8 @@ body.theme-light .strat-card-icon-btn.risk {
   font-weight: 700;
   color: #f8fafc;
   font-size: 0.86rem;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-dropdown-pill {
@@ -3431,7 +3450,8 @@ body.theme-light .strat-card-icon-btn.risk {
   padding: 0.08rem 0.32rem;
   border-radius: 3px;
   line-height: 1.1;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .strat-dropdown-pill.gain {
@@ -4053,7 +4073,8 @@ body.theme-light .strat-card-icon-btn.risk {
   gap: 0.35rem 0.5rem;
   font-size: 0.74rem;
   color: #94a3b8;
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   line-height: 1.4;
 }
 
@@ -4364,7 +4385,8 @@ body.theme-light .strat-card-icon-btn.risk {
 .strat-matrix-table td {
   padding: 0.45rem 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-family: monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 

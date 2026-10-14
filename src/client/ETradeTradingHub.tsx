@@ -3132,7 +3132,7 @@ export function ETradeTradingHub({
                   {diagnostics.lastError && (
                     <div style={{ background: "rgba(239, 68, 68, 0.12)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem", color: "#fca5a5", fontSize: "0.82rem" }}>
                       <strong>Upstream Message / Error:</strong>
-                      <div style={{ marginTop: "0.35rem", fontFamily: "ui-monospace, monospace", wordBreak: "break-all" }}>
+                      <div style={{ marginTop: "0.35rem", wordBreak: "break-all" }}>
                         {diagnostics.lastError}
                       </div>
                       {diagnostics.lastError.includes("only in SANDBOX environment") && (

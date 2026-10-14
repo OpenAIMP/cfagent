@@ -1527,7 +1527,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                               <tbody>
                                 {wf.apiMetrics.map((metric, mIdx) => (
                                   <tr key={mIdx} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.05)" }}>
-                                    <td style={{ padding: "0.5rem 0.6rem", fontFamily: "monospace", color: "#38bdf8", fontWeight: 600 }}>{metric.host}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: "#38bdf8", fontWeight: 600 }}>{metric.host}</td>
                                     <td style={{ padding: "0.5rem 0.6rem", color: "#4ade80", fontWeight: 600 }}>{metric.status2xx}</td>
                                     <td style={{ padding: "0.5rem 0.6rem", color: metric.status4xx ? "#f87171" : "#94a3b8" }}>{metric.status4xx}</td>
                                     <td style={{ padding: "0.5rem 0.6rem", color: "#cbd5e1" }}>{metric.avgDuration}</td>
@@ -1643,7 +1643,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                           {sec.title}
                           <span className={`workflow-tag-badge ${sec.badgeColor}`}>{sec.badge}</span>
                           {sec.governedWorkflows && (
-                            <span style={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#22d3ee", background: "rgba(6, 182, 212, 0.15)", padding: "0.15rem 0.45rem", borderRadius: "4px" }}>
+                            <span style={{ fontSize: "0.7rem", color: "#22d3ee", background: "rgba(6, 182, 212, 0.15)", padding: "0.15rem 0.45rem", borderRadius: "4px" }}>
                               Governs: {sec.governedWorkflows.join(", ")}
                             </span>
                           )}
@@ -1716,7 +1716,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                                 {sec.matrixOrWeights.map((row, mIdx) => (
                                   <tr key={mIdx}>
                                     <td style={{ fontWeight: 600, color: "#ffffff" }}>{row.dimension}</td>
-                                    <td style={{ fontFamily: "monospace", color: "#38bdf8" }}>{row.weightOrValue}</td>
+                                    <td style={{ color: "#38bdf8" }}>{row.weightOrValue}</td>
                                     <td style={{ color: "#cbd5e1" }}>{row.details}</td>
                                   </tr>
                                 ))}
@@ -1824,7 +1824,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                       <td style={{ fontWeight: 600, color: "#ffffff" }}>&ldquo;{row.question}&rdquo;</td>
                       <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
                       <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
-                      <td style={{ fontFamily: "monospace", color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
+                      <td style={{ color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
                       <td style={{ color: "#cbd5e1" }}>{row.optimalOutputStructure}</td>
                       <td>
                         <button
@@ -1919,7 +1919,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                 <div style={{ marginTop: "0.35rem", display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
                   <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>Target Components:</span>
                   {imp.targetComponents.map((comp, cIdx) => (
-                    <span key={cIdx} style={{ fontSize: "0.72rem", fontFamily: "monospace", background: "rgba(0,0,0,0.3)", color: "#38bdf8", padding: "0.15rem 0.4rem", borderRadius: "4px" }}>
+                    <span key={cIdx} style={{ fontSize: "0.72rem", background: "rgba(0,0,0,0.3)", color: "#38bdf8", padding: "0.15rem 0.4rem", borderRadius: "4px" }}>
                       {comp}
                     </span>
                   ))}

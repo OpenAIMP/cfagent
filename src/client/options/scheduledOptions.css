@@ -240,7 +240,8 @@
 }
 
 .schedule-id-snippet {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-size: 0.72rem;
   color: #64748b;
 }
@@ -258,7 +259,8 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .schedule-payload-details {
@@ -299,7 +301,8 @@
   border-radius: 3px;
   padding: 0.1rem 0.35rem;
   font-size: 0.72rem;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 

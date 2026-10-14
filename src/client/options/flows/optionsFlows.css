@@ -1393,7 +1393,8 @@
 
 .flow-bar-amount {
   font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .flow-bar-amount.bullish-amount {
@@ -1538,7 +1539,8 @@
   font-weight: 700;
   text-align: right;
   color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .flow-modal-legs-total {
@@ -1549,7 +1551,8 @@
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .flow-modal-metrics-grid {

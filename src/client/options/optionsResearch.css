@@ -21,7 +21,7 @@ body.theme-dark,
   --opt-text-main: var(--color-text-primary);
   --opt-text-muted: var(--color-text-muted);
   --opt-text-dim: var(--color-text-dim);
-  --opt-font-mono: var(--font-mono);
+  --opt-font-mono: var(--font-sans);
 }
 
 [data-theme="light"],
@@ -41,7 +41,7 @@ body.theme-light,
   --opt-text-main: var(--color-text-primary);
   --opt-text-muted: var(--color-text-muted);
   --opt-text-dim: var(--color-text-dim);
-  --opt-font-mono: var(--font-mono);
+  --opt-font-mono: var(--font-sans);
 }
 
 .options-research-section {
@@ -54,7 +54,7 @@ body.theme-light,
   padding: 1.25rem;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--opt-border-subtle);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .options-research-heading,

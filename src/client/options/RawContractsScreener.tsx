@@ -488,7 +488,7 @@ export function RawContractsScreener({
 
                 return (
                   <tr key={`${c.symbol || c.displaySymbol || c.osiKey || idx}:${idx}`}>
-                    <td style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#94a3b8" }}>
+                    <td style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
                       {contractLabel}
                     </td>
                     <td>

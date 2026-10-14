@@ -102,7 +102,9 @@ html,
 body,
 [data-font-style] {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 /* Strict universal single font enforcement across all HTML elements, inputs, buttons, headings, tables, and text */
@@ -138,18 +140,38 @@ header,
 footer,
 nav,
 aside,
-main {
+main,
+code,
+kbd,
+samp {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Monospace is strictly reserved for raw source code, terminals, and DID cryptographic hashes */
-code,
-kbd,
-samp,
+/* Enforce crisp tabular numbers alignment across all financial numbers, metrics, badges, and table cells without font discrepancy */
+.stat-value,
+.metric-val,
+.rev-val,
+.calc-total-val,
+.summary-amount,
+.price-tag,
+.ticker-badge,
+.balance-amount,
+.crypto-price,
+.ad-metric-value,
+.order-id-tag,
+th,
+td {
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: "tnum" 1, "cv05" 1 !important;
+}
+
+/* Raw multi-line code blocks and terminal logs only */
 pre,
-.code-block {
+pre code,
+.code-block,
+.raw-terminal-log {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 

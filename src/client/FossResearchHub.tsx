@@ -1624,7 +1624,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
                       </span>
                     </div>
-                    <div style={{ color: "#cbd5e1", fontSize: "0.8rem", wordBreak: "break-all", fontFamily: "monospace", background: "rgba(0,0,0,0.25)", padding: "6px", borderRadius: "4px" }}>
+                    <div style={{ color: "#cbd5e1", fontSize: "0.8rem", wordBreak: "break-all", background: "rgba(0,0,0,0.25)", padding: "6px", borderRadius: "4px" }}>
                       {typeof tr.payload === "string" ? tr.payload : JSON.stringify(tr.payload)}
                     </div>
                   </div>

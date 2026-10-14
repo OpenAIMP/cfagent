@@ -441,7 +441,7 @@ export function RiskAnalysisModal({
                         <td
                           style={{
                             fontWeight: 700,
-                            fontFamily: "monospace",
+                            fontVariantNumeric: "tabular-nums",
                             fontSize: "0.95rem",
                             color: isPositive ? "#4ade80" : point.estimatedPnL < 0 ? "#f87171" : "#cbd5e1",
                           }}
