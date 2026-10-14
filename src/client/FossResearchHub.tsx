@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
-import { CapabilityNavBar } from "./components/CapabilityNavBar";
+import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
 import type {
   FossQuote,
   FossCompanyFundamentals,
@@ -517,35 +517,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             },
           },
         ]}
+        rightContent={<CopilotTriggerButton label="✨ Ask Copilot" />}
       />
-
-      <div className="nlq-quick-bar trading-context-chat">
-        <div className="nlq-bar-input-wrap">
-          <span className="nlq-bar-icon">💬</span>
-          <input
-            type="text"
-            className="nlq-bar-input"
-            placeholder={`Ask Chat about ${subTab}…`}
-            value={nlqQuery}
-            onChange={(event) => setNlqQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") askInChat();
-            }}
-          />
-          <button type="button" className="btn-nlq-submit" disabled={!nlqQuery.trim()} onClick={() => askInChat()}>
-            Ask in Chat
-          </button>
-        </div>
-        <div className="nlq-chips-carousel">
-          <span className="chips-label">Ask from this tab:</span>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Research NVDA")}>Research NVDA</button>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Quote AAPL via Alpaca")}>Quote AAPL</button>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Show fundamentals and valuation for MSFT")}>MSFT Fundamentals</button>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Alpaca market snapshot for TSLA")}>TSLA Snapshot</button>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Show historical bars for PLTR")}>PLTR Bars</button>
-          <button type="button" className="nlq-chip" onClick={() => askInChat("Compare valuation of NVDA, AMD, and INTC")}>Compare Valuation</button>
-        </div>
-      </div>
 
       {/* SUBTAB 0: YAHOO FINANCE LIVE MARKET SCREENER */}
       {subTab === "screener" && (

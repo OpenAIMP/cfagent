@@ -14717,4 +14717,38 @@ body.theme-light .capability-tab-btn.active::after {
   box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
 }
 
+.btn-capability-copilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-cyan, #38bdf8);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-capability-copilot:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
+}
+
+[data-theme="light"] .btn-capability-copilot,
+body.theme-light .btn-capability-copilot {
+  background: #f0f9ff;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+}
+
+[data-theme="light"] .btn-capability-copilot:hover,
+body.theme-light .btn-capability-copilot:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
 

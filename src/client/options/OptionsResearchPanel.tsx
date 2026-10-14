@@ -24,7 +24,7 @@ import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
 import { TabHoverItem } from "../TabHoverItem";
-import { CapabilityNavBar, type CapabilityTabItem } from "../components/CapabilityNavBar";
+import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "../components/CapabilityNavBar";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
@@ -1057,11 +1057,14 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           },
         ]}
         rightContent={
-          screenMeta ? (
-            <div className="options-scan-meta-pill" title="Screen evaluation metrics">
-              {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
-            </div>
-          ) : undefined
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+            <CopilotTriggerButton label="✨ Ask Copilot" />
+            {screenMeta && (
+              <div className="options-scan-meta-pill" title="Screen evaluation metrics">
+                {screenMeta.contractsEvaluated} eval · {screenMeta.contractsMatched} eligible
+              </div>
+            )}
+          </div>
         }
       />
 

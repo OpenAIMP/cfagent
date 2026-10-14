@@ -1128,33 +1128,6 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      {subTab !== "options" && subTab !== "llm-ideas" && <div className="nlq-quick-bar trading-context-chat">
-        <div className="nlq-bar-input-wrap">
-          <span className="nlq-bar-icon">💬</span>
-          <input
-            type="text"
-            className="nlq-bar-input"
-            placeholder={`Ask Chat about ${subTab.replace("-", " ")}…`}
-            value={nlqQuery}
-            onChange={(event) => setNlqQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") sendNlqToChat();
-            }}
-          />
-          <button type="button" className="btn-nlq-submit" disabled={!nlqQuery.trim()} onClick={() => sendNlqToChat()}>
-            Ask in Chat
-          </button>
-        </div>
-        <div className="nlq-chips-carousel">
-          <span className="chips-label">Ask from this tab:</span>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Find stocks priced between $20 and $200")}>Price Range $20–$200</button>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Find stocks with market cap above $200B")}>Large Market Cap</button>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Show top momentum gainers")}>Top Momentum Gainers</button>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Quote NVDA")}>Quote NVDA</button>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Preview buy 10 shares of NVDA limit 125.50")}>Build Order Preview</button>
-          <button type="button" className="nlq-chip" onClick={() => sendNlqToChat("Show my portfolio positions and P&L")}>Portfolio Holdings</button>
-        </div>
-      </div>}
 
       {/* Active HITL Safety Preview Banner (Always visible when a draft is active) */}
       {activeDraft && (

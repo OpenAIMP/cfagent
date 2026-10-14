@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
 
 export interface AskAgentWidgetProps {
@@ -17,6 +17,76 @@ interface MessageItem {
   text: string;
   timestamp: string;
 }
+
+export const TAB_QUICK_PROMPTS: Record<string, Array<{ label: string; prompt: string }>> = {
+  autopilot: [
+    { label: "⚡ Autopilot Policy", prompt: "Explain the active Autopilot execution policy limits and kill switch rules." },
+    { label: "🛑 Kill Switch Status", prompt: "Check if the emergency trading kill switch is armed or triggered." },
+    { label: "🛡️ Drawdown Guardrails", prompt: "What are my current max drawdown limits and daily order constraints?" },
+    { label: "📋 Staged Orders", prompt: "Show all autonomous actions and staged orders awaiting HITL approval." },
+  ],
+  trading: [
+    { label: "⚡ Autopilot Policy", prompt: "Explain the active Autopilot execution policy limits and kill switch rules." },
+    { label: "🛑 Kill Switch Status", prompt: "Check if the emergency trading kill switch is armed or triggered." },
+    { label: "🛡️ Drawdown Guardrails", prompt: "What are my current max drawdown limits and daily order constraints?" },
+  ],
+  order: [
+    { label: "⚡ Order Preview", prompt: "Preview buy 10 shares of NVDA limit 125.50." },
+    { label: "🛑 Trailing Stop", prompt: "How do I configure a trailing stop loss on my equity orders?" },
+    { label: "💰 Buying Power", prompt: "What is my current available cash and margin buying power?" },
+  ],
+  orders: [
+    { label: "📜 Active Orders", prompt: "List all open, pending, and partially filled orders." },
+    { label: "⏳ Order Latency", prompt: "Show order fill timestamps and execution performance." },
+  ],
+  portfolio: [
+    { label: "💼 Position Holdings", prompt: "Show my current equity and options portfolio positions with unrealized P&L." },
+    { label: "⚖️ Asset Allocation", prompt: "Analyze portfolio asset allocation, cash reserve ratio, and sector exposure." },
+    { label: "⚠️ Beta & Downside", prompt: "Evaluate portfolio beta exposure, concentration risk, and downside protection." },
+  ],
+  ledger: [
+    { label: "📜 Order History", prompt: "Show recent executed trade orders from the SQLite mas_trades ledger." },
+    { label: "🛡️ Attestation Proofs", prompt: "Verify cryptographic W3C DID attestations for recently filled trades." },
+  ],
+  screeners: [
+    { label: "💵 Price $20–$200", prompt: "Find liquid stocks priced between $20 and $200 with daily volume above 1M." },
+    { label: "🏢 Large Market Cap", prompt: "Screen for high-momentum large-cap stocks with market cap above $200B." },
+    { label: "🚀 Top Momentum", prompt: "Show top percentage momentum gainers across US exchanges today." },
+    { label: "📊 Trend Screener", prompt: "Screen for stocks with bullish MACD crossovers and rising RSI-14." },
+  ],
+  scanner: [
+    { label: "🔍 Universe Scan", prompt: "Run an algorithmic scan across all tracked NYSE and Nasdaq symbols." },
+    { label: "📈 Breakout Alerts", prompt: "Detect tickers breaking out above their 50-day moving average." },
+  ],
+  research: [
+    { label: "🔬 NVDA Valuation", prompt: "Generate an autonomous FOSS valuation and analyst consensus report for NVDA." },
+    { label: "📊 Peer Comparison", prompt: "Compare valuation multiples (P/E, EV/EBITDA, margins) across NVDA, AMD, and INTC." },
+    { label: "⚡ Alpaca Snapshot", prompt: "Fetch Level 1/2 real-time NBBO bid/ask snapshot for AAPL via Alpaca." },
+    { label: "📈 Historical Bars", prompt: "Show historical daily price bars and RSI-14 momentum for TSLA." },
+  ],
+  options: [
+    { label: "🎯 Strategy Discovery", prompt: "Discover optimal defined-risk option strategies for a bullish thesis on NVDA." },
+    { label: "📊 Unusual Flow", prompt: "Scan for unusual institutional options sweeps and 0DTE flow." },
+    { label: "📋 Raw Contracts", prompt: "Screen near-the-money call contracts with high open interest and low bid-ask spread." },
+  ],
+  "options-flows": [
+    { label: "⚡ Live Flow Sweeps", prompt: "Show institutional block sweeps with premium over $100k." },
+    { label: "🐂 Sentiment Dial", prompt: "What is the net bullish vs bearish sentiment ratio on SPY and QQQ today?" },
+    { label: "🏛️ Congress & Insider", prompt: "Show recent congressional trading disclosures and corporate insider filings." },
+  ],
+  voice: [
+    { label: "🎙️ Voice Commands", prompt: "What verbal commands can I speak to screen stocks or preview trades?" },
+    { label: "🔊 Verbal Screening", prompt: "Verbal command: 'Screen oversold technology stocks with positive earnings'." },
+  ],
+  omnichannel: [
+    { label: "💬 Slack Trading", prompt: "How do I approve staged trades directly from a Slack channel?" },
+    { label: "✉️ Email Approval", prompt: "How do email HITL order confirmation links function?" },
+  ],
+  audit: [
+    { label: "🛡️ Audit Stream", prompt: "Show recent router execution events and LLM Judge evaluations from mas_events." },
+    { label: "🧠 Memory Vault", prompt: "Show all saved persistent facts in the agent memory vault." },
+  ],
+};
 
 const DEFAULT_QUICK_PROMPTS = [
   { label: "⚡ Autopilot Policy", prompt: "Explain the active Autopilot execution policy limits and kill switch rules." },
@@ -45,12 +115,32 @@ export function AskAgentWidget({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const currentPrompts = useMemo(() => {
+    if (activeTab && TAB_QUICK_PROMPTS[activeTab]) {
+      return TAB_QUICK_PROMPTS[activeTab];
+    }
+    return DEFAULT_QUICK_PROMPTS;
+  }, [activeTab]);
+
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 80);
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [isOpen, messages]);
+
+  // Global open event listener (for Copilot quick buttons)
+  useEffect(() => {
+    const handleOpen = (e: Event) => {
+      const customEvent = e as CustomEvent<{ prompt?: string }>;
+      setIsOpen(true);
+      if (customEvent.detail?.prompt) {
+        setInput(customEvent.detail.prompt);
+      }
+    };
+    window.addEventListener("open-ask-agent", handleOpen);
+    return () => window.removeEventListener("open-ask-agent", handleOpen);
+  }, []);
 
   // Global ESC handler to close drawer
   useEffect(() => {
@@ -161,7 +251,7 @@ export function AskAgentWidget({
                   <span className="agent-ai-badge">AI 2.0</span>
                 </div>
                 <div className="agent-sub-title">
-                  Autonomous trading, options & research assistant
+                  Context: <strong style={{ color: "var(--accent-cyan, #38bdf8)", textTransform: "capitalize" }}>{activeTab ? activeTab.replace("-", " ") : "Platform"}</strong>
                 </div>
               </div>
             </div>
@@ -213,17 +303,23 @@ export function AskAgentWidget({
           </div>
 
           {/* Quick Prompt Chips */}
-          <div className="ask-agent-quick-prompts">
-            {DEFAULT_QUICK_PROMPTS.map((qp, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className="quick-chip-btn"
-                onClick={() => handleQuickPromptClick(qp.prompt)}
-              >
-                {qp.label}
-              </button>
-            ))}
+          <div className="ask-agent-quick-prompts-wrap" style={{ padding: "0.4rem 0.85rem 0.2rem" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
+              Suggested for {activeTab ? activeTab.replace("-", " ") : "Current Workspace"}:
+            </div>
+            <div className="ask-agent-quick-prompts">
+              {currentPrompts.map((qp, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className="quick-chip-btn"
+                  onClick={() => handleQuickPromptClick(qp.prompt)}
+                  title={qp.prompt}
+                >
+                  {qp.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Input & Action Footer */}

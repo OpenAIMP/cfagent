@@ -7,7 +7,7 @@ import {
   type ScreeningAssetClass,
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
-import { CapabilityNavBar, type CapabilityTabItem } from "./components/CapabilityNavBar";
+import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import "./optionsResearch.css";
 
 interface ScreenersHubProps {
@@ -198,6 +198,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         onTabChange={(id) => setAssetClass(id as ScreeningAssetClass)}
         rightContent={
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+            <CopilotTriggerButton label="✨ Ask Copilot" />
             {scannedAt && (
               <span>
                 Last scan: <strong style={{ color: "var(--theme-text-main)" }}>{scannedAt}</strong>

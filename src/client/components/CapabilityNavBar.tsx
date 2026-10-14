@@ -98,3 +98,27 @@ export function CapabilityNavBar({
     </header>
   );
 }
+
+export function CopilotTriggerButton({
+  label = "✨ Ask Copilot",
+  prompt,
+  className = "",
+}: {
+  label?: string;
+  prompt?: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`btn-capability-copilot ${className}`}
+      onClick={() => {
+        window.dispatchEvent(new CustomEvent("open-ask-agent", { detail: { prompt } }));
+      }}
+      title="Open NextGenTP AI Agent Copilot with contextual prompts"
+    >
+      <span style={{ fontSize: "0.85rem" }}>🤖</span>
+      <span>{label}</span>
+    </button>
+  );
+}

@@ -29,7 +29,7 @@ import { FlowTradeDetailModal } from "./FlowTradeDetailModal";
 import { StrategyDiscoveryPanel } from "../StrategyDiscoveryPanel";
 import { RiskAnalysisModal } from "../RiskAnalysisModal";
 import type { RiskSubject } from "../riskManagementEngine";
-import { CapabilityNavBar } from "../../components/CapabilityNavBar";
+import { CapabilityNavBar, CopilotTriggerButton } from "../../components/CapabilityNavBar";
 
 export type FlowSubTab = "summary" | "live" | "historical" | "news" | "congress" | "insider";
 
@@ -431,6 +431,7 @@ export function OptionsFlowsHub({
         ]}
         rightContent={
           <>
+            <CopilotTriggerButton label="✨ Ask Copilot" />
             <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "4px 8px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 600 }}>
               <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
               <span>LIVE</span>
