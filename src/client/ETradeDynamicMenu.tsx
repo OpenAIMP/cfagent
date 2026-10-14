@@ -586,6 +586,18 @@ export function SettingsMenu({
                 </button>
               )}
             </div>
+
+            <details style={{ marginTop: "0.6rem", background: "rgba(0,0,0,0.25)", border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))", borderRadius: "6px", padding: "0.4rem 0.6rem" }}>
+              <summary style={{ cursor: "pointer", color: "var(--text-muted, #94a3b8)", fontSize: "0.75rem", fontWeight: 600 }}>
+                ⚙️ Technical Diagnostics &amp; Provenance
+              </summary>
+              <div style={{ marginTop: "0.4rem", fontSize: "0.74rem", color: "var(--text-secondary, #cbd5e1)", display: "grid", gap: "0.3rem" }}>
+                <div><strong>DID:</strong> <code style={{ color: "var(--accent-cyan, #38bdf8)", fontFamily: "var(--font-mono)" }}>did:agent:openaimp:trading</code></div>
+                <div><strong>Architecture:</strong> MCP &amp; OAuth 1.0a REST Client</div>
+                <div><strong>Attestation:</strong> Internal W3C DID Cryptographic Stamping</div>
+                <div><strong>Database:</strong> Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</div>
+              </div>
+            </details>
           </div>
 
           {/* Tuning & Options Data Download */}

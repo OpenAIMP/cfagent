@@ -2752,6 +2752,19 @@ export function Chat({ user }: { user: User }) {
               </button>
             </div>
 
+            {/* Technical Diagnostics & Provenance Drawer (Agent DID & Microservice Provenance) */}
+            <details className="diagnostics-drawer" style={{ margin: "0.5rem 0 1.25rem 0" }}>
+              <summary className="diagnostics-summary">
+                ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
+              </summary>
+              <div className="diagnostics-content">
+                <div><strong>Trading Agent DID:</strong> <code>did:agent:openaimp:trading</code></div>
+                <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
+                <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
+                <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+              </div>
+            </details>
+
             <div className="audit-grid">
               {/* Memory Vault Panel */}
               <div className="audit-panel memory-panel">

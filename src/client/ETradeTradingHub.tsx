@@ -3213,6 +3213,18 @@ export function ETradeTradingHub({
                     </pre>
                   </details>
 
+                  <details className="diagnostics-drawer" style={{ margin: "1rem 0", background: "rgba(0,0,0,0.3)" }}>
+                    <summary className="diagnostics-summary">
+                      ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
+                    </summary>
+                    <div className="diagnostics-content">
+                      <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
+                      <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
+                      <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
+                      <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+                    </div>
+                  </details>
+
                   <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
                     {(!diagnostics.oauthToken?.present || diagnostics.status === "auth_required") && (
                       <button
@@ -3255,19 +3267,6 @@ export function ETradeTradingHub({
           </div>
         </div>
       )}
-
-      {/* Technical Diagnostics & Provenance Drawer (De-emphasized metadata) */}
-      <details className="diagnostics-drawer">
-        <summary className="diagnostics-summary">
-          ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
-        </summary>
-        <div className="diagnostics-content">
-          <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
-          <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
-          <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
-          <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
-        </div>
-      </details>
 
       {/* Dynamic ETAPI Engine Tuning & Configuration Modal */}
       <EtapiConfigModal
