@@ -80,6 +80,7 @@ export function OptionsFlowsHub({
   const [selectedDetailTrade, setSelectedDetailTrade] = useState<LiveFlowItem | null>(null);
   const [activeBuilderTrade, setActiveBuilderTrade] = useState<LiveFlowItem | null>(null);
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
+  const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
 
   // Live / Historical items
   const [liveItems, setLiveItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
@@ -469,11 +470,21 @@ export function OptionsFlowsHub({
           <span> for full access</span>
         </div>
 
-        {activePreset && (
-          <div className={`flows-filter-active-pill-header ${activePreset.color}`}>
-            <span>Filter: {activePreset.name}</span>
-          </div>
-        )}
+        <div className="flows-delay-banner-right">
+          {activePreset && (
+            <div className={`flows-filter-active-pill-header ${activePreset.color}`}>
+              <span>Filter: {activePreset.name}</span>
+            </div>
+          )}
+          <button
+            type="button"
+            className={`flow-toggle-filters-btn ${isFiltersOpen ? "active" : ""}`}
+            onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+            title={isFiltersOpen ? "Hide filters to expand table" : "Show filters panel"}
+          >
+            {isFiltersOpen ? "✕ Hide Filters" : "⚙️ Filters"}
+          </button>
+        </div>
       </div>
 
       {/* Main Split Layout: Data Tables + Right Sidebar */}
@@ -781,36 +792,39 @@ export function OptionsFlowsHub({
         </main>
 
         {/* Right Filters & Alerts Sidebar */}
-        <FlowFiltersSidebar
-          currentTab={subTab}
-          filterConfig={filterConfig}
-          activePreset={activePreset}
-          savedPresets={savedPresets}
-          totalFlowCount={
-            subTab === "news"
-              ? newsItems.length
-              : subTab === "insider"
-              ? insiderItems.length
-              : subTab === "congress"
-              ? congressItems.length
-              : liveItems.length
-          }
-          filteredFlowCount={
-            subTab === "news"
-              ? filteredNewsItems.length
-              : subTab === "insider"
-              ? filteredInsiderItems.length
-              : subTab === "congress"
-              ? filteredCongressItems.length
-              : filteredLiveItems.length
-          }
-          onFilterChange={setFilterConfig}
-          onSelectPreset={handleSelectPreset}
-          onClearPreset={handleClearPreset}
-          onSaveFilter={handleSaveFilter}
-          onResetFilter={handleResetFilter}
-          onOpenUpgradeModal={() => setShowUpgradeModal(true)}
-        />
+        {isFiltersOpen && (
+          <FlowFiltersSidebar
+            currentTab={subTab}
+            filterConfig={filterConfig}
+            activePreset={activePreset}
+            savedPresets={savedPresets}
+            totalFlowCount={
+              subTab === "news"
+                ? newsItems.length
+                : subTab === "insider"
+                ? insiderItems.length
+                : subTab === "congress"
+                ? congressItems.length
+                : liveItems.length
+            }
+            filteredFlowCount={
+              subTab === "news"
+                ? filteredNewsItems.length
+                : subTab === "insider"
+                ? filteredInsiderItems.length
+                : subTab === "congress"
+                ? filteredCongressItems.length
+                : filteredLiveItems.length
+            }
+            onFilterChange={setFilterConfig}
+            onSelectPreset={handleSelectPreset}
+            onClearPreset={handleClearPreset}
+            onSaveFilter={handleSaveFilter}
+            onResetFilter={handleResetFilter}
+            onOpenUpgradeModal={() => setShowUpgradeModal(true)}
+            onClose={() => setIsFiltersOpen(false)}
+          />
+        )}
       </div>
 
       {/* Upgrade Pro Modal */}

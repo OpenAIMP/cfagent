@@ -42,10 +42,24 @@ export function applyTheme(mode: ThemeMode): void {
   document.documentElement.setAttribute("data-theme-preference", mode);
   document.documentElement.style.colorScheme = effective;
 
+  if (document.body) {
+    document.body.classList.toggle("theme-light", effective === "light");
+    document.body.classList.toggle("theme-dark", effective === "dark");
+    document.body.setAttribute("data-theme", effective);
+  }
+
   try {
     localStorage.setItem(THEME_STORAGE_KEY, mode);
   } catch {
     // Ignore storage errors
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("theme-changed", {
+        detail: { theme: effective, preference: mode },
+      })
+    );
   }
 }
 

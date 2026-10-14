@@ -23,6 +23,7 @@ interface FlowFiltersSidebarProps {
   onSaveFilter: (name: string) => void;
   onResetFilter: () => void;
   onOpenUpgradeModal: () => void;
+  onClose?: () => void;
 }
 
 export function FlowFiltersSidebar({
@@ -38,6 +39,7 @@ export function FlowFiltersSidebar({
   onSaveFilter,
   onResetFilter,
   onOpenUpgradeModal,
+  onClose,
 }: FlowFiltersSidebarProps) {
   const [sidebarTab, setSidebarTab] = useState<"current" | "your">("current");
   const [tickerInput, setTickerInput] = useState("");
@@ -152,6 +154,17 @@ export function FlowFiltersSidebar({
             Your Filters
           </button>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            className="flow-sidebar-close-btn"
+            onClick={onClose}
+            title="Collapse filter panel"
+            aria-label="Collapse filters"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {sidebarTab === "your" ? (

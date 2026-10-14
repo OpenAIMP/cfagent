@@ -2471,45 +2471,46 @@ export function ETradeTradingHub({
       )}
 
       {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
+      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
       {subTab === "omnichannel" && (
-        <div className="tab-pane active omnichannel-pane" style={{ marginTop: "1.5rem" }}>
+        <div className="tab-pane active omnichannel-pane">
           {/* Header Card */}
-          <div style={{ background: "linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%)", border: "1px solid #1e3a8a", borderRadius: "12px", padding: "1.5rem", marginBottom: "1.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+          <div className="omnichannel-header-card">
+            <div className="omnichannel-header-top">
               <div>
-                <span style={{ background: "#3b82f6", color: "white", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", textTransform: "uppercase" }}>
+                <span className="omnichannel-header-badge">
                   Cloudflare Agents SDK
                 </span>
-                <h3 style={{ margin: "0.5rem 0 0.25rem 0", color: "#ffffff", fontSize: "1.4rem" }}>
+                <h3 className="omnichannel-header-title">
                   💬 Omnichannel Trading Agents (Email &amp; Slack)
                 </h3>
-                <p style={{ color: "#94a3b8", fontSize: "0.9rem", margin: 0, maxWidth: "700px" }}>
+                <p className="omnichannel-header-desc">
                   Autonomous market research, quoting, and Human-in-the-Loop order drafting via Inbound Email and Slack Bot communication channels. All orders require explicit human authorization before live E*TRADE execution.
                 </p>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <span style={{ background: "rgba(34, 197, 94, 0.15)", border: "1px solid #22c55e", color: "#4ade80", padding: "4px 10px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600 }}>
+              <div className="omnichannel-header-status">
+                <span className="omnichannel-live-badge">
                   ✓ Direct REST API Live
                 </span>
               </div>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
+          <div className="omnichannel-grid">
             {/* Channel 1: Cloudflare Email Trading Agent */}
-            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", display: "flex", flexDirection: "column" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                <h4 style={{ margin: 0, color: "#38bdf8", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="omnichannel-card">
+              <div className="omnichannel-card-header">
+                <h4 className="omnichannel-card-title email">
                   <span>✉️</span> Cloudflare Email Trading Agent
                 </h4>
-                <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold" }}>
+                <span className="omnichannel-badge-subtle cyan">
                   send_email &amp; PostalMime
                 </span>
               </div>
 
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid #1e293b", borderRadius: "8px", padding: "0.85rem", marginBottom: "1rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
+              <div className="omnichannel-meta-box">
                 <div style={{ marginBottom: "0.4rem" }}>
-                  <strong>Inbound Address:</strong> <code style={{ color: "#38bdf8" }}>trade@agent.openaimp.com</code>
+                  <strong>Inbound Address:</strong> <code>trade@agent.openaimp.com</code>
                 </div>
                 <div style={{ marginBottom: "0.4rem" }}>
                   <strong>Security Guarantee:</strong> Stamped with Trading DID (<code>did:agent:openaimp:trading</code>).
@@ -2520,59 +2521,59 @@ export function ETradeTradingHub({
               </div>
 
               {/* Email Simulator Form */}
-              <div style={{ background: "#1e293b", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
-                <h5 style={{ margin: "0 0 0.75rem 0", color: "#f8fafc", fontSize: "0.9rem" }}>
+              <div className="omnichannel-simulator-card">
+                <h5 className="omnichannel-simulator-title">
                   🧪 Interactive Email Simulator
                 </h5>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                <div className="omnichannel-form-group">
                   <div>
-                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>From (Sender Email):</label>
+                    <label className="omnichannel-form-label">From (Sender Email):</label>
                     <input
                       type="email"
                       value={emailFrom}
                       onChange={(e) => setEmailFrom(e.target.value)}
-                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                      className="omnichannel-form-input"
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Subject:</label>
+                    <label className="omnichannel-form-label">Subject:</label>
                     <input
                       type="text"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
-                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                      className="omnichannel-form-input"
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Email Body:</label>
+                    <label className="omnichannel-form-label">Email Body:</label>
                     <textarea
                       rows={2}
                       value={emailBody}
                       onChange={(e) => setEmailBody(e.target.value)}
-                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box", resize: "vertical" }}
+                      className="omnichannel-form-input"
                     />
                   </div>
 
                   {/* Preset Quick Chips */}
-                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+                  <div className="omnichannel-chip-row">
                     <button
                       type="button"
                       onClick={() => { setEmailSubject("Quote NVDA"); setEmailBody("What is the current price and technicals?"); }}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       📈 Quote NVDA
                     </button>
                     <button
                       type="button"
                       onClick={() => { setEmailSubject("Screen stock price range"); setEmailBody("Show stocks priced between $20 and $200"); }}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       🔍 Screen Price Range
                     </button>
                     <button
                       type="button"
                       onClick={() => { setEmailSubject("Order Preview"); setEmailBody("Buy 10 shares of NVDA limit 125.00"); }}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       🛡️ Buy 10 NVDA
                     </button>
@@ -2580,7 +2581,7 @@ export function ETradeTradingHub({
                       <button
                         type="button"
                         onClick={() => { setEmailSubject("Order Approval"); setEmailBody(`APPROVE ${activeDraft.orderId}`); }}
-                        style={{ background: "#166534", border: "1px solid #22c55e", color: "#86efac", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                        className="omnichannel-chip approve"
                       >
                         ✓ APPROVE {activeDraft.orderId}
                       </button>
@@ -2591,7 +2592,7 @@ export function ETradeTradingHub({
                     type="button"
                     disabled={emailLoading}
                     onClick={handleSimulateEmail}
-                    style={{ background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)", color: "#ffffff", border: "none", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer", marginTop: "0.4rem" }}
+                    className="omnichannel-btn-submit email"
                   >
                     {emailLoading ? "Processing Inbound Email…" : "⚡ Send Test Email to Agent"}
                   </button>
@@ -2600,23 +2601,23 @@ export function ETradeTradingHub({
 
               {/* Email Result Output */}
               {emailResult && (
-                <div style={{ background: "#0b0f19", border: "1px solid #1e293b", borderRadius: "8px", padding: "1rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                    <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Agent Email Reply:</span>
-                    <span style={{ fontSize: "0.75rem", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", padding: "2px 6px", borderRadius: "4px", textTransform: "uppercase" }}>
+                <div className="omnichannel-result-box">
+                  <div className="omnichannel-result-header">
+                    <span className="omnichannel-result-title">Agent Email Reply:</span>
+                    <span className="omnichannel-result-action">
                       {emailResult.actionType || "reply"}
                     </span>
                   </div>
-                  <h6 style={{ margin: "0 0 0.5rem 0", color: "#f8fafc", fontSize: "0.95rem" }}>
+                  <h6 className="omnichannel-result-subject">
                     Subject: {emailResult.responseSubject}
                   </h6>
                   {emailResult.responseHtml ? (
                     <div
-                      style={{ maxHeight: "280px", overflowY: "auto", border: "1px solid #334155", borderRadius: "6px", padding: "0.5rem", background: "#0f172a" }}
+                      className="omnichannel-result-html"
                       dangerouslySetInnerHTML={{ __html: emailResult.responseHtml }}
                     />
                   ) : (
-                    <pre style={{ margin: 0, fontSize: "0.75rem", color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                    <pre className="omnichannel-result-pre">
                       {emailResult.responseText}
                     </pre>
                   )}
@@ -2625,71 +2626,71 @@ export function ETradeTradingHub({
             </div>
 
             {/* Channel 2: Cloudflare Slack Trading Agent */}
-            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", display: "flex", flexDirection: "column" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                <h4 style={{ margin: 0, color: "#a855f7", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="omnichannel-card">
+              <div className="omnichannel-card-header">
+                <h4 className="omnichannel-card-title slack">
                   <span>🤖</span> Cloudflare Slack Trading Agent
                 </h4>
-                <span style={{ background: "rgba(168, 85, 247, 0.15)", color: "#c084fc", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold" }}>
+                <span className="omnichannel-badge-subtle purple">
                   Events &amp; Block Kit
                 </span>
               </div>
 
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid #1e293b", borderRadius: "8px", padding: "0.85rem", marginBottom: "1rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
+              <div className="omnichannel-meta-box">
                 <div style={{ marginBottom: "0.4rem" }}>
-                  <strong>Event Request URL:</strong> <code style={{ color: "#c084fc" }}>https://agent.openaimp.com/slack/events</code>
+                  <strong>Event Request URL:</strong> <code className="slack-url">https://agent.openaimp.com/slack/events</code>
                 </div>
                 <div style={{ marginBottom: "0.4rem" }}>
-                  <strong>Interactivity URL:</strong> <code style={{ color: "#c084fc" }}>https://agent.openaimp.com/slack/interactions</code>
+                  <strong>Interactivity URL:</strong> <code className="slack-url">https://agent.openaimp.com/slack/interactions</code>
                 </div>
                 <div>
-                  <strong>OAuth App Install:</strong> <a href="/slack/install" target="_blank" rel="noreferrer" style={{ color: "#38bdf8", textDecoration: "underline" }}>Install to Workspace</a>
+                  <strong>OAuth App Install:</strong> <a href="/slack/install" target="_blank" rel="noreferrer" className="slack-install-link">Install to Workspace</a>
                 </div>
               </div>
 
               {/* Slack Simulator Form */}
-              <div style={{ background: "#1e293b", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
-                <h5 style={{ margin: "0 0 0.75rem 0", color: "#f8fafc", fontSize: "0.9rem" }}>
+              <div className="omnichannel-simulator-card">
+                <h5 className="omnichannel-simulator-title">
                   🧪 Interactive Slack Bot Simulator
                 </h5>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                <div className="omnichannel-form-group">
                   <div>
-                    <label style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block", marginBottom: "2px" }}>Slack Message / Mention:</label>
+                    <label className="omnichannel-form-label">Slack Message / Mention:</label>
                     <input
                       type="text"
                       value={slackPrompt}
                       onChange={(e) => setSlackPrompt(e.target.value)}
-                      style={{ width: "100%", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", padding: "0.4rem 0.6rem", borderRadius: "6px", fontSize: "0.85rem", boxSizing: "border-box" }}
+                      className="omnichannel-form-input"
                     />
                   </div>
 
                   {/* Preset Quick Chips */}
-                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+                  <div className="omnichannel-chip-row">
                     <button
                       type="button"
                       onClick={() => handleSimulateSlack("@ETradeAgent quote NVDA")}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       📈 Quote NVDA
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSimulateSlack("@ETradeAgent screen stocks priced between $20 and $200")}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       🔍 Screen Price Range
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSimulateSlack("@ETradeAgent preview buy 10 NVDA limit 125.00")}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       ⚡ Buy 10 NVDA Ticket
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSimulateSlack("@ETradeAgent show my portfolio positions")}
-                      style={{ background: "#334155", border: "none", color: "#cbd5e1", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer" }}
+                      className="omnichannel-chip"
                     >
                       💼 Portfolio
                     </button>
@@ -2699,7 +2700,7 @@ export function ETradeTradingHub({
                     type="button"
                     disabled={slackLoading}
                     onClick={() => handleSimulateSlack()}
-                    style={{ background: "linear-gradient(135deg, #9333ea 0%, #7e22ce 100%)", color: "#ffffff", border: "none", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer", marginTop: "0.4rem" }}
+                    className="omnichannel-btn-submit slack"
                   >
                     {slackLoading ? "Simulating Slack Agent…" : "⚡ Simulate Slack Message"}
                   </button>
@@ -2708,26 +2709,26 @@ export function ETradeTradingHub({
 
               {/* Slack Block Kit Card Viewer */}
               {slackResult?.response && (
-                <div style={{ background: "#1a1d21", border: "1px solid #383f45", borderRadius: "8px", padding: "1rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <div className="omnichannel-slack-viewer">
+                  <div className="omnichannel-slack-user-header">
                     <span style={{ fontSize: "1.2rem" }}>🤖</span>
                     <div>
-                      <strong style={{ color: "#ffffff", fontSize: "0.9rem" }}>ETradeAgent</strong>{" "}
-                      <span style={{ background: "#334155", color: "#94a3b8", fontSize: "0.7rem", padding: "1px 4px", borderRadius: "3px" }}>APP</span>
-                      <span style={{ color: "#64748b", fontSize: "0.75rem", marginLeft: "0.5rem" }}>Just now</span>
+                      <strong className="slack-bot-name">ETradeAgent</strong>{" "}
+                      <span className="slack-app-tag">APP</span>
+                      <span className="slack-time">Just now</span>
                     </div>
                   </div>
 
-                  <div style={{ borderLeft: "3px solid #a855f7", paddingLeft: "0.75rem", color: "#e2e8f0", fontSize: "0.88rem" }}>
+                  <div className="omnichannel-slack-body">
                     {slackResult.response.blocks?.map((block: any, bIdx: number) => {
                       if (block.type === "header") {
-                        return <h5 key={bIdx} style={{ margin: "0.25rem 0 0.5rem 0", color: "#f8fafc", fontSize: "1rem" }}>{block.text?.text}</h5>;
+                        return <h5 key={bIdx} className="slack-block-heading">{block.text?.text}</h5>;
                       }
                       if (block.type === "section" && block.fields) {
                         return (
-                          <div key={bIdx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", margin: "0.5rem 0" }}>
+                          <div key={bIdx} className="slack-block-fields">
                             {block.fields.map((f: any, fIdx: number) => (
-                              <div key={fIdx} style={{ fontSize: "0.82rem", background: "#222529", padding: "6px 8px", borderRadius: "4px" }}>
+                              <div key={fIdx} className="omnichannel-slack-field">
                                 {f.text?.split("\n").map((line: string, lIdx: number) => (
                                   <div key={lIdx}>{line.replace(/\*/g, "")}</div>
                                 ))}
@@ -2737,11 +2738,11 @@ export function ETradeTradingHub({
                         );
                       }
                       if (block.type === "section" && block.text) {
-                        return <p key={bIdx} style={{ margin: "0.4rem 0", color: "#cbd5e1" }}>{block.text.text?.replace(/\*/g, "")}</p>;
+                        return <p key={bIdx} className="slack-block-text">{block.text.text?.replace(/\*/g, "")}</p>;
                       }
                       if (block.type === "actions") {
                         return (
-                          <div key={bIdx} style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                          <div key={bIdx} className="slack-actions-row">
                             {block.elements?.map((btn: any, btnIdx: number) => (
                               <button
                                 key={btnIdx}
@@ -2767,7 +2768,7 @@ export function ETradeTradingHub({
                       }
                       if (block.type === "context") {
                         return (
-                          <div key={bIdx} style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.5rem" }}>
+                          <div key={bIdx} className="slack-context-row">
                             {block.elements?.[0]?.text?.replace(/`/g, "")}
                           </div>
                         );
@@ -2784,73 +2785,38 @@ export function ETradeTradingHub({
 
       {/* Cloudflare Voice Trading Agent Desk */}
       {subTab === "voice" && (
-        <div className="tab-pane active voice-pane" style={{ marginTop: "1.5rem" }}>
+        <div className="tab-pane active voice-pane">
           {/* Header Card */}
-          <div style={{ background: "linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(15, 23, 42, 0.85) 100%)", border: "1px solid rgba(16, 185, 129, 0.4)", borderRadius: "12px", padding: "1.5rem", marginBottom: "1.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+          <div className="voice-header-card">
+            <div className="voice-header-top">
               <div>
-                <span style={{ background: "#10b981", color: "white", padding: "3px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", textTransform: "uppercase" }}>
+                <span className="voice-header-badge">
                   Cloudflare Agents Voice SDK
                 </span>
-                <h3 style={{ margin: "0.5rem 0 0.25rem 0", color: "#ffffff", fontSize: "1.4rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <h3 className="voice-header-title">
                   <span>🎙️</span> E*TRADE Voice Trading Desk
                 </h3>
-                <p style={{ color: "#94a3b8", fontSize: "0.9rem", margin: 0, maxWidth: "720px" }}>
+                <p className="voice-header-desc">
                   Real-time conversational voice trading powered by Cloudflare Workers AI STT &amp; TTS. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
                 </p>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <span style={{
-                  background: voiceStatus === "speaking" ? "rgba(56, 189, 248, 0.2)" : (voiceStatus === "listening" ? "rgba(34, 197, 94, 0.2)" : (voiceStatus === "thinking" ? "rgba(245, 158, 11, 0.2)" : "rgba(100, 116, 139, 0.2)")),
-                  border: `1px solid ${voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : (voiceStatus === "thinking" ? "#f59e0b" : "#64748b"))}`,
-                  color: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#4ade80" : (voiceStatus === "thinking" ? "#fbbf24" : "#94a3b8")),
-                  padding: "4px 12px",
-                  borderRadius: "20px",
-                  fontSize: "0.82rem",
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.4rem",
-                }}>
-                  <span style={{
-                    width: "8px",
-                    height: "8px",
-                    borderRadius: "50%",
-                    background: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : (voiceStatus === "thinking" ? "#f59e0b" : "#64748b")),
-                    animation: (voiceStatus === "listening" || voiceStatus === "speaking") ? "pulse 1.2s infinite" : "none",
-                  }} />
+              <div className="voice-header-status">
+                <span className={`voice-status-pill ${voiceStatus}`}>
+                  <span className={`voice-status-dot ${voiceStatus}`} />
                   {voiceStatus.toUpperCase()}
                 </span>
               </div>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1.5rem", maxWidth: "900px", margin: "0 auto 2rem auto" }}>
+          <div className="voice-main-grid">
             {/* Visualizer & Mic Control Bar */}
-            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem", textAlign: "center" }}>
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "1rem", marginBottom: "1.2rem", flexWrap: "wrap" }}>
+            <div className="voice-control-card">
+              <div className="voice-control-actions">
                 <button
                   type="button"
                   onClick={handleToggleVoiceRecording}
-                  style={{
-                    background: speechRecognitionActive
-                      ? "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)"
-                      : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "50px",
-                    padding: "0.8rem 2rem",
-                    fontSize: "1.05rem",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                    boxShadow: speechRecognitionActive
-                      ? "0 0 20px rgba(239, 68, 68, 0.5)"
-                      : "0 0 20px rgba(16, 185, 129, 0.4)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.6rem",
-                    transition: "all 0.2s ease",
-                  }}
+                  className={`btn-voice-toggle ${speechRecognitionActive ? "listening" : "idle"}`}
                 >
                   <span>{speechRecognitionActive ? "🛑 Stop Listening" : "🎙️ Push to Talk / Speak"}</span>
                 </button>
@@ -2858,32 +2824,20 @@ export function ETradeTradingHub({
                 <button
                   type="button"
                   onClick={() => setVoiceIsMuted(!voiceIsMuted)}
-                  style={{
-                    background: "#1e293b",
-                    border: "1px solid #475569",
-                    color: voiceIsMuted ? "#f87171" : "#cbd5e1",
-                    padding: "0.75rem 1.2rem",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                  }}
+                  className={`btn-voice-mute ${voiceIsMuted ? "muted" : "unmuted"}`}
                 >
                   {voiceIsMuted ? "🔇 Voice Muted" : "🔊 Audio On"}
                 </button>
               </div>
 
               {/* Animated Audio Visualizer Bars */}
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "6px", height: "40px", margin: "1rem 0" }}>
+              <div className="voice-visualizer-bars">
                 {[12, 24, 38, 20, 32, 16, 28, 36, 18, 26, 34, 14].map((h, i) => (
                   <div
                     key={i}
+                    className={`voice-vbar ${voiceStatus}`}
                     style={{
-                      width: "6px",
                       height: voiceStatus === "speaking" || voiceStatus === "listening" ? `${Math.max(8, (h * (voiceStatus === "listening" ? 1.2 : 0.9)))}px` : "6px",
-                      background: voiceStatus === "speaking" ? "#38bdf8" : (voiceStatus === "listening" ? "#22c55e" : "#475569"),
-                      borderRadius: "3px",
-                      transition: "height 0.15s ease",
                     }}
                   />
                 ))}
@@ -2891,38 +2845,38 @@ export function ETradeTradingHub({
 
               {/* Interim Real-Time Transcript Display */}
               {voiceInterim && (
-                <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px dashed #0284c7", borderRadius: "8px", padding: "0.75rem", margin: "0.75rem 0", color: "#38bdf8", fontSize: "0.9rem", fontStyle: "italic" }}>
+                <div className="voice-interim-box">
                   🎙️ <em>{voiceInterim}…</em>
                 </div>
               )}
 
               {/* Quick Spoken Chips */}
-              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap", marginTop: "1rem" }}>
+              <div className="voice-chips-row">
                 <button
                   type="button"
                   onClick={() => handleVoiceTurn("What is Nvidia trading at?")}
-                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                  className="voice-chip"
                 >
                   📈 "What is Nvidia trading at?"
                 </button>
                 <button
                   type="button"
                   onClick={() => handleVoiceTurn("Screen stocks priced between $20 and $200")}
-                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                  className="voice-chip"
                 >
                   🔍 "Screen price range"
                 </button>
                 <button
                   type="button"
                   onClick={() => handleVoiceTurn("What is my portfolio balance?")}
-                  style={{ background: "#1e293b", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                  className="voice-chip"
                 >
                   💼 "Check portfolio balance"
                 </button>
                 <button
                   type="button"
                   onClick={() => handleVoiceTurn("Buy 10 shares of NVDA at market")}
-                  style={{ background: "#1e293b", border: "1px solid #f59e0b", color: "#fbbf24", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                  className="voice-chip buy-action"
                 >
                   ⚡ "Buy 10 NVDA at market"
                 </button>
@@ -2931,14 +2885,14 @@ export function ETradeTradingHub({
                     <button
                       type="button"
                       onClick={() => handleVoiceTurn(`Confirm order ${activeDraft.orderId}`)}
-                      style={{ background: "#166534", border: "1px solid #22c55e", color: "#86efac", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer", fontWeight: "bold" }}
+                      className="voice-chip confirm-action"
                     >
                       ✓ "Confirm order {activeDraft.orderId}"
                     </button>
                     <button
                       type="button"
                       onClick={() => handleVoiceTurn(`Cancel order ${activeDraft.orderId}`)}
-                      style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#fca5a5", padding: "5px 10px", borderRadius: "6px", fontSize: "0.78rem", cursor: "pointer" }}
+                      className="voice-chip cancel-action"
                     >
                       ✕ "Cancel order {activeDraft.orderId}"
                     </button>
@@ -2949,19 +2903,19 @@ export function ETradeTradingHub({
               {/* Text Fallback Input Box */}
               <form
                 onSubmit={(e) => { e.preventDefault(); handleVoiceTurn(); }}
-                style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}
+                className="voice-input-form"
               >
                 <input
                   type="text"
                   placeholder="Or type a spoken command: e.g. 'What is Apple trading at?' or 'Buy 10 NVDA at market'"
                   value={voiceInputText}
                   onChange={(e) => setVoiceInputText(e.target.value)}
-                  style={{ flex: 1, background: "#0b0f19", border: "1px solid #334155", color: "#f8fafc", padding: "0.6rem 0.8rem", borderRadius: "6px", fontSize: "0.88rem" }}
+                  className="voice-text-input"
                 />
                 <button
                   type="submit"
                   disabled={voiceLoading || !voiceInputText.trim()}
-                  style={{ background: "#2563eb", color: "#ffffff", border: "none", padding: "0.6rem 1.2rem", borderRadius: "6px", fontWeight: "bold", fontSize: "0.85rem", cursor: "pointer" }}
+                  className="btn-voice-send"
                 >
                   {voiceLoading ? "Processing…" : "Send Voice Turn"}
                 </button>
@@ -2969,63 +2923,48 @@ export function ETradeTradingHub({
             </div>
 
             {/* Conversation Feed */}
-            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "1.5rem" }}>
-              <h5 style={{ margin: "0 0 1rem 0", color: "#f8fafc", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="voice-feed-card">
+              <h5 className="voice-feed-title">
                 <span>💬</span> Live Voice Conversation History
               </h5>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "480px", overflowY: "auto", paddingRight: "0.5rem" }}>
+              <div className="voice-feed-scroll">
                 {voiceTranscript.map((msg, idx) => (
                   <div
                     key={idx}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: msg.role === "user" ? "flex-end" : "flex-start",
-                    }}
+                    className={`voice-turn ${msg.role === "user" ? "user-turn" : "bot-turn"}`}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "3px", fontSize: "0.75rem", color: "#64748b" }}>
+                    <div className="voice-turn-meta">
                       <span>{msg.role === "user" ? "👤 Trader (Voice)" : "🤖 E*TRADE Voice Desk"}</span>
                       <span>• {msg.timestamp}</span>
                     </div>
 
-                    <div
-                      style={{
-                        maxWidth: "85%",
-                        padding: "0.85rem 1rem",
-                        borderRadius: "10px",
-                        background: msg.role === "user" ? "linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)" : "#1e293b",
-                        color: msg.role === "user" ? "#ffffff" : "#cbd5e1",
-                        border: msg.role === "user" ? "none" : "1px solid #334155",
-                        fontSize: "0.9rem",
-                        lineHeight: 1.5,
-                      }}
-                    >
+                    <div className={`voice-bubble ${msg.role === "user" ? "user-bubble" : "bot-bubble"}`}>
                       <div>{msg.text}</div>
 
                       {/* Embedded HITL Order Preview Card in Voice Feed */}
                       {msg.actionType === "preview" && msg.orderDraft && (
-                        <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid #f59e0b", borderRadius: "8px", padding: "0.85rem", marginTop: "0.75rem" }}>
-                          <div style={{ color: "#f59e0b", fontWeight: "bold", fontSize: "0.85rem", marginBottom: "0.4rem" }}>
+                        <div className="voice-order-preview-box">
+                          <div className="voice-order-preview-title">
                             🛡️ Order Preview Staged (HITL Required)
                           </div>
-                          <div style={{ fontSize: "0.82rem", color: "#cbd5e1", display: "grid", gap: "0.25rem" }}>
+                          <div className="voice-order-preview-details">
                             <div><strong>Order ID:</strong> <code>{msg.orderDraft.orderId}</code></div>
                             <div><strong>Action:</strong> {msg.orderDraft.action} {msg.orderDraft.quantity} {msg.orderDraft.quantity === 1 ? "share" : "shares"} of {msg.orderDraft.symbol} {msg.orderDraft.orderType === "LIMIT" ? `(LIMIT @ $${(msg.orderDraft.limitPrice || msg.orderDraft.estimatedPrice)?.toFixed(2)})` : "(MARKET)"}</div>
                             <div><strong>Estimated Total:</strong> ${msg.orderDraft.estimatedTotal?.toFixed(2)} USD</div>
                           </div>
-                          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                          <div className="voice-order-preview-actions">
                             <button
                               type="button"
                               onClick={() => handleVoiceOrderAction("approve", msg.orderDraft.orderId)}
-                              style={{ background: "#166534", border: "1px solid #22c55e", color: "#ffffff", padding: "5px 12px", borderRadius: "4px", fontSize: "0.8rem", fontWeight: "bold", cursor: "pointer" }}
+                              className="btn-voice-order approve"
                             >
                               ✓ Voice Approve &amp; Execute
                             </button>
                             <button
                               type="button"
                               onClick={() => handleVoiceOrderAction("cancel", msg.orderDraft.orderId)}
-                              style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#ffffff", padding: "5px 12px", borderRadius: "4px", fontSize: "0.8rem", fontWeight: "bold", cursor: "pointer" }}
+                              className="btn-voice-order cancel"
                             >
                               ✕ Cancel Draft
                             </button>
@@ -3035,7 +2974,7 @@ export function ETradeTradingHub({
 
                       {/* Embedded Execution Receipt */}
                       {msg.actionType === "approval" && msg.brokerOrderRef && (
-                        <div style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid #22c55e", borderRadius: "8px", padding: "0.75rem", marginTop: "0.75rem", color: "#86efac", fontSize: "0.82rem" }}>
+                        <div className="voice-receipt-box">
                           ✓ Broker Ref: <code>{msg.brokerOrderRef}</code> • Status: <strong>EXECUTED</strong>
                         </div>
                       )}
@@ -3318,11 +3257,11 @@ export function ETradeTradingHub({
       )}
 
       {/* Technical Diagnostics & Provenance Drawer (De-emphasized metadata) */}
-      <details className="diagnostics-drawer" style={{ background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "10px", padding: "0.85rem 1.25rem", marginTop: "1.5rem" }}>
-        <summary style={{ cursor: "pointer", color: "#94a3b8", fontSize: "0.85rem", fontWeight: 600 }}>
+      <details className="diagnostics-drawer">
+        <summary className="diagnostics-summary">
           ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
         </summary>
-        <div style={{ marginTop: "1rem", fontSize: "0.82rem", color: "#cbd5e1", display: "grid", gap: "0.5rem" }}>
+        <div className="diagnostics-content">
           <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
           <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
           <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
