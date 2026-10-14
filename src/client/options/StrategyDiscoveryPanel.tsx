@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
-  discoverStrategies,
   generateExpirations,
   generateStrikeLadder,
   evaluateStrategyPnL,
@@ -21,6 +20,7 @@ import {
   type NetOptionGreeks,
   type RealizedUnrealizedPnl,
 } from "./strategyDiscoveryEngine";
+import { fetchServerDiscovery } from "./serverDiscovery";
 import {
   STRATEGY_LIBRARY,
   type StrategyDefinition,
@@ -214,6 +214,50 @@ function decodeTradeFromHash(hashStr: string): {
   } catch {
     return null;
   }
+}
+
+function fallbackDiscoverStrategies(
+  spot: number,
+  target: number,
+  sentiment: SentimentType,
+  expiration: ExpirationOption,
+  budget: number | null,
+  minRewardRisk: number | null,
+  bias: number,
+  iv: number,
+  config: StrategyDiscoveryConfig
+): DiscoveredStrategy[] {
+  const matches = STRATEGY_LIBRARY.filter((def) => {
+    if (sentiment === "all") return true;
+    return def.theses.includes(sentiment) || def.theses.includes("directional");
+  });
+  const candidates: DiscoveredStrategy[] = [];
+  for (const def of matches) {
+    try {
+      const legs = def.buildLegs(spot, expiration.dte, expiration.date, iv, config.riskFreeRate);
+      const analyzed = analyzeStrategy(
+        def.name,
+        def.category,
+        def.subtitle,
+        def.theses,
+        legs,
+        spot,
+        target,
+        expiration.dte,
+        expiration.date,
+        iv,
+        def.description,
+        bias,
+        config
+      );
+      if (budget !== null && analyzed.maxLoss !== null && analyzed.maxLoss > budget) continue;
+      if (minRewardRisk !== null && analyzed.rewardRiskRatio !== null && analyzed.rewardRiskRatio !== undefined && analyzed.rewardRiskRatio < minRewardRisk) continue;
+      candidates.push(analyzed);
+    } catch {
+      // skip invalid legs
+    }
+  }
+  return candidates;
 }
 
 export function StrategyDiscoveryPanel({
@@ -622,20 +666,58 @@ export function StrategyDiscoveryPanel({
     handleSelectSymbol(symbolInput);
   };
 
-  // Generate strategy candidates based on criteria
-  const discoveredStrategies = useMemo(() => {
-    return discoverStrategies({
+  // Generate strategy candidates using server discovery with local fallback
+  const [discoveredStrategies, setDiscoveredStrategies] = useState<DiscoveredStrategy[]>(() =>
+    fallbackDiscoverStrategies(
+      quote.price,
+      targetPrice,
+      sentiment,
+      selectedExpiration,
+      budget,
+      minRewardRiskRatio,
+      optimizationBias,
+      builderIv / 100,
+      engineConfig
+    )
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchServerDiscovery({
       symbol: activeSymbol,
       currentPrice: quote.price,
       sentiment,
       targetPrice,
-      budget,
-      minRewardRisk: minRewardRiskRatio,
+      budget: budget ?? 100000,
+      minRewardRisk: minRewardRiskRatio ?? 0,
       expiration: selectedExpiration,
-      optimizationBias,
-      baseIv: builderIv / 100,
-      config: engineConfig,
-    });
+    })
+      .then((res) => {
+        if (!cancelled && res.strategies.length > 0) {
+          setDiscoveredStrategies(res.strategies);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDiscoveredStrategies(
+            fallbackDiscoverStrategies(
+              quote.price,
+              targetPrice,
+              sentiment,
+              selectedExpiration,
+              budget,
+              minRewardRiskRatio,
+              optimizationBias,
+              builderIv / 100,
+              engineConfig
+            )
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig]);
 
   // When discovering strategies, initialize selectedStrategy with the first match if empty
