@@ -22,6 +22,7 @@ function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; child
   return <div hidden={hidden}>{children}</div>;
 }
 import { ResearchReportActions } from "./ResearchReportActions";
+import { AutopilotControlCenter } from "./components/AutopilotControlCenter";
 
 export interface User {
   login: string;
@@ -43,7 +44,7 @@ function formatNlqColumn(key: string): string {
 
 export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) {
   // Navigation subtabs
-  const [subTab, setSubTab] = useState<"scanner" | "screeners" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("screeners");
+  const [subTab, setSubTab] = useState<"autopilot" | "scanner" | "screeners" | "options" | "llm-ideas" | "order" | "portfolio" | "ledger" | "nlq" | "omnichannel" | "voice">("autopilot");
 
   // Broker status
   const [brokerStatus, setBrokerStatus] = useState<ETradeBrokerStatus | null>(null);
@@ -951,6 +952,7 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
     const tabLabels: Record<typeof subTab, string> = {
+      autopilot: "Autopilot Control Center",
       scanner: "Equity Universe Scan",
       screeners: "Multi-Asset Screeners",
       options: "Auto Options Research",
@@ -1041,6 +1043,19 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
       {/* Navigation Sub-Tabs & Dynamic E*TRADE Menu */}
       <div className="trading-subnav-bar">
         <div className="trading-subnav-links">
+          <TabHoverItem
+            eyebrow="AUTONOMOUS POLICY EXECUTION & SAFEGUARDS"
+            title="Autopilot Control Center"
+            description="Manage autonomous policy limits, execution kill switch, risk controls, and inspect recent agent actions."
+          >
+            <button
+              className={`subnav-btn ${subTab === "autopilot" ? "active" : ""}`}
+              onClick={() => setSubTab("autopilot")}
+            >
+              ⚡ Autopilot Control Center
+            </button>
+          </TabHoverItem>
+
           <TabHoverItem
             eyebrow="PROVIDER-EXTENSIBLE MARKET SCREENER"
             title="Multi-Asset Screeners"
@@ -1366,6 +1381,19 @@ export function ETradeTradingHub({ user, onSendPrompt }: ETradeTradingHubProps) 
             ✕
           </button>
         </div>
+      )}
+
+      {/* SUBTAB 0: AUTOPILOT CONTROL CENTER */}
+      {subTab === "autopilot" && (
+        <AutopilotControlCenter
+          user={user}
+          isLiveAccount={isLive}
+          onSendPrompt={onSendPrompt}
+          onNavigateOrder={(sym) => {
+            setOrderSymbol(sym);
+            setSubTab("order");
+          }}
+        />
       )}
 
       {subTab === "screeners" && (

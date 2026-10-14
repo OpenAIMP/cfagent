@@ -10916,5 +10916,766 @@ body {
   border-top-color: #e2e8f0;
 }
 
+/* ==========================================================================
+   Autopilot Control Center & Policy Limits Cards (Issue #20)
+   ========================================================================== */
+
+.autopilot-control-center {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem 0 2.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.autopilot-header {
+  margin-bottom: 0.25rem;
+}
+
+.autopilot-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.4rem 0;
+}
+
+.autopilot-subtitle {
+  font-size: 0.88rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.account-highlight {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.autopilot-top-grid {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 960px) {
+  .autopilot-top-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.autopilot-card {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.35rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.autopilot-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Status Card */
+.autopilot-status-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.status-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-micro-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.kill-switch-pill {
+  font-size: 0.6rem;
+  font-weight: 800;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+
+.status-main-display {
+  margin: 1.15rem 0;
+}
+
+.status-state-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.status-indicator-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-indicator-dot.running {
+  background-color: #10b981;
+  box-shadow: 0 0 10px #10b981;
+  animation: liveDotPulse 1.6s infinite ease-in-out;
+}
+
+.status-indicator-dot.paused {
+  background-color: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+.status-indicator-dot.blocked {
+  background-color: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
+.status-state-text {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.1;
+}
+
+.status-agent-mode {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  display: block;
+  line-height: 1.4;
+}
+
+.status-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+  flex-wrap: wrap;
+}
+
+.btn-autopilot-toggle {
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.55rem 1.25rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-pause-autopilot {
+  background-color: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+}
+
+.btn-pause-autopilot:hover {
+  background-color: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.btn-resume-autopilot {
+  background-color: #10b981;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+}
+
+.btn-resume-autopilot:hover {
+  background-color: #059669;
+  transform: translateY(-1px);
+}
+
+.btn-kill-switch-trigger {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.5rem 0.85rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-kill-switch-trigger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+.autopilot-guardrail-note {
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.45;
+  margin: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 0.85rem;
+}
+
+/* Policy Limits Card */
+.autopilot-limits-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.limits-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.card-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.btn-edit-limits {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-edit-limits:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.autopilot-limits-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  row-gap: 1.35rem;
+  column-gap: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .autopilot-limits-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.policy-limit-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.policy-limit-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.policy-limit-value {
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: #f8fafc;
+  font-family: var(--font-mono);
+}
+
+.policy-limit-value.universe-value {
+  font-size: 0.86rem;
+  color: #38bdf8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.policy-limit-value.risk-badge {
+  font-size: 0.86rem;
+  text-transform: capitalize;
+}
+
+.policy-limit-value.risk-badge.moderate {
+  color: #fbbf24;
+}
+
+.policy-limit-value.risk-badge.conservative {
+  color: #34d399;
+}
+
+.policy-limit-value.risk-badge.aggressive {
+  color: #f87171;
+}
+
+.limits-card-footer {
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.limits-sync-badge {
+  font-size: 0.72rem;
+  color: #10b981;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Recent Autonomous Actions Card */
+.autopilot-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.actions-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.actions-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.actions-count-badge {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+}
+
+.actions-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.actions-filter-pills {
+  display: flex;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.action-filter-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.74rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-filter-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.btn-simulate-action {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-simulate-action:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.25);
+  color: #10b981;
+}
+
+.btn-simulate-action.secondary {
+  margin-top: 1rem;
+}
+
+/* Actions Table */
+.autopilot-table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.autopilot-actions-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.autopilot-actions-table th {
+  padding: 0.65rem 0.85rem;
+  background: rgba(255, 255, 255, 0.02);
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.autopilot-actions-table td {
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.action-table-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.time-cell {
+  font-family: var(--font-mono);
+  color: #94a3b8;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.summary-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.action-type-pill {
+  font-size: 0.58rem;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.action-type-pill.type-order {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.action-type-pill.type-policy_check {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.action-type-pill.type-risk_guardrail {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.action-type-pill.type-rebalance {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.action-summary-text {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.symbol-cell .symbol-pill {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.policy-cell .policy-check-badge {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.policy-check-badge.passed {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+}
+
+.policy-check-badge.failed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
+.status-cell .action-status-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.action-status-pill.status-executed {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.action-status-pill.status-routed_to_approval {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.action-status-pill.status-verified {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.action-status-pill.status-blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.attestation-cell .did-signature-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.attestation-cell .did-signature-badge:hover {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* Empty State */
+.autopilot-empty-state {
+  padding: 3rem 1.5rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.01);
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.empty-state-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.65rem;
+}
+
+.empty-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f8fafc;
+  margin: 0 0 0.35rem 0;
+}
+
+.empty-state-text {
+  font-size: 0.82rem;
+  color: #64748b;
+  max-width: 480px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* Edit Limits Modal & Killswitch Modal */
+.autopilot-edit-limits-modal,
+.autopilot-killswitch-modal {
+  background: #0b1329;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 600px;
+  width: 90%;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+}
+
+.form-group-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin: 1.25rem 0;
+}
+
+@media (max-width: 580px) {
+  .form-group-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.form-field input,
+.form-field select {
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  border-color: #10b981;
+}
+
+.field-hint {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.modal-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.modal-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.btn-save-limits {
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 0.5rem 1.15rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-save-limits:hover {
+  background: #059669;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Light Theme Overrides for Autopilot */
+[data-theme="light"] .autopilot-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .autopilot-title,
+[data-theme="light"] .card-section-title,
+[data-theme="light"] .status-state-text,
+[data-theme="light"] .policy-limit-value,
+[data-theme="light"] .empty-state-title,
+[data-theme="light"] .account-highlight {
+  color: #0f172a;
+}
+
+[data-theme="light"] .autopilot-subtitle,
+[data-theme="light"] .action-summary-text {
+  color: #475569;
+}
+
+[data-theme="light"] .autopilot-actions-table th {
+  background: #f8fafc;
+  border-bottom-color: #e2e8f0;
+  color: #64748b;
+}
+
+[data-theme="light"] .autopilot-actions-table td {
+  border-bottom-color: #f1f5f9;
+}
+
+[data-theme="light"] .symbol-cell .symbol-pill {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="light"] .actions-filter-pills {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .action-filter-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .autopilot-edit-limits-modal,
+[data-theme="light"] .autopilot-killswitch-modal {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .form-field input,
+[data-theme="light"] .form-field select {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] .form-field label {
+  color: #334155;
+}
+
+
 
 
