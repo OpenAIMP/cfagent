@@ -15,6 +15,7 @@ import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
 import { StockSearchBar } from "./components/StockSearchBar";
+import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 
 interface User {
@@ -4145,6 +4146,17 @@ export function Chat({ user }: { user: User }) {
 
       </main>
       </div>
+
+      {/* Floating Ask Agent Widget (Docked bottom-right, matching AlgoNexus reference) */}
+      <AskAgentWidget
+        onAskAgent={handleAskAgent}
+        onOpenFullChat={() => {
+          setTab("chat");
+          setTbdMenuOpen(false);
+        }}
+        agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
+        activeTab={tab}
+      />
     </div>
   );
 }
