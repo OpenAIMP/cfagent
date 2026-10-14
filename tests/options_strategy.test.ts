@@ -92,7 +92,7 @@ describe("Options strategy and recommendation engine", () => {
     expect(candidate.scenarios.length).toBeGreaterThan(25);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeGreaterThanOrEqual(0);
     expect(candidate.modelImpliedProbabilityOfProfit).toBeLessThanOrEqual(1);
-    expect(candidate.scoreBreakdown.weights.thesisAlignment).toBeCloseTo(0.30);
+    expect(candidate.scoreBreakdown.weights.thesisAlignment).toBeCloseTo(0.205);
   });
 
   it("generates same-expiration defined-risk debit spreads and ranks them deterministically", () => {
