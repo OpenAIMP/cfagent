@@ -2127,10 +2127,17 @@ export function StrategyDiscoveryPanel({
                     const putSell = builderLegs.find((l) => l.strike === k && l.optionType === "PUT" && l.side === "SELL" && !l.isClosed);
                     const isAtm = Math.abs(k - spot) < strikeStep * 0.5;
 
-                    // Simulated volume heights for visual realism
-                    const distFromSpot = Math.abs(k - spot) / spot;
-                    const callVolHeight = Math.max(3, Math.min(22, Math.round(20 * Math.exp(-distFromSpot * 8))));
-                    const putVolHeight = Math.max(3, Math.min(22, Math.round(18 * Math.exp(-distFromSpot * 8))));
+                    const distFromSpot = spot > 0 ? Math.abs(k - spot) / spot : 0;
+                    const hasCallBadge = Boolean(callBuy || callSell);
+                    const hasPutBadge = Boolean(putBuy || putSell);
+                    const callVolHeight = Math.max(
+                      3,
+                      Math.min(hasCallBadge ? 10 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
+                    );
+                    const putVolHeight = Math.max(
+                      3,
+                      Math.min(hasPutBadge ? 10 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
+                    );
 
                     return (
                       <div
@@ -2142,22 +2149,33 @@ export function StrategyDiscoveryPanel({
                         }}
                         title={`Strike $${k}${isAtm ? " (ATM Spot)" : ""} · Click to set primary leg strike. Shift+Click moves all`}
                       >
-                        {/* Volume Indicator Bar (Call Volume - Green on Top) */}
-                        <div className="strat-vol-bar call" style={{ height: `${callVolHeight}px` }} title={`Call Volume at $${k}`} />
+                        {/* Upper Zone: Call Badges & Call Volume */}
+                        <div className="strat-ruler-call-zone">
+                          {callBuy && <div className="strat-ruler-badge call long">+{k}C</div>}
+                          {callSell && <div className="strat-ruler-badge call short">-{k}C</div>}
+                          <div
+                            className="strat-vol-bar call"
+                            style={{ height: `${callVolHeight}px` }}
+                            title={`Call Volume at $${k}`}
+                          />
+                        </div>
 
-                        {/* Long Call (Top) or Short Call (Bottom) */}
-                        {callBuy && <div className="strat-ruler-badge call long">+{k}C</div>}
-                        {callSell && <div className="strat-ruler-badge call short">-{k}C</div>}
+                        {/* Center Zone: Tick Indicator & Strike Price Text */}
+                        <div className="strat-ruler-center-zone">
+                          <div className="strat-ruler-tick-bar" />
+                          <span className="strat-ruler-price-txt">{k}</span>
+                        </div>
 
-                        <div className="strat-ruler-tick-bar" />
-                        <span className="strat-ruler-price-txt">{k}</span>
-
-                        {/* Long Put (Top) or Short Put (Bottom) */}
-                        {putBuy && <div className="strat-ruler-badge put long">+{k}P</div>}
-                        {putSell && <div className="strat-ruler-badge put short">-{k}P</div>}
-
-                        {/* Volume Indicator Bar (Put Volume - Red on Bottom) */}
-                        <div className="strat-vol-bar put" style={{ height: `${putVolHeight}px` }} title={`Put Volume at $${k}`} />
+                        {/* Lower Zone: Put Volume & Put Badges */}
+                        <div className="strat-ruler-put-zone">
+                          <div
+                            className="strat-vol-bar put"
+                            style={{ height: `${putVolHeight}px` }}
+                            title={`Put Volume at $${k}`}
+                          />
+                          {putBuy && <div className="strat-ruler-badge put long">+{k}P</div>}
+                          {putSell && <div className="strat-ruler-badge put short">-{k}P</div>}
+                        </div>
                       </div>
                     );
                   })}
