@@ -476,9 +476,14 @@ export function SettingsMenu({
                 </span>
               </div>
             </div>
-            <span className={`etrade-env-badge ${isLive ? "prod" : "test"}`}>
-              {isLive ? "PROD (LIVE)" : "TEST (SANDBOX)"}
-            </span>
+            <div className="etrade-panel-header-actions">
+              <span className={`etrade-env-badge ${isLive ? "prod" : "test"}`}>
+                {isLive ? "PROD (LIVE)" : "TEST (SANDBOX)"}
+              </span>
+              <a href="/auth/logout" className="btn-settings-signout" title="Sign out of platform">
+                Sign out
+              </a>
+            </div>
           </div>
 
           {/* Account Details Card */}
@@ -708,6 +713,7 @@ export function SettingsMenu({
                   >
                     A+
                   </button>
+                  <span className="font-controls-divider" aria-hidden="true" />
                   {FONT_SCALE_PRESETS.map((p) => (
                     <button
                       key={p.id}
@@ -732,7 +738,7 @@ export function SettingsMenu({
                       type="button"
                       className={`btn-pref-pill font-style-pill ${fontStyle === opt.id ? "active" : ""}`}
                       onClick={() => handleFontStyleChange(opt.id)}
-                      title={`${opt.label} — ${opt.description}`}
+                      title={opt.id === "jakarta" ? "Default (Plus Jakarta Sans) — Institutional typography" : `${opt.label} — ${opt.description}`}
                       style={{ fontFamily: opt.fontFamily }}
                     >
                       {opt.label}
@@ -1019,7 +1025,7 @@ export function SettingsMenu({
 
           {/* User Account & Session */}
           <div className="etrade-panel-section user-session-section">
-            <div className="settings-user-card">
+            <div className="settings-user-card compact">
               <div className="settings-user-meta">
                 {userAvatar ? (
                   <img src={userAvatar} alt={userLogin} className="settings-user-avatar" />
@@ -1033,9 +1039,6 @@ export function SettingsMenu({
                   <span className="settings-user-login">@{userLogin}</span>
                 </div>
               </div>
-              <a href="/auth/logout" className="btn-settings-signout" title="Sign out of platform">
-                Sign out
-              </a>
             </div>
           </div>
 

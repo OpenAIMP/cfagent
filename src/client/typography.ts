@@ -16,10 +16,10 @@ export interface FontStyleOption {
 export const FONT_STYLE_OPTIONS: FontStyleOption[] = [
   {
     id: "jakarta",
-    label: "Plus Jakarta Sans",
+    label: "Default",
     category: "Modern Fintech",
     fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
-    description: "Default high-contrast, modern fintech design aesthetic",
+    description: "Default institutional typography (Plus Jakarta Sans)",
   },
   {
     id: "inter",

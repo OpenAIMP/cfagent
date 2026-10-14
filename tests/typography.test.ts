@@ -72,6 +72,13 @@ describe("Global Typography & Font Sizing System", () => {
       expect(FONT_SCALE_PRESETS.find((p) => p.id === "compact")?.scale).toBe(0.85);
       expect(FONT_SCALE_PRESETS.find((p) => p.id === "large")?.scale).toBe(1.3);
     });
+
+    it("provides a 'Default' font option matching the default font size option pattern", () => {
+      const defaultFont = FONT_STYLE_OPTIONS.find((opt) => opt.id === "jakarta");
+      expect(defaultFont).toBeDefined();
+      expect(defaultFont?.label).toBe("Default");
+      expect(defaultFont?.fontFamily).toContain("Plus Jakarta Sans");
+    });
   });
 
   describe("Application & Persistence", () => {

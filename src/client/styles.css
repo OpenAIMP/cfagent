@@ -7950,8 +7950,9 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 395px;
-  max-width: 95vw;
+  width: min(39rem, calc(100vw - 24px));
+  min-width: min(560px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   max-height: calc(100vh - 110px);
   overflow-y: auto;
   scrollbar-width: thin;
@@ -7983,6 +7984,14 @@ body {
   justify-content: space-between;
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
   padding-bottom: 0.65rem;
+  gap: 0.75rem;
+}
+
+.etrade-panel-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .etrade-panel-brand {
@@ -8340,9 +8349,22 @@ body {
 }
 
 .font-size-controls-group {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+.font-controls-divider {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: rgba(148, 163, 184, 0.3);
+  margin: 0 2px;
+}
+
+[data-theme="light"] .font-controls-divider {
+  background: #cbd5e1;
 }
 
 .font-scale-pct {
@@ -8362,13 +8384,15 @@ body {
 }
 
 .font-style-pref-row {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .font-style-grid {
-  display: flex;
+  display: inline-flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.25rem;
+  justify-content: flex-end;
 }
 
 .font-style-pill {
@@ -8419,9 +8443,9 @@ body {
 
 .nav-tabs-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.3rem;
-  max-height: 190px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  max-height: 200px;
   overflow-y: auto;
   padding-right: 0.2rem;
   scrollbar-width: thin;
@@ -8820,6 +8844,17 @@ body {
   text-overflow: ellipsis;
 }
 
+.settings-user-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settings-user-card.compact {
+  padding: 0.1rem 0;
+}
+
 .btn-settings-signout {
   font-size: 0.7rem;
   font-weight: 600;
@@ -8832,6 +8867,9 @@ body {
   transition: all 0.15s ease;
   white-space: nowrap;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .btn-settings-signout:hover {
