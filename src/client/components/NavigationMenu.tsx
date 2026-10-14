@@ -260,6 +260,19 @@ export const NavIcons = {
       <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   ),
+  Logout: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  ),
+  Settings: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  ),
 };
 
 export const NAVIGATION_ITEMS: NavItemDef[] = [
@@ -651,32 +664,8 @@ export function NavigationMenu({
           </div>
         </div>
 
-        {/* Sidebar Bottom Controls: Theme Toggle + Layout Switcher + Profile */}
+        {/* Sidebar Bottom Controls: User profile dock with Theme, Switch Layout & Logout grouped together */}
         <div className="sidebar-footer">
-          {onCycleTheme && (
-            <button
-              type="button"
-              className="sidebar-theme-toggle-btn"
-              onClick={onCycleTheme}
-              title={`Theme: ${theme ? theme.toUpperCase() : "SYSTEM"} (Click to cycle Light / Dark / System)`}
-            >
-              {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-              {!collapsed && <span>Theme: {theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System"}</span>}
-            </button>
-          )}
-
-          {/* Menu Position Switcher */}
-          <button
-            type="button"
-            className="sidebar-layout-toggle-btn"
-            onClick={() => onToggleLayout("top")}
-            title="Switch menu to Top Nav Bar"
-          >
-            <NavIcons.LayoutTop />
-            {!collapsed && <span>Switch to Top Menu</span>}
-          </button>
-
-          {/* User Dock */}
           <div className="sidebar-user-dock">
             <img src={user.avatar} alt={user.login} className="sidebar-user-avatar" />
             {!collapsed && (
@@ -685,11 +674,38 @@ export function NavigationMenu({
                 <span className="sidebar-user-login">@{user.login}</span>
               </div>
             )}
-            {!collapsed && (
-              <a href="/auth/logout" className="sidebar-signout-btn" title="Sign out">
-                Sign out
+            <div className="sidebar-footer-actions">
+              {onCycleTheme && (
+                <button
+                  type="button"
+                  className="sidebar-icon-action-btn theme-btn"
+                  onClick={onCycleTheme}
+                  title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
+                  aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
+                >
+                  {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="sidebar-icon-action-btn layout-btn"
+                onClick={() => onToggleLayout("top")}
+                title="Switch navigation menu to Top Nav Bar"
+                aria-label="Switch to Top Menu"
+              >
+                <NavIcons.LayoutTop />
+              </button>
+
+              <a
+                href="/auth/logout"
+                className="sidebar-icon-action-btn logout-btn"
+                title={`Sign out (@${user.login})`}
+                aria-label="Sign out"
+              >
+                <NavIcons.Logout />
               </a>
-            )}
+            </div>
           </div>
         </div>
       </aside>
@@ -746,38 +762,37 @@ export function NavigationMenu({
 
           {headerChildren}
 
-          {/* Theme Switcher button */}
-          {onCycleTheme && (
+          {/* Action icon cluster: Theme + Switch to Sidebar + Logout grouped together as pure icons next to each other */}
+          <div className="top-icon-actions-cluster">
+            {onCycleTheme && (
+              <button
+                type="button"
+                className="top-icon-action-btn theme-btn"
+                onClick={onCycleTheme}
+                title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
+                aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
+              >
+                {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
+              </button>
+            )}
+
             <button
               type="button"
-              className="top-theme-toggle-btn"
-              onClick={onCycleTheme}
-              title={`Theme: ${theme ? theme.toUpperCase() : "SYSTEM"} (Click to cycle Light / Dark / System)`}
-              aria-label="Toggle theme mode"
+              className="top-icon-action-btn layout-btn"
+              onClick={() => onToggleLayout("left")}
+              title="Switch menu to Left Sidebar layout"
+              aria-label="Switch menu to Left Sidebar layout"
             >
-              {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-              <span className="theme-btn-text">{theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto"}</span>
+              <NavIcons.LayoutSidebar />
             </button>
-          )}
 
-          {/* Layout Switcher button: Switch to Left Sidebar */}
-          <button
-            type="button"
-            className="top-layout-switcher-btn"
-            onClick={() => onToggleLayout("left")}
-            title="Switch menu to Left Sidebar layout"
-            aria-label="Switch menu to Left Sidebar layout"
-          >
-            <NavIcons.LayoutSidebar />
-            <span className="layout-btn-text">Left Sidebar</span>
-          </button>
-
-          {/* User Pill */}
-          <div className="top-user-pill" title={`Logged in as ${user.name} (@${user.login})`}>
-            <img src={user.avatar} alt={user.login} className="top-user-avatar" />
-            <span className="top-user-email">{user.login.includes("@") ? user.login : `${user.login}@nextgentp`}</span>
-            <a href="/auth/logout" className="top-logout-link" title="Sign out">
-              Sign out
+            <a
+              href="/auth/logout"
+              className="top-icon-action-btn logout-btn"
+              title={`Sign out (@${user.login})`}
+              aria-label="Sign out"
+            >
+              <NavIcons.Logout />
             </a>
           </div>
         </div>

@@ -7,7 +7,7 @@ import { logAspectEvent } from "../aspects/loggingAspect";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub, type TradingSubTab } from "./ETradeTradingHub";
-import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
+import { SettingsMenu, ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { FossResearchHub } from "./FossResearchHub";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { TabHoverItem } from "./TabHoverItem";
@@ -2104,8 +2104,19 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             <div className="sub-header-right">
-              {/* E*TRADE Dynamic Broker Account Menu */}
-              {brokerProps && <ETradeDynamicMenu {...brokerProps} />}
+              {/* E*TRADE Dynamic Broker Account & Settings Menu */}
+              <SettingsMenu
+                userLogin={user.login}
+                userName={user.name}
+                userAvatar={user.avatar}
+                theme={theme}
+                onCycleTheme={handleCycleTheme}
+                currentLayout={navLayout}
+                onToggleLayout={handleToggleNavLayout}
+                accountMode={accountMode}
+                onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                {...(brokerProps || {})}
+              />
 
               {/* Global Stock Search Bar */}
               <StockSearchBar
@@ -2131,36 +2142,35 @@ export function Chat({ user }: { user: User }) {
 
               <AsyncJobsPanel />
 
-              {/* Theme Switcher Button */}
-              <button
-                type="button"
-                className="layout-switch-badge-btn theme-switch-btn"
-                onClick={handleCycleTheme}
-                title={`Theme: ${theme.toUpperCase()} (Click to cycle Light / Dark / System)`}
-                aria-label="Toggle theme mode"
-              >
-                {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
-                <span>{theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto"}</span>
-              </button>
+              {/* Action icon cluster: Theme + Switch Layout + Logout grouped together as pure icons next to each other */}
+              <div className="top-icon-actions-cluster">
+                <button
+                  type="button"
+                  className="top-icon-action-btn theme-btn"
+                  onClick={handleCycleTheme}
+                  title={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"} — click to cycle`}
+                  aria-label={`Theme: ${theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto (System)"}`}
+                >
+                  {theme === "light" ? <NavIcons.Sun /> : theme === "dark" ? <NavIcons.Moon /> : <NavIcons.System />}
+                </button>
 
-              {/* Layout Switcher Pill Button */}
-              <button
-                type="button"
-                className="layout-switch-badge-btn"
-                onClick={() => handleToggleNavLayout("top")}
-                title="Switch navigation menu to Top Nav Bar"
-              >
-                <NavIcons.LayoutTop />
-                <span>Top Menu</span>
-              </button>
+                <button
+                  type="button"
+                  className="top-icon-action-btn layout-btn"
+                  onClick={() => handleToggleNavLayout("top")}
+                  title="Switch navigation menu to Top Nav Bar"
+                  aria-label="Switch to Top Menu"
+                >
+                  <NavIcons.LayoutTop />
+                </button>
 
-              <div className="sub-header-user">
-                <img src={user.avatar} alt={user.login} className="sub-user-avatar" />
-                <span className="sub-user-email">
-                  {user.login.includes("@") ? user.login : `${user.login}@nextgentp`}
-                </span>
-                <a href="/auth/logout" className="sub-logout-link" title="Sign out">
-                  Sign out
+                <a
+                  href="/auth/logout"
+                  className="top-icon-action-btn logout-btn"
+                  title={`Sign out (@${user.login})`}
+                  aria-label="Sign out"
+                >
+                  <NavIcons.Logout />
                 </a>
               </div>
             </div>
@@ -2181,7 +2191,18 @@ export function Chat({ user }: { user: User }) {
               onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
               headerChildren={
                 <>
-                  {brokerProps && <ETradeDynamicMenu {...brokerProps} />}
+                  <SettingsMenu
+                    userLogin={user.login}
+                    userName={user.name}
+                    userAvatar={user.avatar}
+                    theme={theme}
+                    onCycleTheme={handleCycleTheme}
+                    currentLayout={navLayout}
+                    onToggleLayout={handleToggleNavLayout}
+                    accountMode={accountMode}
+                    onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                    {...(brokerProps || {})}
+                  />
                   <AsyncJobsPanel />
                 </>
               }

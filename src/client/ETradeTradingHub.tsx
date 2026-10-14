@@ -474,6 +474,25 @@ export function ETradeTradingHub({
     }
   }, [activeEnv]);
 
+  // Listen for open-etapi-tuning and etrade-env-changed events from SettingsMenu
+  useEffect(() => {
+    const handleOpenTuning = () => setConfigModalOpen(true);
+    const handleEnvChange = (e: any) => {
+      const target = e.detail?.env;
+      if (target === "TEST" || target === "PROD") {
+        if (target !== activeEnv) {
+          handleSwitchEnvironment(target);
+        }
+      }
+    };
+    window.addEventListener("open-etapi-tuning", handleOpenTuning);
+    window.addEventListener("etrade-env-changed", handleEnvChange);
+    return () => {
+      window.removeEventListener("open-etapi-tuning", handleOpenTuning);
+      window.removeEventListener("etrade-env-changed", handleEnvChange);
+    };
+  }, [activeEnv]);
+
   const fetchOAuthStatus = async (override?: string) => {
     const envToUse = override || activeEnv;
     setOauthLoading(true);
@@ -1024,6 +1043,8 @@ export function ETradeTradingHub({
       handleStartOAuth,
       onOpenEtapiTuning: () => setConfigModalOpen(true),
       userLogin: user?.login,
+      userName: user?.name,
+      userAvatar: user?.avatar,
     });
   }, [
     activeEnv,
