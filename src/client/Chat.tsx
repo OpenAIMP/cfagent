@@ -13,6 +13,7 @@ import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import adDisplayConfig from "./ad-display.config.json";
+import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons } from "./components/NavigationMenu";
 
 interface User {
   login: string;
@@ -1244,9 +1245,42 @@ function AgentChatTabContent({
 }
 
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<"chat" | "nlq" | "audit" | "payments" | "referrals" | "ads" | "revenue" | "endpoints" | "trading" | "research" | "options-flows" | "workflows">("trading");
+  const [tab, setTab] = useState<NavTabId>("trading");
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
+
+  // AlgoNexus Navigation Layout state (flexible top or left sidebar)
+  const [navLayout, setNavLayout] = useState<NavLayoutMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cf_nav_layout");
+      if (saved === "top" || saved === "left") return saved;
+    }
+    return "left";
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("cf_nav_collapsed") === "true";
+    }
+    return false;
+  });
+  const [accountMode, setAccountMode] = useState<"paper" | "live">("paper");
+
+  const handleToggleNavLayout = (newLayout: NavLayoutMode) => {
+    setNavLayout(newLayout);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cf_nav_layout", newLayout);
+    }
+  };
+
+  const handleToggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("cf_nav_collapsed", String(next));
+      }
+      return next;
+    });
+  };
 
   // External Ads & Monetization state
   const [externalAds, setExternalAds] = useState<ExternalAdItem[]>([]);
@@ -1912,139 +1946,116 @@ export function Chat({ user }: { user: User }) {
   };
 
   return (
-    <div className="app-container">
-      {/* Top Header */}
-      <header className="app-header">
-        <div className="brand">
-          <div className="brand-logo">🤖</div>
-          <div className="brand-text">
-            <h2>Multi-Agent Assistant</h2>
-            <div className="agent-status-badge">
-              <span className={`status-dot ${statusDotClass}`} />
-              <span>{statusLabel}</span>
-            </div>
-          </div>
-        </div>
+    <div className={`app-container ${navLayout === "left" ? "layout-sidebar" : "layout-top"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      {/* 1. Left Sidebar Navigation (When layout === 'left') */}
+      {navLayout === "left" && (
+        <NavigationMenu
+          layout="left"
+          onToggleLayout={handleToggleNavLayout}
+          activeTab={tab}
+          onSelectTab={(newTab) => {
+            setTab(newTab);
+            setTbdMenuOpen(false);
+          }}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapsed}
+          user={user}
+          agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
+          accountMode={accountMode}
+          onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+        />
+      )}
 
-        {/* Navigation Tabs */}
-        <nav className="tab-nav">
-          <TabHoverItem
-            align="left"
-            eyebrow="AGENTIC BROKERAGE & EXECUTION"
-            title="E*TRADE Trading Desk"
-            description="Agentic order preview, multi-asset screening, automated options analysis, real-time portfolio, and omnichannel dispatch."
-          >
-            <button
-              className={`tab-btn ${tab === "trading" ? "active" : ""}`}
-              onClick={() => {
-                setTab("trading");
-                setTbdMenuOpen(false);
-              }}
-            >
-              📈 E*TRADE Brokerage
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="FREE & OPEN FINANCIAL RESEARCH"
-            title="Yahoo Finance Screener"
-            description="Zero-credential market scanning for active stocks, top gainers, losers, sectors, and historical charts with AI agent integration."
-          >
-            <button
-              className={`tab-btn ${tab === "research" ? "active" : ""}`}
-              onClick={() => {
-                setTab("research");
-                setTbdMenuOpen(false);
-              }}
-            >
-              🔬 Yahoo Finance Screener
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="INSTITUTIONAL UNUSUAL ACTIVITY"
-            title="Options Flows"
-            description="Real-time sweeps, blocks, dark pool prints, news flow, congressional disclosures, and corporate insider filings."
-          >
-            <button
-              className={`tab-btn ${tab === "options-flows" ? "active" : ""}`}
-              onClick={() => {
-                setTab("options-flows");
-                setTbdMenuOpen(false);
-              }}
-            >
-              🌊 Options Flows
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="MODEL CONTEXT PROTOCOL & REST"
-            title="API & MCP Explorer"
-            description="Interactive documentation and cURL tester for all Model Context Protocol (MCP) tools and REST API endpoints."
-          >
-            <button
-              className={`tab-btn ${tab === "endpoints" ? "active" : ""}`}
-              onClick={() => {
-                setTab("endpoints");
-                setTbdMenuOpen(false);
-              }}
-            >
-              🔌 API &amp; MCP Endpoints
-            </button>
-          </TabHoverItem>
-
-          <TabHoverItem
-            eyebrow="PLATFORM GUIDE & ARCHITECTURE"
-            title="Workflows & Playbooks"
-            description="Interactive step-by-step documentation, data pipelines, options strategies, stock screening, and execution workflows."
-          >
-            <button
-              className={`tab-btn ${tab === "workflows" ? "active" : ""}`}
-              onClick={() => {
-                setTab("workflows");
-                setTbdMenuOpen(false);
-              }}
-            >
-              🧭 Workflows
-            </button>
-          </TabHoverItem>
-          <div className="tab-menu">
-            <button
-              type="button"
-              className={`tab-btn ${isTbdTab ? "active" : ""}`}
-              aria-haspopup="menu"
-              aria-expanded={tbdMenuOpen}
-              onClick={() => setTbdMenuOpen((open) => !open)}
-            >
-              TBD ▾
-            </button>
-            {tbdMenuOpen && (
-              <div className="tab-menu-items" role="menu" aria-label="Other areas">
-                <button type="button" role="menuitem" className={tab === "chat" ? "active" : ""} onClick={() => { setTab("chat"); setTbdMenuOpen(false); }}>💬 Chat &amp; Agents</button>
-                <button type="button" role="menuitem" className={tab === "nlq" ? "active" : ""} onClick={() => { setTab("nlq"); setTbdMenuOpen(false); }}>🗄️ Database Explorer</button>
-                <button type="button" role="menuitem" className={tab === "audit" ? "active" : ""} onClick={() => { setTab("audit"); setTbdMenuOpen(false); }}>🛡️ Inspector &amp; Memory</button>
-                <button type="button" role="menuitem" className={tab === "payments" ? "active" : ""} onClick={() => { setTab("payments"); setTbdMenuOpen(false); }}>💳 Payments &amp; DIDs</button>
-                <button type="button" role="menuitem" className={tab === "referrals" ? "active" : ""} onClick={() => { setTab("referrals"); setTbdMenuOpen(false); }}>🎁 Referrals &amp; Earn</button>
-                <button type="button" role="menuitem" className={tab === "ads" ? "active" : ""} onClick={() => { setTab("ads"); setTbdMenuOpen(false); }}>🚀 Sponsored Deals</button>
-                <button type="button" role="menuitem" className={tab === "revenue" ? "active" : ""} onClick={() => { setTab("revenue"); setTbdMenuOpen(false); }}>💰 Revenue &amp; Ads</button>
+      {/* Main Content Layout Container */}
+      <div className={navLayout === "left" ? "app-main-layout" : "app-top-layout"}>
+        {/* Sub-Header for Left Sidebar mode OR Full Header for Top Nav mode */}
+        {navLayout === "left" ? (
+          <header className="app-sub-header">
+            <div className="sub-header-left">
+              <div className="sub-header-brand-crumbs">
+                <span className="crumb-module">
+                  {tab === "trading"
+                    ? "Autopilot Control Center"
+                    : tab === "research"
+                    ? "Market Research & Screeners"
+                    : tab === "options-flows"
+                    ? "Hedging & Options Flows (F&O)"
+                    : tab === "workflows"
+                    ? "Workflows & Architecture Playbooks"
+                    : tab === "endpoints"
+                    ? "Developer & MCP Tool Explorer"
+                    : tab === "chat"
+                    ? "Copilot Ideas & Multi-Agent Assistant"
+                    : tab === "nlq"
+                    ? "Database Query Engine (SQLite)"
+                    : tab === "audit"
+                    ? "AI Transparency & Memory Vault"
+                    : tab === "payments"
+                    ? "Billing & Micropayments"
+                    : tab === "referrals"
+                    ? "Referrals & Rewards Engine"
+                    : tab === "ads"
+                    ? "Sponsored Marketplace"
+                    : "Platform Revenue Analytics"}
+                </span>
+                <span className="crumb-subtitle">
+                  {accountMode === "paper"
+                    ? "Autonomous execution within written policy: Paper (simulated money)"
+                    : "Live Production Brokerage Execution"}
+                </span>
               </div>
-            )}
-          </div>
-        </nav>
-        <AsyncJobsPanel />
+            </div>
 
-        {/* User Badge */}
-        <div className="user-profile">
-          <img src={user.avatar} alt={user.login} className="user-avatar" />
-          <div className="user-meta">
-            <span className="user-name">{user.name}</span>
-            <span className="user-login">@{user.login}</span>
-          </div>
-          <a href="/auth/logout" className="logout-btn" title="Sign out">
-            Logout
-          </a>
-        </div>
-      </header>
+            <div className="sub-header-center">
+              <div className="sub-header-market-pill">
+                <span className="market-dot closed" />
+                <span>Market CLOSED · opens Mon 09:30 ET</span>
+              </div>
+            </div>
+
+            <div className="sub-header-right">
+              <AsyncJobsPanel />
+
+              {/* Layout Switcher Pill Button */}
+              <button
+                type="button"
+                className="layout-switch-badge-btn"
+                onClick={() => handleToggleNavLayout("top")}
+                title="Switch navigation menu to Top Nav Bar"
+              >
+                <NavIcons.LayoutTop />
+                <span>Top Menu</span>
+              </button>
+
+              <div className="sub-header-user">
+                <img src={user.avatar} alt={user.login} className="sub-user-avatar" />
+                <span className="sub-user-email">
+                  {user.login.includes("@") ? user.login : `${user.login}@algonexus`}
+                </span>
+                <a href="/auth/logout" className="sub-logout-link" title="Sign out">
+                  Sign out
+                </a>
+              </div>
+            </div>
+          </header>
+        ) : (
+          <header className="app-header algonexus-top-header">
+            <NavigationMenu
+              layout="top"
+              onToggleLayout={handleToggleNavLayout}
+              activeTab={tab}
+              onSelectTab={(newTab) => {
+                setTab(newTab);
+                setTbdMenuOpen(false);
+              }}
+              user={user}
+              agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
+              accountMode={accountMode}
+              onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+              headerChildren={<AsyncJobsPanel />}
+            />
+          </header>
+        )}
 
       {/* External Ad Network Monetization Strip */}
       {adDisplayConfig[tab] && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
@@ -4069,6 +4080,7 @@ export function Chat({ user }: { user: User }) {
         )}
 
       </main>
+      </div>
     </div>
   );
 }
