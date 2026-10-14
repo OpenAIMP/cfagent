@@ -7965,21 +7965,22 @@ body {
   max-height: calc(100vh - 110px);
   overflow-y: auto;
   scrollbar-width: thin;
-  background-color: #0b1120 !important;
-  background: #0b1120 !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background-color: var(--color-surface-raised, #0b1120);
+  background: var(--color-surface-raised, #0b1120);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   isolation: isolate;
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  border-radius: 12px;
+  border: 1px solid var(--color-border-medium, rgba(56, 189, 248, 0.4));
+  border-radius: var(--radius-lg, 12px);
   padding: 1.15rem;
-  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.85), 0 0 30px rgba(56, 189, 248, 0.22);
+  box-shadow: var(--shadow-lg, 0 24px 56px rgba(0, 0, 0, 0.85));
   z-index: 999999 !important;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
   animation: slideDownFade 0.18s ease-out;
   pointer-events: auto;
+  color: var(--color-text-primary, #f8fafc);
 }
 
 @keyframes slideDownFade {
@@ -8183,46 +8184,59 @@ body {
   padding: 0.42rem 0.6rem;
   font-size: 0.76rem;
   font-weight: 600;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast, 0.15s ease);
   white-space: nowrap;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(30, 41, 59, 0.85);
-  color: #e2e8f0;
+  border: 1px solid var(--color-border-medium, rgba(148, 163, 184, 0.3));
+  background: var(--color-surface-raised, rgba(30, 41, 59, 0.85));
+  color: var(--color-text-primary, #e2e8f0);
 }
 
-.btn-menu-action.sync:hover {
-  background: #334155;
-  border-color: #38bdf8;
-  color: #38bdf8;
+.btn-menu-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-menu-action.sync {
+  background: var(--color-surface-raised, rgba(30, 41, 59, 0.85));
+  border-color: var(--color-border-medium, rgba(148, 163, 184, 0.3));
+  color: var(--color-text-primary, #e2e8f0);
+}
+
+.btn-menu-action.sync:hover:not(:disabled) {
+  background: var(--color-surface-hover, #334155);
+  border-color: var(--color-accent, #38bdf8);
+  color: var(--color-accent, #38bdf8);
 }
 
 .btn-menu-action.connect {
-  background: #059669;
-  border-color: #10b981;
-  color: #fff;
+  background: var(--color-primary, #059669);
+  border-color: var(--color-primary, #10b981);
+  color: var(--color-primary-foreground, #fff);
 }
-.btn-menu-action.connect:hover {
-  background: #10b981;
+.btn-menu-action.connect:hover:not(:disabled) {
+  filter: brightness(1.1);
 }
 
 .btn-menu-action.renew {
-  background: rgba(245, 158, 11, 0.18);
-  border-color: rgba(245, 158, 11, 0.4);
-  color: #fcd34d;
+  background: var(--color-warning-subtle, rgba(245, 158, 11, 0.18));
+  border-color: var(--color-warning, rgba(245, 158, 11, 0.4));
+  color: var(--color-warning, #fcd34d);
 }
-.btn-menu-action.renew:hover {
-  background: rgba(245, 158, 11, 0.3);
+.btn-menu-action.renew:hover:not(:disabled) {
+  background: var(--color-warning-subtle, rgba(245, 158, 11, 0.3));
+  filter: brightness(1.1);
 }
 
 .btn-menu-action.disconnect {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
+  background: var(--color-danger-subtle, rgba(239, 68, 68, 0.15));
+  border-color: var(--color-danger, rgba(239, 68, 68, 0.35));
+  color: var(--color-danger, #fca5a5);
 }
-.btn-menu-action.disconnect:hover {
-  background: rgba(239, 68, 68, 0.25);
+.btn-menu-action.disconnect:hover:not(:disabled) {
+  background: var(--color-danger-subtle, rgba(239, 68, 68, 0.25));
+  filter: brightness(1.1);
 }
 
 /* Tools Cluster — Single Horizontal Row Layout */
@@ -9174,9 +9188,18 @@ body {
 }
 
 /* WCAG 2.2 SC 1.4.3 (Contrast Minimum) & ISO 9241-110 Self-Descriptiveness */
-.tab-hover-popover,
-.etrade-dynamic-dropdown-panel {
+.tab-hover-popover {
   color-scheme: dark;
+}
+
+[data-theme="dark"] .etrade-dynamic-dropdown-panel,
+body.theme-dark .etrade-dynamic-dropdown-panel {
+  color-scheme: dark;
+}
+
+[data-theme="light"] .etrade-dynamic-dropdown-panel,
+body.theme-light .etrade-dynamic-dropdown-panel {
+  color-scheme: light;
 }
 
 /* ==========================================================================
@@ -15740,6 +15763,228 @@ body.theme-light .settings-item-label {
 [data-theme="light"] .settings-item-desc,
 body.theme-light .settings-item-desc {
   color: #64748b !important;
+}
+
+/* Light Mode: E*TRADE & Settings Dropdown Internal Elements */
+[data-theme="light"] .section-label-row,
+body.theme-light .section-label-row {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .section-label-row small,
+body.theme-light .section-label-row small {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .etrade-panel-account-card,
+body.theme-light .etrade-panel-account-card {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .account-stat-divider,
+body.theme-light .account-stat-divider {
+  background: #cbd5e1 !important;
+}
+
+[data-theme="light"] .stat-lbl,
+body.theme-light .stat-lbl {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .stat-val.acct-number,
+body.theme-light .stat-val.acct-number {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .btn-mask-mini,
+body.theme-light .btn-mask-mini {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="light"] .btn-mask-mini:hover,
+body.theme-light .btn-mask-mini:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #0284c7 !important;
+}
+
+[data-theme="light"] .etrade-env-switch-bar,
+body.theme-light .etrade-env-switch-bar {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] .etrade-env-switch-bar button,
+body.theme-light .etrade-env-switch-bar button {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .etrade-env-switch-bar button:hover:not(.active),
+body.theme-light .etrade-env-switch-bar button:hover:not(.active) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .etrade-env-switch-bar button.active,
+body.theme-light .etrade-env-switch-bar button.active {
+  background: #ffffff !important;
+  color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Light Mode: Connection Actions & Test & Sync Button */
+[data-theme="light"] .btn-menu-action,
+body.theme-light .btn-menu-action {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .btn-menu-action.sync,
+body.theme-light .btn-menu-action.sync {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .btn-menu-action.sync:hover:not(:disabled),
+body.theme-light .btn-menu-action.sync:hover:not(:disabled) {
+  background: #f0f9ff !important;
+  border-color: #0284c7 !important;
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .btn-menu-action.renew,
+body.theme-light .btn-menu-action.renew {
+  background: #fef3c7 !important;
+  border-color: #fcd34d !important;
+  color: #b45309 !important;
+}
+
+[data-theme="light"] .btn-menu-action.renew:hover:not(:disabled),
+body.theme-light .btn-menu-action.renew:hover:not(:disabled) {
+  background: #fde68a !important;
+  border-color: #f59e0b !important;
+  color: #92400e !important;
+}
+
+[data-theme="light"] .btn-menu-action.disconnect,
+body.theme-light .btn-menu-action.disconnect {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+[data-theme="light"] .btn-menu-action.disconnect:hover:not(:disabled),
+body.theme-light .btn-menu-action.disconnect:hover:not(:disabled) {
+  background: #fecaca !important;
+  border-color: #ef4444 !important;
+  color: #991b1b !important;
+}
+
+[data-theme="light"] .btn-menu-action.connect,
+body.theme-light .btn-menu-action.connect {
+  background: #059669 !important;
+  border-color: #047857 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .btn-menu-tuning,
+body.theme-light .btn-menu-tuning {
+  background: rgba(2, 132, 199, 0.08) !important;
+  border-color: rgba(2, 132, 199, 0.3) !important;
+  color: #0284c7 !important;
+}
+
+[data-theme="light"] .btn-menu-tuning:hover,
+body.theme-light .btn-menu-tuning:hover {
+  background: rgba(2, 132, 199, 0.16) !important;
+  border-color: #0284c7 !important;
+}
+
+[data-theme="light"] .menu-symbol-input,
+body.theme-light .menu-symbol-input {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .menu-symbol-input:focus,
+body.theme-light .menu-symbol-input:focus {
+  border-color: #0284c7 !important;
+}
+
+[data-theme="light"] .pref-row-lbl,
+body.theme-light .pref-row-lbl {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .preset-label,
+body.theme-light .preset-label {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .settings-pref-section,
+body.theme-light .settings-pref-section,
+[data-theme="light"] .settings-nav-tabs-section,
+body.theme-light .settings-nav-tabs-section,
+[data-theme="light"] .etrade-provenance-section,
+body.theme-light .etrade-provenance-section {
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .etrade-provenance-drawer,
+body.theme-light .etrade-provenance-drawer {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .etrade-provenance-summary,
+body.theme-light .etrade-provenance-summary {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .etrade-provenance-code,
+body.theme-light .etrade-provenance-code {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .settings-section-desc,
+body.theme-light .settings-section-desc {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .btn-settings-signout,
+body.theme-light .btn-settings-signout {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #dc2626 !important;
+}
+
+[data-theme="light"] .btn-settings-signout:hover,
+body.theme-light .btn-settings-signout:hover {
+  background: #fecaca !important;
+  border-color: #ef4444 !important;
+  color: #b91c1c !important;
+}
+
+[data-theme="light"] .btn-open-deals-showcase,
+body.theme-light .btn-open-deals-showcase {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+  border-color: #f59e0b !important;
+  color: #92400e !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .btn-open-deals-showcase:hover,
+body.theme-light .btn-open-deals-showcase:hover {
+  background: linear-gradient(135deg, #fde68a 0%, #fcd34d 100%) !important;
+  border-color: #d97706 !important;
 }
 
 [data-theme="light"] .nav-refresh-btn,
