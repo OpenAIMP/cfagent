@@ -155,3 +155,46 @@ export interface ThinkEvaluateInput {
 export function fetchThinkVerdict(env: string, input: ThinkEvaluateInput): Promise<ThinkTradeValidationResult> {
   return postJson<ThinkTradeValidationResult>("/api/etrade/think/evaluate", env, input);
 }
+
+// ---------------------------------------------------------------------------
+// Prefill wiring (issue #69): pure mappings into the Evaluator form shape
+// ---------------------------------------------------------------------------
+
+import type { PositionRiskRow } from "../services/portfolioRisk";
+import type { SizingResult as SizingResultType } from "../services/positionSizing";
+
+const str = (v: number | null | undefined): string => (v === null || v === undefined || !Number.isFinite(v) ? "" : String(Math.round(v * 100) / 100));
+
+/** A held position's Greek contribution → Evaluator form (complete: rows carry every Greek). */
+export function positionRowToEvalForm(row: PositionRiskRow): Record<string, string> {
+  return {
+    deltaShares: str(row.deltaShares),
+    deltaDollars: str(row.deltaDollars),
+    betaWeightedDeltaDollars: str(row.betaWeightedDeltaDollars),
+    gammaSharesPerDollar: str(row.gammaSharesPerDollar),
+    thetaDollarsPerDay: str(row.thetaDollarsPerDay),
+    vegaDollarsPerVolPoint: str(row.vegaDollarsPerVolPoint),
+    rhoDollarsPerRatePoint: str(row.rhoDollarsPerRatePoint),
+    definedMaxLoss: str(row.definedMaxLoss),
+  };
+}
+
+/**
+ * A sizing result → Evaluator form for the fields sizing knows (delta,
+ * beta-weighted delta, defined max loss), scaled per-contract × recommended
+ * contracts. Greeks sizing doesn't carry (gamma/theta/vega/rho, delta shares)
+ * are left blank for the user — never invented.
+ */
+export function sizingToEvalForm(candidate: SizingCandidate, sizing: SizingResultType): Record<string, string> {
+  const n = sizing.recommendedContracts;
+  return {
+    deltaShares: "",
+    deltaDollars: str(candidate.perContract.deltaDollars * n),
+    betaWeightedDeltaDollars: candidate.perContract.betaWeightedDeltaDollars === null ? "" : str(candidate.perContract.betaWeightedDeltaDollars * n),
+    gammaSharesPerDollar: "",
+    thetaDollarsPerDay: "",
+    vegaDollarsPerVolPoint: "",
+    rhoDollarsPerRatePoint: "",
+    definedMaxLoss: candidate.perContract.definedMaxLoss === null ? "" : str(candidate.perContract.definedMaxLoss * n),
+  };
+}

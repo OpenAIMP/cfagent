@@ -1304,6 +1304,7 @@ function AgentChatTabContent({
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<NavTabId>("autopilot");
   const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
   const isTbdTab = tab === "chat" || tab === "nlq" || tab === "audit" || tab === "payments" || tab === "referrals" || tab === "ads" || tab === "revenue";
 
@@ -2157,6 +2158,7 @@ export function Chat({ user }: { user: User }) {
             setTab(newTab);
             setTbdMenuOpen(false);
           }}
+          alertBadgeCount={unreadAlerts}
           collapsed={sidebarCollapsed}
           onToggleCollapse={handleToggleSidebarCollapsed}
           user={user}
@@ -2303,6 +2305,7 @@ export function Chat({ user }: { user: User }) {
           <header className="nextgentp-top-header algonexus-top-header app-header">
             <NavigationMenu
               layout="top"
+              alertBadgeCount={unreadAlerts}
               onToggleLayout={handleToggleNavLayout}
               activeTab={tab}
               onSelectTab={(newTab) => {
@@ -4334,6 +4337,7 @@ export function Chat({ user }: { user: User }) {
               setTab(newSubTab as NavTabId);
             }}
             onBrokerPropsChange={setBrokerProps}
+            onUnreadAlertsChange={setUnreadAlerts}
             onSendPrompt={(prompt, sourceTab) => {
               setPendingPrompt({ prompt, sourceTab: sourceTab || "E*TRADE Brokerage" });
               setTab("chat");

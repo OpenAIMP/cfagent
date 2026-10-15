@@ -83,3 +83,32 @@ describe("parseSymbolList (issue #67)", () => {
     expect(parseSymbolList("")).toEqual([]);
   });
 });
+
+import { positionRowToEvalForm, sizingToEvalForm } from "../src/client/portfolioRiskApi";
+import type { PositionRiskRow } from "../src/services/portfolioRisk";
+import type { SizingCandidate, SizingResult } from "../src/services/positionSizing";
+
+describe("prefill wiring (issue #69)", () => {
+  it("maps a position row into a complete evaluator form", () => {
+    const row = {
+      symbol: "ACME", kind: "option", signedQuantity: 2, deltaShares: 50, deltaDollars: 5000,
+      betaWeightedDeltaDollars: 6000, betaWeightedSpyShares: 12, gammaSharesPerDollar: 1.5,
+      thetaDollarsPerDay: -25, vegaDollarsPerVolPoint: 80, rhoDollarsPerRatePoint: 10,
+      beta: 1.2, betaSource: "computed-live", betaObservations: 252, definedMaxLoss: 1500, quoteAsOf: null,
+    } as unknown as PositionRiskRow;
+    const form = positionRowToEvalForm(row);
+    expect(form.deltaDollars).toBe("5000");
+    expect(form.rhoDollarsPerRatePoint).toBe("10");
+    expect(form.definedMaxLoss).toBe("1500");
+  });
+
+  it("scales a sizing result per-contract × recommended, leaving unknown Greeks blank", () => {
+    const candidate: SizingCandidate = { symbol: "ACME", perContract: { deltaDollars: 500, betaWeightedDeltaDollars: null, definedMaxLoss: 200 } };
+    const sizing = { recommendedContracts: 4 } as SizingResult;
+    const form = sizingToEvalForm(candidate, sizing);
+    expect(form.deltaDollars).toBe("2000");
+    expect(form.definedMaxLoss).toBe("800");
+    expect(form.betaWeightedDeltaDollars).toBe("");
+    expect(form.gammaSharesPerDollar).toBe("");
+  });
+});

@@ -71,6 +71,8 @@ export interface NavigationMenuProps {
   onCycleTheme?: () => void;
   onAskAgent?: (query: string) => void;
   visibleTabs?: Record<string, boolean>;
+  /** Issue #69: unread broker-alert count badged on the Portfolio item. */
+  alertBadgeCount?: number;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   lastRefreshedAt?: string;
@@ -566,6 +568,7 @@ export function NavigationMenu({
   onCycleTheme,
   onAskAgent,
   visibleTabs,
+  alertBadgeCount,
   onRefresh,
   isRefreshing,
   lastRefreshedAt,
@@ -654,6 +657,11 @@ export function NavigationMenu({
                       {item.badge}
                     </span>
                   )}
+                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
+                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                        🔔 {alertBadgeCount}
+                      </span>
+                    )}
                   {active && <span className="active-pill-bar" />}
                 </button>
               );
@@ -683,6 +691,11 @@ export function NavigationMenu({
                       {item.badge}
                     </span>
                   )}
+                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
+                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                        🔔 {alertBadgeCount}
+                      </span>
+                    )}
                   {active && <span className="active-pill-bar" />}
                 </button>
               );
@@ -712,6 +725,11 @@ export function NavigationMenu({
                       {item.badge}
                     </span>
                   )}
+                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
+                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                        🔔 {alertBadgeCount}
+                      </span>
+                    )}
                   {active && <span className="active-pill-bar" />}
                 </button>
               );
@@ -741,6 +759,11 @@ export function NavigationMenu({
                       {item.badge}
                     </span>
                   )}
+                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
+                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                        🔔 {alertBadgeCount}
+                      </span>
+                    )}
                   {active && <span className="active-pill-bar" />}
                 </button>
               );
