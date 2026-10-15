@@ -24,6 +24,9 @@ export interface ServerDiscoveryInputs {
    *  slice 7 the server converts it to score weights; the Builder fallback
    *  keeps applying it locally to analyzeStrategy. */
   bias?: number;
+  /** Issue #65: "calibrated-demo" explicitly requests generated chains for
+   *  the Demo tab; honored server-side only when the dev/demo gate is on. */
+  dataMode?: "live" | "calibrated-demo";
 }
 
 type OptionThesis = "bullish" | "bearish" | "range_bound" | "large_move";
@@ -62,6 +65,7 @@ export function buildStrategyRequest(inputs: ServerDiscoveryInputs) {
     maxDte: inputs.expiration.dte,
     candidateLimit: 24,
     ...(inputs.bias !== undefined ? { optimizationBias: inputs.bias } : {}),
+    ...(inputs.dataMode !== undefined ? { dataMode: inputs.dataMode } : {}),
   };
 }
 
@@ -114,7 +118,7 @@ const THESIS_BY_SENTIMENT: Record<string, SentimentType> = {
 };
 
 /** Maps one server-ranked candidate into the panel's DiscoveredStrategy view model. */
-export function mapCandidateToDiscovered(entry: RankedEntry, thesis: OptionThesis): DiscoveredStrategy {
+export function mapCandidateToDiscovered(entry: RankedEntry, thesis: OptionThesis, demo = false): DiscoveredStrategy {
   const c = entry.candidate;
   const dte = Math.max(0, ...c.legs.map((l) => l.daysToExpiration ?? 0));
   const legs: StrategyLegItem[] = c.legs.map((l) => ({
@@ -160,14 +164,19 @@ export function mapCandidateToDiscovered(entry: RankedEntry, thesis: OptionThesi
     miniPayoffPoints: c.payoffCurve.filter((_, i) => i % 2 === 0).map((p) => ({ price: p.underlyingPrice, pnl: p.pnl })),
     expirationDate: c.expirationDate,
     dte,
-    description: c.explanations[0] ?? `${c.label} ranked #${entry.rank} by the server pipeline over the live chain.`,
-    tag: entry.rank === 1 ? "#1 Server Ranked" : undefined,
+    description: c.explanations[0] ?? (demo
+      ? `${c.label} ranked #${entry.rank} by the server pipeline over calibrated DEMO chains (generated data, not live market data).`
+      : `${c.label} ranked #${entry.rank} by the server pipeline over the live chain.`),
+    tag: entry.rank === 1 ? (demo ? "#1 Demo Ranked" : "#1 Server Ranked") : undefined,
   };
 }
 
 export interface ServerDiscoveryResult {
   strategies: DiscoveredStrategy[];
   status: string;
+  /** Provenance stamped by the server (issue #65). */
+  dataSource: "live" | "calibrated-demo";
+  snapshotError?: string;
 }
 
 /** Fetches ranked strategies from the server pipeline for the Discovery view. */
@@ -178,14 +187,17 @@ export async function fetchServerDiscovery(inputs: ServerDiscoveryInputs, fetchI
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
   });
-  const data = (await response.json().catch(() => null)) as { status?: string; ranked?: RankedEntry[]; error?: string } | null;
+  const data = (await response.json().catch(() => null)) as { status?: string; ranked?: RankedEntry[]; error?: string; dataSource?: "live" | "calibrated-demo"; snapshotError?: string } | null;
   if (!response.ok || !data) {
     throw new Error(data?.error || `Server discovery failed (${response.status})`);
   }
   const thesis = requestBody.thesis;
+  const dataSource = data.dataSource ?? "live";
   return {
     status: data.status ?? "no_candidates",
-    strategies: (data.ranked ?? []).map((entry) => mapCandidateToDiscovered(entry, thesis)),
+    dataSource,
+    snapshotError: data.snapshotError,
+    strategies: (data.ranked ?? []).map((entry) => mapCandidateToDiscovered(entry, thesis, dataSource === "calibrated-demo")),
   };
 }
 
@@ -201,6 +213,9 @@ export interface ServerCatalogStrategy {
 
 export interface ServerCatalogResult {
   success?: boolean;
+  /** Issue #65: whether the dev/demo calibrated-chains gate is enabled in
+   *  this deployment; the Demo tab renders only when true. */
+  demoCalibratedChainsEnabled?: boolean;
   count: number;
   total: number;
   strategies: ServerCatalogStrategy[];
