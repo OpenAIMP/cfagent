@@ -6,7 +6,8 @@
  * or brokerage order/position.
  */
 
-import { blackScholes, normalCdf } from "./blackScholes";
+import { blackScholes, calculateProbabilityOfProfit, normalCdf } from "./blackScholes";
+import { RISK_MATH } from "../../shared/riskMath";
 
 export interface RiskLeg {
   id?: string;
@@ -87,6 +88,11 @@ export interface RiskAnatomy {
 
   // Probabilities & Boundaries
   probabilityOfProfit: number; // 0-100
+  /** Provenance labels (issue #38): engine-provided, computed from legs via
+   *  the shared risk math, or a client-anatomy estimate. Surfaces must not
+   *  present "estimated" values as engine numbers. */
+  popSource?: "provided" | "computed" | "estimated";
+  greeksSource?: "provided" | "legs" | "estimated" | "heuristic" | "equity";
   probabilityOfTouch: number; // 0-100
   breakevens: Array<{
     price: number;
@@ -197,12 +203,15 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   const legs = subject.legs || [];
 
   // Determine Net Greeks (use provided or calculate)
+  let greeksSource: NonNullable<RiskAnatomy["greeksSource"]> = subject.netGreeks ? "provided" : "legs";
+  let greeksEstimated = false;
   let netDelta = subject.netGreeks?.delta ?? 0;
   let netGamma = subject.netGreeks?.gamma ?? 0;
   let netTheta = subject.netGreeks?.theta ?? 0;
   let netVega = subject.netGreeks?.vega ?? 0;
 
   if (isEquity) {
+    greeksSource = "equity";
     const isShort = stratName.includes("short") || subject.title.toLowerCase().includes("sell");
     netDelta = isShort ? -qty : qty;
     netGamma = 0;
@@ -229,7 +238,8 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
         const strike = leg.strike ?? leg.strikePrice ?? spot;
         const oType = normalizeOptionType(leg.optionType);
         if (oType !== "STOCK") {
-          const bs = blackScholes(spot, strike, dte / 365, leg.iv || leg.impliedVolatility || 0.35, 0.04, 0, oType);
+          const bs = blackScholes(spot, strike, dte / 365, leg.iv || leg.impliedVolatility || RISK_MATH.defaultIvWhenMissing, RISK_MATH.riskFreeRate, RISK_MATH.dividendYield, oType);
+          greeksEstimated = true; // Greeks were modeled via Black-Scholes, not provided
           d += sign * bs.delta * legQty;
           g += sign * bs.gamma * legQty;
           th += sign * bs.theta * legQty;
@@ -241,7 +251,9 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
     netGamma = Number(g.toFixed(4));
     netTheta = Number(th.toFixed(2));
     netVega = Number(v.toFixed(2));
+    if (greeksEstimated) greeksSource = "estimated";
   } else if (!subject.netGreeks && legs.length === 0) {
+    greeksSource = "heuristic";
     // Strategy heuristic estimate
     if (stratName.includes("bull call") || (stratName.includes("call") && !stratName.includes("bear") && !stratName.includes("short"))) {
       netDelta = 0.45 * qty;
@@ -376,9 +388,41 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   }
 
   // Probability of Profit (POP) and Touch
-  let pop = subject.chanceOfProfit ?? 55;
-  if (isEquity) {
+  // Provenance discipline (issue #38): a server/engine-provided POP wins;
+  // otherwise compute from the legs with the SHARED POP method; only a
+  // leg-less subject falls back to a placeholder, and it is labeled
+  // "estimated" via popSource so no surface mistakes it for an engine value.
+  let pop: number;
+  let popSource: NonNullable<RiskAnatomy["popSource"]> = "estimated";
+  if (subject.chanceOfProfit !== undefined) {
+    pop = subject.chanceOfProfit;
+    popSource = "provided";
+  } else if (isEquity) {
     pop = 50;
+  } else if (legs.length > 0 && subject.breakevens && subject.breakevens.length > 0 && legs.every((l) => l.entryPrice !== undefined && (l.strike ?? l.strikePrice) !== undefined)) {
+    const intrinsicAt = (testSpot: number): number =>
+      legs.reduce((sum, leg) => {
+        const strike = leg.strike ?? leg.strikePrice ?? 0;
+        const oType = normalizeOptionType(leg.optionType);
+        const intrinsic = oType === "CALL" ? Math.max(testSpot - strike, 0) : oType === "PUT" ? Math.max(strike - testSpot, 0) : testSpot;
+        const sign = normalizeLegSide(leg.side || leg.action) === "BUY" ? 1 : -1;
+        return sum + sign * (leg.quantity ?? 1) * (intrinsic - (leg.entryPrice ?? 0));
+      }, 0);
+    const maxStrike = Math.max(...legs.map((l) => l.strike ?? l.strikePrice ?? spot));
+    const ivs = legs.map((l) => l.iv ?? l.impliedVolatility).filter((v): v is number => typeof v === "number" && v > 0);
+    const avgIv = ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : RISK_MATH.defaultIvWhenMissing;
+    pop = Number((calculateProbabilityOfProfit(
+      spot,
+      subject.breakevens,
+      { lowProfit: intrinsicAt(0.01) > 0, highProfit: intrinsicAt(maxStrike * 10 + 1000) > 0 },
+      dte / 365,
+      avgIv,
+      RISK_MATH.riskFreeRate,
+      RISK_MATH.dividendYield,
+    ) * 100).toFixed(1));
+    popSource = ivs.length ? "computed" : "estimated";
+  } else {
+    pop = 55;
   }
   // Probability of touch is roughly 2x ITM probability (bounded at 99%)
   const probOfTouch = Math.min(99, Math.round(pop < 50 ? pop * 1.8 : (100 - pop) * 1.8 + pop * 0.5));
@@ -536,6 +580,8 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
     netVega,
     vegaInterpretation,
     probabilityOfProfit: pop,
+    popSource,
+    greeksSource,
     probabilityOfTouch: probOfTouch,
     breakevens: breakevensList,
     earlyAssignmentRisk: {
