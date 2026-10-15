@@ -1,1 +1,274 @@
-LyoqCiAqIFBvcnRmb2xpbyBSaXNrIHBhbmVsIChpc3N1ZSAjNjMpIOKAlCBzdXJmYWNlcyB0aGUgcG9ydGZvbGlvLXJpc2sgYmFja2VuZHMKICogaW4gdGhlIEUqVFJBREUgcG9zaXRpb25zIHZpZXc6CiAqICAgYWdncmVnYXRlcyAoIzM0KSwgaGVkZ2UgZHJhZnRzICgjNTQpLCBjb3JyZWxhdGlvbiBmbGFncyAoIzM1KSwKICogICBwb3J0Zm9saW8tYXdhcmUgc2l6aW5nICgjMzYpLgogKgogKiBUaGUgcGFuZWwgaXMgYSBwdXJlIGRpc3BsYXkvaW5wdXQgbGF5ZXI6IGl0IHJlbmRlcnMgd2hhdCB0aGUgc2VydmVyCiAqIGNvbXB1dGVzIOKAlCBpbmNsdWRpbmcgcHJvdmVuYW5jZSBhbmQgdW5hdmFpbGFibGUgc3RhdGVzIOKAlCBhbmQgaGFuZHMKICogaGVkZ2UgZHJhZnRzIHRvIHRoZSBodWIncyBleGlzdGluZyBISVRMIG9yZGVyLXRpY2tldCBmbG93IHZpYQogKiBvblByZXZpZXdIZWRnZS4gSXQgbmV2ZXIgcHJldmlld3Mgb3IgZXhlY3V0ZXMgYW4gb3JkZXIgaXRzZWxmLgogKi8KCmltcG9ydCB7IHVzZUNhbGxiYWNrLCB1c2VFZmZlY3QsIHVzZVN0YXRlIH0gZnJvbSAicmVhY3QiOwppbXBvcnQgewogIGZldGNoQ29uY2VudHJhdGlvbiwKICBmZXRjaEhlZGdlQW5hbHlzaXMsCiAgZmV0Y2hQb3J0Zm9saW9SaXNrLAogIGZldGNoU2l6aW5nLAogIGZtdE51bWJlciwKICBmbXRTaWduZWRVc2QsCiAgZm10VXNkLAogIGhlZGdlUHJvcG9zYWxUb1RyYWRlQ29udGV4dCwKICB0eXBlIENvbmNlbnRyYXRpb25SZXBvcnQsCiAgdHlwZSBIZWRnZUFuYWx5c2lzLAogIHR5cGUgUG9ydGZvbGlvUmlza1JlcG9ydCwKICB0eXBlIFNpemluZ1Jlc3VsdCwKfSBmcm9tICIuL3BvcnRmb2xpb1Jpc2tBcGkiOwppbXBvcnQgdHlwZSB7IE9wdGlvbnNUcmFkZUNvbnRleHQgfSBmcm9tICIuL29wdGlvbnMvT3B0aW9uc1Jlc2VhcmNoUGFuZWwiOwppbXBvcnQgIi4vcG9ydGZvbGlvUmlza1BhbmVsLmNzcyI7CgppbnRlcmZhY2UgUG9ydGZvbGlvUmlza1BhbmVsUHJvcHMgewogIGFjdGl2ZUVudjogc3RyaW5nOwogIG9uUHJldmlld0hlZGdlOiAoY3R4OiBPcHRpb25zVHJhZGVDb250ZXh0KSA9PiB2b2lkOwp9CgpleHBvcnQgZnVuY3Rpb24gUG9ydGZvbGlvUmlza1BhbmVsKHsgYWN0aXZlRW52LCBvblByZXZpZXdIZWRnZSB9OiBQb3J0Zm9saW9SaXNrUGFuZWxQcm9wcykgewogIGNvbnN0IFtyZXBvcnQsIHNldFJlcG9ydF0gPSB1c2VTdGF0ZTxQb3J0Zm9saW9SaXNrUmVwb3J0IHwgbnVsbD4obnVsbCk7CiAgY29uc3QgW2hlZGdlLCBzZXRIZWRnZV0gPSB1c2VTdGF0ZTxIZWRnZUFuYWx5c2lzIHwgbnVsbD4obnVsbCk7CiAgY29uc3QgW2xvYWRpbmcsIHNldExvYWRpbmddID0gdXNlU3RhdGUoZmFsc2UpOwogIGNvbnN0IFtlcnJvciwgc2V0RXJyb3JdID0gdXNlU3RhdGUoIiIpOwoKICBjb25zdCBbY29yclN5bWJvbCwgc2V0Q29yclN5bWJvbF0gPSB1c2VTdGF0ZSgiIik7CiAgY29uc3QgW2NvbmNlbnRyYXRpb24sIHNldENvbmNlbnRyYXRpb25dID0gdXNlU3RhdGU8Q29uY2VudHJhdGlvblJlcG9ydCB8IG51bGw+KG51bGwpOwogIGNvbnN0IFtjb3JyTG9hZGluZywgc2V0Q29yckxvYWRpbmddID0gdXNlU3RhdGUoZmFsc2UpOwogIGNvbnN0IFtjb3JyRXJyb3IsIHNldENvcnJFcnJvcl0gPSB1c2VTdGF0ZSgiIik7CgogIGNvbnN0IFtzaXplU3ltYm9sLCBzZXRTaXplU3ltYm9sXSA9IHVzZVN0YXRlKCIiKTsKICBjb25zdCBbc2l6ZURlbHRhLCBzZXRTaXplRGVsdGFdID0gdXNlU3RhdGUoIiIpOwogIGNvbnN0IFtzaXplQmV0YURlbHRhLCBzZXRTaXplQmV0YURlbHRhXSA9IHVzZVN0YXRlKCIiKTsKICBjb25zdCBbc2l6ZU1heExvc3MsIHNldFNpemVNYXhMb3NzXSA9IHVzZVN0YXRlKCIiKTsKICBjb25zdCBbc2l6ZVJpc2tTY29yZSwgc2V0U2l6ZVJpc2tTY29yZV0gPSB1c2VTdGF0ZSgiIik7CiAgY29uc3QgW3NpemVSZXF1ZXN0ZWQsIHNldFNpemVSZXF1ZXN0ZWRdID0gdXNlU3RhdGUoIiIpOwogIGNvbnN0IFtzaXplQ29yciwgc2V0U2l6ZUNvcnJdID0gdXNlU3RhdGUoIiIpOwogIGNvbnN0IFtzaXppbmcsIHNldFNpemluZ10gPSB1c2VTdGF0ZTxTaXppbmdSZXN1bHQgfCBudWxsPihudWxsKTsKICBjb25zdCBbc2l6ZUxvYWRpbmcsIHNldFNpemVMb2FkaW5nXSA9IHVzZVN0YXRlKGZhbHNlKTsKICBjb25zdCBbc2l6ZUVycm9yLCBzZXRTaXplRXJyb3JdID0gdXNlU3RhdGUoIiIpOwoKICBjb25zdCBsb2FkID0gdXNlQ2FsbGJhY2soYXN5bmMgKCkgPT4gewogICAgc2V0TG9hZGluZyh0cnVlKTsKICAgIHNldEVycm9yKCIiKTsKICAgIHRyeSB7CiAgICAgIGNvbnN0IFtyaXNrUmVzdWx0LCBoZWRnZVJlc3VsdF0gPSBhd2FpdCBQcm9taXNlLmFsbFNldHRsZWQoW2ZldGNoUG9ydGZvbGlvUmlzayhhY3RpdmVFbnYpLCBmZXRjaEhlZGdlQW5hbHlzaXMoYWN0aXZlRW52KV0pOwogICAgICBpZiAocmlza1Jlc3VsdC5zdGF0dXMgPT09ICJmdWxmaWxsZWQiKSBzZXRSZXBvcnQocmlza1Jlc3VsdC52YWx1ZSk7CiAgICAgIGVsc2Ugc2V0RXJyb3Iocmlza1Jlc3VsdC5yZWFzb24/Lm1lc3NhZ2UgfHwgIkZhaWxlZCB0byBsb2FkIHBvcnRmb2xpbyByaXNrIik7CiAgICAgIGlmIChoZWRnZVJlc3VsdC5zdGF0dXMgPT09ICJmdWxmaWxsZWQiKSBzZXRIZWRnZShoZWRnZVJlc3VsdC52YWx1ZSk7CiAgICB9IGZpbmFsbHkgewogICAgICBzZXRMb2FkaW5nKGZhbHNlKTsKICAgIH0KICB9LCBbYWN0aXZlRW52XSk7CgogIHVzZUVmZmVjdCgoKSA9PiB7CiAgICB2b2lkIGxvYWQoKTsKICB9LCBbbG9hZF0pOwoKICBjb25zdCBydW5Db3JyZWxhdGlvbiA9IGFzeW5jICgpID0+IHsKICAgIHNldENvcnJMb2FkaW5nKHRydWUpOwogICAgc2V0Q29yckVycm9yKCIiKTsKICAgIHRyeSB7CiAgICAgIHNldENvbmNlbnRyYXRpb24oYXdhaXQgZmV0Y2hDb25jZW50cmF0aW9uKGFjdGl2ZUVudiwgY29yclN5bWJvbC50cmltKCkgfHwgdW5kZWZpbmVkKSk7CiAgICB9IGNhdGNoIChlcnI6IGFueSkgewogICAgICBzZXRDb3JyRXJyb3IoZXJyPy5tZXNzYWdlIHx8ICJDb3JyZWxhdGlvbiBhc3Nlc3NtZW50IGZhaWxlZCIpOwogICAgfSBmaW5hbGx5IHsKICAgICAgc2V0Q29yckxvYWRpbmcoZmFsc2UpOwogICAgfQogIH07CgogIGNvbnN0IHJ1blNpemluZyA9IGFzeW5jICgpID0+IHsKICAgIHNldFNpemVMb2FkaW5nKHRydWUpOwogICAgc2V0U2l6ZUVycm9yKCIiKTsKICAgIHRyeSB7CiAgICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IGZldGNoU2l6aW5nKGFjdGl2ZUVudiwgewogICAgICAgIHN5bWJvbDogc2l6ZVN5bWJvbC50cmltKCkudG9VcHBlckNhc2UoKSwKICAgICAgICBwZXJDb250cmFjdDogewogICAgICAgICAgZGVsdGFEb2xsYXJzOiBOdW1iZXIoc2l6ZURlbHRhKSB8fCAwLAogICAgICAgICAgYmV0YVdlaWdodGVkRGVsdGFEb2xsYXJzOiBzaXplQmV0YURlbHRhLnRyaW0oKSA9PT0gIiIgPyBudWxsIDogTnVtYmVyKHNpemVCZXRhRGVsdGEpLAogICAgICAgICAgZGVmaW5lZE1heExvc3M6IHNpemVNYXhMb3NzLnRyaW0oKSA9PT0gIiIgPyBudWxsIDogTnVtYmVyKHNpemVNYXhMb3NzKSwKICAgICAgICB9LAogICAgICAgIHJpc2tTY29yZTogc2l6ZVJpc2tTY29yZS50cmltKCkgPT09ICIiID8gdW5kZWZpbmVkIDogTnVtYmVyKHNpemVSaXNrU2NvcmUpLAogICAgICAgIHJlcXVlc3RlZENvbnRyYWN0czogc2l6ZVJlcXVlc3RlZC50cmltKCkgPT09ICIiID8gdW5kZWZpbmVkIDogTnVtYmVyKHNpemVSZXF1ZXN0ZWQpLAogICAgICAgIG1heE1lYXN1cmVkQ29ycmVsYXRpb246IHNpemVDb3JyLnRyaW0oKSA9PT0gIiIgPyBudWxsIDogTnVtYmVyKHNpemVDb3JyKSwKICAgICAgfSk7CiAgICAgIHNldFNpemluZyhyZXN1bHQpOwogICAgfSBjYXRjaCAoZXJyOiBhbnkpIHsKICAgICAgc2V0U2l6ZUVycm9yKGVycj8ubWVzc2FnZSB8fCAiU2l6aW5nIGZhaWxlZCIpOwogICAgfSBmaW5hbGx5IHsKICAgICAgc2V0U2l6ZUxvYWRpbmcoZmFsc2UpOwogICAgfQogIH07CgogIGNvbnN0IHRvdGFscyA9IHJlcG9ydD8udG90YWxzOwogIGNvbnN0IGNvdmVyYWdlID0gdG90YWxzPy5iZXRhQ292ZXJhZ2U7CgogIHJldHVybiAoCiAgICA8c2VjdGlvbiBjbGFzc05hbWU9InBycC1wYW5lbCI+CiAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtaGVhZGVyIj4KICAgICAgICA8aDM+UG9ydGZvbGlvIFJpc2s8L2gzPgogICAgICAgIHtyZXBvcnQgJiYgPHNwYW4gY2xhc3NOYW1lPSJwcnAtYXNvZiI+YXMgb2Yge25ldyBEYXRlKHJlcG9ydC5hc09mKS50b0xvY2FsZVN0cmluZygpfTwvc3Bhbj59CiAgICAgICAgPGJ1dHRvbiB0eXBlPSJidXR0b24iIGNsYXNzTmFtZT0icHJwLXJlZnJlc2giIG9uQ2xpY2s9eygpID0+IHZvaWQgbG9hZCgpfSBkaXNhYmxlZD17bG9hZGluZ30+CiAgICAgICAgICB7bG9hZGluZyA/ICJMb2FkaW5n4oCmIiA6ICLihrsgUmVmcmVzaCJ9CiAgICAgICAgPC9idXR0b24+CiAgICAgIDwvZGl2PgoKICAgICAge2Vycm9yICYmIDxkaXYgY2xhc3NOYW1lPSJwcnAtZXJyb3IiPntlcnJvcn08L2Rpdj59CiAgICAgIHshcmVwb3J0ICYmICFlcnJvciAmJiA8ZGl2IGNsYXNzTmFtZT0icHJwLW11dGVkIj5Mb2FkaW5nIHBvcnRmb2xpbyByaXNr4oCmPC9kaXY+fQoKICAgICAge3JlcG9ydCAmJiB0b3RhbHMgJiYgKAogICAgICAgIDw+CiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWdyaWQiPgogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWNhcmQiPjxzcGFuPkRlbHRhPC9zcGFuPjxzdHJvbmc+e2ZtdFNpZ25lZFVzZCh0b3RhbHMuZGVsdGFEb2xsYXJzKX08L3N0cm9uZz48ZW0+e2ZtdE51bWJlcih0b3RhbHMuZGVsdGFTaGFyZXMsIDApfSBzaGFyZXMgZXF1aXYuPC9lbT48L2Rpdj4KICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1jYXJkIj48c3Bhbj5CZXRhLXdlaWdodGVkIERlbHRhPC9zcGFuPjxzdHJvbmc+e2ZtdFNpZ25lZFVzZCh0b3RhbHMuYmV0YVdlaWdodGVkRGVsdGFEb2xsYXJzKX08L3N0cm9uZz48ZW0+e3RvdGFscy5iZXRhV2VpZ2h0ZWRTcHlTaGFyZXMgPT09IG51bGwgPyAiU1BZIGVxdWl2LiB1bmF2YWlsYWJsZSIgOiBgJHtmbXROdW1iZXIodG90YWxzLmJldGFXZWlnaHRlZFNweVNoYXJlcywgMSl9IFNQWSBzaGFyZXMgZXF1aXYuYH08L2VtPjwvZGl2PgogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWNhcmQiPjxzcGFuPkdhbW1hPC9zcGFuPjxzdHJvbmc+e2ZtdE51bWJlcih0b3RhbHMuZ2FtbWFTaGFyZXNQZXJEb2xsYXIsIDEpfTwvc3Ryb25nPjxlbT5zaGFyZXMgcGVyICQxIG1vdmU8L2VtPjwvZGl2PgogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWNhcmQiPjxzcGFuPlRoZXRhPC9zcGFuPjxzdHJvbmc+e2ZtdFNpZ25lZFVzZCh0b3RhbHMudGhldGFEb2xsYXJzUGVyRGF5KX08L3N0cm9uZz48ZW0+cGVyIGRheTwvZW0+PC9kaXY+CiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtY2FyZCI+PHNwYW4+VmVnYTwvc3Bhbj48c3Ryb25nPntmbXRTaWduZWRVc2QodG90YWxzLnZlZ2FEb2xsYXJzUGVyVm9sUG9pbnQpfTwvc3Ryb25nPjxlbT5wZXIgKzEgdm9sIHBvaW50PC9lbT48L2Rpdj4KICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1jYXJkIj48c3Bhbj5SaG88L3NwYW4+PHN0cm9uZz57Zm10U2lnbmVkVXNkKHRvdGFscy5yaG9Eb2xsYXJzUGVyUmF0ZVBvaW50KX08L3N0cm9uZz48ZW0+cGVyICsxJSByYXRlczwvZW0+PC9kaXY+CiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtY2FyZCI+PHNwYW4+RGVmaW5lZCBtYXggbG9zczwvc3Bhbj48c3Ryb25nPntmbXRVc2QodG90YWxzLmRlZmluZWRNYXhMb3NzKX08L3N0cm9uZz48ZW0+e3RvdGFscy5kZWZpbmVkTWF4TG9zc1BjdE9mTmF2ID09PSBudWxsID8gIiUgb2YgTkFWIHVuYXZhaWxhYmxlIiA6IGAke2ZtdE51bWJlcih0b3RhbHMuZGVmaW5lZE1heExvc3NQY3RPZk5hdiwgMSl9JSBvZiBOQVZgfTwvZW0+PC9kaXY+CiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtY2FyZCI+PHNwYW4+TkFWPC9zcGFuPjxzdHJvbmc+e2ZtdFVzZChyZXBvcnQubmF2KX08L3N0cm9uZz48ZW0+U1BZIHtyZXBvcnQuc3B5UHJpY2UgPyBmbXRVc2QocmVwb3J0LnNweVByaWNlLCAyKSA6ICLigJQifTwvZW0+PC9kaXY+CiAgICAgICAgICA8L2Rpdj4KCiAgICAgICAgICB7Y292ZXJhZ2UgJiYgKAogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLW5vdGUiPgogICAgICAgICAgICAgIEJldGEgY292ZXJhZ2U6IHtjb3ZlcmFnZS5jb3ZlcmVkfS97Y292ZXJhZ2UudG90YWx9IHBvc2l0aW9ucyDigJQge2NvdmVyYWdlLmNvbXB1dGVkTGl2ZX0gY29tcHV0ZWQgbGl2ZSwge2NvdmVyYWdlLnN0YXRpY0ZhbGxiYWNrfSBzdGF0aWMgZmFsbGJhY2sKICAgICAgICAgICAgICB7Y292ZXJhZ2UuY292ZXJlZCA8IGNvdmVyYWdlLnRvdGFsID8gYCwgJHtjb3ZlcmFnZS50b3RhbCAtIGNvdmVyYWdlLmNvdmVyZWR9IHVuYXZhaWxhYmxlIChleGNsdWRlZCBmcm9tIGJldGEtd2VpZ2h0ZWQgdG90YWxzLCBuZXZlciBhc3N1bWVkKWAgOiAiIn0KICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICApfQoKICAgICAgICAgIHtyZXBvcnQucm93cy5sZW5ndGggPiAwICYmICgKICAgICAgICAgICAgPHRhYmxlIGNsYXNzTmFtZT0icHJwLXRhYmxlIj4KICAgICAgICAgICAgICA8dGhlYWQ+PHRyPjx0aD5TeW1ib2w8L3RoPjx0aD5UeXBlPC90aD48dGg+zpQgJDwvdGg+PHRoPs6yLXdlaWdodGVkIM6UICQ8L3RoPjx0aD5CZXRhPC90aD48dGg+RGVmaW5lZCBtYXggbG9zczwvdGg+PC90cj48L3RoZWFkPgogICAgICAgICAgICAgIDx0Ym9keT4KICAgICAgICAgICAgICAgIHtyZXBvcnQucm93cy5tYXAoKHJvdywgaSkgPT4gKAogICAgICAgICAgICAgICAgICA8dHIga2V5PXtgJHtyb3cuc3ltYm9sfS0ke2l9YH0+CiAgICAgICAgICAgICAgICAgICAgPHRkPntyb3cuc3ltYm9sfTwvdGQ+CiAgICAgICAgICAgICAgICAgICAgPHRkPntyb3cua2luZH08L3RkPgogICAgICAgICAgICAgICAgICAgIDx0ZD57Zm10U2lnbmVkVXNkKHJvdy5kZWx0YURvbGxhcnMpfTwvdGQ+CiAgICAgICAgICAgICAgICAgICAgPHRkPntmbXRTaWduZWRVc2Qocm93LmJldGFXZWlnaHRlZERlbHRhRG9sbGFycyl9PC90ZD4KICAgICAgICAgICAgICAgICAgICA8dGQ+e3Jvdy5iZXRhID09PSBudWxsID8gIuKAlCIgOiBmbXROdW1iZXIocm93LmJldGEpfSA8c3BhbiBjbGFzc05hbWU9e2BwcnAtYmFkZ2UgcHJwLWJhZGdlLSR7cm93LmJldGFTb3VyY2V9YH0+e3Jvdy5iZXRhU291cmNlfTwvc3Bhbj48L3RkPgogICAgICAgICAgICAgICAgICAgIDx0ZD57cm93LmRlZmluZWRNYXhMb3NzID09PSBudWxsID8gInVuZGVmaW5lZCIgOiBmbXRVc2Qocm93LmRlZmluZWRNYXhMb3NzKX08L3RkPgogICAgICAgICAgICAgICAgICA8L3RyPgogICAgICAgICAgICAgICAgKSl9CiAgICAgICAgICAgICAgPC90Ym9keT4KICAgICAgICAgICAgPC90YWJsZT4KICAgICAgICAgICl9CgogICAgICAgICAge3JlcG9ydC5leGNsdWRlZC5sZW5ndGggPiAwICYmICgKICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1ub3RlIHBycC13YXJuIj5FeGNsdWRlZCBmcm9tIHRvdGFsczoge3JlcG9ydC5leGNsdWRlZC5tYXAoKGUpID0+IGAke2Uuc3ltYm9sfSAoJHtlLnJlYXNvbn0pYCkuam9pbigiOyAiKX08L2Rpdj4KICAgICAgICAgICl9CiAgICAgICAgICB7cmVwb3J0LnBhcnRpYWwubGVuZ3RoID4gMCAmJiAoCiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtbm90ZSBwcnAtd2FybiI+UGFydGlhbCBjb3ZlcmFnZToge3JlcG9ydC5wYXJ0aWFsLm1hcCgoZSkgPT4gYCR7ZS5zeW1ib2x9ICgke2UucmVhc29ufSlgKS5qb2luKCI7ICIpfTwvZGl2PgogICAgICAgICAgKX0KICAgICAgICAgIHtyZXBvcnQudW5kZWZpbmVkUmlza1Bvc2l0aW9ucy5sZW5ndGggPiAwICYmICgKICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1ub3RlIHBycC13YXJuIj5VbmRlZmluZWQtcmlzayBwb3NpdGlvbnMgKGV4Y2x1ZGVkIGZyb20gZGVmaW5lZCBtYXggbG9zcyk6IHtyZXBvcnQudW5kZWZpbmVkUmlza1Bvc2l0aW9ucy5qb2luKCIsICIpfTwvZGl2PgogICAgICAgICAgKX0KICAgICAgICA8Lz4KICAgICAgKX0KCiAgICAgIHsvKiBIZWRnZSBkcmFmdHMgKCM1NCkgKi99CiAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtc3ViaGVhZCI+SGVkZ2UgUHJvcG9zYWxzIDxzcGFuIGNsYXNzTmFtZT0icHJwLWJhZGdlIHBycC1iYWRnZS1kcmFmdCI+RFJBRlQg4oCUIEhJVEwgcmV2aWV3IG9ubHk8L3NwYW4+PC9kaXY+CiAgICAgIHtoZWRnZT8uc3RhdHVzID09PSAid2l0aGluLXRvbGVyYW5jZSIgJiYgPGRpdiBjbGFzc05hbWU9InBycC1ub3RlIj57aGVkZ2UucmVhc29ufTwvZGl2Pn0KICAgICAge2hlZGdlPy5zdGF0dXMgPT09ICJ1bmF2YWlsYWJsZSIgJiYgPGRpdiBjbGFzc05hbWU9InBycC1ub3RlIHBycC13YXJuIj57aGVkZ2UucmVhc29ufTwvZGl2Pn0KICAgICAge2hlZGdlICYmIGhlZGdlLnN5bWJvbHNNaXNzaW5nQmV0YS5sZW5ndGggPiAwICYmICgKICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLW5vdGUgcHJwLXdhcm4iPlNpemVkIG9uIGNvdmVyZWQgZXhwb3N1cmUgb25seSDigJQgbm8gYmV0YSBmb3I6IHtoZWRnZS5zeW1ib2xzTWlzc2luZ0JldGEuam9pbigiLCAiKX08L2Rpdj4KICAgICAgKX0KICAgICAge2hlZGdlPy5wcm9wb3NhbHMubWFwKChwcm9wb3NhbCwgaSkgPT4gKAogICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtaGVkZ2UtY2FyZCIga2V5PXtgJHtwcm9wb3NhbC5pbnN0cnVtZW50fS0ke2l9YH0+CiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWhlZGdlLW1haW4iPgogICAgICAgICAgICA8c3Ryb25nPntwcm9wb3NhbC5zaWRlfSB7cHJvcG9zYWwucXVhbnRpdHl9IHtwcm9wb3NhbC5pbnN0cnVtZW50ID09PSAiU1BZX1NIQVJFUyIgPyAiU1BZIHNoYXJlcyIgOiBgU1BZICR7cHJvcG9zYWwuc3RyaWtlfSBQVVQgJHtwcm9wb3NhbC5leHBpcmF0aW9uRGF0ZX1gfTwvc3Ryb25nPgogICAgICAgICAgICA8c3Bhbj5Fc3QuIHtwcm9wb3NhbC5lc3RpbWF0ZWRDb3N0ID49IDAgPyAiY29zdCIgOiAiY3JlZGl0In0ge2ZtdFVzZChNYXRoLmFicyhwcm9wb3NhbC5lc3RpbWF0ZWRDb3N0KSwgMil9IMK3IM6yLXdlaWdodGVkIM6UIHtmbXRTaWduZWRVc2QocHJvcG9zYWwucHJlSGVkZ2VCZXRhV2VpZ2h0ZWREZWx0YURvbGxhcnMpfSDihpIge2ZtdFNpZ25lZFVzZChwcm9wb3NhbC5wb3N0SGVkZ2VCZXRhV2VpZ2h0ZWREZWx0YURvbGxhcnMpfSB7cHJvcG9zYWwud2l0aGluVG9sZXJhbmNlQWZ0ZXJIZWRnZSA/ICIod2l0aGluIHRvbGVyYW5jZSkiIDogIihyZXNpZHVhbCBhYm92ZSB0b2xlcmFuY2UpIn08L3NwYW4+CiAgICAgICAgICAgIDxwPntwcm9wb3NhbC5yYXRpb25hbGV9PC9wPgogICAgICAgICAgPC9kaXY+CiAgICAgICAgICA8YnV0dG9uIHR5cGU9ImJ1dHRvbiIgY2xhc3NOYW1lPSJwcnAtcHJldmlldy1idG4iIG9uQ2xpY2s9eygpID0+IG9uUHJldmlld0hlZGdlKGhlZGdlUHJvcG9zYWxUb1RyYWRlQ29udGV4dChwcm9wb3NhbCwgcmVwb3J0Py5zcHlQcmljZSA/PyBudWxsKSl9PgogICAgICAgICAgICBQcmV2aWV3IGluIE9yZGVyIFRpY2tldCDihpIKICAgICAgICAgIDwvYnV0dG9uPgogICAgICAgIDwvZGl2PgogICAgICApKX0KCiAgICAgIHsvKiBDb3JyZWxhdGlvbiAmIGNvbmNlbnRyYXRpb24gKCMzNSkgKi99CiAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtc3ViaGVhZCI+Q29ycmVsYXRpb24gJmFtcDsgQ29uY2VudHJhdGlvbjwvZGl2PgogICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWZvcm0tcm93Ij4KICAgICAgICA8aW5wdXQgdmFsdWU9e2NvcnJTeW1ib2x9IG9uQ2hhbmdlPXsoZSkgPT4gc2V0Q29yclN5bWJvbChlLnRhcmdldC52YWx1ZSl9IHBsYWNlaG9sZGVyPSJDYW5kaWRhdGUgc3ltYm9sIChvcHRpb25hbCkiIC8+CiAgICAgICAgPGJ1dHRvbiB0eXBlPSJidXR0b24iIG9uQ2xpY2s9eygpID0+IHZvaWQgcnVuQ29ycmVsYXRpb24oKX0gZGlzYWJsZWQ9e2NvcnJMb2FkaW5nfT57Y29yckxvYWRpbmcgPyAiQXNzZXNzaW5n4oCmIiA6ICJBc3Nlc3MifTwvYnV0dG9uPgogICAgICA8L2Rpdj4KICAgICAge2NvcnJFcnJvciAmJiA8ZGl2IGNsYXNzTmFtZT0icHJwLWVycm9yIj57Y29yckVycm9yfTwvZGl2Pn0KICAgICAge2NvbmNlbnRyYXRpb24gJiYgKAogICAgICAgIDw+CiAgICAgICAgICB7Y29uY2VudHJhdGlvbi5zZWN0b3JTaGFyZXMubGVuZ3RoID4gMCAmJiAoCiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtc2VjdG9ycyI+CiAgICAgICAgICAgICAge2NvbmNlbnRyYXRpb24uc2VjdG9yU2hhcmVzLm1hcCgocykgPT4gKAogICAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1zZWN0b3IiIGtleT17cy5zZWN0b3J9PgogICAgICAgICAgICAgICAgICA8c3Bhbj57cy5zZWN0b3J9IOKAlCB7cy5zeW1ib2xzLmpvaW4oIiwgIil9PC9zcGFuPgogICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWJhciI+PGRpdiBzdHlsZT17eyB3aWR0aDogYCR7TWF0aC5taW4oMTAwLCBzLnNoYXJlUGN0KX0lYCB9fSAvPjwvZGl2PgogICAgICAgICAgICAgICAgICA8c3Ryb25nPntmbXROdW1iZXIocy5zaGFyZVBjdCwgMSl9JTwvc3Ryb25nPgogICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgKSl9CiAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgKX0KICAgICAgICAgIHtjb25jZW50cmF0aW9uLmNhbmRpZGF0ZUFzc2Vzc21lbnQgJiYgKAogICAgICAgICAgICA8ZGl2PgogICAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtbm90ZSI+CiAgICAgICAgICAgICAgICBDYW5kaWRhdGUge2NvbmNlbnRyYXRpb24uY2FuZGlkYXRlQXNzZXNzbWVudC5zeW1ib2x9OiB7Y29uY2VudHJhdGlvbi5jYW5kaWRhdGVBc3Nlc3NtZW50LmZsYWdzLmxlbmd0aCA9PT0gMCA/ICJubyBjb25jZW50cmF0aW9uIGZsYWdzIiA6IGAke2NvbmNlbnRyYXRpb24uY2FuZGlkYXRlQXNzZXNzbWVudC5mbGFncy5sZW5ndGh9IGZsYWcocylgfQogICAgICAgICAgICAgICAge2NvbmNlbnRyYXRpb24uY2FuZGlkYXRlQXNzZXNzbWVudC5zdGF0dXMgPT09ICJwYXJ0aWFsLXVua25vd24iID8gIiDCtyBzb21lIGNvcnJlbGF0aW9ucyB1bmtub3duIChzaG93biBhcyB1bmtub3duLCBuZXZlciB0cmVhdGVkIGFzIHplcm8pIiA6ICIifQogICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgIHtjb25jZW50cmF0aW9uLmNhbmRpZGF0ZUFzc2Vzc21lbnQuZmxhZ3MubWFwKChmbGFnLCBpKSA9PiAoCiAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLWZsYWciIGtleT17aX0+4pqgIHtmbGFnLm1lc3NhZ2V9PC9kaXY+CiAgICAgICAgICAgICAgKSl9CiAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgKX0KICAgICAgICAgIHtjb25jZW50cmF0aW9uLmhlbGRDb3JyZWxhdGlvbnMubGVuZ3RoID4gMCAmJiAoCiAgICAgICAgICAgIDx0YWJsZSBjbGFzc05hbWU9InBycC10YWJsZSI+CiAgICAgICAgICAgICAgPHRoZWFkPjx0cj48dGg+UGFpcjwvdGg+PHRoPkNvcnJlbGF0aW9uPC90aD48dGg+U291cmNlPC90aD48dGg+T2JzZXJ2YXRpb25zPC90aD48L3RyPjwvdGhlYWQ+CiAgICAgICAgICAgICAgPHRib2R5PgogICAgICAgICAgICAgICAge2NvbmNlbnRyYXRpb24uaGVsZENvcnJlbGF0aW9ucy5tYXAoKHBhaXIsIGkpID0+ICgKICAgICAgICAgICAgICAgICAgPHRyIGtleT17aX0+PHRkPntwYWlyLmF9IC8ge3BhaXIuYn08L3RkPjx0ZD57cGFpci52YWx1ZSA9PT0gbnVsbCA/ICLigJQiIDogZm10TnVtYmVyKHBhaXIudmFsdWUpfTwvdGQ+PHRkPjxzcGFuIGNsYXNzTmFtZT17YHBycC1iYWRnZSBwcnAtYmFkZ2UtJHtwYWlyLnNvdXJjZX1gfT57cGFpci5zb3VyY2V9PC9zcGFuPjwvdGQ+PHRkPntwYWlyLm9ic2VydmF0aW9ucyB8fCAi4oCUIn08L3RkPjwvdHI+CiAgICAgICAgICAgICAgICApKX0KICAgICAgICAgICAgICA8L3Rib2R5PgogICAgICAgICAgICA8L3RhYmxlPgogICAgICAgICAgKX0KICAgICAgICA8Lz4KICAgICAgKX0KCiAgICAgIHsvKiBQb3J0Zm9saW8tYXdhcmUgc2l6aW5nICgjMzYpICovfQogICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLXN1YmhlYWQiPlBvcnRmb2xpby1Bd2FyZSBTaXppbmc8L2Rpdj4KICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1mb3JtLWdyaWQiPgogICAgICAgIDxsYWJlbD5TeW1ib2w8aW5wdXQgdmFsdWU9e3NpemVTeW1ib2x9IG9uQ2hhbmdlPXsoZSkgPT4gc2V0U2l6ZVN5bWJvbChlLnRhcmdldC52YWx1ZSl9IHBsYWNlaG9sZGVyPSJBQ01FIiAvPjwvbGFiZWw+CiAgICAgICAgPGxhYmVsPs6UICQgLyBjb250cmFjdDxpbnB1dCB2YWx1ZT17c2l6ZURlbHRhfSBvbkNoYW5nZT17KGUpID0+IHNldFNpemVEZWx0YShlLnRhcmdldC52YWx1ZSl9IHBsYWNlaG9sZGVyPSI1MDAiIGlucHV0TW9kZT0iZGVjaW1hbCIgLz48L2xhYmVsPgogICAgICAgIDxsYWJlbD7Osi13ZWlnaHRlZCDOlCAkIC8gY29udHJhY3Q8aW5wdXQgdmFsdWU9e3NpemVCZXRhRGVsdGF9IG9uQ2hhbmdlPXsoZSkgPT4gc2V0U2l6ZUJldGFEZWx0YShlLnRhcmdldC52YWx1ZSl9IHBsYWNlaG9sZGVyPSI2MDAgKGJsYW5rID0gdW5rbm93bikiIGlucHV0TW9kZT0iZGVjaW1hbCIgLz48L2xhYmVsPgogICAgICAgIDxsYWJlbD5EZWZpbmVkIG1heCBsb3NzICQgLyBjb250cmFjdDxpbnB1dCB2YWx1ZT17c2l6ZU1heExvc3N9IG9uQ2hhbmdlPXsoZSkgPT4gc2V0U2l6ZU1heExvc3MoZS50YXJnZXQudmFsdWUpfSBwbGFjZWhvbGRlcj0iMjAwIChibGFuayA9IHVuZGVmaW5lZCByaXNrKSIgaW5wdXRNb2RlPSJkZWNpbWFsIiAvPjwvbGFiZWw+CiAgICAgICAgPGxhYmVsPlJpc2sgc2NvcmUgMOKAkzEwMDxpbnB1dCB2YWx1ZT17c2l6ZVJpc2tTY29yZX0gb25DaGFuZ2U9eyhlKSA9PiBzZXRTaXplUmlza1Njb3JlKGUudGFyZ2V0LnZhbHVlKX0gcGxhY2Vob2xkZXI9Im9wdGlvbmFsIiBpbnB1dE1vZGU9ImRlY2ltYWwiIC8+PC9sYWJlbD4KICAgICAgICA8bGFiZWw+UmVxdWVzdGVkIGNvbnRyYWN0czxpbnB1dCB2YWx1ZT17c2l6ZVJlcXVlc3RlZH0gb25DaGFuZ2U9eyhlKSA9PiBzZXRTaXplUmVxdWVzdGVkKGUudGFyZ2V0LnZhbHVlKX0gcGxhY2Vob2xkZXI9Im9wdGlvbmFsIiBpbnB1dE1vZGU9Im51bWVyaWMiIC8+PC9sYWJlbD4KICAgICAgICA8bGFiZWw+TWF4IG1lYXN1cmVkIGNvcnJlbGF0aW9uPGlucHV0IHZhbHVlPXtzaXplQ29ycn0gb25DaGFuZ2U9eyhlKSA9PiBzZXRTaXplQ29ycihlLnRhcmdldC52YWx1ZSl9IHBsYWNlaG9sZGVyPSJlLmcuIDAuODUgKG9wdGlvbmFsKSIgaW5wdXRNb2RlPSJkZWNpbWFsIiAvPjwvbGFiZWw+CiAgICAgIDwvZGl2PgogICAgICA8YnV0dG9uIHR5cGU9ImJ1dHRvbiIgY2xhc3NOYW1lPSJwcnAtc2l6ZS1idG4iIG9uQ2xpY2s9eygpID0+IHZvaWQgcnVuU2l6aW5nKCl9IGRpc2FibGVkPXtzaXplTG9hZGluZyB8fCAhc2l6ZVN5bWJvbC50cmltKCl9PgogICAgICAgIHtzaXplTG9hZGluZyA/ICJTaXppbmfigKYiIDogIlNpemUgYWdhaW5zdCBwb3J0Zm9saW8ifQogICAgICA8L2J1dHRvbj4KICAgICAge3NpemVFcnJvciAmJiA8ZGl2IGNsYXNzTmFtZT0icHJwLWVycm9yIj57c2l6ZUVycm9yfTwvZGl2Pn0KICAgICAge3NpemluZyAmJiAoCiAgICAgICAgPGRpdiBjbGFzc05hbWU9InBycC1zaXppbmctcmVzdWx0Ij4KICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJwcnAtbm90ZSI+PHN0cm9uZz57c2l6aW5nLnJlY29tbWVuZGVkQ29udHJhY3RzfSBjb250cmFjdChzKTwvc3Ryb25nPiDigJQgYm91bmQgYnkgPHN0cm9uZz57c2l6aW5nLmJpbmRpbmdDb25zdHJhaW50fTwvc3Ryb25nPiDCtyBOQVYgYmFuZCB7Zm10TnVtYmVyKHNpemluZy5uYXZCYW5kUGN0QXBwbGllZCwgMSl9JSDCtyBkZWx0YSBiYXNpczoge3NpemluZy5kZWx0YUJ1ZGdldEJhc2lzfXtzaXppbmcuY29ycmVsYXRpb25TdXJjaGFyZ2VBcHBsaWVkID8gIiDCtyBjb3JyZWxhdGlvbiBzdXJjaGFyZ2UgYXBwbGllZCIgOiAiIn08L2Rpdj4KICAgICAgICAgIDxwIGNsYXNzTmFtZT0icHJwLXJhdGlvbmFsZSI+e3NpemluZy5yYXRpb25hbGV9PC9wPgogICAgICAgICAgPHRhYmxlIGNsYXNzTmFtZT0icHJwLXRhYmxlIj4KICAgICAgICAgICAgPHRoZWFkPjx0cj48dGg+Q29uc3RyYWludDwvdGg+PHRoPk1heCBjb250cmFjdHM8L3RoPjx0aD5EZXRhaWw8L3RoPjwvdHI+PC90aGVhZD4KICAgICAgICAgICAgPHRib2R5PgogICAgICAgICAgICAgIHtzaXppbmcuY29uc3RyYWludHMubWFwKChjKSA9PiAoCiAgICAgICAgICAgICAgICA8dHIga2V5PXtjLm5hbWV9IGNsYXNzTmFtZT17Yy5uYW1lID09PSBzaXppbmcuYmluZGluZ0NvbnN0cmFpbnQgPyAicHJwLWJpbmRpbmciIDogdW5kZWZpbmVkfT4KICAgICAgICAgICAgICAgICAgPHRkPntjLm5hbWV9PC90ZD48dGQ+e051bWJlci5pc0Zpbml0ZShjLm1heENvbnRyYWN0cykgPyBjLm1heENvbnRyYWN0cyA6ICLiiJ4ifTwvdGQ+PHRkPntjLmRldGFpbH08L3RkPgogICAgICAgICAgICAgICAgPC90cj4KICAgICAgICAgICAgICApKX0KICAgICAgICAgICAgPC90Ym9keT4KICAgICAgICAgIDwvdGFibGU+CiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icHJwLW5vdGUiPlBvc3QtdHJhZGU6IM6UIHtmbXRTaWduZWRVc2Qoc2l6aW5nLnBvc3RUcmFkZVRvdGFscy5kZWx0YURvbGxhcnMpfSDCtyDOsi13ZWlnaHRlZCDOlCB7Zm10U2lnbmVkVXNkKHNpemluZy5wb3N0VHJhZGVUb3RhbHMuYmV0YVdlaWdodGVkRGVsdGFEb2xsYXJzKX0gwrcgZGVmaW5lZCBtYXggbG9zcyB7Zm10VXNkKHNpemluZy5wb3N0VHJhZGVUb3RhbHMuZGVmaW5lZE1heExvc3MpfTwvZGl2PgogICAgICAgIDwvZGl2PgogICAgICApfQogICAgPC9zZWN0aW9uPgogICk7Cn0K
+/**
+ * Portfolio Risk panel (issue #63) — surfaces the portfolio-risk backends
+ * in the E*TRADE positions view:
+ *   aggregates (#34), hedge drafts (#54), correlation flags (#35),
+ *   portfolio-aware sizing (#36).
+ *
+ * The panel is a pure display/input layer: it renders what the server
+ * computes — including provenance and unavailable states — and hands
+ * hedge drafts to the hub's existing HITL order-ticket flow via
+ * onPreviewHedge. It never previews or executes an order itself.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  fetchConcentration,
+  fetchHedgeAnalysis,
+  fetchPortfolioRisk,
+  fetchSizing,
+  fmtNumber,
+  fmtSignedUsd,
+  fmtUsd,
+  hedgeProposalToTradeContext,
+  type ConcentrationReport,
+  type HedgeAnalysis,
+  type PortfolioRiskReport,
+  type SizingResult,
+} from "./portfolioRiskApi";
+import type { OptionsTradeContext } from "./options/OptionsResearchPanel";
+import "./portfolioRiskPanel.css";
+
+interface PortfolioRiskPanelProps {
+  activeEnv: string;
+  onPreviewHedge: (ctx: OptionsTradeContext) => void;
+}
+
+export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskPanelProps) {
+  const [report, setReport] = useState<PortfolioRiskReport | null>(null);
+  const [hedge, setHedge] = useState<HedgeAnalysis | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const [corrSymbol, setCorrSymbol] = useState("");
+  const [concentration, setConcentration] = useState<ConcentrationReport | null>(null);
+  const [corrLoading, setCorrLoading] = useState(false);
+  const [corrError, setCorrError] = useState("");
+
+  const [sizeSymbol, setSizeSymbol] = useState("");
+  const [sizeDelta, setSizeDelta] = useState("");
+  const [sizeBetaDelta, setSizeBetaDelta] = useState("");
+  const [sizeMaxLoss, setSizeMaxLoss] = useState("");
+  const [sizeRiskScore, setSizeRiskScore] = useState("");
+  const [sizeRequested, setSizeRequested] = useState("");
+  const [sizeCorr, setSizeCorr] = useState("");
+  const [sizing, setSizing] = useState<SizingResult | null>(null);
+  const [sizeLoading, setSizeLoading] = useState(false);
+  const [sizeError, setSizeError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [riskResult, hedgeResult] = await Promise.allSettled([fetchPortfolioRisk(activeEnv), fetchHedgeAnalysis(activeEnv)]);
+      if (riskResult.status === "fulfilled") setReport(riskResult.value);
+      else setError(riskResult.reason?.message || "Failed to load portfolio risk");
+      if (hedgeResult.status === "fulfilled") setHedge(hedgeResult.value);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeEnv]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const runCorrelation = async () => {
+    setCorrLoading(true);
+    setCorrError("");
+    try {
+      setConcentration(await fetchConcentration(activeEnv, corrSymbol.trim() || undefined));
+    } catch (err: any) {
+      setCorrError(err?.message || "Correlation assessment failed");
+    } finally {
+      setCorrLoading(false);
+    }
+  };
+
+  const runSizing = async () => {
+    setSizeLoading(true);
+    setSizeError("");
+    try {
+      const result = await fetchSizing(activeEnv, {
+        symbol: sizeSymbol.trim().toUpperCase(),
+        perContract: {
+          deltaDollars: Number(sizeDelta) || 0,
+          betaWeightedDeltaDollars: sizeBetaDelta.trim() === "" ? null : Number(sizeBetaDelta),
+          definedMaxLoss: sizeMaxLoss.trim() === "" ? null : Number(sizeMaxLoss),
+        },
+        riskScore: sizeRiskScore.trim() === "" ? undefined : Number(sizeRiskScore),
+        requestedContracts: sizeRequested.trim() === "" ? undefined : Number(sizeRequested),
+        maxMeasuredCorrelation: sizeCorr.trim() === "" ? null : Number(sizeCorr),
+      });
+      setSizing(result);
+    } catch (err: any) {
+      setSizeError(err?.message || "Sizing failed");
+    } finally {
+      setSizeLoading(false);
+    }
+  };
+
+  const totals = report?.totals;
+  const coverage = totals?.betaCoverage;
+
+  return (
+    <section className="prp-panel">
+      <div className="prp-header">
+        <h3>Portfolio Risk</h3>
+        {report && <span className="prp-asof">as of {new Date(report.asOf).toLocaleString()}</span>}
+        <button type="button" className="prp-refresh" onClick={() => void load()} disabled={loading}>
+          {loading ? "Loading…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {error && <div className="prp-error">{error}</div>}
+      {!report && !error && <div className="prp-muted">Loading portfolio risk…</div>}
+
+      {report && totals && (
+        <>
+          <div className="prp-grid">
+            <div className="prp-card"><span>Delta</span><strong>{fmtSignedUsd(totals.deltaDollars)}</strong><em>{fmtNumber(totals.deltaShares, 0)} shares equiv.</em></div>
+            <div className="prp-card"><span>Beta-weighted Delta</span><strong>{fmtSignedUsd(totals.betaWeightedDeltaDollars)}</strong><em>{totals.betaWeightedSpyShares === null ? "SPY equiv. unavailable" : `${fmtNumber(totals.betaWeightedSpyShares, 1)} SPY shares equiv.`}</em></div>
+            <div className="prp-card"><span>Gamma</span><strong>{fmtNumber(totals.gammaSharesPerDollar, 1)}</strong><em>shares per $1 move</em></div>
+            <div className="prp-card"><span>Theta</span><strong>{fmtSignedUsd(totals.thetaDollarsPerDay)}</strong><em>per day</em></div>
+            <div className="prp-card"><span>Vega</span><strong>{fmtSignedUsd(totals.vegaDollarsPerVolPoint)}</strong><em>per +1 vol point</em></div>
+            <div className="prp-card"><span>Rho</span><strong>{fmtSignedUsd(totals.rhoDollarsPerRatePoint)}</strong><em>per +1% rates</em></div>
+            <div className="prp-card"><span>Defined max loss</span><strong>{fmtUsd(totals.definedMaxLoss)}</strong><em>{totals.definedMaxLossPctOfNav === null ? "% of NAV unavailable" : `${fmtNumber(totals.definedMaxLossPctOfNav, 1)}% of NAV`}</em></div>
+            <div className="prp-card"><span>NAV</span><strong>{fmtUsd(report.nav)}</strong><em>SPY {report.spyPrice ? fmtUsd(report.spyPrice, 2) : "—"}</em></div>
+          </div>
+
+          {coverage && (
+            <div className="prp-note">
+              Beta coverage: {coverage.covered}/{coverage.total} positions — {coverage.computedLive} computed live, {coverage.staticFallback} static fallback
+              {coverage.covered < coverage.total ? `, ${coverage.total - coverage.covered} unavailable (excluded from beta-weighted totals, never assumed)` : ""}
+            </div>
+          )}
+
+          {report.rows.length > 0 && (
+            <table className="prp-table">
+              <thead><tr><th>Symbol</th><th>Type</th><th>Δ $</th><th>β-weighted Δ $</th><th>Beta</th><th>Defined max loss</th></tr></thead>
+              <tbody>
+                {report.rows.map((row, i) => (
+                  <tr key={`${row.symbol}-${i}`}>
+                    <td>{row.symbol}</td>
+                    <td>{row.kind}</td>
+                    <td>{fmtSignedUsd(row.deltaDollars)}</td>
+                    <td>{fmtSignedUsd(row.betaWeightedDeltaDollars)}</td>
+                    <td>{row.beta === null ? "—" : fmtNumber(row.beta)} <span className={`prp-badge prp-badge-${row.betaSource}`}>{row.betaSource}</span></td>
+                    <td>{row.definedMaxLoss === null ? "undefined" : fmtUsd(row.definedMaxLoss)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {report.excluded.length > 0 && (
+            <div className="prp-note prp-warn">Excluded from totals: {report.excluded.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
+          )}
+          {report.partial.length > 0 && (
+            <div className="prp-note prp-warn">Partial coverage: {report.partial.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
+          )}
+          {report.undefinedRiskPositions.length > 0 && (
+            <div className="prp-note prp-warn">Undefined-risk positions (excluded from defined max loss): {report.undefinedRiskPositions.join(", ")}</div>
+          )}
+        </>
+      )}
+
+      {/* Hedge drafts (#54) */}
+      <div className="prp-subhead">Hedge Proposals <span className="prp-badge prp-badge-draft">DRAFT — HITL review only</span></div>
+      {hedge?.status === "within-tolerance" && <div className="prp-note">{hedge.reason}</div>}
+      {hedge?.status === "unavailable" && <div className="prp-note prp-warn">{hedge.reason}</div>}
+      {hedge && hedge.symbolsMissingBeta.length > 0 && (
+        <div className="prp-note prp-warn">Sized on covered exposure only — no beta for: {hedge.symbolsMissingBeta.join(", ")}</div>
+      )}
+      {hedge?.proposals.map((proposal, i) => (
+        <div className="prp-hedge-card" key={`${proposal.instrument}-${i}`}>
+          <div className="prp-hedge-main">
+            <strong>{proposal.side} {proposal.quantity} {proposal.instrument === "SPY_SHARES" ? "SPY shares" : `SPY ${proposal.strike} PUT ${proposal.expirationDate}`}</strong>
+            <span>Est. {proposal.estimatedCost >= 0 ? "cost" : "credit"} {fmtUsd(Math.abs(proposal.estimatedCost), 2)} · β-weighted Δ {fmtSignedUsd(proposal.preHedgeBetaWeightedDeltaDollars)} → {fmtSignedUsd(proposal.postHedgeBetaWeightedDeltaDollars)} {proposal.withinToleranceAfterHedge ? "(within tolerance)" : "(residual above tolerance)"}</span>
+            <p>{proposal.rationale}</p>
+          </div>
+          <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(hedgeProposalToTradeContext(proposal, report?.spyPrice ?? null))}>
+            Preview in Order Ticket →
+          </button>
+        </div>
+      ))}
+
+      {/* Correlation & concentration (#35) */}
+      <div className="prp-subhead">Correlation &amp; Concentration</div>
+      <div className="prp-form-row">
+        <input value={corrSymbol} onChange={(e) => setCorrSymbol(e.target.value)} placeholder="Candidate symbol (optional)" />
+        <button type="button" onClick={() => void runCorrelation()} disabled={corrLoading}>{corrLoading ? "Assessing…" : "Assess"}</button>
+      </div>
+      {corrError && <div className="prp-error">{corrError}</div>}
+      {concentration && (
+        <>
+          {concentration.sectorShares.length > 0 && (
+            <div className="prp-sectors">
+              {concentration.sectorShares.map((s) => (
+                <div className="prp-sector" key={s.sector}>
+                  <span>{s.sector} — {s.symbols.join(", ")}</span>
+                  <div className="prp-bar"><div style={{ width: `${Math.min(100, s.sharePct)}%` }} /></div>
+                  <strong>{fmtNumber(s.sharePct, 1)}%</strong>
+                </div>
+              ))}
+            </div>
+          )}
+          {concentration.candidateAssessment && (
+            <div>
+              <div className="prp-note">
+                Candidate {concentration.candidateAssessment.symbol}: {concentration.candidateAssessment.flags.length === 0 ? "no concentration flags" : `${concentration.candidateAssessment.flags.length} flag(s)`}
+                {concentration.candidateAssessment.status === "partial-unknown" ? " · some correlations unknown (shown as unknown, never treated as zero)" : ""}
+              </div>
+              {concentration.candidateAssessment.flags.map((flag, i) => (
+                <div className="prp-flag" key={i}>⚠ {flag.message}</div>
+              ))}
+            </div>
+          )}
+          {concentration.heldCorrelations.length > 0 && (
+            <table className="prp-table">
+              <thead><tr><th>Pair</th><th>Correlation</th><th>Source</th><th>Observations</th></tr></thead>
+              <tbody>
+                {concentration.heldCorrelations.map((pair, i) => (
+                  <tr key={i}><td>{pair.a} / {pair.b}</td><td>{pair.value === null ? "—" : fmtNumber(pair.value)}</td><td><span className={`prp-badge prp-badge-${pair.source}`}>{pair.source}</span></td><td>{pair.observations || "—"}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+
+      {/* Portfolio-aware sizing (#36) */}
+      <div className="prp-subhead">Portfolio-Aware Sizing</div>
+      <div className="prp-form-grid">
+        <label>Symbol<input value={sizeSymbol} onChange={(e) => setSizeSymbol(e.target.value)} placeholder="ACME" /></label>
+        <label>Δ $ / contract<input value={sizeDelta} onChange={(e) => setSizeDelta(e.target.value)} placeholder="500" inputMode="decimal" /></label>
+        <label>β-weighted Δ $ / contract<input value={sizeBetaDelta} onChange={(e) => setSizeBetaDelta(e.target.value)} placeholder="600 (blank = unknown)" inputMode="decimal" /></label>
+        <label>Defined max loss $ / contract<input value={sizeMaxLoss} onChange={(e) => setSizeMaxLoss(e.target.value)} placeholder="200 (blank = undefined risk)" inputMode="decimal" /></label>
+        <label>Risk score 0–100<input value={sizeRiskScore} onChange={(e) => setSizeRiskScore(e.target.value)} placeholder="optional" inputMode="decimal" /></label>
+        <label>Requested contracts<input value={sizeRequested} onChange={(e) => setSizeRequested(e.target.value)} placeholder="optional" inputMode="numeric" /></label>
+        <label>Max measured correlation<input value={sizeCorr} onChange={(e) => setSizeCorr(e.target.value)} placeholder="e.g. 0.85 (optional)" inputMode="decimal" /></label>
+      </div>
+      <button type="button" className="prp-size-btn" onClick={() => void runSizing()} disabled={sizeLoading || !sizeSymbol.trim()}>
+        {sizeLoading ? "Sizing…" : "Size against portfolio"}
+      </button>
+      {sizeError && <div className="prp-error">{sizeError}</div>}
+      {sizing && (
+        <div className="prp-sizing-result">
+          <div className="prp-note"><strong>{sizing.recommendedContracts} contract(s)</strong> — bound by <strong>{sizing.bindingConstraint}</strong> · NAV band {fmtNumber(sizing.navBandPctApplied, 1)}% · delta basis: {sizing.deltaBudgetBasis}{sizing.correlationSurchargeApplied ? " · correlation surcharge applied" : ""}</div>
+          <p className="prp-rationale">{sizing.rationale}</p>
+          <table className="prp-table">
+            <thead><tr><th>Constraint</th><th>Max contracts</th><th>Detail</th></tr></thead>
+            <tbody>
+              {sizing.constraints.map((c) => (
+                <tr key={c.name} className={c.name === sizing.bindingConstraint ? "prp-binding" : undefined}>
+                  <td>{c.name}</td><td>{Number.isFinite(c.maxContracts) ? c.maxContracts : "∞"}</td><td>{c.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="prp-note">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
+        </div>
+      )}
+    </section>
+  );
+}
