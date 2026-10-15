@@ -147,8 +147,11 @@ export function mapCandidateToDiscovered(entry: RankedEntry, thesis: OptionThesi
     maxLoss,
     targetProfit: c.targetPnl,
     riskOrCollateral: maxLoss,
-    returnOnRiskPct: maxLoss > 0 ? (c.targetPnl / maxLoss) * 100 : null,
-    returnOnCollateralPct: maxLoss > 0 ? (c.targetPnl / maxLoss) * 100 : null,
+    // Match the client engine's rounding contract (analyzeStrategy):
+    // the panel prints these values raw, so producers must round —
+    // return on risk to whole %, return on collateral to 1dp.
+    returnOnRiskPct: maxLoss > 0 ? Number(((c.targetPnl / maxLoss) * 100).toFixed(0)) : null,
+    returnOnCollateralPct: maxLoss > 0 ? Number(((c.targetPnl / maxLoss) * 100).toFixed(1)) : null,
     rewardRiskRatio: c.targetRewardRisk,
     chanceOfProfit: Math.round(c.modelImpliedProbabilityOfProfit * 100),
     breakevens: c.breakevens,
