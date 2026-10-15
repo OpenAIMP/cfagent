@@ -29,7 +29,7 @@ export interface StrategyToEvaluate {
 }
 
 interface LlmOptionsIdeasResponse {
-  mode: "raw_etrade_options_ideas";
+  mode: "llm_evaluation_of_quant_candidates";
   llmInput?: RawOptionsIdeasExport;
   retrievedData?: RetrievedOptionsDataExport;
   dataCoverage: {
