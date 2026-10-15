@@ -10,7 +10,7 @@
   max-height: 100%;
   flex: 1;
   min-height: 0;
-  background-color: var(--color-text-primary);
+  background-color: var(--color-surface);
   color: var(--color-surface-foreground);
   font-family: var(--font-sans);
   overflow: hidden;
@@ -23,7 +23,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 1.25rem;
-  background-color: var(--color-text-primary);
+  background-color: var(--color-surface);
   border-bottom: 1px solid var(--color-border-subtle);
   min-height: 48px;
   flex-shrink: 0;
@@ -230,8 +230,8 @@
 .flow-table th {
   position: sticky;
   top: 0;
-  background-color: var(--color-text-primary);
-  color: var(--color-text-muted);
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 0.78rem;
   text-transform: uppercase;
@@ -510,9 +510,9 @@
 .flow-filters-sidebar {
   width: 330px;
   max-width: 100%;
-  background-color: var(--color-text-primary);
+  background-color: var(--color-surface-raised);
   border-left: 1px solid var(--color-border-subtle);
-  color: var(--color-surface-raised-foreground);
+  color: var(--color-text-primary);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -524,7 +524,7 @@
 .flow-sidebar-header {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border-subtle);
-  background-color: var(--color-text-primary);
+  background-color: var(--color-surface-sunken);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1231,7 +1231,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background-color: var(--color-text-primary);
+  background-color: var(--color-surface-sunken);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1240,7 +1240,7 @@
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--color-text-primary);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
   flex-shrink: 0;
 }
 
@@ -1744,298 +1744,3 @@
 .options-flows-builder-view::-webkit-scrollbar-thumb:hover {
   background: var(--color-accent);
 }
-
-/* =========================================================================
-   LIGHT THEME & GLOBAL CONSISTENCY ADAPTATIONS
-   ========================================================================= */
-
-[data-theme="light"] .options-flows-container,
-body.theme-light .options-flows-container {
-  background-color: var(--color-text-primary);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flows-header-bar,
-body.theme-light .flows-header-bar {
-  background-color: var(--color-text-primary);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-[data-theme="light"] .flows-subtab-btn,
-body.theme-light .flows-subtab-btn {
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flows-subtab-btn:hover,
-body.theme-light .flows-subtab-btn:hover {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flows-subtab-btn.active,
-body.theme-light .flows-subtab-btn.active {
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
-[data-theme="light"] .flows-subtab-btn.active::after,
-body.theme-light .flows-subtab-btn.active::after {
-  background: var(--color-accent);
-  box-shadow: 0 0 8px rgba(2, 132, 199, 0.4);
-}
-
-[data-theme="light"] .flows-gauge-badge-wrap,
-body.theme-light .flows-gauge-badge-wrap {
-  background: var(--color-surface-hover);
-  border-color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flows-gauge-badge-wrap:hover,
-body.theme-light .flows-gauge-badge-wrap:hover {
-  background: var(--color-border-subtle);
-}
-
-[data-theme="light"] .flows-gauge-text,
-body.theme-light .flows-gauge-text {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flows-delay-banner,
-body.theme-light .flows-delay-banner {
-  background-color: var(--color-text-primary);
-  border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-toggle-filters-btn,
-body.theme-light .flow-toggle-filters-btn {
-  background: var(--color-surface);
-  border-color: var(--color-text-secondary);
-  color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flow-toggle-filters-btn:hover,
-body.theme-light .flow-toggle-filters-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-table,
-body.theme-light .flow-table {
-  background-color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-table th,
-body.theme-light .flow-table th {
-  background-color: var(--color-text-primary);
-  color: var(--color-text-secondary);
-  border-bottom: 2px solid var(--color-border-subtle);
-  font-weight: 700;
-}
-
-[data-theme="light"] .flow-table td,
-body.theme-light .flow-table td {
-  border-bottom: 1px solid var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-table tr:hover td,
-body.theme-light .flow-table tr:hover td {
-  background-color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-time-cell,
-body.theme-light .flow-time-cell {
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-strategy-cell,
-body.theme-light .flow-strategy-cell {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-strategy-desc,
-body.theme-light .flow-strategy-desc {
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-exp-cell,
-body.theme-light .flow-exp-cell {
-  color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flow-filters-sidebar,
-body.theme-light .flow-filters-sidebar {
-  background-color: var(--color-text-primary);
-  border-left: 1px solid var(--color-border-subtle);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.05);
-}
-
-[data-theme="light"] .flow-sidebar-header,
-body.theme-light .flow-sidebar-header {
-  background-color: var(--color-text-primary);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-[data-theme="light"] .flow-sidebar-close-btn,
-body.theme-light .flow-sidebar-close-btn {
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-sidebar-close-btn:hover,
-body.theme-light .flow-sidebar-close-btn:hover {
-  background: var(--color-border-subtle);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-sidebar-tabs,
-body.theme-light .flow-sidebar-tabs {
-  background: var(--color-surface-hover);
-  border-color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flow-sidebar-tab-btn,
-body.theme-light .flow-sidebar-tab-btn {
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-sidebar-tab-btn.active,
-body.theme-light .flow-sidebar-tab-btn.active {
-  background: var(--color-surface);
-  color: var(--color-accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="light"] .flow-current-filter-form,
-body.theme-light .flow-current-filter-form {
-  background: var(--color-surface);
-}
-
-[data-theme="light"] .flow-form-label,
-body.theme-light .flow-form-label {
-  color: var(--color-text-secondary);
-  font-weight: 600;
-}
-
-[data-theme="light"] .flow-text-input,
-body.theme-light .flow-text-input {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-text-input:focus,
-body.theme-light .flow-text-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
-}
-
-[data-theme="light"] .flow-slider-val-tag,
-body.theme-light .flow-slider-val-tag {
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
-[data-theme="light"] .flow-range-slider,
-body.theme-light .flow-range-slider {
-  background: var(--color-border-subtle);
-}
-
-[data-theme="light"] .flow-dir-btn,
-body.theme-light .flow-dir-btn {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-muted);
-}
-
-[data-theme="light"] .flow-dir-btn:hover,
-body.theme-light .flow-dir-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-toggle-btn,
-body.theme-light .flow-toggle-btn {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flow-toggle-btn:hover,
-body.theme-light .flow-toggle-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-toggle-btn.buy.active,
-body.theme-light .flow-toggle-btn.buy.active {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: var(--color-success);
-  color: var(--color-success);
-}
-
-[data-theme="light"] .flow-toggle-btn.sell.active,
-body.theme-light .flow-toggle-btn.sell.active {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
-
-[data-theme="light"] .flow-pill-btn,
-body.theme-light .flow-pill-btn {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .flow-pill-btn:hover,
-body.theme-light .flow-pill-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-pill-btn.active,
-body.theme-light .flow-pill-btn.active {
-  background: rgba(2, 132, 199, 0.12);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-[data-theme="light"] .flow-summary-container,
-body.theme-light .flow-summary-container {
-  background-color: var(--color-text-primary);
-}
-
-[data-theme="light"] .flow-summary-card,
-body.theme-light .flow-summary-card,
-[data-theme="light"] .leaderboard-card,
-body.theme-light .leaderboard-card {
-  background-color: var(--color-text-primary);
-  border-color: var(--color-text-secondary);
-}
-
-[data-theme="light"] .leaderboard-title,
-body.theme-light .leaderboard-title {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .leaderboard-symbol,
-body.theme-light .leaderboard-symbol {
-  color: var(--color-text-primary);
-}
-
-[data-theme="light"] .leaderboard-item,
-body.theme-light .leaderboard-item,
-[data-theme="light"] .leaderboard-row,
-body.theme-light .leaderboard-row {
-  border-bottom-color: var(--color-surface-hover);
-}
-
-[data-theme="light"] .flow-drilldown-banner,
-body.theme-light .flow-drilldown-banner {
-  background: var(--color-surface);
-  border-color: var(--color-text-secondary);
-  color: var(--color-text-primary);
-}
-
-
-

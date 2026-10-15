@@ -7,68 +7,62 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
   const stylesCss = fs.readFileSync(path.resolve("src/client/styles.css"), "utf8");
   const tradingHub = fs.readFileSync(path.resolve("src/client/ETradeTradingHub.tsx"), "utf8");
 
-  describe("Section 5: Universal Modal System in tokens.css", () => {
+  describe("Universal Modal System in tokens.css", () => {
     it("defines universal modal card containers using design tokens", () => {
       expect(tokensCss).toContain(".modal-dialog");
       expect(tokensCss).toContain(".etrade-pin-modal");
       expect(tokensCss).toContain(".diagnostics-modal");
       expect(tokensCss).toContain(".quote-modal-content");
       expect(tokensCss).toContain("var(--color-surface-raised");
+      expect(tokensCss).toContain("var(--color-border-medium)");
+      expect(tokensCss).toContain("var(--color-text-primary)");
     });
 
-    it("enforces light mode surface elevation on modal dialogs and backdrops", () => {
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal');
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal');
-      expect(tokensCss).toContain('[data-theme="light"] .quote-modal-content');
-      expect(tokensCss).toContain("background: #ffffff !important");
-      expect(tokensCss).toContain("border-color: #e2e8f0 !important");
-      expect(tokensCss).toContain("color: #0f172a !important");
+    it("eliminates brittle modal light theme overrides in favor of semantic token resolution", () => {
+      expect(tokensCss).not.toContain('[data-theme="light"] .etrade-pin-modal');
+      expect(tokensCss).not.toContain('[data-theme="light"] .diagnostics-modal');
+      expect(tokensCss).not.toContain('[data-theme="light"] .quote-modal-content');
     });
 
-    it("tokenizes modal headers and close/cancel buttons for both themes", () => {
+    it("tokenizes modal headers and close/cancel buttons using semantic tokens", () => {
       expect(tokensCss).toContain(".modal-header");
-      expect(tokensCss).toContain('[data-theme="light"] .modal-header');
       expect(tokensCss).toContain(".btn-close-modal");
-      expect(tokensCss).toContain('[data-theme="light"] .btn-close-modal');
       expect(tokensCss).toContain(".btn-cancel-modal");
-      expect(tokensCss).toContain('[data-theme="light"] .btn-cancel-modal');
+      expect(tokensCss).toContain("var(--color-surface-sunken)");
+      expect(tokensCss).toContain("var(--color-surface-hover)");
     });
 
-    it("tokenizes E*TRADE OAuth PIN modal instructions, badges, inputs, and action buttons in light mode", () => {
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .step-instruction');
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .step-number');
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .btn-open-etrade');
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .pin-input');
-      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .btn-submit-pin');
-      expect(tokensCss).toContain("background: #ecfdf5 !important");
-      expect(tokensCss).toContain("color: #059669 !important");
+    it("tokenizes E*TRADE OAuth PIN modal instructions with semantic tokens", () => {
+      expect(tokensCss).toContain(".etrade-pin-modal .step-instruction");
+      expect(tokensCss).toContain("var(--color-text-secondary)");
     });
   });
 
-  describe("Section 6: E*TRADE Live REST Diagnostics Modal Token Alignment", () => {
-    it("defines high contrast tokens for diagnostic credentials cards in light mode", () => {
+  describe("E*TRADE Live REST Diagnostics Modal Token Alignment", () => {
+    it("defines semantic tokens for diagnostic credentials cards", () => {
       expect(tokensCss).toContain(".diagnostics-modal .diag-card");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .diag-card');
       expect(tokensCss).toContain(".diagnostics-modal .diag-label");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .diag-label');
       expect(tokensCss).toContain(".diagnostics-modal .diag-val");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .diag-val');
+      expect(tokensCss).toContain("var(--color-surface-sunken)");
+      expect(tokensCss).toContain("var(--color-text-muted)");
+      expect(tokensCss).toContain("var(--color-text-primary)");
     });
 
-    it("styles diagnostic error banners and technical drawer to prevent jarring contrast mismatches", () => {
+    it("styles diagnostic error banners and technical drawer with semantic tokens", () => {
       expect(tokensCss).toContain(".diagnostics-modal .diag-error-box");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .diag-error-box');
       expect(tokensCss).toContain(".diagnostics-modal .diagnostics-drawer");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .diagnostics-drawer');
       expect(tokensCss).toContain(".diagnostics-modal details.diag-raw-box");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal details.diag-raw-box');
+      expect(tokensCss).toContain("var(--color-danger-subtle)");
+      expect(tokensCss).toContain("var(--color-border-subtle)");
     });
 
-    it("provides light and dark variants for status pills and action buttons", () => {
+    it("provides semantic tokens for status pills and action buttons", () => {
       expect(tokensCss).toContain(".diagnostics-modal .status-pill");
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .status-error');
-      expect(tokensCss).toContain('[data-theme="light"] .diagnostics-modal .status-healthy');
+      expect(tokensCss).toContain(".diagnostics-modal .status-healthy");
+      expect(tokensCss).toContain(".diagnostics-modal .status-error");
       expect(tokensCss).toContain(".diagnostics-modal .diag-modal-actions");
+      expect(tokensCss).toContain("var(--color-success-subtle)");
+      expect(tokensCss).toContain("var(--color-danger-subtle)");
     });
   });
 
@@ -98,7 +92,7 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
     });
   });
 
-  describe("Section 7: Strategy Discovery & Payoff Analyzer Top Buttons Token Architecture", () => {
+  describe("Strategy Discovery & Payoff Analyzer Top Buttons Token Architecture", () => {
     const stratCss = fs.readFileSync(path.resolve("src/client/options/strategyDiscovery.css"), "utf8");
 
     it("standardizes top button heights, typography, and border radius across both rows", () => {
@@ -111,27 +105,15 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
       expect(tokensCss).toContain("border-radius: var(--radius-sm, 6px)");
     });
 
-    it("ensures the trade button is vibrant and high-contrast in light mode", () => {
-      expect(tokensCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
-      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
-      expect(stylesCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
-      expect(stratCss).toContain("background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important");
-      expect(stratCss).toContain("color: #ffffff !important");
+    it("ensures the trade button has high-contrast prominence", () => {
+      expect(tokensCss).toContain(".strat-action-chip.trade-fast");
+      expect(tokensCss).toContain("linear-gradient(135deg, #ea580c 0%, #c2410c 100%)");
     });
 
-    it("uses semantic border tokens instead of text-color tokens in light theme", () => {
-      // In light theme, borders must use border tokens, not text tokens
-      expect(stratCss).toContain('[data-theme="light"] .strat-view-tabs');
-      expect(stratCss).toContain("border-bottom-color: var(--color-border-subtle)");
-      expect(stratCss).not.toContain('[data-theme="light"] .strat-view-tabs,\nbody.theme-light .strat-view-tabs {\n  border-bottom-color: var(--color-text-secondary);');
-    });
-
-    it("provides explicit light mode high-contrast styles for secondary actions", () => {
-      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.highlight');
-      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.save');
-      expect(stratCss).toContain('[data-theme="light"] .strat-btn-action.eval-llm');
-      expect(stratCss).toContain('[data-theme="light"] .strat-btn-action.risk-btn');
-      expect(stratCss).toContain('[data-theme="light"] .options-download-main-btn');
+    it("eliminates brittle overrides in strategyDiscovery.css in favor of native tokens", () => {
+      expect(stratCss).not.toContain('[data-theme="light"] .strat-view-tabs');
+      expect(stratCss).not.toContain('[data-theme="light"] .strat-action-chip.highlight');
+      expect(stratCss).not.toContain('[data-theme="light"] .strat-btn-action.eval-llm');
     });
 
     it("structures Optimization Bias on top and percentages below it adjacent to sentiment icons", () => {
@@ -143,8 +125,6 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
       expect(stratCss).toContain("flex-direction: column");
       expect(stratCss).toContain(".strat-opt-deck-top");
       expect(stratCss).toContain(".strat-opt-deck-bottom");
-      expect(tokensCss).toContain('[data-theme="light"] .strat-opt-adjacent-deck');
-      expect(tokensCss).toContain('[data-theme="light"] .strat-opt-adjacent-factors .strat-factor-chip');
     });
   });
 });

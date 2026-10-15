@@ -261,6 +261,9 @@ body.theme-dark,
   --color-info-foreground: #060913;
   --color-info-subtle: rgba(56, 189, 248, 0.14);
 
+  --color-purple: #a855f7;
+  --color-orange: #f97316;
+
   /* Market Sentiment Roles (Canonical Token Architecture - Dark Theme) */
   --color-sentiment-all: #38bdf8;
   --color-sentiment-all-subtle: rgba(56, 189, 248, 0.15);
@@ -298,6 +301,7 @@ body.theme-dark,
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.55);
   --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.45);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.7);
   --glow-shadow: 0 0 24px rgba(16, 185, 129, 0.2);
 
   /* Scrollbar */
@@ -378,6 +382,9 @@ body.theme-light,
   --color-info-foreground: #ffffff;
   --color-info-subtle: rgba(2, 132, 199, 0.12);
 
+  --color-purple: #7c3aed;
+  --color-orange: #ea580c;
+
   /* Market Sentiment Roles (Canonical Token Architecture - Light Theme) */
   --color-sentiment-all: #0284c7;
   --color-sentiment-all-subtle: rgba(2, 132, 199, 0.12);
@@ -415,6 +422,7 @@ body.theme-light,
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.08);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --modal-backdrop-bg: rgba(15, 23, 42, 0.45);
   --glow-shadow: 0 4px 16px rgba(16, 185, 129, 0.12);
 
   /* Scrollbar */
@@ -427,11 +435,7 @@ body.theme-light,
    3. LEGACY TOKEN ALIASES (ZERO-BREAKAGE COMPATIBILITY LAYER)
    ========================================================================== */
 
-:root,
-[data-theme="dark"],
-[data-theme="light"],
-body.theme-dark,
-body.theme-light {
+:root {
   --bg-base: var(--color-surface);
   --bg-surface: var(--color-surface-raised);
   --bg-card: var(--color-card);
@@ -553,77 +557,6 @@ body.theme-light {
 }
 
 /* ==========================================================================
-   5. HOLISTIC TOKEN-DRIVEN THEME ADAPTATION
-   Enforces semantic tokens across all views and panels without page-by-page ad-hoc fixes
-   ========================================================================== */
-
-[data-theme="light"],
-body.theme-light,
-.light {
-  background-color: var(--color-surface) !important;
-  color: var(--color-text-primary) !important;
-}
-
-/* App Sub-Header Breadcrumb Bar */
-[data-theme="light"] .app-sub-header,
-body.theme-light .app-sub-header {
-  background: rgba(248, 250, 252, 0.96) !important;
-  border-bottom: 1px solid var(--color-border-subtle) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .crumb-main,
-[data-theme="light"] .crumb-module,
-body.theme-light .crumb-main,
-body.theme-light .crumb-module {
-  color: var(--color-text-primary) !important;
-}
-
-[data-theme="light"] .crumb-divider,
-body.theme-light .crumb-divider {
-  color: var(--color-border-strong) !important;
-}
-
-[data-theme="light"] .crumb-subtitle,
-body.theme-light .crumb-subtitle {
-  background: var(--color-surface-sunken) !important;
-  color: var(--color-text-secondary) !important;
-  border-color: var(--color-border-subtle) !important;
-}
-
-/* Universal Page & Hero Titles Across All Tabs (Workflows, Referrals, Audit, NLQ) */
-[data-theme="light"] .tab-hero-header .hero-text-block h3,
-[data-theme="light"] .nlq-header h3,
-[data-theme="light"] .audit-header h3,
-[data-theme="light"] .workflows-hero-title,
-[data-theme="light"] .page-hero-title,
-[data-theme="light"] .section-title,
-[data-theme="light"] .trading-section h3,
-body.theme-light .tab-hero-header .hero-text-block h3,
-body.theme-light .nlq-header h3,
-body.theme-light .audit-header h3,
-body.theme-light .workflows-hero-title,
-body.theme-light .page-hero-title,
-body.theme-light .section-title,
-body.theme-light .trading-section h3 {
-  background: none !important;
-  -webkit-background-clip: unset !important;
-  -webkit-text-fill-color: var(--color-text-primary) !important;
-  color: var(--color-text-primary) !important;
-}
-
-[data-theme="light"] .tab-hero-header .hero-text-block p,
-[data-theme="light"] .nlq-header p,
-[data-theme="light"] .audit-header p,
-[data-theme="light"] .workflows-hero-subtitle,
-body.theme-light .tab-hero-header .hero-text-block p,
-body.theme-light .nlq-header p,
-body.theme-light .audit-header p,
-body.theme-light .workflows-hero-subtitle {
-  color: var(--color-text-muted) !important;
-}
-
-/* ==========================================================================
    UNIVERSAL STANDARDIZED GEOMETRY (NO SHARP RECTANGULAR BOXES)
    ========================================================================== */
 
@@ -697,528 +630,6 @@ code:not(.did-pill code) {
 .dual-card-status-pill,
 .dual-feed-snapshot-badge {
   border-radius: 9999px !important;
-}
-
-/* ==========================================================================
-   HOLISTIC LIGHT THEME SURFACES: ALL CARDS, PANELS & CONTAINERS
-   ========================================================================== */
-[data-theme="light"] .rev-card,
-[data-theme="light"] .revenue-section-card,
-[data-theme="light"] .ad-spotlight-card,
-[data-theme="light"] .platform-card,
-[data-theme="light"] .gateway-card,
-[data-theme="light"] .event-item,
-[data-theme="light"] .memory-card-item,
-[data-theme="light"] .audit-panel,
-[data-theme="light"] .info-card,
-[data-theme="light"] .deal-card,
-[data-theme="light"] .strategy-card,
-[data-theme="light"] .referral-stat-card,
-[data-theme="light"] .referral-share-card,
-[data-theme="light"] .referral-social-hub-card,
-[data-theme="light"] .workflows-stat-card,
-[data-theme="light"] .create-subcard,
-[data-theme="light"] .table-card,
-[data-theme="light"] .stat-card,
-[data-theme="light"] .referral-form-card,
-[data-theme="light"] .google-ad-container,
-[data-theme="light"] .builder-panel,
-[data-theme="light"] .order-ticket-container,
-[data-theme="light"] .screener-section,
-[data-theme="light"] .events-stream,
-[data-theme="light"] .research-header-banner,
-[data-theme="light"] .omnichannel-header-card,
-[data-theme="light"] .voice-header-card,
-body.theme-light .rev-card,
-body.theme-light .revenue-section-card,
-body.theme-light .ad-spotlight-card,
-body.theme-light .platform-card,
-body.theme-light .gateway-card,
-body.theme-light .event-item,
-body.theme-light .memory-card-item,
-body.theme-light .audit-panel,
-body.theme-light .info-card,
-body.theme-light .deal-card,
-body.theme-light .strategy-card,
-body.theme-light .referral-stat-card,
-body.theme-light .referral-share-card,
-body.theme-light .referral-social-hub-card,
-body.theme-light .workflows-stat-card,
-body.theme-light .create-subcard,
-body.theme-light .table-card,
-body.theme-light .stat-card,
-body.theme-light .referral-form-card,
-body.theme-light .google-ad-container,
-body.theme-light .builder-panel,
-body.theme-light .order-ticket-container,
-body.theme-light .screener-section,
-body.theme-light .events-stream,
-body.theme-light .research-header-banner,
-body.theme-light .omnichannel-header-card,
-body.theme-light .voice-header-card {
-  background: var(--color-card) !important;
-  color: var(--color-card-foreground) !important;
-  border: 1px solid var(--color-card-border) !important;
-  box-shadow: var(--shadow-card) !important;
-}
-
-/* Systemic Inner Chips, Tags, Code & Payload Containers */
-[data-theme="light"] .gw-cap-tag,
-[data-theme="light"] .gw-webhook-info,
-[data-theme="light"] .event-payload,
-[data-theme="light"] .ad-stat-pill,
-[data-theme="light"] .ad-badge-tag,
-[data-theme="light"] .did-pill,
-[data-theme="light"] .bullet-item,
-[data-theme="light"] .screener-feed-callout,
-body.theme-light .gw-cap-tag,
-body.theme-light .gw-webhook-info,
-body.theme-light .event-payload,
-body.theme-light .ad-stat-pill,
-body.theme-light .ad-badge-tag,
-body.theme-light .did-pill,
-body.theme-light .bullet-item,
-body.theme-light .screener-feed-callout {
-  background: var(--color-surface-sunken) !important;
-  color: var(--color-text-secondary) !important;
-  border-color: var(--color-border-subtle) !important;
-}
-
-/* Systemic Headings Inside Cards */
-[data-theme="light"] .ad-card-title,
-[data-theme="light"] .platform-info strong,
-[data-theme="light"] .gw-name-group h5,
-[data-theme="light"] .revenue-section-card .card-header h4,
-[data-theme="light"] .create-subcard h5,
-[data-theme="light"] .referral-form-card .card-header h4,
-[data-theme="light"] .stat-meta .stat-label,
-[data-theme="light"] .event-type,
-[data-theme="light"] .table-card h5,
-[data-theme="light"] .referral-share-left h4,
-[data-theme="light"] .info-card h5,
-[data-theme="light"] .panel-title,
-body.theme-light .ad-card-title,
-body.theme-light .platform-info strong,
-body.theme-light .gw-name-group h5,
-body.theme-light .revenue-section-card .card-header h4,
-body.theme-light .create-subcard h5,
-body.theme-light .referral-form-card .card-header h4,
-body.theme-light .stat-meta .stat-label,
-body.theme-light .event-type,
-body.theme-light .table-card h5,
-body.theme-light .referral-share-left h4,
-body.theme-light .info-card h5,
-body.theme-light .panel-title {
-  color: var(--color-text-primary) !important;
-}
-
-/* Systemic Subtitles & Descriptions Inside Cards */
-[data-theme="light"] .ad-card-tagline,
-[data-theme="light"] .platform-info span,
-[data-theme="light"] .gw-webhook-info code,
-[data-theme="light"] .did-pill code,
-[data-theme="light"] .revenue-section-card .card-header p,
-[data-theme="light"] .workflows-stat-desc,
-[data-theme="light"] .workflows-stat-label,
-[data-theme="light"] .social-label,
-[data-theme="light"] .referral-share-left p,
-[data-theme="light"] .audit-panel .panel-title span,
-[data-theme="light"] .mem-value,
-[data-theme="light"] .mem-date,
-body.theme-light .ad-card-tagline,
-body.theme-light .platform-info span,
-body.theme-light .gw-webhook-info code,
-body.theme-light .did-pill code,
-body.theme-light .revenue-section-card .card-header p,
-body.theme-light .workflows-stat-desc,
-body.theme-light .workflows-stat-label,
-body.theme-light .social-label,
-body.theme-light .referral-share-left p,
-body.theme-light .audit-panel .panel-title span,
-body.theme-light .mem-value,
-body.theme-light .mem-date {
-  color: var(--color-text-secondary) !important;
-}
-
-/* Systemic Revenue Analytics Color Gradients & Contrast */
-[data-theme="light"] .rev-card .rev-val,
-body.theme-light .rev-card .rev-val {
-  color: var(--color-text-primary) !important;
-}
-
-[data-theme="light"] .rev-card .rev-label,
-body.theme-light .rev-card .rev-label {
-  color: var(--color-text-muted) !important;
-}
-
-[data-theme="light"] .rev-card.highlight-rev,
-body.theme-light .rev-card.highlight-rev {
-  background: #ecfdf5 !important;
-  border-color: #6ee7b7 !important;
-}
-[data-theme="light"] .rev-card.highlight-rev .rev-val,
-body.theme-light .rev-card.highlight-rev .rev-val {
-  color: #047857 !important;
-}
-
-[data-theme="light"] .rev-card.expense-card,
-body.theme-light .rev-card.expense-card {
-  background: #fef2f2 !important;
-  border-color: #fca5a5 !important;
-}
-[data-theme="light"] .rev-card.expense-card .rev-val,
-body.theme-light .rev-card.expense-card .rev-val {
-  color: #b91c1c !important;
-}
-
-[data-theme="light"] .rev-card.net-profit-card,
-body.theme-light .rev-card.net-profit-card {
-  background: #eef2ff !important;
-  border-color: #a5b4fc !important;
-}
-[data-theme="light"] .rev-card.net-profit-card .rev-val,
-body.theme-light .rev-card.net-profit-card .rev-val {
-  color: #4338ca !important;
-}
-
-/* Hover States on Cards in Light Theme */
-[data-theme="light"] .platform-card:hover,
-[data-theme="light"] .ad-spotlight-card:hover,
-[data-theme="light"] .gateway-card:hover,
-[data-theme="light"] .rev-card:hover,
-body.theme-light .platform-card:hover,
-body.theme-light .ad-spotlight-card:hover,
-body.theme-light .gateway-card:hover,
-body.theme-light .rev-card:hover {
-  background: var(--color-card-hover) !important;
-  border-color: var(--color-border-medium) !important;
-  box-shadow: var(--shadow-md) !important;
-}
-
-/* Input Fields & Text Areas */
-[data-theme="light"] .control-item input,
-[data-theme="light"] .control-item select,
-[data-theme="light"] .referral-url-field,
-[data-theme="light"] .search-input,
-[data-theme="light"] .audit-view input,
-[data-theme="light"] .trading-section input,
-[data-theme="light"] .trading-section select,
-body.theme-light .control-item input,
-body.theme-light .control-item select,
-body.theme-light .referral-url-field,
-body.theme-light .search-input,
-body.theme-light .audit-view input,
-body.theme-light .trading-section input,
-body.theme-light .trading-section select {
-  background: var(--color-input) !important;
-  color: var(--color-input-foreground) !important;
-  border-color: var(--color-input-border) !important;
-}
-
-/* Source Notes & Badges */
-[data-theme="light"] .stock-screener-source-note,
-[data-theme="light"] .screener-source-banner,
-[data-theme="light"] .live-feed-banner,
-body.theme-light .stock-screener-source-note,
-body.theme-light .screener-source-banner,
-body.theme-light .live-feed-banner {
-  background: var(--color-surface-sunken) !important;
-  border: 1px solid var(--color-border-subtle) !important;
-  color: var(--color-text-secondary) !important;
-}
-
-/* Universal Risk Button in Light Theme */
-[data-theme="light"] .btn-universal-risk,
-body.theme-light .btn-universal-risk {
-  background: rgba(99, 102, 241, 0.08) !important;
-  border-color: rgba(99, 102, 241, 0.3) !important;
-  color: #4f46e5 !important;
-}
-
-[data-theme="light"] .btn-universal-risk:hover:not(:disabled),
-body.theme-light .btn-universal-risk:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.16) !important;
-  border-color: #4f46e5 !important;
-  color: #312e81 !important;
-}
-
-/* Top Right Fixed Icon Buttons (Settings & Sign Out) in Light Theme */
-[data-theme="light"] .icon-only-settings-btn,
-[data-theme="light"] .icon-only-logout,
-body.theme-light .icon-only-settings-btn,
-body.theme-light .icon-only-logout {
-  background: var(--color-surface-sunken) !important;
-  border-color: var(--color-border-subtle) !important;
-  color: var(--color-text-secondary) !important;
-}
-
-[data-theme="light"] .icon-only-settings-btn:hover,
-[data-theme="light"] .icon-only-logout:hover,
-body.theme-light .icon-only-settings-btn:hover,
-body.theme-light .icon-only-logout:hover {
-  background: var(--color-surface-hover) !important;
-  border-color: var(--color-border-medium) !important;
-  color: var(--color-text-primary) !important;
-}
-
-/* ==========================================================================
-   SYSTEMIC LIGHT THEME RULES: DID, REVENUE, ADS, SOCIAL & WORKFLOWS
-   ========================================================================== */
-
-/* Payments & DID Page */
-.payments-view {
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-  overflow-x: hidden !important;
-}
-
-.gateway-cards-grid {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)) !important;
-  gap: 1.25rem !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-}
-
-.gateway-card {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-}
-
-[data-theme="light"] .payments-view,
-body.theme-light .payments-view {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .agent-dids-ribbon .did-pill,
-body.theme-light .agent-dids-ribbon .did-pill {
-  background: #f1f5f9 !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #1e293b !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-}
-
-[data-theme="light"] .did-pill code,
-body.theme-light .did-pill code {
-  color: #0369a1 !important;
-}
-
-[data-theme="light"] .did-role-tag,
-body.theme-light .did-role-tag {
-  background: #e0e7ff !important;
-  color: #3730a3 !important;
-}
-
-[data-theme="light"] .did-role-tag.authorizer,
-body.theme-light .did-role-tag.authorizer {
-  background: #d1fae5 !important;
-  color: #065f46 !important;
-}
-
-[data-theme="light"] .gateway-card,
-body.theme-light .gateway-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .gw-name-group h5,
-body.theme-light .gw-name-group h5 {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .gw-cap-tag,
-body.theme-light .gw-cap-tag {
-  background: #f1f5f9 !important;
-  color: #334155 !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-}
-
-[data-theme="light"] .gw-webhook-info,
-body.theme-light .gw-webhook-info {
-  background: #f8fafc !important;
-  color: #475569 !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-  word-break: break-all !important;
-  overflow-wrap: anywhere !important;
-}
-
-/* Revenue & Monetization */
-[data-theme="light"] .rev-card,
-body.theme-light .rev-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
-}
-
-[data-theme="light"] .revenue-section-card,
-body.theme-light .revenue-section-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .revenue-section-card .card-header h4,
-body.theme-light .revenue-section-card .card-header h4 {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .revenue-section-card .card-header p,
-body.theme-light .revenue-section-card .card-header p {
-  color: #64748b !important;
-}
-
-/* Sponsored Offers & Marketplace */
-[data-theme="light"] .ad-spotlight-card,
-body.theme-light .ad-spotlight-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
-}
-
-[data-theme="light"] .ad-card-title,
-body.theme-light .ad-card-title {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .ad-card-tagline,
-body.theme-light .ad-card-tagline {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .ad-sponsor-label,
-body.theme-light .ad-sponsor-label {
-  color: #64748b !important;
-}
-
-[data-theme="light"] .ad-stat-pill,
-body.theme-light .ad-stat-pill {
-  background: #f1f5f9 !important;
-  color: #334155 !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-}
-
-/* Developer Social Platforms / Referrals */
-[data-theme="light"] .referral-social-hub-card,
-body.theme-light .referral-social-hub-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .platform-card,
-body.theme-light .platform-card {
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .platform-card:hover,
-body.theme-light .platform-card:hover {
-  background: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-}
-
-[data-theme="light"] .platform-info strong,
-body.theme-light .platform-info strong {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .platform-info span,
-body.theme-light .platform-info span {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .join-arrow,
-body.theme-light .join-arrow {
-  color: #94a3b8 !important;
-}
-
-/* Audit & Memory Vault */
-[data-theme="light"] .event-item,
-body.theme-light .event-item {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-}
-
-[data-theme="light"] .event-payload,
-body.theme-light .event-payload {
-  background: #f8fafc !important;
-  color: #334155 !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-}
-
-[data-theme="light"] .memory-card-item,
-body.theme-light .memory-card-item {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-}
-
-/* Architecture Workflows Hub */
-[data-theme="light"] .workflows-stat-card,
-body.theme-light .workflows-stat-card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
-}
-
-[data-theme="light"] .workflows-hero-title,
-body.theme-light .workflows-hero-title {
-  color: #0f172a !important;
-  -webkit-text-fill-color: #0f172a !important;
-}
-
-[data-theme="light"] .workflows-hero-subtitle,
-body.theme-light .workflows-hero-subtitle {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .workflows-stat-value,
-body.theme-light .workflows-stat-value {
-  color: #0284c7 !important;
-}
-
-[data-theme="light"] .workflows-stat-label,
-body.theme-light .workflows-stat-label,
-[data-theme="light"] .workflows-stat-desc,
-body.theme-light .workflows-stat-desc {
-  color: #64748b !important;
-}
-
-[data-theme="light"] .workflows-search-input,
-body.theme-light .workflows-search-input {
-  background: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
-  border-radius: 8px !important;
-}
-
-[data-theme="light"] .workflows-cat-chip,
-body.theme-light .workflows-cat-chip {
-  background: #f1f5f9 !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #475569 !important;
-  border-radius: 8px !important;
-}
-
-[data-theme="light"] .workflows-cat-chip.active,
-body.theme-light .workflows-cat-chip.active {
-  background: #e0f2fe !important;
-  border-color: #0284c7 !important;
-  color: #0284c7 !important;
 }
 
 /* ==========================================================================
@@ -1446,7 +857,7 @@ body.theme-light .workflows-cat-chip.active {
 .flow-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.7));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -1454,25 +865,6 @@ body.theme-light .workflows-cat-chip.active {
   justify-content: center;
   z-index: 9999;
   box-sizing: border-box;
-}
-
-[data-theme="light"] .modal-backdrop,
-body.theme-light .modal-backdrop,
-[data-theme="light"] .quote-modal-backdrop,
-body.theme-light .quote-modal-backdrop,
-[data-theme="light"] .partner-deals-modal-backdrop,
-body.theme-light .partner-deals-modal-backdrop,
-[data-theme="light"] .llm-eval-modal-backdrop,
-body.theme-light .llm-eval-modal-backdrop,
-[data-theme="light"] .stock-search-modal-backdrop,
-body.theme-light .stock-search-modal-backdrop,
-[data-theme="light"] .risk-modal-overlay,
-body.theme-light .risk-modal-overlay,
-[data-theme="light"] .strat-modal-backdrop,
-body.theme-light .strat-modal-backdrop,
-[data-theme="light"] .flow-modal-backdrop,
-body.theme-light .flow-modal-backdrop {
-  background: rgba(15, 23, 42, 0.45) !important;
 }
 
 /* Universal Modal Container Card */
@@ -1498,33 +890,7 @@ body.theme-light .flow-modal-backdrop {
   flex-direction: column;
 }
 
-[data-theme="light"] .modal-dialog,
-body.theme-light .modal-dialog,
-[data-theme="light"] .modal-card,
-body.theme-light .modal-card,
-[data-theme="light"] .etrade-pin-modal,
-body.theme-light .etrade-pin-modal,
-[data-theme="light"] .diagnostics-modal,
-body.theme-light .diagnostics-modal,
-[data-theme="light"] .quote-modal-content,
-body.theme-light .quote-modal-content,
-[data-theme="light"] .partner-deals-modal-card,
-body.theme-light .partner-deals-modal-card,
-[data-theme="light"] .llm-eval-modal-content,
-body.theme-light .llm-eval-modal-content,
-[data-theme="light"] .risk-modal-container,
-body.theme-light .risk-modal-container,
-[data-theme="light"] .autopilot-edit-limits-modal,
-body.theme-light .autopilot-edit-limits-modal,
-[data-theme="light"] .kill-switch-modal,
-body.theme-light .kill-switch-modal,
-[data-theme="light"] .flow-modal-dialog,
-body.theme-light .flow-modal-dialog {
-  background: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.05) !important;
-}
+
 
 /* Universal Modal Header */
 .modal-header,
@@ -1540,17 +906,7 @@ body.theme-light .flow-modal-dialog {
   box-sizing: border-box;
 }
 
-[data-theme="light"] .modal-header,
-body.theme-light .modal-header,
-[data-theme="light"] .partner-deals-header,
-body.theme-light .partner-deals-header,
-[data-theme="light"] .llm-eval-modal-header,
-body.theme-light .llm-eval-modal-header,
-[data-theme="light"] .risk-modal-header,
-body.theme-light .risk-modal-header {
-  background: #f8fafc !important;
-  border-bottom-color: #e2e8f0 !important;
-}
+
 
 .modal-header h3,
 .modal-header h4,
@@ -1561,14 +917,7 @@ body.theme-light .risk-modal-header {
   color: var(--color-accent);
 }
 
-[data-theme="light"] .modal-header h3,
-body.theme-light .modal-header h3,
-[data-theme="light"] .modal-header h4,
-body.theme-light .modal-header h4,
-[data-theme="light"] .modal-ticker,
-body.theme-light .modal-ticker {
-  color: #0284c7 !important;
-}
+
 
 /* Close & Cancel Buttons */
 .btn-close-modal {
@@ -1588,16 +937,7 @@ body.theme-light .modal-ticker {
   color: var(--color-text-primary);
 }
 
-[data-theme="light"] .btn-close-modal,
-body.theme-light .btn-close-modal {
-  color: #64748b !important;
-}
 
-[data-theme="light"] .btn-close-modal:hover,
-body.theme-light .btn-close-modal:hover {
-  background: #e2e8f0 !important;
-  color: #0f172a !important;
-}
 
 .btn-cancel-modal {
   display: inline-flex;
@@ -1619,19 +959,7 @@ body.theme-light .btn-close-modal:hover {
   border-color: var(--color-border-strong);
 }
 
-[data-theme="light"] .btn-cancel-modal,
-body.theme-light .btn-cancel-modal {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #334155 !important;
-}
 
-[data-theme="light"] .btn-cancel-modal:hover,
-body.theme-light .btn-cancel-modal:hover {
-  background: #e2e8f0 !important;
-  border-color: #94a3b8 !important;
-  color: #0f172a !important;
-}
 
 /* Modal Body */
 .modal-body {
@@ -1655,144 +983,7 @@ body.theme-light .btn-cancel-modal:hover {
   color: var(--color-text-secondary);
 }
 
-[data-theme="light"] .etrade-pin-modal .step-instruction,
-body.theme-light .etrade-pin-modal .step-instruction {
-  color: #334155 !important;
-}
 
-.etrade-pin-modal .step-number {
-  background: var(--color-accent, #38bdf8);
-  color: #0f172a;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-full, 9999px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.75rem;
-  flex-shrink: 0;
-}
-
-[data-theme="light"] .etrade-pin-modal .step-number,
-body.theme-light .etrade-pin-modal .step-number {
-  background: #0284c7 !important;
-  color: #ffffff !important;
-}
-
-.etrade-pin-modal .btn-open-etrade {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2, 0.5rem);
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  border-radius: var(--radius-md, 8px);
-  padding: 0.65rem 1.1rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  margin: var(--space-2, 0.5rem) 0 var(--space-4, 1rem);
-  transition: all var(--transition-fast, 120ms) ease;
-}
-
-.etrade-pin-modal .btn-open-etrade:hover {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: #34d399;
-}
-
-[data-theme="light"] .etrade-pin-modal .btn-open-etrade,
-body.theme-light .etrade-pin-modal .btn-open-etrade {
-  background: #ecfdf5 !important;
-  color: #059669 !important;
-  border: 1px solid #6ee7b7 !important;
-}
-
-[data-theme="light"] .etrade-pin-modal .btn-open-etrade:hover,
-body.theme-light .etrade-pin-modal .btn-open-etrade:hover {
-  background: #d1fae5 !important;
-  color: #047857 !important;
-  border-color: #34d399 !important;
-}
-
-.etrade-pin-modal .pin-input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
-  border: 1px solid var(--color-border-medium, rgba(56, 189, 248, 0.4));
-  border-radius: var(--radius-md, 8px);
-  color: var(--color-text-primary, #ffffff);
-  font-variant-numeric: tabular-nums;
-  font-size: 1.15rem;
-  letter-spacing: 0.12em;
-  text-align: center;
-  margin-bottom: var(--space-4, 1rem);
-  box-sizing: border-box;
-  font-weight: 700;
-  transition: all var(--transition-fast, 120ms) ease;
-}
-
-.etrade-pin-modal .pin-input:focus {
-  border-color: var(--color-accent);
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
-}
-
-[data-theme="light"] .etrade-pin-modal .pin-input,
-body.theme-light .etrade-pin-modal .pin-input {
-  background: #ffffff !important;
-  border: 1.5px solid #94a3b8 !important;
-  color: #0f172a !important;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06) !important;
-}
-
-[data-theme="light"] .etrade-pin-modal .pin-input:focus,
-body.theme-light .etrade-pin-modal .pin-input:focus {
-  border-color: #0284c7 !important;
-  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18) !important;
-}
-
-.etrade-pin-modal .btn-submit-pin {
-  flex: 2;
-  background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
-  color: #ffffff;
-  border: none;
-  border-radius: var(--radius-md, 8px);
-  padding: 0.75rem 1.25rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all var(--transition-fast, 120ms) ease;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
-}
-
-.etrade-pin-modal .btn-submit-pin:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45);
-  transform: translateY(-1px);
-}
-
-.etrade-pin-modal .btn-submit-pin:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-[data-theme="light"] .etrade-pin-modal .btn-submit-pin,
-body.theme-light .etrade-pin-modal .btn-submit-pin {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25) !important;
-}
-
-[data-theme="light"] .etrade-pin-modal .btn-submit-pin:hover:not(:disabled),
-body.theme-light .etrade-pin-modal .btn-submit-pin:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
-}
-
-[data-theme="light"] .etrade-pin-modal p,
-body.theme-light .etrade-pin-modal p {
-  color: #475569 !important;
-}
 
 /* ==========================================================================
    6. E*TRADE LIVE REST DIAGNOSTICS MODAL (TOKEN ALIGNMENT)
@@ -1817,10 +1008,7 @@ body.theme-light .etrade-pin-modal p {
   color: var(--color-text-muted);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-gateway-text,
-body.theme-light .diagnostics-modal .diag-gateway-text {
-  color: #475569 !important;
-}
+
 
 /* Status Pill in Diagnostics Modal */
 .diagnostics-modal .status-pill {
@@ -1852,28 +1040,7 @@ body.theme-light .diagnostics-modal .diag-gateway-text {
   border: 1px solid var(--color-danger);
 }
 
-[data-theme="light"] .diagnostics-modal .status-healthy,
-body.theme-light .diagnostics-modal .status-healthy {
-  background: #dcfce7 !important;
-  color: #15803d !important;
-  border-color: #86efac !important;
-}
 
-[data-theme="light"] .diagnostics-modal .status-auth_required,
-body.theme-light .diagnostics-modal .status-auth_required {
-  background: #fef3c7 !important;
-  color: #b45309 !important;
-  border-color: #fcd34d !important;
-}
-
-[data-theme="light"] .diagnostics-modal .status-error,
-body.theme-light .diagnostics-modal .status-error,
-[data-theme="light"] .diagnostics-modal .status-unknown,
-body.theme-light .diagnostics-modal .status-unknown {
-  background: #fee2e2 !important;
-  color: #b91c1c !important;
-  border-color: #fca5a5 !important;
-}
 
 /* Diagnostics Error Box */
 .diagnostics-modal .diag-error-box {
@@ -1886,22 +1053,14 @@ body.theme-light .diagnostics-modal .status-unknown {
   font-size: var(--font-size-body-sm, 0.82rem);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-error-box,
-body.theme-light .diagnostics-modal .diag-error-box {
-  background: #fef2f2 !important;
-  border-color: #fca5a5 !important;
-  color: #b91c1c !important;
-}
+
 
 .diagnostics-modal .diag-error-title {
   font-weight: 700;
   display: block;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-error-title,
-body.theme-light .diagnostics-modal .diag-error-title {
-  color: #991b1b !important;
-}
+
 
 .diagnostics-modal .diag-error-msg {
   margin-top: var(--space-1-5, 0.35rem);
@@ -1910,10 +1069,7 @@ body.theme-light .diagnostics-modal .diag-error-title {
   font-size: 0.8rem;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-error-msg,
-body.theme-light .diagnostics-modal .diag-error-msg {
-  color: #7f1d1d !important;
-}
+
 
 .diagnostics-modal .diag-sandbox-switch {
   margin-top: var(--space-3, 0.75rem);
@@ -1926,10 +1082,7 @@ body.theme-light .diagnostics-modal .diag-error-msg {
   gap: var(--space-2, 0.5rem);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-sandbox-switch,
-body.theme-light .diagnostics-modal .diag-sandbox-switch {
-  border-top-color: #fca5a5 !important;
-}
+
 
 .diagnostics-modal .diag-sandbox-hint {
   color: var(--color-warning);
@@ -1937,10 +1090,7 @@ body.theme-light .diagnostics-modal .diag-sandbox-switch {
   font-size: 0.82rem;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-sandbox-hint,
-body.theme-light .diagnostics-modal .diag-sandbox-hint {
-  color: #b45309 !important;
-}
+
 
 /* Diagnostics 4-Card Credential Grid */
 .diagnostics-modal .diag-grid {
@@ -1958,11 +1108,7 @@ body.theme-light .diagnostics-modal .diag-sandbox-hint {
   box-sizing: border-box;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-card,
-body.theme-light .diagnostics-modal .diag-card {
-  background: #f8fafc !important;
-  border-color: #e2e8f0 !important;
-}
+
 
 .diagnostics-modal .diag-label {
   font-size: var(--font-size-caption, 0.72rem);
@@ -1972,10 +1118,7 @@ body.theme-light .diagnostics-modal .diag-card {
   font-weight: var(--font-weight-medium, 500);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-label,
-body.theme-light .diagnostics-modal .diag-label {
-  color: #64748b !important;
-}
+
 
 .diagnostics-modal .diag-val {
   font-size: var(--font-size-body-sm, 0.88rem);
@@ -1984,28 +1127,19 @@ body.theme-light .diagnostics-modal .diag-label {
   margin-top: var(--space-1, 0.25rem);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-val,
-body.theme-light .diagnostics-modal .diag-val {
-  color: #0f172a !important;
-}
+
 
 .diagnostics-modal .diag-val.token-active {
   color: var(--color-success) !important;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-val.token-active,
-body.theme-light .diagnostics-modal .diag-val.token-active {
-  color: #16a34a !important;
-}
+
 
 .diagnostics-modal .diag-val.token-inactive {
   color: var(--color-warning) !important;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-val.token-inactive,
-body.theme-light .diagnostics-modal .diag-val.token-inactive {
-  color: #d97706 !important;
-}
+
 
 /* Diagnostics Live Account Details */
 .diagnostics-modal .diag-account-details {
@@ -2016,11 +1150,7 @@ body.theme-light .diagnostics-modal .diag-val.token-inactive {
   margin-bottom: var(--space-4, 1rem);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-account-details,
-body.theme-light .diagnostics-modal .diag-account-details {
-  background: #f0fdf4 !important;
-  border-color: #86efac !important;
-}
+
 
 .diagnostics-modal .diag-account-title {
   color: var(--color-success);
@@ -2029,20 +1159,14 @@ body.theme-light .diagnostics-modal .diag-account-details {
   margin-bottom: 0.35rem;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-account-title,
-body.theme-light .diagnostics-modal .diag-account-title {
-  color: #15803d !important;
-}
+
 
 .diagnostics-modal .diag-account-row {
   font-size: 0.82rem;
   color: var(--color-text-secondary);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-account-row,
-body.theme-light .diagnostics-modal .diag-account-row {
-  color: #334155 !important;
-}
+
 
 .diagnostics-modal .diag-balance-row {
   margin-top: 0.5rem;
@@ -2052,11 +1176,7 @@ body.theme-light .diagnostics-modal .diag-account-row {
   color: var(--color-text-primary);
 }
 
-[data-theme="light"] .diagnostics-modal .diag-balance-row,
-body.theme-light .diagnostics-modal .diag-balance-row {
-  border-top-color: #e2e8f0 !important;
-  color: #0f172a !important;
-}
+
 
 /* Technical Diagnostics Drawer */
 .diagnostics-modal .diagnostics-drawer {
@@ -2068,11 +1188,7 @@ body.theme-light .diagnostics-modal .diag-balance-row {
   box-shadow: none !important;
 }
 
-[data-theme="light"] .diagnostics-modal .diagnostics-drawer,
-body.theme-light .diagnostics-modal .diagnostics-drawer {
-  background: #f8fafc !important;
-  border-color: #e2e8f0 !important;
-}
+
 
 .diagnostics-modal .diagnostics-summary {
   color: var(--color-text-muted);
@@ -2081,10 +1197,7 @@ body.theme-light .diagnostics-modal .diagnostics-drawer {
   font-weight: var(--font-weight-semibold, 600);
 }
 
-[data-theme="light"] .diagnostics-modal .diagnostics-summary,
-body.theme-light .diagnostics-modal .diagnostics-summary {
-  color: #475569 !important;
-}
+
 
 .diagnostics-modal .diagnostics-content {
   margin-top: var(--space-2, 0.5rem);
@@ -2094,15 +1207,7 @@ body.theme-light .diagnostics-modal .diagnostics-summary {
   color: var(--color-text-secondary);
 }
 
-[data-theme="light"] .diagnostics-modal .diagnostics-content,
-body.theme-light .diagnostics-modal .diagnostics-content {
-  color: #334155 !important;
-}
 
-[data-theme="light"] .diagnostics-modal .diagnostics-content strong,
-body.theme-light .diagnostics-modal .diagnostics-content strong {
-  color: #0f172a !important;
-}
 
 .diagnostics-modal code {
   color: var(--color-accent);
@@ -2112,12 +1217,7 @@ body.theme-light .diagnostics-modal .diagnostics-content strong {
   border: 1px solid var(--color-border-subtle);
 }
 
-[data-theme="light"] .diagnostics-modal code,
-body.theme-light .diagnostics-modal code {
-  color: #0284c7 !important;
-  background: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
-}
+
 
 .diagnostics-modal details.diag-raw-box {
   background: var(--color-surface-sunken);
@@ -2127,11 +1227,7 @@ body.theme-light .diagnostics-modal code {
   margin-bottom: var(--space-3, 0.75rem);
 }
 
-[data-theme="light"] .diagnostics-modal details.diag-raw-box,
-body.theme-light .diagnostics-modal details.diag-raw-box {
-  background: #f8fafc !important;
-  border-color: #e2e8f0 !important;
-}
+
 
 .diagnostics-modal .diag-raw-summary {
   cursor: pointer;
@@ -2140,10 +1236,7 @@ body.theme-light .diagnostics-modal details.diag-raw-box {
   font-weight: 600;
 }
 
-[data-theme="light"] .diagnostics-modal .diag-raw-summary,
-body.theme-light .diagnostics-modal .diag-raw-summary {
-  color: #475569 !important;
-}
+
 
 .diagnostics-modal pre.diag-raw-pre {
   margin: var(--space-2, 0.5rem) 0 0 0;
@@ -2156,11 +1249,7 @@ body.theme-light .diagnostics-modal .diag-raw-summary {
   border-radius: var(--radius-xs, 4px);
 }
 
-[data-theme="light"] .diagnostics-modal pre.diag-raw-pre,
-body.theme-light .diagnostics-modal pre.diag-raw-pre {
-  color: #0369a1 !important;
-  background: #f1f5f9 !important;
-}
+
 
 /* Modal Actions & Buttons */
 .diagnostics-modal .diag-modal-actions {
@@ -2179,41 +1268,6 @@ body.theme-light .diagnostics-modal pre.diag-raw-pre {
 }
 
 /* Light theme quote modal details */
-[data-theme="light"] .quote-modal-content,
-body.theme-light .quote-modal-content {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #e2e8f0 !important;
-}
-
-[data-theme="light"] .quote-modal-content .quote-grid-3,
-body.theme-light .quote-modal-content .quote-grid-3 {
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
-}
-
-[data-theme="light"] .quote-modal-content .quote-grid-3 .val,
-body.theme-light .quote-modal-content .quote-grid-3 .val {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .quote-modal-content .big-price,
-body.theme-light .quote-modal-content .big-price {
-  color: #0f172a !important;
-}
-
-[data-theme="light"] .quote-modal-content .modal-company,
-body.theme-light .quote-modal-content .modal-company {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .quote-modal-content .btn-modal-dismiss,
-body.theme-light .quote-modal-content .btn-modal-dismiss {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #334155 !important;
-}
-
 /* ==========================================================================
    7. STRATEGY DISCOVERY & PAYOFF ANALYZER (UX TOKEN ARCHITECTURE)
    Standardized control heights, typography, and light/dark theme fidelity
@@ -2257,34 +1311,7 @@ body.theme-light .quote-modal-content .btn-modal-dismiss {
   box-shadow: 0 4px 14px rgba(234, 88, 12, 0.5) !important;
 }
 
-[data-theme="light"] .strat-action-chip.trade-fast,
-body.theme-light .strat-action-chip.trade-fast,
-[data-theme="light"] .strat-btn-action.strat-btn-trade-highlight,
-body.theme-light .strat-btn-action.strat-btn-trade-highlight {
-  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
-  color: #ffffff !important;
-  border: 1px solid #c2410c !important;
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
-}
 
-[data-theme="light"] .strat-action-chip,
-body.theme-light .strat-action-chip,
-[data-theme="light"] .strat-btn-action,
-body.theme-light .strat-btn-action {
-  background: var(--color-surface, #ffffff);
-  border-color: var(--color-border-medium, #cbd5e1);
-  color: var(--color-text-secondary, #475569);
-}
-
-[data-theme="light"] .strat-action-chip:hover,
-body.theme-light .strat-action-chip:hover,
-[data-theme="light"] .strat-btn-action:hover,
-body.theme-light .strat-btn-action:hover {
-  background: var(--color-surface-hover, #f8fafc);
-  color: var(--color-text-primary, #0f172a);
-  border-color: var(--color-border-strong, #94a3b8);
-}
 
 /* Optimization Bias Deck & Factor Chips (Adjacent to Sentiment Controls) */
 .strat-opt-adjacent-deck {
@@ -2316,19 +1343,7 @@ body.theme-light .strat-btn-action:hover {
   width: 100%;
 }
 
-[data-theme="light"] .strat-opt-adjacent-deck,
-body.theme-light .strat-opt-adjacent-deck {
-  background: var(--color-surface, #ffffff) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-}
 
-[data-theme="light"] .strat-opt-adjacent-factors .strat-factor-chip,
-body.theme-light .strat-opt-adjacent-factors .strat-factor-chip {
-  background: var(--color-surface-sunken, #f8fafc) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  color: var(--color-text-secondary, #334155) !important;
-}
 
 /* ==========================================================================
    8. WORKFLOWS, PLAYBOOKS & RESEARCH HUBS CANONICAL TOKEN COMPLIANCE
@@ -2399,93 +1414,4 @@ body.theme-light .strat-opt-adjacent-factors .strat-factor-chip {
   border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: var(--font-weight-bold, 700);
-}
-
-/* Light Theme Overrides in tokens.css for Workflows & FOSS Hub */
-[data-theme="light"] .workflows-subnav-bar,
-body.theme-light .workflows-subnav-bar {
-  border-bottom: 1px solid var(--color-border-subtle, #e2e8f0) !important;
-}
-
-[data-theme="light"] .workflows-nav-tab,
-body.theme-light .workflows-nav-tab {
-  background: var(--color-surface-sunken, #f1f5f9) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  color: var(--color-text-secondary, #475569) !important;
-}
-
-[data-theme="light"] .workflows-nav-tab:hover,
-body.theme-light .workflows-nav-tab:hover {
-  background: var(--color-surface-hover, #e2e8f0) !important;
-  color: var(--color-text-primary, #0f172a) !important;
-  border-color: var(--color-border-focus, #0284c7) !important;
-}
-
-[data-theme="light"] .workflows-nav-tab.active,
-body.theme-light .workflows-nav-tab.active {
-  background: var(--color-accent-subtle, #e0f2fe) !important;
-  border-color: var(--color-accent, #0284c7) !important;
-  color: var(--color-accent, #0284c7) !important;
-  font-weight: 700 !important;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.18) !important;
-}
-
-[data-theme="light"] .workflows-cat-chip,
-body.theme-light .workflows-cat-chip {
-  background: var(--color-surface-sunken, #f1f5f9) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  color: var(--color-text-secondary, #334155) !important;
-}
-
-[data-theme="light"] .workflows-cat-chip:hover,
-body.theme-light .workflows-cat-chip:hover {
-  background: var(--color-surface-hover, #e2e8f0) !important;
-  color: var(--color-text-primary, #0f172a) !important;
-  border-color: var(--color-border-focus, #0284c7) !important;
-}
-
-[data-theme="light"] .workflows-cat-chip.active,
-body.theme-light .workflows-cat-chip.active {
-  background: var(--color-accent-subtle, #e0f2fe) !important;
-  border-color: var(--color-accent, #0284c7) !important;
-  color: var(--color-accent, #0284c7) !important;
-  font-weight: 700 !important;
-}
-
-[data-theme="light"] .symbol-selector-bar,
-body.theme-light .symbol-selector-bar {
-  background: var(--color-surface, #ffffff) !important;
-  border: 1px solid var(--color-border-subtle, #e2e8f0) !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
-}
-
-[data-theme="light"] .active-ticker-label,
-body.theme-light .active-ticker-label {
-  color: var(--color-text-secondary, #475569) !important;
-}
-
-[data-theme="light"] .active-company-name,
-body.theme-light .active-company-name {
-  color: var(--color-text-primary, #0f172a) !important;
-}
-
-[data-theme="light"] .symbol-search-input,
-body.theme-light .symbol-search-input {
-  background: var(--color-surface, #ffffff) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  color: var(--color-text-primary, #0f172a) !important;
-}
-
-[data-theme="light"] .btn-load-symbol,
-body.theme-light .btn-load-symbol {
-  background: var(--color-surface-sunken, #f1f5f9) !important;
-  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
-  color: var(--color-text-primary, #0f172a) !important;
-}
-
-[data-theme="light"] .btn-load-symbol:hover,
-body.theme-light .btn-load-symbol:hover {
-  background: var(--color-surface-hover, #e2e8f0) !important;
-  border-color: var(--color-border-focus, #0284c7) !important;
-  color: var(--color-accent, #0284c7) !important;
 }

@@ -3,33 +3,10 @@
    Harmonized with OptionStrat Dark Design System (var(--color-surface-sunken) / var(--color-accent))
    ========================================================================== */
 
-:root,
-[data-theme="dark"],
-body.theme-dark,
-.dark {
+:root {
   --opt-bg-base: var(--color-surface);
   --opt-bg-surface: var(--color-surface-raised);
   --opt-bg-surface-elevated: var(--color-card-elevated);
-  --opt-bg-input: var(--color-surface-sunken);
-  --opt-border-subtle: var(--color-border-subtle);
-  --opt-border-strong: var(--color-border-medium);
-  --opt-accent-cyan: var(--color-accent);
-  --opt-accent-blue: var(--color-accent);
-  --opt-accent-emerald: var(--color-success);
-  --opt-accent-amber: var(--color-warning);
-  --opt-accent-rose: var(--color-danger);
-  --opt-text-main: var(--color-text-primary);
-  --opt-text-muted: var(--color-text-muted);
-  --opt-text-dim: var(--color-text-dim);
-  --opt-font-mono: var(--font-sans);
-}
-
-[data-theme="light"],
-body.theme-light,
-.light {
-  --opt-bg-base: var(--color-surface);
-  --opt-bg-surface: var(--color-surface-raised);
-  --opt-bg-surface-elevated: var(--color-card);
   --opt-bg-input: var(--color-surface-sunken);
   --opt-border-subtle: var(--color-border-subtle);
   --opt-border-strong: var(--color-border-medium);
@@ -1142,23 +1119,4 @@ body.theme-light,
   color: var(--color-text-secondary, var(--color-border-medium));
   line-height: 1.45;
   margin-bottom: 0.25rem;
-}
-
-[data-theme="light"] .screener-feed-callout,
-body.theme-light .screener-feed-callout {
-  background: var(--color-surface) !important;
-  border-color: var(--color-text-secondary) !important;
-  color: var(--color-text-muted) !important;
-}
-
-[data-theme="light"] .screener-feed-callout strong,
-body.theme-light .screener-feed-callout strong,
-[data-theme="light"] .screener-feed-callout .screener-feed-name,
-body.theme-light .screener-feed-callout .screener-feed-name {
-  color: var(--color-text-primary) !important;
-}
-
-[data-theme="light"] .screener-feed-callout .screener-feed-meta,
-body.theme-light .screener-feed-callout .screener-feed-meta {
-  color: var(--color-text-dim) !important;
 }
