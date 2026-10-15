@@ -1058,13 +1058,13 @@ Platform Workflows & UI Navigation Map:
 1. Workflow 1: Stock Screener & Equity Discovery (Tab: 'trading' | APIs: /api/etrade/screen, /api/foss/screen)
    - Screens 8,000+ US equities with 14-period RSI & MACD. Fallback hierarchy: Nasdaq API -> Yahoo FOSS -> curatedStockUniverse.json.
 2. Workflow 2: Options Strategy Discovery & Greeks (Tab: 'trading' | API: /api/etrade/options/strategy)
-   - Evaluates 72 catalog options strategies using Black-Scholes Greeks, IV rank, EV scoring, and strict user constraints (e.g. Max Loss <= $30, Max Profit > $0).
+   - Evaluates the catalog of options strategies using Black-Scholes Greeks, IV rank, EV scoring, and strict user constraints (e.g. Max Loss <= $30, Max Profit > $0).
 3. Workflow 3: Real-Time Options Flow & Institutional Activity Tracker (Tab: 'options-flows' | API: /api/options/flows)
    - Real-time unusual options volume, sweeps ($100k+ aggressive orders), blocks, and sentiment. Queries Stock Screener first for active underlyings.
 4. Workflow 4: Visual Multi-Leg Strategy Builder & Payoff Visualizer (Tab: 'trading' | API: /api/options/builder/payoff)
    - Construct custom 1-4 leg positions with interactive payoff curves, breakevens, and net Greeks.
-5. Workflow 5: Portfolio Risk & Delta/Theta Hedging (Tab: 'trading' | API: /api/etrade/positions)
-   - Beta-weighted SPY Delta, aggregate daily Theta decay, and automated hedging proposals.
+5. Workflow 5: Portfolio Positions & Account Sync (Tab: 'trading' | API: /api/etrade/positions)
+   - Live position sync with balances and per-position unrealized PnL. Portfolio-level Greeks aggregation and hedging proposals are not implemented (planned, issue #34).
 6. Workflow 6: Brokerage Order Execution with HITL Guardrails (Tab: 'trading' | API: /api/etrade/order/preview)
    - Mandatory human approval for every trade. Order drafts are signed with Agent DIDs before confirmation.
 7. Workflow 7: Autonomous Background Execution & Cron (Tab: 'trading' | Durable Objects)
