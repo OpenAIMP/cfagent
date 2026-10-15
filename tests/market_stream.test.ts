@@ -9,6 +9,7 @@ import {
   getBatchMarketQuotes,
   handleMarketQuotesHttp,
   handleMarketQuotesWebSocket,
+  liveMarketCache,
 } from "../src/services/marketStream";
 import { POPULAR_TICKERS } from "../src/client/components/StockSearchBar";
 
@@ -177,6 +178,15 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
     });
 
     it("streams tick updates on periodic timer intervals", async () => {
+      liveMarketCache.set("NVDA", {
+        tick: getBaselineMarketTick("NVDA"),
+        expiresAt: Date.now() + 60000,
+      });
+      liveMarketCache.set("TSLA", {
+        tick: getBaselineMarketTick("TSLA"),
+        expiresAt: Date.now() + 60000,
+      });
+
       const ws = new MockDuplexWebSocket();
       await handleMarketQuotesWebSocket(ws as any);
 
@@ -188,15 +198,16 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
       // Clear initial snapshot from sent count
       expect(ws.sent.length).toBe(1);
 
-      // Advance timers by 1600ms
-      vi.advanceTimersByTime(1650);
+      // Advance timers by tick interval and flush async ticks
+      await vi.advanceTimersByTimeAsync(5050);
 
       const messages = ws.getParsedMessages();
       expect(messages.length).toBeGreaterThanOrEqual(2);
-      const tickMsg = messages.find((m) => m.type === "tick");
+      const tickMsg = messages.find((m) => m.type === "ticks" || m.type === "tick");
       expect(tickMsg).toBeDefined();
-      expect(["NVDA", "TSLA"]).toContain(tickMsg.tick.symbol);
-      expect(tickMsg.tick.formattedPrice).toBeDefined();
+      const tick = tickMsg.type === "ticks" ? tickMsg.ticks[0] : tickMsg.tick;
+      expect(["NVDA", "TSLA"]).toContain(tick.symbol);
+      expect(tick.formattedPrice).toBeDefined();
     });
 
     it("handles ping heartbeat and returns pong", async () => {

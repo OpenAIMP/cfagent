@@ -21,7 +21,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: 1.5rem;
 }
 
@@ -54,9 +54,6 @@
   letter-spacing: -0.02em;
   color: var(--color-text-primary);
   margin: 0;
-  background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-border-medium) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .workflows-hero-subtitle {
@@ -76,20 +73,20 @@
 }
 
 .workflows-stat-card {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md, 10px);
   padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  transition: transform 0.18s ease, border-color 0.18s ease;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .workflows-stat-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(56, 189, 248, 0.35);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 
 .workflows-stat-label {
@@ -130,9 +127,9 @@
 
 .workflows-search-input {
   width: 100%;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md, 8px);
   padding: 0.55rem 1rem 0.55rem 2.4rem;
   color: var(--color-text-primary);
   font-size: 0.85rem;
@@ -141,9 +138,9 @@
 }
 
 .workflows-search-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
-  background: var(--color-surface-sunken);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  background: var(--color-surface);
 }
 
 .workflows-search-icon {
@@ -165,24 +162,27 @@
 
 .workflows-cat-chip {
   background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border-subtle);
-  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-secondary);
   padding: 0.35rem 0.75rem;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full, 999px);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .workflows-cat-chip:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: rgba(56, 189, 248, 0.4);
+  border-color: var(--color-border-focus);
 }
 
 .workflows-cat-chip.active {
-  background: rgba(2, 132, 199, 0.25);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 700;
@@ -215,8 +215,8 @@
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  background: rgba(15, 23, 42, 0.5);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border-subtle);
   user-select: none;
 }
 
@@ -336,8 +336,8 @@
 }
 
 .workflow-step-node {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1rem;
   display: flex;
@@ -508,12 +508,21 @@
 /* ==========================================================================
    Primary Sub-Navigation Tabs (Workflows vs FAQs vs Improvements)
    ========================================================================== */
+.workflows-subnav-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .workflows-nav-tab {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-secondary);
   padding: 0.55rem 1.15rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -524,17 +533,17 @@
 }
 
 .workflows-nav-tab:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: rgba(56, 189, 248, 0.4);
+  border-color: var(--color-border-focus);
 }
 
 .workflows-nav-tab.active {
-  background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.3) 100%);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 700;
-  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.15);
+  box-shadow: 0 2px 8px var(--color-accent-subtle);
 }
 
 /* ==========================================================================
@@ -904,8 +913,8 @@
 }
 
 .decisioning-example-box {
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1rem 1.2rem;
   display: flex;
@@ -939,7 +948,7 @@
 }
 
 .decisioning-example-step .val {
-  color: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 /* ==========================================================================
@@ -971,7 +980,7 @@
 
 .faq-quick-takeaway-text {
   font-size: 0.88rem;
-  color: var(--color-card-foreground, var(--color-surface));
+  color: var(--color-text-primary);
   line-height: 1.5;
   font-weight: 500;
 }
@@ -1002,8 +1011,8 @@
 }
 
 .faq-param-badge {
-  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.9));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.12));
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-medium);
   border-radius: 8px;
   padding: 0.35rem 0.65rem;
   display: inline-flex;
@@ -1014,8 +1023,8 @@
 }
 
 .faq-param-badge:hover {
-  border-color: var(--color-border-medium, rgba(56, 189, 248, 0.4));
-  background: var(--color-surface-hover, rgba(30, 41, 59, 0.9));
+  border-color: var(--color-border-focus);
+  background: var(--color-surface-hover);
 }
 
 .faq-param-badge-label {
@@ -1085,9 +1094,9 @@
 }
 
 .workflow-track-btn {
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-secondary);
   padding: 0.4rem 0.85rem;
   border-radius: 6px;
   font-size: 0.8rem;
@@ -1100,12 +1109,13 @@
 }
 
 .workflow-track-btn:hover {
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: rgba(56, 189, 248, 0.4);
+  border-color: var(--color-border-focus);
 }
 
 .workflow-track-btn.active {
-  background: rgba(2, 132, 199, 0.25);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 700;
@@ -1371,6 +1381,94 @@ body.theme-light .faq-matrix-container {
   border-color: var(--color-text-secondary) !important;
 }
 
+/* ==========================================================================
+   Primary Navigation Tabs & Chips (UX Token Light Theme Fidelity)
+   ========================================================================== */
+[data-theme="light"] .workflows-subnav-bar,
+body.theme-light .workflows-subnav-bar {
+  border-bottom: 1px solid var(--color-border-subtle, #e2e8f0) !important;
+}
 
+[data-theme="light"] .workflows-nav-tab,
+body.theme-light .workflows-nav-tab {
+  background: var(--color-surface-sunken, #f1f5f9) !important;
+  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
+  color: var(--color-text-secondary, #475569) !important;
+  box-shadow: none !important;
+}
 
+[data-theme="light"] .workflows-nav-tab:hover,
+body.theme-light .workflows-nav-tab:hover {
+  background: var(--color-surface-hover, #e2e8f0) !important;
+  color: var(--color-text-primary, #0f172a) !important;
+  border-color: var(--color-border-focus, #0284c7) !important;
+}
 
+[data-theme="light"] .workflows-nav-tab.active,
+body.theme-light .workflows-nav-tab.active {
+  background: var(--color-accent-subtle, #e0f2fe) !important;
+  border-color: var(--color-accent, #0284c7) !important;
+  color: var(--color-accent, #0284c7) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.18) !important;
+}
+
+[data-theme="light"] .workflows-cat-chip,
+body.theme-light .workflows-cat-chip {
+  background: var(--color-surface-sunken, #f1f5f9) !important;
+  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
+  color: var(--color-text-secondary, #334155) !important;
+}
+
+[data-theme="light"] .workflows-cat-chip:hover,
+body.theme-light .workflows-cat-chip:hover {
+  background: var(--color-surface-hover, #e2e8f0) !important;
+  color: var(--color-text-primary, #0f172a) !important;
+  border-color: var(--color-border-focus, #0284c7) !important;
+}
+
+[data-theme="light"] .workflows-cat-chip.active,
+body.theme-light .workflows-cat-chip.active {
+  background: var(--color-accent-subtle, #e0f2fe) !important;
+  border-color: var(--color-accent, #0284c7) !important;
+  color: var(--color-accent, #0284c7) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .workflow-track-btn,
+body.theme-light .workflow-track-btn {
+  background: var(--color-surface-sunken, #f1f5f9) !important;
+  border: 1px solid var(--color-border-medium, #cbd5e1) !important;
+  color: var(--color-text-secondary, #334155) !important;
+}
+
+[data-theme="light"] .workflow-track-btn:hover,
+body.theme-light .workflow-track-btn:hover {
+  background: var(--color-surface-hover, #e2e8f0) !important;
+  color: var(--color-text-primary, #0f172a) !important;
+  border-color: var(--color-border-focus, #0284c7) !important;
+}
+
+[data-theme="light"] .workflow-track-btn.active,
+body.theme-light .workflow-track-btn.active {
+  background: var(--color-accent-subtle, #e0f2fe) !important;
+  border-color: var(--color-accent, #0284c7) !important;
+  color: var(--color-accent, #0284c7) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .decisioning-example-box,
+body.theme-light .decisioning-example-box {
+  background: var(--color-surface-sunken, #f8fafc) !important;
+  border-color: var(--color-border-medium, #cbd5e1) !important;
+}
+
+[data-theme="light"] .decisioning-example-step .val,
+body.theme-light .decisioning-example-step .val {
+  color: var(--color-text-primary, #0f172a) !important;
+}
+
+[data-theme="light"] .decisioning-example-step .label,
+body.theme-light .decisioning-example-step .label {
+  color: var(--color-text-secondary, #475569) !important;
+}

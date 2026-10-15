@@ -1090,7 +1090,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
       </div>
 
       {/* Primary Sub-Navigation Tabs */}
-      <div className="workflows-subnav-bar" style={{ display: "flex", gap: "0.5rem", margin: "1rem 0 1.5rem", borderBottom: "1px solid rgba(255, 255, 255, 0.1)", paddingBottom: "0.75rem", flexWrap: "wrap" }}>
+      <div className="workflows-subnav-bar">
         <button
           type="button"
           className={`workflows-nav-tab ${activeTab === "faq" ? "active" : ""}`}
