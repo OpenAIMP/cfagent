@@ -10,6 +10,7 @@
 import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
+import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
 import { ETradeRestClient } from "./client";
 import { DynamicMarketScreener } from "../screener";
 import { resolveEnvironmentConfig } from "../../config/environment";
@@ -223,6 +224,12 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     const symbol = params.symbol.trim().toUpperCase();
     const action = (params.action || params.orderAction || "BUY") as "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
     const quote = await this.getQuote(symbol);
+    const optionLegs = params.optionLegs || [];
+    const legsError = validateTradingOrderLegs(optionLegs, symbol);
+    if (legsError) throw new Error(legsError);
+    if (optionLegs.length && (!Number.isFinite(params.strategyNetDebit) || params.orderType !== "LIMIT" || !Number.isFinite(params.limitPrice) || Number(params.limitPrice) <= 0)) {
+      throw new Error("Options strategies require a finite net debit/credit and a positive limit price for broker preview.");
+    }
     const orderId = `ord_${crypto.randomUUID().slice(0, 8)}`;
     const sessionId = params.sessionId || this.userLogin;
     const userDid = getUserDid(sessionId);
@@ -230,9 +237,14 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
     let executionPrice = orderType === "LIMIT" && params.limitPrice ? params.limitPrice : quote.lastPrice;
     let estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
+    if (optionLegs.length) {
+      executionPrice = params.limitPrice ?? Math.abs(params.strategyNetDebit || 0) / 100;
+      estimatedTotal = Number((executionPrice * params.quantity * 100).toFixed(2));
+    }
     let estimatedCommission = 0.0;
     let upstreamPreviewId: string | undefined;
     let brokerNotice: string | undefined;
+    const brokerOrderType = optionLegs.length ? etradeOrderKind(optionLegs) : "EQ";
 
     // Check if authentic E*TRADE REST credentials exist and user is authenticated
     const envConfig = this.getEnvConfig();
@@ -249,9 +261,14 @@ export class ETradeTradingPlatform implements ITradingPlatform {
           orderType,
           limitPrice: params.limitPrice,
           stopPrice: params.stopPrice,
+          optionLegs,
+          strategyNetDebit: params.strategyNetDebit,
         });
 
         if (upstreamPreview) {
+          if (optionLegs.length && !upstreamPreview.previewId) {
+            throw new Error(upstreamPreview.message || "E*TRADE did not provide a valid complex-order preview identifier. Nothing was submitted.");
+          }
           if (upstreamPreview.previewId) {
             upstreamPreviewId = String(upstreamPreview.previewId);
           }
@@ -267,8 +284,10 @@ export class ETradeTradingPlatform implements ITradingPlatform {
           }
         } else {
           brokerNotice = this.client.getLastError() || undefined;
+          if (optionLegs.length) throw new Error(`E*TRADE did not return a valid preview for this strategy: ${brokerNotice || "preview unavailable"}`);
         }
       } catch (err: any) {
+        if (optionLegs.length) throw err;
         console.warn("[ETradePlatform] upstream previewOrder notice:", err);
       }
     }
@@ -284,7 +303,12 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       authorizerDid: userDid,
     });
 
-    const previewMessage = `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.`;
+    const previewMessage = optionLegs.length
+      ? `E*TRADE ${brokerOrderType} Preview: ${params.quantity} strategy unit(s) of ${symbol} @ ${params.limitPrice ? `$${params.limitPrice.toFixed(2)} net` : "market"}. Estimated total: $${estimatedTotal.toLocaleString()} USD. No order has been placed; human approval is required.`
+      : `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.`;
+    const storedPreviewNotes = optionLegs.length
+      ? JSON.stringify({ kind: "strategy-order-v1", brokerOrderType, optionLegs, strategyNetDebit: params.strategyNetDebit, note: brokerNotice })
+      : brokerNotice;
 
     const draft: ETradeOrderDraft = {
       orderId,
@@ -293,6 +317,9 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       action,
       orderAction: action,
       orderType,
+      brokerOrderType,
+      optionLegs: optionLegs.length ? optionLegs : undefined,
+      strategyNetDebit: params.strategyNetDebit,
       quantity: params.quantity,
       estimatedPrice: executionPrice,
       limitPrice: params.limitPrice,
@@ -326,7 +353,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
           proposerDid: didProof.proposerDid,
           authorizerDid: userDid,
           proofSignature: draft.proofSignature,
-          previewNotes: brokerNotice || previewMessage,
+          previewNotes: storedPreviewNotes || previewMessage,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });

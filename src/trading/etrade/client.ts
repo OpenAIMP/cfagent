@@ -34,6 +34,8 @@ import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
+import { etradeNetPriceType, etradeOrderKind, toETradeInstruments, validateTradingOrderLegs } from "./optionOrders";
+import type { TradingOrderLeg } from "../interfaces";
 export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 
 export class ETradeRestClient {
@@ -439,6 +441,8 @@ export class ETradeRestClient {
       limitPrice?: number;
       stopPrice?: number;
       orderTerm?: "GOOD_FOR_DAY" | "GOOD_UNTIL_CANCEL" | "IMMEDIATE_OR_CANCEL";
+      optionLegs?: TradingOrderLeg[];
+      strategyNetDebit?: number;
     }
   ): Promise<{ previewId: string; estimatedTotal?: number; estimatedCommission?: number; message?: string } | null> {
     const envConfig = this.getEnvConfig();
@@ -471,19 +475,27 @@ export class ETradeRestClient {
     const isStop = priceType === "STOP" || priceType === "STOP_LIMIT";
     const stopPrice = isStop && params.stopPrice && params.stopPrice > 0 ? Number(params.stopPrice.toFixed(2)) : undefined;
 
+    const legs = params.optionLegs || [];
+    const legsError = validateTradingOrderLegs(legs, params.symbol);
+    if (legsError) {
+      this.lastError = legsError;
+      return null;
+    }
+    const isStrategy = legs.length > 0;
+    const orderKind = isStrategy ? etradeOrderKind(legs) : "EQ";
     const body = {
       PreviewOrderRequest: {
-        orderType: "EQ",
+        orderType: orderKind,
         clientOrderId,
         Order: [
           {
             allOrNone: false,
-            priceType,
+            priceType: isStrategy ? etradeNetPriceType(params.strategyNetDebit || 0) : priceType,
             ...(limitPrice !== undefined ? { limitPrice } : {}),
             ...(stopPrice !== undefined ? { stopPrice } : {}),
             orderTerm: params.orderTerm || "GOOD_FOR_DAY",
             marketSession: "REGULAR",
-            Instrument: [
+            Instrument: isStrategy ? toETradeInstruments(legs) : [
               {
                 Product: {
                   securityType: "EQ",
@@ -659,11 +671,24 @@ export class ETradeRestClient {
     limitPrice?: number;
     previewId?: string;
     userLogin: string;
+    optionLegs?: TradingOrderLeg[];
+    strategyNetDebit?: number;
   }): Promise<ETradeOrderExecutionResult> {
     const userDid = params.userLogin.startsWith("did:") ? params.userLogin : getUserDid(params.userLogin);
     const now = new Date().toISOString();
     const envConfig = this.getEnvConfig();
     const accountKey = this.env.ETRADE_ACCOUNT_ID_KEY || "";
+    const legs = params.optionLegs || [];
+    const legsError = validateTradingOrderLegs(legs, params.symbol);
+    if (legsError) {
+      return {
+        success: false, orderId: params.orderId, executionId: "", brokerOrderRef: "", authorizerDid: userDid,
+        status: "failed", symbol: params.symbol, action: params.action, quantity: params.quantity, executionPrice: 0,
+        totalSettled: 0, message: legsError, timestamp: now,
+      };
+    }
+    const isStrategy = legs.length > 0;
+    const orderKind = isStrategy ? etradeOrderKind(legs) : "EQ";
 
     // Strict HITL Gate: block autonomous agent execution without human authorization
     if (!userDid || userDid.startsWith("did:agent:")) {
@@ -691,6 +716,13 @@ export class ETradeRestClient {
 
     // 1. Remote MCP Tool Execution (if configured)
     if (this.env.ETRADE_MCP_SERVER_URL) {
+      if (isStrategy) {
+        return {
+          success: false, orderId: params.orderId, executionId: "", brokerOrderRef: "", authorizerDid: userDid,
+          status: "failed", symbol: params.symbol, action: params.action, quantity: params.quantity, executionPrice: 0,
+          totalSettled: 0, message: "The configured E*TRADE MCP place_order tool accepts equity orders only; option strategies require the native E*TRADE complex-order API.", timestamp: now,
+        };
+      }
       try {
         const mcpRes = await RemoteMcpClient.callTool({
           serverUrl: this.env.ETRADE_MCP_SERVER_URL,
@@ -803,17 +835,17 @@ export class ETradeRestClient {
 
         const body = {
           PlaceOrderRequest: {
-            orderType: "EQ",
+            orderType: orderKind,
             clientOrderId,
             ...(pId !== undefined ? { PreviewIds: [{ previewId: pId }] } : {}),
             Order: [
               {
                 allOrNone: false,
-                priceType,
+                priceType: isStrategy ? etradeNetPriceType(params.strategyNetDebit || 0) : priceType,
                 ...(limitPrice ? { limitPrice } : {}),
                 orderTerm: "GOOD_FOR_DAY",
                 marketSession: "REGULAR",
-                Instrument: [
+                Instrument: isStrategy ? toETradeInstruments(legs) : [
                   {
                     Product: {
                       securityType: "EQ",
@@ -872,7 +904,7 @@ export class ETradeRestClient {
         if (res.ok && orderIdVal) {
           const brokerId = `et_order_${orderIdVal}`;
           const executionPrice = limitPrice || params.limitPrice || 0;
-          const totalSettled = executionPrice > 0 ? executionPrice * params.quantity : 0;
+          const totalSettled = executionPrice > 0 ? executionPrice * params.quantity * (isStrategy ? 100 : 1) : 0;
           return {
             success: true,
             orderId: params.orderId,

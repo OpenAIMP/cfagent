@@ -938,9 +938,11 @@ export function ETradeTradingHub({
     setOrderContext(ctx);
     setOrderSymbol(ctx.symbol);
     setOrderAction(ctx.action);
-    setOrderType(ctx.underlyingPrice ? "LIMIT" : "MARKET");
+    setOrderType(ctx.optionLegs?.length || ctx.underlyingPrice ? "LIMIT" : "MARKET");
     setOrderQuantity(ctx.quantity);
-    if (ctx.underlyingPrice) setOrderLimitPrice(ctx.underlyingPrice.toFixed(2));
+    if (ctx.optionLegs?.length && ctx.strategyNetDebit !== undefined) {
+      setOrderLimitPrice((Math.abs(ctx.strategyNetDebit) / 100).toFixed(2));
+    } else if (ctx.underlyingPrice) setOrderLimitPrice(ctx.underlyingPrice.toFixed(2));
     setActiveDraft(null);
     setLastExecutionResult(null);
     setOrderError("");
@@ -957,6 +959,7 @@ export function ETradeTradingHub({
   }, [autoPreview]);
 
   const handleQuickTrade = (stock: ScreenedStockItem | ETradePosition | ETradeQuote, defaultAction: "BUY" | "SELL" = "BUY") => {
+    setOrderContext(null);
     setOrderSymbol(stock.symbol);
     setOrderAction(defaultAction);
     const quoteBid = (stock as any).bid;
@@ -1000,6 +1003,8 @@ export function ETradeTradingHub({
           quantity: Number(orderQuantity),
           orderType,
           limitPrice: orderType === "LIMIT" ? price : undefined,
+          optionLegs: orderContext?.optionLegs?.map((leg) => ({ ...leg, underlyingSymbol: orderSymbol.toUpperCase(), quantity: leg.quantity * Number(orderQuantity) })),
+          strategyNetDebit: orderContext?.strategyNetDebit === undefined ? undefined : orderContext.strategyNetDebit * Number(orderQuantity),
         }),
       });
 
@@ -1074,6 +1079,8 @@ export function ETradeTradingHub({
           quantity: activeDraft.quantity,
           orderType: activeDraft.orderType,
           limitPrice: activeDraft.limitPrice,
+          optionLegs: activeDraft.optionLegs,
+          strategyNetDebit: activeDraft.strategyNetDebit,
         }),
       });
       const freshDraft = await previewResp.json() as any;
@@ -1257,8 +1264,8 @@ export function ETradeTradingHub({
             <div className="hitl-order-details-grid">
               <div className="hitl-stat">
                 <span className="stat-label">Action</span>
-                <span className={`stat-value action-pill ${activeDraft.action.toLowerCase()}`}>
-                  {activeDraft.action}
+                <span className={`stat-value action-pill ${activeDraft.optionLegs?.length ? "strategy" : activeDraft.action.toLowerCase()}`}>
+                  {activeDraft.optionLegs?.length ? "STRATEGY" : activeDraft.action}
                 </span>
               </div>
               <div className="hitl-stat">
@@ -1267,21 +1274,32 @@ export function ETradeTradingHub({
               </div>
               <div className="hitl-stat">
                 <span className="stat-label">Quantity</span>
-                <span className="stat-value">{activeDraft.quantity} shares</span>
+                <span className="stat-value">{activeDraft.quantity} {activeDraft.optionLegs?.length ? "strategy units" : "shares"}</span>
               </div>
               <div className="hitl-stat">
                 <span className="stat-label">Order Type</span>
-                <span className="stat-value">{activeDraft.orderType}</span>
+                <span className="stat-value">{activeDraft.brokerOrderType && activeDraft.brokerOrderType !== "EQ" ? `${activeDraft.brokerOrderType} · ${activeDraft.orderType}` : activeDraft.orderType}</span>
               </div>
               <div className="hitl-stat">
-                <span className="stat-label">Limit / Est Price</span>
+                <span className="stat-label">{activeDraft.optionLegs?.length ? "Net limit / unit" : "Limit / Est Price"}</span>
                 <span className="stat-value">${(activeDraft.limitPrice || activeDraft.estimatedPrice).toFixed(2)}</span>
               </div>
               <div className="hitl-stat">
-                <span className="stat-label">Estimated Total</span>
+                <span className="stat-label">{activeDraft.strategyNetDebit !== undefined && activeDraft.strategyNetDebit < 0 ? "Estimated Credit" : "Estimated Total"}</span>
                 <span className="stat-value total-val">${activeDraft.estimatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
+
+            {activeDraft.optionLegs?.length ? (
+              <div className="options-order-context" aria-label="Exact broker order legs">
+                <strong>Legs sent to E*TRADE</strong>
+                <ul>{activeDraft.optionLegs.map((leg, index) => (
+                  <li key={`${leg.securityType}-${leg.optionType || "stock"}-${leg.strike || 0}-${leg.expirationDate || "equity"}-${index}`}>
+                    {leg.side} {leg.quantity} {leg.securityType === "EQ" ? `${leg.underlyingSymbol} shares` : `${leg.underlyingSymbol} ${leg.optionType} $${leg.strike} ${leg.expirationDate}`}
+                  </li>
+                ))}</ul>
+              </div>
+            ) : null}
 
             <div className="hitl-attestation-box">
               {activeDraft.previewId && (
@@ -1306,7 +1324,7 @@ export function ETradeTradingHub({
               </div>
               <div className="attest-item">
                 <span className="attest-label">Commission:</span>
-                <span className="zero-comm">$0.00 (E*TRADE Online)</span>
+                <span className="zero-comm">{activeDraft.estimatedCommission > 0 ? `$${activeDraft.estimatedCommission.toFixed(2)} broker estimate` : activeDraft.optionLegs?.length ? "See E*TRADE account disclosure" : "$0.00 (E*TRADE Online)"}</span>
               </div>
             </div>
 
@@ -1675,7 +1693,7 @@ export function ETradeTradingHub({
                 <div className="options-order-context">
                   <strong>From Auto Options Research:</strong> {orderContext.label}
                   <ul>{orderContext.legs.map((leg) => <li key={leg}>{leg}</li>)}</ul>
-                  <em>The ticket previews the underlying stock position; option legs are shown for reference. Nothing is placed until you approve.</em>
+                  <em>{orderContext.optionLegs?.length ? "Every active leg is included in the broker's complex-order preview. Check each side, contract, expiry, quantity, net limit, and broker buying-power result before approval." : "Review the underlying order details. Nothing is placed until you approve."}</em>
                 </div>
               )}
 
@@ -1692,6 +1710,7 @@ export function ETradeTradingHub({
                       onChange={(e) => {
                         const s = e.target.value.toUpperCase();
                         setOrderSymbol(s);
+                        setOrderContext(null);
                         setActiveDraft(null);
                         setLastExecutionResult(null);
                       }}
@@ -1740,7 +1759,7 @@ export function ETradeTradingHub({
                 </div>
 
                 {/* Action Toggle (BUY / SELL) */}
-                <div className="form-group">
+                {!orderContext?.optionLegs?.length && <div className="form-group">
                   <label>Order Action</label>
                   <div className="action-toggle-grid">
                     <button
@@ -1804,7 +1823,7 @@ export function ETradeTradingHub({
                       COVER
                     </button>
                   </div>
-                </div>
+                </div>}
 
                 {/* Order Type and Pricing */}
                 <div className="form-row-2">
@@ -1812,6 +1831,7 @@ export function ETradeTradingHub({
                     <label>Order Type</label>
                     <select
                       value={orderType}
+                      disabled={Boolean(orderContext?.optionLegs?.length)}
                       onChange={(e) => {
                         setOrderType(e.target.value as any);
                         setActiveDraft(null);
@@ -1826,7 +1846,7 @@ export function ETradeTradingHub({
                   </div>
 
                   <div className="form-group">
-                    <label>{orderType === "LIMIT" ? "Limit Price ($)" : "Stop Price ($)"}</label>
+                    <label>{orderContext?.optionLegs?.length ? "Net Limit Price per Strategy Unit ($)" : orderType === "LIMIT" ? "Limit Price ($)" : "Stop Price ($)"}</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1881,7 +1901,7 @@ export function ETradeTradingHub({
 
                 {/* Quantity and Quick Stepper */}
                 <div className="form-group">
-                  <label>Quantity (Shares)</label>
+                  <label>{orderContext?.optionLegs?.length ? "Strategy Units" : "Quantity (Shares)"}</label>
                   <div className="quantity-stepper-row">
                     <button
                       type="button"
@@ -1938,19 +1958,20 @@ export function ETradeTradingHub({
                 {/* Pricing Summary */}
                 <div className="order-calc-card">
                   <div className="calc-row">
-                    <span>Estimated Price per Share:</span>
+                    <span>{orderContext?.optionLegs?.length ? `Net ${orderContext.strategyNetDebit !== undefined && orderContext.strategyNetDebit < 0 ? "Credit" : "Debit"} per strategy unit` : "Estimated Price per Share:"}</span>
                     <span>${orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0").toFixed(2) : (orderQuote?.lastPrice || 0).toFixed(2)}</span>
                   </div>
                   <div className="calc-row">
                     <span>Online Commission:</span>
-                    <span className="zero-comm">$0.00 USD</span>
+                    <span className="zero-comm">{orderContext?.optionLegs?.length ? (activeDraft ? `$${activeDraft.estimatedCommission.toFixed(2)} broker estimate` : "Broker estimate in preview") : "$0.00 USD"}</span>
                   </div>
                   <div className="calc-row total">
-                    <span>Estimated Total Order Value:</span>
+                    <span>Estimated {orderContext?.optionLegs?.length && (orderContext.strategyNetDebit ?? 0) < 0 ? "Credit" : "Total Order Value"}:</span>
                     <span className="calc-total-val">
                       ${(
                         orderQuantity *
-                        (orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : orderQuote?.lastPrice || 0)
+                        (orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : orderQuote?.lastPrice || 0) *
+                        (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 100 : 1)
                       ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>

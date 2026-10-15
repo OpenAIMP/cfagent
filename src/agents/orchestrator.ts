@@ -2841,6 +2841,15 @@ Agentic Best Practices & Workflow Rules:
         const quantity = Number(existingRecord.quantity);
         const orderType = existingRecord.orderType || "MARKET";
         const limitPrice = existingRecord.orderType === "LIMIT" ? existingRecord.price : undefined;
+        let strategyOrder: any = undefined;
+        if (existingRecord.previewNotes?.startsWith("{")) {
+          try {
+            const stored = JSON.parse(existingRecord.previewNotes);
+            if (stored?.kind === "strategy-order-v1" && Array.isArray(stored.optionLegs)) strategyOrder = stored;
+          } catch {
+            // Legacy human-readable preview notes are not structured order payloads.
+          }
+        }
 
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         let result: any;
@@ -2858,6 +2867,8 @@ Agentic Best Practices & Workflow Rules:
               : existingRecord?.orderRef && String(existingRecord.orderRef).trim() !== ""
               ? String(existingRecord.orderRef).trim()
               : undefined,
+            optionLegs: strategyOrder?.optionLegs,
+            strategyNetDebit: strategyOrder?.strategyNetDebit,
             userLogin,
           });
           if (result.success && this.getOrm().trades) {

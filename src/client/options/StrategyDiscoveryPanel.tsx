@@ -1321,9 +1321,21 @@ export function StrategyDiscoveryPanel({
       legs: builderLegs.map(
         (leg) =>
           `${leg.side} ${leg.quantity} ${
-            leg.optionType === "STOCK" ? "Shares" : leg.strike + leg.optionType[0]
+            leg.optionType === "STOCK" ? "Shares" : `${leg.strike}${leg.optionType[0]} ${leg.expirationDate}`
           } @ $${leg.entryPrice.toFixed(2)}`
       ),
+      optionLegs: builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed).map((leg) => ({
+        securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+        side: leg.side,
+        quantity: leg.quantity,
+        optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+        strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+        expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+      })),
+      strategyNetDebit: builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed).reduce((net, leg) => {
+        const multiplier = leg.optionType === "STOCK" ? 1 : 100;
+        return net + (leg.side === "BUY" ? 1 : -1) * leg.quantity * leg.entryPrice * multiplier;
+      }, 0),
     };
     onPreviewTrade(ctx);
   };
@@ -1780,9 +1792,21 @@ export function StrategyDiscoveryPanel({
                             legs: strat.legs.map(
                               (leg) =>
                                 `${leg.side} ${leg.quantity} ${
-                                  leg.optionType === "STOCK" ? "Shares" : leg.strike + leg.optionType[0]
+                                  leg.optionType === "STOCK" ? "Shares" : `${leg.strike}${leg.optionType[0]} ${leg.expirationDate}`
                                 } @ $${leg.entryPrice.toFixed(2)}`
                             ),
+                            optionLegs: strat.legs.filter((leg) => !leg.isExcluded && !leg.isClosed).map((leg) => ({
+                              securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+                              side: leg.side,
+                              quantity: leg.quantity,
+                              optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+                              strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+                              expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+                            })),
+                            strategyNetDebit: strat.legs.filter((leg) => !leg.isExcluded && !leg.isClosed).reduce((net, leg) => {
+                              const multiplier = leg.optionType === "STOCK" ? 1 : 100;
+                              return net + (leg.side === "BUY" ? 1 : -1) * leg.quantity * leg.entryPrice * multiplier;
+                            }, 0),
                           };
                           onPreviewTrade(ctx);
                         }}
