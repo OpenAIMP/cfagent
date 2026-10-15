@@ -1,1 +1,53 @@
-LyoqCiAqIElzc3VlICM2MzogUG9ydGZvbGlvIFJpc2sgcGFuZWwgdmlldy1tb2RlbCBoZWxwZXJzLgogKiBUaGUgcGFuZWwgaXMgYSBkaXNwbGF5IGxheWVyOyB0aGUgcGllY2VzIHRoYXQgY2FycnkgbWVhbmluZyDigJQgdHVybmluZyBhCiAqIGhlZGdlIERSQUZUIGludG8gdGhlIG9yZGVyIHRpY2tldCdzIGhhbmQtb2ZmIGNvbnRleHQsIGFuZCBmb3JtYXR0aW5nIHRoZQogKiBiYWNrZW5kcycgaG9uZXN0eSBzdGF0ZXMg4oCUIGFyZSBwaW5uZWQgaGVyZS4KICovCmltcG9ydCB7IGRlc2NyaWJlLCBpdCwgZXhwZWN0IH0gZnJvbSAidml0ZXN0IjsKaW1wb3J0IHsgZm10U2lnbmVkVXNkLCBmbXRVc2QsIGhlZGdlUHJvcG9zYWxUb1RyYWRlQ29udGV4dCB9IGZyb20gIi4uL3NyYy9jbGllbnQvcG9ydGZvbGlvUmlza0FwaSI7CmltcG9ydCB0eXBlIHsgSGVkZ2VQcm9wb3NhbCB9IGZyb20gIi4uL3NyYy9zZXJ2aWNlcy9oZWRnZVByb3Bvc2FscyI7Cgpjb25zdCBzaGFyZXNQcm9wb3NhbDogSGVkZ2VQcm9wb3NhbCA9IHsKICBpbnN0cnVtZW50OiAiU1BZX1NIQVJFUyIsIHN0YXR1czogIkRSQUZUIiwgc2lkZTogIlNFTEwiLCBzeW1ib2w6ICJTUFkiLCBxdWFudGl0eTogMTAwLAogIGVzdGltYXRlZENvc3Q6IC01MDAwMCwgcHJlSGVkZ2VCZXRhV2VpZ2h0ZWREZWx0YURvbGxhcnM6IDUwMDAwLCBwb3N0SGVkZ2VCZXRhV2VpZ2h0ZWREZWx0YURvbGxhcnM6IDAsCiAgd2l0aGluVG9sZXJhbmNlQWZ0ZXJIZWRnZTogdHJ1ZSwgcmF0aW9uYWxlOiAidGVzdCIsCn07CmNvbnN0IHB1dHNQcm9wb3NhbDogSGVkZ2VQcm9wb3NhbCA9IHsKICBpbnN0cnVtZW50OiAiU1BZX1BVVFMiLCBzdGF0dXM6ICJEUkFGVCIsIHNpZGU6ICJCVVkiLCBzeW1ib2w6ICJTUFkiLCBxdWFudGl0eTogMiwKICBzdHJpa2U6IDUwMCwgZXhwaXJhdGlvbkRhdGU6ICIyMDI2LTExLTE0IiwgZXN0aW1hdGVkQ29zdDogMTMwMCwKICBwcmVIZWRnZUJldGFXZWlnaHRlZERlbHRhRG9sbGFyczogNTAwMDAsIHBvc3RIZWRnZUJldGFXZWlnaHRlZERlbHRhRG9sbGFyczogNTAwMCwKICB3aXRoaW5Ub2xlcmFuY2VBZnRlckhlZGdlOiBmYWxzZSwgcmF0aW9uYWxlOiAidGVzdCIsCn07CgpkZXNjcmliZSgiaGVkZ2VQcm9wb3NhbFRvVHJhZGVDb250ZXh0IChISVRMIGhhbmQtb2ZmKSIsICgpID0+IHsKICBpdCgibWFwcyB0aGUgc2hhcmUgaGVkZ2Ugb250byB0aGUgb3JkZXIgdGlja2V0IGZpZWxkcyIsICgpID0+IHsKICAgIGNvbnN0IGN0eCA9IGhlZGdlUHJvcG9zYWxUb1RyYWRlQ29udGV4dChzaGFyZXNQcm9wb3NhbCwgNTAwKTsKICAgIGV4cGVjdChjdHguc3ltYm9sKS50b0JlKCJTUFkiKTsKICAgIGV4cGVjdChjdHguYWN0aW9uKS50b0JlKCJTRUxMIik7CiAgICBleHBlY3QoY3R4LnF1YW50aXR5KS50b0JlKDEwMCk7CiAgICBleHBlY3QoY3R4LnVuZGVybHlpbmdQcmljZSkudG9CZSg1MDApOwogICAgZXhwZWN0KGN0eC5sYWJlbCkudG9Db250YWluKCJIZWRnZSBkcmFmdCIpOwogICAgZXhwZWN0KGN0eC5sYWJlbCkudG9Db250YWluKCIxMDAgU1BZIHNoYXJlcyIpOwogICAgZXhwZWN0KGN0eC5sZWdzWzBdKS50b0NvbnRhaW4oIlNFTEwgMTAwIFNQWSBzaGFyZXMiKTsKICB9KTsKCiAgaXQoIm1hcHMgdGhlIHB1dCBoZWRnZSB3aXRoIHN0cmlrZSwgZXhwaXJ5IGFuZCBjb3N0IGluIHRoZSBsZWdzIHRleHQiLCAoKSA9PiB7CiAgICBjb25zdCBjdHggPSBoZWRnZVByb3Bvc2FsVG9UcmFkZUNvbnRleHQocHV0c1Byb3Bvc2FsLCA1MDApOwogICAgZXhwZWN0KGN0eC5hY3Rpb24pLnRvQmUoIkJVWSIpOwogICAgZXhwZWN0KGN0eC5xdWFudGl0eSkudG9CZSgyKTsKICAgIGV4cGVjdChjdHgubGVnc1swXSkudG9Db250YWluKCI1MDAgUFVUIik7CiAgICBleHBlY3QoY3R4LmxlZ3NbMF0pLnRvQ29udGFpbigiMjAyNi0xMS0xNCIpOwogICAgZXhwZWN0KGN0eC5sYWJlbCkudG9Db250YWluKCLihpIiKTsKICB9KTsKfSk7CgpkZXNjcmliZSgiZm9ybWF0dGluZyIsICgpID0+IHsKICBpdCgicmVuZGVycyBzaWduZWQgZG9sbGFycyBhbmQgZW0tZGFzaGVzIGZvciB1bmF2YWlsYWJsZSB2YWx1ZXMiLCAoKSA9PiB7CiAgICBleHBlY3QoZm10U2lnbmVkVXNkKDEyMzQpKS50b0JlKCIrJDEsMjM0Iik7CiAgICBleHBlY3QoZm10U2lnbmVkVXNkKC01MCkpLnRvQmUoIuKIkiQ1MCIpOwogICAgZXhwZWN0KGZtdFNpZ25lZFVzZChudWxsKSkudG9CZSgi4oCUIik7CiAgICBleHBlY3QoZm10VXNkKHVuZGVmaW5lZCkpLnRvQmUoIuKAlCIpOwogICAgZXhwZWN0KGZtdFVzZCg1MDAsIDIpKS50b0JlKCIkNTAwLjAwIik7CiAgfSk7Cn0pOwo=
+/**
+ * Issue #63: Portfolio Risk panel view-model helpers.
+ * The panel is a display layer; the pieces that carry meaning — turning a
+ * hedge DRAFT into the order ticket's hand-off context, and formatting the
+ * backends' honesty states — are pinned here.
+ */
+import { describe, it, expect } from "vitest";
+import { fmtSignedUsd, fmtUsd, hedgeProposalToTradeContext } from "../src/client/portfolioRiskApi";
+import type { HedgeProposal } from "../src/services/hedgeProposals";
+
+const sharesProposal: HedgeProposal = {
+  instrument: "SPY_SHARES", status: "DRAFT", side: "SELL", symbol: "SPY", quantity: 100,
+  estimatedCost: -50000, preHedgeBetaWeightedDeltaDollars: 50000, postHedgeBetaWeightedDeltaDollars: 0,
+  withinToleranceAfterHedge: true, rationale: "test",
+};
+const putsProposal: HedgeProposal = {
+  instrument: "SPY_PUTS", status: "DRAFT", side: "BUY", symbol: "SPY", quantity: 2,
+  strike: 500, expirationDate: "2026-11-14", estimatedCost: 1300,
+  preHedgeBetaWeightedDeltaDollars: 50000, postHedgeBetaWeightedDeltaDollars: 5000,
+  withinToleranceAfterHedge: false, rationale: "test",
+};
+
+describe("hedgeProposalToTradeContext (HITL hand-off)", () => {
+  it("maps the share hedge onto the order ticket fields", () => {
+    const ctx = hedgeProposalToTradeContext(sharesProposal, 500);
+    expect(ctx.symbol).toBe("SPY");
+    expect(ctx.action).toBe("SELL");
+    expect(ctx.quantity).toBe(100);
+    expect(ctx.underlyingPrice).toBe(500);
+    expect(ctx.label).toContain("Hedge draft");
+    expect(ctx.label).toContain("100 SPY shares");
+    expect(ctx.legs[0]).toContain("SELL 100 SPY shares");
+  });
+
+  it("maps the put hedge with strike, expiry and cost in the legs text", () => {
+    const ctx = hedgeProposalToTradeContext(putsProposal, 500);
+    expect(ctx.action).toBe("BUY");
+    expect(ctx.quantity).toBe(2);
+    expect(ctx.legs[0]).toContain("500 PUT");
+    expect(ctx.legs[0]).toContain("2026-11-14");
+    expect(ctx.label).toContain("→");
+  });
+});
+
+describe("formatting", () => {
+  it("renders signed dollars and em-dashes for unavailable values", () => {
+    expect(fmtSignedUsd(1234)).toBe("+$1,234");
+    expect(fmtSignedUsd(-50)).toBe("−$50");
+    expect(fmtSignedUsd(null)).toBe("—");
+    expect(fmtUsd(undefined)).toBe("—");
+    expect(fmtUsd(500, 2)).toBe("$500.00");
+  });
+});
