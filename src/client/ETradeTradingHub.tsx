@@ -70,17 +70,24 @@ export function ETradeTradingHub({
   onSelectSubTab,
   onBrokerPropsChange, onUnreadAlertsChange,
 }: ETradeTradingHubProps) {
-  // Navigation subtabs
+  // Navigation subtabs: synchronized directly with activeSubTab prop from Chat navigation
   const [subTab, setSubTab] = useState<TradingSubTab>(activeSubTab || "autopilot");
+  const effectiveSubTab: TradingSubTab = activeSubTab || subTab || "autopilot";
+
+  const handleNavigateSubTab = (newSubTab: TradingSubTab) => {
+    setSubTab(newSubTab);
+    onSelectSubTab?.(newSubTab);
+  };
 
   useEffect(() => {
     if (activeSubTab && activeSubTab !== subTab) {
       setSubTab(activeSubTab);
-      if (activeSubTab === "portfolio") {
-        fetchPositions();
-      } else if (activeSubTab === "ledger") {
-        fetchOrders();
-      }
+    }
+    const current = activeSubTab || subTab;
+    if (current === "portfolio") {
+      fetchPositions();
+    } else if (current === "ledger") {
+      fetchOrders();
     }
   }, [activeSubTab]);
 
@@ -90,6 +97,95 @@ export function ETradeTradingHub({
   const [positions, setPositions] = useState<ETradePosition[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [configModalOpen, setConfigModalOpen] = useState(false);
+
+  const handleSeedDemoPortfolio = () => {
+    const samplePositions: ETradePosition[] = [
+      {
+        symbol: "NVDA",
+        description: "NVIDIA Corporation - Common Stock",
+        quantity: 50,
+        pricePaid: 124.50,
+        costBasis: 6225.00,
+        currentPrice: 138.25,
+        marketPrice: 138.25,
+        marketValue: 6912.50,
+        totalGain: 687.50,
+        unrealizedGainLoss: 687.50,
+        totalGainPercent: 11.04,
+        unrealizedGainLossPercent: 11.04,
+        daysGain: 84.50,
+        daysGainPercent: 1.24,
+        positionType: "LONG",
+        securityType: "EQ",
+      },
+      {
+        symbol: "AAPL",
+        description: "Apple Inc. - Common Stock",
+        quantity: 40,
+        pricePaid: 215.00,
+        costBasis: 8600.00,
+        currentPrice: 231.40,
+        marketPrice: 231.40,
+        marketValue: 9256.00,
+        totalGain: 656.00,
+        unrealizedGainLoss: 656.00,
+        totalGainPercent: 7.63,
+        unrealizedGainLossPercent: 7.63,
+        daysGain: -22.80,
+        daysGainPercent: -0.25,
+        positionType: "LONG",
+        securityType: "EQ",
+      },
+      {
+        symbol: "MSFT",
+        description: "Microsoft Corporation - Common Stock",
+        quantity: 25,
+        pricePaid: 410.00,
+        costBasis: 10250.00,
+        currentPrice: 428.15,
+        marketPrice: 428.15,
+        marketValue: 10703.75,
+        totalGain: 453.75,
+        unrealizedGainLoss: 453.75,
+        totalGainPercent: 4.43,
+        unrealizedGainLossPercent: 4.43,
+        daysGain: 41.25,
+        daysGainPercent: 0.39,
+        positionType: "LONG",
+        securityType: "EQ",
+      },
+      {
+        symbol: "SPY",
+        description: "SPDR S&P 500 ETF Trust",
+        quantity: 30,
+        pricePaid: 560.00,
+        costBasis: 16800.00,
+        currentPrice: 582.60,
+        marketPrice: 582.60,
+        marketValue: 17478.00,
+        totalGain: 678.00,
+        unrealizedGainLoss: 678.00,
+        totalGainPercent: 4.04,
+        unrealizedGainLossPercent: 4.04,
+        daysGain: 52.20,
+        daysGainPercent: 0.30,
+        positionType: "LONG",
+        securityType: "EQ",
+      },
+    ];
+
+    setPositions(samplePositions);
+    setAccount({
+      accountId: "paper_sandbox_demo",
+      accountKey: "paper_sandbox_key",
+      accountDesc: "Paper Trading Portfolio Sandbox",
+      accountType: "MARGIN",
+      netAccountValue: 69350.25,
+      totalAccountValue: 69350.25,
+      cashAvailableForInvestment: 25000.00,
+      dayTraderStatus: false,
+    });
+  };
 
   // Screener state
   const [exchangeFilter, setExchangeFilter] = useState<"ALL" | "NASDAQ" | "NYSE" | "AMEX">("ALL");
@@ -1020,7 +1116,7 @@ export function ETradeTradingHub({
   const sendNlqToChat = (prompt = nlqQuery) => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
-    const tabLabels: Record<typeof subTab, string> = {
+    const tabLabels: Record<typeof effectiveSubTab, string> = {
       autopilot: "Autopilot Control Center",
       scanner: "Equity Universe Scan",
       screeners: "Multi-Asset Screeners",
@@ -1033,7 +1129,7 @@ export function ETradeTradingHub({
       omnichannel: "Email & Slack Agents",
       voice: "Voice Trading Desk",
     };
-    onSendPrompt?.(cleanPrompt, `E*TRADE · ${tabLabels[subTab]}`);
+    onSendPrompt?.(cleanPrompt, `E*TRADE · ${tabLabels[effectiveSubTab]}`);
   };
 
   const accountValue = account?.netAccountValue;
@@ -1311,20 +1407,19 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 0: AUTOPILOT CONTROL CENTER */}
-      {subTab === "autopilot" && (
+      {effectiveSubTab === "autopilot" && (
         <AutopilotControlCenter
           user={user}
           isLiveAccount={isLive}
           onSendPrompt={onSendPrompt}
           onNavigateOrder={(sym) => {
             setOrderSymbol(sym);
-            setSubTab("order");
-            onSelectSubTab?.("order");
+            handleNavigateSubTab("order");
           }}
         />
       )}
 
-      {subTab === "screeners" && (
+      {effectiveSubTab === "screeners" && (
         <ScreenersHub
           activeEnv={activeEnv}
           userLogin={user?.login}
@@ -1333,7 +1428,7 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
-      {subTab === "scanner" && (
+      {effectiveSubTab === "scanner" && (
         <div className="trading-section screener-section">
           {/* Controls Bar */}
           <div className="screener-controls-bar">
@@ -1540,7 +1635,7 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      <OptionsResearchPanelHost hidden={subTab !== "options"}>
+      <OptionsResearchPanelHost hidden={effectiveSubTab !== "options"}>
         <OptionsResearchPanel
           activeEnv={activeEnv}
           userLogin={user?.login}
@@ -1551,7 +1646,7 @@ export function ETradeTradingHub({
       </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
-      {subTab === "order" && (
+      {effectiveSubTab === "order" && (
         <div className="trading-section order-ticket-section">
           <div className="order-ticket-layout">
             {/* Left: Interactive Order Ticket Form */}
@@ -1975,12 +2070,57 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 3: PORTFOLIO & POSITIONS */}
-      {subTab === "portfolio" && (
+      {effectiveSubTab === "portfolio" && (
         <div className="trading-section portfolio-section">
+          {/* Universal Hero Header */}
+          <div className="tab-hero-header portfolio-hero-header">
+            <div className="hero-text-block">
+              <div className="hero-badge-row">
+                <span className="hero-badge">💼 PORTFOLIO &amp; HOLDINGS</span>
+                <span className={`hero-badge ${isLive ? "badge-live" : "badge-paper"}`}>
+                  {isLive ? "LIVE BROKERAGE" : "PAPER TRADING SANDBOX"}
+                </span>
+                <span className="hero-badge badge-pro">HITL ATTESTED</span>
+              </div>
+              <h3>Portfolio Holdings &amp; Open Positions</h3>
+              <p>
+                Inspect real-time equity &amp; options holdings, cost basis, unrealized gain/loss, asset allocations, and portfolio Greeks across your connected brokerage desk.
+              </p>
+            </div>
+            <div className="hero-actions-row">
+              <button
+                type="button"
+                className="btn-options-refresh"
+                onClick={() => fetchPositions()}
+                disabled={positionsLoading}
+                title="Refresh live portfolio positions from broker"
+              >
+                <span className={positionsLoading ? "strat-spin" : ""}>↻</span>
+                <span>{positionsLoading ? "Refreshing…" : "Refresh Positions"}</span>
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleNavigateSubTab("order")}
+                title="Open Fast Order Ticket to execute a trade"
+              >
+                ⚡ Fast Order Ticket
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleSeedDemoPortfolio}
+                title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
+              >
+                🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
+              </button>
+            </div>
+          </div>
+
           <div className="portfolio-summary-row">
             {(() => {
-              const totalUnrealizedGain = positions.reduce((sum, p) => sum + (p.unrealizedGainLoss || p.totalGain || 0), 0);
-              const totalVal = account?.totalAccountValue || positions.reduce((sum, p) => sum + p.marketValue, 0);
+              const totalUnrealizedGain = positions.reduce((sum, p) => sum + (Number(p.unrealizedGainLoss ?? p.totalGain ?? 0)), 0);
+              const totalVal = account?.totalAccountValue || positions.reduce((sum, p) => sum + Number(p.marketValue ?? 0), 0);
               const cashVal = account?.cashAvailableForInvestment ?? 0;
               const isGain = totalUnrealizedGain >= 0;
 
@@ -1989,18 +2129,18 @@ export function ETradeTradingHub({
                   <div className="port-summary-card">
                     <span className="summary-title">Portfolio Equity</span>
                     <span className="summary-amount">
-                      ${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${Number(totalVal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                     <span className={`summary-change ${isGain ? "positive" : "negative"}`}>
-                      {isGain ? "+" : ""}${totalUnrealizedGain.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Unrealized {isGain ? "Gains" : "Losses"})
+                      {isGain ? "+" : ""}${Math.abs(totalUnrealizedGain).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Unrealized {isGain ? "Gains" : "Losses"})
                     </span>
                   </div>
                   <div className="port-summary-card">
                     <span className="summary-title">Available Cash</span>
                     <span className="summary-amount">
-                      ${cashVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${Number(cashVal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
-                    <span className="summary-change">Ready to deploy</span>
+                    <span className="summary-change">{isLive ? "Broker Purchasing Power" : "Paper Capital Ready"}</span>
                   </div>
                 </>
               );
@@ -2029,14 +2169,52 @@ export function ETradeTradingHub({
               <tbody>
                 {positions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="empty-state">
-                      {positionsLoading ? "Loading portfolio positions from E*TRADE…" : "No active positions found in brokerage account."}
+                    <td colSpan={8} className="empty-state portfolio-empty-state">
+                      <div className="portfolio-empty-box" style={{ padding: "2.5rem 1rem", textAlign: "center" }}>
+                        <div className="empty-icon" style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>💼</div>
+                        <h4 style={{ fontSize: "1.1rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
+                          {positionsLoading ? "Loading portfolio positions from broker…" : "No Active Holdings Found"}
+                        </h4>
+                        <p style={{ maxWidth: "520px", margin: "0 auto 1.25rem auto", color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: "1.5" }}>
+                          {positionsLoading
+                            ? "Connecting to brokerage upstream and calculating portfolio equity balances…"
+                            : isLive
+                            ? "No active positions found in your connected live brokerage account. Use the Fast Order Ticket to build and preview an order."
+                            : "Your paper trading sandbox has no open positions. Place a paper trade or load curated demo holdings (NVDA, AAPL, MSFT, SPY) to explore portfolio analytics, charts, and Greeks."}
+                        </p>
+                        {!positionsLoading && (
+                          <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => handleNavigateSubTab("order")}
+                            >
+                              ⚡ Build Order Ticket
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={handleSeedDemoPortfolio}
+                            >
+                              🌱 Load Curated Demo Positions
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   positions.map((pos) => {
-                    const isTotalPos = pos.unrealizedGainLoss >= 0;
-                    const isDayPos = pos.daysGain >= 0;
+                    const unrealizedGain = Number(pos.unrealizedGainLoss ?? pos.totalGain ?? 0);
+                    const unrealizedGainPct = Number(pos.unrealizedGainLossPercent ?? pos.totalGainPercent ?? 0);
+                    const dayGain = Number(pos.daysGain ?? 0);
+                    const dayGainPct = Number(pos.daysGainPercent ?? 0);
+                    const isTotalPos = unrealizedGain >= 0;
+                    const isDayPos = dayGain >= 0;
+                    const costBasis = Number(pos.costBasis ?? pos.pricePaid ?? 0);
+                    const curPrice = Number(pos.currentPrice ?? pos.marketPrice ?? 0);
+                    const mktVal = Number(pos.marketValue ?? (curPrice * Number(pos.quantity ?? 0)));
+
                     return (
                       <tr key={pos.symbol}>
                         <td>
@@ -2049,22 +2227,22 @@ export function ETradeTradingHub({
                           <span className="qty-val">{pos.quantity} shares</span>
                         </td>
                         <td>
-                          <span>${pos.costBasis.toFixed(2)}</span>
+                          <span>${costBasis.toFixed(2)}</span>
                         </td>
                         <td>
-                          <span className="price-tag">${pos.currentPrice.toFixed(2)}</span>
+                          <span className="price-tag">${curPrice.toFixed(2)}</span>
                         </td>
                         <td>
-                          <span className="mkt-val">${pos.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                          <span className="mkt-val">${mktVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </td>
                         <td>
                           <span className={`change-pill ${isTotalPos ? "positive" : "negative"}`}>
-                            {isTotalPos ? "+" : ""}${pos.unrealizedGainLoss.toFixed(2)} ({isTotalPos ? "+" : ""}{pos.unrealizedGainLossPercent.toFixed(2)}%)
+                            {isTotalPos ? "+" : ""}${unrealizedGain.toFixed(2)} ({isTotalPos ? "+" : ""}{unrealizedGainPct.toFixed(2)}%)
                           </span>
                         </td>
                         <td>
                           <span className={`change-pill ${isDayPos ? "positive" : "negative"}`}>
-                            {isDayPos ? "+" : ""}${pos.daysGain.toFixed(2)} ({isDayPos ? "+" : ""}{pos.daysGainPercent.toFixed(2)}%)
+                            {isDayPos ? "+" : ""}${dayGain.toFixed(2)} ({isDayPos ? "+" : ""}{dayGainPct.toFixed(2)}%)
                           </span>
                         </td>
                         <td>
@@ -2093,17 +2271,17 @@ export function ETradeTradingHub({
                                 setRiskSubject({
                                   title: `${pos.quantity}x ${pos.symbol} (${pos.description || "Long Equity"})`,
                                   underlyingSymbol: pos.symbol,
-                                  underlyingPrice: pos.currentPrice,
+                                  underlyingPrice: curPrice,
                                   strategyType: "Long Equity Position",
                                   sentiment: "bullish",
                                   quantity: pos.quantity,
                                   positionType: "EQUITY",
-                                  costBasis: pos.costBasis,
-                                  unrealizedPnL: pos.unrealizedGainLoss,
-                                  maxLoss: pos.marketValue,
+                                  costBasis: costBasis,
+                                  unrealizedPnL: unrealizedGain,
+                                  maxLoss: mktVal,
                                   maxProfit: null,
-                                  breakevens: [pos.costBasis],
-                                  breakevenText: `Cost basis: $${pos.costBasis.toFixed(2)}/share`,
+                                  breakevens: [costBasis],
+                                  breakevenText: `Cost basis: $${costBasis.toFixed(2)}/share`,
                                 });
                               }}
                               title="Analyze position risk profile and hedging strategies"
@@ -2155,7 +2333,7 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 4: ORDER HISTORY LEDGER */}
-      {subTab === "ledger" && (
+      {effectiveSubTab === "ledger" && (
         <div className="trading-section ledger-section">
           <div className="ledger-header-row">
             <h4>📜 E*TRADE Orders Ledger (SQLite mas_trades)</h4>
@@ -2258,7 +2436,7 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 5: NLQ RESULTS */}
-      {subTab === "nlq" && (
+      {effectiveSubTab === "nlq" && (
         <div className="trading-section nlq-section">
           <div className="nlq-results-wrapper">
             <div className="nlq-query-recap">
@@ -2507,7 +2685,7 @@ export function ETradeTradingHub({
 
       {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
       {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
-      {subTab === "omnichannel" && (
+      {effectiveSubTab === "omnichannel" && (
         <div className="tab-pane active omnichannel-pane">
           {/* Header Card */}
           <div className="omnichannel-header-card">
@@ -2819,7 +2997,7 @@ export function ETradeTradingHub({
       )}
 
       {/* Cloudflare Voice Trading Agent Desk */}
-      {subTab === "voice" && (
+      {effectiveSubTab === "voice" && (
         <div className="tab-pane active voice-pane">
           {/* Header Card */}
           <div className="voice-header-card">

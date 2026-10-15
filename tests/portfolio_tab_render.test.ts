@@ -1,0 +1,52 @@
+import { describe, it, expect } from "vitest";
+import React from "react";
+import ReactDOMServer from "react-dom/server";
+import { ETradeTradingHub } from "../src/client/ETradeTradingHub";
+import { NavigationMenu, isTabActive, NAVIGATION_ITEMS } from "../src/client/components/NavigationMenu";
+
+describe("Portfolio Tab Click & Render Inspection", () => {
+  it("verifies isTabActive for portfolio", () => {
+    expect(isTabActive("portfolio", "portfolio")).toBe(true);
+    expect(isTabActive("portfolio", "autopilot")).toBe(false);
+  });
+
+  it("verifies portfolio is defined in NAVIGATION_ITEMS under Execution with live badge", () => {
+    const portfolioItem = NAVIGATION_ITEMS.find((item) => item.id === "portfolio");
+    expect(portfolioItem).toBeDefined();
+    expect(portfolioItem?.label).toBe("Portfolio & Holdings");
+    expect(portfolioItem?.category).toBe("Execution");
+    expect(portfolioItem?.badge).toBe("Live");
+  });
+
+  it("renders NavigationMenu with active portfolio tab", () => {
+    const html = ReactDOMServer.renderToString(
+      React.createElement(NavigationMenu, {
+        layout: "left",
+        onToggleLayout: () => {},
+        activeTab: "portfolio",
+        onSelectTab: () => {},
+        user: { login: "test_user", name: "Test User", avatar: "" },
+      })
+    );
+    expect(html).toContain("Portfolio &amp; Holdings");
+    expect(html).toContain("active");
+  });
+
+  it("renders ETradeTradingHub portfolio section with hero header and actions when activeSubTab is portfolio", () => {
+    const html = ReactDOMServer.renderToString(
+      React.createElement(ETradeTradingHub, {
+        activeSubTab: "portfolio",
+        user: { login: "test_user", name: "Test User" },
+      })
+    );
+    expect(html).toContain("portfolio-section");
+    expect(html).toContain("PORTFOLIO &amp; HOLDINGS");
+    expect(html).toContain("Portfolio Holdings &amp; Open Positions");
+    expect(html).toContain("Portfolio Equity");
+    expect(html).toContain("Available Cash");
+    expect(html).toContain("Total Active Positions");
+    expect(html).toContain("Refresh Positions");
+    expect(html).toContain("Fast Order Ticket");
+    expect(html).toContain("Load Demo Holdings");
+  });
+});
