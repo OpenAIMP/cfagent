@@ -7,6 +7,7 @@ import { logAspectEvent } from "../aspects/loggingAspect";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub, type TradingSubTab } from "./ETradeTradingHub";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { SettingsMenu, ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { FossResearchHub } from "./FossResearchHub";
 import { TabHoverItem } from "./TabHoverItem";
@@ -4330,6 +4331,7 @@ export function Chat({ user }: { user: User }) {
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
         <div className="trading-view" hidden={!isTradingTab(tab)}>
+          <ErrorBoundary label="E*TRADE Hub">
           <ETradeTradingHub
             user={user}
             activeSubTab={mapTabToTradingSubTab(tab)}
@@ -4343,6 +4345,7 @@ export function Chat({ user }: { user: User }) {
               setTab("chat");
             }}
           />
+          </ErrorBoundary>
         </div>
 
         {tab === "research" && (
