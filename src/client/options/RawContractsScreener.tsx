@@ -210,20 +210,20 @@ export function RawContractsScreener({
         }}
       >
         <div>
-          <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span>📋 Raw Option Contracts Screener</span>
-            <span style={{ fontSize: "0.72rem", background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.4)", borderRadius: "4px", padding: "0.15rem 0.5rem", color: "#7dd3fc" }}>
+            <span style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-xs, 4px)", padding: "0.15rem 0.5rem", color: "var(--color-accent)" }}>
               Live E*TRADE Chains
             </span>
           </h3>
-          <p style={{ margin: 0, fontSize: "0.82rem", color: "#94a3b8" }}>
+          <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
             Query live individual option contracts with implied volatility, bid/ask spreads, Greeks, and liquidity bounds.
           </p>
         </div>
 
         {/* Quick Ticker Chips */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.78rem", color: "#64748b" }}>Quick symbols:</span>
+          <span style={{ fontSize: "0.78rem", color: "var(--color-text-dim)" }}>Quick symbols:</span>
           {POPULAR_SYMBOLS.map((s) => (
             <button
               key={s}
@@ -232,9 +232,9 @@ export function RawContractsScreener({
               style={{
                 padding: "0.25rem 0.6rem",
                 fontSize: "0.76rem",
-                background: symbol.toUpperCase() === s ? "rgba(56, 189, 248, 0.25)" : "rgba(30, 41, 59, 0.6)",
-                borderColor: symbol.toUpperCase() === s ? "#38bdf8" : "rgba(255, 255, 255, 0.1)",
-                color: symbol.toUpperCase() === s ? "#38bdf8" : "#cbd5e1",
+                background: symbol.toUpperCase() === s ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+                borderColor: symbol.toUpperCase() === s ? "var(--color-border-focus)" : "var(--color-border-subtle)",
+                color: symbol.toUpperCase() === s ? "var(--color-accent)" : "var(--color-text-secondary)",
               }}
               onClick={() => setSymbol(s)}
             >
@@ -358,7 +358,7 @@ export function RawContractsScreener({
 
       {/* Optional Payment Challenge */}
       {pending && (
-        <div className="options-error" role="status" style={{ borderColor: "#38bdf8" }}>
+        <div className="options-error" role="status" style={{ borderColor: "var(--color-accent)" }}>
           <p>
             <strong>Payment Optional (x402 Protocol).</strong> Pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run for free.
           </p>
@@ -488,19 +488,19 @@ export function RawContractsScreener({
 
                 return (
                   <tr key={`${c.symbol || c.displaySymbol || c.osiKey || idx}:${idx}`}>
-                    <td style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                    <td style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
                       {contractLabel}
                     </td>
                     <td>
                       <span
                         style={{
                           padding: "0.15rem 0.45rem",
-                          borderRadius: "4px",
+                          borderRadius: "var(--radius-xs, 4px)",
                           fontSize: "0.72rem",
                           fontWeight: 700,
-                          background: isCall ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                          color: isCall ? "#4ade80" : "#f87171",
-                          border: `1px solid ${isCall ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                          background: isCall ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
+                          color: isCall ? "var(--color-success)" : "var(--color-danger)",
+                          border: `1px solid ${isCall ? "var(--color-success)" : "var(--color-danger)"}`,
                         }}
                       >
                         {c.optionType}
@@ -514,33 +514,33 @@ export function RawContractsScreener({
                         style={{
                           fontSize: "0.72rem",
                           padding: "0.1rem 0.35rem",
-                          borderRadius: "3px",
-                          background: c.moneyness === "ITM" ? "rgba(56, 189, 248, 0.15)" : "rgba(100, 116, 139, 0.15)",
-                          color: c.moneyness === "ITM" ? "#38bdf8" : "#94a3b8",
+                          borderRadius: "var(--radius-xs, 3px)",
+                          background: c.moneyness === "ITM" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+                          color: c.moneyness === "ITM" ? "var(--color-accent)" : "var(--color-text-muted)",
                         }}
                       >
                         {c.moneyness || "OTM"}
                       </span>
                     </td>
                     <td>
-                      {c.expirationDate} <span style={{ color: "#64748b" }}>({c.daysToExpiration}d)</span>
+                      {c.expirationDate} <span style={{ color: "var(--color-text-dim)" }}>({c.daysToExpiration}d)</span>
                     </td>
                     <td>${Number(c.bid).toFixed(2)}</td>
                     <td>${Number(c.ask).toFixed(2)}</td>
                     <td style={{ fontWeight: 600 }}>${mid.toFixed(2)}</td>
                     <td>
-                      <span style={{ color: c.spreadPct > 15 ? "#f87171" : "#cbd5e1" }}>
+                      <span style={{ color: c.spreadPct > 15 ? "var(--color-danger)" : "var(--color-text-secondary)" }}>
                         {Number(c.spreadPct).toFixed(1)}%
                       </span>
                     </td>
                     <td style={{ fontWeight: 600 }}>{(c.volume ?? 0).toLocaleString()}</td>
                     <td>{(c.openInterest ?? 0).toLocaleString()}</td>
                     <td>{ivPct}%</td>
-                    <td style={{ color: Number(c.delta) >= 0 ? "#4ade80" : "#f87171" }}>
+                    <td style={{ color: Number(c.delta) >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
                       {c.delta !== undefined ? Number(c.delta).toFixed(3) : "—"}
                     </td>
                     <td>{c.gamma !== undefined ? Number(c.gamma).toFixed(4) : "—"}</td>
-                    <td style={{ color: "#f87171" }}>{c.theta !== undefined ? Number(c.theta).toFixed(3) : "—"}</td>
+                    <td style={{ color: "var(--color-danger)" }}>{c.theta !== undefined ? Number(c.theta).toFixed(3) : "—"}</td>
                     <td>{c.vega !== undefined ? Number(c.vega).toFixed(3) : "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: "0.3rem" }}>
@@ -558,7 +558,7 @@ export function RawContractsScreener({
                         <button
                           type="button"
                           className="subnav-btn"
-                          style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "#f59e0b", color: "#fbbf24" }}
+                          style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
                           title="Analyze risk profile and mitigation playbook"
                           onClick={() =>
                             setRiskSubject({
@@ -611,7 +611,7 @@ export function RawContractsScreener({
                           <button
                             type="button"
                             className="subnav-btn"
-                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "#38bdf8", color: "#38bdf8" }}
+                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
                             title="Preview buy trade order"
                             onClick={() =>
                               onPreviewTrade({
@@ -642,13 +642,13 @@ export function RawContractsScreener({
           style={{
             padding: "3rem 1.5rem",
             textAlign: "center",
-            background: "rgba(15, 23, 42, 0.4)",
-            border: "1px dashed rgba(255, 255, 255, 0.1)",
-            borderRadius: "8px",
-            color: "#64748b",
+            background: "var(--color-surface-sunken)",
+            border: "1px dashed var(--color-border-subtle)",
+            borderRadius: "var(--radius-md, 8px)",
+            color: "var(--color-text-dim)",
           }}
         >
-          <p style={{ margin: "0 0 0.5rem", fontSize: "1.1rem", color: "#94a3b8" }}>
+          <p style={{ margin: "0 0 0.5rem", fontSize: "1.1rem", color: "var(--color-text-muted)" }}>
             No screened contracts loaded yet.
           </p>
           <p style={{ margin: 0, fontSize: "0.85rem" }}>

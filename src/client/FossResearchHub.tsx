@@ -523,24 +523,25 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
       {/* SUBTAB 0: YAHOO FINANCE LIVE MARKET SCREENER */}
       {subTab === "screener" && (
         <div className="research-section screener-section">
-          <div className="section-intro-card" style={{ marginBottom: "1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="section-intro-card">
+            <div className="section-intro-card-header">
               <div>
-                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#38bdf8" }}>
+                <h3 className="section-intro-title">
                   📊 Yahoo Finance Live Market Screener
                 </h3>
-                <p style={{ margin: "0.25rem 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
+                <p className="section-intro-desc">
                   Real-time Level 1 quotes, daily changes, dynamic RSI-14 momentum, and institutional P/E valuations powered 100% by Yahoo Finance FOSS API.
                 </p>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div className="section-intro-actions">
                 <button
                   type="button"
                   className="btn-refresh"
                   onClick={() => fetchScreener()}
                   disabled={screenerLoading}
                 >
-                  {screenerLoading ? "Scanning…" : "🔄 Refresh Screener"}
+                  <span className={screenerLoading ? "strat-spin" : ""}>🔄</span>
+                  {screenerLoading ? "Scanning…" : "Refresh Screener"}
                 </button>
               </div>
             </div>
@@ -661,40 +662,41 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
             {/* Quick Action Navigation & Drawer Toggle */}
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingTop: "0.25rem" }}>
-              <span style={{ fontSize: "0.78rem", color: "#94a3b8", fontWeight: 600 }}>Deep-Dive Analysis:</span>
+              <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
               <button
                 type="button"
+                className="btn-table-action primary"
                 onClick={() => setSubTab("report")}
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer", fontWeight: 600 }}
               >
                 🔬 In-Depth AI Research Report →
               </button>
               <button
                 type="button"
+                className={`btn-table-action warning ${showAlpacaDrawerOnScreener ? "active" : ""}`}
                 onClick={() => setShowAlpacaDrawerOnScreener(!showAlpacaDrawerOnScreener)}
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: showAlpacaDrawerOnScreener ? "#f59e0b" : "rgba(245, 158, 11, 0.15)", color: showAlpacaDrawerOnScreener ? "#000" : "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.4)", cursor: "pointer", fontWeight: 600 }}
               >
                 {showAlpacaDrawerOnScreener ? "▲ Hide Alpaca Snapshot Drawer" : "▼ Expand Alpaca Snapshot Drawer (On-Page)"}
               </button>
               <button
                 type="button"
+                className="btn-table-action secondary"
                 onClick={() => setSubTab("fundamentals")}
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)", cursor: "pointer" }}
               >
-                ⚖️ Fundamentals & Multiples →
+                ⚖️ Fundamentals &amp; Multiples →
               </button>
               <button
                 type="button"
+                className="btn-table-action success"
                 onClick={() => setSubTab("bars")}
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", cursor: "pointer" }}
               >
                 📈 Candlestick Bars →
               </button>
               {onTradeSymbol && (
                 <button
                   type="button"
+                  className="btn-primary"
                   onClick={() => onTradeSymbol(activeSymbol)}
-                  style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", borderRadius: "6px", background: "linear-gradient(135deg, #10b981, #059669)", color: "#ffffff", border: "none", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}
+                  style={{ marginLeft: "auto" }}
                 >
                   ⚡ Trade {activeSymbol} on E*TRADE
                 </button>
@@ -704,7 +706,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {/* Expandable Alpaca Snapshot Drawer right inside the Screener page */}
             {showAlpacaDrawerOnScreener && snapshot && (
               <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
-                <h4 style={{ margin: "0 0 0.5rem", color: "#f59e0b", fontSize: "0.95rem" }}>
+                <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "0.95rem" }}>
                   🦙 Alpaca Market Snapshot Live Inspection — {activeSymbol}
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
@@ -713,7 +715,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)", fontSize: "1rem" }}>
                       ${snapshot.latestTrade?.price || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
                       Size: {snapshot.latestTrade?.size || 0} • {snapshot.latestTrade?.timestamp || "live"}
                     </div>
                   </div>
@@ -722,7 +724,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.minuteBar?.close || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
                       O: {snapshot.minuteBar?.open} H: {snapshot.minuteBar?.high} L: {snapshot.minuteBar?.low}
                     </div>
                   </div>
@@ -731,7 +733,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       VWAP: ${snapshot.dailyBar?.vwap ? Number(snapshot.dailyBar.vwap).toFixed(2) : "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
                       Volume: {snapshot.dailyBar?.volume?.toLocaleString() || 0}
                     </div>
                   </div>
@@ -740,7 +742,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.prevDailyBar?.close || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
                       H: {snapshot.prevDailyBar?.high} L: {snapshot.prevDailyBar?.low}
                     </div>
                   </div>
@@ -786,32 +788,31 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <div style={{ display: "flex", gap: "0.35rem" }}>
                 <button
                   type="button"
-                  className={`btn-pill ${screenerGainersOnly ? "active" : ""}`}
+                  className={`btn-filter-pill ${screenerGainersOnly ? "active gainers" : ""}`}
                   onClick={() => {
                     const next = !screenerGainersOnly;
                     setScreenerGainersOnly(next);
                     if (next) setScreenerLosersOnly(false);
                     fetchScreener({ gainersOnly: next, losersOnly: false });
                   }}
-                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: screenerGainersOnly ? "#10b981" : "rgba(15,23,42,0.8)", color: "#fff", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
                 >
                   🚀 Gainers
                 </button>
                 <button
                   type="button"
-                  className={`btn-pill ${screenerLosersOnly ? "active" : ""}`}
+                  className={`btn-filter-pill ${screenerLosersOnly ? "active losers" : ""}`}
                   onClick={() => {
                     const next = !screenerLosersOnly;
                     setScreenerLosersOnly(next);
                     if (next) setScreenerGainersOnly(false);
                     fetchScreener({ losersOnly: next, gainersOnly: false });
                   }}
-                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: screenerLosersOnly ? "#ef4444" : "rgba(15,23,42,0.8)", color: "#fff", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
                 >
                   📉 Losers
                 </button>
                 <button
                   type="button"
+                  className="btn-filter-pill"
                   onClick={() => {
                     setScreenerSearch("");
                     setScreenerSector("all");
@@ -821,7 +822,6 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     setScreenerMaxRsi(undefined);
                     fetchScreener({ search: "", sector: "all", gainersOnly: false, losersOnly: false, minRsi: undefined, maxRsi: undefined });
                   }}
-                  style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", borderRadius: "6px", background: "rgba(15,23,42,0.8)", color: "#94a3b8", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
                 >
                   Reset
                 </button>
@@ -877,38 +877,38 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <tr key={stock.symbol}>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontWeight: 700, color: "#38bdf8" }}>{stock.symbol}</span>
-                          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{stock.companyName}</span>
+                          <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{stock.symbol}</span>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{stock.companyName}</span>
                         </div>
                       </td>
                       <td>
-                        <span style={{ fontSize: "0.8rem", color: "#cbd5e1" }}>{stock.sector}</span>
+                        <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{stock.sector}</span>
                       </td>
                       <td style={{ textAlign: "right", fontWeight: 700 }}>
                         ${Number(stock.lastPrice || stock.price || 0).toFixed(2)}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className={`pill-badge ${stock.change >= 0 ? "positive" : "negative"}`} style={{ display: "inline-block", padding: "0.15rem 0.45rem", borderRadius: "4px", fontSize: "0.78rem", fontWeight: 600, background: stock.change >= 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: stock.change >= 0 ? "#10b981" : "#ef4444", border: "1px solid currentColor" }}>
+                        <span className={`pill-badge ${stock.change >= 0 ? "positive" : "negative"}`}>
                           {stock.change >= 0 ? "+" : ""}{Number(stock.change || 0).toFixed(2)} ({Number(stock.changePercent || 0).toFixed(2)}%)
                         </span>
                       </td>
-                      <td style={{ textAlign: "right", color: "#94a3b8" }}>
+                      <td style={{ textAlign: "right", color: "var(--color-text-muted)" }}>
                         {stock.peRatio ? Number(stock.peRatio).toFixed(1) : "N/A"}
                       </td>
-                      <td style={{ textAlign: "right", color: "#94a3b8" }}>
+                      <td style={{ textAlign: "right", color: "var(--color-text-muted)" }}>
                         {stock.marketCap ? `$${Number(stock.marketCap).toFixed(1)}B` : "N/A"}
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.8rem", padding: "0.15rem 0.45rem", borderRadius: "4px", background: stock.rsi14 > 70 ? "rgba(239, 68, 68, 0.15)" : stock.rsi14 < 35 ? "rgba(16, 185, 129, 0.15)" : "rgba(56, 189, 248, 0.15)", color: stock.rsi14 > 70 ? "#ef4444" : stock.rsi14 < 35 ? "#10b981" : "#38bdf8", border: "1px solid currentColor" }}>
+                        <span className={`pill-badge ${stock.rsi14 > 70 ? "negative" : stock.rsi14 < 35 ? "positive" : "neutral"}`}>
                           {stock.rsi14 ? stock.rsi14.toFixed(1) : "50.0"}
                         </span>
                       </td>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "#10b981" : "#f59e0b" }}>
+                          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "var(--color-success)" : "var(--color-warning)" }}>
                             {stock.signal || "RANGE_BOUND"}
                           </span>
-                          <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                          <span style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
                             Score: {stock.momentumScore || 50}/100
                           </span>
                         </div>
@@ -916,21 +916,11 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                       <td style={{ textAlign: "center" }}>
                         <button
                           type="button"
+                          className={`btn-table-action warning ${activeSymbol === stock.symbol ? "active" : ""}`}
                           title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
                           onClick={() => {
                             setSymbolInput(stock.symbol);
                             handleAnalyzeTicker(stock.symbol);
-                          }}
-                          style={{
-                            padding: "0.22rem 0.55rem",
-                            fontSize: "0.75rem",
-                            borderRadius: "4px",
-                            background: activeSymbol === stock.symbol ? "rgba(245, 158, 11, 0.25)" : "rgba(245, 158, 11, 0.12)",
-                            color: "#f59e0b",
-                            border: "1px solid rgba(245, 158, 11, 0.35)",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
                           }}
                         >
                           {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
@@ -942,34 +932,34 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>
                           <button
                             type="button"
+                            className="btn-table-action primary"
                             title="Generate AI Research Report with Yahoo Finance & Alpaca"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
                               loadAllSymbolData(stock.symbol);
                               setSubTab("report");
                             }}
-                            style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer" }}
                           >
                             🔬 Report
                           </button>
                           <button
                             type="button"
+                            className="btn-table-action secondary"
                             title="Inspect Fundamentals & Valuations via Yahoo Finance"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
                               loadFundamentals(stock.symbol);
                               setSubTab("fundamentals");
                             }}
-                            style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)", cursor: "pointer" }}
                           >
                             ⚖️ Ratios
                           </button>
                           {onTradeSymbol && (
                             <button
                               type="button"
+                              className="btn-table-action success"
                               title="Send to E*TRADE Order Ticket for Execution"
                               onClick={() => onTradeSymbol(stock.symbol)}
-                              style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "4px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", cursor: "pointer", fontWeight: 600 }}
                             >
                               ⚡ Trade on E*TRADE
                             </button>
@@ -1082,7 +1072,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         className="rsi-fill"
                         style={{
                           width: `${Math.min(100, Math.max(0, report.technicalSummary.rsi14))}%`,
-                          background: report.technicalSummary.rsi14 < 35 ? "#10b981" : report.technicalSummary.rsi14 > 70 ? "#ef4444" : "#38bdf8",
+                          background: report.technicalSummary.rsi14 < 35 ? "var(--color-success)" : report.technicalSummary.rsi14 > 70 ? "var(--color-danger)" : "var(--color-accent)",
                         }}
                       />
                     </div>
@@ -1473,9 +1463,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
           </div>
 
           {barsMeta && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "#94a3b8" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
               <span>
-                📡 Verified Source: <strong style={{ color: "#38bdf8" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
+                📡 Verified Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
               </span>
               <span>
                 Live Synced: {barsMeta.timestamp ? new Date(barsMeta.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
@@ -1583,33 +1573,33 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
           )}
 
-          <div className="section-intro-card" style={{ marginTop: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "12px", padding: "1.25rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <div className="section-intro-card" style={{ marginTop: "1.5rem" }}>
+            <div className="section-intro-card-header" style={{ marginBottom: "0.75rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "1.25rem" }}>🛡️</span>
-                <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#38bdf8" }}>
+                <h4 className="section-intro-title">
                   Alpaca Agentic Tracing Stream &amp; Provenance Ledger
                 </h4>
-                <span style={{ fontSize: "0.7rem", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", padding: "2px 8px", borderRadius: "10px", fontWeight: 700, border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                <span className="pill-badge positive">
                   W3C DID ATTESTED
                 </span>
               </div>
               <button
                 type="button"
+                className="btn-refresh"
                 onClick={loadAlpacaTraces}
                 disabled={tracesLoading}
-                style={{ background: "rgba(56, 189, 248, 0.15)", border: "1px solid rgba(56, 189, 248, 0.3)", color: "#38bdf8", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 }}
               >
                 {tracesLoading ? "Refreshing Traces…" : "🔄 Refresh Audit Traces"}
               </button>
             </div>
 
-            <p style={{ margin: "0 0 1rem 0", fontSize: "0.85rem", color: "#94a3b8", lineHeight: 1.4 }}>
+            <p className="section-intro-desc" style={{ marginBottom: "1rem" }}>
               Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in SQLite Durable Objects (<code>mas_events</code>) for end-to-end provenance.
             </p>
 
             {alpacaTraces.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "1rem", color: "#64748b", fontSize: "0.85rem", background: "rgba(0,0,0,0.2)", borderRadius: "8px" }}>
+              <div style={{ textAlign: "center", padding: "1rem", color: "var(--color-text-dim)", fontSize: "0.85rem", background: "var(--color-surface-sunken)", borderRadius: "8px" }}>
                 {tracesLoading ? "Querying audit ledger…" : "No Alpaca traces recorded in this session yet. Run a snapshot or quote query above to generate trace telemetry."}
               </div>
             ) : (
@@ -1617,10 +1607,10 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 {alpacaTraces.map((tr, idx) => (
                   <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "0.75rem", fontSize: "0.85rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "4px" }}>
-                      <span style={{ fontWeight: 700, color: "#38bdf8", background: "rgba(56, 189, 248, 0.1)", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem" }}>
+                      <span className="pill-badge" style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}>
                         {tr.type}
                       </span>
-                      <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
+                      <span style={{ color: "var(--color-text-dim)", fontSize: "0.75rem" }}>
                         {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
                       </span>
                     </div>
@@ -1633,13 +1623,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             )}
 
             {/* Antigravity MCP Integration Guide */}
-            <div style={{ marginTop: "1.25rem", borderTop: "1px solid rgba(148, 163, 184, 0.15)", paddingTop: "1rem" }}>
+            <div style={{ marginTop: "1.25rem", borderTop: "1px solid var(--color-border-subtle)", paddingTop: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                 <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
                 </span>
                 <button
                   type="button"
+                  className="btn-primary"
                   onClick={() => {
                     const cfg = JSON.stringify({
                       mcpServers: {
@@ -1657,7 +1648,6 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     setCopiedMcpConfig(true);
                     setTimeout(() => setCopiedMcpConfig(false), 2000);
                   }}
-                  style={{ background: "#2563eb", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer" }}
                 >
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
                 </button>

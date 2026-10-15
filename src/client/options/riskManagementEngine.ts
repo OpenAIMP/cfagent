@@ -502,19 +502,19 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   score = Math.max(10, Math.min(98, score));
 
   let riskLevel: "LOW" | "MODERATE" | "HIGH" | "EXTREME" = "MODERATE";
-  let riskLevelColor = "#38bdf8";
+  let riskLevelColor = "var(--color-accent)";
   if (score < 35) {
     riskLevel = "LOW";
-    riskLevelColor = "#10b981";
+    riskLevelColor = "var(--color-success)";
   } else if (score < 60) {
     riskLevel = "MODERATE";
-    riskLevelColor = "#38bdf8";
+    riskLevelColor = "var(--color-accent)";
   } else if (score < 80) {
     riskLevel = "HIGH";
-    riskLevelColor = "#f59e0b";
+    riskLevelColor = "var(--color-warning)";
   } else {
     riskLevel = "EXTREME";
-    riskLevelColor = "#ef4444";
+    riskLevelColor = "var(--color-danger)";
   }
 
   const anatomy: RiskAnatomy = {

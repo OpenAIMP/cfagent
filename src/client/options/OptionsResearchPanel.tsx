@@ -1201,21 +1201,21 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.5rem",
-                background: "rgba(56, 189, 248, 0.08)",
-                border: "1px solid rgba(56, 189, 248, 0.28)",
-                borderRadius: "6px",
+                background: "var(--color-accent-subtle)",
+                border: "1px solid var(--color-border-focus)",
+                borderRadius: "var(--radius-sm, 6px)",
                 padding: "0.35rem 0.65rem",
                 fontSize: "0.82rem",
-                color: "#38bdf8",
+                color: "var(--color-accent)",
                 marginBottom: "0.55rem",
                 width: "100%",
                 boxSizing: "border-box",
               }}
             >
               <span>🧠 <strong>LLM Validated:</strong></span>
-              <span style={{ color: "#e2e8f0" }}>{nlqResult.llmValidation.interpretation}</span>
+              <span style={{ color: "var(--color-text-secondary)" }}>{nlqResult.llmValidation.interpretation}</span>
               {nlqResult.llmValidation.corrected && (
-                <span style={{ color: "#34d399", fontSize: "0.75rem", fontWeight: 700, marginLeft: "auto" }}>✓ Intent Protected</span>
+                <span style={{ color: "var(--color-success)", fontSize: "0.75rem", fontWeight: 700, marginLeft: "auto" }}>✓ Intent Protected</span>
               )}
             </div>
           )}

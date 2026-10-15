@@ -1208,4 +1208,214 @@ body.theme-light .workflows-cat-chip.active {
   color: #0284c7 !important;
 }
 
+/* ==========================================================================
+   4. CANONICAL COMPONENT UTILITIES (TOKEN-ALIGNED ARCHITECTURE)
+   ========================================================================== */
+
+/* Section Intro & Feature Cards */
+.section-intro-card {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg, 12px);
+  padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+  box-sizing: border-box;
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.section-intro-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.section-intro-title {
+  margin: 0;
+  font-size: var(--font-size-title-sm, 1.15rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-accent);
+}
+
+.section-intro-desc {
+  margin: var(--space-1, 0.25rem) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm, 0.85rem);
+  line-height: 1.45;
+}
+
+/* Universal Button Utilities */
+.btn-refresh,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1-5, 0.35rem);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-secondary);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--font-size-body-sm, 0.82rem);
+  font-weight: var(--font-weight-semibold, 600);
+  cursor: pointer;
+  transition: all var(--transition-fast, 120ms) ease;
+  white-space: nowrap;
+}
+
+.btn-refresh:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-focus);
+}
+
+.btn-refresh:disabled,
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1-5, 0.35rem);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent-contrast, #ffffff);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--font-size-body-sm, 0.82rem);
+  font-weight: var(--font-weight-bold, 700);
+  cursor: pointer;
+  transition: all var(--transition-fast, 120ms) ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Filter Preset Pills */
+.btn-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 0.25rem);
+  font-size: var(--font-size-caption, 0.75rem);
+  padding: var(--space-1-5, 0.35rem) var(--space-2-5, 0.65rem);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.btn-filter-pill:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-medium);
+}
+
+.btn-filter-pill.active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: var(--color-border-focus);
+  font-weight: var(--font-weight-bold, 700);
+}
+
+.btn-filter-pill.active.gainers {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.btn-filter-pill.active.losers {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* Status Badges & Pills */
+.pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 0.25rem);
+  padding: var(--space-0-5, 2px) var(--space-2, 0.5rem);
+  border-radius: var(--radius-xs, 4px);
+  font-size: var(--font-size-caption, 0.75rem);
+  font-weight: var(--font-weight-semibold, 600);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.pill-badge.positive,
+.pill-badge.gain {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+}
+
+.pill-badge.negative,
+.pill-badge.loss {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+}
+
+.pill-badge.neutral {
+  background: var(--color-muted);
+  color: var(--color-text-secondary);
+}
+
+/* Table Inline Actions */
+.btn-table-action {
+  padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+  font-size: var(--font-size-caption, 0.75rem);
+  border-radius: var(--radius-xs, 4px);
+  cursor: pointer;
+  font-weight: var(--font-weight-semibold, 600);
+  transition: all var(--transition-fast, 120ms) ease;
+  white-space: nowrap;
+}
+
+.btn-table-action.primary {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border-focus);
+}
+
+.btn-table-action.secondary {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.btn-table-action.success {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.btn-table-action.warning {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
+.btn-table-action.warning.active {
+  background: var(--color-warning);
+  color: var(--color-warning-foreground, #000000);
+}
+
+.btn-table-action:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
 

@@ -217,10 +217,10 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 <span
                   style={{
                     padding: "0.2rem 0.55rem",
-                    borderRadius: "999px",
-                    background: "rgba(245, 158, 11, 0.15)",
-                    border: "1px solid rgba(245, 158, 11, 0.35)",
-                    color: "#fcd34d",
+                    borderRadius: "var(--radius-full, 999px)",
+                    background: "var(--color-warning-subtle)",
+                    border: "1px solid var(--color-warning)",
+                    color: "var(--color-warning)",
                     fontSize: "0.72rem",
                     fontWeight: 700,
                   }}
@@ -233,10 +233,10 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 <span
                   style={{
                     padding: "0.2rem 0.55rem",
-                    borderRadius: "999px",
-                    background: "rgba(148, 163, 184, 0.15)",
-                    border: "1px solid rgba(148, 163, 184, 0.3)",
-                    color: "#94a3b8",
+                    borderRadius: "var(--radius-full, 999px)",
+                    background: "var(--color-surface-sunken)",
+                    border: "1px solid var(--color-border-subtle)",
+                    color: "var(--color-text-muted)",
                     fontSize: "0.72rem",
                     fontWeight: 600,
                   }}
@@ -249,10 +249,10 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 <span
                   style={{
                     padding: "0.2rem 0.55rem",
-                    borderRadius: "999px",
-                    background: "rgba(16, 185, 129, 0.15)",
-                    border: "1px solid rgba(16, 185, 129, 0.35)",
-                    color: "#6ee7b7",
+                    borderRadius: "var(--radius-full, 999px)",
+                    background: "var(--color-success-subtle)",
+                    border: "1px solid var(--color-success)",
+                    color: "var(--color-success)",
                     fontSize: "0.72rem",
                     fontWeight: 700,
                   }}
@@ -267,10 +267,10 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             <div
               style={{
                 fontSize: "0.75rem",
-                color: "var(--color-text-muted, #94a3b8)",
-                background: "var(--color-surface-sunken, rgba(0, 0, 0, 0.2))",
-                border: "1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08))",
-                borderRadius: "6px",
+                color: "var(--color-text-muted)",
+                background: "var(--color-surface-sunken)",
+                border: "1px solid var(--color-border-subtle)",
+                borderRadius: "var(--radius-sm, 6px)",
                 padding: "0.35rem 0.65rem",
                 marginBottom: "0.75rem",
               }}

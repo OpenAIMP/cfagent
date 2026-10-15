@@ -307,9 +307,9 @@ export const NavIcons = {
   ),
   NextGenLogo: () => (
     <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="8" fill="#0b1329" stroke="rgba(16, 185, 129, 0.45)" strokeWidth="1.5" />
-      <path d="M7 23V9L15 23V9" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M19 14H26M22.5 10.5V23" stroke="#34d399" strokeWidth="2.2" strokeLinecap="round" />
+      <rect width="32" height="32" rx="8" fill="var(--color-surface-sunken)" stroke="var(--color-success)" strokeWidth="1.5" />
+      <path d="M7 23V9L15 23V9" stroke="var(--color-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 14H26M22.5 10.5V23" stroke="var(--color-success)" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   ),
   Sun: () => (

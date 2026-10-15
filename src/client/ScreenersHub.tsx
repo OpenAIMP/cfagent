@@ -236,7 +236,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               {providerId === "etrade" ? (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "var(--color-primary, #38bdf8)", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
                       Official Nasdaq All-Exchange Screener (<code>api.nasdaq.com/api/screener/stocks</code>)
                     </span>
@@ -245,9 +245,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                       borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
-                      background: "rgba(34, 197, 94, 0.15)",
-                      color: "#16a34a",
-                      border: "1px solid rgba(34, 197, 94, 0.3)",
+                      background: "var(--color-success-subtle)",
+                      color: "var(--color-success)",
+                      border: "1px solid var(--color-success)",
                     }}>
                       ● LIVE REST API
                     </span>
@@ -259,7 +259,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               ) : (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "#a855f7", fontWeight: 700 }}>📡 Live Feed Source:</span>
+                    <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
                       Yahoo Finance FOSS Engine (<code>query1.finance.yahoo.com</code>)
                     </span>
@@ -268,9 +268,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                       borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
-                      background: "rgba(168, 85, 247, 0.15)",
-                      color: "#9333ea",
-                      border: "1px solid rgba(168, 85, 247, 0.3)",
+                      background: "var(--color-accent-subtle)",
+                      color: "var(--color-accent)",
+                      border: "1px solid var(--color-border-focus)",
                     }}>
                       ● LIVE FOSS ENGINE
                     </span>
@@ -336,23 +336,23 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                   flexDirection: "column",
                   gap: "0.6rem",
                   padding: "0.85rem 1rem",
-                  background: "rgba(15, 23, 42, 0.85)",
-                  border: "1px solid rgba(56, 189, 248, 0.28)",
+                  background: "var(--color-surface-sunken)",
+                  border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
                   marginBottom: "1rem",
                   fontSize: "0.82rem",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.9rem" }}>📡 Feed Source &amp; Data Provenance</span>
+                      <span style={{ color: "var(--color-accent)", fontWeight: 700, fontSize: "0.9rem" }}>📡 Feed Source &amp; Data Provenance</span>
                       <span style={{
                         padding: "0.2rem 0.6rem",
                         borderRadius: "4px",
                         fontSize: "0.72rem",
                         fontWeight: 700,
-                        background: String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(34, 197, 94, 0.2)",
-                        color: String(rows[0]?.source || "").includes("Curated") ? "#fbbf24" : "#4ade80",
-                        border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)"}`,
+                        background: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-success-subtle)",
+                        color: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning)" : "var(--color-success)",
+                        border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning)" : "var(--color-success)"}`,
                       }}>
                         {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE STATIC SNAPSHOT" : "🌐 LIVE REST API FEED (api.nasdaq.com)"}
                       </span>
@@ -362,7 +362,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
                     <div>
                       <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
                       <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
@@ -384,15 +384,15 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                       </span>
                     </div>
                     <div>
-                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>EXECUTION BROKER</span>
-                      <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>EXECUTION BROKER</span>
+                      <span style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "0.78rem" }}>
                         E*TRADE REST API · {activeEnv} (Orders &amp; Previews)
                       </span>
                     </div>
                   </div>
 
                   {discovery?.message && (
-                    <div style={{ color: "#94a3b8", fontSize: "0.75rem", fontStyle: "italic" }}>
+                    <div style={{ color: "var(--color-text-muted)", fontSize: "0.75rem", fontStyle: "italic" }}>
                       ℹ️ {discovery.message}
                     </div>
                   )}
@@ -411,9 +411,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                               borderRadius: "4px",
                               fontSize: "0.72rem",
                               fontWeight: 600,
-                              background: String(value).includes("Curated") ? "rgba(245, 158, 11, 0.2)" : "rgba(56, 189, 248, 0.15)",
-                              color: String(value).includes("Curated") ? "#fbbf24" : "#38bdf8",
-                              border: `1px solid ${String(value).includes("Curated") ? "rgba(245, 158, 11, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
+                              background: String(value).includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-accent-subtle)",
+                              color: String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-accent)",
+                              border: `1px solid ${String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-border-focus)"}`,
                             }}>
                               {String(value)}
                             </span>
@@ -424,9 +424,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                               borderRadius: "4px",
                               fontSize: "0.72rem",
                               fontWeight: 600,
-                              background: value === "PASS_CONFIRMED" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                              color: value === "PASS_CONFIRMED" ? "#4ade80" : "#f87171",
-                              border: `1px solid ${value === "PASS_CONFIRMED" ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                              background: value === "PASS_CONFIRMED" ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
+                              color: value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)",
+                              border: `1px solid ${value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)"}`,
                             }}>
                               {String(value)}
                             </span>
@@ -443,19 +443,19 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           )}
         </>
       ) : assetClass === "options" ? (
-        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px" }}>
-          <h4 style={{ margin: "0 0 0.5rem", color: "#38bdf8", fontSize: "1.05rem" }}>⚡ Options Capabilities Moved to Auto Options Research</h4>
-          <p style={{ margin: "0 0 0.75rem", color: "#cbd5e1", fontSize: "0.92rem", lineHeight: 1.5 }}>
+        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+          <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⚡ Options Capabilities Moved to Auto Options Research</h4>
+          <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
             All options screening, analysis, and execution tools—including the <strong>📋 Raw Contracts Screener</strong>, <strong>🎯 Strategy Discovery &amp; Payoff Analyzer</strong>, <strong>⚙️ Custom Thesis Universe</strong>, <strong>💬 Natural Language Screen (NLQ)</strong>, and <strong>⏰ Scheduled Options Schedulers</strong>—are now centralized under the <strong>Auto Options Research</strong> tab.
           </p>
-          <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.85rem" }}>
+          <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
             The Options tab in this Multi-Asset Screener is marked as planned to keep this screener focused on equities and future multi-asset feeds without duplication.
           </p>
         </div>
       ) : (
-        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "rgba(100, 116, 139, 0.1)", border: "1px solid rgba(100, 116, 139, 0.25)", borderRadius: "8px" }}>
-          <h4 style={{ margin: "0 0 0.5rem", color: "#94a3b8", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>
-          <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.9rem" }}>
+        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+          <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>
+          <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
             This instrument class is a planned extension point. Multi-asset provider adapters are currently in development.
           </p>
         </div>

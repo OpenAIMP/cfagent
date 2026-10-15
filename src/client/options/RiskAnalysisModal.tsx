@@ -158,7 +158,7 @@ export function RiskAnalysisModal({
 
             <div className="risk-stat-card">
               <span className="risk-stat-label">Probability of Profit (POP)</span>
-              <span className="risk-stat-value" style={{ color: anatomy.probabilityOfProfit >= 50 ? "#38bdf8" : "#fbbf24" }}>
+              <span className="risk-stat-value" style={{ color: anatomy.probabilityOfProfit >= 50 ? "var(--color-accent)" : "var(--color-warning)" }}>
                 {anatomy.probabilityOfProfit.toFixed(1)}%
               </span>
               <span className="risk-stat-sub">Touch Prob: ~{anatomy.probabilityOfTouch}%</span>
@@ -184,7 +184,7 @@ export function RiskAnalysisModal({
                   <h3 className="risk-section-title">
                     <span>⚡ Institutional Greeks Sensitivity Matrix</span>
                   </h3>
-                  <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-dim)" }}>
                     Values per 1 unit contract lot
                   </span>
                 </div>
@@ -193,7 +193,7 @@ export function RiskAnalysisModal({
                   <div className="risk-greek-item">
                     <div className="risk-greek-top">
                       <span className="risk-greek-name">DELTA (Δ)</span>
-                      <span className="risk-greek-val" style={{ color: anatomy.netDelta >= 0 ? "#4ade80" : "#f87171" }}>
+                      <span className="risk-greek-val" style={{ color: anatomy.netDelta >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
                         {anatomy.netDelta >= 0 ? "+" : ""}{anatomy.netDelta.toFixed(2)}
                       </span>
                     </div>
@@ -205,7 +205,7 @@ export function RiskAnalysisModal({
                   <div className="risk-greek-item">
                     <div className="risk-greek-top">
                       <span className="risk-greek-name">GAMMA (Γ)</span>
-                      <span className="risk-greek-val" style={{ color: anatomy.netGamma >= 0 ? "#38bdf8" : "#f59e0b" }}>
+                      <span className="risk-greek-val" style={{ color: anatomy.netGamma >= 0 ? "var(--color-accent)" : "var(--color-warning)" }}>
                         {anatomy.netGamma >= 0 ? "+" : ""}{anatomy.netGamma.toFixed(3)}
                       </span>
                     </div>
@@ -217,7 +217,7 @@ export function RiskAnalysisModal({
                   <div className="risk-greek-item">
                     <div className="risk-greek-top">
                       <span className="risk-greek-name">THETA (Θ)</span>
-                      <span className="risk-greek-val" style={{ color: anatomy.netTheta >= 0 ? "#4ade80" : "#f87171" }}>
+                      <span className="risk-greek-val" style={{ color: anatomy.netTheta >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
                         {anatomy.netTheta >= 0 ? "+" : ""}${Math.abs(anatomy.netTheta * 100).toFixed(2)}/d
                       </span>
                     </div>
@@ -229,7 +229,7 @@ export function RiskAnalysisModal({
                   <div className="risk-greek-item">
                     <div className="risk-greek-top">
                       <span className="risk-greek-name">VEGA (ν)</span>
-                      <span className="risk-greek-val" style={{ color: anatomy.netVega >= 0 ? "#c084fc" : "#cbd5e1" }}>
+                      <span className="risk-greek-val" style={{ color: anatomy.netVega >= 0 ? "var(--color-sentiment-directional)" : "var(--color-text-muted)" }}>
                         {anatomy.netVega >= 0 ? "+" : ""}${Math.abs(anatomy.netVega * 100).toFixed(2)}/1% IV
                       </span>
                     </div>
@@ -246,7 +246,7 @@ export function RiskAnalysisModal({
                   <h3 className="risk-section-title">
                     <span>🎯 Breakeven Safety Cushions</span>
                   </h3>
-                  <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                     Spot: ${spot.toFixed(2)}
                   </span>
                 </div>
@@ -262,7 +262,7 @@ export function RiskAnalysisModal({
                     </div>
                   ))}
                   {subject.breakevenText && (
-                    <div style={{ width: "100%", fontSize: "0.82rem", color: "#94a3b8", marginTop: "0.3rem" }}>
+                    <div style={{ width: "100%", fontSize: "0.82rem", color: "var(--color-text-muted)", marginTop: "0.3rem" }}>
                       Notes: {subject.breakevenText}
                     </div>
                   )}
@@ -336,7 +336,7 @@ export function RiskAnalysisModal({
                 <div className="risk-rule-card profit">
                   <div className="risk-rule-header">
                     <span className="risk-rule-tag profit">🟢 Profit Taking Rule</span>
-                    <span style={{ fontSize: "0.78rem", color: "#34d399", fontWeight: 700 }}>
+                    <span style={{ fontSize: "0.78rem", color: "var(--color-success)", fontWeight: 700 }}>
                       Target: {playbook.profitTakingRule.targetPct}%
                     </span>
                   </div>
@@ -354,7 +354,7 @@ export function RiskAnalysisModal({
                 <div className="risk-rule-card stop">
                   <div className="risk-rule-header">
                     <span className="risk-rule-tag stop">🔴 Capital Preservation Stop-Loss</span>
-                    <span style={{ fontSize: "0.78rem", color: "#f87171", fontWeight: 700 }}>
+                    <span style={{ fontSize: "0.78rem", color: "var(--color-danger)", fontWeight: 700 }}>
                       Defense Trigger
                     </span>
                   </div>
@@ -376,7 +376,7 @@ export function RiskAnalysisModal({
                   <h3 className="risk-section-title">
                     <span>🔄 Tactical Defense &amp; Rolling Playbook</span>
                   </h3>
-                  <span style={{ fontSize: "0.8rem", color: "#38bdf8" }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--color-accent)" }}>
                     How to defend the trade when challenged
                   </span>
                 </div>
@@ -389,7 +389,7 @@ export function RiskAnalysisModal({
                       </div>
                       <div className="risk-adj-row">
                         <span className="risk-adj-label">When to Trigger:</span>
-                        <span className="risk-adj-value" style={{ color: "#fbbf24" }}>{adj.trigger}</span>
+                        <span className="risk-adj-value" style={{ color: "var(--color-warning)" }}>{adj.trigger}</span>
                       </div>
                       <div className="risk-adj-row">
                         <span className="risk-adj-label">Action:</span>
@@ -397,7 +397,7 @@ export function RiskAnalysisModal({
                       </div>
                       <div className="risk-adj-row">
                         <span className="risk-adj-label">Protection:</span>
-                        <span className="risk-adj-value" style={{ color: "#93c5fd" }}>{adj.howItProtects}</span>
+                        <span className="risk-adj-value" style={{ color: "var(--color-accent)" }}>{adj.howItProtects}</span>
                       </div>
                     </div>
                   ))}
@@ -413,7 +413,7 @@ export function RiskAnalysisModal({
                 <h3 className="risk-section-title">
                   <span>📉 Multi-Point Spot &amp; Tail Shock Stress Test</span>
                 </h3>
-                <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                   Estimated P&L under sudden market moves
                 </span>
               </div>
@@ -515,7 +515,7 @@ export function RiskAnalysisModal({
               </div>
 
               <div style={{ marginTop: "0.5rem" }}>
-                <span style={{ fontSize: "0.78rem", color: "#94a3b8", fontWeight: 700, display: "block", marginBottom: "0.4rem" }}>
+                <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 700, display: "block", marginBottom: "0.4rem" }}>
                   Quick Question Presets:
                 </span>
                 <div className="risk-chips-carousel">

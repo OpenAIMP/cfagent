@@ -1208,7 +1208,7 @@ function AgentChatTabContent({
           alignItems: "center",
         }}
       >
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: "4px" }}>
+        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
           💡 Guides:
         </span>
         <button
@@ -1216,7 +1216,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("What are the capabilities of this platform and how do I use the 8 core workflows?", "Platform Capabilities")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(56, 189, 248, 0.12)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-accent-subtle)", color: "var(--color-accent)", border: "1px solid var(--color-border-focus)", cursor: "pointer" }}
           title="Overview of all 8 platform workflows"
         >
           ⚡ Platform Capabilities
@@ -1226,7 +1226,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How do I use the Stock Screener to find equities and what fallback logic does it use?", "Stock Screener Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(34, 197, 94, 0.12)", color: "#4ade80", border: "1px solid rgba(34, 197, 94, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)", cursor: "pointer" }}
           title="Stock screener steps & fallback logic"
         >
           📈 Stock Screener
@@ -1236,7 +1236,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How do I screen for options strategies with max profit > 0 and max loss <= $30?", "Options Strategy Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(168, 85, 247, 0.12)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-sentiment-directional-subtle)", color: "var(--color-sentiment-directional)", border: "1px solid var(--color-sentiment-directional-border)", cursor: "pointer" }}
           title="Screen options with budget risk limits"
         >
           🎯 Options: Max Profit & Loss
@@ -1246,7 +1246,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("Explain how the PickBestTrades algorithm evaluates and scores setups.", "PickBestTrades Engine")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(234, 179, 8, 0.12)", color: "#facc15", border: "1px solid rgba(234, 179, 8, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)", cursor: "pointer" }}
           title="Multivariate opportunity scoring"
         >
           🧠 PickBestTrades Logic
@@ -1256,7 +1256,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How does Human-in-the-Loop (HITL) order execution and DID attestation work?", "Trading Safety Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(239, 68, 68, 0.12)", color: "#f87171", border: "1px solid rgba(239, 68, 68, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)", cursor: "pointer" }}
           title="Safe trading with DID attestations"
         >
           🛡️ HITL Trading Guardrails
@@ -1266,7 +1266,7 @@ function AgentChatTabContent({
           className="cap-pill-btn"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How does the real-time Options Flow tracker identify institutional sweeps and sentiment?", "Options Flow Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "12px", background: "rgba(6, 182, 212, 0.12)", color: "#22d3ee", border: "1px solid rgba(6, 182, 212, 0.3)", cursor: "pointer" }}
+          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-accent-subtle)", color: "var(--color-accent)", border: "1px solid var(--color-border-focus)", cursor: "pointer" }}
           title="Smart money sweeps and sentiment"
         >
           🌊 Options Flows & Sweeps

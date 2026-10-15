@@ -1086,7 +1086,7 @@ export function ETradeTradingHub({
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ margin: "0 0 1rem 0", color: "#cbd5e1", fontSize: "0.88rem", lineHeight: "1.4" }}>
+              <p style={{ margin: "0 0 1rem 0", color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: "1.4" }}>
                 An E*TRADE authorization window has opened in a new tab. Log in, authorize application access, and enter the verification PIN provided by E*TRADE.
               </p>
               <div className="step-instruction">
@@ -1116,7 +1116,7 @@ export function ETradeTradingHub({
                   onChange={(e) => setOauthPin(e.target.value)}
                   autoFocus
                 />
-                {oauthMsg && <div style={{ color: "#f87171", fontSize: "0.82rem", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
+                {oauthMsg && <div style={{ color: "var(--color-danger)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
                 <div className="modal-btn-row">
                   <button
                     type="submit"
@@ -1186,13 +1186,13 @@ export function ETradeTradingHub({
               {activeDraft.previewId && (
                 <div className="attest-item">
                   <span className="attest-label">E*TRADE Upstream Session:</span>
-                  <code style={{ color: "#10b981", fontWeight: "bold" }}>Preview #{activeDraft.previewId} (Verified)</code>
+                  <code style={{ color: "var(--color-success)", fontWeight: "bold" }}>Preview #{activeDraft.previewId} (Verified)</code>
                 </div>
               )}
               {activeDraft.previewNotes && (
-                <div className="attest-item" style={{ gridColumn: "1 / -1", background: "rgba(245, 158, 11, 0.12)", padding: "0.4rem 0.6rem", borderRadius: "6px", border: "1px solid rgba(245, 158, 11, 0.25)" }}>
-                  <span className="attest-label" style={{ color: "#f59e0b" }}>⚠️ Broker Notice:</span>
-                  <span style={{ fontSize: "0.8rem", color: "#fef3c7" }}>{activeDraft.previewNotes}</span>
+                <div className="attest-item" style={{ gridColumn: "1 / -1", background: "var(--color-warning-subtle)", padding: "0.4rem 0.6rem", borderRadius: "6px", border: "1px solid var(--color-warning)" }}>
+                  <span className="attest-label" style={{ color: "var(--color-warning)" }}>⚠️ Broker Notice:</span>
+                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{activeDraft.previewNotes}</span>
                 </div>
               )}
               <div className="attest-item">
@@ -1218,7 +1218,7 @@ export function ETradeTradingHub({
                 <button
                   type="button"
                   className="btn-approve-order"
-                  style={{ background: "#2563eb", borderColor: "#3b82f6" }}
+                  style={{ background: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}
                   disabled={executingDraft}
                   onClick={handleRefreshAndExecuteDraft}
                 >
@@ -1286,7 +1286,7 @@ export function ETradeTradingHub({
               <div style={{ marginTop: "8px" }}>
                 <button
                   type="button"
-                  style={{ background: "#2563eb", color: "#fff", fontWeight: 700, padding: "6px 14px", borderRadius: "6px", border: "none", cursor: "pointer" }}
+                  className="btn-primary"
                   disabled={executingDraft}
                   onClick={handleRefreshAndExecuteDraft}
                 >
@@ -1620,7 +1620,7 @@ export function ETradeTradingHub({
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
                         <span className="quote-company">{orderQuote.companyName}</span>
                         {orderQuote.quoteStatus && (
-                          <span style={{ fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "4px", background: orderQuote.quoteStatus === "REALTIME" ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)", color: orderQuote.quoteStatus === "REALTIME" ? "#10b981" : "#f59e0b", border: "1px solid currentColor" }}>
+                          <span className={`pill-badge ${orderQuote.quoteStatus === "REALTIME" ? "positive" : "neutral"}`}>
                             ● {orderQuote.quoteStatus}
                           </span>
                         )}
@@ -1631,7 +1631,7 @@ export function ETradeTradingHub({
                       </span>
                       <span className="quote-bidask">Bid: ${orderQuote.bid.toFixed(2)} / Ask: ${orderQuote.ask.toFixed(2)}</span>
                       {orderQuote.source && (
-                        <span style={{ fontSize: "0.72rem", color: "#38bdf8", background: "rgba(56, 189, 248, 0.12)", padding: "0.15rem 0.45rem", borderRadius: "4px", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
+                        <span className="pill-badge" style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}>
                           ✓ {orderQuote.source}
                         </span>
                       )}
@@ -1750,28 +1750,28 @@ export function ETradeTradingHub({
                   const bidPrice = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
                   if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit > askPrice * 1.05) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "#fef3c7", color: "#92400e", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fde68a" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
                         ⚠️ <strong>Limit Price Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is &gt;5% above current ask (${askPrice.toFixed(2)}). As a buy limit, this order may execute immediately at prevailing market prices.
                       </div>
                     );
                   }
                   if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit < askPrice * 0.7) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "#fee2e2", color: "#991b1b", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fca5a5" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
                         ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is {Math.round((1 - parsedLimit / askPrice) * 100)}% below current ask (${askPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
                       </div>
                     );
                   }
                   if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit < bidPrice * 0.95) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "#fef3c7", color: "#92400e", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fde68a" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
                         ⚠️ <strong>Limit Price Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is &gt;5% below current bid (${bidPrice.toFixed(2)}). As a sell limit, this order may execute immediately below prevailing value.
                       </div>
                     );
                   }
                   if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit > bidPrice * 1.3) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "#fee2e2", color: "#991b1b", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid #fca5a5" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "0.5rem 0.75rem", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
                         ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is {Math.round((parsedLimit / bidPrice - 1) * 100)}% above current bid (${bidPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
                       </div>
                     );
@@ -2292,14 +2292,14 @@ export function ETradeTradingHub({
 
                 {/* Fail-Closed Scan Mismatch Alert */}
                 {(nlqResult.status === "SCAN_INVALID_DATA_MISMATCH" || nlqResult.result?.status === "SCAN_INVALID_DATA_MISMATCH") && (
-                  <div className="nlq-unverified-warning-banner" role="alert" style={{ background: "rgba(185, 28, 28, 0.2)", borderColor: "#ef4444" }}>
-                    <div className="warning-title" style={{ color: "#fca5a5" }}>
+                  <div className="nlq-unverified-warning-banner" role="alert" style={{ background: "var(--color-danger-subtle)", borderColor: "var(--color-danger)" }}>
+                    <div className="warning-title" style={{ color: "var(--color-danger)" }}>
                       🚨 SCAN INVALID — DATA MISMATCH: FILTER CONTRADICTION DETECTED
                     </div>
-                    <p className="warning-desc" style={{ color: "#fee2e2" }}>
+                    <p className="warning-desc" style={{ color: "var(--color-text-secondary)" }}>
                       {nlqResult.summary || nlqResult.result?.summary}
                     </p>
-                    <div style={{ fontSize: "0.85rem", color: "#fca5a5", marginTop: "0.4rem" }}>
+                    <div style={{ fontSize: "0.85rem", color: "var(--color-danger)", marginTop: "0.4rem" }}>
                       Trading order shortcuts disabled because one or more candidates failed validation.
                     </div>
                   </div>
@@ -2309,20 +2309,20 @@ export function ETradeTradingHub({
                 {(nlqResult.scanLedger || nlqResult.result?.scanLedger) && (
                   <div className="scan-audit-ledger-box" style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem", margin: "1rem 0" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                      <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#93c5fd", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <h5 style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <span>🛡️</span> Market Universe Scan Audit Ledger
                       </h5>
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                      <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                         Evaluated: <strong style={{ color: "var(--color-text-primary)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).totalEvaluated}</strong> | 
-                        Passed: <strong style={{ color: "#4ade80" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).passedCount}</strong> | 
-                        Rejected: <strong style={{ color: "#f87171" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).rejectedCount}</strong>
+                        Passed: <strong style={{ color: "var(--color-success)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).passedCount}</strong> | 
+                        Rejected: <strong style={{ color: "var(--color-danger)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).rejectedCount}</strong>
                       </div>
                     </div>
 
                     {/* Rejection Details */}
                     {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length > 0 && (
-                      <details style={{ fontSize: "0.8rem", color: "#cbd5e1", marginTop: "0.5rem" }}>
-                        <summary style={{ cursor: "pointer", color: "#f87171" }}>
+                      <details style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.5rem" }}>
+                        <summary style={{ cursor: "pointer", color: "var(--color-danger)" }}>
                           View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (showing first 200)
                         </summary>
                         <table className="trading-table" style={{ marginTop: "0.5rem" }}>
@@ -2332,7 +2332,7 @@ export function ETradeTradingHub({
                           <tbody>
                             {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).slice(0, 200).map((rej: any, rIdx: number) => (
                               <tr key={rIdx}>
-                                <td><strong style={{ color: "#f87171" }}>{rej.symbol}</strong></td>
+                                <td><strong style={{ color: "var(--color-danger)" }}>{rej.symbol}</strong></td>
                                 <td>{rej.reason}</td>
                               </tr>
                             ))}
@@ -2370,7 +2370,7 @@ export function ETradeTradingHub({
                                 return (
                                   <td key={cidx}>
                                     {isDisabled ? (
-                                      <span style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: "bold" }}>
+                                      <span style={{ color: "var(--color-danger)", fontSize: "0.75rem", fontWeight: "bold" }}>
                                         ⛔ {String(val)}
                                       </span>
                                     ) : (
@@ -2748,10 +2748,10 @@ export function ETradeTradingHub({
                                 disabled={slackActionLoading}
                                 onClick={() => handleSlackActionButton(btn.action_id, btn.value)}
                                 style={{
-                                  background: btn.style === "primary" ? "#007a5a" : "#e01e5a",
-                                  color: "#ffffff",
+                                  background: btn.style === "primary" ? "var(--color-success)" : "var(--color-danger)",
+                                  color: "var(--color-text-inverse)",
                                   border: "none",
-                                  borderRadius: "4px",
+                                  borderRadius: "var(--radius-xs, 4px)",
                                   padding: "6px 12px",
                                   fontWeight: "bold",
                                   fontSize: "0.8rem",
@@ -3115,35 +3115,35 @@ export function ETradeTradingHub({
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
                     <span className={`status-pill status-${diagnostics.status || "unknown"}`} style={{
                       padding: "0.35rem 0.75rem",
-                      borderRadius: "6px",
+                      borderRadius: "var(--radius-sm, 6px)",
                       fontWeight: 700,
                       fontSize: "0.82rem",
-                      background: diagnostics.status === "healthy" ? "rgba(16, 185, 129, 0.2)" : (diagnostics.status === "auth_required" ? "rgba(245, 158, 11, 0.2)" : "rgba(239, 68, 68, 0.2)"),
-                      color: diagnostics.status === "healthy" ? "#34d399" : (diagnostics.status === "auth_required" ? "#fbbf24" : "#f87171"),
-                      border: `1px solid ${diagnostics.status === "healthy" ? "rgba(16, 185, 129, 0.4)" : (diagnostics.status === "auth_required" ? "rgba(245, 158, 11, 0.4)" : "rgba(239, 68, 68, 0.4)")}`
+                      background: diagnostics.status === "healthy" ? "var(--color-success-subtle)" : (diagnostics.status === "auth_required" ? "var(--color-warning-subtle)" : "var(--color-danger-subtle)"),
+                      color: diagnostics.status === "healthy" ? "var(--color-success)" : (diagnostics.status === "auth_required" ? "var(--color-warning)" : "var(--color-danger)"),
+                      border: `1px solid ${diagnostics.status === "healthy" ? "var(--color-success)" : (diagnostics.status === "auth_required" ? "var(--color-warning)" : "var(--color-danger)")}`
                     }}>
                       {diagnostics.status === "healthy" ? "🟢 Live REST Upstream Connected & Verified" : (diagnostics.status === "auth_required" ? "🟡 OAuth 1.0a Session Required" : "🔴 Upstream Gateway Error")}
                     </span>
-                    <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
+                    <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
                       Gateway: <code>{diagnostics.apiUrl}</code>
                     </span>
                   </div>
 
                   {diagnostics.lastError && (
-                    <div style={{ background: "rgba(239, 68, 68, 0.12)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem", color: "#fca5a5", fontSize: "0.82rem" }}>
+                    <div style={{ background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)", padding: "0.75rem", marginBottom: "1rem", color: "var(--color-danger)", fontSize: "0.82rem" }}>
                       <strong>Upstream Message / Error:</strong>
                       <div style={{ marginTop: "0.35rem", wordBreak: "break-all" }}>
                         {diagnostics.lastError}
                       </div>
                       {diagnostics.lastError.includes("only in SANDBOX environment") && (
-                        <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(239, 68, 68, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-                          <span style={{ color: "#fbbf24", fontWeight: 600 }}>
+                        <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-danger)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                          <span style={{ color: "var(--color-warning)", fontWeight: 600 }}>
                             💡 This Consumer Key belongs to E*TRADE Sandbox (apisb.etrade.com). Switch to TEST to test with this key!
                           </span>
                           <button
                             type="button"
                             className="btn-env-toggle active-env"
-                            style={{ background: "var(--color-accent)", color: "#fff", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer", fontWeight: 700 }}
+                            style={{ background: "var(--color-accent)", color: "var(--color-text-inverse)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer", fontWeight: 700 }}
                             onClick={async () => {
                               setShowDiagnosticsModal(false);
                               await handleSwitchEnvironment("TEST");
@@ -3159,25 +3159,25 @@ export function ETradeTradingHub({
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
                     <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Key</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Key</div>
                       <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.credentials?.apiKeyMasked || (diagnostics.credentials?.apiKeyConfigured ? "✓ Configured" : "MISSING")}
                       </div>
                     </div>
                     <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Secret</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Secret</div>
                       <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
                       </div>
                     </div>
                     <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Session Token in KV</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: diagnostics.oauthToken?.present ? "#34d399" : "#fbbf24", marginTop: "0.25rem" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Session Token in KV</div>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: diagnostics.oauthToken?.present ? "var(--color-success)" : "var(--color-warning)", marginTop: "0.25rem" }}>
                         {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
                       </div>
                     </div>
                     <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Upstream Accounts</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Upstream Accounts</div>
                       <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.upstreamAccounts?.count ?? 0} account(s) detected
                       </div>
@@ -3185,33 +3185,33 @@ export function ETradeTradingHub({
                   </div>
 
                   {diagnostics.upstreamAccounts?.accounts && diagnostics.upstreamAccounts.accounts.length > 0 && (
-                    <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem" }}>
-                      <strong style={{ color: "#34d399", fontSize: "0.82rem", display: "block", marginBottom: "0.35rem" }}>
+                    <div style={{ background: "var(--color-success-subtle)", border: "1px solid var(--color-success)", borderRadius: "var(--radius-md, 8px)", padding: "0.75rem", marginBottom: "1rem" }}>
+                      <strong style={{ color: "var(--color-success)", fontSize: "0.82rem", display: "block", marginBottom: "0.35rem" }}>
                         Live Account Details:
                       </strong>
                       {diagnostics.upstreamAccounts.accounts.map((acct: any, idx: number) => (
-                        <div key={idx} style={{ fontSize: "0.82rem", color: "#cbd5e1" }}>
+                        <div key={idx} style={{ fontSize: "0.82rem", color: "var(--color-text-secondary)" }}>
                           • ID: <code>{acct.accountId}</code> | Key: <code>{acct.accountKey}</code> | Type: <strong>{acct.accountType || acct.accountDesc}</strong>
                         </div>
                       ))}
                       {diagnostics.upstreamBalance && (
-                        <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: "0.82rem", color: "#e2e8f0" }}>
+                        <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--color-border-subtle)", fontSize: "0.82rem", color: "var(--color-text-primary)" }}>
                           • Live Balance Fetched: Net Value: <strong>${Number(diagnostics.upstreamBalance.netAccountValue || diagnostics.upstreamBalance.computed?.realTimeValues?.totalAccountValue || 0).toFixed(2)}</strong> | Cash: <strong>${Number(diagnostics.upstreamBalance.cashAvailableForInvestment || diagnostics.upstreamBalance.computed?.cashAvailableForInvestment || 0).toFixed(2)}</strong>
                         </div>
                       )}
                     </div>
                   )}
 
-                  <details style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "0.5rem 0.75rem", marginBottom: "1rem" }}>
-                    <summary style={{ cursor: "pointer", color: "#94a3b8", fontSize: "0.78rem", fontWeight: 600 }}>
+                  <details style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm, 6px)", padding: "0.5rem 0.75rem", marginBottom: "1rem" }}>
+                    <summary style={{ cursor: "pointer", color: "var(--color-text-muted)", fontSize: "0.78rem", fontWeight: 600 }}>
                       🔍 View Raw Upstream Diagnostic Payload (JSON)
                     </summary>
-                    <pre style={{ margin: "0.5rem 0 0 0", fontSize: "0.75rem", color: "#38bdf8", overflowX: "auto", maxHeight: "200px" }}>
+                    <pre style={{ margin: "0.5rem 0 0 0", fontSize: "0.75rem", color: "var(--color-accent)", overflowX: "auto", maxHeight: "200px" }}>
                       {JSON.stringify(diagnostics, null, 2)}
                     </pre>
                   </details>
 
-                  <details className="diagnostics-drawer" style={{ margin: "1rem 0", background: "rgba(0,0,0,0.3)" }}>
+                  <details className="diagnostics-drawer" style={{ margin: "1rem 0", background: "var(--color-surface-sunken)" }}>
                     <summary className="diagnostics-summary">
                       ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
                     </summary>
@@ -3257,7 +3257,7 @@ export function ETradeTradingHub({
                   </div>
                 </>
               ) : (
-                <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>
+                <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                   Running diagnostics against E*TRADE upstream API...
                 </div>
               )}

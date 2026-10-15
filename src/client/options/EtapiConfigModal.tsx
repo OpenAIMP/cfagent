@@ -412,9 +412,9 @@ export function EtapiConfigModal({
             style={{
               padding: "0.4rem 0.8rem",
               fontSize: "0.82rem",
-              background: activeTab === "strategy" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
-              color: activeTab === "strategy" ? "#38bdf8" : "#94a3b8",
-              borderColor: activeTab === "strategy" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+              background: activeTab === "strategy" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+              color: activeTab === "strategy" ? "var(--color-accent)" : "var(--color-text-muted)",
+              borderColor: activeTab === "strategy" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
             }}
             onClick={() => setActiveTab("strategy")}
           >
@@ -426,9 +426,9 @@ export function EtapiConfigModal({
             style={{
               padding: "0.4rem 0.8rem",
               fontSize: "0.82rem",
-              background: activeTab === "screener" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
-              color: activeTab === "screener" ? "#38bdf8" : "#94a3b8",
-              borderColor: activeTab === "screener" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+              background: activeTab === "screener" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+              color: activeTab === "screener" ? "var(--color-accent)" : "var(--color-text-muted)",
+              borderColor: activeTab === "screener" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
             }}
             onClick={() => setActiveTab("screener")}
           >
@@ -440,9 +440,9 @@ export function EtapiConfigModal({
             style={{
               padding: "0.4rem 0.8rem",
               fontSize: "0.82rem",
-              background: activeTab === "weights" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
-              color: activeTab === "weights" ? "#38bdf8" : "#94a3b8",
-              borderColor: activeTab === "weights" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+              background: activeTab === "weights" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+              color: activeTab === "weights" ? "var(--color-accent)" : "var(--color-text-muted)",
+              borderColor: activeTab === "weights" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
             }}
             onClick={() => setActiveTab("weights")}
           >
@@ -454,9 +454,9 @@ export function EtapiConfigModal({
             style={{
               padding: "0.4rem 0.8rem",
               fontSize: "0.82rem",
-              background: activeTab === "scanner" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
-              color: activeTab === "scanner" ? "#38bdf8" : "#94a3b8",
-              borderColor: activeTab === "scanner" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+              background: activeTab === "scanner" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+              color: activeTab === "scanner" ? "var(--color-accent)" : "var(--color-text-muted)",
+              borderColor: activeTab === "scanner" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
             }}
             onClick={() => setActiveTab("scanner")}
           >
@@ -468,9 +468,9 @@ export function EtapiConfigModal({
             style={{
               padding: "0.4rem 0.8rem",
               fontSize: "0.82rem",
-              background: activeTab === "ai" ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.6)",
-              color: activeTab === "ai" ? "#38bdf8" : "#94a3b8",
-              borderColor: activeTab === "ai" ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.1)",
+              background: activeTab === "ai" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+              color: activeTab === "ai" ? "var(--color-accent)" : "var(--color-text-muted)",
+              borderColor: activeTab === "ai" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
             }}
             onClick={() => setActiveTab("ai")}
           >
@@ -481,12 +481,12 @@ export function EtapiConfigModal({
         {/* Body content */}
         <div style={{ padding: "1.5rem", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           {error && (
-            <div style={{ padding: "0.6rem 0.9rem", background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", color: "#fca5a5", fontSize: "0.85rem" }}>
+            <div style={{ padding: "0.6rem 0.9rem", background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-sm, 6px)", color: "var(--color-danger)", fontSize: "0.85rem" }}>
               {error}
             </div>
           )}
           {successMsg && (
-            <div style={{ padding: "0.6rem 0.9rem", background: "rgba(34, 197, 94, 0.15)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: "6px", color: "#86efac", fontSize: "0.85rem" }}>
+            <div style={{ padding: "0.6rem 0.9rem", background: "var(--color-success-subtle)", border: "1px solid var(--color-success)", borderRadius: "var(--radius-sm, 6px)", color: "var(--color-success)", fontSize: "0.85rem" }}>
               {successMsg}
             </div>
           )}
@@ -745,8 +745,8 @@ export function EtapiConfigModal({
 
           {activeTab === "ai" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              <div style={{ padding: "0.85rem", background: "rgba(56, 189, 248, 0.06)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ padding: "0.85rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-md, 8px)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span>🧠</span> Workflow Model Selection
                 </h4>
                 <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
@@ -891,8 +891,8 @@ export function EtapiConfigModal({
                 </div>
               </div>
 
-              <div style={{ padding: "0.85rem", background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#f87171", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ padding: "0.85rem", background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span>🛡️</span> Trading Safety Limits &amp; Constraints
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
@@ -939,8 +939,8 @@ export function EtapiConfigModal({
         <div
           style={{
             padding: "1rem 1.5rem",
-            background: "rgba(15, 23, 42, 0.8)",
-            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+            background: "var(--color-surface-sunken)",
+            borderTop: "1px solid var(--color-border-subtle)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -952,10 +952,10 @@ export function EtapiConfigModal({
             disabled={saving || loading}
             style={{
               background: "transparent",
-              border: "1px solid rgba(255, 255, 255, 0.2)",
+              border: "1px solid var(--color-border-subtle)",
               color: "var(--color-text-muted)",
               padding: "0.5rem 1rem",
-              borderRadius: "6px",
+              borderRadius: "var(--radius-sm, 6px)",
               cursor: "pointer",
               fontSize: "0.82rem",
             }}
@@ -968,10 +968,10 @@ export function EtapiConfigModal({
               onClick={onClose}
               style={{
                 background: "transparent",
-                border: "1px solid rgba(255, 255, 255, 0.15)",
-                color: "#e2e8f0",
+                border: "1px solid var(--color-border-subtle)",
+                color: "var(--color-text-secondary)",
                 padding: "0.5rem 1rem",
-                borderRadius: "6px",
+                borderRadius: "var(--radius-sm, 6px)",
                 cursor: "pointer",
                 fontSize: "0.82rem",
               }}
@@ -983,15 +983,15 @@ export function EtapiConfigModal({
               onClick={handleApplyOverrides}
               disabled={saving || loading}
               style={{
-                background: "#0284c7",
+                background: "var(--color-accent)",
                 border: "none",
-                color: "#f8fafc",
+                color: "var(--color-text-inverse)",
                 fontWeight: 600,
                 padding: "0.5rem 1.25rem",
-                borderRadius: "6px",
+                borderRadius: "var(--radius-sm, 6px)",
                 cursor: "pointer",
                 fontSize: "0.85rem",
-                boxShadow: "0 4px 12px rgba(2, 132, 199, 0.3)",
+                boxShadow: "var(--shadow-sm)",
               }}
             >
               {saving ? "Applying..." : "Apply Runtime Config"}

@@ -93,7 +93,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
     return (
       <div
         className={`universal-chart-empty ${className}`}
-        style={{ width: "100%", height: svgH, display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}
+        style={{ width: "100%", height: svgH, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-dim)" }}
       >
         <span>No chart data available</span>
       </div>
@@ -264,12 +264,12 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
       >
         <defs>
           <linearGradient id={gainGradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#22c55e" stopOpacity={isMini ? "0.55" : "0.45"} />
-            <stop offset="100%" stopColor="#22c55e" stopOpacity="0.02" />
+            <stop offset="0%" stopColor="var(--color-success)" stopOpacity={isMini ? "0.55" : "0.45"} />
+            <stop offset="100%" stopColor="var(--color-success)" stopOpacity="0.02" />
           </linearGradient>
           <linearGradient id={lossGradId} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="#ef4444" stopOpacity={isMini ? "0.55" : "0.45"} />
-            <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+            <stop offset="0%" stopColor="var(--color-danger)" stopOpacity={isMini ? "0.55" : "0.45"} />
+            <stop offset="100%" stopColor="var(--color-danger)" stopOpacity="0.02" />
           </linearGradient>
           <clipPath id={clipAboveId}>
             <rect x={padL} y={padT} width={chartAreaW} height={Math.max(0, zeroY - padT)} />
@@ -294,7 +294,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
             <text
               x={padL - 10}
               y={toY(val) + 4}
-              fill="#94a3b8"
+              fill="var(--color-text-muted)"
               fontSize="11"
               fontFamily={CHART_FONT}
               textAnchor="end"
@@ -310,7 +310,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
             key={`x-${idx}`}
             x={toX(val)}
             y={svgH - 12}
-            fill="#94a3b8"
+            fill="var(--color-text-muted)"
             fontSize="11"
             fontFamily={CHART_FONT}
             textAnchor="middle"
@@ -352,7 +352,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
           <path
             d={comparisonLineD}
             fill="none"
-            stroke="#94a3b8"
+            stroke="var(--color-text-muted)"
             strokeWidth="2"
             strokeDasharray="5 4"
             opacity="0.85"
@@ -363,7 +363,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
         <path
           d={primaryLineD}
           fill="none"
-          stroke={secondaryLineD ? "rgba(255, 255, 255, 0.45)" : "#22c55e"}
+          stroke={secondaryLineD ? "rgba(255, 255, 255, 0.45)" : "var(--color-success)"}
           strokeWidth={secondaryLineD ? "1.5" : isMini ? "2" : "2.5"}
           strokeDasharray={secondaryLineD ? "3 3" : "none"}
         />
@@ -373,7 +373,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
           <path
             d={secondaryLineD}
             fill="none"
-            stroke="#38bdf8"
+            stroke="var(--color-accent)"
             strokeWidth={isMini ? "2" : "2.5"}
           />
         )}
@@ -389,7 +389,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 x2={beX}
                 y1={padT}
                 y2={svgH - padB}
-                stroke="#cbd5e1"
+                stroke="var(--color-text-secondary)"
                 strokeWidth="1.2"
                 strokeDasharray="3 3"
               />
@@ -399,14 +399,14 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 width={64}
                 height={16}
                 rx={3}
-                fill="#1e293b"
-                stroke="#64748b"
+                fill="var(--color-surface-sunken)"
+                stroke="var(--color-border-subtle)"
                 strokeWidth="1"
               />
               <text
                 x={beX}
                 y={padT - 6}
-                fill="#f8fafc"
+                fill="var(--color-text-primary)"
                 fontSize="9.5"
                 fontFamily={CHART_FONT}
                 fontWeight="bold"
@@ -426,7 +426,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x2={toX(spotPrice)}
               y1={padT}
               y2={svgH - padB}
-              stroke="#06b6d4"
+              stroke="var(--color-accent)"
               strokeWidth={isMini ? "1" : "1.5"}
               strokeDasharray="4 2"
             />
@@ -434,7 +434,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               <text
                 x={toX(spotPrice)}
                 y={padT + 12}
-                fill="#06b6d4"
+                fill="var(--color-accent)"
                 fontSize="11"
                 fontWeight="bold"
                 fontFamily={CHART_FONT}
@@ -454,14 +454,14 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x2={toX(targetPrice)}
               y1={padT}
               y2={svgH - padB}
-              stroke="#f97316"
+              stroke="var(--color-warning)"
               strokeWidth="1.5"
               strokeDasharray="4 2"
             />
             <text
               x={toX(targetPrice)}
               y={padT + 26}
-              fill="#f97316"
+              fill="var(--color-warning)"
               fontSize="11"
               fontWeight="bold"
               fontFamily={CHART_FONT}
@@ -490,8 +490,8 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 cx={toX(currentHoverX)}
                 cy={toY(hoveredSecondaryY)}
                 r="4.5"
-                fill="#38bdf8"
-                stroke="#ffffff"
+                fill="var(--color-accent)"
+                stroke="var(--color-text-inverse)"
                 strokeWidth="1.5"
               />
             ) : hoveredPrimaryY !== null ? (
@@ -499,8 +499,8 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 cx={toX(currentHoverX)}
                 cy={toY(hoveredPrimaryY)}
                 r="4.5"
-                fill={hoveredPrimaryY >= 0 ? "#22c55e" : "#ef4444"}
-                stroke="#ffffff"
+                fill={hoveredPrimaryY >= 0 ? "var(--color-success)" : "var(--color-danger)"}
+                stroke="var(--color-text-inverse)"
                 strokeWidth="1.5"
               />
             ) : null}
@@ -521,24 +521,24 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 width={hoverProbabilities ? "134" : "120"}
                 height={hoverProbabilities ? "62" : "46"}
                 rx="6"
-                fill="#090e1a"
-                stroke="rgba(56, 189, 248, 0.5)"
+                fill="var(--color-surface-sunken)"
+                stroke="var(--color-border-focus)"
                 strokeWidth="1"
               />
-              <text x="8" y="16" fill="#94a3b8" fontSize="10" fontFamily={CHART_FONT}>
-                Price: <tspan fill="#ffffff" fontWeight="bold">{formatX(currentHoverX)}</tspan>
+              <text x="8" y="16" fill="var(--color-text-muted)" fontSize="10" fontFamily={CHART_FONT}>
+                Price: <tspan fill="var(--color-text-primary)" fontWeight="bold">{formatX(currentHoverX)}</tspan>
               </text>
-              <text x="8" y="34" fill="#94a3b8" fontSize="10" fontFamily={CHART_FONT}>
+              <text x="8" y="34" fill="var(--color-text-muted)" fontSize="10" fontFamily={CHART_FONT}>
                 P/L:{" "}
                 <tspan
-                  fill={(hoveredSecondaryY ?? hoveredPrimaryY ?? 0) >= 0 ? "#22c55e" : "#ef4444"}
+                  fill={(hoveredSecondaryY ?? hoveredPrimaryY ?? 0) >= 0 ? "var(--color-success)" : "var(--color-danger)"}
                   fontWeight="bold"
                 >
                   {formatY(hoveredSecondaryY ?? hoveredPrimaryY ?? 0)}
                 </tspan>
               </text>
               {hoverProbabilities && (
-                <text x="8" y="50" fill="#38bdf8" fontSize="9.5" fontFamily={CHART_FONT} fontWeight="bold">
+                <text x="8" y="50" fill="var(--color-accent)" fontSize="9.5" fontFamily={CHART_FONT} fontWeight="bold">
                   {`← ${hoverProbabilities.probBelowPct}% | ${hoverProbabilities.probAbovePct}% →`}
                 </text>
               )}

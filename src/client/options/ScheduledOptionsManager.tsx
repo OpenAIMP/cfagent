@@ -394,7 +394,7 @@ export function ScheduledOptionsManager({
             </div>
           </div>
 
-          <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.88rem" }}>
+          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "0.88rem" }}>
             {liveResult.summary}
           </p>
 
@@ -406,21 +406,21 @@ export function ScheduledOptionsManager({
                   <div key={opp.symbol} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "0.85rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
                       <strong style={{ color: "var(--color-accent)", fontSize: "0.95rem" }}>{opp.symbol}</strong>
-                      <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "0.15rem 0.45rem", borderRadius: "4px", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "0.15rem 0.45rem", borderRadius: "var(--radius-xs, 4px)", fontWeight: "bold" }}>
                         Score: {opp.score}/100
                       </span>
                     </div>
                     <p style={{ color: "var(--color-text-primary)", margin: "0 0 0.5rem", fontSize: "0.84rem", fontWeight: 600 }}>
                       {cand?.label || "Options Setup"}
                     </p>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.76rem", color: "#94a3b8" }}>
-                      <span>Max Profit: <strong style={{ color: "#22c55e" }}>{cand?.maxProfitUnbounded ? "∞" : `$${cand?.maxProfit?.toFixed(2) || "0"}`}</strong></span>
-                      <span>Max Loss: <strong style={{ color: "#ef4444" }}>${cand?.maxLoss?.toFixed(2) || "0"}</strong></span>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
+                      <span>Max Profit: <strong style={{ color: "var(--color-success)" }}>{cand?.maxProfitUnbounded ? "∞" : `$${cand?.maxProfit?.toFixed(2) || "0"}`}</strong></span>
+                      <span>Max Loss: <strong style={{ color: "var(--color-danger)" }}>${cand?.maxLoss?.toFixed(2) || "0"}</strong></span>
                     </div>
                     {cand && onPreviewTrade && (
                       <button
                         type="button"
-                        style={{ marginTop: "0.6rem", width: "100%", padding: "0.35rem", fontSize: "0.74rem", background: "rgba(37,99,235,0.2)", border: "1px solid #2563eb", color: "#60a5fa", borderRadius: "4px", cursor: "pointer", fontWeight: 600 }}
+                        style={{ marginTop: "0.6rem", width: "100%", padding: "0.35rem", fontSize: "0.74rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", color: "var(--color-accent)", borderRadius: "var(--radius-xs, 4px)", cursor: "pointer", fontWeight: 600 }}
                         onClick={() => onPreviewTrade(cand)}
                       >
                         ⚡ Preview in Order Ticket
@@ -522,7 +522,7 @@ export function ScheduledOptionsManager({
                         {item.payload?.pushToSlack && <span className="chan-badge slack" title="Slack Alerts">Slack</span>}
                         {item.payload?.emailTo && <span className="chan-badge email" title="Email Briefs">Email</span>}
                         {item.payload?.webhookUrl && <span className="chan-badge webhook" title="Signed Webhook">Webhook</span>}
-                        <span className="chan-badge" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399", border: "1px solid rgba(16,185,129,0.3)" }}>Broadcast</span>
+                        <span className="chan-badge" style={{ background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }}>Broadcast</span>
                       </div>
                     </div>
                   </div>
@@ -540,7 +540,7 @@ export function ScheduledOptionsManager({
                     <button
                       type="button"
                       className="btn-sched-action-sm"
-                      style={{ background: "rgba(56, 189, 248, 0.15)", borderColor: "rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                      style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
                       onClick={() => handleEditSchedule(item)}
                       title="Update parameters or cadence for this schedule"
                     >
@@ -580,7 +580,7 @@ export function ScheduledOptionsManager({
         </header>
 
         {auditLogs.length === 0 ? (
-          <p style={{ color: "#64748b", fontSize: "0.85rem", margin: "0.5rem 0" }}>
+          <p style={{ color: "var(--color-text-dim)", fontSize: "0.85rem", margin: "0.5rem 0" }}>
             No recent options scheduling audit logs found. Run a screen or wait for the next scheduled interval to populate this ledger.
           </p>
         ) : (
@@ -612,7 +612,7 @@ export function ScheduledOptionsManager({
                         {Array.isArray(payload.symbols) ? payload.symbols.join(", ") : "–"}
                       </td>
                       <td>
-                        <strong style={{ color: payload.withTrades > 0 ? "#22c55e" : "#94a3b8" }}>
+                        <strong style={{ color: payload.withTrades > 0 ? "var(--color-success)" : "var(--color-text-muted)" }}>
                           {payload.withTrades ?? "–"}
                         </strong>
                       </td>

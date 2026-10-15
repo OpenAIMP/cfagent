@@ -3069,7 +3069,7 @@ export function StrategyDiscoveryPanel({
                         {/* Zero baseline */}
                         <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="2 2" />
                         {/* Payoff line */}
-                        <path d={stratDef.pnlSvgPath} fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={stratDef.pnlSvgPath} fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
 
@@ -3312,7 +3312,7 @@ export function StrategyDiscoveryPanel({
                         <button
                           type="button"
                           className="strat-saved-load-btn"
-                          style={{ borderColor: "#f59e0b", color: "#fbbf24" }}
+                          style={{ borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
                           onClick={() => {
                             setRiskSubject({
                               title: t.name,

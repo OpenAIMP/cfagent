@@ -229,10 +229,10 @@
 .workflow-number-badge {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border-focus);
   display: flex;
   align-items: center;
   justify-content: center;

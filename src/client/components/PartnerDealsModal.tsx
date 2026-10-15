@@ -30,7 +30,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
     badge: "FLAGSHIP PARTNER",
     url: "https://developers.cloudflare.com/workers-ai/",
     ctaText: "Deploy in 60s →",
-    accentColor: "#f38020",
+    accentColor: "var(--color-warning)",
     category: "AI & Serverless",
   },
   {
@@ -41,7 +41,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
     badge: "FEATURED TOOL",
     url: "https://developers.cloudflare.com/ai-search/",
     ctaText: "Explore Docs →",
-    accentColor: "#38bdf8",
+    accentColor: "var(--color-accent)",
     category: "AI & Serverless",
   },
   {
@@ -52,7 +52,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
     badge: "INFRASTRUCTURE",
     url: "https://developers.cloudflare.com/durable-objects/",
     ctaText: "Learn More →",
-    accentColor: "#a855f7",
+    accentColor: "var(--color-sentiment-directional)",
     category: "Infrastructure",
   },
   {
@@ -63,7 +63,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
     badge: "CLOUD CREDITS",
     url: "https://cloud.google.com/vertex-ai",
     ctaText: "Start Free with $300 →",
-    accentColor: "#4285f4",
+    accentColor: "var(--color-accent)",
     category: "Cloud Platforms",
   },
   {
@@ -74,7 +74,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
     badge: "ANALYTICS",
     url: "https://cloud.google.com/bigquery",
     ctaText: "Explore BigQuery Studio →",
-    accentColor: "#34a853",
+    accentColor: "var(--color-success)",
     category: "Analytics & Data",
   },
 ];
@@ -101,7 +101,7 @@ export function PartnerDealsModal({
       badge: a.badge || "SPONSOR",
       url: a.url,
       ctaText: a.ctaText || "View Offer →",
-      accentColor: a.accentColor || "#6366f1",
+      accentColor: a.accentColor || "var(--color-accent)",
       category: "Direct Partner",
     })),
     ...DEFAULT_PARTNER_DEALS.filter((d) => !ads.some((a) => a.id === d.id)),
@@ -158,7 +158,7 @@ export function PartnerDealsModal({
         {/* Deals Grid */}
         <div className="partner-deals-grid">
           {filteredDeals.map((deal) => {
-            const color = deal.accentColor || "#38bdf8";
+            const color = deal.accentColor || "var(--color-accent)";
             return (
               <div
                 key={deal.id}

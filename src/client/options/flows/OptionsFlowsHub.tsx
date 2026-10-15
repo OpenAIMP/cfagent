@@ -439,10 +439,10 @@ export function OptionsFlowsHub({
         rightContent={
           <>
             <CopilotTriggerButton label="✨ Ask Copilot" />
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#10b981", background: "rgba(16, 185, 129, 0.12)", padding: "4px 8px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 600 }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--color-success)", background: "var(--color-success-subtle)", padding: "4px 8px", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-success)", fontWeight: 600 }}>
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--color-success)", boxShadow: "0 0 6px var(--color-success)" }} />
               <span>LIVE</span>
-              {lastSyncTime && <span style={{ color: "#94a3b8", fontWeight: 400 }}>{lastSyncTime}</span>}
+              {lastSyncTime && <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}>{lastSyncTime}</span>}
             </div>
             <button
               type="button"
@@ -462,21 +462,21 @@ export function OptionsFlowsHub({
                 <path
                   d="M 5 20 A 15 15 0 0 1 35 20"
                   fill="none"
-                  stroke="#1e293b"
+                  stroke="var(--color-surface-raised)"
                   strokeWidth="5"
                   strokeLinecap="round"
                 />
                 <path
                   d="M 5 20 A 15 15 0 0 1 28 8"
                   fill="none"
-                  stroke="#0284c7"
+                  stroke="var(--color-accent)"
                   strokeWidth="5"
                   strokeLinecap="round"
                 />
                 <path
                   d="M 28 8 A 15 15 0 0 1 35 20"
                   fill="none"
-                  stroke="#eab308"
+                  stroke="var(--color-warning)"
                   strokeWidth="5"
                   strokeLinecap="round"
                 />
@@ -490,7 +490,7 @@ export function OptionsFlowsHub({
       {/* Live Options Flow Stream Status */}
       <div className="flows-delay-banner">
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block", flexShrink: 0 }} />
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-success)", display: "inline-block", flexShrink: 0 }} />
           <span style={{ fontWeight: 600 }}>Live Real-Time Stream: Dark Pool Sweeps, Unusual Block Trades &amp; Institutional Momentum</span>
         </div>
 
@@ -636,7 +636,7 @@ export function OptionsFlowsHub({
                           <button
                             type="button"
                             className="subnav-btn"
-                            style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem", borderColor: "#f59e0b", color: "#fbbf24" }}
+                            style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
                             title="Analyze institutional trade risk profile"
                             onClick={(e) => {
                               e.stopPropagation();

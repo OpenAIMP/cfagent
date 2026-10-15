@@ -130,16 +130,18 @@
 
 /* Side-by-Side Controls Row: Sentiment Selector (Left) & Optimization Bias Panel (Right) */
 .strat-discovery-controls-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4, 1rem);
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  flex-wrap: wrap;
-  margin: var(--space-2, 0.5rem) 0 var(--space-2-5, 0.65rem) 0;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: var(--space-3, 0.75rem) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  flex-wrap: nowrap !important;
+  margin: var(--space-2, 0.5rem) 0 var(--space-2-5, 0.65rem) 0 !important;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .strat-discovery-top-bar {
@@ -423,12 +425,10 @@
   flex-direction: row !important;
   align-items: center !important;
   justify-content: flex-start !important;
-  gap: var(--space-2-5, 0.65rem) !important;
+  gap: var(--space-2, 0.5rem) !important;
   flex-wrap: nowrap !important;
   margin: 0 !important;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: var(--space-1, 4px) var(--space-0-5, 2px) !important;
+  padding: var(--space-0-5, 2px) 0 !important;
   box-sizing: border-box;
   flex: 0 1 auto;
 }
@@ -438,34 +438,43 @@
   display: inline-flex !important;
   flex-direction: column !important;
   align-items: center !important;
+  justify-content: center !important;
   gap: var(--space-1, 0.25rem) !important;
   cursor: pointer !important;
   flex-shrink: 0 !important;
-  background: transparent;
-  border: none;
-  padding: var(--space-0-5, 2px);
-  user-select: none;
-  transition: transform var(--transition-fast, 120ms) ease;
+  background: transparent !important;
+  border: none !important;
+  padding: var(--space-0-5, 2px) var(--space-1, 4px) !important;
+  user-select: none !important;
+  transition: transform var(--transition-fast, 120ms) ease !important;
+  outline: none;
+}
+
+.strat-sentiment-btn-wrap:focus-visible,
+.strat-sentiment-card:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 6px);
 }
 
 .strat-sentiment-circle {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full, 9999px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--color-border-medium);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  transition: all var(--transition-fast, 120ms) ease;
-  cursor: pointer;
-  box-sizing: border-box;
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: var(--radius-full, 9999px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 2px solid var(--color-border-medium) !important;
+  background: var(--color-surface-sunken) !important;
+  color: var(--color-text-muted) !important;
+  transition: all var(--transition-fast, 120ms) ease !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
 }
 
 .strat-sentiment-circle svg {
-  width: 20px;
-  height: 20px;
+  width: 18px !important;
+  height: 18px !important;
 }
 
 .strat-sentiment-btn-wrap:hover .strat-sentiment-circle,

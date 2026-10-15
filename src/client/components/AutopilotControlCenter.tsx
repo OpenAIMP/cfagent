@@ -998,7 +998,7 @@ export function AutopilotControlCenter({
             aria-label="Emergency Platform Kill Switch"
           >
             <div className="modal-header">
-              <h3 style={{ color: "#ef4444" }}>🚨 Emergency Platform Kill Switch</h3>
+              <h3 style={{ color: "var(--color-danger)" }}>🚨 Emergency Platform Kill Switch</h3>
               <button
                 type="button"
                 className="btn-close-modal"
@@ -1008,20 +1008,20 @@ export function AutopilotControlCenter({
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ color: "#cbd5e1", lineHeight: 1.5, fontSize: "0.9rem" }}>
+              <p style={{ color: "var(--color-text-secondary)", lineHeight: 1.5, fontSize: "0.9rem" }}>
                 Activating the Emergency Kill Switch terminates all active autonomous order pipelines,
                 blocks any new trade submission, and cancels pending unexecuted orders across the
                 brokerage.
               </p>
               <div
                 style={{
-                  background: "rgba(239, 68, 68, 0.12)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  background: "var(--color-danger-subtle)",
+                  border: "1px solid var(--color-danger)",
                   padding: "0.75rem",
-                  borderRadius: "6px",
+                  borderRadius: "var(--radius-sm, 6px)",
                   margin: "1rem 0",
                   fontSize: "0.82rem",
-                  color: "#fca5a5",
+                  color: "var(--color-danger)",
                 }}
               >
                 ⚠️ <strong>Kill switch status:</strong> {isKillSwitched ? "ACTIVATED (SYSTEM LOCKED)" : "DISARMED (NORMAL OPERATIONS)"}

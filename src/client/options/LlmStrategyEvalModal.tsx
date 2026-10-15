@@ -273,10 +273,10 @@ export function LlmStrategyEvalModal({
                 style={{
                   padding: "0.55rem 0.95rem",
                   fontSize: "0.82rem",
-                  background: "rgba(15, 23, 42, 0.8)",
-                  border: "1px solid rgba(56, 189, 248, 0.3)",
-                  color: "#38bdf8",
-                  borderRadius: "6px",
+                  background: "var(--color-surface-sunken)",
+                  border: "1px solid var(--color-border-subtle)",
+                  color: "var(--color-accent)",
+                  borderRadius: "var(--radius-sm, 6px)",
                   cursor: "pointer",
                 }}
               >
@@ -313,11 +313,11 @@ export function LlmStrategyEvalModal({
                 {result.dataCoverage?.cached && (
                   <span
                     style={{
-                      background: "rgba(16, 185, 129, 0.15)",
-                      color: "#10b981",
-                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      background: "var(--color-success-subtle)",
+                      color: "var(--color-success)",
+                      border: "1px solid var(--color-success)",
                       padding: "0.15rem 0.5rem",
-                      borderRadius: "4px",
+                      borderRadius: "var(--radius-xs, 4px)",
                       fontSize: "0.75rem",
                       fontWeight: 600,
                       marginLeft: "auto",
