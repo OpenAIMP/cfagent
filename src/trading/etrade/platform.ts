@@ -238,8 +238,10 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     let executionPrice = orderType === "LIMIT" && params.limitPrice ? params.limitPrice : quote.lastPrice;
     let estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
     if (optionLegs.length) {
-      executionPrice = params.limitPrice ?? Math.abs(params.strategyNetDebit || 0) / 100;
-      estimatedTotal = Number((executionPrice * params.quantity * 100).toFixed(2));
+      const hasOptions = optionLegs.some((leg) => leg.securityType === "OPTN");
+      const shareQuantity = optionLegs.filter((leg) => leg.securityType === "EQ").reduce((total, leg) => total + leg.quantity, 0);
+      executionPrice = params.limitPrice ?? Math.abs(params.strategyNetDebit || 0) / (hasOptions ? 100 : Math.max(shareQuantity, 1));
+      estimatedTotal = Number((executionPrice * (hasOptions ? params.quantity * 100 : shareQuantity)).toFixed(2));
     }
     let estimatedCommission = 0.0;
     let upstreamPreviewId: string | undefined;

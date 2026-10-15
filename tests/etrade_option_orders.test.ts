@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { etradeNetPriceType, etradeOrderKind, toETradeInstruments, validateTradingOrderLegs } from "../src/trading/etrade/optionOrders";
+import { etradeNetPriceType, etradeOrderKind, etradePriceType, toETradeInstruments, validateTradingOrderLegs } from "../src/trading/etrade/optionOrders";
 import type { TradingOrderLeg } from "../src/trading/interfaces";
 
 const vertical: TradingOrderLeg[] = [
@@ -21,6 +21,8 @@ describe("E*TRADE strategy order mapping", () => {
     expect(etradeOrderKind([{ underlyingSymbol: "CRWV", securityType: "EQ", side: "BUY", quantity: 10 }])).toBe("EQ");
     expect(etradeNetPriceType(125)).toBe("NET_DEBIT");
     expect(etradeNetPriceType(-40)).toBe("NET_CREDIT");
+    expect(etradePriceType([vertical[0]], "LIMIT", -40)).toBe("LIMIT");
+    expect(etradePriceType(vertical, "LIMIT", -40)).toBe("NET_CREDIT");
   });
 
   it("accepts native covered calls and rejects unsafe or malformed combinations", () => {

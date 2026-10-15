@@ -941,7 +941,10 @@ export function ETradeTradingHub({
     setOrderType(ctx.optionLegs?.length || ctx.underlyingPrice ? "LIMIT" : "MARKET");
     setOrderQuantity(ctx.quantity);
     if (ctx.optionLegs?.length && ctx.strategyNetDebit !== undefined) {
-      setOrderLimitPrice((Math.abs(ctx.strategyNetDebit) / 100).toFixed(2));
+      const unitMultiplier = ctx.optionLegs.some((leg) => leg.securityType === "OPTN")
+        ? 100
+        : ctx.optionLegs.reduce((total, leg) => total + leg.quantity, 0) || 1;
+      setOrderLimitPrice((Math.abs(ctx.strategyNetDebit) / unitMultiplier).toFixed(2));
     } else if (ctx.underlyingPrice) setOrderLimitPrice(ctx.underlyingPrice.toFixed(2));
     setActiveDraft(null);
     setLastExecutionResult(null);
@@ -1971,7 +1974,9 @@ export function ETradeTradingHub({
                       ${(
                         orderQuantity *
                         (orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : orderQuote?.lastPrice || 0) *
-                        (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 100 : 1)
+                        (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN")
+                          ? 100
+                          : orderContext?.optionLegs?.reduce((total, leg) => total + leg.quantity, 0) || 1)
                       ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>

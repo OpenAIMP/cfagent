@@ -34,7 +34,7 @@ import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
-import { etradeNetPriceType, etradeOrderKind, toETradeInstruments, validateTradingOrderLegs } from "./optionOrders";
+import { etradeOrderKind, etradePriceType, toETradeInstruments, validateTradingOrderLegs } from "./optionOrders";
 import type { TradingOrderLeg } from "../interfaces";
 export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 
@@ -490,7 +490,7 @@ export class ETradeRestClient {
         Order: [
           {
             allOrNone: false,
-            priceType: isStrategy ? etradeNetPriceType(params.strategyNetDebit || 0) : priceType,
+            priceType: isStrategy ? etradePriceType(legs, priceType, params.strategyNetDebit || 0) : priceType,
             ...(limitPrice !== undefined ? { limitPrice } : {}),
             ...(stopPrice !== undefined ? { stopPrice } : {}),
             orderTerm: params.orderTerm || "GOOD_FOR_DAY",
@@ -841,7 +841,7 @@ export class ETradeRestClient {
             Order: [
               {
                 allOrNone: false,
-                priceType: isStrategy ? etradeNetPriceType(params.strategyNetDebit || 0) : priceType,
+                priceType: isStrategy ? etradePriceType(legs, priceType, params.strategyNetDebit || 0) : priceType,
                 ...(limitPrice ? { limitPrice } : {}),
                 orderTerm: "GOOD_FOR_DAY",
                 marketSession: "REGULAR",
@@ -904,7 +904,11 @@ export class ETradeRestClient {
         if (res.ok && orderIdVal) {
           const brokerId = `et_order_${orderIdVal}`;
           const executionPrice = limitPrice || params.limitPrice || 0;
-          const totalSettled = executionPrice > 0 ? executionPrice * params.quantity * (isStrategy ? 100 : 1) : 0;
+          const optionContracts = legs.some((leg) => leg.securityType === "OPTN");
+          const shareQuantity = legs.filter((leg) => leg.securityType === "EQ").reduce((total, leg) => total + leg.quantity, 0);
+          const totalSettled = executionPrice > 0
+            ? executionPrice * (optionContracts ? params.quantity * 100 : isStrategy ? shareQuantity : params.quantity)
+            : 0;
           return {
             success: true,
             orderId: params.orderId,
