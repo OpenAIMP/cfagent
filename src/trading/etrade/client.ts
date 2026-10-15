@@ -1312,8 +1312,20 @@ export class ETradeRestClient {
           positions = rawPositions.map((p: any) => {
             const quick = p.Quick || p.quick || p.Complete || p.complete || {};
             const price = Number(quick.lastTrade || (p.marketValue && p.quantity ? p.marketValue / p.quantity : (p.pricePaid || 0)));
+            const product = p.Product || {};
+            const expiryYear = Number(product.expiryYear || 0);
+            const expiryMonth = Number(product.expiryMonth || 0);
+            const expiryDay = Number(product.expiryDay || 0);
+            const expirationDate = expiryYear && expiryMonth && expiryDay
+              ? `${expiryYear}-${String(expiryMonth).padStart(2, "0")}-${String(expiryDay).padStart(2, "0")}`
+              : undefined;
             return {
               symbol: String(p.Product?.symbol || p.symbol || ""),
+              securityType: product.securityType ? String(product.securityType) : undefined,
+              positionType: p.positionType === "SHORT" ? "SHORT" as const : p.positionType === "LONG" ? "LONG" as const : undefined,
+              optionType: product.callPut === "CALL" || product.callPut === "PUT" ? product.callPut : undefined,
+              strikePrice: product.strikePrice !== undefined ? Number(product.strikePrice) : undefined,
+              expirationDate,
               description: String(p.Product?.securityType || p.symbolDescription || p.description || "Common Stock"),
               quantity: Number(p.quantity || 0),
               pricePaid: Number(p.pricePaid || 0),
