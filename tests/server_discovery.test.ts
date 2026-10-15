@@ -35,6 +35,7 @@ describe("server discovery mapping (issue #29)", () => {
     expect(sentimentToThesis("bullish", 110, 100)).toBe("bullish");
     expect(sentimentToThesis("very_bearish", 90, 100)).toBe("bearish");
     expect(sentimentToThesis("neutral", 100, 100)).toBe("range_bound");
+    expect(sentimentToThesis("directional", 100, 100)).toBe("large_move");
     expect(sentimentToThesis("all", 105, 100)).toBe("bullish");
     expect(sentimentToThesis("all", 95, 100)).toBe("bearish");
     expect(sentimentToThesis("all", 100, 100)).toBe("range_bound");
@@ -67,5 +68,47 @@ describe("server discovery mapping (issue #29)", () => {
     expect(mapped.returnOnRiskPct).toBe(63); // whole-% rounding contract, as the client engine produces
     expect(mapped.tag).toBe("#1 Server Ranked");
     expect(mapped.miniPayoffPoints.length).toBeGreaterThan(0);
+  });
+
+  it("ensures StrategyDiscoveryPanel synchronizes server discovery candidates with builder legs without regression guard", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
+
+    // Must not block syncing with `builderLegs.length === 0`
+    expect(panelCode).not.toContain("if (builderLegs.length === 0) {\n        setBuilderLegs");
+    expect(panelCode).not.toContain("if (builderLegs.length === 0) {\r\n        setBuilderLegs");
+
+    // Must synchronize builderLegs with top candidate on discovery refresh
+    expect(panelCode).toContain("setBuilderLegs([...top.legs])");
+
+    // Must reset customStrategyName on sentiment change
+    expect(panelCode).toContain("setCustomStrategyName(null)");
+
+    // Must expose sentiment selector in Discovery controls row
+    expect(panelCode).toContain("strat-discovery-controls-row");
+
+    // Must make discovery cards selectable
+    expect(panelCode).toContain("strat-card strat-discovery-card");
+    expect(panelCode).toContain("selectedStrategy?.id === strat.id");
+
+    // Must immediately discover and select strategies on sentiment change
+    expect(panelCode).toContain("const localStrategies = fallbackDiscoverStrategies");
+    expect(panelCode).toContain("setDiscoveredStrategies(localStrategies)");
+  });
+
+  it("strictly filters candidate strategies by selected sentiment thesis", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
+
+    // fallbackDiscoverStrategies must NOT unconditionally add directional strategies to every sentiment
+    expect(panelCode).not.toContain("def.theses.includes(sentiment) || def.theses.includes(\"directional\")");
+
+    // Must handle all sentiment categories with appropriate filtering
+    expect(panelCode).toContain("if (sentiment === \"bullish\")");
+    expect(panelCode).toContain("if (sentiment === \"bearish\")");
+    expect(panelCode).toContain("if (sentiment === \"neutral\")");
+    expect(panelCode).toContain("if (sentiment === \"directional\")");
   });
 });

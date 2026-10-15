@@ -33,8 +33,9 @@ export function sentimentToThesis(sentiment: SentimentType, targetPrice: number,
   switch (sentiment) {
     case "very_bullish":
     case "bullish":
-    case "directional":
       return "bullish";
+    case "directional":
+      return "large_move";
     case "very_bearish":
     case "bearish":
       return "bearish";

@@ -229,7 +229,13 @@ function fallbackDiscoverStrategies(
 ): DiscoveredStrategy[] {
   const matches = STRATEGY_LIBRARY.filter((def) => {
     if (sentiment === "all") return true;
-    return def.theses.includes(sentiment) || def.theses.includes("directional");
+    if (sentiment === "bullish") return def.theses.includes("bullish") || def.theses.includes("very_bullish");
+    if (sentiment === "very_bullish") return def.theses.includes("very_bullish") || def.theses.includes("bullish");
+    if (sentiment === "bearish") return def.theses.includes("bearish") || def.theses.includes("very_bearish");
+    if (sentiment === "very_bearish") return def.theses.includes("very_bearish") || def.theses.includes("bearish");
+    if (sentiment === "neutral") return def.theses.includes("neutral");
+    if (sentiment === "directional") return def.theses.includes("directional");
+    return false;
   });
   const candidates: DiscoveredStrategy[] = [];
   for (const def of matches) {
@@ -257,6 +263,21 @@ function fallbackDiscoverStrategies(
       // skip invalid legs
     }
   }
+
+  candidates.sort((a, b) => {
+    if (sentiment === "very_bullish") {
+      const aExact = a.theses.includes("very_bullish") ? 1 : 0;
+      const bExact = b.theses.includes("very_bullish") ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+    }
+    if (sentiment === "very_bearish") {
+      const aExact = a.theses.includes("very_bearish") ? 1 : 0;
+      const bExact = b.theses.includes("very_bearish") ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+    }
+    return (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0);
+  });
+
   return candidates;
 }
 
@@ -331,6 +352,7 @@ export function StrategyDiscoveryPanel({
     return initialCustomLegs && initialCustomLegs.length > 0 ? [...initialCustomLegs] : [];
   });
   const [builderIv, setBuilderIv] = useState<number>(27.5);
+  const hasInitialCustomLegsRef = useRef(Boolean(initialCustomLegs && initialCustomLegs.length > 0));
 
   // Synchronize when custom trade legs are passed
   useEffect(() => {
@@ -629,15 +651,56 @@ export function StrategyDiscoveryPanel({
 
   // Adjust target price default when sentiment or quote price changes
   const handleSentimentChange = (nextSentiment: SentimentType) => {
+    hasInitialCustomLegsRef.current = false;
+    if (builderLegs.length > 0) {
+      setPreviousStrategyLegs([...builderLegs]);
+    }
     setSentiment(nextSentiment);
+    setCustomStrategyName(null);
     const target = getTargetPriceForSentiment(nextSentiment, quote.price, builderIv, selectedExpiration.dte);
     setTargetPrice(target);
+
+    // Immediately discover and select strategies for nextSentiment
+    const localStrategies = fallbackDiscoverStrategies(
+      quote.price,
+      target,
+      nextSentiment,
+      selectedExpiration,
+      budget,
+      minRewardRiskRatio,
+      optimizationBias,
+      builderIv / 100,
+      engineConfig
+    );
+    if (localStrategies.length > 0) {
+      setDiscoveredStrategies(localStrategies);
+      const top = localStrategies[0];
+      setSelectedStrategy(top);
+      setBuilderLegs([...top.legs]);
+    }
   };
 
   const handleSelectExpiration = (exp: ExpirationOption) => {
     setSelectedExpiration(exp);
     const target = getTargetPriceForSentiment(sentiment, quote.price, builderIv, exp.dte);
     setTargetPrice(target);
+    const localStrategies = fallbackDiscoverStrategies(
+      quote.price,
+      target,
+      sentiment,
+      exp,
+      budget,
+      minRewardRiskRatio,
+      optimizationBias,
+      builderIv / 100,
+      engineConfig
+    );
+    if (localStrategies.length > 0) {
+      setDiscoveredStrategies(localStrategies);
+      const top = localStrategies[0];
+      setSelectedStrategy(top);
+      setBuilderLegs([...top.legs]);
+    }
   };
 
   const handleSelectSymbol = (sym: string) => {
@@ -657,7 +720,25 @@ export function StrategyDiscoveryPanel({
         delayed: true,
       };
       setQuote(fallback);
-      setTargetPrice(getTargetPriceForSentiment(sentiment, fallback.price, builderIv, selectedExpiration.dte));
+      const target = getTargetPriceForSentiment(sentiment, fallback.price, builderIv, selectedExpiration.dte);
+      setTargetPrice(target);
+      const localStrategies = fallbackDiscoverStrategies(
+        fallback.price,
+        target,
+        sentiment,
+        selectedExpiration,
+        budget,
+        minRewardRiskRatio,
+        optimizationBias,
+        builderIv / 100,
+        engineConfig
+      );
+      if (localStrategies.length > 0) {
+        setDiscoveredStrategies(localStrategies);
+        const top = localStrategies[0];
+        setSelectedStrategy(top);
+        setBuilderLegs([...top.legs]);
+      }
     }
   };
 
@@ -696,6 +777,20 @@ export function StrategyDiscoveryPanel({
       .then((res) => {
         if (!cancelled && res.strategies.length > 0) {
           setDiscoveredStrategies(res.strategies);
+        } else if (!cancelled) {
+          setDiscoveredStrategies(
+            fallbackDiscoverStrategies(
+              quote.price,
+              targetPrice,
+              sentiment,
+              selectedExpiration,
+              budget,
+              minRewardRiskRatio,
+              optimizationBias,
+              builderIv / 100,
+              engineConfig
+            )
+          );
         }
       })
       .catch(() => {
@@ -721,16 +816,22 @@ export function StrategyDiscoveryPanel({
     };
   }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig]);
 
-  // When discovering strategies, initialize selectedStrategy with the first match if empty
+  // When discovering strategies, synchronize selectedStrategy and builderLegs with the top match
   useEffect(() => {
-    if (discoveredStrategies.length > 0 && (!selectedStrategy || activeView === "discovery")) {
+    if (discoveredStrategies.length > 0) {
+      if (hasInitialCustomLegsRef.current) {
+        hasInitialCustomLegsRef.current = false;
+        if (!selectedStrategy) {
+          setSelectedStrategy(discoveredStrategies[0]);
+        }
+        return;
+      }
       const top = discoveredStrategies[0];
       setSelectedStrategy(top);
-      if (builderLegs.length === 0) {
-        setBuilderLegs([...top.legs]);
-      }
+      setCustomStrategyName(null);
+      setBuilderLegs([...top.legs]);
     }
-  }, [discoveredStrategies, activeView, selectedStrategy, builderLegs.length]);
+  }, [discoveredStrategies]);
 
   // Transition from Discovery card to Builder view
   const openInBuilder = (strat: DiscoveredStrategy) => {
@@ -739,6 +840,7 @@ export function StrategyDiscoveryPanel({
       setPreviousStrategyLegs([...builderLegs]);
     }
     setSelectedStrategy(strat);
+    setCustomStrategyName(null);
     setBuilderLegs([...strat.legs]);
     setActiveView("builder");
   };
@@ -1716,7 +1818,19 @@ export function StrategyDiscoveryPanel({
                   : `${strat.returnOnCollateralPct}% Return on collateral`;
 
               return (
-                <div key={strat.id} className="strat-card strat-discovery-card">
+                <div
+                  key={strat.id}
+                  className={`strat-card strat-discovery-card ${selectedStrategy?.id === strat.id ? "selected active" : ""}`}
+                  onClick={() => {
+                    if (builderLegs.length > 0) {
+                      setPreviousStrategyLegs([...builderLegs]);
+                    }
+                    setSelectedStrategy(strat);
+                    setCustomStrategyName(null);
+                    setBuilderLegs([...strat.legs]);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
                   <div className="strat-card-title-row">
                     <div className="strat-card-header-left">
                       <span className="strat-card-name">{strat.name}</span>
@@ -1764,7 +1878,8 @@ export function StrategyDiscoveryPanel({
                       <button
                         type="button"
                         className="strat-card-icon-btn trade"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const ctx: OptionsTradeContext = {
                             symbol: activeSymbol,
                             action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
@@ -1790,7 +1905,10 @@ export function StrategyDiscoveryPanel({
                     <button
                       type="button"
                       className="strat-card-icon-btn builder"
-                      onClick={() => openInBuilder(strat)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openInBuilder(strat);
+                      }}
                       title={`Open ${strat.name} in Interactive Builder`}
                       aria-label={`Open ${strat.name} in Builder`}
                     >
@@ -1800,7 +1918,8 @@ export function StrategyDiscoveryPanel({
                     <button
                       type="button"
                       className="strat-card-icon-btn eval"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setEvaluatingStrategy({
                           symbol: activeSymbol,
                           strategyName: strat.name,
@@ -1827,7 +1946,8 @@ export function StrategyDiscoveryPanel({
                     <button
                       type="button"
                       className="strat-card-icon-btn risk"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setRiskSubject({
                           title: strat.name,
                           underlyingSymbol: activeSymbol,
@@ -2074,6 +2194,7 @@ export function StrategyDiscoveryPanel({
               <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span> {isQuoteRefreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
+
 
             {/* Inline Symbol Autocomplete Popover in Builder */}
             {showSymbolSearchMenu && (
