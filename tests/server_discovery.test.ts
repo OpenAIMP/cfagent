@@ -64,7 +64,7 @@ describe("server discovery mapping (issue #29)", () => {
     expect(mapped.maxProfit).toBe(310);
     expect(mapped.chanceOfProfit).toBe(58);
     expect(mapped.rewardRiskRatio).toBe(1.63);
-    expect(mapped.returnOnRiskPct).toBeCloseTo((120 / 190) * 100);
+    expect(mapped.returnOnRiskPct).toBe(63); // whole-% rounding contract, as the client engine produces
     expect(mapped.tag).toBe("#1 Server Ranked");
     expect(mapped.miniPayoffPoints.length).toBeGreaterThan(0);
   });
