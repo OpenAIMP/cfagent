@@ -1522,7 +1522,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--color-text-muted);
   width: 28px;
-  height: 104px;
+  height: 88px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -1560,12 +1560,12 @@
   background: var(--color-surface-sunken);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
-  height: 104px;
+  height: 88px;
   display: flex;
   align-items: stretch;
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  padding: 4px 0 6px 0;
+  padding: 2px 0 5px 0;
   box-sizing: border-box;
   width: 100%;
   scroll-behavior: smooth;
@@ -1646,8 +1646,8 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  height: 24px;
-  min-height: 24px;
+  height: 18px;
+  min-height: 18px;
   width: 100%;
 }
 
