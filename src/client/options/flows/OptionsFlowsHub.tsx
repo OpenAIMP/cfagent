@@ -10,10 +10,6 @@ import {
   SavedFilterPreset,
 } from "../../../trading/options/flows/types";
 import {
-  RAW_LIVE_FLOW_ITEMS,
-  RAW_NEWS_FLOW_ITEMS,
-  RAW_INSIDER_FLOW_ITEMS,
-  RAW_CONGRESS_FLOW_ITEMS,
   DEFAULT_SAVED_PRESETS,
   DEFAULT_FILTER_CONFIG,
   filterLiveFlowItems,
@@ -77,19 +73,18 @@ export function OptionsFlowsHub({
   const [filterConfig, setFilterConfig] = useState<FlowFilterConfig>(DEFAULT_FILTER_CONFIG);
   const [activePreset, setActivePreset] = useState<SavedFilterPreset | null>(DEFAULT_SAVED_PRESETS[0]);
   const [savedPresets, setSavedPresets] = useState<SavedFilterPreset[]>(DEFAULT_SAVED_PRESETS);
-  const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
   const [selectedDetailTrade, setSelectedDetailTrade] = useState<LiveFlowItem | null>(null);
   const [activeBuilderTrade, setActiveBuilderTrade] = useState<LiveFlowItem | null>(null);
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
 
-  // Live / Historical items
-  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
-  const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>(RAW_LIVE_FLOW_ITEMS);
+  // Live / Historical items: pure real-time data feeds
+  const [liveItems, setLiveItems] = useState<LiveFlowItem[]>([]);
+  const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>([]);
   const [hasLoadedInitial, setHasLoadedInitial] = useState<boolean>(false);
-  const [newsItems, setNewsItems] = useState<NewsFlowItem[]>(RAW_NEWS_FLOW_ITEMS);
-  const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>(RAW_INSIDER_FLOW_ITEMS);
-  const [congressItems, setCongressItems] = useState<CongressFlowItem[]>(RAW_CONGRESS_FLOW_ITEMS);
+  const [newsItems, setNewsItems] = useState<NewsFlowItem[]>([]);
+  const [insiderItems, setInsiderItems] = useState<InsiderFlowItem[]>([]);
+  const [congressItems, setCongressItems] = useState<CongressFlowItem[]>([]);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
@@ -106,15 +101,19 @@ export function OptionsFlowsHub({
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => {
-        if (data?.flows && data.flows.length > 0) {
+        if (data?.flows && Array.isArray(data.flows)) {
           setLiveItems(data.flows);
           if (!cfg.tickers || cfg.tickers.length === 0) {
             setMarketFlowItems(data.flows);
           }
           setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+        } else {
+          setLiveItems([]);
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setLiveItems([]);
+      })
       .finally(() => {
         setIsRefreshing(false);
         setHasLoadedInitial(true);
@@ -125,26 +124,34 @@ export function OptionsFlowsHub({
   useEffect(() => {
     fetchLiveFlows(filterConfig);
 
-    fetch("/api/options/flows/news")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
-        if (data?.news) setNewsItems(data.news);
-      })
-      .catch(() => {});
+    const tickerParam = filterConfig.tickers.length > 0 ? `?tickers=${encodeURIComponent(filterConfig.tickers.join(","))}` : "";
 
-    fetch("/api/options/flows/insider")
+    fetch(`/api/options/flows/news${tickerParam}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => {
-        if (data?.insiders) setInsiderItems(data.insiders);
+        setNewsItems(Array.isArray(data?.news) ? data.news : []);
       })
-      .catch(() => {});
+      .catch(() => {
+        setNewsItems([]);
+      });
+
+    fetch(`/api/options/flows/insider${tickerParam}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: any) => {
+        setInsiderItems(Array.isArray(data?.insiders) ? data.insiders : []);
+      })
+      .catch(() => {
+        setInsiderItems([]);
+      });
 
     fetch("/api/options/flows/congress")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => {
-        if (data?.congress) setCongressItems(data.congress);
+        setCongressItems(Array.isArray(data?.congress) ? data.congress : []);
       })
-      .catch(() => {});
+      .catch(() => {
+        setCongressItems([]);
+      });
 
     // Auto-refresh dynamic options flow stream every 30 seconds
     const interval = setInterval(() => {
@@ -507,15 +514,24 @@ export function OptionsFlowsHub({
       {/* Main Split Layout: Data Tables + Right Sidebar */}
       <div className="flows-main-layout">
         <main className="flows-table-area">
-          {/* SUB-TAB 1: SUMMARY VIEW (SCREENSHOT 1: DUAL GRADIENT BARS) */}
+          {/* SUB-TAB 1: SUMMARY VIEW */}
           {subTab === "summary" && (
-            !hasLoadedInitial && liveItems.length === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
+            !hasLoadedInitial && isRefreshing ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Aggregating Real-Time Options Flow Leaderboard...
                 </div>
                 <div style={{ fontSize: "0.85rem" }}>
-                  Calculating net bullish vs bearish institutional dollar volumes directly from market exchanges
+                  Calculating net bullish vs bearish institutional dollar volumes directly from live market exchanges
+                </div>
+              </div>
+            ) : summaryData.totalTrades === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  No live feed available
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  No live options market prints currently available from exchange streams.
                 </div>
               </div>
             ) : (
@@ -527,7 +543,7 @@ export function OptionsFlowsHub({
             )
           )}
 
-          {/* SUB-TAB 2: LIVE FLOW (SCREENSHOTS 1 & 2) */}
+          {/* SUB-TAB 2: LIVE FLOW & SUB-TAB 3: HISTORICAL FLOW */}
           {(subTab === "live" || subTab === "historical") && (
             <>
               {filterConfig.tickers.length > 0 && (
@@ -556,54 +572,41 @@ export function OptionsFlowsHub({
                   </div>
                 </div>
               )}
-              {!hasLoadedInitial && liveItems.length === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
-                  Streaming Real-Time Institutional Options Flow...
+              {!hasLoadedInitial && isRefreshing ? (
+                <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                    Streaming Real-Time Institutional Options Flow...
+                  </div>
+                  <div style={{ fontSize: "0.85rem" }}>
+                    Fetching authentic market orders, sweeps, and block trades from live exchange feeds
+                  </div>
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
-                  Fetching authentic market orders, sweeps, and block trades from exchange feeds
+              ) : filteredLiveItems.length === 0 ? (
+                <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                    No live feed available
+                  </div>
+                  <div style={{ fontSize: "0.85rem" }}>
+                    {filterConfig.tickers.length > 0 || filterConfig.minPremium > 0
+                      ? "No live prints matching the current filter criteria."
+                      : "No live options flow prints currently available from exchange feeds."}
+                  </div>
                 </div>
-              </div>
-            ) : filteredLiveItems.length === 0 ? (
-              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "#94a3b8" }}>
-                No options flow prints matching the current filter criteria.
-              </div>
-            ) : (
-              <table className="flow-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Symbol</th>
-                    <th>Strategy</th>
-                    <th>Expiration</th>
-                    <th>Premium</th>
-                    <th>Type</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLiveItems.map((item) => {
-                    if (item.isLocked) {
-                      return (
-                        <tr
-                          key={item.id}
-                          className="flow-locked-row"
-                          onClick={() => setShowUpgradeModal(true)}
-                        >
-                          <td className="flow-time-cell">
-                            {item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}
-                          </td>
-                          <td colSpan={6}>
-                            <span className="flow-locked-text">
-                              🔒 Upgrade for Access
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    return (
+              ) : (
+                <table className="flow-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Symbol</th>
+                      <th>Strategy</th>
+                      <th>Expiration</th>
+                      <th>Premium</th>
+                      <th>Type</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLiveItems.map((item) => (
                       <tr
                         key={item.id}
                         style={{ cursor: "pointer" }}
@@ -644,91 +647,101 @@ export function OptionsFlowsHub({
                           </button>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </>
-        )}
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
 
-          {/* SUB-TAB 4: NEWS FLOW (SCREENSHOT 3) */}
+          {/* SUB-TAB 4: NEWS FLOW */}
           {subTab === "news" && (
-            <table className="flow-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Headline</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredNewsItems.map((item) => {
-                  if (item.isLocked) {
-                    return (
-                      <tr
-                        key={item.id}
-                        className="flow-locked-row"
-                        onClick={() => setShowUpgradeModal(true)}
-                      >
-                        <td className="flow-time-cell">{item.time}</td>
-                        <td>
-                          <span className="flow-locked-text">
-                            🔒 Upgrade for Access
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={item.id}>
+            !hasLoadedInitial && isRefreshing && newsItems.length === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  Fetching Live Market News...
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  Connecting to real-time financial market news feeds
+                </div>
+              </div>
+            ) : filteredNewsItems.length === 0 ? (
+              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  No live feed available
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  No live financial news prints currently available from market feeds.
+                </div>
+              </div>
+            ) : (
+              <table className="flow-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Headline</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredNewsItems.map((item) => (
+                    <tr
+                      key={item.id}
+                      style={item.url ? { cursor: "pointer" } : undefined}
+                      onClick={item.url ? () => window.open(item.url, "_blank", "noopener,noreferrer") : undefined}
+                    >
                       <td className="flow-time-cell">{item.time}</td>
                       <td className="news-headline-cell">
                         <span className="news-symbols-prefix">
                           {item.symbols.join(", ")}:
                         </span>
                         <span>{item.headline}</span>
+                        {item.source && (
+                          <span style={{ marginLeft: "8px", fontSize: "0.75rem", color: "var(--color-text-muted)", opacity: 0.8 }}>
+                            — {item.source}
+                          </span>
+                        )}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            )
           )}
 
           {/* SUB-TAB 5: CONGRESS FLOW */}
           {subTab === "congress" && (
-            <table className="flow-table">
-              <thead>
-                <tr>
-                  <th>Filing Date</th>
-                  <th>Politician</th>
-                  <th>Asset / Strategy</th>
-                  <th>Transaction</th>
-                  <th>Amount</th>
-                  <th>Est. Premium</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCongressItems.map((item) => {
-                  if (item.isLocked) {
-                    return (
-                      <tr
-                        key={item.id}
-                        className="flow-locked-row"
-                        onClick={() => setShowUpgradeModal(true)}
-                      >
-                        <td className="flow-time-cell">{item.filingDate}</td>
-                        <td colSpan={5}>
-                          <span className="flow-locked-text">
-                            🔒 Upgrade for Access
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
+            !hasLoadedInitial && isRefreshing && congressItems.length === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  Fetching Congressional Trading Disclosures...
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  Connecting to real-time congressional member stock disclosure feeds
+                </div>
+              </div>
+            ) : filteredCongressItems.length === 0 ? (
+              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  No live feed available
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  No live congressional trading disclosures feed currently available.
+                </div>
+              </div>
+            ) : (
+              <table className="flow-table">
+                <thead>
+                  <tr>
+                    <th>Filing Date</th>
+                    <th>Politician</th>
+                    <th>Asset / Strategy</th>
+                    <th>Transaction</th>
+                    <th>Amount</th>
+                    <th>Est. Premium</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCongressItems.map((item) => (
                     <tr
                       key={item.id}
                       style={{ cursor: "pointer" }}
@@ -745,46 +758,47 @@ export function OptionsFlowsHub({
                         <strong>{item.symbol}</strong>: {item.assetDescription}
                       </td>
                       <td>{item.transaction}</td>
-                      <td style={{ color: "#94a3b8" }}>{item.amountRange}</td>
+                      <td style={{ color: "var(--color-text-muted)" }}>{item.amountRange}</td>
                       <td className="flow-premium-cell bullish">{item.estimatedPremiumFormatted}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            )
           )}
 
-          {/* SUB-TAB 6: INSIDER FLOW (SCREENSHOT 4) */}
+          {/* SUB-TAB 6: INSIDER FLOW */}
           {subTab === "insider" && (
-            <table className="flow-table">
-              <thead>
-                <tr>
-                  <th>Report Date</th>
-                  <th>Trade</th>
-                  <th>Member</th>
-                  <th>Premium</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInsiderItems.map((item) => {
-                  if (item.isLocked) {
-                    return (
-                      <tr
-                        key={item.id}
-                        className="flow-locked-row"
-                        onClick={() => setShowUpgradeModal(true)}
-                      >
-                        <td className="flow-time-cell">{item.reportDate}</td>
-                        <td colSpan={3}>
-                          <span className="flow-locked-text">
-                            🔒 Upgrade for Access
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
+            !hasLoadedInitial && isRefreshing && insiderItems.length === 0 ? (
+              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  Streaming Live SEC Form 4 Filings...
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  Connecting directly to SEC EDGAR real-time insider trade disclosures
+                </div>
+              </div>
+            ) : filteredInsiderItems.length === 0 ? (
+              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  No live feed available
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  No live SEC Form 4 insider trading feed currently available.
+                </div>
+              </div>
+            ) : (
+              <table className="flow-table">
+                <thead>
+                  <tr>
+                    <th>Report Date</th>
+                    <th>Trade</th>
+                    <th>Member</th>
+                    <th>Premium</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInsiderItems.map((item) => (
                     <tr
                       key={item.id}
                       style={{ cursor: "pointer" }}
@@ -801,10 +815,10 @@ export function OptionsFlowsHub({
                       </td>
                       <td className="flow-premium-cell bullish">{item.premiumFormatted}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            )
           )}
         </main>
 
@@ -838,56 +852,17 @@ export function OptionsFlowsHub({
             onClearPreset={handleClearPreset}
             onSaveFilter={handleSaveFilter}
             onResetFilter={handleResetFilter}
-            onOpenUpgradeModal={() => setShowUpgradeModal(true)}
             onClose={() => setIsFiltersOpen(false)}
           />
         )}
       </div>
 
-      {/* Upgrade Pro Modal */}
-      {showUpgradeModal && (
-        <div className="flow-modal-backdrop" onClick={() => setShowUpgradeModal(false)}>
-          <div className="flow-modal-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>⭐ Upgrade to Options Flows Pro</h3>
-            <p>
-              Unlock real-time zero-latency institutional flow sweeps, blocks, dark pool prints, and congressional insider filings with instant push alerts.
-            </p>
-            <ul style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", lineHeight: "1.6", margin: "0.5rem 0", paddingLeft: "1.25rem" }}>
-              <li><strong>Zero 15-Minute Delay:</strong> Live real-time streaming NBBO prints.</li>
-              <li><strong>All 🔒 Locked Rows Unlocked:</strong> Access 100% of institutional unusual activity.</li>
-              <li><strong>Unlimited Custom Filters:</strong> Save custom alerts for small-caps, tech sweeps &amp; YOLOs.</li>
-              <li><strong>Instant 1-Click Order Fill:</strong> Seamlessly preview trades directly in E*TRADE desk.</li>
-            </ul>
-            <div className="flow-modal-btns">
-              <button
-                type="button"
-                className="flow-modal-cancel"
-                onClick={() => setShowUpgradeModal(false)}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className="flow-modal-confirm"
-                onClick={() => {
-                  setShowUpgradeModal(false);
-                  if (onSendPrompt) onSendPrompt("I would like to upgrade to Options Flows Pro subscription");
-                }}
-              >
-                Upgrade Now ($49/mo)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Trade Detail Modal (Screenshot 3) */}
+      {/* Trade Detail Modal */}
       {selectedDetailTrade && (
         <FlowTradeDetailModal
           trade={selectedDetailTrade}
           onClose={() => setSelectedDetailTrade(null)}
           onOpenInBuilder={handleOpenInBuilder}
-          onUpgradeClick={() => setShowUpgradeModal(true)}
           onRiskAnalysis={(trade) => setRiskSubject(flowTradeToRiskSubject(trade))}
         />
       )}

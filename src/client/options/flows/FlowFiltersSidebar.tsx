@@ -22,7 +22,6 @@ interface FlowFiltersSidebarProps {
   onClearPreset: () => void;
   onSaveFilter: (name: string) => void;
   onResetFilter: () => void;
-  onOpenUpgradeModal: () => void;
   onClose?: () => void;
 }
 
@@ -38,7 +37,6 @@ export function FlowFiltersSidebar({
   onClearPreset,
   onSaveFilter,
   onResetFilter,
-  onOpenUpgradeModal,
   onClose,
 }: FlowFiltersSidebarProps) {
   const [sidebarTab, setSidebarTab] = useState<"current" | "your">("current");
@@ -203,17 +201,6 @@ export function FlowFiltersSidebar({
                 </div>
               );
             })}
-          </div>
-
-          <div className="flow-your-filters-footer">
-            <p>Upgrade to create your own filters, edit pre-made filters, and enable alert notifications for them.</p>
-            <button
-              type="button"
-              className="flow-upgrade-link-btn"
-              onClick={onOpenUpgradeModal}
-            >
-              ⭐ Unlock Unlimited Custom Alerts
-            </button>
           </div>
         </div>
       ) : (
@@ -645,12 +632,6 @@ export function FlowFiltersSidebar({
           {/* Footer percentage stat */}
           <div className="flow-sidebar-bottom-stat">
             <span className="flow-stat-pct-text">Showing {flowPercentage}% of total flow</span>
-            <div className="flow-tutorial-link">
-              <span>⍰ Need help? </span>
-              <a href="#tutorial" onClick={(e) => { e.preventDefault(); onOpenUpgradeModal(); }}>
-                View our flow tutorial
-              </a>
-            </div>
           </div>
         </div>
       )}

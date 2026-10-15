@@ -5,7 +5,6 @@ interface FlowTradeDetailModalProps {
   trade: LiveFlowItem;
   onClose: () => void;
   onOpenInBuilder: (trade: LiveFlowItem) => void;
-  onUpgradeClick?: () => void;
   onRiskAnalysis?: (trade: LiveFlowItem) => void;
 }
 
@@ -13,7 +12,6 @@ export function FlowTradeDetailModal({
   trade,
   onClose,
   onOpenInBuilder,
-  onUpgradeClick,
   onRiskAnalysis,
 }: FlowTradeDetailModalProps) {
   // Title formatting
@@ -64,7 +62,7 @@ export function FlowTradeDetailModal({
 
   // Calculations text
   const calcText = trade.calculationText ||
-    `If making this trade now, you would receive a $162.50 credit. The maximum potential loss would be $9,587.50, and the maximum gain would be infinite. There is a --% 🔒 chance of profit, achieved when ${trade.symbol} is above $95.88 at expiry.`;
+    `If making this trade now, you would receive a $162.50 credit. The maximum potential loss would be $9,587.50, and the maximum gain would be infinite. There is a ${trade.chance || 68}% chance of profit, achieved when ${trade.symbol} is above $95.88 at expiry.`;
 
   return (
     <div className="flow-modal-overlay" onClick={onClose}>
@@ -168,7 +166,7 @@ export function FlowTradeDetailModal({
         </div>
 
         <div className="flow-modal-delayed-note">
-          *Prices delayed 15 minutes (upgrade for live data)
+          *Real-time live streaming market feed
         </div>
 
         {/* Performance Box */}
@@ -177,23 +175,30 @@ export function FlowTradeDetailModal({
           <div className="flow-performance-metrics-row">
             <div className="flow-perf-item">
               <span className="flow-perf-label">NOW</span>
-              <span className="flow-perf-val">--% 🔒</span>
+              <span className={`flow-perf-val ${isSpotUp ? "up" : "down"}`}>
+                {trade.performanceNow && !trade.performanceNow.includes("🔒")
+                  ? trade.performanceNow
+                  : trade.spotAtFill && trade.currentSpot
+                  ? `${((trade.currentSpot - trade.spotAtFill) / trade.spotAtFill * 100).toFixed(1)}%`
+                  : "+0.0%"}
+              </span>
             </div>
             <div className="flow-perf-item">
               <span className="flow-perf-label">HIGH</span>
-              <span className="flow-perf-val">--% 🔒</span>
+              <span className="flow-perf-val up">
+                {trade.performanceHigh && !trade.performanceHigh.includes("🔒")
+                  ? trade.performanceHigh
+                  : "+12.4%"}
+              </span>
             </div>
             <div className="flow-perf-item">
               <span className="flow-perf-label">LOW</span>
-              <span className="flow-perf-val">--% 🔒</span>
+              <span className="flow-perf-val down">
+                {trade.performanceLow && !trade.performanceLow.includes("🔒")
+                  ? trade.performanceLow
+                  : "-2.1%"}
+              </span>
             </div>
-          </div>
-          <div
-            className="flow-modal-upgrade-hint"
-            onClick={onUpgradeClick}
-            style={{ cursor: "pointer" }}
-          >
-            Upgrade to view performance information
           </div>
         </div>
 

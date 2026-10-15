@@ -32,6 +32,9 @@ import {
   DEFAULT_SAVED_PRESETS,
   getDynamicLiveFlowItems,
   getDynamicFlowSummary,
+  fetchRealMarketNews,
+  fetchRealSecInsiderFilings,
+  fetchRealCongressDisclosures,
   MarketCapCategory,
   AssetClassCategory,
 } from "./trading/options/flows";
@@ -779,32 +782,38 @@ export default {
         });
       }
       if (sub === "news") {
-        const filtered = filterNewsFlowItems(RAW_NEWS_FLOW_ITEMS, tickers);
+        const liveNews = await fetchRealMarketNews(tickers);
         return Response.json({
           success: true,
-          count: filtered.length,
-          total: RAW_NEWS_FLOW_ITEMS.length,
-          news: filtered,
+          count: liveNews.length,
+          total: liveNews.length,
+          news: liveNews,
+          isDynamic: true,
+          updatedAt: new Date().toISOString(),
         });
       }
       if (sub === "insider") {
-        const filtered = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { tickers, minPremium: minPrem, marketCaps, assetTypes });
+        const liveInsiders = await fetchRealSecInsiderFilings({ tickers, minPremium: minPrem });
         return Response.json({
           success: true,
-          count: filtered.length,
-          total: RAW_INSIDER_FLOW_ITEMS.length,
-          insiders: filtered,
+          count: liveInsiders.length,
+          total: liveInsiders.length,
+          insiders: liveInsiders,
+          isDynamic: true,
+          updatedAt: new Date().toISOString(),
         });
       }
       if (sub === "congress") {
         const chamber = url.searchParams.get("chamber") || undefined;
         const party = url.searchParams.get("party") || undefined;
-        const filtered = filterCongressFlowItems(RAW_CONGRESS_FLOW_ITEMS, { tickers, chamber, party });
+        const liveCongress = await fetchRealCongressDisclosures({ tickers, chamber, party });
         return Response.json({
           success: true,
-          count: filtered.length,
-          total: RAW_CONGRESS_FLOW_ITEMS.length,
-          congress: filtered,
+          count: liveCongress.length,
+          total: liveCongress.length,
+          congress: liveCongress,
+          isDynamic: true,
+          updatedAt: new Date().toISOString(),
         });
       }
       if (sub === "summary") {
