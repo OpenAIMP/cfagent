@@ -937,7 +937,10 @@ export function ETradeTradingHub({
   const handleOptionsTrade = (ctx: OptionsTradeContext) => {
     setOrderContext(ctx);
     setOrderSymbol(ctx.symbol);
-    setOrderAction(ctx.action);
+    // Multi-leg order direction is defined by each leg. Keep the ticket's
+    // generic header action neutral for option strategies; never label a long
+    // put structure as a stock short order.
+    setOrderAction(ctx.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "BUY" : ctx.action);
     setOrderType(ctx.optionLegs?.length || ctx.underlyingPrice ? "LIMIT" : "MARKET");
     setOrderQuantity(ctx.quantity);
     if (ctx.optionLegs?.length && ctx.strategyNetDebit !== undefined) {
@@ -1675,7 +1678,11 @@ export function ETradeTradingHub({
               <div className="card-header-styled" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
                 <div>
                   <h4>⚡ E*TRADE Fast Order Ticket</h4>
-                  <span className="header-subtitle">Zero-commission equity trading with agentic DID stamping</span>
+                  <span className="header-subtitle">
+                    {orderContext?.optionLegs?.length
+                      ? "Broker-priced options strategy preview with human approval required"
+                      : "Zero-commission equity trading with agentic DID stamping"}
+                  </span>
                 </div>
                 {orderSymbol && (
                   <button

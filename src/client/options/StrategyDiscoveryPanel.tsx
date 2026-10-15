@@ -653,10 +653,12 @@ export function StrategyDiscoveryPanel({
   // Discovered strategy candidates fetched exclusively from server pipeline (pure display layer)
   const [discoveredStrategies, setDiscoveredStrategies] = useState<DiscoveredStrategy[]>([]);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
+  const [discoveryDataSource, setDiscoveryDataSource] = useState<"live" | "calibrated-demo" | "unavailable">("unavailable");
 
   useEffect(() => {
     let cancelled = false;
     setIsDiscovering(true);
+    setDiscoveryError("");
     fetchServerDiscovery({
       symbol: activeSymbol,
       currentPrice: quote.price,
@@ -671,6 +673,7 @@ export function StrategyDiscoveryPanel({
       .then((res) => {
         if (!cancelled) {
           setDiscoveredStrategies(res.strategies);
+          setDiscoveryDataSource(res.dataSource);
           setDiscoveryError(res.snapshotError ?? "");
           setIsDiscovering(false);
         }
@@ -678,6 +681,9 @@ export function StrategyDiscoveryPanel({
       .catch((err) => {
         if (!cancelled) {
           console.warn("[StrategyDiscoveryPanel] Server discovery failed:", err);
+          setDiscoveredStrategies([]);
+          setDiscoveryDataSource("unavailable");
+          setDiscoveryError(err instanceof Error ? err.message : "Server options discovery failed.");
           setIsDiscovering(false);
         }
       });
@@ -766,6 +772,13 @@ export function StrategyDiscoveryPanel({
   // =========================================================================
   const spot = quote.price;
   const currentStrategyName = customStrategyName || selectedStrategy?.name || "Options Strategy";
+  const canTradeBuilderCandidate = Boolean(
+    dataTab === "live" &&
+    discoveryDataSource === "live" &&
+    selectedStrategy &&
+    discoveredStrategies.some((candidate) => candidate.id === selectedStrategy.id) &&
+    JSON.stringify(builderLegs) === JSON.stringify(selectedStrategy.legs)
+  );
 
   // Effective DTE and time remaining for the Date slider
   const maxDte = selectedExpiration.dte;
@@ -1311,7 +1324,7 @@ export function StrategyDiscoveryPanel({
 
   // Fast order ticket context creator
   const sendToFastOrder = () => {
-    if (!onPreviewTrade || !selectedStrategy) return;
+    if (!onPreviewTrade || !selectedStrategy || !canTradeBuilderCandidate) return;
     const ctx: OptionsTradeContext = {
       symbol: activeSymbol,
       action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
@@ -1456,7 +1469,7 @@ export function StrategyDiscoveryPanel({
           >
             💾 Save
           </button>
-          {onPreviewTrade && (
+          {onPreviewTrade && canTradeBuilderCandidate && (
             <button
               type="button"
               className="strat-action-chip trade-fast"
@@ -1480,7 +1493,7 @@ export function StrategyDiscoveryPanel({
             </div>
           )}
           {discoveryError && (
-            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "rgba(240,82,82,0.12)", border: "1px solid rgba(240,82,82,0.4)", color: "#ff9c9c", fontSize: "0.85rem" }}>
+            <div className="strat-discovery-message error" role="alert">
               {discoveryError}
             </div>
           )}
@@ -1714,6 +1727,22 @@ export function StrategyDiscoveryPanel({
 
           {/* Discovered Strategies Grid */}
           <div className="strat-cards-grid">
+            {isDiscovering && discoveredStrategies.length === 0 && (
+              <div className="strat-discovery-message" role="status">
+                {dataTab === "demo"
+                  ? "Loading server-ranked strategies from the gated demo chain…"
+                  : "Loading server-ranked strategies from the live broker chain…"}
+              </div>
+            )}
+            {!isDiscovering && discoveredStrategies.length === 0 && (
+              <div className="strat-discovery-message empty" role="status">
+                {discoveryError
+                  ? "No strategies were returned. Check the server options-data message above, then retry after the live chain is available."
+                  : dataTab === "demo"
+                    ? "No strategies matched this sentiment, expiration, and gated demo chain. Adjust the filters or choose another expiration."
+                    : "No strategies matched this sentiment, expiration, risk budget, and live broker chain. Adjust the filters or choose another expiration."}
+              </div>
+            )}
             {discoveredStrategies.map((strat) => {
               const returnLabel =
                 strat.returnOnRiskPct !== null
@@ -1777,7 +1806,7 @@ export function StrategyDiscoveryPanel({
                   </div>
 
                   <div className="strat-card-actions-row">
-                    {onPreviewTrade && (
+                    {onPreviewTrade && discoveryDataSource === "live" && dataTab === "live" && (
                       <button
                         type="button"
                         className="strat-card-icon-btn trade"
