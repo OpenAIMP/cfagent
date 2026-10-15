@@ -2239,11 +2239,11 @@ export function StrategyDiscoveryPanel({
                     const hasPutBadge = Boolean(putBuy || putSell);
                     const callVolHeight = Math.max(
                       3,
-                      Math.min(hasCallBadge ? 10 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
+                      Math.min(hasCallBadge ? 6 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
                     );
                     const putVolHeight = Math.max(
                       3,
-                      Math.min(hasPutBadge ? 10 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
+                      Math.min(hasPutBadge ? 6 : 16, Math.round(16 * Math.exp(-distFromSpot * 8)))
                     );
 
                     return (

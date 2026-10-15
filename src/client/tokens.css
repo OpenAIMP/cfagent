@@ -79,9 +79,9 @@
   --layout-basis-sentiment: 22.5rem;
   --layout-basis-optimizer: 18.75rem;
   --layout-basis-slider: 9.375rem;
-  --strike-ruler-height: 5rem;
-  --strike-ruler-call-zone-height: 1.6875rem;
-  --strike-ruler-center-zone-height: 1rem;
+  --strike-ruler-height: 4rem;
+  --strike-ruler-call-zone-height: 1.25rem;
+  --strike-ruler-center-zone-height: 1.25rem;
   --strike-ruler-badge-padding-y: 0.0625rem;
   --strike-ruler-badge-padding-x: 0.3rem;
 }
