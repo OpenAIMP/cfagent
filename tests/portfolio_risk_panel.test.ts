@@ -51,3 +51,35 @@ describe("formatting", () => {
     expect(fmtUsd(500, 2)).toBe("$500.00");
   });
 });
+
+import { buildEvaluateCandidate } from "../src/client/portfolioRiskApi";
+import { parseSymbolList } from "../src/client/accountApi";
+
+describe("buildEvaluateCandidate (issue #67)", () => {
+  const full = {
+    deltaShares: "100", deltaDollars: "5000", betaWeightedDeltaDollars: "6000",
+    gammaSharesPerDollar: "2.5", thetaDollarsPerDay: "-40", vegaDollarsPerVolPoint: "120",
+    rhoDollarsPerRatePoint: "30", definedMaxLoss: "2000",
+  };
+  it("parses a complete form", () => {
+    const c = buildEvaluateCandidate(full);
+    expect(c?.deltaDollars).toBe(5000);
+    expect(c?.betaWeightedDeltaDollars).toBe(6000);
+    expect(c?.definedMaxLoss).toBe(2000);
+  });
+  it("treats a blank beta-weighted delta as unknown (null), not zero", () => {
+    const c = buildEvaluateCandidate({ ...full, betaWeightedDeltaDollars: "" });
+    expect(c?.betaWeightedDeltaDollars).toBeNull();
+  });
+  it("rejects missing or non-numeric required fields", () => {
+    expect(buildEvaluateCandidate({ ...full, deltaDollars: "" })).toBeNull();
+    expect(buildEvaluateCandidate({ ...full, thetaDollarsPerDay: "abc" })).toBeNull();
+  });
+});
+
+describe("parseSymbolList (issue #67)", () => {
+  it("splits, uppercases and dedupes", () => {
+    expect(parseSymbolList("aapl, msft  AAPL;spy")).toEqual(["AAPL", "MSFT", "SPY"]);
+    expect(parseSymbolList("")).toEqual([]);
+  });
+});
