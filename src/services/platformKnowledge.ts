@@ -546,7 +546,7 @@ function getAnalysisAndExecutionWorkflowsMarkdown(): string {
     ``,
     `5. **A5: Visual Multi-Leg Strategy Builder & Expiration Payoff Analysis**`,
     `   - **Scope**: Interactive payoff diagrams, breakeven boundaries, max loss/gain, and net Greeks across 1-4 leg structures.`,
-    `   - **Components**: \`StrategyBuilderEngine\`, \`llmComparison.ts\`, \`llmIdeas.ts\`.`,
+    `   - **Components**: \`StrategyBuilderEngine\`, \`llmComparison.ts\` (llmIdeas.ts retired as a recommender by #29/#47; the pipeline + compare pattern is the only LLM strategy path).`,
     `   - **APIs Leveraged**: Live option chain feeds, Workers AI (\`Llama 3.3 70B\`).`,
     `   - **Endpoints**: \`POST /api/trading/options/compare\`, \`POST /api/trading/options/llm-ideas\`.`,
     ``,
