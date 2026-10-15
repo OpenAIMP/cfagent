@@ -644,6 +644,12 @@ export function StrategyDiscoveryPanel({
     handleSelectSymbol(symbolInput);
   };
 
+  // Issue #65: data tab — "live" (production default; broker chains only) or
+  // "demo" (calibrated/generated chains; tab renders only when the server
+  // reports the dev/demo gate enabled).
+  const [dataTab, setDataTab] = useState<"live" | "demo">("live");
+  const [discoveryError, setDiscoveryError] = useState<string>("");
+
   // Discovered strategy candidates fetched exclusively from server pipeline (pure display layer)
   const [discoveredStrategies, setDiscoveredStrategies] = useState<DiscoveredStrategy[]>([]);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
@@ -660,10 +666,12 @@ export function StrategyDiscoveryPanel({
       minRewardRisk: minRewardRiskRatio ?? 0,
       expiration: selectedExpiration,
       bias: optimizationBias,
+      dataMode: dataTab === "demo" ? "calibrated-demo" : "live",
     })
       .then((res) => {
         if (!cancelled) {
           setDiscoveredStrategies(res.strategies);
+          setDiscoveryError(res.snapshotError ?? "");
           setIsDiscovering(false);
         }
       })
@@ -677,7 +685,7 @@ export function StrategyDiscoveryPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig]);
+  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig, dataTab]);
 
   // When discovering strategies, synchronize selectedStrategy and builderLegs with the top match
   useEffect(() => {
@@ -1383,11 +1391,21 @@ export function StrategyDiscoveryPanel({
           </button>
           <button
             type="button"
-            className={`strat-view-tab-btn ${activeView === "discovery" ? "active" : ""}`}
-            onClick={() => setActiveView("discovery")}
+            className={`strat-view-tab-btn ${activeView === "discovery" && dataTab === "live" ? "active" : ""}`}
+            onClick={() => { setDataTab("live"); setActiveView("discovery"); }}
           >
             🔍 Discovery Scanner
           </button>
+          {serverCatalog?.demoCalibratedChainsEnabled && (
+            <button
+              type="button"
+              className={`strat-view-tab-btn ${dataTab === "demo" ? "active" : ""}`}
+              onClick={() => { setDataTab("demo"); setActiveView("discovery"); }}
+              title="Development/demo mode: strategies built on calibrated (generated) chains, not live market data"
+            >
+              🧪 Demo — Calibrated Chains
+            </button>
+          )}
         </div>
 
         <div className="strat-top-controls-group">
@@ -1444,6 +1462,16 @@ export function StrategyDiscoveryPanel({
           ==================================================================== */}
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
+          {dataTab === "demo" && (
+            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "rgba(240,180,41,0.13)", border: "1px solid rgba(240,180,41,0.45)", color: "#f5cf6b", fontSize: "0.85rem", fontWeight: 600 }}>
+              ⚠ DEMO DATA — the strategies below are built on calibrated (generated) option chains for development/demo. This is not live market data.
+            </div>
+          )}
+          {discoveryError && (
+            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "rgba(240,82,82,0.12)", border: "1px solid rgba(240,82,82,0.4)", color: "#ff9c9c", fontSize: "0.85rem" }}>
+              {discoveryError}
+            </div>
+          )}
           <div className="strat-discovery-header">
             {/* Top Row: Symbol Input & Quote Price Badge (Left) + Sentiment Segmented Pill Bar (Right) */}
             <div className="strat-discovery-top-bar">
