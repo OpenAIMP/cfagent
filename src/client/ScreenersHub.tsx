@@ -357,15 +357,15 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                         {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE STATIC SNAPSHOT" : "🌐 LIVE REST API FEED (api.nasdaq.com)"}
                       </span>
                     </div>
-                    <div style={{ color: "#94a3b8", fontSize: "0.76rem" }}>
-                      Scanned at: <strong style={{ color: "#f8fafc" }}>{scannedAt || "Just now"}</strong> • Scope: <strong style={{ color: "#38bdf8" }}>{exchange} Listings</strong>
+                    <div style={{ color: "var(--color-text-muted)", fontSize: "0.76rem" }}>
+                      Scanned at: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt || "Just now"}</strong> • Scope: <strong style={{ color: "var(--color-accent)" }}>{exchange} Listings</strong>
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(2, 6, 23, 0.5)", borderRadius: "6px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
                     <div>
-                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
-                      <span style={{ color: "#f8fafc", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
+                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
                         {String(rows[0]?.source || "").includes("Yahoo")
                           ? "query1.finance.yahoo.com/v8/finance/chart"
                           : String(rows[0]?.source || "").includes("Curated")
@@ -374,8 +374,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                       </span>
                     </div>
                     <div>
-                      <span style={{ color: "#94a3b8", display: "block", fontSize: "0.72rem" }}>EXCHANGE UNIVERSE LOADED</span>
-                      <span style={{ color: "#f8fafc", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>EXCHANGE UNIVERSE LOADED</span>
+                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
                         {discovery?.sourceCounts ? (
                           `Nasdaq: ${discovery.sourceCounts.nasdaq?.toLocaleString() || 0} • NYSE: ${discovery.sourceCounts.nyse?.toLocaleString() || 0} • AMEX: ${discovery.sourceCounts.amex?.toLocaleString() || 0}`
                         ) : (

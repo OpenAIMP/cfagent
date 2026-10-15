@@ -441,7 +441,7 @@ export function OptionsFlowsHub({
               type="button"
               onClick={() => fetchLiveFlows(filterConfig)}
               disabled={isRefreshing}
-              style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#94a3b8", background: "rgba(30, 41, 59, 0.8)", border: "1px solid #334155", borderRadius: "6px", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
+              style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
               title="Fetch fresh real-time options flow prints"
             >
               {isRefreshing ? "Refreshing..." : "↻ Refresh"}
@@ -511,7 +511,7 @@ export function OptionsFlowsHub({
           {subTab === "summary" && (
             !hasLoadedInitial && liveItems.length === 0 ? (
               <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Aggregating Real-Time Options Flow Leaderboard...
                 </div>
                 <div style={{ fontSize: "0.85rem" }}>
@@ -558,7 +558,7 @@ export function OptionsFlowsHub({
               )}
               {!hasLoadedInitial && liveItems.length === 0 ? (
               <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#94a3b8" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "#f8fafc", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Streaming Real-Time Institutional Options Flow...
                 </div>
                 <div style={{ fontSize: "0.85rem" }}>
@@ -852,7 +852,7 @@ export function OptionsFlowsHub({
             <p>
               Unlock real-time zero-latency institutional flow sweeps, blocks, dark pool prints, and congressional insider filings with instant push alerts.
             </p>
-            <ul style={{ color: "#cbd5e1", fontSize: "0.85rem", lineHeight: "1.6", margin: "0.5rem 0", paddingLeft: "1.25rem" }}>
+            <ul style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", lineHeight: "1.6", margin: "0.5rem 0", paddingLeft: "1.25rem" }}>
               <li><strong>Zero 15-Minute Delay:</strong> Live real-time streaming NBBO prints.</li>
               <li><strong>All 🔒 Locked Rows Unlocked:</strong> Access 100% of institutional unusual activity.</li>
               <li><strong>Unlimited Custom Filters:</strong> Save custom alerts for small-caps, tech sweeps &amp; YOLOs.</li>

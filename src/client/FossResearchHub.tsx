@@ -703,41 +703,41 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
             {/* Expandable Alpaca Snapshot Drawer right inside the Screener page */}
             {showAlpacaDrawerOnScreener && snapshot && (
-              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px dashed rgba(245, 158, 11, 0.5)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
+              <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
                 <h4 style={{ margin: "0 0 0.5rem", color: "#f59e0b", fontSize: "0.95rem" }}>
                   🦙 Alpaca Market Snapshot Live Inspection — {activeSymbol}
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
-                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
-                    <div style={{ color: "#94a3b8" }}>Latest Execution Trade</div>
-                    <div style={{ fontWeight: 700, color: "#f8fafc", fontSize: "1rem" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "var(--color-text-muted)" }}>Latest Execution Trade</div>
+                    <div style={{ fontWeight: 700, color: "var(--color-text-primary)", fontSize: "1rem" }}>
                       ${snapshot.latestTrade?.price || "N/A"}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
                       Size: {snapshot.latestTrade?.size || 0} • {snapshot.latestTrade?.timestamp || "live"}
                     </div>
                   </div>
-                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
-                    <div style={{ color: "#94a3b8" }}>Minute Bar Snapshot</div>
-                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "var(--color-text-muted)" }}>Minute Bar Snapshot</div>
+                    <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.minuteBar?.close || "N/A"}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
                       O: {snapshot.minuteBar?.open} H: {snapshot.minuteBar?.high} L: {snapshot.minuteBar?.low}
                     </div>
                   </div>
-                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
-                    <div style={{ color: "#94a3b8" }}>Daily Bar &amp; VWAP</div>
-                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "var(--color-text-muted)" }}>Daily Bar &amp; VWAP</div>
+                    <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       VWAP: ${snapshot.dailyBar?.vwap ? Number(snapshot.dailyBar.vwap).toFixed(2) : "N/A"}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
                       Volume: {snapshot.dailyBar?.volume?.toLocaleString() || 0}
                     </div>
                   </div>
-                  <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "0.6rem", borderRadius: "6px" }}>
-                    <div style={{ color: "#94a3b8" }}>Prev Daily Bar</div>
-                    <div style={{ fontWeight: 700, color: "#f8fafc" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                    <div style={{ color: "var(--color-text-muted)" }}>Prev Daily Bar</div>
+                    <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.prevDailyBar?.close || "N/A"}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
@@ -1583,7 +1583,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
           )}
 
-          <div className="section-intro-card" style={{ marginTop: "1.5rem", background: "rgba(15, 23, 42, 0.65)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "12px", padding: "1.25rem" }}>
+          <div className="section-intro-card" style={{ marginTop: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "12px", padding: "1.25rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "1.25rem" }}>🛡️</span>
@@ -1615,7 +1615,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", maxHeight: "320px", overflowY: "auto" }}>
                 {alpacaTraces.map((tr, idx) => (
-                  <div key={tr.id || idx} style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(148, 163, 184, 0.15)", borderRadius: "8px", padding: "0.75rem", fontSize: "0.85rem" }}>
+                  <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "0.75rem", fontSize: "0.85rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "4px" }}>
                       <span style={{ fontWeight: 700, color: "#38bdf8", background: "rgba(56, 189, 248, 0.1)", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem" }}>
                         {tr.type}
@@ -1624,7 +1624,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
                       </span>
                     </div>
-                    <div style={{ color: "#cbd5e1", fontSize: "0.8rem", wordBreak: "break-all", background: "rgba(0,0,0,0.25)", padding: "6px", borderRadius: "4px" }}>
+                    <div style={{ color: "var(--color-text-secondary)", fontSize: "0.8rem", wordBreak: "break-all", background: "var(--color-surface)", padding: "6px", borderRadius: "4px" }}>
                       {typeof tr.payload === "string" ? tr.payload : JSON.stringify(tr.payload)}
                     </div>
                   </div>
@@ -1635,7 +1635,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {/* Antigravity MCP Integration Guide */}
             <div style={{ marginTop: "1.25rem", borderTop: "1px solid rgba(148, 163, 184, 0.15)", paddingTop: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f8fafc" }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
                 </span>
                 <button
@@ -1662,7 +1662,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
                 </button>
               </div>
-              <pre style={{ margin: 0, background: "#0b1329", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "#e2e8f0", overflowX: "auto" }}>
+              <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
 {`{
   "mcpServers": {
     "alpaca": {

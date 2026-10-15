@@ -296,6 +296,36 @@ export function EtapiConfigModal({
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "0.5rem",
+    background: "var(--color-input)",
+    border: "1px solid var(--color-input-border)",
+    color: "var(--color-input-foreground)",
+    borderRadius: "var(--radius-sm)",
+    fontVariantNumeric: "tabular-nums",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "0.45rem",
+    background: "var(--color-input)",
+    border: "1px solid var(--color-input-border)",
+    color: "var(--color-input-foreground)",
+    borderRadius: "var(--radius-sm)",
+    fontSize: "0.8rem",
+  };
+
+  const smallInputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "0.45rem",
+    background: "var(--color-input)",
+    border: "1px solid var(--color-input-border)",
+    color: "var(--color-input-foreground)",
+    borderRadius: "var(--radius-sm)",
+    fontVariantNumeric: "tabular-nums",
+  };
+
   const modalContent = (
     <div
       style={{
@@ -317,11 +347,11 @@ export function EtapiConfigModal({
         style={{
           width: "100%",
           maxWidth: "680px",
-          backgroundColor: "#060b18",
-          border: "1px solid rgba(56, 189, 248, 0.25)",
+          backgroundColor: "var(--color-card)",
+          border: "1px solid var(--color-border-subtle)",
           borderRadius: "12px",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.75)",
-          color: "#f8fafc",
+          boxShadow: "var(--shadow-xl)",
+          color: "var(--color-text-primary)",
           display: "flex",
           flexDirection: "column",
           maxHeight: "90vh",
@@ -332,20 +362,20 @@ export function EtapiConfigModal({
         <div
           style={{
             padding: "1.25rem 1.5rem",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+            borderBottom: "1px solid var(--color-border-subtle)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            background: "rgba(15, 23, 42, 0.6)",
+            background: "var(--color-surface-sunken)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <span style={{ fontSize: "1.35rem" }}>⚙️</span>
             <div>
-              <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>
+              <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                 ETAPI Engine Configuration &amp; Tuning
               </h3>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: "#94a3b8" }}>
+              <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                 Externalized defaults • Zero hardcoding • Cascading overrides for active env [{activeEnv}]
               </p>
             </div>
@@ -356,7 +386,7 @@ export function EtapiConfigModal({
             style={{
               background: "transparent",
               border: "none",
-              color: "#94a3b8",
+              color: "var(--color-text-muted)",
               fontSize: "1.4rem",
               cursor: "pointer",
               padding: "0.25rem 0.5rem",
@@ -464,7 +494,7 @@ export function EtapiConfigModal({
           {activeTab === "strategy" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Risk-Free Rate (%):
                 </label>
                 <input
@@ -474,12 +504,12 @@ export function EtapiConfigModal({
                   max="20"
                   value={riskFreeRatePct}
                   onChange={(e) => setRiskFreeRatePct(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Applied to Black-Scholes pricing &amp; carry cost.</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Applied to Black-Scholes pricing &amp; carry cost.</span>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Fee per Contract ($):
                 </label>
                 <input
@@ -488,12 +518,12 @@ export function EtapiConfigModal({
                   min="0"
                   value={feePerContract}
                   onChange={(e) => setFeePerContract(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Standard brokerage fee (default $0.65).</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Standard brokerage fee (default $0.65).</span>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Max Combinations per Run:
                 </label>
                 <input
@@ -503,12 +533,12 @@ export function EtapiConfigModal({
                   max="50000"
                   value={maxCombinations}
                   onChange={(e) => setMaxCombinations(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Limits multi-leg combinatorial explosion.</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Limits multi-leg combinatorial explosion.</span>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Detail Limit:
                 </label>
                 <input
@@ -518,9 +548,9 @@ export function EtapiConfigModal({
                   max="50000"
                   value={detailLimit}
                   onChange={(e) => setDetailLimit(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Number of top strategies enriched with full Greeks.</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Number of top strategies enriched with full Greeks.</span>
               </div>
             </div>
           )}
@@ -528,29 +558,29 @@ export function EtapiConfigModal({
           {activeTab === "screener" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Default Max DTE (Days):
                 </label>
                 <input
                   type="number"
                   value={defaultMaxDte}
                   onChange={(e) => setDefaultMaxDte(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Default Min DTE (Days):
                 </label>
                 <input
                   type="number"
                   value={defaultMinDte}
                   onChange={(e) => setDefaultMinDte(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Unusual Volume / OI Ratio:
                 </label>
                 <input
@@ -558,11 +588,11 @@ export function EtapiConfigModal({
                   step="0.1"
                   value={unusualVolOiRatio}
                   onChange={(e) => setUnusualVolOiRatio(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   ATM Band (% of spot):
                 </label>
                 <input
@@ -570,29 +600,29 @@ export function EtapiConfigModal({
                   step="0.5"
                   value={atmBandPct}
                   onChange={(e) => setAtmBandPct(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Max Scan Symbols:
                 </label>
                 <input
                   type="number"
                   value={maxScanSymbols}
                   onChange={(e) => setMaxScanSymbols(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Max Returned Contracts:
                 </label>
                 <input
                   type="number"
                   value={maxReturnedContracts}
                   onChange={(e) => setMaxReturnedContracts(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
             </div>
@@ -601,69 +631,69 @@ export function EtapiConfigModal({
           {activeTab === "weights" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Thesis Alignment Weight (%):
                 </label>
                 <input
                   type="number"
                   value={thesisWeight}
                   onChange={(e) => setThesisWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Target Reward / Risk Weight (%):
                 </label>
                 <input
                   type="number"
                   value={rewardRiskWeight}
                   onChange={(e) => setRewardRiskWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Liquidity &amp; Spread Weight (%):
                 </label>
                 <input
                   type="number"
                   value={liquidityWeight}
                   onChange={(e) => setLiquidityWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Freshness Weight (%):
                 </label>
                 <input
                   type="number"
                   value={freshnessWeight}
                   onChange={(e) => setFreshnessWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Volatility Alignment Weight (%):
                 </label>
                 <input
                   type="number"
                   value={volatilityWeight}
                   onChange={(e) => setVolatilityWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Theta Burden Weight (%):
                 </label>
                 <input
                   type="number"
                   value={thetaWeight}
                   onChange={(e) => setThetaWeight(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
               </div>
             </div>
@@ -672,7 +702,7 @@ export function EtapiConfigModal({
           {activeTab === "scanner" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Bullish Target Multiplier:
                 </label>
                 <input
@@ -680,12 +710,12 @@ export function EtapiConfigModal({
                   step="0.01"
                   value={bullishFactor}
                   onChange={(e) => setBullishFactor(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>1.05 = +5% upside target assumption</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>1.05 = +5% upside target assumption</span>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Bearish Target Multiplier:
                 </label>
                 <input
@@ -693,12 +723,12 @@ export function EtapiConfigModal({
                   step="0.01"
                   value={bearishFactor}
                   onChange={(e) => setBearishFactor(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>0.95 = -5% downside target assumption</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>0.95 = -5% downside target assumption</span>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Large Move Target Multiplier:
                 </label>
                 <input
@@ -706,9 +736,9 @@ export function EtapiConfigModal({
                   step="0.01"
                   value={largeMoveFactor}
                   onChange={(e) => setLargeMoveFactor(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                  style={inputStyle}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>1.10 = +10% volatility straddle assumption</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>1.10 = +10% volatility straddle assumption</span>
               </div>
             </div>
           )}
@@ -719,19 +749,19 @@ export function EtapiConfigModal({
                 <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span>🧠</span> Workflow Model Selection
                 </h4>
-                <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "#94a3b8" }}>
+                <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
                   Configure which Cloudflare Workers AI model is assigned to each specific trading and intelligence workflow.
                 </p>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       Default Flagship Model:
                     </label>
                     <select
                       value={selectedDefaultModel}
                       onChange={(e) => setSelectedDefaultModel(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                      style={selectStyle}
                     >
                       {availableModels.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -742,13 +772,13 @@ export function EtapiConfigModal({
                   </div>
 
                   <div>
-                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       Fallback Resilience Model:
                     </label>
                     <select
                       value={selectedFallbackModel}
                       onChange={(e) => setSelectedFallbackModel(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                      style={selectStyle}
                     >
                       {availableModels.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -759,13 +789,13 @@ export function EtapiConfigModal({
                   </div>
 
                   <div>
-                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       Options Ideas Evaluator:
                     </label>
                     <select
                       value={selectedIdeasModel}
                       onChange={(e) => setSelectedIdeasModel(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                      style={selectStyle}
                     >
                       {availableModels.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -776,13 +806,13 @@ export function EtapiConfigModal({
                   </div>
 
                   <div>
-                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       Multi-Leg Options Comparator:
                     </label>
                     <select
                       value={selectedComparisonModel}
                       onChange={(e) => setSelectedComparisonModel(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                      style={selectStyle}
                     >
                       {availableModels.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -793,13 +823,13 @@ export function EtapiConfigModal({
                   </div>
 
                   <div style={{ gridColumn: "span 2" }}>
-                    <label style={{ display: "block", fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.25rem" }}>
+                    <label style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       NLQ Natural Language Query Validator:
                     </label>
                     <select
                       value={selectedNlqModel}
                       onChange={(e) => setSelectedNlqModel(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px", fontSize: "0.8rem" }}
+                      style={selectStyle}
                     >
                       {availableModels.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -811,13 +841,13 @@ export function EtapiConfigModal({
                 </div>
               </div>
 
-              <div style={{ padding: "0.85rem", background: "rgba(148, 163, 184, 0.05)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "#e2e8f0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ padding: "0.85rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-text-primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <span>🌡️</span> Sampling Temperatures
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Deterministic (Orders):
                     </label>
                     <input
@@ -827,11 +857,11 @@ export function EtapiConfigModal({
                       max="1"
                       value={temperatureDeterministic}
                       onChange={(e) => setTemperatureDeterministic(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Analytical (Screener):
                     </label>
                     <input
@@ -841,11 +871,11 @@ export function EtapiConfigModal({
                       max="1"
                       value={temperatureAnalytical}
                       onChange={(e) => setTemperatureAnalytical(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Creative (Ideas):
                     </label>
                     <input
@@ -855,7 +885,7 @@ export function EtapiConfigModal({
                       max="1"
                       value={temperatureCreative}
                       onChange={(e) => setTemperatureCreative(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                 </div>
@@ -867,36 +897,36 @@ export function EtapiConfigModal({
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Max Order Shares:
                     </label>
                     <input
                       type="number"
                       value={maxOrderQuantity}
                       onChange={(e) => setMaxOrderQuantity(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Max Total Value ($):
                     </label>
                     <input
                       type="number"
                       value={maxOrderTotalUsd}
                       onChange={(e) => setMaxOrderTotalUsd(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "0.2rem" }}>
+                    <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Max Discount Limit (%):
                     </label>
                     <input
                       type="number"
                       value={maxDiscountPercent}
                       onChange={(e) => setMaxDiscountPercent(e.target.value)}
-                      style={{ width: "100%", padding: "0.45rem", background: "#0f172a", border: "1px solid #1e293b", color: "#f8fafc", borderRadius: "6px" }}
+                      style={smallInputStyle}
                     />
                   </div>
                 </div>
@@ -923,7 +953,7 @@ export function EtapiConfigModal({
             style={{
               background: "transparent",
               border: "1px solid rgba(255, 255, 255, 0.2)",
-              color: "#94a3b8",
+              color: "var(--color-text-muted)",
               padding: "0.5rem 1rem",
               borderRadius: "6px",
               cursor: "pointer",

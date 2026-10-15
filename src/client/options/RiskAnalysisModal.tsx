@@ -142,7 +142,7 @@ export function RiskAnalysisModal({
           <div className="risk-stat-cards-grid">
             <div className={`risk-stat-card ${anatomy.riskProfileType === "UNDEFINED_RISK" ? "danger" : ""}`}>
               <span className="risk-stat-label">Capital at Risk / Max Loss</span>
-              <span className="risk-stat-value" style={{ color: anatomy.riskProfileType === "UNDEFINED_RISK" ? "#f87171" : "#f1f5f9" }}>
+              <span className="risk-stat-value" style={{ color: anatomy.riskProfileType === "UNDEFINED_RISK" ? "var(--color-danger)" : "var(--color-text-primary)" }}>
                 {anatomy.capitalAtRiskFormatted}
               </span>
               <span className="risk-stat-sub">{anatomy.riskProfileType.replace("_", " ")}</span>
@@ -150,7 +150,7 @@ export function RiskAnalysisModal({
 
             <div className="risk-stat-card highlight">
               <span className="risk-stat-label">Max Potential Profit</span>
-              <span className="risk-stat-value" style={{ color: "#34d399" }}>
+              <span className="risk-stat-value" style={{ color: "var(--color-success)" }}>
                 {anatomy.maxProfitFormatted}
               </span>
               <span className="risk-stat-sub">R:R Ratio {anatomy.riskRewardRatio}</span>
@@ -295,10 +295,10 @@ export function RiskAnalysisModal({
               <div className="risk-sizing-calculator">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc" }}>
+                    <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                       📐 Risk-Budgeted Position Sizing Calculator
                     </h4>
-                    <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                       {playbook.sizingRationale}
                     </span>
                   </div>
@@ -306,7 +306,7 @@ export function RiskAnalysisModal({
 
                 <div className="risk-sizing-input-row">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Account Portfolio NAV:</span>
+                    <span style={{ fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>Account Portfolio NAV:</span>
                     <div className="risk-sizing-input-wrap">
                       <span>$</span>
                       <input
@@ -320,11 +320,11 @@ export function RiskAnalysisModal({
                   </div>
 
                   <div className="risk-sizing-result">
-                    <span style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Max Recommended Size:</span>
+                    <span style={{ fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>Max Recommended Size:</span>
                     <span className="risk-sizing-contracts-val">
                       {recommendedContracts} contract{recommendedContracts > 1 ? "s" : ""}
                     </span>
-                    <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                       (≤{playbook.recommendedMaxAllocationPct}% risk budget = ${(accountNav * (playbook.recommendedMaxAllocationPct / 100)).toFixed(0)})
                     </span>
                   </div>
@@ -443,7 +443,7 @@ export function RiskAnalysisModal({
                             fontWeight: 700,
                             fontVariantNumeric: "tabular-nums",
                             fontSize: "0.95rem",
-                            color: isPositive ? "#4ade80" : point.estimatedPnL < 0 ? "#f87171" : "#cbd5e1",
+                            color: isPositive ? "var(--color-success)" : point.estimatedPnL < 0 ? "var(--color-danger)" : "var(--color-text-muted)",
                           }}
                         >
                           {point.estimatedPnL > 0 ? "+" : ""}${point.estimatedPnL.toFixed(2)}
@@ -456,20 +456,20 @@ export function RiskAnalysisModal({
               </table>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
-                <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "0.9rem", borderRadius: "8px" }}>
-                  <span style={{ fontSize: "0.75rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: 700 }}>
+                <div className="risk-tail-box">
+                  <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
                     Tail Shock: -20% Flash Crash
                   </span>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: anatomy.tailShockDown20Pct >= 0 ? "#4ade80" : "#f87171", marginTop: "0.2rem" }}>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: anatomy.tailShockDown20Pct >= 0 ? "var(--color-success)" : "var(--color-danger)", marginTop: "0.2rem" }}>
                     {anatomy.tailShockDown20Pct >= 0 ? "+" : ""}${anatomy.tailShockDown20Pct.toLocaleString()}
                   </div>
                 </div>
 
-                <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "0.9rem", borderRadius: "8px" }}>
-                  <span style={{ fontSize: "0.75rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: 700 }}>
+                <div className="risk-tail-box">
+                  <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
                     Tail Shock: +20% Squeeze
                   </span>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: anatomy.tailShockUp20Pct >= 0 ? "#4ade80" : "#f87171", marginTop: "0.2rem" }}>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: anatomy.tailShockUp20Pct >= 0 ? "var(--color-success)" : "var(--color-danger)", marginTop: "0.2rem" }}>
                     {anatomy.tailShockUp20Pct >= 0 ? "+" : ""}${anatomy.tailShockUp20Pct.toLocaleString()}
                   </div>
                 </div>
@@ -484,12 +484,12 @@ export function RiskAnalysisModal({
                 <h3 className="risk-ai-title">
                   <span>🤖 Ask AI Assistant to Manage This Trade</span>
                 </h3>
-                <span style={{ fontSize: "0.8rem", color: "#cbd5e1" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                   Autonomous Agent Risk Orchestration
                 </span>
               </div>
 
-              <p style={{ margin: 0, fontSize: "0.86rem", color: "#cbd5e1", lineHeight: 1.5 }}>
+              <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
                 Dispatch this tailored trade risk dossier directly to the multi-agent chat. The AI will evaluate market regime, Greeks drift, and formulate specific real-time defense actions:
               </p>
 

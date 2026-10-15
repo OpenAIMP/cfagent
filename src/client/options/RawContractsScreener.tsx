@@ -381,8 +381,8 @@ export function RawContractsScreener({
       {(contracts.length > 0 || summary) && (
         <div
           style={{
-            background: "#09101f",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
+            background: "var(--color-surface-sunken)",
+            border: "1px solid var(--color-border-subtle)",
             borderRadius: "8px",
             padding: "0.75rem 1rem",
             display: "flex",
@@ -393,11 +393,11 @@ export function RawContractsScreener({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc" }}>
+            <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)" }}>
               {summary || `${contracts.length} contracts retrieved`}
             </span>
             {scannedAt && (
-              <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
                 · Updated: {scannedAt}
               </span>
             )}
@@ -405,7 +405,7 @@ export function RawContractsScreener({
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
             {/* Type selector */}
-            <div style={{ display: "flex", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "6px", overflow: "hidden" }}>
+            <div style={{ display: "flex", border: "1px solid var(--color-border-medium)", borderRadius: "6px", overflow: "hidden" }}>
               {(["ALL", "CALL", "PUT"] as const).map((t) => (
                 <button
                   key={t}
@@ -415,7 +415,7 @@ export function RawContractsScreener({
                     fontSize: "0.75rem",
                     border: "none",
                     background: typeFilter === t ? "rgba(56, 189, 248, 0.25)" : "transparent",
-                    color: typeFilter === t ? "#38bdf8" : "#94a3b8",
+                    color: typeFilter === t ? "var(--color-accent)" : "var(--color-text-muted)",
                     cursor: "pointer",
                   }}
                   onClick={() => setTypeFilter(t)}
@@ -434,10 +434,10 @@ export function RawContractsScreener({
               style={{
                 padding: "0.3rem 0.6rem",
                 fontSize: "0.78rem",
-                background: "#0f172a",
-                border: "1px solid rgba(255, 255, 255, 0.15)",
-                borderRadius: "6px",
-                color: "#f8fafc",
+                background: "var(--color-input)",
+                border: "1px solid var(--color-input-border)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--color-input-foreground)",
                 width: "180px",
               }}
             />
@@ -459,7 +459,7 @@ export function RawContractsScreener({
         <div className="options-table-scroll" style={{ maxHeight: "650px", overflowY: "auto" }}>
           <table className="options-comparison-table" style={{ fontSize: "0.82rem" }}>
             <thead>
-              <tr style={{ position: "sticky", top: 0, background: "#09101f", zIndex: 10 }}>
+              <tr style={{ position: "sticky", top: 0, background: "var(--color-surface-sunken)", zIndex: 10 }}>
                 <th>Contract</th>
                 <th>Type</th>
                 <th>Strike</th>
@@ -506,7 +506,7 @@ export function RawContractsScreener({
                         {c.optionType}
                       </span>
                     </td>
-                    <td style={{ fontWeight: 700, color: "#f8fafc" }}>
+                    <td style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       ${Number(c.strikePrice).toFixed(2)}
                     </td>
                     <td>

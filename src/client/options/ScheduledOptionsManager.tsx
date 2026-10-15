@@ -403,14 +403,14 @@ export function ScheduledOptionsManager({
               {liveResult.opportunities.map((opp: any) => {
                 const cand = opp.pick?.best?.candidate;
                 return (
-                  <div key={opp.symbol} style={{ background: "rgba(18, 26, 47, 0.8)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "8px", padding: "0.85rem" }}>
+                  <div key={opp.symbol} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "0.85rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                      <strong style={{ color: "#38bdf8", fontSize: "0.95rem" }}>{opp.symbol}</strong>
-                      <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", fontSize: "0.74rem", padding: "0.15rem 0.45rem", borderRadius: "4px", fontWeight: "bold" }}>
+                      <strong style={{ color: "var(--color-accent)", fontSize: "0.95rem" }}>{opp.symbol}</strong>
+                      <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "0.15rem 0.45rem", borderRadius: "4px", fontWeight: "bold" }}>
                         Score: {opp.score}/100
                       </span>
                     </div>
-                    <p style={{ color: "#f8fafc", margin: "0 0 0.5rem", fontSize: "0.84rem", fontWeight: 600 }}>
+                    <p style={{ color: "var(--color-text-primary)", margin: "0 0 0.5rem", fontSize: "0.84rem", fontWeight: 600 }}>
                       {cand?.label || "Options Setup"}
                     </p>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.76rem", color: "#94a3b8" }}>

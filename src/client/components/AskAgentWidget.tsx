@@ -310,7 +310,7 @@ export function AskAgentWidget({
                   <span className="agent-ai-badge">AI 2.0</span>
                 </div>
                 <div className="agent-sub-title">
-                  Context: <strong style={{ color: "var(--accent-cyan, #38bdf8)", textTransform: "capitalize" }}>{activeTab ? activeTab.replace("-", " ") : "Platform"}</strong>
+                  Context: <strong style={{ color: "var(--color-accent, #38bdf8)", textTransform: "capitalize" }}>{activeTab ? activeTab.replace("-", " ") : "Platform"}</strong>
                 </div>
               </div>
             </div>
@@ -363,7 +363,7 @@ export function AskAgentWidget({
 
           {/* Quick Prompt Chips */}
           <div className="ask-agent-quick-prompts-wrap" style={{ padding: "0.4rem 0.85rem 0.2rem" }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--color-text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
               Suggested for {activeTab ? activeTab.replace("-", " ") : "Current Workspace"}:
             </div>
             <div className="ask-agent-quick-prompts">

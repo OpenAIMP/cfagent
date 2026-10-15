@@ -1251,7 +1251,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                                   <button
                                     type="button"
                                     className="workflow-cta-btn"
-                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem", background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                                     onClick={() => onSendPrompt(method.samplePayloadOrCommand || faq.samplePrompt, faq.question)}
                                   >
                                     Ask Agent 💬
@@ -1264,12 +1264,12 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                       </div>
 
                       {/* Optimal Output Structure Callout */}
-                      <div style={{ background: "rgba(15, 23, 42, 0.7)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px", padding: "0.85rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+                      <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "0.85rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
                         <div>
                           <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
                             🎯 Expected Visual Output Structure
                           </div>
-                          <div style={{ fontSize: "0.85rem", color: "#f8fafc", marginTop: "0.2rem" }}>
+                          <div style={{ fontSize: "0.85rem", color: "var(--color-text-primary)", marginTop: "0.2rem" }}>
                             {faq.optimalOutputStructure}
                           </div>
                         </div>
@@ -1328,7 +1328,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             <button
                               type="button"
                               className="workflow-cta-btn"
-                              style={{ background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(faq.samplePrompt, faq.question);
                               }}
@@ -1444,9 +1444,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Key Parameters Banner */}
                       {wf.keyParameters && (
-                        <div style={{ background: "rgba(15, 23, 42, 0.75)", border: "1px solid rgba(56, 189, 248, 0.2)", borderRadius: "6px", padding: "0.6rem 0.9rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.6rem 0.9rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                           <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>
-                            ⚙️ <strong style={{ color: "#38bdf8" }}>Primary Parameters:</strong> <code style={{ color: "#f8fafc" }}>{wf.keyParameters}</code>
+                            ⚙️ <strong style={{ color: "#38bdf8" }}>Primary Parameters:</strong> <code style={{ color: "var(--color-text-primary)" }}>{wf.keyParameters}</code>
                           </span>
                           {wf.governingDecisionRuleId && (
                             <button
@@ -1509,14 +1509,14 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Upstream APIs & Cloudflare Metrics Breakdown */}
                       {wf.apiMetrics && wf.apiMetrics.length > 0 && (
-                        <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "rgba(15, 23, 42, 0.75)", border: "1px solid rgba(56, 189, 248, 0.25)", borderRadius: "8px", padding: "1rem" }}>
+                        <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "1rem" }}>
                           <h5 style={{ margin: "0 0 0.75rem", color: "#38bdf8", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                             <span>📊</span> Upstream Subrequests &amp; Cloudflare Worker API Metrics
                           </h5>
                           <div style={{ overflowX: "auto" }}>
-                            <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse", color: "#e2e8f0" }}>
+                            <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse", color: "var(--color-text-secondary)" }}>
                               <thead>
-                                <tr style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.12)", textAlign: "left", color: "#94a3b8" }}>
+                                <tr style={{ borderBottom: "1px solid var(--color-border-subtle)", textAlign: "left", color: "var(--color-text-muted)" }}>
                                   <th style={{ padding: "0.4rem 0.6rem" }}>Host / Endpoint</th>
                                   <th style={{ padding: "0.4rem 0.6rem" }}>2xx</th>
                                   <th style={{ padding: "0.4rem 0.6rem" }}>4xx</th>
@@ -1526,13 +1526,13 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                               </thead>
                               <tbody>
                                 {wf.apiMetrics.map((metric, mIdx) => (
-                                  <tr key={mIdx} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.05)" }}>
+                                  <tr key={mIdx} style={{ borderBottom: "1px solid var(--color-border-subtle)" }}>
                                     <td style={{ padding: "0.5rem 0.6rem", color: "#38bdf8", fontWeight: 600 }}>{metric.host}</td>
                                     <td style={{ padding: "0.5rem 0.6rem", color: "#4ade80", fontWeight: 600 }}>{metric.status2xx}</td>
                                     <td style={{ padding: "0.5rem 0.6rem", color: metric.status4xx ? "#f87171" : "#94a3b8" }}>{metric.status4xx}</td>
-                                    <td style={{ padding: "0.5rem 0.6rem", color: "#cbd5e1" }}>{metric.avgDuration}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: "var(--color-text-secondary)" }}>{metric.avgDuration}</td>
                                     <td style={{ padding: "0.5rem 0.6rem" }}>
-                                      <div style={{ fontWeight: 600, color: "#f8fafc", marginBottom: "0.2rem" }}>{metric.role}</div>
+                                      <div style={{ fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.2rem" }}>{metric.role}</div>
                                       <div style={{ color: "#94a3b8", fontSize: "0.76rem", lineHeight: 1.4 }}>{metric.usageDetails}</div>
                                       <div style={{ color: "#fbbf24", fontSize: "0.73rem", marginTop: "0.25rem", fontStyle: "italic" }}>💡 {metric.nuanceExplanation}</div>
                                     </td>
@@ -1573,7 +1573,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             <button
                               type="button"
                               className="workflow-cta-btn"
-                              style={{ background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#38bdf8" }}
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(wf.sampleQueryOrAction, wf.title);
                               }}
@@ -1699,7 +1699,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Matrix / Weights Table (if present) */}
                       {sec.matrixOrWeights && sec.matrixOrWeights.length > 0 && (
-                        <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px", padding: "1rem" }}>
+                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "1rem" }}>
                           <h4 style={{ margin: "0 0 0.6rem", color: "#38bdf8", fontSize: "0.84rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                             📊 Dimension Weightings &amp; Profile Matrix
                           </h4>
@@ -1715,9 +1715,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                               <tbody>
                                 {sec.matrixOrWeights.map((row, mIdx) => (
                                   <tr key={mIdx}>
-                                    <td style={{ fontWeight: 600, color: "#ffffff" }}>{row.dimension}</td>
+                                    <td style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>{row.dimension}</td>
                                     <td style={{ color: "#38bdf8" }}>{row.weightOrValue}</td>
-                                    <td style={{ color: "#cbd5e1" }}>{row.details}</td>
+                                    <td style={{ color: "var(--color-text-secondary)" }}>{row.details}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -1758,7 +1758,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             <button
                               type="button"
                               className="workflow-cta-btn"
-                              style={{ background: "rgba(30, 41, 59, 0.8)", border: "1px solid rgba(6, 182, 212, 0.4)", color: "#22d3ee" }}
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(`Explain the decision logic and scoring for ${sec.title}`, sec.title);
                               }}
@@ -1821,11 +1821,11 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                 <tbody>
                   {filteredMatrix.map((row, rIdx) => (
                     <tr key={rIdx}>
-                      <td style={{ fontWeight: 600, color: "#ffffff" }}>&ldquo;{row.question}&rdquo;</td>
+                      <td style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>&ldquo;{row.question}&rdquo;</td>
                       <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
                       <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
                       <td style={{ color: "#38bdf8", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
-                      <td style={{ color: "#cbd5e1" }}>{row.optimalOutputStructure}</td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>{row.optimalOutputStructure}</td>
                       <td>
                         <button
                           type="button"
@@ -1863,24 +1863,24 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           </div>
 
           {/* Styled Architecture Flowchart Diagram */}
-          <div style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
               📐 System Optimization Flowchart
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", padding: "0.5rem 0" }}>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 1. Natural Language / Multi-Constraint Query
               </div>
               <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 2. Cross-Sectional Constraint Compiler
               </div>
               <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 3. High-Performance Pricing &amp; SVI Vol Engine
               </div>
               <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "rgba(30, 41, 59, 0.8)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid rgba(56, 189, 248, 0.3)", fontSize: "0.8rem", color: "#f8fafc" }}>
+              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 4. Multi-Objective Pareto Frontier Solver
               </div>
               <span style={{ color: "#38bdf8", fontSize: "1.2rem" }}>➔</span>

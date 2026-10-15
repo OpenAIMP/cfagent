@@ -2307,13 +2307,13 @@ export function ETradeTradingHub({
 
                 {/* Scan Audit Ledger Box */}
                 {(nlqResult.scanLedger || nlqResult.result?.scanLedger) && (
-                  <div className="scan-audit-ledger-box" style={{ background: "rgba(15, 23, 42, 0.7)", border: "1px solid #334155", borderRadius: "8px", padding: "1rem", margin: "1rem 0" }}>
+                  <div className="scan-audit-ledger-box" style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem", margin: "1rem 0" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
                       <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#93c5fd", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <span>🛡️</span> Market Universe Scan Audit Ledger
                       </h5>
                       <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
-                        Evaluated: <strong style={{ color: "#f8fafc" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).totalEvaluated}</strong> | 
+                        Evaluated: <strong style={{ color: "var(--color-text-primary)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).totalEvaluated}</strong> | 
                         Passed: <strong style={{ color: "#4ade80" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).passedCount}</strong> | 
                         Rejected: <strong style={{ color: "#f87171" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).rejectedCount}</strong>
                       </div>
@@ -3143,7 +3143,7 @@ export function ETradeTradingHub({
                           <button
                             type="button"
                             className="btn-env-toggle active-env"
-                            style={{ background: "#0ea5e9", color: "#fff", padding: "0.4rem 0.8rem", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: 700 }}
+                            style={{ background: "var(--color-accent)", color: "#fff", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer", fontWeight: 700 }}
                             onClick={async () => {
                               setShowDiagnosticsModal(false);
                               await handleSwitchEnvironment("TEST");
@@ -3158,27 +3158,27 @@ export function ETradeTradingHub({
                   )}
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
-                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
                       <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Key</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.credentials?.apiKeyMasked || (diagnostics.credentials?.apiKeyConfigured ? "✓ Configured" : "MISSING")}
                       </div>
                     </div>
-                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
                       <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Secret</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
                       </div>
                     </div>
-                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
                       <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Session Token in KV</div>
                       <div style={{ fontSize: "0.88rem", fontWeight: 600, color: diagnostics.oauthToken?.present ? "#34d399" : "#fbbf24", marginTop: "0.25rem" }}>
                         {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
                       </div>
                     </div>
-                    <div style={{ background: "rgba(0,0,0,0.3)", padding: "0.75rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
                       <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Upstream Accounts</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", marginTop: "0.25rem" }}>
+                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
                         {diagnostics.upstreamAccounts?.count ?? 0} account(s) detected
                       </div>
                     </div>
