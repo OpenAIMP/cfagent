@@ -1401,10 +1401,16 @@ export interface ThinkStepLog {
   threshold?: any;
 }
 
+/** Where a guardrail input actually came from (issue #37). */
+export type ThinkInputSource = "provided" | "live" | "unavailable";
+
 export interface ThinkTradeValidationResult {
   approved: boolean;
   overallConfidence: number;
-  recommendation: "PROCEED_TO_HITL" | "REVISE_PARAMETERS" | "REJECT_RISK_LIMIT";
+  recommendation: "PROCEED_TO_HITL" | "REVISE_PARAMETERS" | "REJECT_RISK_LIMIT" | "INPUTS_UNAVAILABLE";
+  /** Provenance of every input the decision rested on — a decision made
+   *  without live state must say so, and unavailable inputs fail closed. */
+  inputSources: { price: ThinkInputSource; accountBalance: ThinkInputSource; spread: ThinkInputSource };
   steps: ThinkStepLog[];
   proposedDraft?: any;
   reason: string;

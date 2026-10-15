@@ -8,17 +8,26 @@
  * - Rigorous institutional risk limits, liquidity checks, and margin validation
  * - Regulatory compliance (PDT rule, wash sale prevention, extended hours)
  * - W3C Agent DID cryptographic attestation for the final trading thesis
+ *
+ * Input discipline (issue #37, gap G4): every input a decision rests on —
+ * price, bid-ask spread, account balance — is either supplied by the caller
+ * or resolved from LIVE broker state. There are no hardcoded fallback
+ * prices, no assumed spreads, and no default account balance. When a
+ * required input cannot be resolved, the harness FAILS CLOSED with
+ * recommendation INPUTS_UNAVAILABLE instead of deciding on invented
+ * numbers, and every result carries the provenance of its inputs.
  */
 
 import type {
   Env,
-  ThinkValidationPhase,
+  ThinkInputSource,
   ThinkStepLog,
   ThinkTradeValidationResult,
   ETradeOrderDraft,
 } from "../types";
 import { AGENT_DIDS, createDidAttestation } from "../agents/did";
 import { DatabaseORM } from "../orm";
+import { ETradeService } from "./etrade";
 
 export interface TradeEvaluationInput {
   symbol: string;
@@ -30,8 +39,62 @@ export interface TradeEvaluationInput {
   userLogin?: string;
 }
 
-export class ETradeThinkHarness {
+export interface LiveQuoteSnapshot {
+  lastPrice: number;
+  bid: number;
+  ask: number;
+}
+
+/**
+ * Source of live market/account state for guardrail inputs. The default
+ * implementation talks to the real E*TRADE REST client; tests inject stubs.
+ * Both methods return null when the underlying state is unavailable —
+ * callers must treat null as "cannot decide", never as a default value.
+ */
+export interface ThinkStateProvider {
+  getLiveQuote(symbol: string, userLogin?: string): Promise<LiveQuoteSnapshot | null>;
+  getLiveAccountBalanceUSD(userLogin?: string): Promise<number | null>;
+}
+
+class ETradeThinkStateProvider implements ThinkStateProvider {
   constructor(private orm?: DatabaseORM, private env?: Env) {}
+
+  private service(userLogin?: string): ETradeService {
+    return new ETradeService(this.orm, this.env, userLogin || "default_trader");
+  }
+
+  async getLiveQuote(symbol: string, userLogin?: string): Promise<LiveQuoteSnapshot | null> {
+    try {
+      // The REST client's fetchQuote returns the real broker quote or null.
+      // (The service-level getQuoteAsync falls back to seeded platform data
+      // on failure, which a guardrail must never mistake for live state.)
+      const quote = await this.service(userLogin).client.fetchQuote(symbol);
+      if (!quote || !(quote.lastPrice > 0)) return null;
+      return { lastPrice: quote.lastPrice, bid: quote.bid ?? 0, ask: quote.ask ?? 0 };
+    } catch {
+      return null;
+    }
+  }
+
+  async getLiveAccountBalanceUSD(userLogin?: string): Promise<number | null> {
+    try {
+      // fetchAccountsRemote returns [] when no real account state exists;
+      // it never substitutes the local seeded account.
+      const accounts = await this.service(userLogin).fetchAccountsRemote();
+      const nav = accounts[0]?.netAccountValue;
+      return typeof nav === "number" && nav > 0 ? nav : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export class ETradeThinkHarness {
+  private readonly stateProvider: ThinkStateProvider;
+
+  constructor(private orm?: DatabaseORM, private env?: Env, stateProvider?: ThinkStateProvider) {
+    this.stateProvider = stateProvider ?? new ETradeThinkStateProvider(orm, env);
+  }
 
   /**
    * Run the Think reasoning harness on a proposed trade
@@ -40,28 +103,103 @@ export class ETradeThinkHarness {
     const steps: ThinkStepLog[] = [];
     const sym = input.symbol.toUpperCase();
     const qty = input.quantity;
-    const estPrice = input.price || (sym === "NVDA" ? 120 : sym === "AAPL" ? 225 : 100);
-    const totalCapital = qty * estPrice;
-    const balance = input.accountBalanceUSD ?? 50_000;
     const timestamp = new Date().toISOString();
 
     // -------------------------------------------------------------------------
-    // Phase 1: Market Condition & Liquidity Evaluation
+    // Input resolution: caller-provided values win; otherwise live broker
+    // state; otherwise UNAVAILABLE. No invented defaults anywhere below.
     // -------------------------------------------------------------------------
-    const spreadPct = 0.05; // 0.05% typical for liquid equities
+    // The spread always needs the live quote; the price may come from it too.
+    const quote = await this.stateProvider.getLiveQuote(sym, input.userLogin);
+
+    let estPrice: number | null = null;
+    let priceSource: ThinkInputSource = "unavailable";
+    if (input.price !== undefined && input.price > 0) {
+      estPrice = input.price;
+      priceSource = "provided";
+    } else if (quote && quote.lastPrice > 0) {
+      estPrice = quote.lastPrice;
+      priceSource = "live";
+    }
+
+    let spreadPct: number | null = null;
+    let spreadSource: ThinkInputSource = "unavailable";
+    if (quote && quote.bid > 0 && quote.ask > 0 && quote.ask >= quote.bid) {
+      const mid = (quote.bid + quote.ask) / 2;
+      if (mid > 0) {
+        spreadPct = ((quote.ask - quote.bid) / mid) * 100;
+        spreadSource = "live";
+      }
+    }
+
+    let balance: number | null = null;
+    let balanceSource: ThinkInputSource = "unavailable";
+    if (input.accountBalanceUSD !== undefined && input.accountBalanceUSD > 0) {
+      balance = input.accountBalanceUSD;
+      balanceSource = "provided";
+    } else {
+      const liveBalance = await this.stateProvider.getLiveAccountBalanceUSD(input.userLogin);
+      if (liveBalance !== null && liveBalance > 0) {
+        balance = liveBalance;
+        balanceSource = "live";
+      }
+    }
+
+    const inputSources = { price: priceSource, accountBalance: balanceSource, spread: spreadSource };
+
+    // -------------------------------------------------------------------------
+    // Fail closed: a guardrail that cannot see live state does not decide.
+    // -------------------------------------------------------------------------
+    const missing: Array<{ phase: ThinkStepLog["phase"]; label: string }> = [];
+    if (estPrice === null) missing.push({ phase: "market_condition", label: `price for ${sym}` });
+    if (spreadPct === null) missing.push({ phase: "market_condition", label: `live bid-ask spread for ${sym}` });
+    if (balance === null) missing.push({ phase: "risk_limits", label: "account balance" });
+
+    if (missing.length > 0) {
+      for (const m of missing) {
+        steps.push({
+          phase: m.phase,
+          status: "FAIL",
+          reasoning: `Input unavailable: ${m.label}. The guardrail fails closed rather than deciding on a substituted default value.`,
+          metricName: "InputAvailability",
+          metricValue: "unavailable",
+        });
+      }
+      return {
+        approved: false,
+        overallConfidence: 0,
+        recommendation: "INPUTS_UNAVAILABLE",
+        inputSources,
+        steps,
+        reason: `Guardrail inputs unavailable (${missing.map((m) => m.label).join(", ")}). No decision was produced; connect the account / provide the inputs and re-evaluate.`,
+        attestationDid: AGENT_DIDS.TRADING,
+        timestamp,
+      };
+    }
+
+    // Past the fail-closed gate, all three inputs are resolved numbers.
+    if (estPrice === null || spreadPct === null || balance === null) {
+      throw new Error("unreachable: inputs gated by the fail-closed check above");
+    }
+
+    const totalCapital = qty * estPrice;
+
+    // -------------------------------------------------------------------------
+    // Phase 1: Market Condition & Liquidity Evaluation (live NBBO spread)
+    // -------------------------------------------------------------------------
     const passesLiquidity = spreadPct <= 0.5;
 
     steps.push({
       phase: "market_condition",
       status: passesLiquidity ? "PASS" : "WARN",
-      reasoning: `Evaluated ${sym} NBBO liquidity. Estimated bid-ask spread is ${spreadPct}%, well within the 0.50% institutional threshold. Liquid options and common shares available.`,
+      reasoning: `Evaluated ${sym} NBBO liquidity from the live quote (bid $${quote!.bid.toFixed(2)} / ask $${quote!.ask.toFixed(2)}). Bid-ask spread is ${spreadPct.toFixed(3)}%, ${passesLiquidity ? "well within" : "above"} the 0.50% institutional threshold.`,
       metricName: "BidAskSpreadPct",
-      metricValue: spreadPct,
+      metricValue: parseFloat(spreadPct.toFixed(3)),
       threshold: 0.5,
     });
 
     // -------------------------------------------------------------------------
-    // Phase 2: Portfolio Risk & Position Sizing Limits
+    // Phase 2: Portfolio Risk & Position Sizing Limits (real balance)
     // -------------------------------------------------------------------------
     const positionPct = balance > 0 ? (totalCapital / balance) * 100 : 100;
     const maxAllowedConcentration = 15.0; // Max 15% in single equity
@@ -70,7 +208,7 @@ export class ETradeThinkHarness {
     steps.push({
       phase: "risk_limits",
       status: passesRisk ? "PASS" : "FAIL",
-      reasoning: `Trade requires $${totalCapital.toFixed(2)} (${positionPct.toFixed(1)}% of available $${balance.toFixed(2)} portfolio capital). Maximum single-asset concentration is ${maxAllowedConcentration}%.`,
+      reasoning: `Trade requires $${totalCapital.toFixed(2)} (${positionPct.toFixed(1)}% of the $${balance.toFixed(2)} account balance, source: ${balanceSource}). Maximum single-asset concentration is ${maxAllowedConcentration}%.`,
       metricName: "PortfolioConcentrationPct",
       metricValue: parseFloat(positionPct.toFixed(1)),
       threshold: maxAllowedConcentration,
@@ -84,7 +222,7 @@ export class ETradeThinkHarness {
     steps.push({
       phase: "regulatory_rules",
       status: pdtPassed ? "PASS" : "WARN",
-      reasoning: `PDT rule analysis: Account equity ($${balance.toFixed(2)}) ${balance >= 25_000 ? "satisfies FINRA 4210" : "below $25,000; day trading margin restricted"}. Wash sale detection verified.`,
+      reasoning: `PDT rule analysis: Account equity ($${balance.toFixed(2)}, source: ${balanceSource}) ${balance >= 25_000 ? "satisfies FINRA 4210" : "below $25,000; day trading margin restricted"}. Wash sale detection verified.`,
       metricName: "AccountEquityPDT",
       metricValue: balance,
       threshold: 25_000,
@@ -100,7 +238,7 @@ export class ETradeThinkHarness {
       phase: "execution_feasibility",
       status: executionStatus,
       reasoning: isMarketOrder && totalCapital > 10_000
-        ? `Order exceeds $10,000 with MARKET order type. Recommend converting to LIMIT at $${estPrice.toFixed(2)} to protect against slippage.`
+        ? `Order exceeds $10,000 with MARKET order type. Recommend converting to LIMIT at $${estPrice.toFixed(2)} (price source: ${priceSource}) to protect against slippage.`
         : `Order type ${input.orderType} verified for standard and extended hours routing.`,
       metricName: "OrderTypeSlippageRisk",
       metricValue: input.orderType,
@@ -112,7 +250,7 @@ export class ETradeThinkHarness {
     const allPassed = steps.every((s) => s.status !== "FAIL");
     const warnings = steps.filter((s) => s.status === "WARN");
 
-    let recommendation: "PROCEED_TO_HITL" | "REVISE_PARAMETERS" | "REJECT_RISK_LIMIT" = "PROCEED_TO_HITL";
+    let recommendation: ThinkTradeValidationResult["recommendation"] = "PROCEED_TO_HITL";
     let reason = "Trade thesis validated across liquidity, risk concentration, and regulatory compliance.";
 
     if (!allPassed) {
@@ -168,6 +306,7 @@ export class ETradeThinkHarness {
       approved: allPassed,
       overallConfidence,
       recommendation,
+      inputSources,
       steps,
       proposedDraft,
       reason,
