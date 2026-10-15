@@ -1529,7 +1529,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--color-text-muted);
   width: 28px;
-  height: 88px;
+  height: 80px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -1567,12 +1567,12 @@
   background: var(--color-surface-sunken);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
-  height: 88px;
+  height: 80px;
   display: flex;
   align-items: stretch;
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  padding: 2px 0 5px 0;
+  padding: 1px 0 4px 0;
   box-sizing: border-box;
   width: 100%;
   scroll-behavior: smooth;
@@ -1642,8 +1642,8 @@
   align-items: center;
   justify-content: flex-start;
   gap: 2px;
-  height: 32px;
-  min-height: 32px;
+  height: 27px;
+  min-height: 27px;
   width: 100%;
 }
 
@@ -1653,8 +1653,8 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  height: 18px;
-  min-height: 18px;
+  height: 16px;
+  min-height: 16px;
   width: 100%;
 }
 
@@ -1664,8 +1664,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  height: 32px;
-  min-height: 32px;
+  height: 27px;
+  min-height: 27px;
   width: 100%;
 }
 
@@ -1707,9 +1707,9 @@
   align-items: center;
   justify-content: center;
   white-space: nowrap;
-  padding: 0.12rem 0.38rem;
+  padding: 1px 0.3rem;
   border-radius: 4px;
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   font-weight: 800;
   line-height: 1.1;
   letter-spacing: -0.01em;
