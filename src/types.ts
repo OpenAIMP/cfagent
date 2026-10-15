@@ -624,6 +624,15 @@ export interface ETradePosition {
   symbol: string;
   description: string;
   quantity: number;
+  /** Broker product fields, when the source payload carries them (issue #34).
+   * securityType is the broker's code (e.g. "EQ", "OPTN"); option fields are
+   * populated only for option positions whose contract detail was reported. */
+  securityType?: string;
+  positionType?: "LONG" | "SHORT";
+  optionType?: "CALL" | "PUT";
+  strikePrice?: number;
+  /** ISO date (yyyy-mm-dd) of option expiry, when applicable. */
+  expirationDate?: string;
   pricePaid: number;
   costBasis: number;
   currentPrice: number;
