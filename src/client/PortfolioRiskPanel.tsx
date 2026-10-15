@@ -23,11 +23,14 @@ import {
   fmtSignedUsd,
   fmtUsd,
   hedgeProposalToTradeContext,
+  positionRowToEvalForm,
+  sizingToEvalForm,
   type ConcentrationReport,
   type EvaluateResult,
   type HedgeAnalysis,
   type ThinkTradeValidationResult,
   type PortfolioRiskReport,
+  type SizingCandidate,
   type SizingResult,
 } from "./portfolioRiskApi";
 import type { OptionsTradeContext } from "./options/OptionsResearchPanel";
@@ -39,6 +42,7 @@ interface PortfolioRiskPanelProps {
 }
 
 export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskPanelProps) {
+  const [panelOpen, setPanelOpen] = useState(true);
   const [report, setReport] = useState<PortfolioRiskReport | null>(null);
   const [hedge, setHedge] = useState<HedgeAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -105,11 +109,13 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
     }
   };
 
+  const [lastSizingCandidate, setLastSizingCandidate] = useState<SizingCandidate | null>(null);
+
   const runSizing = async () => {
     setSizeLoading(true);
     setSizeError("");
     try {
-      const result = await fetchSizing(activeEnv, {
+      const candidate: SizingCandidate = {
         symbol: sizeSymbol.trim().toUpperCase(),
         perContract: {
           deltaDollars: Number(sizeDelta) || 0,
@@ -119,7 +125,9 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
         riskScore: sizeRiskScore.trim() === "" ? undefined : Number(sizeRiskScore),
         requestedContracts: sizeRequested.trim() === "" ? undefined : Number(sizeRequested),
         maxMeasuredCorrelation: sizeCorr.trim() === "" ? null : Number(sizeCorr),
-      });
+      };
+      const result = await fetchSizing(activeEnv, candidate);
+      setLastSizingCandidate(candidate);
       setSizing(result);
     } catch (err: any) {
       setSizeError(err?.message || "Sizing failed");
@@ -168,14 +176,18 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
   const coverage = totals?.betaCoverage;
 
   return (
-    <section className="prp-panel">
+    <section className="prp-panel" id="section-portfolio-risk" style={{ scrollMarginTop: 80 }}>
       <div className="prp-header">
-        <h3>Portfolio Risk</h3>
+        <button type="button" className="prp-collapse" onClick={() => setPanelOpen((o) => !o)} aria-expanded={panelOpen}>
+          {panelOpen ? "▾" : "▸"} Portfolio Risk
+        </button>
         {report && <span className="prp-asof">as of {new Date(report.asOf).toLocaleString()}</span>}
         <button type="button" className="prp-refresh" onClick={() => void load()} disabled={loading}>
           {loading ? "Loading…" : "↻ Refresh"}
         </button>
       </div>
+      {panelOpen && (
+      <>
 
       {error && <div className="prp-error">{error}</div>}
       {!report && !error && <div className="prp-muted">Loading portfolio risk…</div>}
@@ -202,7 +214,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
 
           {report.rows.length > 0 && (
             <table className="prp-table">
-              <thead><tr><th>Symbol</th><th>Type</th><th>Δ $</th><th>β-weighted Δ $</th><th>Beta</th><th>Defined max loss</th></tr></thead>
+              <thead><tr><th>Symbol</th><th>Type</th><th>Δ $</th><th>β-weighted Δ $</th><th>Beta</th><th>Defined max loss</th><th></th></tr></thead>
               <tbody>
                 {report.rows.map((row, i) => (
                   <tr key={`${row.symbol}-${i}`}>
@@ -212,6 +224,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
                     <td>{fmtSignedUsd(row.betaWeightedDeltaDollars)}</td>
                     <td>{row.beta === null ? "—" : fmtNumber(row.beta)} <span className={`prp-badge prp-badge-${row.betaSource}`}>{row.betaSource}</span></td>
                     <td>{row.definedMaxLoss === null ? "undefined" : fmtUsd(row.definedMaxLoss)}</td>
+                    <td><button type="button" className="prp-mini-btn" title="Prefill the Post-Trade Evaluator with this position's Greek contribution" onClick={() => { setEvalForm(positionRowToEvalForm(row)); document.getElementById("section-portfolio-risk")?.scrollIntoView({ behavior: "smooth" }); }}>→ Evaluator</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -279,6 +292,9 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
               {concentration.candidateAssessment.flags.map((flag, i) => (
                 <div className="prp-flag" key={i}>⚠ {flag.message}</div>
               ))}
+              <button type="button" className="prp-size-btn" onClick={() => setSizeSymbol(concentration.candidateAssessment!.symbol)}>
+                Size this candidate ↓
+              </button>
             </div>
           )}
           {concentration.heldCorrelations.length > 0 && (
@@ -324,6 +340,11 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             </tbody>
           </table>
           <div className="prp-note">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
+          {lastSizingCandidate && (
+            <button type="button" className="prp-size-btn" onClick={() => setEvalForm(sizingToEvalForm(lastSizingCandidate, sizing))}>
+              Send sized candidate to Evaluator ↓
+            </button>
+          )}
         </div>
       )}
 
@@ -393,6 +414,8 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             {verdict.proposedDraft ? " · a draft was produced for HITL review in the order flow" : " · no draft produced"}
           </div>
         </div>
+      )}
+      </>
       )}
     </section>
   );
