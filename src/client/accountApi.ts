@@ -13,18 +13,19 @@ import type {
   ETradeTransactionDetails,
   ETradeWatchlist,
 } from "../types";
+import { apiFetch } from "./apiFetch";
 
 export type { ETradeAlert, ETradeAlertDetails, ETradeCancelOrderResult, ETradeRemoteOrder, ETradeTransaction, ETradeTransactionDetails, ETradeWatchlist };
 
 async function getJson<T>(path: string, env: string): Promise<T> {
-  const resp = await fetch(path, { headers: { "x-environment": env } });
+  const resp = await apiFetch(path, { headers: { "x-environment": env } });
   const data = (await resp.json().catch(() => ({}))) as T & { error?: string };
   if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
   return data;
 }
 
 async function sendJson<T>(path: string, env: string, method: string, body?: unknown): Promise<T> {
-  const resp = await fetch(path, {
+  const resp = await apiFetch(path, {
     method,
     headers: { "Content-Type": "application/json", "x-environment": env },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -36,8 +37,10 @@ async function sendJson<T>(path: string, env: string, method: string, body?: unk
 
 // Alerts ----------------------------------------------------------------------
 
-export function fetchAlerts(env: string): Promise<{ count: number; alerts: ETradeAlert[] }> {
-  return getJson("/api/etrade/alerts?count=50", env);
+export async function fetchAlerts(env: string): Promise<{ count: number; alerts: ETradeAlert[] }> {
+  const data = await getJson<{ count: number; alerts: ETradeAlert[] }>("/api/etrade/alerts?count=50", env);
+  // Shape guard (issue #71): never hand the renderer a non-array.
+  return { count: data?.count ?? 0, alerts: Array.isArray(data?.alerts) ? data.alerts : [] };
 }
 
 export function fetchAlertDetails(env: string, id: string | number): Promise<ETradeAlertDetails> {
@@ -50,8 +53,9 @@ export function deleteAlert(env: string, id: string | number): Promise<{ success
 
 // Transactions ----------------------------------------------------------------
 
-export function fetchTransactions(env: string): Promise<{ count: number; transactions: ETradeTransaction[] }> {
-  return getJson("/api/etrade/transactions?count=50&sortOrder=DESC", env);
+export async function fetchTransactions(env: string): Promise<{ count: number; transactions: ETradeTransaction[] }> {
+  const data = await getJson<{ count: number; transactions: ETradeTransaction[] }>("/api/etrade/transactions?count=50&sortOrder=DESC", env);
+  return { count: data?.count ?? 0, transactions: Array.isArray(data?.transactions) ? data.transactions : [] };
 }
 
 export function fetchTransactionDetails(env: string, id: string): Promise<ETradeTransactionDetails> {
@@ -60,8 +64,9 @@ export function fetchTransactionDetails(env: string, id: string): Promise<ETrade
 
 // Watchlists ------------------------------------------------------------------
 
-export function fetchWatchlists(env: string): Promise<{ count: number; watchlists: ETradeWatchlist[] }> {
-  return getJson("/api/etrade/watchlists", env);
+export async function fetchWatchlists(env: string): Promise<{ count: number; watchlists: ETradeWatchlist[] }> {
+  const data = await getJson<{ count: number; watchlists: ETradeWatchlist[] }>("/api/etrade/watchlists", env);
+  return { count: data?.count ?? 0, watchlists: Array.isArray(data?.watchlists) ? data.watchlists : [] };
 }
 
 export function fetchWatchlistDetails(env: string, id: string | number): Promise<ETradeWatchlist> {
@@ -82,8 +87,9 @@ export function deleteWatchlist(env: string, id: string | number): Promise<{ suc
 
 // Remote (broker-side) orders ---------------------------------------------------
 
-export function fetchRemoteOrders(env: string): Promise<{ count: number; orders: ETradeRemoteOrder[] }> {
-  return getJson("/api/etrade/orders/remote?count=50", env);
+export async function fetchRemoteOrders(env: string): Promise<{ count: number; orders: ETradeRemoteOrder[] }> {
+  const data = await getJson<{ count: number; orders: ETradeRemoteOrder[] }>("/api/etrade/orders/remote?count=50", env);
+  return { count: data?.count ?? 0, orders: Array.isArray(data?.orders) ? data.orders : [] };
 }
 
 export function cancelRemoteOrder(env: string, orderId: string | number): Promise<ETradeCancelOrderResult> {
