@@ -1418,4 +1418,631 @@ body.theme-light .workflows-cat-chip.active {
   transform: translateY(-1px);
 }
 
+/* ==========================================================================
+   5. UNIVERSAL MODAL SYSTEM (CANONICAL TOKEN ARCHITECTURE)
+   ========================================================================== */
 
+/* Universal Backdrop Blur & Overlay */
+.modal-backdrop,
+.quote-modal-backdrop,
+.partner-deals-modal-backdrop,
+.llm-eval-modal-backdrop,
+.stock-search-modal-backdrop,
+.risk-modal-overlay,
+.strat-modal-backdrop,
+.flow-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .modal-backdrop,
+body.theme-light .modal-backdrop,
+[data-theme="light"] .quote-modal-backdrop,
+body.theme-light .quote-modal-backdrop,
+[data-theme="light"] .partner-deals-modal-backdrop,
+body.theme-light .partner-deals-modal-backdrop,
+[data-theme="light"] .llm-eval-modal-backdrop,
+body.theme-light .llm-eval-modal-backdrop,
+[data-theme="light"] .stock-search-modal-backdrop,
+body.theme-light .stock-search-modal-backdrop,
+[data-theme="light"] .risk-modal-overlay,
+body.theme-light .risk-modal-overlay,
+[data-theme="light"] .strat-modal-backdrop,
+body.theme-light .strat-modal-backdrop,
+[data-theme="light"] .flow-modal-backdrop,
+body.theme-light .flow-modal-backdrop {
+  background: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* Universal Modal Container Card */
+.modal-dialog,
+.modal-card,
+.etrade-pin-modal,
+.diagnostics-modal,
+.quote-modal-content,
+.partner-deals-modal-card,
+.llm-eval-modal-content,
+.risk-modal-container,
+.autopilot-edit-limits-modal,
+.kill-switch-modal,
+.flow-modal-dialog {
+  background: var(--color-surface-raised, #0c1222) !important;
+  border: 1px solid var(--color-border-medium) !important;
+  border-radius: var(--radius-xl, 16px) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+  color: var(--color-text-primary) !important;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme="light"] .modal-dialog,
+body.theme-light .modal-dialog,
+[data-theme="light"] .modal-card,
+body.theme-light .modal-card,
+[data-theme="light"] .etrade-pin-modal,
+body.theme-light .etrade-pin-modal,
+[data-theme="light"] .diagnostics-modal,
+body.theme-light .diagnostics-modal,
+[data-theme="light"] .quote-modal-content,
+body.theme-light .quote-modal-content,
+[data-theme="light"] .partner-deals-modal-card,
+body.theme-light .partner-deals-modal-card,
+[data-theme="light"] .llm-eval-modal-content,
+body.theme-light .llm-eval-modal-content,
+[data-theme="light"] .risk-modal-container,
+body.theme-light .risk-modal-container,
+[data-theme="light"] .autopilot-edit-limits-modal,
+body.theme-light .autopilot-edit-limits-modal,
+[data-theme="light"] .kill-switch-modal,
+body.theme-light .kill-switch-modal,
+[data-theme="light"] .flow-modal-dialog,
+body.theme-light .flow-modal-dialog {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Universal Modal Header */
+.modal-header,
+.partner-deals-header,
+.llm-eval-modal-header,
+.risk-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .modal-header,
+body.theme-light .modal-header,
+[data-theme="light"] .partner-deals-header,
+body.theme-light .partner-deals-header,
+[data-theme="light"] .llm-eval-modal-header,
+body.theme-light .llm-eval-modal-header,
+[data-theme="light"] .risk-modal-header,
+body.theme-light .risk-modal-header {
+  background: #f8fafc !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+.modal-header h3,
+.modal-header h4,
+.modal-ticker {
+  margin: 0;
+  font-size: var(--font-size-title-sm, 1.15rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-accent);
+}
+
+[data-theme="light"] .modal-header h3,
+body.theme-light .modal-header h3,
+[data-theme="light"] .modal-header h4,
+body.theme-light .modal-header h4,
+[data-theme="light"] .modal-ticker,
+body.theme-light .modal-ticker {
+  color: #0284c7 !important;
+}
+
+/* Close & Cancel Buttons */
+.btn-close-modal {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: var(--space-1, 0.25rem) var(--space-1-5, 0.35rem);
+  border-radius: var(--radius-xs, 4px);
+  line-height: 1;
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.btn-close-modal:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+[data-theme="light"] .btn-close-modal,
+body.theme-light .btn-close-modal {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .btn-close-modal:hover,
+body.theme-light .btn-close-modal:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.btn-cancel-modal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.btn-cancel-modal:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+[data-theme="light"] .btn-cancel-modal,
+body.theme-light .btn-cancel-modal {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] .btn-cancel-modal:hover,
+body.theme-light .btn-cancel-modal:hover {
+  background: #e2e8f0 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+/* Modal Body */
+.modal-body {
+  padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   6. E*TRADE LIVE REST DIAGNOSTICS MODAL (TOKEN ALIGNMENT)
+   ========================================================================== */
+
+.diagnostics-modal {
+  max-width: 680px !important;
+  width: 90% !important;
+}
+
+.diagnostics-modal .diag-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4, 1rem);
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+.diagnostics-modal .diag-gateway-text {
+  font-size: var(--font-size-caption, 0.78rem);
+  color: var(--color-text-muted);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-gateway-text,
+body.theme-light .diagnostics-modal .diag-gateway-text {
+  color: #475569 !important;
+}
+
+/* Status Pill in Diagnostics Modal */
+.diagnostics-modal .status-pill {
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.diagnostics-modal .status-healthy {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.diagnostics-modal .status-auth_required {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
+.diagnostics-modal .status-error,
+.diagnostics-modal .status-unknown {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+[data-theme="light"] .diagnostics-modal .status-healthy,
+body.theme-light .diagnostics-modal .status-healthy {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+  border-color: #86efac !important;
+}
+
+[data-theme="light"] .diagnostics-modal .status-auth_required,
+body.theme-light .diagnostics-modal .status-auth_required {
+  background: #fef3c7 !important;
+  color: #b45309 !important;
+  border-color: #fcd34d !important;
+}
+
+[data-theme="light"] .diagnostics-modal .status-error,
+body.theme-light .diagnostics-modal .status-error,
+[data-theme="light"] .diagnostics-modal .status-unknown,
+body.theme-light .diagnostics-modal .status-unknown {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-color: #fca5a5 !important;
+}
+
+/* Diagnostics Error Box */
+.diagnostics-modal .diag-error-box {
+  background: var(--color-danger-subtle);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+  color: var(--color-danger);
+  font-size: var(--font-size-body-sm, 0.82rem);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-error-box,
+body.theme-light .diagnostics-modal .diag-error-box {
+  background: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+.diagnostics-modal .diag-error-title {
+  font-weight: 700;
+  display: block;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-error-title,
+body.theme-light .diagnostics-modal .diag-error-title {
+  color: #991b1b !important;
+}
+
+.diagnostics-modal .diag-error-msg {
+  margin-top: var(--space-1-5, 0.35rem);
+  word-break: break-all;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-error-msg,
+body.theme-light .diagnostics-modal .diag-error-msg {
+  color: #7f1d1d !important;
+}
+
+.diagnostics-modal .diag-sandbox-switch {
+  margin-top: var(--space-3, 0.75rem);
+  padding-top: var(--space-3, 0.75rem);
+  border-top: 1px solid var(--color-danger);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-sandbox-switch,
+body.theme-light .diagnostics-modal .diag-sandbox-switch {
+  border-top-color: #fca5a5 !important;
+}
+
+.diagnostics-modal .diag-sandbox-hint {
+  color: var(--color-warning);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-sandbox-hint,
+body.theme-light .diagnostics-modal .diag-sandbox-hint {
+  color: #b45309 !important;
+}
+
+/* Diagnostics 4-Card Credential Grid */
+.diagnostics-modal .diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.diagnostics-modal .diag-card {
+  background: var(--color-surface-sunken);
+  padding: var(--space-3, 0.75rem);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-border-subtle);
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-card,
+body.theme-light .diagnostics-modal .diag-card {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+.diagnostics-modal .diag-label {
+  font-size: var(--font-size-caption, 0.72rem);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--font-weight-medium, 500);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-label,
+body.theme-light .diagnostics-modal .diag-label {
+  color: #64748b !important;
+}
+
+.diagnostics-modal .diag-val {
+  font-size: var(--font-size-body-sm, 0.88rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary);
+  margin-top: var(--space-1, 0.25rem);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-val,
+body.theme-light .diagnostics-modal .diag-val {
+  color: #0f172a !important;
+}
+
+.diagnostics-modal .diag-val.token-active {
+  color: var(--color-success) !important;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-val.token-active,
+body.theme-light .diagnostics-modal .diag-val.token-active {
+  color: #16a34a !important;
+}
+
+.diagnostics-modal .diag-val.token-inactive {
+  color: var(--color-warning) !important;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-val.token-inactive,
+body.theme-light .diagnostics-modal .diag-val.token-inactive {
+  color: #d97706 !important;
+}
+
+/* Diagnostics Live Account Details */
+.diagnostics-modal .diag-account-details {
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-account-details,
+body.theme-light .diagnostics-modal .diag-account-details {
+  background: #f0fdf4 !important;
+  border-color: #86efac !important;
+}
+
+.diagnostics-modal .diag-account-title {
+  color: var(--color-success);
+  font-size: 0.82rem;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-account-title,
+body.theme-light .diagnostics-modal .diag-account-title {
+  color: #15803d !important;
+}
+
+.diagnostics-modal .diag-account-row {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-account-row,
+body.theme-light .diagnostics-modal .diag-account-row {
+  color: #334155 !important;
+}
+
+.diagnostics-modal .diag-balance-row {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.82rem;
+  color: var(--color-text-primary);
+}
+
+[data-theme="light"] .diagnostics-modal .diag-balance-row,
+body.theme-light .diagnostics-modal .diag-balance-row {
+  border-top-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Technical Diagnostics Drawer */
+.diagnostics-modal .diagnostics-drawer {
+  background: var(--color-surface-sunken) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+  border-radius: var(--radius-md, 8px) !important;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem) !important;
+  margin: var(--space-3, 0.75rem) 0 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="light"] .diagnostics-modal .diagnostics-drawer,
+body.theme-light .diagnostics-modal .diagnostics-drawer {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+.diagnostics-modal .diagnostics-summary {
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-caption, 0.78rem);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+[data-theme="light"] .diagnostics-modal .diagnostics-summary,
+body.theme-light .diagnostics-modal .diagnostics-summary {
+  color: #475569 !important;
+}
+
+.diagnostics-modal .diagnostics-content {
+  margin-top: var(--space-2, 0.5rem);
+  display: grid;
+  gap: var(--space-1-5, 0.4rem);
+  font-size: var(--font-size-caption, 0.8rem);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="light"] .diagnostics-modal .diagnostics-content,
+body.theme-light .diagnostics-modal .diagnostics-content {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .diagnostics-modal .diagnostics-content strong,
+body.theme-light .diagnostics-modal .diagnostics-content strong {
+  color: #0f172a !important;
+}
+
+.diagnostics-modal code {
+  color: var(--color-accent);
+  background: var(--color-surface);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs, 4px);
+  border: 1px solid var(--color-border-subtle);
+}
+
+[data-theme="light"] .diagnostics-modal code,
+body.theme-light .diagnostics-modal code {
+  color: #0284c7 !important;
+  background: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.diagnostics-modal details.diag-raw-box {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 6px);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+[data-theme="light"] .diagnostics-modal details.diag-raw-box,
+body.theme-light .diagnostics-modal details.diag-raw-box {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+.diagnostics-modal .diag-raw-summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption, 0.78rem);
+  font-weight: 600;
+}
+
+[data-theme="light"] .diagnostics-modal .diag-raw-summary,
+body.theme-light .diagnostics-modal .diag-raw-summary {
+  color: #475569 !important;
+}
+
+.diagnostics-modal pre.diag-raw-pre {
+  margin: var(--space-2, 0.5rem) 0 0 0;
+  font-size: var(--font-size-caption, 0.75rem);
+  color: var(--color-accent);
+  overflow-x: auto;
+  max-height: 200px;
+  background: var(--color-surface-sunken);
+  padding: var(--space-2, 0.5rem);
+  border-radius: var(--radius-xs, 4px);
+}
+
+[data-theme="light"] .diagnostics-modal pre.diag-raw-pre,
+body.theme-light .diagnostics-modal pre.diag-raw-pre {
+  color: #0369a1 !important;
+  background: #f1f5f9 !important;
+}
+
+/* Modal Actions & Buttons */
+.diagnostics-modal .diag-modal-actions {
+  display: flex;
+  gap: var(--space-3, 0.75rem);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--space-4, 1rem);
+}
+
+.diagnostics-modal .btn-oauth-connect,
+.diagnostics-modal .btn-sync-diagnostics,
+.diagnostics-modal .btn-cancel-modal {
+  padding: 0.55rem 1rem !important;
+  font-size: 0.82rem !important;
+}
+
+/* Light theme quote modal details */
+[data-theme="light"] .quote-modal-content,
+body.theme-light .quote-modal-content {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .quote-modal-content .quote-grid-3,
+body.theme-light .quote-modal-content .quote-grid-3 {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .quote-modal-content .quote-grid-3 .val,
+body.theme-light .quote-modal-content .quote-grid-3 .val {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .quote-modal-content .big-price,
+body.theme-light .quote-modal-content .big-price {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .quote-modal-content .modal-company,
+body.theme-light .quote-modal-content .modal-company {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .quote-modal-content .btn-modal-dismiss,
+body.theme-light .quote-modal-content .btn-modal-dismiss {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}

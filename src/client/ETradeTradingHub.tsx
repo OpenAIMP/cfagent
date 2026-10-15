@@ -3112,38 +3112,29 @@ export function ETradeTradingHub({
             <div className="modal-body">
               {diagnostics ? (
                 <>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                    <span className={`status-pill status-${diagnostics.status || "unknown"}`} style={{
-                      padding: "0.35rem 0.75rem",
-                      borderRadius: "var(--radius-sm, 6px)",
-                      fontWeight: 700,
-                      fontSize: "0.82rem",
-                      background: diagnostics.status === "healthy" ? "var(--color-success-subtle)" : (diagnostics.status === "auth_required" ? "var(--color-warning-subtle)" : "var(--color-danger-subtle)"),
-                      color: diagnostics.status === "healthy" ? "var(--color-success)" : (diagnostics.status === "auth_required" ? "var(--color-warning)" : "var(--color-danger)"),
-                      border: `1px solid ${diagnostics.status === "healthy" ? "var(--color-success)" : (diagnostics.status === "auth_required" ? "var(--color-warning)" : "var(--color-danger)")}`
-                    }}>
+                  <div className="diag-header-row">
+                    <span className={`status-pill status-${diagnostics.status || "unknown"}`}>
                       {diagnostics.status === "healthy" ? "🟢 Live REST Upstream Connected & Verified" : (diagnostics.status === "auth_required" ? "🟡 OAuth 1.0a Session Required" : "🔴 Upstream Gateway Error")}
                     </span>
-                    <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
+                    <span className="diag-gateway-text">
                       Gateway: <code>{diagnostics.apiUrl}</code>
                     </span>
                   </div>
 
                   {diagnostics.lastError && (
-                    <div style={{ background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)", padding: "0.75rem", marginBottom: "1rem", color: "var(--color-danger)", fontSize: "0.82rem" }}>
-                      <strong>Upstream Message / Error:</strong>
-                      <div style={{ marginTop: "0.35rem", wordBreak: "break-all" }}>
+                    <div className="diag-error-box">
+                      <strong className="diag-error-title">Upstream Message / Error:</strong>
+                      <div className="diag-error-msg">
                         {diagnostics.lastError}
                       </div>
                       {diagnostics.lastError.includes("only in SANDBOX environment") && (
-                        <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-danger)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-                          <span style={{ color: "var(--color-warning)", fontWeight: 600 }}>
+                        <div className="diag-sandbox-switch">
+                          <span className="diag-sandbox-hint">
                             💡 This Consumer Key belongs to E*TRADE Sandbox (apisb.etrade.com). Switch to TEST to test with this key!
                           </span>
                           <button
                             type="button"
                             className="btn-env-toggle active-env"
-                            style={{ background: "var(--color-accent)", color: "var(--color-text-inverse)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer", fontWeight: 700 }}
                             onClick={async () => {
                               setShowDiagnosticsModal(false);
                               await handleSwitchEnvironment("TEST");
@@ -3157,61 +3148,61 @@ export function ETradeTradingHub({
                     </div>
                   )}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
-                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Key</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
+                  <div className="diag-grid">
+                    <div className="diag-card">
+                      <div className="diag-label">Consumer Key</div>
+                      <div className="diag-val">
                         {diagnostics.credentials?.apiKeyMasked || (diagnostics.credentials?.apiKeyConfigured ? "✓ Configured" : "MISSING")}
                       </div>
                     </div>
-                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Consumer Secret</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
+                    <div className="diag-card">
+                      <div className="diag-label">Consumer Secret</div>
+                      <div className="diag-val">
                         {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
                       </div>
                     </div>
-                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Session Token in KV</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: diagnostics.oauthToken?.present ? "var(--color-success)" : "var(--color-warning)", marginTop: "0.25rem" }}>
+                    <div className="diag-card">
+                      <div className="diag-label">Session Token in KV</div>
+                      <div className={`diag-val ${diagnostics.oauthToken?.present ? "token-active" : "token-inactive"}`}>
                         {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
                       </div>
                     </div>
-                    <div style={{ background: "var(--color-surface-sunken)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Upstream Accounts</div>
-                      <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)", marginTop: "0.25rem" }}>
+                    <div className="diag-card">
+                      <div className="diag-label">Upstream Accounts</div>
+                      <div className="diag-val">
                         {diagnostics.upstreamAccounts?.count ?? 0} account(s) detected
                       </div>
                     </div>
                   </div>
 
                   {diagnostics.upstreamAccounts?.accounts && diagnostics.upstreamAccounts.accounts.length > 0 && (
-                    <div style={{ background: "var(--color-success-subtle)", border: "1px solid var(--color-success)", borderRadius: "var(--radius-md, 8px)", padding: "0.75rem", marginBottom: "1rem" }}>
-                      <strong style={{ color: "var(--color-success)", fontSize: "0.82rem", display: "block", marginBottom: "0.35rem" }}>
+                    <div className="diag-account-details">
+                      <strong className="diag-account-title">
                         Live Account Details:
                       </strong>
                       {diagnostics.upstreamAccounts.accounts.map((acct: any, idx: number) => (
-                        <div key={idx} style={{ fontSize: "0.82rem", color: "var(--color-text-secondary)" }}>
+                        <div key={idx} className="diag-account-row">
                           • ID: <code>{acct.accountId}</code> | Key: <code>{acct.accountKey}</code> | Type: <strong>{acct.accountType || acct.accountDesc}</strong>
                         </div>
                       ))}
                       {diagnostics.upstreamBalance && (
-                        <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--color-border-subtle)", fontSize: "0.82rem", color: "var(--color-text-primary)" }}>
+                        <div className="diag-balance-row">
                           • Live Balance Fetched: Net Value: <strong>${Number(diagnostics.upstreamBalance.netAccountValue || diagnostics.upstreamBalance.computed?.realTimeValues?.totalAccountValue || 0).toFixed(2)}</strong> | Cash: <strong>${Number(diagnostics.upstreamBalance.cashAvailableForInvestment || diagnostics.upstreamBalance.computed?.cashAvailableForInvestment || 0).toFixed(2)}</strong>
                         </div>
                       )}
                     </div>
                   )}
 
-                  <details style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm, 6px)", padding: "0.5rem 0.75rem", marginBottom: "1rem" }}>
-                    <summary style={{ cursor: "pointer", color: "var(--color-text-muted)", fontSize: "0.78rem", fontWeight: 600 }}>
+                  <details className="diag-raw-box">
+                    <summary className="diag-raw-summary">
                       🔍 View Raw Upstream Diagnostic Payload (JSON)
                     </summary>
-                    <pre style={{ margin: "0.5rem 0 0 0", fontSize: "0.75rem", color: "var(--color-accent)", overflowX: "auto", maxHeight: "200px" }}>
+                    <pre className="diag-raw-pre">
                       {JSON.stringify(diagnostics, null, 2)}
                     </pre>
                   </details>
 
-                  <details className="diagnostics-drawer" style={{ margin: "1rem 0", background: "var(--color-surface-sunken)" }}>
+                  <details className="diagnostics-drawer">
                     <summary className="diagnostics-summary">
                       ⚙️ Technical Diagnostics &amp; Audit Metadata (Agent DID &amp; Microservice Provenance)
                     </summary>
@@ -3223,12 +3214,11 @@ export function ETradeTradingHub({
                     </div>
                   </details>
 
-                  <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                  <div className="diag-modal-actions">
                     {(!diagnostics.oauthToken?.present || diagnostics.status === "auth_required") && (
                       <button
                         type="button"
                         className="btn-oauth-connect"
-                        style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
                         onClick={() => {
                           setShowDiagnosticsModal(false);
                           handleStartOAuth();
@@ -3242,7 +3232,6 @@ export function ETradeTradingHub({
                       className="btn-sync-diagnostics"
                       disabled={diagnosticsLoading}
                       onClick={() => runDiagnostics()}
-                      style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
                     >
                       {diagnosticsLoading ? "⏳ Testing..." : "🔄 Re-run Diagnostics"}
                     </button>
@@ -3250,7 +3239,6 @@ export function ETradeTradingHub({
                       type="button"
                       className="btn-cancel-modal"
                       onClick={() => setShowDiagnosticsModal(false)}
-                      style={{ padding: "0.55rem 1rem", fontSize: "0.82rem" }}
                     >
                       Close
                     </button>
