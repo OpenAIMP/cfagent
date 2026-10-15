@@ -209,7 +209,6 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
   ));
   const hasReferenceQuotes = Object.values(quotes).some((quote) => quote.source === "Reference");
   const sourceLabel = [...providerSources, ...(hasReferenceQuotes ? ["Reference"] : [])].join(" + ") || "Alpaca / Yahoo Finance";
-  const connectionLabel = transport === "websocket" ? "WebSocket" : transport === "polling" ? "Polling" : transport === "offline" ? "Offline" : "Connecting";
   const liveSourceAvailable = providerSources.length > 0;
   const feedStatus = liveSourceAvailable ? "live" : transport === "offline" ? "offline" : "syncing";
 
@@ -241,9 +240,9 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
       aria-label="Real-Time Market Ticker"
     >
       {/* Feed Status Indicator */}
-      <div className={`ticker-tape-feed-badge ${feedStatus}`} title={`Feed: ${sourceLabel}. Transport: ${connectionLabel}`}>
+      <div className={`ticker-tape-feed-badge ${feedStatus}`} title={`Feed: ${sourceLabel}`}>
         <span className={`ticker-live-dot ${feedStatus}`} />
-        <span className="ticker-live-text">{liveSourceAvailable ? "LIVE" : transport === "offline" ? "OFFLINE" : "SYNCING"} · {sourceLabel} · {connectionLabel}</span>
+        <span className="ticker-live-text">{liveSourceAvailable ? "LIVE" : transport === "offline" ? "OFFLINE" : "SYNCING"} · {sourceLabel}</span>
       </div>
 
       {/* Scrolling / Chips Strip */}
