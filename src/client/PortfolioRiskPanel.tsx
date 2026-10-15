@@ -12,16 +12,21 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  buildEvaluateCandidate,
   fetchConcentration,
+  fetchEvaluate,
   fetchHedgeAnalysis,
   fetchPortfolioRisk,
   fetchSizing,
+  fetchThinkVerdict,
   fmtNumber,
   fmtSignedUsd,
   fmtUsd,
   hedgeProposalToTradeContext,
   type ConcentrationReport,
+  type EvaluateResult,
   type HedgeAnalysis,
+  type ThinkTradeValidationResult,
   type PortfolioRiskReport,
   type SizingResult,
 } from "./portfolioRiskApi";
@@ -54,6 +59,22 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
   const [sizing, setSizing] = useState<SizingResult | null>(null);
   const [sizeLoading, setSizeLoading] = useState(false);
   const [sizeError, setSizeError] = useState("");
+
+  // Post-trade evaluator (#34 endpoint, surfaced by #67)
+  const [evalForm, setEvalForm] = useState<Record<string, string>>({});
+  const [evaluation, setEvaluation] = useState<EvaluateResult | null>(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalError, setEvalError] = useState("");
+
+  // Think-harness guardrail check (#37 service, HTTP route added by #67)
+  const [thinkSymbol, setThinkSymbol] = useState("");
+  const [thinkAction, setThinkAction] = useState<"BUY" | "SELL">("BUY");
+  const [thinkQuantity, setThinkQuantity] = useState("");
+  const [thinkOrderType, setThinkOrderType] = useState<"MARKET" | "LIMIT" | "STOP">("MARKET");
+  const [thinkPrice, setThinkPrice] = useState("");
+  const [verdict, setVerdict] = useState<ThinkTradeValidationResult | null>(null);
+  const [thinkLoading, setThinkLoading] = useState(false);
+  const [thinkError, setThinkError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,6 +125,42 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       setSizeError(err?.message || "Sizing failed");
     } finally {
       setSizeLoading(false);
+    }
+  };
+
+  const runEvaluate = async () => {
+    const candidate = buildEvaluateCandidate(evalForm);
+    if (!candidate) {
+      setEvalError("All fields except β-weighted Δ are required and must be numeric.");
+      return;
+    }
+    setEvalLoading(true);
+    setEvalError("");
+    try {
+      setEvaluation(await fetchEvaluate(activeEnv, candidate));
+    } catch (err: any) {
+      setEvalError(err?.message || "Evaluation failed");
+    } finally {
+      setEvalLoading(false);
+    }
+  };
+
+  const runThink = async () => {
+    setThinkLoading(true);
+    setThinkError("");
+    try {
+      const result = await fetchThinkVerdict(activeEnv, {
+        symbol: thinkSymbol.trim().toUpperCase(),
+        action: thinkAction,
+        quantity: Number(thinkQuantity) || 0,
+        orderType: thinkOrderType,
+        price: thinkPrice.trim() === "" ? undefined : Number(thinkPrice),
+      });
+      setVerdict(result);
+    } catch (err: any) {
+      setThinkError(err?.message || "Guardrail check failed");
+    } finally {
+      setThinkLoading(false);
     }
   };
 
@@ -267,6 +324,74 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             </tbody>
           </table>
           <div className="prp-note">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
+        </div>
+      )}
+
+      {/* Post-trade evaluator (#34 endpoint, surfaced by #67) */}
+      <div className="prp-subhead">Post-Trade Evaluator</div>
+      <div className="prp-note">Enter a candidate position's TOTAL Greek contribution (all contracts combined) to see current vs post-trade portfolio totals.</div>
+      <div className="prp-form-grid">
+        {([
+          ["deltaShares", "Δ shares"], ["deltaDollars", "Δ $"], ["betaWeightedDeltaDollars", "β-weighted Δ $ (blank = unknown)"],
+          ["gammaSharesPerDollar", "Γ shares/$"], ["thetaDollarsPerDay", "Θ $/day"], ["vegaDollarsPerVolPoint", "Vega $/vol pt"],
+          ["rhoDollarsPerRatePoint", "Rho $/1%"], ["definedMaxLoss", "Defined max loss $"],
+        ] as Array<[string, string]>).map(([key, label]) => (
+          <label key={key}>{label}<input value={evalForm[key] ?? ""} onChange={(e) => setEvalForm({ ...evalForm, [key]: e.target.value })} inputMode="decimal" /></label>
+        ))}
+      </div>
+      <button type="button" className="prp-size-btn" onClick={() => void runEvaluate()} disabled={evalLoading}>{evalLoading ? "Evaluating…" : "Evaluate post-trade"}</button>
+      {evalError && <div className="prp-error">{evalError}</div>}
+      {evaluation && (
+        <table className="prp-table">
+          <thead><tr><th>Total</th><th>Current</th><th>Post-trade</th></tr></thead>
+          <tbody>
+            {([
+              ["Delta $", "deltaDollars"], ["Beta-weighted Δ $", "betaWeightedDeltaDollars"], ["Gamma (shares/$)", "gammaSharesPerDollar"],
+              ["Theta $/day", "thetaDollarsPerDay"], ["Vega $/vol pt", "vegaDollarsPerVolPoint"], ["Rho $/1%", "rhoDollarsPerRatePoint"], ["Defined max loss $", "definedMaxLoss"],
+            ] as Array<[string, string]>).map(([label, key]) => (
+              <tr key={key}>
+                <td>{label}</td>
+                <td>{fmtSignedUsd((evaluation.current.totals as unknown as Record<string, number | null>)[key])}</td>
+                <td>{fmtSignedUsd((evaluation.postTradeTotals as unknown as Record<string, number | null>)[key])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* Think-harness guardrail check (#37, surfaced by #67) */}
+      <div className="prp-subhead">Trade Guardrail Check</div>
+      <div className="prp-note">Runs the think harness on live account state. It fails closed — when price, balance, or spread cannot be resolved from the broker, the verdict is INPUTS_UNAVAILABLE and no draft is produced.</div>
+      <div className="prp-form-grid">
+        <label>Symbol<input value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" /></label>
+        <label>Action
+          <select value={thinkAction} onChange={(e) => setThinkAction(e.target.value as "BUY" | "SELL")}>
+            <option value="BUY">BUY</option><option value="SELL">SELL</option>
+          </select>
+        </label>
+        <label>Quantity<input value={thinkQuantity} onChange={(e) => setThinkQuantity(e.target.value)} inputMode="numeric" /></label>
+        <label>Order type
+          <select value={thinkOrderType} onChange={(e) => setThinkOrderType(e.target.value as "MARKET" | "LIMIT" | "STOP")}>
+            <option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP">STOP</option>
+          </select>
+        </label>
+        <label>Price (optional)<input value={thinkPrice} onChange={(e) => setThinkPrice(e.target.value)} inputMode="decimal" /></label>
+      </div>
+      <button type="button" className="prp-size-btn" onClick={() => void runThink()} disabled={thinkLoading || !thinkSymbol.trim() || !thinkQuantity.trim()}>
+        {thinkLoading ? "Checking…" : "Run guardrail check"}
+      </button>
+      {thinkError && <div className="prp-error">{thinkError}</div>}
+      {verdict && (
+        <div className="prp-sizing-result">
+          <div className="prp-note">
+            <span className={`prp-badge prp-badge-${verdict.recommendation === "PROCEED_TO_HITL" ? "measured" : verdict.recommendation === "REVISE_PARAMETERS" ? "proxy-sector" : "unknown"}`}>{verdict.recommendation}</span>
+            {" "}approved: {verdict.approved ? "yes" : "no"} · confidence {fmtNumber(verdict.overallConfidence, 2)}
+          </div>
+          <p className="prp-rationale">{verdict.reason}</p>
+          <div className="prp-note">
+            Inputs — price: <span className="prp-badge">{verdict.inputSources.price}</span> balance: <span className="prp-badge">{verdict.inputSources.accountBalance}</span> spread: <span className="prp-badge">{verdict.inputSources.spread}</span>
+            {verdict.proposedDraft ? " · a draft was produced for HITL review in the order flow" : " · no draft produced"}
+          </div>
         </div>
       )}
     </section>

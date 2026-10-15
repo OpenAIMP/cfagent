@@ -13,6 +13,7 @@ import {
 } from "../types";
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
+import { AccountPanels } from "./AccountPanels";
 import { ScreenersHub } from "./ScreenersHub";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
@@ -2119,6 +2120,8 @@ export function ETradeTradingHub({
           {/* Portfolio Risk (issue #63): surfaces the #34/#35/#36/#54 backends —
               aggregates, hedge drafts with HITL preview hand-off, correlation
               flags, and portfolio-aware sizing. */}
+          <AccountPanels activeEnv={activeEnv} />
+
           <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleOptionsTrade} />
         </div>
       )}

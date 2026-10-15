@@ -13,6 +13,7 @@ import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
+import { ETradeThinkHarness } from "../services/thinkHarness";
 import { assessPortfolioConcentration } from "../services/portfolioConcentration";
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
@@ -3011,6 +3012,33 @@ Agentic Best Practices & Workflow Rules:
     // Hedge proposals (issue #54): DRAFT hedging proposals sized from the
     // portfolio aggregates — for the HITL order-preview flow only; this
     // endpoint never places or previews an order itself.
+    // Think-harness guardrail verdicts (issue #67): the same evaluation the
+    // agent/MCP tool runs (issue #37), exposed over HTTP for the UI. Inputs
+    // resolve caller-provided -> live broker state -> unavailable, and the
+    // harness fails closed (INPUTS_UNAVAILABLE) rather than inventing state.
+    if (path.endsWith("/etrade/think/evaluate") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { symbol?: string; action?: "BUY" | "SELL"; quantity?: number; orderType?: "MARKET" | "LIMIT" | "STOP"; price?: number; accountBalanceUSD?: number };
+        if (!body.symbol || (body.action !== "BUY" && body.action !== "SELL") || !body.quantity || body.quantity <= 0) {
+          return Response.json({ error: "symbol, action (BUY|SELL) and a positive quantity are required" }, { status: 400 });
+        }
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const harness = new ETradeThinkHarness(this.getOrm(), this.env);
+        const result = await harness.evaluateTradeWithThinking({
+          symbol: body.symbol.toUpperCase(),
+          action: body.action,
+          quantity: body.quantity,
+          orderType: body.orderType || "MARKET",
+          price: body.price,
+          accountBalanceUSD: body.accountBalanceUSD,
+          userLogin,
+        });
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Think evaluation failed" }, { status: 500 });
+      }
+    }
+
     if (path.endsWith("/etrade/hedge/analyze") && request.method === "POST") {
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
