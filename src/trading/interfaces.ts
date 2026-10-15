@@ -32,6 +32,20 @@ export interface OrderPreviewParams {
   stopPrice?: number;
   sessionId?: string;
   notes?: string;
+  /** Opening legs for a native multi-leg options order. */
+  optionLegs?: TradingOrderLeg[];
+  /** Net strategy price: positive is debit, negative is credit. */
+  strategyNetDebit?: number;
+}
+
+export interface TradingOrderLeg {
+  underlyingSymbol: string;
+  securityType: "EQ" | "OPTN";
+  side: "BUY" | "SELL";
+  quantity: number;
+  optionType?: "CALL" | "PUT";
+  strike?: number;
+  expirationDate?: string;
 }
 
 export interface PlaceOrderParams {
@@ -43,6 +57,8 @@ export interface PlaceOrderParams {
   limitPrice?: number;
   previewId?: string;
   userLogin: string;
+  optionLegs?: TradingOrderLeg[];
+  strategyNetDebit?: number;
 }
 
 export interface ITradingPlatform {

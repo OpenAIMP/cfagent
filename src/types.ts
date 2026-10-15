@@ -582,6 +582,17 @@ export interface ETradeOrderDraft {
   symbol: string;
   action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
   orderAction: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  brokerOrderType?: "EQ" | "OPTN" | "SPREADS" | "BUY_WRITES";
+  optionLegs?: Array<{
+    underlyingSymbol: string;
+    securityType: "EQ" | "OPTN";
+    side: "BUY" | "SELL";
+    quantity: number;
+    optionType?: "CALL" | "PUT";
+    strike?: number;
+    expirationDate?: string;
+  }>;
+  strategyNetDebit?: number;
   orderType: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
   quantity: number;
   estimatedPrice: number;

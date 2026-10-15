@@ -44,6 +44,15 @@ export interface OptionsTradeContext {
   underlyingPrice?: number;
   label: string;
   legs: string[];
+  optionLegs?: Array<{
+    securityType: "EQ" | "OPTN";
+    side: "BUY" | "SELL";
+    quantity: number;
+    optionType?: "CALL" | "PUT";
+    strike?: number;
+    expirationDate?: string;
+  }>;
+  strategyNetDebit?: number;
 }
 
 function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, underlyingPrice?: number): OptionsTradeContext {
@@ -54,6 +63,15 @@ function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, unde
     underlyingPrice,
     label: `${candidate.label} (${candidate.expirationDate}), max loss ${candidate.maxLoss === null ? "unlimited" : `$${candidate.maxLoss}`}`,
     legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+    optionLegs: candidate.legs.map((leg) => ({
+      securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+      side: leg.side,
+      quantity: leg.quantity,
+      optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+      strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+      expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+    })),
+    strategyNetDebit: candidate.netDebit,
   };
 }
 
