@@ -1,10 +1,14 @@
 /**
- * Account panels (issue #67) — surfaces the broker account endpoints that
- * previously had no UI: alerts, transactions, watchlists, and remote
- * (broker-side) orders with cancel. Mounted in the E*TRADE hub's Portfolio
- * view next to the Portfolio Risk panel. Display/input only: order cancels
- * go through the broker endpoint the user explicitly clicks; nothing here
- * places orders.
+ * Account panels (issue #67; UX polish #69) — surfaces the broker account
+ * endpoints that previously had no UI: alerts, transactions, watchlists,
+ * and remote (broker-side) orders with cancel. Mounted in the E*TRADE
+ * hub's Portfolio view next to the Portfolio Risk panel.
+ *
+ * UX rules (#69): every panel is collapsible and anchor-addressable from
+ * the section nav; destructive actions (alert/watchlist delete, order
+ * cancel) are two-step inline confirms — nothing destructive fires on a
+ * single click; the unread-alert count is reported up so the app nav can
+ * badge the Portfolio tab.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -34,7 +38,16 @@ import "./accountPanels.css";
 
 const fmtTime = (epochMs: number | undefined) => (epochMs ? new Date(epochMs).toLocaleString() : "—");
 
-export function AccountPanels({ activeEnv }: { activeEnv: string }) {
+interface AccountPanelsProps {
+  activeEnv: string;
+  onUnreadAlertsChange?: (count: number) => void;
+}
+
+export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanelsProps) {
+  const [open, setOpen] = useState({ alerts: true, transactions: true, watchlists: true, orders: true });
+  const toggle = (key: keyof typeof open) => setOpen((o) => ({ ...o, [key]: !o[key] }));
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+
   // Alerts
   const [alerts, setAlerts] = useState<ETradeAlert[]>([]);
   const [alertDetail, setAlertDetail] = useState<ETradeAlertDetails | null>(null);
@@ -59,10 +72,11 @@ export function AccountPanels({ activeEnv }: { activeEnv: string }) {
       const data = await fetchAlerts(activeEnv);
       setAlerts(data.alerts);
       setAlertsError("");
+      onUnreadAlertsChange?.(data.alerts.filter((a) => a.status === "UNREAD").length);
     } catch (err: any) {
       setAlertsError(err?.message || "Failed to load alerts");
     }
-  }, [activeEnv]);
+  }, [activeEnv, onUnreadAlertsChange]);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -101,104 +115,146 @@ export function AccountPanels({ activeEnv }: { activeEnv: string }) {
     void loadOrders();
   }, [loadAlerts, loadTransactions, loadWatchlists, loadOrders]);
 
+  /** Two-step destructive action: first click arms, second click fires. */
+  const destructive = (key: string, label: string, action: () => void) => (
+    <button
+      type="button"
+      className={confirmKey === key ? "ap-danger armed" : "ap-danger"}
+      onClick={() => {
+        if (confirmKey === key) {
+          setConfirmKey(null);
+          action();
+        } else {
+          setConfirmKey(key);
+        }
+      }}
+    >
+      {confirmKey === key ? `Confirm ${label}?` : label}
+    </button>
+  );
+
+  const header = (key: keyof typeof open, title: string, reload: () => void) => (
+    <div className="ap-header">
+      <button type="button" className="ap-collapse" onClick={() => toggle(key)} aria-expanded={open[key]}>
+        {open[key] ? "▾" : "▸"} {title}
+      </button>
+      <button type="button" onClick={reload}>↻</button>
+    </div>
+  );
+
   const openOrders = orders.filter((o) => o.status === "OPEN");
+  const unreadCount = alerts.filter((a) => a.status === "UNREAD").length;
 
   return (
     <>
       {/* Broker alerts */}
-      <section className="ap-panel">
-        <div className="ap-header"><h3>Broker Alerts</h3><button type="button" onClick={() => void loadAlerts()}>↻</button></div>
-        {alertsError && <div className="ap-error">{alertsError}</div>}
-        {!alertsError && alerts.length === 0 && <div className="ap-muted">No alerts.</div>}
-        {alerts.map((alert) => (
-          <div className="ap-row" key={String(alert.id)}>
-            <button type="button" className="ap-row-main" onClick={() => void fetchAlertDetails(activeEnv, alert.id).then(setAlertDetail).catch(() => setAlertDetail(null))}>
-              <strong className={alert.status === "UNREAD" ? "ap-unread" : undefined}>{alert.subject}</strong>
-              <span>{alert.status} · {fmtTime(alert.createTime)}</span>
-            </button>
-            <button type="button" className="ap-danger" onClick={() => void deleteAlert(activeEnv, alert.id).then(() => { setAlertDetail(null); void loadAlerts(); }).catch(() => undefined)}>Delete</button>
-          </div>
-        ))}
-        {alertDetail && (
-          <div className="ap-detail">
-            <strong>{alertDetail.subject}</strong>
-            {alertDetail.symbol && <span> · {alertDetail.symbol}</span>}
-            <p>{alertDetail.msgText}</p>
-          </div>
+      <section className="ap-panel" id="section-alerts" style={{ scrollMarginTop: 80 }}>
+        {header("alerts", unreadCount > 0 ? `Broker Alerts (${unreadCount} unread)` : "Broker Alerts", () => void loadAlerts())}
+        {open.alerts && (
+          <>
+            {alertsError && <div className="ap-error">{alertsError}</div>}
+            {!alertsError && alerts.length === 0 && <div className="ap-muted">No alerts.</div>}
+            {alerts.map((alert) => (
+              <div className="ap-row" key={String(alert.id)}>
+                <button type="button" className="ap-row-main" onClick={() => void fetchAlertDetails(activeEnv, alert.id).then(setAlertDetail).catch(() => setAlertDetail(null))}>
+                  <strong className={alert.status === "UNREAD" ? "ap-unread" : undefined}>{alert.subject}</strong>
+                  <span>{alert.status} · {fmtTime(alert.createTime)}</span>
+                </button>
+                {destructive(`alert:${alert.id}`, "Delete", () => void deleteAlert(activeEnv, alert.id).then(() => { setAlertDetail(null); void loadAlerts(); }).catch(() => undefined))}
+              </div>
+            ))}
+            {alertDetail && (
+              <div className="ap-detail">
+                <strong>{alertDetail.subject}</strong>
+                {alertDetail.symbol && <span> · {alertDetail.symbol}</span>}
+                <p>{alertDetail.msgText}</p>
+              </div>
+            )}
+          </>
         )}
       </section>
 
       {/* Account transactions */}
-      <section className="ap-panel">
-        <div className="ap-header"><h3>Account Transactions</h3><button type="button" onClick={() => void loadTransactions()}>↻</button></div>
-        {txnError && <div className="ap-error">{txnError}</div>}
-        {!txnError && transactions.length === 0 && <div className="ap-muted">No transactions.</div>}
-        {transactions.slice(0, 25).map((txn) => (
-          <div className="ap-row" key={txn.transactionId}>
-            <button type="button" className="ap-row-main" onClick={() => void fetchTransactionDetails(activeEnv, txn.transactionId).then(setTxnDetail).catch(() => setTxnDetail(null))}>
-              <strong>{txn.description}</strong>
-              <span>{txn.transactionType} · {fmtTime(txn.transactionDate)} · {fmtUsd(txn.amount, 2)}</span>
-            </button>
-          </div>
-        ))}
-        {txnDetail && (
-          <div className="ap-detail">
-            <strong>{txnDetail.description}</strong>
-            <p>
-              {fmtUsd(txnDetail.amount, 2)}
-              {txnDetail.category ? ` · ${txnDetail.category.parentName ? `${txnDetail.category.parentName} / ` : ""}${txnDetail.category.categoryName}` : ""}
-              {txnDetail.brokerage?.product ? ` · ${txnDetail.brokerage.product.symbol} × ${txnDetail.brokerage.quantity ?? "—"} @ ${txnDetail.brokerage.price !== undefined ? fmtUsd(txnDetail.brokerage.price, 2) : "—"}` : ""}
-              {txnDetail.brokerage?.fee !== undefined ? ` · fee ${fmtUsd(txnDetail.brokerage.fee, 2)}` : ""}
-            </p>
-          </div>
+      <section className="ap-panel" id="section-transactions" style={{ scrollMarginTop: 80 }}>
+        {header("transactions", "Account Transactions", () => void loadTransactions())}
+        {open.transactions && (
+          <>
+            {txnError && <div className="ap-error">{txnError}</div>}
+            {!txnError && transactions.length === 0 && <div className="ap-muted">No transactions.</div>}
+            {transactions.slice(0, 25).map((txn) => (
+              <div className="ap-row" key={txn.transactionId}>
+                <button type="button" className="ap-row-main" onClick={() => void fetchTransactionDetails(activeEnv, txn.transactionId).then(setTxnDetail).catch(() => setTxnDetail(null))}>
+                  <strong>{txn.description}</strong>
+                  <span>{txn.transactionType} · {fmtTime(txn.transactionDate)} · {fmtUsd(txn.amount, 2)}</span>
+                </button>
+              </div>
+            ))}
+            {txnDetail && (
+              <div className="ap-detail">
+                <strong>{txnDetail.description}</strong>
+                <p>
+                  {fmtUsd(txnDetail.amount, 2)}
+                  {txnDetail.category ? ` · ${txnDetail.category.parentName ? `${txnDetail.category.parentName} / ` : ""}${txnDetail.category.categoryName}` : ""}
+                  {txnDetail.brokerage?.product ? ` · ${txnDetail.brokerage.product.symbol} × ${txnDetail.brokerage.quantity ?? "—"} @ ${txnDetail.brokerage.price !== undefined ? fmtUsd(txnDetail.brokerage.price, 2) : "—"}` : ""}
+                  {txnDetail.brokerage?.fee !== undefined ? ` · fee ${fmtUsd(txnDetail.brokerage.fee, 2)}` : ""}
+                </p>
+              </div>
+            )}
+          </>
         )}
       </section>
 
       {/* Watchlists */}
-      <section className="ap-panel">
-        <div className="ap-header"><h3>Watchlists</h3><button type="button" onClick={() => void loadWatchlists()}>↻</button></div>
-        {watchError && <div className="ap-error">{watchError}</div>}
-        {watchlists.map((list) => (
-          <div className="ap-row" key={String(list.watchlistId)}>
-            <button type="button" className="ap-row-main" onClick={() => void fetchWatchlistDetails(activeEnv, list.watchlistId).then(setWatchlistDetail).catch(() => setWatchlistDetail(null))}>
-              <strong>{list.name}</strong>
-              <span>{list.symbols.length} symbols{list.source ? ` · ${list.source === "etrade_api" ? "E*TRADE" : "local"}` : ""}</span>
-            </button>
-            <button type="button" className="ap-danger" onClick={() => void deleteWatchlist(activeEnv, list.watchlistId).then(() => { setWatchlistDetail(null); void loadWatchlists(); }).catch(() => undefined)}>Delete</button>
-          </div>
-        ))}
-        {watchlistDetail && (
-          <div className="ap-detail">
-            <strong>{watchlistDetail.name}</strong>
-            <p>{(watchlistDetail.items?.map((i) => i.symbol) ?? watchlistDetail.symbols).join(", ") || "No symbols."}</p>
-          </div>
+      <section className="ap-panel" id="section-watchlists" style={{ scrollMarginTop: 80 }}>
+        {header("watchlists", "Watchlists", () => void loadWatchlists())}
+        {open.watchlists && (
+          <>
+            {watchError && <div className="ap-error">{watchError}</div>}
+            {watchlists.map((list) => (
+              <div className="ap-row" key={String(list.watchlistId)}>
+                <button type="button" className="ap-row-main" onClick={() => void fetchWatchlistDetails(activeEnv, list.watchlistId).then(setWatchlistDetail).catch(() => setWatchlistDetail(null))}>
+                  <strong>{list.name}</strong>
+                  <span>{list.symbols.length} symbols{list.source ? ` · ${list.source === "etrade_api" ? "E*TRADE" : "local"}` : ""}</span>
+                </button>
+                {destructive(`watchlist:${list.watchlistId}`, "Delete", () => void deleteWatchlist(activeEnv, list.watchlistId).then(() => { setWatchlistDetail(null); void loadWatchlists(); }).catch(() => undefined))}
+              </div>
+            ))}
+            {watchlistDetail && (
+              <div className="ap-detail">
+                <strong>{watchlistDetail.name}</strong>
+                <p>{(watchlistDetail.items?.map((i) => i.symbol) ?? watchlistDetail.symbols).join(", ") || "No symbols."}</p>
+              </div>
+            )}
+            <div className="ap-form">
+              <input value={newListName} onChange={(e) => setNewListName(e.target.value)} placeholder="New watchlist name" />
+              <input value={newListSymbols} onChange={(e) => setNewListSymbols(e.target.value)} placeholder="Symbols (AAPL, MSFT …)" />
+              <button type="button" disabled={!newListName.trim()} onClick={() => void createWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Create failed"))}>Create</button>
+              <button type="button" disabled={!newListName.trim()} onClick={() => void saveScreenAsWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Save-screen failed"))}>Save as screen</button>
+            </div>
+          </>
         )}
-        <div className="ap-form">
-          <input value={newListName} onChange={(e) => setNewListName(e.target.value)} placeholder="New watchlist name" />
-          <input value={newListSymbols} onChange={(e) => setNewListSymbols(e.target.value)} placeholder="Symbols (AAPL, MSFT …)" />
-          <button type="button" disabled={!newListName.trim()} onClick={() => void createWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Create failed"))}>Create</button>
-          <button type="button" disabled={!newListName.trim()} onClick={() => void saveScreenAsWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Save-screen failed"))}>Save as screen</button>
-        </div>
       </section>
 
       {/* Broker (remote) orders */}
-      <section className="ap-panel">
-        <div className="ap-header"><h3>Broker Orders</h3><button type="button" onClick={() => void loadOrders()}>↻</button></div>
-        {ordersError && <div className="ap-error">{ordersError}</div>}
-        {ordersMsg && <div className="ap-note">{ordersMsg}</div>}
-        {!ordersError && orders.length === 0 && <div className="ap-muted">No broker orders.</div>}
-        {orders.slice(0, 25).map((order) => (
-          <div className="ap-row" key={String(order.orderId)}>
-            <div className="ap-row-main static">
-              <strong>{order.symbol ?? "—"} {order.orderAction ?? ""} {order.quantity ?? ""}</strong>
-              <span>{order.status} · {order.orderType}{order.limitPrice !== undefined ? ` @ ${fmtUsd(order.limitPrice, 2)}` : ""} · {fmtTime(order.placedTime)} · #{String(order.orderId)}</span>
-            </div>
-            {order.status === "OPEN" && (
-              <button type="button" className="ap-danger" onClick={() => void cancelRemoteOrder(activeEnv, order.orderId).then((res) => { setOrdersMsg(res.message); void loadOrders(); }).catch((err: any) => setOrdersError(err?.message || "Cancel failed"))}>Cancel</button>
-            )}
-          </div>
-        ))}
-        {openOrders.length > 0 && <div className="ap-note">{openOrders.length} open order(s) at the broker.</div>}
+      <section className="ap-panel" id="section-orders" style={{ scrollMarginTop: 80 }}>
+        {header("orders", "Broker Orders", () => void loadOrders())}
+        {open.orders && (
+          <>
+            {ordersError && <div className="ap-error">{ordersError}</div>}
+            {ordersMsg && <div className="ap-note">{ordersMsg}</div>}
+            {!ordersError && orders.length === 0 && <div className="ap-muted">No broker orders.</div>}
+            {orders.slice(0, 25).map((order) => (
+              <div className="ap-row" key={String(order.orderId)}>
+                <div className="ap-row-main static">
+                  <strong>{order.symbol ?? "—"} {order.orderAction ?? ""} {order.quantity ?? ""}</strong>
+                  <span>{order.status} · {order.orderType}{order.limitPrice !== undefined ? ` @ ${fmtUsd(order.limitPrice, 2)}` : ""} · {fmtTime(order.placedTime)} · #{String(order.orderId)}</span>
+                </div>
+                {order.status === "OPEN" && destructive(`order:${order.orderId}`, "Cancel", () => void cancelRemoteOrder(activeEnv, order.orderId).then((res) => { setOrdersMsg(res.message); void loadOrders(); }).catch((err: any) => setOrdersError(err?.message || "Cancel failed")))}
+              </div>
+            ))}
+            {openOrders.length > 0 && <div className="ap-note">{openOrders.length} open order(s) at the broker.</div>}
+          </>
+        )}
       </section>
     </>
   );
