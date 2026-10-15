@@ -37,14 +37,26 @@ async function sendJson<T>(path: string, env: string, method: string, body?: unk
 
 // Alerts ----------------------------------------------------------------------
 
+/**
+ * The broker returns alert createTime in epoch SECONDS while the rest of
+ * the app (and the alert type) uses epoch milliseconds — unnormalized,
+ * alerts render as January 1970. Values below 1e12 are seconds-scale for
+ * any date in this product's lifetime; normalize them to ms.
+ */
+export function normalizeEpochMs(value: number): number {
+  return value > 0 && value < 1e12 ? value * 1000 : value;
+}
+
 export async function fetchAlerts(env: string): Promise<{ count: number; alerts: ETradeAlert[] }> {
   const data = await getJson<{ count: number; alerts: ETradeAlert[] }>("/api/etrade/alerts?count=50", env);
   // Shape guard (issue #71): never hand the renderer a non-array.
-  return { count: data?.count ?? 0, alerts: Array.isArray(data?.alerts) ? data.alerts : [] };
+  const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+  return { count: data?.count ?? 0, alerts: alerts.map((a) => ({ ...a, createTime: normalizeEpochMs(a.createTime) })) };
 }
 
-export function fetchAlertDetails(env: string, id: string | number): Promise<ETradeAlertDetails> {
-  return getJson(`/api/etrade/alerts/${encodeURIComponent(String(id))}`, env);
+export async function fetchAlertDetails(env: string, id: string | number): Promise<ETradeAlertDetails> {
+  const details = await getJson<ETradeAlertDetails>(`/api/etrade/alerts/${encodeURIComponent(String(id))}`, env);
+  return { ...details, createTime: normalizeEpochMs(details.createTime) };
 }
 
 export function deleteAlert(env: string, id: string | number): Promise<{ success: boolean }> {
