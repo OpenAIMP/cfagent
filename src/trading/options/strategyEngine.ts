@@ -132,6 +132,7 @@ export interface StrategyRecommendationResult {
 }
 
 import { getStrategyEngineConfig, type EtapiStrategyEngineConfig } from "../../config/etapiConfig";
+import { blackScholesGreeks, probabilityOfProfit } from "../../shared/riskMath";
 
 const baseEngineConfig = getStrategyEngineConfig();
 const DEFAULT_RATE = baseEngineConfig.riskFreeRate;
@@ -273,24 +274,13 @@ function riskProfile(legs: StrategyLeg[], fees: number, underlyingPrice: number,
   };
 }
 
-function normalCdf(value: number): number {
-  const sign = value < 0 ? -1 : 1;
-  const x = Math.abs(value) / Math.sqrt(2);
-  const t = 1 / (1 + 0.3275911 * x);
-  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return 0.5 * (1 + sign * erf);
-}
-
-function terminalPriceCdf(spot: number, underlying: number, dte: number, rate: number, dividend: number, volatility: number): number {
-  if (spot <= 0) return 0;
-  if (!Number.isFinite(spot)) return 1;
-  const time = dte / 365;
-  if (time <= 0 || volatility <= 0) return spot >= underlying ? 1 : 0;
-  const z = (Math.log(spot / underlying) - (rate - dividend - volatility * volatility / 2) * time) / (volatility * Math.sqrt(time));
-  return normalCdf(z);
-}
-
-function impliedProbabilityOfProfit(
+/**
+ * Probability of profit — delegates to the shared segment-integration
+ * method in src/shared/riskMath.ts (issue #38): the client computes the
+ * identical quantity from the identical code, so surfaces cannot diverge.
+ * Exported for the cross-surface consistency test.
+ */
+export function impliedProbabilityOfProfit(
   legs: StrategyLeg[],
   breakEvenPoints: number[],
   underlying: number,
@@ -302,35 +292,22 @@ function impliedProbabilityOfProfit(
   if (dte <= 0) return expiryPnl(legs, underlying, fees, rate, dividend) > 0 ? 1 : 0;
   const optionLegs = legs.filter((leg) => leg.optionType !== "STOCK");
   const volatility = optionLegs.reduce((sum, leg) => sum + leg.impliedVolatility, 0) / Math.max(1, optionLegs.length);
-  const boundaries = [0, ...breakEvenPoints.filter((point) => point > 0), Infinity].sort((a, b) => a - b);
-  let probability = 0;
-  for (let index = 0; index < boundaries.length - 1; index++) {
-    const lower = boundaries[index];
-    const upper = boundaries[index + 1];
-    const testSpot = Number.isFinite(upper)
-      ? (lower + upper) / 2
-      : lower + Math.max(underlying, 1);
-    if (expiryPnl(legs, testSpot, fees, rate, dividend) > 0) {
-      probability += terminalPriceCdf(upper, underlying, dte, rate, dividend, volatility) -
-        terminalPriceCdf(lower, underlying, dte, rate, dividend, volatility);
-    }
-  }
-  return clamp(probability, 0, 1);
+  return probabilityOfProfit({
+    spot: underlying,
+    dteDays: dte,
+    volatility,
+    rate,
+    dividend,
+    breakevens: breakEvenPoints,
+    isProfitAt: (testSpot) => expiryPnl(legs, testSpot, fees, rate, dividend) > 0,
+  });
 }
 
 function blackScholes(leg: StrategyLeg, spot: number, daysToExpiry: number, rate: number, dividend: number, iv: number): number {
   if (daysToExpiry <= 0 || iv <= 0 || spot <= 0) {
     return leg.optionType === "CALL" ? Math.max(spot - leg.strike, 0) : Math.max(leg.strike - spot, 0);
   }
-  const time = daysToExpiry / 365;
-  const volatility = Math.max(0.001, iv);
-  const rootTime = Math.sqrt(time);
-  const d1 = (Math.log(spot / leg.strike) + (rate - dividend + volatility * volatility / 2) * time) / (volatility * rootTime);
-  const d2 = d1 - volatility * rootTime;
-  if (leg.optionType === "CALL") {
-    return spot * Math.exp(-dividend * time) * normalCdf(d1) - leg.strike * Math.exp(-rate * time) * normalCdf(d2);
-  }
-  return leg.strike * Math.exp(-rate * time) * normalCdf(-d2) - spot * Math.exp(-dividend * time) * normalCdf(-d1);
+  return blackScholesGreeks(spot, leg.strike, daysToExpiry / 365, iv, rate, dividend, leg.optionType as "CALL" | "PUT").price;
 }
 
 function modeledPnl(

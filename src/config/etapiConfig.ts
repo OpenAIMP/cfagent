@@ -1,4 +1,5 @@
 import defaultConfig from "../../environment.config.json";
+import { RISK_MATH } from "../shared/riskMath";
 import type { Env } from "../types";
 
 export interface EtapiScreenerConfig {
@@ -196,7 +197,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     atmBandPct: 0.02,
   },
   strategyEngine: {
-    riskFreeRate: 0.04,
+    riskFreeRate: RISK_MATH.riskFreeRate,
     feePerContract: 0.65,
     maxCombinations: 5000,
     detailLimit: 5000,
