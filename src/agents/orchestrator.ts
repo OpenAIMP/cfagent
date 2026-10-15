@@ -12,6 +12,7 @@ import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
+import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
@@ -1064,7 +1065,7 @@ Platform Workflows & UI Navigation Map:
 4. Workflow 4: Visual Multi-Leg Strategy Builder & Payoff Visualizer (Tab: 'trading' | API: /api/options/builder/payoff)
    - Construct custom 1-4 leg positions with interactive payoff curves, breakevens, and net Greeks.
 5. Workflow 5: Portfolio Positions & Account Sync (Tab: 'trading' | API: /api/etrade/positions)
-   - Live position sync with balances and per-position unrealized PnL. Portfolio-level Greeks aggregation and hedging proposals are not implemented (planned, issue #34).
+   - Live position sync with balances and per-position unrealized PnL, plus portfolio-level Greeks aggregation (Delta/Gamma/Theta/Vega, SPY beta-weighted Delta, defined max loss vs NAV) via /api/etrade/portfolio-risk. Hedging proposals are not implemented (planned, issue #54).
 6. Workflow 6: Brokerage Order Execution with HITL Guardrails (Tab: 'trading' | API: /api/etrade/order/preview)
    - Mandatory human approval for every trade. Order drafts are signed with Agent DIDs before confirmation.
 7. Workflow 7: Autonomous Background Execution & Cron (Tab: 'trading' | Durable Objects)
@@ -2921,6 +2922,43 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch positions" }, { status: 500 });
+      }
+    }
+
+    // Portfolio-level risk aggregation (issue #34, gap G1): aggregate Greeks,
+    // SPY beta-weighted Delta, and total defined max loss from open positions.
+    if (path.endsWith("/etrade/portfolio-risk") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const report = await computePortfolioRisk(etrade);
+        return Response.json(report);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to compute portfolio risk" }, { status: 500 });
+      }
+    }
+
+    // Post-trade evaluation (issue #34): current portfolio totals plus a
+    // candidate's Greek contribution, without executing anything.
+    if (path.endsWith("/etrade/portfolio-risk/evaluate") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { candidate?: CandidateGreekContribution };
+        if (!body.candidate) {
+          return Response.json({ error: "candidate Greek contribution is required" }, { status: 400 });
+        }
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const { account, positions } = await etrade.fetchPortfolioRemote(undefined, true);
+        const resolved = await resolvePositionsSnapshot(etrade, positions);
+        const spyChain = await etrade.getOptionChains({ symbol: "SPY" }).catch(() => null);
+        const report = aggregatePortfolioRisk(resolved, {
+          nav: account.netAccountValue || account.totalAccountValue || 0,
+          spyPrice: spyChain?.underlyingPrice ?? null,
+          asOf: new Date().toISOString(),
+        });
+        return Response.json({ current: report, postTradeTotals: evaluatePostTradeTotals(report, body.candidate) });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to evaluate post-trade totals" }, { status: 500 });
       }
     }
 
