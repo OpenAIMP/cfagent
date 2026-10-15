@@ -1277,6 +1277,27 @@
   height: auto;
 }
 
+.strat-discovery-message {
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm, 0.8125rem);
+}
+
+.strat-discovery-message.empty {
+  color: var(--color-text-secondary);
+}
+
+.strat-discovery-message.error {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
 .strat-builder-header-bar {
   display: flex;
   align-items: center;

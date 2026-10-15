@@ -5,6 +5,7 @@ import { ETradeService } from "../src/services/etrade";
 import { AGENT_DIDS } from "../src/agents/did";
 import { McpToolFactory } from "../src/mcp/commands";
 import { DynamicMarketScreener } from "../src/trading/screener";
+import type { TradingOrderLeg } from "../src/trading/interfaces";
 import type { NasdaqStockListing } from "../src/services/nasdaqListings";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { planNLQ, executeNLQQuery } from "../src/agents/nlq";
@@ -835,6 +836,30 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(draft.proposerDid).toBe("did:agent:openaimp:trading");
       expect(draft.authorizerDid).toBe("did:user:github:openaimp");
       expect(draft.previewNotes).toContain("Proposed limit price $43.30 is outside prevailing market collar");
+    });
+
+    it("requires a connected broker preview for option strategies and never falls back to simulated pricing", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Underlying quote must not be requested for an option strategy"));
+      const optionLegs: TradingOrderLeg[] = [
+        { underlyingSymbol: "CRWV", securityType: "OPTN", side: "SELL", quantity: 1, optionType: "PUT", strike: 30, expirationDate: "2026-11-20" },
+        { underlyingSymbol: "CRWV", securityType: "OPTN", side: "BUY", quantity: 1, optionType: "PUT", strike: 25, expirationDate: "2026-11-20" },
+      ];
+      try {
+        await expect(new ETradeService(orm, mockEnv, "openaimp").previewOrderRemote({
+          sessionId: "openaimp",
+          symbol: "CRWV",
+          orderAction: "BUY",
+          quantity: 1,
+          orderType: "LIMIT",
+          limitPrice: 0.75,
+          optionLegs,
+          strategyNetDebit: -75,
+        })).rejects.toThrow(/Connect and authorize E\*TRADE/);
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
 
     it("does not provide a hard-coded default securities universe", async () => {

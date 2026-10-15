@@ -74,6 +74,7 @@ describe("server discovery mapping (issue #29)", () => {
     const fs = require("fs");
     const path = require("path");
     const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
+    const orchestratorCode = fs.readFileSync(path.resolve("src/agents/orchestrator.ts"), "utf8");
 
     // UI must NOT perform client-side fallback discovery processing
     expect(panelCode).not.toContain("function fallbackDiscoverStrategies");
@@ -98,6 +99,20 @@ describe("server discovery mapping (issue #29)", () => {
     // Must make discovery cards selectable
     expect(panelCode).toContain("strat-card strat-discovery-card");
     expect(panelCode).toContain("selectedStrategy?.id === strat.id");
+
+    // Missing/failed server results must be visible; modeled/local candidates
+    // must never be substituted into the live discovery or trade flow.
+    expect(panelCode).toContain("Server options discovery failed.");
+    expect(panelCode).toContain("No strategies matched this sentiment");
+    expect(panelCode).toContain("canTradeBuilderCandidate");
+    expect(panelCode).toContain('discoveryDataSource === "live"');
+    expect(panelCode).toContain('dataTab === "live"');
+
+    // The order-preview endpoint must pass complete option strategies through
+    // to E*TRADE instead of silently degrading them to equity orders.
+    expect(orchestratorCode).toContain("optionLegs: Array.isArray(body.optionLegs) ? body.optionLegs : undefined");
+    expect(orchestratorCode).toContain("strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined");
+    expect(orchestratorCode).toContain("demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled()");
   });
 
   it("verifies backend defaultRegistry has 74 canonical strategies in sync with catalog endpoint", async () => {

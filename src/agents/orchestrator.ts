@@ -2706,6 +2706,8 @@ Agentic Best Practices & Workflow Rules:
           orderType,
           limitPrice,
           stopPrice,
+          optionLegs: Array.isArray(body.optionLegs) ? body.optionLegs : undefined,
+          strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined,
         });
 
         this.audit("etrade.order_previewed", "trading", {
@@ -3770,6 +3772,7 @@ Agentic Best Practices & Workflow Rules:
         total: list.length,
         strategies: list,
         aliases: REQUESTED_STRATEGY_NAMES,
+        demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled(),
       });
     }
 
