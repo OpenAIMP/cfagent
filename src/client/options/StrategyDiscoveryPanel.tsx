@@ -42,15 +42,81 @@ import { SegmentedControl, PillGroup } from "../components/ui";
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
   label: string;
-  circleColor: string;
+  icon: React.ReactNode;
 }> = [
-  { id: "all", label: "ALL", circleColor: "#64748b" },
-  { id: "very_bearish", label: "Very Bearish", circleColor: "#ef4444" },
-  { id: "bearish", label: "Bearish", circleColor: "#f87171" },
-  { id: "neutral", label: "Neutral", circleColor: "#f59e0b" },
-  { id: "directional", label: "High Volatility", circleColor: "#a855f7" },
-  { id: "bullish", label: "Bullish", circleColor: "#22c55e" },
-  { id: "very_bullish", label: "Very Bullish", circleColor: "#10b981" },
+  {
+    id: "all",
+    label: "ALL",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3v18M3 12h18M6.3 6.3l11.4 11.4M6.3 17.7L17.7 6.3" />
+      </svg>
+    ),
+  },
+  {
+    id: "very_bearish",
+    label: "Very Bearish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M19 5l-7 7-7-7" />
+        <path d="M19 12l-7 7-7-7" />
+      </svg>
+    ),
+  },
+  {
+    id: "bearish",
+    label: "Bearish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="7" y1="7" x2="17" y2="17" />
+        <polyline points="17 7 17 17 7 17" />
+      </svg>
+    ),
+  },
+  {
+    id: "neutral",
+    label: "Neutral",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="5" y1="12" x2="19" y2="12" />
+        <polyline points="12 5 19 12 12 19" />
+      </svg>
+    ),
+  },
+  {
+    id: "directional",
+    label: "High Volatility",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="16 3 21 3 21 8" />
+        <line x1="4" y1="20" x2="21" y2="3" />
+        <polyline points="21 16 21 21 16 21" />
+        <line x1="15" y1="15" x2="21" y2="21" />
+        <line x1="4" y1="4" x2="9" y2="9" />
+      </svg>
+    ),
+  },
+  {
+    id: "bullish",
+    label: "Bullish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="7" y1="17" x2="17" y2="7" />
+        <polyline points="7 7 17 7 17 17" />
+      </svg>
+    ),
+  },
+  {
+    id: "very_bullish",
+    label: "Very Bullish",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M5 19l7-7 7 7" />
+        <path d="M5 12l7-7 7 7" />
+      </svg>
+    ),
+  },
 ];
 
 interface StrategyDiscoveryPanelProps {
@@ -1482,8 +1548,34 @@ export function StrategyDiscoveryPanel({
                   </button>
                 </div>
               </form>
+            </div>
 
-              {/* Adjacent Optimization Bias Inline Control */}
+            {/* Controls Row: Side-by-Side Market Sentiment Circular Buttons (Left) & Optimization Bias Panel (Right) */}
+            <div className="strat-discovery-controls-row">
+              {/* Sentiment Selector Group with Circular Icons */}
+              <div className="strat-sentiment-group strat-sentiment-selector" role="radiogroup" aria-label="Market sentiment">
+                {SENTIMENT_ITEMS.map((item) => {
+                  const isActive = sentiment === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
+                      onClick={() => handleSentimentChange(item.id)}
+                      role="radio"
+                      aria-checked={isActive}
+                      title={item.label}
+                    >
+                      <div className="strat-sentiment-circle">
+                        {item.icon}
+                      </div>
+                      <span className="strat-sentiment-label">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Optimization Bias Inline Control Panel */}
               <div className="strat-opt-adjacent-deck" title={optFactors.regimeDescription}>
                 <div className="strat-opt-adjacent-meta">
                   <span className="strat-opt-title">Optimization Bias</span>
@@ -1507,29 +1599,6 @@ export function StrategyDiscoveryPanel({
                   <span className="strat-factor-chip" title="Breakeven Buffer">BE: {optFactors.safetyWeight}%</span>
                   <span className="strat-factor-chip" title="Capital Efficiency">Eff: {optFactors.capitalWeight}%</span>
                 </div>
-              </div>
-            </div>
-
-            {/* Second Row: Sentiment Segmented Bar with Colored Circles */}
-            <div className="strat-sentiment-row">
-              <div className="strat-sentiment-segmented-bar" role="radiogroup" aria-label="Market sentiment">
-                {SENTIMENT_ITEMS.map((item) => {
-                  const isActive = sentiment === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`strat-sentiment-pill ${item.id} ${isActive ? "active" : ""}`}
-                      onClick={() => handleSentimentChange(item.id)}
-                      role="radio"
-                      aria-checked={isActive}
-                      title={item.label}
-                    >
-                      <span className="strat-sentiment-circle" style={{ backgroundColor: item.circleColor }} />
-                      <span className="strat-sentiment-label">{item.label}</span>
-                    </button>
-                  );
-                })}
               </div>
             </div>
 

@@ -248,6 +248,38 @@ body.theme-dark,
   --color-info-foreground: #060913;
   --color-info-subtle: rgba(56, 189, 248, 0.14);
 
+  /* Market Sentiment Roles (Canonical Token Architecture - Dark Theme) */
+  --color-sentiment-all: #38bdf8;
+  --color-sentiment-all-subtle: rgba(56, 189, 248, 0.15);
+  --color-sentiment-all-border: rgba(56, 189, 248, 0.4);
+
+  --color-sentiment-very-bearish: #ef4444;
+  --color-sentiment-very-bearish-subtle: rgba(239, 68, 68, 0.18);
+  --color-sentiment-very-bearish-border: rgba(239, 68, 68, 0.45);
+
+  --color-sentiment-bearish: #f87171;
+  --color-sentiment-bearish-subtle: rgba(248, 113, 113, 0.16);
+  --color-sentiment-bearish-border: rgba(248, 113, 113, 0.4);
+
+  --color-sentiment-neutral: #cbd5e1;
+  --color-sentiment-neutral-subtle: rgba(148, 163, 184, 0.16);
+  --color-sentiment-neutral-border: rgba(148, 163, 184, 0.4);
+
+  --color-sentiment-directional: #c084fc;
+  --color-sentiment-directional-subtle: rgba(192, 132, 252, 0.16);
+  --color-sentiment-directional-border: rgba(192, 132, 252, 0.4);
+
+  --color-sentiment-bullish: #4ade80;
+  --color-sentiment-bullish-subtle: rgba(74, 222, 128, 0.16);
+  --color-sentiment-bullish-border: rgba(74, 222, 128, 0.4);
+
+  --color-sentiment-very-bullish: #10b981;
+  --color-sentiment-very-bullish-subtle: rgba(16, 185, 129, 0.18);
+  --color-sentiment-very-bullish-border: rgba(16, 185, 129, 0.45);
+
+  --color-bullish: var(--color-sentiment-bullish);
+  --color-bearish: var(--color-sentiment-bearish);
+
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
@@ -332,6 +364,38 @@ body.theme-light,
   --color-info: #0284c7;
   --color-info-foreground: #ffffff;
   --color-info-subtle: rgba(2, 132, 199, 0.12);
+
+  /* Market Sentiment Roles (Canonical Token Architecture - Light Theme) */
+  --color-sentiment-all: #0284c7;
+  --color-sentiment-all-subtle: rgba(2, 132, 199, 0.12);
+  --color-sentiment-all-border: rgba(2, 132, 199, 0.35);
+
+  --color-sentiment-very-bearish: #dc2626;
+  --color-sentiment-very-bearish-subtle: rgba(220, 38, 38, 0.12);
+  --color-sentiment-very-bearish-border: rgba(220, 38, 38, 0.35);
+
+  --color-sentiment-bearish: #e11d48;
+  --color-sentiment-bearish-subtle: rgba(225, 29, 72, 0.1);
+  --color-sentiment-bearish-border: rgba(225, 29, 72, 0.35);
+
+  --color-sentiment-neutral: #475569;
+  --color-sentiment-neutral-subtle: rgba(71, 85, 105, 0.1);
+  --color-sentiment-neutral-border: rgba(71, 85, 105, 0.3);
+
+  --color-sentiment-directional: #7e22ce;
+  --color-sentiment-directional-subtle: rgba(126, 34, 206, 0.1);
+  --color-sentiment-directional-border: rgba(126, 34, 206, 0.35);
+
+  --color-sentiment-bullish: #16a34a;
+  --color-sentiment-bullish-subtle: rgba(22, 163, 74, 0.1);
+  --color-sentiment-bullish-border: rgba(22, 163, 74, 0.35);
+
+  --color-sentiment-very-bullish: #059669;
+  --color-sentiment-very-bullish-subtle: rgba(5, 150, 105, 0.12);
+  --color-sentiment-very-bullish-border: rgba(5, 150, 105, 0.35);
+
+  --color-bullish: var(--color-sentiment-bullish);
+  --color-bearish: var(--color-sentiment-bearish);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
