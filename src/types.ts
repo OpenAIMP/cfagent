@@ -495,6 +495,9 @@ export interface OptionScreenResult {
   filterSummary: string;
   contracts: ScreenedOptionContractItem[];
   scannedAt: string;
+  /** Provenance of the contracts (issue #65): "live" broker data, or
+   *  "calibrated-demo" generated chains served only in demo mode. */
+  dataSource?: "live" | "calibrated-demo";
   quoteQuality?: {
     maxAgeSeconds?: number;
     /** Age threshold (seconds) used for FRESH/STALE labels; equals maxAgeSeconds when set, else the default reference. */

@@ -22,6 +22,10 @@ export interface StrategyRequest {
    *  0 = max return, 50 = balanced, 100 = max chance. Converted to score
    *  weights by resolveScoreWeights; absent = balanced defaults. */
   optimizationBias?: number;
+  /** Data provenance for the run (issue #65): "live" (default) serves broker
+   *  chains only; "calibrated-demo" explicitly requests generated chains and
+   *  is honored only when the dev/demo gate is enabled. */
+  dataMode?: "live" | "calibrated-demo";
   minDte?: number;
   maxDte?: number;
     minVolume?: number; // User-visible option-screen thresholds

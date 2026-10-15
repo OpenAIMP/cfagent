@@ -30,6 +30,7 @@ import {
 } from "../trading/options";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
+import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading/options/strategies/catalog";
@@ -3760,6 +3761,8 @@ Agentic Best Practices & Workflow Rules:
           screen: result.snapshot.screen,
           contracts: result.snapshot.contracts,
           contractRejections: result.snapshot.rejections,
+          dataSource: result.snapshot.dataSource,
+          snapshotError: result.snapshot.validationError,
         };
         if (path.endsWith("/best-trade")) {
           return Response.json({ bestTrade: result.bestTrade, evaluations: result.strategies.evaluations, nameLedger: result.strategies.nameLedger, ...common });
@@ -3813,20 +3816,24 @@ Agentic Best Practices & Workflow Rules:
         const screener = new DynamicOptionsScreener(etrade.client);
         let result = await screener.screenOptions(filter);
 
-        // Resilient Fallback: If live E*TRADE chains returned 0 contracts (e.g. unauthenticated OAuth session in PROD/TEST),
-        // fallback to live market calibrated option chains so valid contracts are returned for explicit symbols
-        if (result.contracts.length === 0 && filter.underlyingSymbols && filter.underlyingSymbols.length > 0 && filter.underlyingSymbols[0] !== "BROKEN") {
+        // Demo-mode fallback (issue #65): generated chains may substitute for an
+        // empty live screen ONLY in dev/demo deployments with the gate enabled,
+        // and the result is stamped dataSource "calibrated-demo". Production is
+        // live-only: an empty live screen returns empty, with its fetch errors.
+        if (result.contracts.length === 0 && isDemoCalibratedChainsEnabled() && filter.underlyingSymbols && filter.underlyingSymbols.length > 0 && filter.underlyingSymbols[0] !== "BROKEN") {
           const fallbackChains = buildCalibratedOptionChains(filter.underlyingSymbols, filter.minDte ?? 0, filter.maxDte ?? 90);
           if (fallbackChains.length > 0) {
             const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
             const fallbackResult = screener.evaluateChains(chainItems, filter, filter.underlyingSymbols.length, {
-              warnings: ["Live E*TRADE OAuth session unauthenticated in PROD; streaming live market calibrated option chains."],
+              warnings: ["Calibrated demo chains — generated data for development/demo, not live market data."],
             });
             if (fallbackResult.contracts.length > 0) {
+              fallbackResult.dataSource = "calibrated-demo";
               result = fallbackResult;
             }
           }
         }
+        if (result.dataSource === undefined) result.dataSource = "live";
 
         return Response.json(result);
       } catch (err) {
