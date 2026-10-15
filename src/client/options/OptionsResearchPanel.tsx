@@ -1421,7 +1421,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             <span>{result.modelVersion} · {new Date(result.generatedAt).toLocaleString()}</span>
           </div>
           <div className="options-score-policy">
-            Score weights: thesis {result.scoreWeights.thesisAlignment * 100}% · target R/R {result.scoreWeights.targetRewardRisk * 100}% · liquidity {result.scoreWeights.liquidity * 100}% · IV {result.scoreWeights.volatilityAlignment * 100}% · theta {result.scoreWeights.thetaBurden * 100}% · freshness {result.scoreWeights.freshness * 100}% · POP {result.scoreWeights.popAlignment * 100}% · cushion {result.scoreWeights.cushion * 100}% · capital eff. {result.scoreWeights.capitalEfficiency * 100}%
+            Score weights: thesis {Math.round(result.scoreWeights.thesisAlignment * 100)}% · target R/R {Math.round(result.scoreWeights.targetRewardRisk * 100)}% · liquidity {Math.round(result.scoreWeights.liquidity * 100)}% · IV {Math.round(result.scoreWeights.volatilityAlignment * 100)}% · theta {Math.round(result.scoreWeights.thetaBurden * 100)}% · freshness {Math.round(result.scoreWeights.freshness * 100)}% · POP {Math.round(result.scoreWeights.popAlignment * 100)}% · cushion {Math.round(result.scoreWeights.cushion * 100)}% · capital eff. {Math.round(result.scoreWeights.capitalEfficiency * 100)}%
           </div>
           {(screenMeta?.quoteQuality?.staleContractsReturned > 0 || screenMeta?.quoteQuality?.unknownFreshnessContracts > 0) && (
             <div className="options-stale-banner" role="alert">
