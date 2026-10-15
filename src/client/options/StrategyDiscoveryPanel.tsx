@@ -1577,27 +1577,29 @@ export function StrategyDiscoveryPanel({
 
               {/* Optimization Bias Inline Control Panel */}
               <div className="strat-opt-adjacent-deck" title={optFactors.regimeDescription}>
-                <div className="strat-opt-adjacent-meta">
-                  <span className="strat-opt-title">Optimization Bias</span>
-                  <span className="strat-opt-regime-badge">{optFactors.regime}</span>
+                <div className="strat-opt-deck-top">
+                  <div className="strat-opt-adjacent-meta">
+                    <span className="strat-opt-title">Optimization Bias</span>
+                    <span className="strat-opt-regime-badge">{optFactors.regime}</span>
+                  </div>
+                  <div className="strat-opt-adjacent-slider-wrap">
+                    <span className="strat-opt-bound">← Return</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={optimizationBias}
+                      onChange={(e) => setOptimizationBias(Number(e.target.value))}
+                      aria-label="Optimization bias slider"
+                    />
+                    <span className="strat-opt-bound">Chance →</span>
+                  </div>
                 </div>
-                <div className="strat-opt-adjacent-slider-wrap">
-                  <span className="strat-opt-bound">← Return</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={optimizationBias}
-                    onChange={(e) => setOptimizationBias(Number(e.target.value))}
-                    aria-label="Optimization bias slider"
-                  />
-                  <span className="strat-opt-bound">Chance →</span>
-                </div>
-                <div className="strat-opt-adjacent-factors">
-                  <span className="strat-factor-chip" title="Target Return Weight">Ret: {optFactors.returnWeight}%</span>
-                  <span className="strat-factor-chip" title="Win Probability (POP)">Win: {optFactors.chanceWeight}%</span>
-                  <span className="strat-factor-chip" title="Breakeven Buffer">BE: {optFactors.safetyWeight}%</span>
-                  <span className="strat-factor-chip" title="Capital Efficiency">Eff: {optFactors.capitalWeight}%</span>
+                <div className="strat-opt-deck-bottom strat-opt-adjacent-factors">
+                  <span className="strat-factor-chip return" title="Target Return Weight">Ret: {optFactors.returnWeight}%</span>
+                  <span className="strat-factor-chip chance" title="Win Probability (POP)">Win: {optFactors.chanceWeight}%</span>
+                  <span className="strat-factor-chip safety" title="Breakeven Buffer">BE: {optFactors.safetyWeight}%</span>
+                  <span className="strat-factor-chip capital" title="Capital Efficiency">Eff: {optFactors.capitalWeight}%</span>
                 </div>
               </div>
             </div>

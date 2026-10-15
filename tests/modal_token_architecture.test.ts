@@ -133,5 +133,18 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
       expect(stratCss).toContain('[data-theme="light"] .strat-btn-action.risk-btn');
       expect(stratCss).toContain('[data-theme="light"] .options-download-main-btn');
     });
+
+    it("structures Optimization Bias on top and percentages below it adjacent to sentiment icons", () => {
+      const panelTsx = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
+      expect(panelTsx).toContain('className="strat-discovery-controls-row"');
+      expect(panelTsx).toContain('className="strat-opt-deck-top"');
+      expect(panelTsx).toContain('className="strat-opt-deck-bottom strat-opt-adjacent-factors"');
+      expect(stratCss).toContain(".strat-opt-adjacent-deck");
+      expect(stratCss).toContain("flex-direction: column");
+      expect(stratCss).toContain(".strat-opt-deck-top");
+      expect(stratCss).toContain(".strat-opt-deck-bottom");
+      expect(tokensCss).toContain('[data-theme="light"] .strat-opt-adjacent-deck');
+      expect(tokensCss).toContain('[data-theme="light"] .strat-opt-adjacent-factors .strat-factor-chip');
+    });
   });
 });
