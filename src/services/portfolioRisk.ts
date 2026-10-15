@@ -16,14 +16,21 @@
  *    NEVER silently zeroed. It is listed in `excluded` (contributes nothing)
  *    or `partial` (contributes what is known), and totals that depend on
  *    missing inputs say so via coverage counts.
- *  - Beta source: the in-repo FOSS market universe (static per-symbol betas).
- *    Symbols outside that universe have unknown beta until a live beta source
- *    is wired in; they are flagged, not assumed to be 1.0.
+ *  - Beta: computed from live price history (daily-return regression vs SPY,
+ *    trailing 252 sessions) via betaService, provenance-stamped per position.
+ *    The static universe table is only a marked fallback when live history
+ *    cannot be fetched; symbols with neither are flagged, never assumed 1.0.
+ *  - Greeks: the full displayed set — Delta, Gamma, Theta, Vega, Rho — from
+ *    the broker chain payload. A contract missing any of them is excluded
+ *    with the missing Greeks named; nothing is zero-filled.
  */
 
 import type { ETradeOptionChain, ETradePosition } from "../types";
 import type { ETradeService } from "./etrade";
-import { FOSS_MARKET_UNIVERSE } from "./fossResearch";
+import { sharedBetaService, type BetaResolution, type BetaSource } from "./betaService";
+
+export { staticBetaFor as betaForSymbol } from "./betaService";
+export type { BetaResolution, BetaSource } from "./betaService";
 
 /** Standard equity-options contract multiplier (shares per contract). */
 export const OPTION_CONTRACT_MULTIPLIER = 100;
@@ -47,11 +54,15 @@ export interface ResolvedPosition {
   signedQuantity: number;
   /** Per-share reference price: market price for equities, underlying spot for options. */
   referencePrice: number;
-  /** Per-share Greeks; equities use delta 1 and zero theta/vega/gamma. Null when unresolvable. */
-  greeks: { delta: number; gamma: number; theta: number; vega: number } | null;
+  /** Per-share Greeks (full displayed set); equities use delta 1, others 0. Null when unresolvable. */
+  greeks: { delta: number; gamma: number; theta: number; vega: number; rho: number } | null;
   greeksMissingReason?: string;
   /** Underlying beta (the symbol's own beta for equities). Null when unknown. */
   beta: number | null;
+  /** How the beta was obtained — a live risk number must show its provenance. */
+  betaSource: BetaSource;
+  /** Aligned return observations behind a computed beta (0 otherwise). */
+  betaObservations: number;
 }
 
 export interface PositionRiskRow {
@@ -67,9 +78,12 @@ export interface PositionRiskRow {
   /** Change in delta (shares) per $1 move in the underlying. */
   gammaSharesPerDollar: number | null;
   thetaDollarsPerDay: number | null;
-  /** P&L change per +1.00 (100%) move in implied volatility is NOT used;
-   *  this is per +0.01 (one vol point), the industry convention. */
+  /** P&L change per +0.01 (one vol point) move in implied volatility. */
   vegaDollarsPerVolPoint: number | null;
+  /** P&L change per +1% move in interest rates (the panels' "/1%" convention). */
+  rhoDollarsPerRatePoint: number | null;
+  beta: number | null;
+  betaSource: BetaSource;
   /** Standalone defined max loss in dollars; null when not defined (see undefinedRiskPositions). */
   definedMaxLoss: number | null;
 }
@@ -83,11 +97,13 @@ export interface PortfolioRiskTotals {
   gammaSharesPerDollar: number;
   thetaDollarsPerDay: number;
   vegaDollarsPerVolPoint: number;
+  rhoDollarsPerRatePoint: number;
   /** Sum over positions whose standalone max loss is defined. */
   definedMaxLoss: number;
   definedMaxLossPctOfNav: number | null;
-  /** Positions whose beta is known / total positions contributing delta. */
-  betaCoverage: { covered: number; total: number };
+  /** Positions whose beta is known / total positions contributing delta,
+   *  split by provenance so a static fallback is never passed off as live. */
+  betaCoverage: { covered: number; total: number; computedLive: number; staticFallback: number };
 }
 
 export interface PortfolioRiskReport {
@@ -129,6 +145,9 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
   let betaWeightedDeltaDollars = 0;
   let betaCovered = 0;
   let betaTotal = 0;
+  let betaComputedLive = 0;
+  let betaStaticFallback = 0;
+  let rhoDollarsPerRatePoint = 0;
 
   for (const r of resolved) {
     const { position, kind, signedQuantity } = r;
@@ -145,12 +164,14 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
     const rowGamma = signedQuantity * multiplier * r.greeks.gamma;
     const rowTheta = signedQuantity * multiplier * r.greeks.theta;
     const rowVega = signedQuantity * multiplier * r.greeks.vega * 0.01;
+    const rowRho = signedQuantity * multiplier * r.greeks.rho * 0.01;
 
     deltaShares += rowDeltaShares;
     deltaDollars += rowDeltaDollars;
     gammaSharesPerDollar += rowGamma;
     thetaDollarsPerDay += rowTheta;
     vegaDollarsPerVolPoint += rowVega;
+    rhoDollarsPerRatePoint += rowRho;
     betaTotal += 1;
 
     let rowBetaWeighted: number | null = null;
@@ -159,6 +180,8 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
       rowBetaWeighted = rowDeltaDollars * r.beta;
       betaWeightedDeltaDollars += rowBetaWeighted;
       betaCovered += 1;
+      if (r.betaSource === "computed-live") betaComputedLive += 1;
+      if (r.betaSource === "static-fallback") betaStaticFallback += 1;
       if (opts.spyPrice && opts.spyPrice > 0) {
         rowSpyShares = rowBetaWeighted / opts.spyPrice;
       }
@@ -194,6 +217,9 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
       gammaSharesPerDollar: round2(rowGamma),
       thetaDollarsPerDay: round2(rowTheta),
       vegaDollarsPerVolPoint: round2(rowVega),
+      rhoDollarsPerRatePoint: round2(rowRho),
+      beta: r.beta,
+      betaSource: r.betaSource,
       definedMaxLoss: rowDefinedMaxLoss === null ? null : round2(rowDefinedMaxLoss),
     });
   }
@@ -212,9 +238,10 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
       gammaSharesPerDollar: round2(gammaSharesPerDollar),
       thetaDollarsPerDay: round2(thetaDollarsPerDay),
       vegaDollarsPerVolPoint: round2(vegaDollarsPerVolPoint),
+      rhoDollarsPerRatePoint: round2(rhoDollarsPerRatePoint),
       definedMaxLoss: round2(definedMaxLoss),
       definedMaxLossPctOfNav: opts.nav > 0 ? round2((definedMaxLoss / opts.nav) * 100) : null,
-      betaCoverage: { covered: betaCovered, total: betaTotal },
+      betaCoverage: { covered: betaCovered, total: betaTotal, computedLive: betaComputedLive, staticFallback: betaStaticFallback },
     },
     rows,
     excluded,
@@ -231,6 +258,7 @@ export interface CandidateGreekContribution {
   gammaSharesPerDollar: number;
   thetaDollarsPerDay: number;
   vegaDollarsPerVolPoint: number;
+  rhoDollarsPerRatePoint: number;
   /** Candidate's own defined max loss (0 when unknown/not applicable). */
   definedMaxLoss: number;
 }
@@ -259,6 +287,7 @@ export function evaluatePostTradeTotals(
     gammaSharesPerDollar: round2(t.gammaSharesPerDollar + candidate.gammaSharesPerDollar),
     thetaDollarsPerDay: round2(t.thetaDollarsPerDay + candidate.thetaDollarsPerDay),
     vegaDollarsPerVolPoint: round2(t.vegaDollarsPerVolPoint + candidate.vegaDollarsPerVolPoint),
+    rhoDollarsPerRatePoint: round2(t.rhoDollarsPerRatePoint + candidate.rhoDollarsPerRatePoint),
     definedMaxLoss,
     definedMaxLossPctOfNav: report.nav > 0 ? round2((definedMaxLoss / report.nav) * 100) : null,
     betaCoverage: t.betaCoverage,
@@ -269,40 +298,48 @@ export function evaluatePostTradeTotals(
 // Snapshot resolution (I/O): positions + live chains + beta table → resolved
 // ---------------------------------------------------------------------------
 
-export function betaForSymbol(symbol: string): number | null {
-  const profile = FOSS_MARKET_UNIVERSE[symbol.toUpperCase()];
-  return profile && typeof profile.beta === "number" ? profile.beta : null;
-}
+type ContractLookup =
+  | { status: "ok"; greeks: { delta: number; gamma: number; theta: number; vega: number; rho: number }; underlyingPrice: number }
+  | { status: "incomplete"; missing: string[] }
+  | { status: "not-found" };
 
-function findContractGreeks(
-  chain: ETradeOptionChain,
-  position: ETradePosition,
-): { delta: number; gamma: number; theta: number; vega: number; underlyingPrice: number } | null {
+const REQUIRED_GREEKS = ["delta", "gamma", "theta", "vega", "rho"] as const;
+
+function findContract(chain: ETradeOptionChain, position: ETradePosition): ContractLookup {
   for (const pair of chain.pairs) {
     const contract = position.optionType === "CALL" ? pair.call : pair.put;
     if (!contract) continue;
     if (Math.abs(contract.strikePrice - (position.strikePrice ?? NaN)) > 0.001) continue;
-    if (contract.delta === undefined || contract.theta === undefined || contract.vega === undefined) return null;
+    const missing = REQUIRED_GREEKS.filter((g) => contract[g] === undefined);
+    if (missing.length > 0) return { status: "incomplete", missing: [...missing] };
     return {
-      delta: contract.delta,
-      gamma: contract.gamma ?? 0,
-      theta: contract.theta,
-      vega: contract.vega,
+      status: "ok",
+      greeks: {
+        delta: contract.delta!,
+        gamma: contract.gamma!,
+        theta: contract.theta!,
+        vega: contract.vega!,
+        rho: contract.rho!,
+      },
       underlyingPrice: chain.underlyingPrice,
     };
   }
-  return null;
+  return { status: "not-found" };
 }
+
+export type BetaResolver = (symbol: string) => Promise<BetaResolution>;
 
 /**
  * Resolves a broker positions snapshot into aggregator inputs using live
- * E*TRADE chains for held option contracts. Positions that cannot be
- * resolved come back with greeks: null and a named reason — the aggregator
- * lists them under `excluded` rather than treating them as zero risk.
+ * E*TRADE chains for held option contracts and dynamically computed betas
+ * (betaService). Positions that cannot be resolved come back with
+ * greeks: null and a named reason — the aggregator lists them under
+ * `excluded` rather than treating them as zero risk.
  */
 export async function resolvePositionsSnapshot(
   etrade: ETradeService,
   positions: ETradePosition[],
+  betaResolver: BetaResolver = (symbol) => sharedBetaService.resolve(symbol),
 ): Promise<ResolvedPosition[]> {
   const chainCache = new Map<string, Promise<ETradeOptionChain | null>>();
   const chainFor = (symbol: string, expirationDate: string): Promise<ETradeOptionChain | null> => {
@@ -314,18 +351,30 @@ export async function resolvePositionsSnapshot(
     return chainCache.get(key)!;
   };
 
+  // Resolve each distinct symbol's beta once, in parallel.
+  const betaBySymbol = new Map<string, BetaResolution>();
+  await Promise.all(
+    [...new Set(positions.map((p) => p.symbol.toUpperCase()))].map(async (symbol) => {
+      betaBySymbol.set(symbol, await betaResolver(symbol).catch(() => ({ beta: null, source: "unavailable" as const, observations: 0, asOf: new Date().toISOString() })));
+    }),
+  );
+  const betaFields = (symbol: string): { beta: number | null; betaSource: BetaSource; betaObservations: number } => {
+    const r = betaBySymbol.get(symbol.toUpperCase());
+    return { beta: r?.beta ?? null, betaSource: r?.source ?? "unavailable", betaObservations: r?.observations ?? 0 };
+  };
+
   const resolved: ResolvedPosition[] = [];
   for (const position of positions) {
     const signedQuantity = signedQuantityOf(position);
-    const beta = betaForSymbol(position.symbol);
+    const beta = betaFields(position.symbol);
     if (!isOptionPosition(position)) {
       resolved.push({
         position,
         kind: "equity",
         signedQuantity,
         referencePrice: position.marketPrice || position.currentPrice || 0,
-        greeks: { delta: 1, gamma: 0, theta: 0, vega: 0 },
-        beta,
+        greeks: { delta: 1, gamma: 0, theta: 0, vega: 0, rho: 0 },
+        ...beta,
       });
       continue;
     }
@@ -337,21 +386,24 @@ export async function resolvePositionsSnapshot(
         referencePrice: 0,
         greeks: null,
         greeksMissingReason: "Option position without contract detail (strike/expiry/type not reported by the source payload)",
-        beta,
+        ...beta,
       });
       continue;
     }
     const chain = await chainFor(position.symbol, position.expirationDate).catch(() => null);
-    const contractGreeks = chain ? findContractGreeks(chain, position) : null;
-    if (!contractGreeks) {
+    const lookup = chain ? findContract(chain, position) : ({ status: "not-found" } as const);
+    if (lookup.status !== "ok") {
       resolved.push({
         position,
         kind: "option",
         signedQuantity,
         referencePrice: 0,
         greeks: null,
-        greeksMissingReason: `No live chain Greeks for ${position.symbol} ${position.expirationDate} ${position.strikePrice} ${position.optionType}`,
-        beta,
+        greeksMissingReason:
+          lookup.status === "incomplete"
+            ? `Chain Greeks incomplete for ${position.symbol} ${position.expirationDate} ${position.strikePrice} ${position.optionType} (missing: ${lookup.missing.join(", ")}) — excluded rather than zero-filled`
+            : `No live chain contract for ${position.symbol} ${position.expirationDate} ${position.strikePrice} ${position.optionType}`,
+        ...beta,
       });
       continue;
     }
@@ -359,14 +411,9 @@ export async function resolvePositionsSnapshot(
       position,
       kind: "option",
       signedQuantity,
-      referencePrice: contractGreeks.underlyingPrice,
-      greeks: {
-        delta: contractGreeks.delta,
-        gamma: contractGreeks.gamma,
-        theta: contractGreeks.theta,
-        vega: contractGreeks.vega,
-      },
-      beta,
+      referencePrice: lookup.underlyingPrice,
+      greeks: lookup.greeks,
+      ...beta,
     });
   }
   return resolved;

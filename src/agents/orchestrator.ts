@@ -1065,7 +1065,7 @@ Platform Workflows & UI Navigation Map:
 4. Workflow 4: Visual Multi-Leg Strategy Builder & Payoff Visualizer (Tab: 'trading' | API: /api/options/builder/payoff)
    - Construct custom 1-4 leg positions with interactive payoff curves, breakevens, and net Greeks.
 5. Workflow 5: Portfolio Positions & Account Sync (Tab: 'trading' | API: /api/etrade/positions)
-   - Live position sync with balances and per-position unrealized PnL, plus portfolio-level Greeks aggregation (Delta/Gamma/Theta/Vega, SPY beta-weighted Delta, defined max loss vs NAV) via /api/etrade/portfolio-risk. Hedging proposals are not implemented (planned, issue #54).
+   - Live position sync with balances and per-position unrealized PnL, plus portfolio-level Greeks aggregation (Delta/Gamma/Theta/Vega/Rho, SPY beta-weighted Delta with betas computed from live price history, defined max loss vs NAV) via /api/etrade/portfolio-risk. Hedging proposals are not implemented (planned, issue #54).
 6. Workflow 6: Brokerage Order Execution with HITL Guardrails (Tab: 'trading' | API: /api/etrade/order/preview)
    - Mandatory human approval for every trade. Order drafts are signed with Agent DIDs before confirmation.
 7. Workflow 7: Autonomous Background Execution & Cron (Tab: 'trading' | Durable Objects)
