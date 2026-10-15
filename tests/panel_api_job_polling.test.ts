@@ -72,3 +72,18 @@ describe("panel API clients vs the async-job flow (issue #71)", () => {
     await expect(fetchPortfolioRisk("TEST")).rejects.toThrow(/response shape/);
   });
 });
+
+describe("alert timestamp normalization (issue #71 follow-up)", () => {
+  it("converts epoch seconds to milliseconds and leaves ms untouched", async () => {
+    const { normalizeEpochMs } = await import("../src/client/accountApi");
+    expect(normalizeEpochMs(1771176000)).toBe(1771176000000);
+    expect(normalizeEpochMs(1771176000000)).toBe(1771176000000);
+    expect(normalizeEpochMs(0)).toBe(0);
+  });
+
+  it("fetchAlerts normalizes createTime from the job payload", async () => {
+    stubJobFlow(JSON.stringify({ count: 1, alerts: [{ id: 9, subject: "S", status: "UNREAD", createTime: 1771176000 }] }));
+    const data = await fetchAlerts("TEST");
+    expect(data.alerts[0].createTime).toBe(1771176000000);
+  });
+});
