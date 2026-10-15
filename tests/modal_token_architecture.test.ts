@@ -87,4 +87,41 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
       expect(tradingHub).toContain('className="diag-modal-actions"');
     });
   });
+
+  describe("Section 7: Strategy Discovery & Payoff Analyzer Top Buttons Token Architecture", () => {
+    const stratCss = fs.readFileSync(path.resolve("src/client/options/strategyDiscovery.css"), "utf8");
+
+    it("standardizes top button heights, typography, and border radius across both rows", () => {
+      expect(tokensCss).toContain(".strat-view-tab-btn");
+      expect(tokensCss).toContain(".strat-action-chip");
+      expect(tokensCss).toContain(".strat-btn-action");
+      expect(tokensCss).toContain(".options-download-main-btn");
+      expect(tokensCss).toContain("height: 32px");
+      expect(tokensCss).toContain("min-height: 32px");
+      expect(tokensCss).toContain("border-radius: var(--radius-sm, 6px)");
+    });
+
+    it("ensures the trade button is vibrant and high-contrast in light mode", () => {
+      expect(tokensCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
+      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
+      expect(stylesCss).toContain('[data-theme="light"] .strat-action-chip.trade-fast');
+      expect(stratCss).toContain("background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important");
+      expect(stratCss).toContain("color: #ffffff !important");
+    });
+
+    it("uses semantic border tokens instead of text-color tokens in light theme", () => {
+      // In light theme, borders must use border tokens, not text tokens
+      expect(stratCss).toContain('[data-theme="light"] .strat-view-tabs');
+      expect(stratCss).toContain("border-bottom-color: var(--color-border-subtle)");
+      expect(stratCss).not.toContain('[data-theme="light"] .strat-view-tabs,\nbody.theme-light .strat-view-tabs {\n  border-bottom-color: var(--color-text-secondary);');
+    });
+
+    it("provides explicit light mode high-contrast styles for secondary actions", () => {
+      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.highlight');
+      expect(stratCss).toContain('[data-theme="light"] .strat-action-chip.save');
+      expect(stratCss).toContain('[data-theme="light"] .strat-btn-action.eval-llm');
+      expect(stratCss).toContain('[data-theme="light"] .strat-btn-action.risk-btn');
+      expect(stratCss).toContain('[data-theme="light"] .options-download-main-btn');
+    });
+  });
 });
