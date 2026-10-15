@@ -43,8 +43,10 @@ function resolved(partial: Partial<ResolvedPosition>): ResolvedPosition {
     kind: "equity",
     signedQuantity: 100,
     referencePrice: 200,
-    greeks: { delta: 1, gamma: 0, theta: 0, vega: 0 },
+    greeks: { delta: 1, gamma: 0, theta: 0, vega: 0, rho: 0 },
     beta: 1.2,
+    betaSource: "computed-live" as const,
+    betaObservations: 252,
     ...partial,
   };
 }
@@ -70,7 +72,8 @@ describe("aggregatePortfolioRisk", () => {
         securityType: "OPTN", optionType: "CALL", strikePrice: 850, expirationDate: "2026-11-20",
       }),
       kind: "option", signedQuantity: 2, referencePrice: 800,
-      greeks: { delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12 }, beta: 1.68,
+      greeks: { delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12, rho: 0.03 }, beta: 1.68,
+      betaSource: "static-fallback" as const, betaObservations: 0,
     }),
     // Short 1 SPY put, delta -.3, spot 500, beta 1.0 → delta +30 sh; undefined standalone risk
     resolved({
@@ -80,12 +83,13 @@ describe("aggregatePortfolioRisk", () => {
         positionType: "SHORT",
       }),
       kind: "option", signedQuantity: -1, referencePrice: 500,
-      greeks: { delta: -0.3, gamma: 0.01, theta: -0.04, vega: 0.09 }, beta: 1.0,
+      greeks: { delta: -0.3, gamma: 0.01, theta: -0.04, vega: 0.09, rho: -0.02 }, beta: 1.0,
     }),
     // Long 50 XYZ equity, beta unknown → raw delta counts, beta-weighted does not
     resolved({
       position: equityPosition({ symbol: "XYZ", quantity: 50, marketPrice: 40, marketValue: 2000 }),
       signedQuantity: 50, referencePrice: 40, beta: null,
+      betaSource: "unavailable" as const, betaObservations: 0,
     }),
     // Option whose chain Greeks could not be resolved → excluded, named
     resolved({
@@ -119,7 +123,9 @@ describe("aggregatePortfolioRisk", () => {
     // BW dollars: 20,000*1.2 + 80,000*1.68 + 15,000*1.0 = 24,000 + 134,400 + 15,000
     expect(report.totals.betaWeightedDeltaDollars).toBe(173400);
     expect(report.totals.betaWeightedSpyShares).toBe(346.8);
-    expect(report.totals.betaCoverage).toEqual({ covered: 3, total: 4 });
+    expect(report.totals.betaCoverage).toEqual({ covered: 3, total: 4, computedLive: 2, staticFallback: 1 });
+    // rho per +1% rates: (2*100*0.03*0.01) + (-1*100*-0.02*0.01) = 0.06 + 0.02
+    expect(report.totals.rhoDollarsPerRatePoint).toBe(0.08);
     expect(report.partial.map((p) => p.symbol)).toEqual(["XYZ"]);
     expect(report.excluded.map((e) => e.symbol)).toEqual(["TSLA"]);
     expect(report.excluded[0].reason).toContain("No live chain Greeks");
@@ -143,11 +149,13 @@ describe("evaluatePostTradeTotals", () => {
     const post = evaluatePostTradeTotals(report, {
       deltaShares: 50, deltaDollars: 10000, betaWeightedDeltaDollars: 12000,
       gammaSharesPerDollar: 1, thetaDollarsPerDay: -2, vegaDollarsPerVolPoint: 0.1,
+      rhoDollarsPerRatePoint: 0.05,
       definedMaxLoss: 3000,
     });
     expect(post.deltaShares).toBe(150);
     expect(post.deltaDollars).toBe(30000);
     expect(post.betaWeightedDeltaDollars).toBe(36000);
+    expect(post.rhoDollarsPerRatePoint).toBe(0.05);
     expect(post.definedMaxLoss).toBe(23000);
   });
 
@@ -155,7 +163,8 @@ describe("evaluatePostTradeTotals", () => {
     const report = aggregatePortfolioRisk([resolved({})], OPTS);
     const post = evaluatePostTradeTotals(report, {
       deltaShares: 0, deltaDollars: 0, betaWeightedDeltaDollars: null,
-      gammaSharesPerDollar: 0, thetaDollarsPerDay: 0, vegaDollarsPerVolPoint: 0, definedMaxLoss: 0,
+      gammaSharesPerDollar: 0, thetaDollarsPerDay: 0, vegaDollarsPerVolPoint: 0,
+      rhoDollarsPerRatePoint: 0, definedMaxLoss: 0,
     });
     expect(post.betaWeightedDeltaDollars).toBeNull();
   });
@@ -165,16 +174,29 @@ describe("resolvePositionsSnapshot", () => {
   it("resolves held option contracts against the live chain and flags unresolvable ones", async () => {
     const fakeEtrade = {
       async getOptionChains(params: { symbol: string }) {
-        if (params.symbol !== "NVDA") return null;
-        return {
-          symbol: "NVDA",
-          underlyingPrice: 800,
-          pairs: [
-            { call: { optionType: "CALL" as const, strikePrice: 850, symbol: "NVDA", bid: 5, ask: 5.4, lastPrice: 5.2, delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12 } },
-          ],
-        };
+        if (params.symbol === "NVDA") {
+          return {
+            symbol: "NVDA",
+            underlyingPrice: 800,
+            pairs: [
+              { call: { optionType: "CALL" as const, strikePrice: 850, symbol: "NVDA", bid: 5, ask: 5.4, lastPrice: 5.2, delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12, rho: 0.03 } },
+            ],
+          };
+        }
+        if (params.symbol === "MSFT") {
+          // Contract exists but the chain omits rho -> incomplete, never zero-filled.
+          return {
+            symbol: "MSFT",
+            underlyingPrice: 420,
+            pairs: [
+              { put: { optionType: "PUT" as const, strikePrice: 400, symbol: "MSFT", bid: 3, ask: 3.3, lastPrice: 3.1, delta: -0.4, gamma: 0.01, theta: -0.03, vega: 0.1 } },
+            ],
+          };
+        }
+        return null;
       },
     } as any;
+    const stubBeta = async (symbol: string) => ({ beta: 1.5, source: "computed-live" as const, observations: 240, asOf: "2026-10-15T00:00:00.000Z" });
     const positions: ETradePosition[] = [
       equityPosition({
         symbol: "NVDA", quantity: 2, securityType: "OPTN", optionType: "CALL",
@@ -183,10 +205,14 @@ describe("resolvePositionsSnapshot", () => {
       equityPosition({ symbol: "MSFT", quantity: 1, securityType: "OPTN", optionType: "PUT", strikePrice: 400, expirationDate: "2026-11-20" }),
       equityPosition({ symbol: "QQQ", quantity: 3, securityType: "OPTN" }), // no contract detail
     ];
-    const resolvedList = await resolvePositionsSnapshot(fakeEtrade, positions);
-    expect(resolvedList[0].greeks).toEqual({ delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12 });
+    const resolvedList = await resolvePositionsSnapshot(fakeEtrade, positions, stubBeta);
+    expect(resolvedList[0].greeks).toEqual({ delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12, rho: 0.03 });
     expect(resolvedList[0].referencePrice).toBe(800);
+    expect(resolvedList[0].beta).toBe(1.5);
+    expect(resolvedList[0].betaSource).toBe("computed-live");
     expect(resolvedList[1].greeks).toBeNull();
+    expect(resolvedList[1].greeksMissingReason).toContain("incomplete");
+    expect(resolvedList[1].greeksMissingReason).toContain("rho");
     expect(resolvedList[2].greeks).toBeNull();
     expect(resolvedList[2].greeksMissingReason).toContain("without contract detail");
   });
