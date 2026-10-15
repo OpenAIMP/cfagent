@@ -113,3 +113,20 @@
   color: inherit;
   cursor: pointer;
 }
+.ap-collapse {
+  margin: 0;
+  padding: 0;
+  border: none !important;
+  background: none !important;
+  color: inherit;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ap-danger.armed {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+  font-weight: 700;
+}
