@@ -625,6 +625,7 @@ export function StrategyDiscoveryPanel({
       budget: budget ?? 100000,
       minRewardRisk: minRewardRiskRatio ?? 0,
       expiration: selectedExpiration,
+      bias: optimizationBias,
     })
       .then((res) => {
         if (!cancelled && res.strategies.length > 0) {

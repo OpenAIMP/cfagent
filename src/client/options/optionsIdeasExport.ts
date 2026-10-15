@@ -36,6 +36,7 @@ export interface RawOptionsIdeasExport {
 export interface RetrievedOptionsDataExport {
   symbol: string;
   question: string;
+  dataSource?: string;
   expirations: unknown[];
   optionChains: unknown[];
 }
@@ -76,6 +77,7 @@ export interface OptionsIdeasReportExport {
     answer?: string;
     error?: string;
     rankings?: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>;
+    isFallback?: boolean;
   };
 }
 

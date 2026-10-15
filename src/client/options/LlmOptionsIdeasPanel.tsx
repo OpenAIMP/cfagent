@@ -12,6 +12,8 @@ import "./optionsResearch.css";
 
 export interface LlmOptionsIdeasResponse {
   mode: "raw_etrade_options_ideas";
+  isSynthetic?: boolean;
+  notice?: string;
   llmInput?: RawOptionsIdeasExport;
   retrievedData?: RetrievedOptionsDataExport;
   dataCoverage: {
@@ -28,6 +30,7 @@ export interface LlmOptionsIdeasResponse {
   finalAnalysis?: OptionsIdeasReportExport["finalAnalysis"] & {
     systemPrompt?: string;
     userPrompt?: string;
+    isFallback?: boolean;
   };
   llm: {
     status: "complete" | "error";
@@ -210,6 +213,38 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              {(result.isSynthetic || result.retrievedData?.dataSource?.includes("synthetic")) && (
+                <span
+                  style={{
+                    padding: "0.2rem 0.55rem",
+                    borderRadius: "999px",
+                    background: "rgba(245, 158, 11, 0.15)",
+                    border: "1px solid rgba(245, 158, 11, 0.35)",
+                    color: "#fcd34d",
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                  }}
+                  title="Synthetic preview in TEST environment - not live market data"
+                >
+                  🧪 Synthetic Preview (TEST)
+                </span>
+              )}
+              {result.finalAnalysis?.isFallback && (
+                <span
+                  style={{
+                    padding: "0.2rem 0.55rem",
+                    borderRadius: "999px",
+                    background: "rgba(148, 163, 184, 0.15)",
+                    border: "1px solid rgba(148, 163, 184, 0.3)",
+                    color: "#94a3b8",
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                  }}
+                  title="Deterministic fallback ranking synthesized due to upstream model timeout or rate limit"
+                >
+                  ⚙️ Deterministic Fallback Ranking
+                </span>
+              )}
               {result.dataCoverage.cached && (
                 <span
                   style={{
@@ -228,6 +263,21 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               )}
             </div>
           </header>
+          {result.notice && (
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--color-text-muted, #94a3b8)",
+                background: "var(--color-surface-sunken, rgba(0, 0, 0, 0.2))",
+                border: "1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08))",
+                borderRadius: "6px",
+                padding: "0.35rem 0.65rem",
+                marginBottom: "0.75rem",
+              }}
+            >
+              ℹ️ {result.notice}
+            </div>
+          )}
           {result.finalAnalysis?.status === "complete" ? (
             <article className="options-llm-answer">
               <h4>Overall group-winner ranking</h4>

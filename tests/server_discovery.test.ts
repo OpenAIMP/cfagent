@@ -48,6 +48,10 @@ describe("server discovery mapping (issue #29)", () => {
     expect(req.minRewardRisk).toBe(1.5);
     expect(req.maxDte).toBe(30);
     expect(req.allowedStrategies).toEqual(["all"]);
+    expect((req as any).optimizationBias).toBeUndefined();
+
+    const biasedReq = buildStrategyRequest({ symbol: "xyz", currentPrice: 100, sentiment: "bullish", targetPrice: 110, budget: 1000, minRewardRisk: 1.5, expiration: EXPIRATION, bias: 75 });
+    expect(biasedReq.optimizationBias).toBe(75);
   });
 
   it("maps a server candidate into the panel view model with real-chain values", () => {

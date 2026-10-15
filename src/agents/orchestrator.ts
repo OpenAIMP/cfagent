@@ -3220,6 +3220,7 @@ Agentic Best Practices & Workflow Rules:
 
       let retrievedExpirations: ETradeOptionExpireDate[] = [];
       const retrievedChains: ETradeOptionChain[] = [];
+      let usedSyntheticChains = false;
       const orm = this.getOrm();
       const cached = !forceRefresh ? orm.getOptionsChain(symbol) : null;
 
@@ -3295,6 +3296,7 @@ Agentic Best Practices & Workflow Rules:
         if (contractCount === 0) {
           const isTestEnv = requestedEnv === "TEST" || !etrade.client.getEnvConfig().isLive;
           if (isTestEnv) {
+            usedSyntheticChains = true;
             const synthetic = generateSyntheticOptionChains(symbol);
             retrievedExpirations = synthetic.expirations;
             retrievedChains.length = 0;
@@ -3317,6 +3319,9 @@ Agentic Best Practices & Workflow Rules:
         const rawData = {
           symbol,
           question,
+          // Provenance (issue #29): synthetic chains are TEST-only and must never be
+          // indistinguishable from live E*TRADE chains downstream.
+          dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
           expirations: retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
         };
@@ -3416,8 +3421,8 @@ Agentic Best Practices & Workflow Rules:
         const groupInputs = groupPayloads.map((p) => p.inputExport).filter((x): x is NonNullable<typeof x> => Boolean(x));
 
         let finalAnalysis:
-          | { status: "complete"; model: string; answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>; systemPrompt: string; userPrompt: string }
-          | { status: "error"; error: string; systemPrompt: string; userPrompt: string };
+          | { status: "complete"; model: string; answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>; systemPrompt: string; userPrompt: string; isFallback?: boolean }
+          | { status: "error"; error: string; systemPrompt: string; userPrompt: string; isFallback?: boolean };
         const completedGroups = groupResults.filter((group) => group.status === "complete");
         const rankingGroups = groupResults.map((group) => ({
             id: group.id,
@@ -3459,6 +3464,7 @@ Agentic Best Practices & Workflow Rules:
               rankings: fallback.rankings,
               systemPrompt: rankingPrompt.systemPrompt,
               userPrompt: rankingPrompt.userPrompt,
+              isFallback: true,
             };
           }
         }
@@ -3495,6 +3501,10 @@ Agentic Best Practices & Workflow Rules:
         };
         return Response.json({
           mode: "raw_etrade_options_ideas",
+          isSynthetic: usedSyntheticChains,
+          notice: usedSyntheticChains
+            ? "Synthetic option chains preview (TEST environment). Not verified live market data."
+            : "Raw LLM idea exploration only; unverified generative ideas, not an execution recommendation.",
           llm: {
             status: finalAnalysis.status,
             model: finalAnalysis.status === "complete" ? finalAnalysis.model : this.env.AI_MODEL || DEFAULT_AI_MODEL,
@@ -3537,6 +3547,7 @@ Agentic Best Practices & Workflow Rules:
           retrievedData: {
             symbol,
             question,
+            dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
             expirations: retrievedExpirations,
             optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
           },

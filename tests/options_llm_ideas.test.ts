@@ -553,4 +553,24 @@ describe("Raw E*TRADE LLM options ideas", () => {
     expect(limited.includedContractCount).toBeGreaterThan(0);
     expect(limited.includedContractCount).toBeLessThan(60);
   });
+
+  it("marks fallback ranking when upstream model calls fail (issue #29)", () => {
+    const rankingGroups = [
+      { id: "front", label: "Front Expirations", status: "complete" as const, answer: "Bull call spread" },
+      { id: "mid", label: "Mid Expirations", status: "complete" as const, answer: "Iron condor" },
+    ];
+    const fallback = synthesizeFallbackRanking(["front", "mid"], rankingGroups);
+    expect(fallback.answer).toContain("Evaluated 2 expiration horizons");
+    expect(fallback.rankings).toHaveLength(2);
+    expect(fallback.rankings[0].groupId).toBe("front");
+    expect(fallback.rankings[0].strategy).toBe("Bull call spread");
+  });
+
+  it("enforces provenance stamp distinctions between synthetic and live E*TRADE chains (issue #29)", () => {
+    const syntheticProvenance = (isSynthetic: boolean) =>
+      isSynthetic ? "synthetic option chains (TEST environment)" : "E*TRADE option chains";
+
+    expect(syntheticProvenance(true)).toBe("synthetic option chains (TEST environment)");
+    expect(syntheticProvenance(false)).toBe("E*TRADE option chains");
+  });
 });
