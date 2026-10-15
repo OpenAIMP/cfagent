@@ -260,7 +260,10 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
         aria-label={ariaLabel}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        style={{ width: "100%", height: "100%", display: "block", overflow: "visible" }}
+        // Give the SVG a definite rendered height. A percentage height here has no
+        // reference because the chart wrapper is intrinsically sized, which can
+        // collapse the full-size payoff chart in flex/grid layouts.
+        style={{ width: "100%", height: `${svgH}px`, display: "block", overflow: "visible" }}
       >
         <defs>
           <linearGradient id={gainGradId} x1="0" y1="0" x2="0" y2="1">
@@ -287,7 +290,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x2={svgW - padR}
               y1={toY(val)}
               y2={toY(val)}
-              stroke="rgba(255, 255, 255, 0.08)"
+              stroke="var(--color-border-subtle, rgba(127, 127, 127, 0.2))"
               strokeDasharray={Math.abs(val) < 0.01 ? "none" : "3 3"}
               strokeWidth={Math.abs(val) < 0.01 ? "1.2" : "1"}
             />
@@ -331,7 +334,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
           x2={svgW - padR}
           y1={zeroY}
           y2={zeroY}
-          stroke="rgba(255, 255, 255, 0.35)"
+          stroke="var(--color-text-muted, rgba(127, 127, 127, 0.55))"
           strokeWidth={isMini ? "1" : "1.5"}
           strokeDasharray="none"
         />
@@ -340,8 +343,8 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
         {!isMini && probAreaD && (
           <path
             d={probAreaD}
-            fill="rgba(56, 189, 248, 0.12)"
-            stroke="rgba(56, 189, 248, 0.45)"
+            fill="var(--color-accent-subtle)"
+            stroke="var(--color-border-focus)"
             strokeWidth="1.2"
             strokeDasharray="2 2"
           />
@@ -363,7 +366,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
         <path
           d={primaryLineD}
           fill="none"
-          stroke={secondaryLineD ? "rgba(255, 255, 255, 0.45)" : "var(--color-success)"}
+          stroke={secondaryLineD ? "var(--color-text-secondary)" : "var(--color-success)"}
           strokeWidth={secondaryLineD ? "1.5" : isMini ? "2" : "2.5"}
           strokeDasharray={secondaryLineD ? "3 3" : "none"}
         />
@@ -480,7 +483,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x2={toX(currentHoverX)}
               y1={padT}
               y2={svgH - padB}
-              stroke="rgba(255, 255, 255, 0.7)"
+              stroke="var(--color-text-secondary)"
               strokeWidth="1.2"
               strokeDasharray="2 2"
             />

@@ -1784,7 +1784,7 @@
   position: relative;
   width: 100%;
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(56, 189, 248, 0.15);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.5rem;
   user-select: none;
