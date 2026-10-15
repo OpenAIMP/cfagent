@@ -93,3 +93,65 @@ export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: n
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Post-trade evaluator (#34 endpoint, surfaced in the UI by issue #67)
+// ---------------------------------------------------------------------------
+
+import type { CandidateGreekContribution, PortfolioRiskTotals } from "../services/portfolioRisk";
+import type { ThinkTradeValidationResult } from "../types";
+
+export type { CandidateGreekContribution, PortfolioRiskTotals, ThinkTradeValidationResult };
+
+export interface EvaluateResult {
+  current: PortfolioRiskReport;
+  postTradeTotals: PortfolioRiskTotals;
+}
+
+export function fetchEvaluate(env: string, candidate: CandidateGreekContribution): Promise<EvaluateResult> {
+  return postJson<EvaluateResult>("/api/etrade/portfolio-risk/evaluate", env, { candidate });
+}
+
+/** Parses the Evaluate form into a candidate contribution; null when a required field is not numeric. */
+export function buildEvaluateCandidate(form: Record<string, string>): CandidateGreekContribution | null {
+  const num = (key: string): number | null => {
+    const raw = (form[key] ?? "").trim();
+    if (raw === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  };
+  const required = ["deltaShares", "deltaDollars", "gammaSharesPerDollar", "thetaDollarsPerDay", "vegaDollarsPerVolPoint", "rhoDollarsPerRatePoint", "definedMaxLoss"];
+  const values: Record<string, number> = {};
+  for (const key of required) {
+    const v = num(key);
+    if (v === null) return null;
+    values[key] = v;
+  }
+  const betaRaw = (form.betaWeightedDeltaDollars ?? "").trim();
+  return {
+    deltaShares: values.deltaShares,
+    deltaDollars: values.deltaDollars,
+    betaWeightedDeltaDollars: betaRaw === "" ? null : Number(betaRaw),
+    gammaSharesPerDollar: values.gammaSharesPerDollar,
+    thetaDollarsPerDay: values.thetaDollarsPerDay,
+    vegaDollarsPerVolPoint: values.vegaDollarsPerVolPoint,
+    rhoDollarsPerRatePoint: values.rhoDollarsPerRatePoint,
+    definedMaxLoss: values.definedMaxLoss,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Think-harness guardrail verdicts (#37 service, HTTP route added in #67)
+// ---------------------------------------------------------------------------
+
+export interface ThinkEvaluateInput {
+  symbol: string;
+  action: "BUY" | "SELL";
+  quantity: number;
+  orderType?: "MARKET" | "LIMIT" | "STOP";
+  price?: number;
+}
+
+export function fetchThinkVerdict(env: string, input: ThinkEvaluateInput): Promise<ThinkTradeValidationResult> {
+  return postJson<ThinkTradeValidationResult>("/api/etrade/think/evaluate", env, input);
+}
