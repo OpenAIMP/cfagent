@@ -51,6 +51,8 @@ export interface ETradeTradingHubProps {
   activeSubTab?: TradingSubTab;
   onSelectSubTab?: (tab: TradingSubTab) => void;
   onBrokerPropsChange?: (props: ETradeDynamicMenuProps) => void;
+  /** Issue #69: unread broker-alert count, reported up for the nav badge. */
+  onUnreadAlertsChange?: (count: number) => void;
 }
 
 const NLQ_ROW_RENDER_LIMIT = 500;
@@ -65,7 +67,7 @@ export function ETradeTradingHub({
   onSendPrompt,
   activeSubTab,
   onSelectSubTab,
-  onBrokerPropsChange,
+  onBrokerPropsChange, onUnreadAlertsChange,
 }: ETradeTradingHubProps) {
   // Navigation subtabs
   const [subTab, setSubTab] = useState<TradingSubTab>(activeSubTab || "autopilot");
@@ -2009,7 +2011,7 @@ export function ETradeTradingHub({
             </div>
           </div>
 
-          <div className="portfolio-table-wrap">
+          <div className="portfolio-table-wrap" id="section-positions" style={{ scrollMarginTop: 80 }}>
             <table className="trading-table">
               <thead>
                 <tr>
@@ -2120,7 +2122,28 @@ export function ETradeTradingHub({
           {/* Portfolio Risk (issue #63): surfaces the #34/#35/#36/#54 backends —
               aggregates, hedge drafts with HITL preview hand-off, correlation
               flags, and portfolio-aware sizing. */}
-          <AccountPanels activeEnv={activeEnv} />
+          {/* Section nav (issue #69) */}
+          <nav className="portfolio-section-nav" style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", marginTop: "1.25rem" }}>
+            {[
+              ["Positions", "section-positions"],
+              ["Alerts", "section-alerts"],
+              ["Transactions", "section-transactions"],
+              ["Watchlists", "section-watchlists"],
+              ["Orders", "section-orders"],
+              ["Portfolio Risk", "section-portfolio-risk"],
+            ].map(([label, id]) => (
+              <button
+                key={id}
+                type="button"
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.05)", color: "inherit", cursor: "pointer", fontSize: "0.82rem" }}
+                onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          <AccountPanels activeEnv={activeEnv} onUnreadAlertsChange={onUnreadAlertsChange} />
 
           <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleOptionsTrade} />
         </div>
