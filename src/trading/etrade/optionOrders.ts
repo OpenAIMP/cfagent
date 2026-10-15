@@ -62,3 +62,10 @@ export function toETradeInstruments(legs: TradingOrderLeg[]) {
 export function etradeNetPriceType(netDebit: number): "NET_DEBIT" | "NET_CREDIT" {
   return netDebit < 0 ? "NET_CREDIT" : "NET_DEBIT";
 }
+
+export function etradePriceType(legs: TradingOrderLeg[], requestedPriceType: string, netDebit: number): string {
+  const orderKind = etradeOrderKind(legs);
+  return orderKind === "SPREADS" || orderKind === "BUY_WRITES"
+    ? etradeNetPriceType(netDebit)
+    : requestedPriceType;
+}
