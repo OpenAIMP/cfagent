@@ -11,7 +11,7 @@ import {
 import "./optionsResearch.css";
 
 export interface LlmOptionsIdeasResponse {
-  mode: "raw_etrade_options_ideas";
+  mode: "llm_evaluation_of_quant_candidates";
   isSynthetic?: boolean;
   notice?: string;
   llmInput?: RawOptionsIdeasExport;

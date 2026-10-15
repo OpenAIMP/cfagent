@@ -1,6 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { DEFAULT_AI_MODEL, getWorkersAIModel, getModelContextWindow } from "./model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
@@ -26,15 +26,6 @@ import {
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
-import {
-  buildRawOptionsIdeasRankingPrompt,
-  buildContextLimitedRawOptionsIdeasInput,
-  generateRawOptionsIdeas,
-  generateRawOptionsIdeasRanking,
-  synthesizeFallbackRanking,
-  groupRawOptionsIdeasChains,
-  sanitizeOptionChainForLlm,
-} from "../trading/options/llmIdeas";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
@@ -3325,192 +3316,128 @@ Agentic Best Practices & Workflow Rules:
           expirations: retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
         };
-        const groups = groupRawOptionsIdeasChains(retrievedExpirations, retrievedChains);
-
-        // Process expiration groups concurrently for maximum throughput
-        const groupPayloads = await Promise.all(
-          groups.map(async (group) => {
-            const groupContractCount = group.optionChains.reduce(
-              (count, chain) => count + chain.pairs.reduce(
-                (pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)),
-                0,
-              ),
-              0,
-            );
-            const groupQuestion = [
-              question,
-              `Analyze only the ${group.label} expiration group (${group.expirations.length} expirations).`,
-              "Identify this group's strongest strategy for the user's requested outlook. Explain exact contract legs using only symbols present in this group's supplied chains, why the strategy fits, and its material risks. If no supported strategy is suitable, state that instead of inventing one.",
-            ].join("\n\n");
-
-            let inputExport: any = null;
-            try {
-              const modelContextWindow = getModelContextWindow(this.env, "optionsIdeas");
-              const maxOutputTokens = 4096;
-              const safetyBuffer = 1404; // 24000 - 4096 - 1404 = 18500
-              const safeModelBudget = Math.max(4000, modelContextWindow - maxOutputTokens - safetyBuffer);
-              const limited = buildContextLimitedRawOptionsIdeasInput(
-                symbol,
-                groupQuestion,
-                group.expirations,
-                group.optionChains,
-                undefined,
-                safeModelBudget,
-              );
-              const llmInput = limited.input;
-              inputExport = {
-                id: group.id,
-                label: group.label,
-                symbol: llmInput.symbol,
-                question: llmInput.question,
-                expirations: llmInput.expirations,
-                optionChains: llmInput.optionChains.map((chain) => chain.raw ?? chain),
-                systemPrompt: llmInput.systemPrompt,
-                userPrompt: llmInput.userPrompt,
-                selection: llmInput.selection,
-              };
-              const llm = await generateRawOptionsIdeas(this.env, llmInput, group.optionChains);
-              return {
-                inputExport,
-                result: {
-                  id: group.id,
-                  label: group.label,
-                  status: "complete" as const,
-                  model: llm.model,
-                  answer: llm.answer,
-                  contractSymbols: llm.contractSymbols,
-                  contractWarnings: llm.contractWarnings,
-                  contractDetails: llm.contractDetails,
-                  expirationCount: group.expirations.length,
-                  contractCount: groupContractCount,
-                  sentContractCount: limited.includedContractCount,
-                  estimatedInputTokens: limited.estimatedInputTokens,
-                  inputTruncated: limited.truncated,
-                },
-              };
-            } catch (err) {
-              return {
-                inputExport: inputExport ?? {
-                  id: group.id,
-                  label: group.label,
-                  symbol,
-                  question: groupQuestion,
-                  expirations: group.expirations,
-                  optionChains: group.optionChains.map((chain) => chain.raw ?? chain),
-                  systemPrompt: "",
-                  userPrompt: groupQuestion,
-                  selection: null,
-                },
-                result: {
-                  id: group.id,
-                  label: group.label,
-                  status: "error" as const,
-                  error: err instanceof Error ? err.message : "Expiration-group analysis failed.",
-                  expirationCount: group.expirations.length,
-                  contractCount: groupContractCount,
-                  sentContractCount: 0,
-                  estimatedInputTokens: 0,
-                  inputTruncated: false,
-                },
-              };
-            }
-          })
-        );
-
-        const groupResults = groupPayloads.map((p) => p.result);
-        const groupInputs = groupPayloads.map((p) => p.inputExport).filter((x): x is NonNullable<typeof x> => Boolean(x));
-
-        let finalAnalysis:
-          | { status: "complete"; model: string; answer: string; rankings: Array<{ rank: number; groupId: string; strategy: string; rationale: string }>; systemPrompt: string; userPrompt: string; isFallback?: boolean }
-          | { status: "error"; error: string; systemPrompt: string; userPrompt: string; isFallback?: boolean };
-        const completedGroups = groupResults.filter((group) => group.status === "complete");
-        const rankingGroups = groupResults.map((group) => ({
-            id: group.id,
-            label: group.label,
-            answer: group.answer,
-            contractSymbols: group.contractSymbols,
-            status: group.status,
-            error: group.error,
-          }));
-        const rankingPrompt = buildRawOptionsIdeasRankingPrompt(question, rankingGroups);
-        if (completedGroups.length === 0) {
-          finalAnalysis = {
-            status: "error",
-            error: "All expiration cohorts encountered upstream analysis errors.",
-            systemPrompt: rankingPrompt.systemPrompt,
-            userPrompt: rankingPrompt.userPrompt,
-          };
-        } else {
+        // Issue #47 (follow-up to #29): this endpoint no longer runs the
+        // llm_ideas map-reduce (horizon groups over raw chains, existence-only
+        // verification, no risk constraints). Following the compare pattern —
+        // and the unified service's llm_ideas disposition in slice 4 — the
+        // quant pipeline runs first and the LLM evaluates its verified
+        // candidates, never overwriting the quant ranking. The response keeps
+        // the panel's shape: a single "pipeline" group carries the evaluation
+        // so rendering, exports, and provenance badges keep working.
+        const spot = retrievedChains.find((chain) => Number.isFinite(chain.underlyingPrice) && chain.underlyingPrice > 0)?.underlyingPrice ?? 100;
+        const questionLower = question.toLowerCase();
+        const thesis: StrategyRequest["thesis"] = /bear|downside|\bshort\b/.test(questionLower)
+          ? "bearish"
+          : /range|sideways|neutral|income|theta/.test(questionLower)
+            ? "range_bound"
+            : /volatil|big move|large move|breakout/.test(questionLower)
+              ? "large_move"
+              : "bullish";
+        const strategyRequest: StrategyRequest = {
+          symbol,
+          thesis,
+          targetPrice: Math.round(spot * (thesis === "bullish" ? 1.05 : thesis === "bearish" ? 0.95 : 1) * 100) / 100,
+          targetDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+          expectedIvDirection: "unchanged",
+          maxPlannedLoss: 100000,
+          minRewardRisk: 0,
+          allowedStrategies: ["all"],
+        };
+        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+        const pipelineResult = await pipeline.run(strategyRequest, { riskProfile: "balanced" });
+        const topRanked = pipelineResult.ranked.slice(0, 10);
+        const candidates = topRanked.map((r) => r.candidate);
+        let llmJudgment: Awaited<ReturnType<typeof rankCandidatesWithLlm>> | null = null;
+        let llmError: string | null = null;
+        if (candidates.length > 0) {
           try {
-            const ranking = await generateRawOptionsIdeasRanking(
-              this.env,
-              question,
-              rankingGroups,
-            );
-            finalAnalysis = {
-              status: "complete",
-              model: ranking.model,
-              answer: ranking.answer,
-              rankings: ranking.rankings,
-              systemPrompt: rankingPrompt.systemPrompt,
-              userPrompt: rankingPrompt.userPrompt,
-            };
+            llmJudgment = await rankCandidatesWithLlm(this.env, strategyRequest, "balanced", pipelineResult.snapshot.contracts, candidates);
           } catch (err) {
-            const fallback = synthesizeFallbackRanking(completedGroups.map((g) => g.id), rankingGroups);
-            finalAnalysis = {
-              status: "complete",
-              model: this.env.AI_MODEL || DEFAULT_AI_MODEL,
-              answer: fallback.answer,
-              rankings: fallback.rankings,
-              systemPrompt: rankingPrompt.systemPrompt,
-              userPrompt: rankingPrompt.userPrompt,
-              isFallback: true,
-            };
+            llmError = err instanceof Error ? err.message : "LLM evaluation failed.";
           }
         }
-
-        const firstInput = groupInputs[0] || (retrievedChains.length > 0 ? {
-          id: "all",
-          label: "All Expirations",
+        const llmStatus = llmJudgment ? "complete" as const : "error" as const;
+        const llmModel = llmJudgment?.model || this.env.AI_MODEL || DEFAULT_AI_MODEL;
+        const llmErrorText = llmError ?? "The quant pipeline produced no candidates for this symbol.";
+        const rationaleByCandidate = new Map((llmJudgment?.ranked ?? []).map((judgment) => [judgment.candidateId, judgment.rationale]));
+        const answer = llmJudgment
+          ? llmJudgment.ranked.slice(0, 3).map((judgment, idx) => {
+              const candidate = candidates.find((c) => c.id === judgment.candidateId);
+              return `${idx + 1}. ${candidate ? candidate.label : judgment.candidateId} — ${judgment.rationale}`;
+            }).join("\n")
+          : llmErrorText;
+        const candidateContractSymbols = [...new Set(candidates.flatMap((c) => c.legs.map((leg) => leg.symbol)))];
+        const groupResults = [{
+          id: "pipeline",
+          label: "Quant pipeline candidates",
+          status: llmStatus,
+          model: llmModel,
+          answer,
+          error: llmStatus === "error" ? llmErrorText : undefined,
+          contractSymbols: candidateContractSymbols,
+          contractWarnings: [] as string[],
+          contractDetails: [] as unknown[],
+          expirationCount: retrievedExpirations.length,
+          contractCount,
+          sentContractCount: candidates.length,
+          estimatedInputTokens: 0,
+          inputTruncated: false,
+        }];
+        const finalAnalysis = {
+          status: llmStatus,
+          model: llmModel,
+          answer: llmStatus === "complete" ? answer : undefined,
+          error: llmStatus === "error" ? llmErrorText : undefined,
+          rankings: topRanked.map((r, idx) => ({
+            rank: idx + 1,
+            groupId: "pipeline",
+            strategy: r.candidate.label,
+            rationale: rationaleByCandidate.get(r.candidate.id) ?? "",
+          })),
+          systemPrompt: "",
+          userPrompt: question,
+          isFallback: false,
+        };
+        const llmInputExport = {
+          id: "pipeline",
+          label: "Quant pipeline candidates",
           symbol,
           question,
           expirations: retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
-          systemPrompt: "Normalized options contract dataset",
+          systemPrompt: "Quant pipeline candidate evaluation (issue #47): the LLM evaluates verified candidates; it does not generate strategies.",
           userPrompt: question,
-          selection: { contractCount },
-        } : undefined);
-        const llmInputExport = firstInput ? {
-          ...firstInput,
-          question,
-          groupInputs: groupInputs.length > 0 ? groupInputs : [firstInput],
-          finalRanking: {
-            systemPrompt: finalAnalysis.systemPrompt,
-            userPrompt: finalAnalysis.userPrompt,
-          },
-        } : undefined;
+          selection: { contractCount, candidateCount: candidates.length },
+          groupInputs: [] as unknown[],
+          finalRanking: { systemPrompt: "", userPrompt: question },
+        };
         const dataCoverage = {
           expirationCount: retrievedExpirations.length,
           chainCount: retrievedChains.length,
           contractCount,
-          sentContractCount: groupResults.reduce((count, group) => count + group.sentContractCount, 0),
-          estimatedInputTokens: groupResults.reduce((count, group) => count + group.estimatedInputTokens, 0),
-          inputTruncated: groupResults.some((group) => group.inputTruncated),
+          sentContractCount: contractCount,
+          estimatedInputTokens: 0,
+          inputTruncated: false,
           cached: Boolean(cached),
           fetchedAt: cached?.fetchedAt || Date.now(),
         };
         return Response.json({
-          mode: "raw_etrade_options_ideas",
+          mode: "llm_evaluation_of_quant_candidates",
           isSynthetic: usedSyntheticChains,
           notice: usedSyntheticChains
             ? "Synthetic option chains preview (TEST environment). Not verified live market data."
-            : "Raw LLM idea exploration only; unverified generative ideas, not an execution recommendation.",
+            : "Quant-verified candidates evaluated by the LLM (compare pattern, issue #47); the quant pipeline's ranking stands.",
           llm: {
-            status: finalAnalysis.status,
-            model: finalAnalysis.status === "complete" ? finalAnalysis.model : this.env.AI_MODEL || DEFAULT_AI_MODEL,
-            answer: finalAnalysis.status === "complete" ? finalAnalysis.answer : undefined,
-            error: finalAnalysis.status === "error" ? finalAnalysis.error : undefined,
-            contractSymbols: [...new Set(completedGroups.flatMap((group) => group.contractSymbols))],
+            status: llmStatus,
+            model: llmModel,
+            answer: llmStatus === "complete" ? answer : undefined,
+            error: llmStatus === "error" ? llmErrorText : undefined,
+            contractSymbols: candidateContractSymbols,
+          },
+          quant: {
+            ranked: topRanked,
+            scoreWeights: pipelineResult.strategies.scoreWeights,
+            candidateCount: candidates.length,
           },
           groups: groupResults,
           finalAnalysis,
@@ -3541,7 +3468,7 @@ Agentic Best Practices & Workflow Rules:
         } : undefined;
         return Response.json({
           error,
-          mode: "raw_etrade_options_ideas",
+          mode: "llm_evaluation_of_quant_candidates",
           llm: { status: "error", model: this.env.AI_MODEL || DEFAULT_AI_MODEL, error },
           llmInput: fallbackLlmInput,
           retrievedData: {
