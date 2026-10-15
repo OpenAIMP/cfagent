@@ -1,122 +1,73 @@
-/**
- * NEXTGEN TP — TYPESCRIPT DESIGN TOKEN CONTRACT
- * 
- * Provides type-safe access to semantic color roles, typography scales,
- * density modes, and theme management utilities.
- */
-
+/** Typed semantic tokens and density preference compatibility APIs. */
 export const colorRoles = [
-  "surface",
-  "surface-raised",
-  "surface-sunken",
-  "card",
-  "text-primary",
-  "text-secondary",
-  "text-muted",
-  "text-dim",
-  "text-inverse",
-  "border-subtle",
-  "border-medium",
-  "border-focus",
-  "accent",
-  "accent-contrast",
-  "primary",
-  "danger",
-  "success",
-  "warning",
-  "info",
+  "surface", "surface-foreground", "surface-raised", "surface-raised-foreground",
+  "surface-sunken", "surface-sunken-foreground", "card", "card-foreground",
+  "muted", "muted-foreground", "input", "input-foreground", "input-border",
+  "text-primary", "text-secondary", "text-muted", "text-dim", "text-inverse",
+  "border-subtle", "border-medium", "border-focus",
+  "accent", "accent-contrast", "primary", "primary-foreground",
+  "danger", "danger-foreground", "success", "success-foreground",
+  "warning", "warning-foreground", "info", "info-foreground",
 ] as const;
-
 export type ColorRole = (typeof colorRoles)[number];
 
-export const surfaceRoles = [
-  "surface",
-  "surface-raised",
-  "surface-sunken",
-  "card",
-  "muted",
-] as const;
-
+export const surfaceRoles = ["surface", "surface-raised", "surface-sunken", "card", "muted"] as const;
 export type SurfaceRole = (typeof surfaceRoles)[number];
 
-export type DensityMode = "compact" | "comfortable";
+export function tokenVar(role: ColorRole): string {
+  return `var(--color-${role})`;
+}
 
+export type DensityMode = "compact" | "comfortable";
 export const DENSITY_STORAGE_KEY = "nextgentp_density";
 
-/**
- * Retrieves the stored UI density mode, defaulting to "comfortable".
- */
+export function normalizeDensity(value: unknown): DensityMode {
+  return value === "compact" || value === "comfortable" ? value : "comfortable";
+}
+
 export function getStoredDensity(): DensityMode {
   if (typeof window === "undefined") return "comfortable";
   try {
-    const saved = localStorage.getItem(DENSITY_STORAGE_KEY);
-    if (saved === "compact" || saved === "comfortable") {
-      return saved;
-    }
+    return normalizeDensity(localStorage.getItem(DENSITY_STORAGE_KEY));
   } catch {
-    // Ignore storage errors
+    return "comfortable";
   }
-  return "comfortable";
 }
 
-/**
- * Applies the density mode to the documentElement and persists to localStorage.
- */
-export function applyDensity(mode: DensityMode): void {
+export function applyDensityToDocument(mode: DensityMode): void {
   if (typeof document === "undefined") return;
-  document.documentElement.setAttribute("data-density", mode);
-  try {
-    localStorage.setItem(DENSITY_STORAGE_KEY, mode);
-  } catch {
-    // Ignore storage errors
-  }
+  const density = normalizeDensity(mode);
+  document.documentElement.setAttribute("data-density", density);
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("density-changed", { detail: { density: mode } }));
+    window.dispatchEvent(new CustomEvent("density-changed", { detail: { density } }));
   }
 }
 
-/**
- * Helper to get CSS variable string for a given semantic color role.
- */
-export function tokenVar(role: ColorRole): string {
-  switch (role) {
-    case "surface":
-      return "var(--color-surface)";
-    case "surface-raised":
-      return "var(--color-surface-raised)";
-    case "surface-sunken":
-      return "var(--color-surface-sunken)";
-    case "card":
-      return "var(--color-card)";
-    case "text-primary":
-      return "var(--color-text-primary)";
-    case "text-secondary":
-      return "var(--color-text-secondary)";
-    case "text-muted":
-      return "var(--color-text-muted)";
-    case "text-dim":
-      return "var(--color-text-dim)";
-    case "text-inverse":
-      return "var(--color-text-inverse)";
-    case "border-subtle":
-      return "var(--color-border-subtle)";
-    case "border-medium":
-      return "var(--color-border-medium)";
-    case "border-focus":
-      return "var(--color-border-focus)";
-    case "accent":
-      return "var(--color-accent)";
-    case "accent-contrast":
-      return "var(--color-accent-contrast)";
-    case "primary":
-      return "var(--color-primary)";
-    case "danger":
-      return "var(--color-danger)";
-    case "success":
-      return "var(--color-success)";
-    case "warning":
-      return "var(--color-warning)";
-    case "info":
-      return "var(--color-info)";
+export function persistDensity(mode: DensityMode): void {
+  try {
+    if (typeof window !== "undefined") localStorage.setItem(DENSITY_STORAGE_KEY, normalizeDensity(mode));
+  } catch {
+    // Document preferences remain usable without storage.
   }
+}
+
+/** Compatibility API for explicit user changes. */
+export function applyDensity(mode: DensityMode): void {
+  applyDensityToDocument(mode);
+  persistDensity(mode);
+}
+
+export function initDensityListener(): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = (event: StorageEvent) => {
+    if (event.key !== DENSITY_STORAGE_KEY && event.key !== null) return;
+    try {
+      if (event.storageArea && event.storageArea !== localStorage) return;
+    } catch {
+      return;
+    }
+    applyDensityToDocument(event.key === null ? getStoredDensity() : normalizeDensity(event.newValue));
+  };
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
 }

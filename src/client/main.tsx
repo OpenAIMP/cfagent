@@ -1,17 +1,26 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
-import { applyTheme, getStoredTheme, initThemeListener } from "./theme";
-import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
-import { applyDensity, getStoredDensity } from "./designTokens";
+import { applyThemeToDocument, getStoredTheme, initThemeListener } from "./theme";
+import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, initTypographyListener } from "./typography";
+import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
 import "./styles.css";
 import "./tokens.css";
 
-// Initialize theme, typography, and density preferences immediately before React mounts
-applyTheme(getStoredTheme());
-initThemeListener();
-applyTypography(getStoredFontScale(), getStoredFontStyle());
-applyDensity(getStoredDensity());
+// Startup applies preferences without writing storage.
+applyThemeToDocument(getStoredTheme());
+applyTypographyToDocument(getStoredFontScale(), getStoredFontStyle());
+applyDensityToDocument(getStoredDensity());
+const disposeThemeListener = initThemeListener();
+const disposeDensityListener = initDensityListener();
+const disposeTypographyListener = initTypographyListener();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeThemeListener();
+    disposeDensityListener();
+    disposeTypographyListener();
+  });
+}
 
 const devUser = import.meta.env.DEV
   ? {
