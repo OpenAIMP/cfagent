@@ -11,11 +11,12 @@ import type { ConcentrationReport } from "../services/portfolioConcentration";
 import type { SizingCandidate, SizingResult } from "../services/positionSizing";
 import type { HedgeAnalysis, HedgeProposal } from "../services/hedgeProposals";
 import type { OptionsTradeContext } from "./options/OptionsResearchPanel";
+import { apiFetch } from "./apiFetch";
 
 export type { PortfolioRiskReport, ConcentrationReport, SizingCandidate, SizingResult, HedgeAnalysis, HedgeProposal };
 
 async function postJson<T>(path: string, env: string, body?: unknown): Promise<T> {
-  const resp = await fetch(path, {
+  const resp = await apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-environment": env },
     body: JSON.stringify(body ?? {}),
@@ -26,14 +27,25 @@ async function postJson<T>(path: string, env: string, body?: unknown): Promise<T
 }
 
 export async function fetchPortfolioRisk(env: string): Promise<PortfolioRiskReport> {
-  const resp = await fetch("/api/etrade/portfolio-risk", { headers: { "x-environment": env } });
+  const resp = await apiFetch("/api/etrade/portfolio-risk", { headers: { "x-environment": env } });
   const data = (await resp.json().catch(() => ({}))) as PortfolioRiskReport & { error?: string };
   if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
+  // Shape guard (issue #71): a 200 body that is not a report (e.g. an
+  // async-job stub that was not polled) must surface as an error state,
+  // never reach the renderer and crash on a missing array.
+  if (!data || !Array.isArray(data.rows) || !data.totals || !Array.isArray(data.excluded) || !Array.isArray(data.partial) || !Array.isArray(data.undefinedRiskPositions)) {
+    throw new Error("Unexpected portfolio-risk response shape — the report payload was incomplete.");
+  }
   return data;
 }
 
-export function fetchHedgeAnalysis(env: string): Promise<HedgeAnalysis> {
-  return postJson<HedgeAnalysis>("/api/etrade/hedge/analyze", env);
+export async function fetchHedgeAnalysis(env: string): Promise<HedgeAnalysis> {
+  const analysis = await postJson<HedgeAnalysis>("/api/etrade/hedge/analyze", env);
+  // Shape guard (issue #71): the renderer reads .length on both arrays.
+  if (!analysis || !Array.isArray(analysis.proposals) || !Array.isArray(analysis.symbolsMissingBeta)) {
+    throw new Error("Unexpected hedge-analysis response shape — the payload was incomplete.");
+  }
+  return analysis;
 }
 
 export function fetchConcentration(env: string, candidateSymbol?: string): Promise<ConcentrationReport> {
