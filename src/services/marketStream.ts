@@ -407,6 +407,9 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Pro
       if (subscribed.size === 0 || refreshInProgress) return;
       refreshInProgress = true;
       const symbols = Array.from(subscribed);
+      // Keep the stream responsive even when an upstream quote provider is slow
+      // or unavailable. Publish the latest cached quote before waiting on I/O.
+      ws.send(JSON.stringify({ type: "ticks", ticks: getBatchMarketQuotes(symbols) }));
       await refreshQuotesInBackground(symbols, env);
       if (subscribed.size === 0) return;
       const quotes = getBatchMarketQuotes(Array.from(subscribed));
@@ -449,7 +452,6 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Pro
             quotes: newSnapshots,
           })
         );
-        void sendLiveQuotes();
       } else if (msg.type === "unsubscribe" && Array.isArray(msg.symbols)) {
         for (const sym of msg.symbols) {
           const upper = sym.toUpperCase().trim();
