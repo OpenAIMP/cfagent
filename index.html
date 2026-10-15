@@ -8,25 +8,43 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <script>
+  <script id="appearance-bootstrap">
     (function() {
-      try {
-        var t = localStorage.getItem('nextgentp_theme') || 'system';
-        var eff = t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
-        document.documentElement.setAttribute('data-theme', eff);
-        document.documentElement.setAttribute('data-theme-preference', t);
-        document.documentElement.classList.toggle('dark', eff === 'dark');
-        document.documentElement.classList.toggle('light', eff === 'light');
-        document.documentElement.style.colorScheme = eff;
-        var scale = localStorage.getItem('nextgentp_font_scale');
-        if (scale) document.documentElement.style.setProperty('--app-font-scale', scale);
-        // Universal single font: permanently purge legacy multi-font selection
-        localStorage.removeItem('nextgentp_font_style');
-        document.documentElement.setAttribute('data-font-style', 'inter');
-        document.documentElement.style.setProperty('--font-sans', "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif");
-        var density = localStorage.getItem('nextgentp_density') || 'comfortable';
-        document.documentElement.setAttribute('data-density', density);
-      } catch (e) {}
+      var root = document.documentElement;
+      function read(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+      }
+      // Kept in parity with runtime validators by bootstrap tests.
+      var savedTheme = read('nextgentp_theme');
+      var theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'system';
+      var systemDark = false;
+      try { systemDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+      var effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+      root.setAttribute('data-theme', effective);
+      root.setAttribute('data-theme-preference', theme);
+      root.classList.toggle('dark', effective === 'dark');
+      root.classList.toggle('light', effective === 'light');
+      root.style.colorScheme = effective;
+
+      var savedScale = read('nextgentp_font_scale');
+      var parsedScale = parseFloat(savedScale);
+      var scale = isFinite(parsedScale) && parsedScale >= 0.75 && parsedScale <= 1.5 ? Math.round(parsedScale * 100) / 100 : 1;
+      root.style.setProperty('--app-font-scale', String(scale));
+      root.setAttribute('data-font-scale', String(scale));
+      var preset = 'custom';
+      var presets = [['compact', 0.85], ['normal', 1], ['comfortable', 1.15], ['large', 1.3]];
+      for (var i = 0; i < presets.length; i++) {
+        if (Math.abs(presets[i][1] - scale) < 0.03) { preset = presets[i][0]; break; }
+      }
+      root.setAttribute('data-font-size', preset);
+      // Preserve the current Inter-only contract; do not mutate storage during bootstrap.
+      root.setAttribute('data-font-style', 'inter');
+      var font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+      root.style.setProperty('--font-sans', font);
+      root.style.setProperty('--font-family-base', font);
+
+      var savedDensity = read('nextgentp_density');
+      root.setAttribute('data-density', savedDensity === 'compact' || savedDensity === 'comfortable' ? savedDensity : 'comfortable');
     })();
   </script>
 </head>
