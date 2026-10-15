@@ -36,6 +36,7 @@ import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
 import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "./strategies/catalog";
+import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 
 export type UnifiedOptionsAction =
   | "screen"
@@ -254,6 +255,7 @@ export class UnifiedOptionsService {
             total: list.length,
             strategies: list,
             aliases: REQUESTED_STRATEGY_NAMES,
+            demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled(),
           };
           summary = `Options Strategy Catalog: ${list.length} strategies registered across 8 categories, resolving ${REQUESTED_STRATEGY_NAMES.length} market names and aliases.`;
           break;
