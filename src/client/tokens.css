@@ -71,6 +71,19 @@
   --input-padding: 0.5rem 0.75rem;
   --table-row-height: 2.75rem;
   --card-padding: 1.25rem;
+
+  /* Compact options discovery controls (shared component sizing tokens) */
+  --font-size-micro: 0.65rem;
+  --control-icon-size-sm: 1.875rem;
+  --control-glyph-size-sm: 0.9375rem;
+  --layout-basis-sentiment: 22.5rem;
+  --layout-basis-optimizer: 18.75rem;
+  --layout-basis-slider: 9.375rem;
+  --strike-ruler-height: 5rem;
+  --strike-ruler-call-zone-height: 1.6875rem;
+  --strike-ruler-center-zone-height: 1rem;
+  --strike-ruler-badge-padding-y: 0.0625rem;
+  --strike-ruler-badge-padding-x: 0.3rem;
 }
 
 /* ==========================================================================
