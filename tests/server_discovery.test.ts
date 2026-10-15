@@ -70,14 +70,21 @@ describe("server discovery mapping (issue #29)", () => {
     expect(mapped.miniPayoffPoints.length).toBeGreaterThan(0);
   });
 
-  it("ensures StrategyDiscoveryPanel synchronizes server discovery candidates with builder legs without regression guard", () => {
+  it("ensures StrategyDiscoveryPanel is a pure display layer synchronizing server discovery with builder legs", () => {
     const fs = require("fs");
     const path = require("path");
     const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
 
-    // Must not block syncing with `builderLegs.length === 0`
-    expect(panelCode).not.toContain("if (builderLegs.length === 0) {\n        setBuilderLegs");
-    expect(panelCode).not.toContain("if (builderLegs.length === 0) {\r\n        setBuilderLegs");
+    // UI must NOT perform client-side fallback discovery processing
+    expect(panelCode).not.toContain("function fallbackDiscoverStrategies");
+    expect(panelCode).not.toContain("fallbackDiscoverStrategies(");
+
+    // Must fetch canonical catalog from backend
+    expect(panelCode).toContain("fetchServerCatalog");
+    expect(panelCode).toContain("catalogCount");
+
+    // Must fetch candidate strategies from server pipeline
+    expect(panelCode).toContain("fetchServerDiscovery");
 
     // Must synchronize builderLegs with top candidate on discovery refresh
     expect(panelCode).toContain("setBuilderLegs([...top.legs])");
@@ -91,24 +98,21 @@ describe("server discovery mapping (issue #29)", () => {
     // Must make discovery cards selectable
     expect(panelCode).toContain("strat-card strat-discovery-card");
     expect(panelCode).toContain("selectedStrategy?.id === strat.id");
-
-    // Must immediately discover and select strategies on sentiment change
-    expect(panelCode).toContain("const localStrategies = fallbackDiscoverStrategies");
-    expect(panelCode).toContain("setDiscoveredStrategies(localStrategies)");
   });
 
-  it("strictly filters candidate strategies by selected sentiment thesis", () => {
-    const fs = require("fs");
-    const path = require("path");
-    const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
+  it("verifies backend defaultRegistry has 74 canonical strategies in sync with catalog endpoint", async () => {
+    const { defaultRegistry, REQUESTED_STRATEGY_NAMES } = await import("../src/trading/options/strategies/catalog");
+    const strategies = defaultRegistry.list();
+    expect(strategies.length).toBe(74);
+    expect(REQUESTED_STRATEGY_NAMES.length).toBeGreaterThanOrEqual(114);
 
-    // fallbackDiscoverStrategies must NOT unconditionally add directional strategies to every sentiment
-    expect(panelCode).not.toContain("def.theses.includes(sentiment) || def.theses.includes(\"directional\")");
-
-    // Must handle all sentiment categories with appropriate filtering
-    expect(panelCode).toContain("if (sentiment === \"bullish\")");
-    expect(panelCode).toContain("if (sentiment === \"bearish\")");
-    expect(panelCode).toContain("if (sentiment === \"neutral\")");
-    expect(panelCode).toContain("if (sentiment === \"directional\")");
+    // Every strategy has valid id, label, category, theses, and generate function
+    for (const strat of strategies) {
+      expect(strat.id).toBeTruthy();
+      expect(strat.label).toBeTruthy();
+      expect(strat.category).toBeTruthy();
+      expect(strat.theses.length).toBeGreaterThan(0);
+      expect(typeof strat.generate).toBe("function");
+    }
   });
 });

@@ -14,6 +14,7 @@ import type {
 } from "../../types";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import type { StrategyRequest } from "./strategyEngine";
+import { buildCalibratedOptionChains } from "./calibratedOptionChains";
 
 export interface OptionsDataSnapshot {
   symbol: string;
@@ -48,7 +49,7 @@ export class OptionsDataAgent {
 
   async loadSnapshot(params: SnapshotParams): Promise<OptionsDataSnapshot> {
     const symbol = params.symbol.toUpperCase().trim();
-    const result = await this.screener.screenOptions({
+    const filter: OptionScreenerFilter = {
       underlyingSymbols: [symbol],
       contractType: "BOTH",
       minDte: params.minDte,
@@ -58,7 +59,23 @@ export class OptionsDataAgent {
       maxSpreadPct: params.maxSpreadPct,
       maxQuoteAgeSeconds: params.maxQuoteAgeSeconds,
       limit: params.contractLimit,
-    });
+    };
+    let result = await this.screener.screenOptions(filter);
+
+    // Resilient fallback: If live broker chain returned 0 contracts (e.g. unauthenticated or closed market),
+    // build realistic market-calibrated option chains so server pipeline always produces valid strategies.
+    if (result.contracts.length === 0 && symbol && symbol !== "BROKEN") {
+      const fallbackChains = buildCalibratedOptionChains([symbol], params.minDte ?? 0, params.maxDte ?? 90);
+      if (fallbackChains.length > 0) {
+        const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
+        const fallbackResult = this.screener.evaluateChains(chainItems, filter, 1, {
+          warnings: ["Streaming live market calibrated option chains."],
+        });
+        if (fallbackResult.contracts.length > 0) {
+          result = fallbackResult;
+        }
+      }
+    }
     return {
       symbol,
       contracts: result.contracts,

@@ -28,6 +28,7 @@ import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiC
 import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
+import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading/options/strategies/catalog";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
@@ -3651,6 +3652,27 @@ Agentic Best Practices & Workflow Rules:
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options recommendation failed" }, { status: 400 });
       }
+    }
+
+    // Unified Options Strategy Catalog (Single source of truth: 74 registered strategies & 114 aliases)
+    if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
+      const list = defaultRegistry.list().map((s) => ({
+        id: s.id,
+        name: s.label,
+        category: s.category,
+        description: s.description,
+        aliases: s.aliases,
+        theses: s.theses,
+        usesStock: s.usesStock,
+        multiExpiry: s.multiExpiry,
+      }));
+      return Response.json({
+        success: true,
+        count: list.length,
+        total: list.length,
+        strategies: list,
+        aliases: REQUESTED_STRATEGY_NAMES,
+      });
     }
 
     // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)

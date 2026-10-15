@@ -35,6 +35,7 @@ import { OpportunityScanner, type OpportunityScanResult } from "./opportunitySca
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
+import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "./strategies/catalog";
 
 export type UnifiedOptionsAction =
   | "screen"
@@ -45,7 +46,8 @@ export type UnifiedOptionsAction =
   | "compare"
   | "llm_ideas"
   | "llm_evaluate"
-  | "config";
+  | "config"
+  | "catalog";
 
 export type OmnichannelContext =
   | "ui"
@@ -233,6 +235,27 @@ export class UnifiedOptionsService {
             environment: this.overrideEnv || (this.env.ETRADE_ENVIRONMENT === "live" ? "PROD" : "TEST"),
           };
           summary = `ETAPI Options Configuration: Risk-Free Rate ${(this.config.strategyEngine.riskFreeRate * 100).toFixed(1)}%, Fee $${this.config.strategyEngine.feePerContract.toFixed(2)}/contract, Max DTE ${this.config.screener.defaultMaxDte}d, Atmosphere Band ${(this.config.screener.atmBandPct * 100).toFixed(1)}%.`;
+          break;
+        }
+
+        case "catalog": {
+          const list = defaultRegistry.list().map((s) => ({
+            id: s.id,
+            name: s.label,
+            category: s.category,
+            description: s.description,
+            aliases: s.aliases,
+            theses: s.theses,
+            usesStock: s.usesStock,
+            multiExpiry: s.multiExpiry,
+          }));
+          executionData = {
+            count: list.length,
+            total: list.length,
+            strategies: list,
+            aliases: REQUESTED_STRATEGY_NAMES,
+          };
+          summary = `Options Strategy Catalog: ${list.length} strategies registered across 8 categories, resolving ${REQUESTED_STRATEGY_NAMES.length} market names and aliases.`;
           break;
         }
 
@@ -427,6 +450,14 @@ export class UnifiedOptionsService {
           { type: "mrkdwn", text: `*Unusual Vol/OI Ratio:*\n${cfg.screener.unusualVolumeOiRatio}x` },
         ],
       });
+    } else if (req.action === "catalog" && data.strategies) {
+      blocks.push({
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Registered Strategies:*\n${data.count}` },
+          { type: "mrkdwn", text: `*Recognized Aliases:*\n${data.aliases?.length || 0}` },
+        ],
+      });
     } else if (bt && bt.label) {
       const greeksText = bt.netGreeks
         ? `Δ: ${bt.netGreeks.delta?.toFixed(2) || "0.00"} | Γ: ${bt.netGreeks.gamma?.toFixed(3) || "0.00"} | Θ: ${bt.netGreeks.theta?.toFixed(2) || "0.00"} | V: ${bt.netGreeks.vega?.toFixed(2) || "0.00"}`
@@ -561,6 +592,13 @@ export class UnifiedOptionsService {
             <tr><td style="padding:6px 0;">ATM Band:</td><td style="font-weight:bold;color:#f8fafc;">${(cfg.screener.atmBandPct * 100).toFixed(1)}%</td></tr>
             <tr><td style="padding:6px 0;">Unusual Vol/OI:</td><td style="font-weight:bold;color:#f8fafc;">${cfg.screener.unusualVolumeOiRatio}x</td></tr>
           </table>
+        </div>
+      `;
+    } else if (req.action === "catalog" && data.strategies) {
+      cardsHtml = `
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px;">
+          <h3 style="margin-top:0;color:#38bdf8;">📚 Options Strategy Catalog (${data.count} Strategies)</h3>
+          <p style="color:#cbd5e1;font-size:13px;">${summary}</p>
         </div>
       `;
     } else if (bt && bt.label) {

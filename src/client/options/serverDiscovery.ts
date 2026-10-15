@@ -188,3 +188,35 @@ export async function fetchServerDiscovery(inputs: ServerDiscoveryInputs, fetchI
     strategies: (data.ranked ?? []).map((entry) => mapCandidateToDiscovered(entry, thesis)),
   };
 }
+
+export interface ServerCatalogStrategy {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  aliases: string[];
+  theses: string[];
+  specsCount?: number;
+}
+
+export interface ServerCatalogResult {
+  success?: boolean;
+  count: number;
+  total: number;
+  strategies: ServerCatalogStrategy[];
+  aliases: string[];
+}
+
+/** Fetches the full canonical options strategy catalog from the server pipeline. */
+export async function fetchServerCatalog(fetchImpl: typeof apiFetch = apiFetch): Promise<ServerCatalogResult> {
+  const response = await fetchImpl("/api/trading/options/catalog", {
+    method: "GET",
+    headers: { "Accept": "application/json" },
+  });
+  const data = (await response.json().catch(() => null)) as ServerCatalogResult | null;
+  if (!response.ok || !data) {
+    throw new Error(`Failed to load server strategy catalog (${response.status})`);
+  }
+  return data;
+}
+

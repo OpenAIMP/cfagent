@@ -292,5 +292,29 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
     expect(result.stocks[1].symbol).toBe("BIGG");
     expect(result.stocks[2].symbol).toBe("FLAT");
   });
+
+  it("handles unified action: catalog serving 74 registered strategies across omnichannel formats", async () => {
+    const service = new UnifiedOptionsService({} as Env);
+    const catalogResult = await service.execute({
+      action: "catalog",
+    });
+
+    expect(catalogResult.success).toBe(true);
+    expect(catalogResult.action).toBe("catalog");
+    expect(catalogResult.data.count).toBe(74);
+    expect(catalogResult.data.strategies.length).toBe(74);
+    expect(catalogResult.data.aliases.length).toBeGreaterThanOrEqual(114);
+
+    const uiOutput = catalogResult.toUi();
+    expect(uiOutput.count).toBe(74);
+    expect(uiOutput.strategies.length).toBe(74);
+
+    const slackOutput = catalogResult.toSlack();
+    expect(JSON.stringify(slackOutput.blocks)).toContain("Registered Strategies");
+    expect(JSON.stringify(slackOutput.blocks)).toContain("74");
+
+    const emailOutput = catalogResult.toEmailHtml();
+    expect(emailOutput).toContain("74 Strategies");
+  });
 });
 

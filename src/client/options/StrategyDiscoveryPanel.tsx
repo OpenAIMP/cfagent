@@ -20,7 +20,11 @@ import {
   type NetOptionGreeks,
   type RealizedUnrealizedPnl,
 } from "./strategyDiscoveryEngine";
-import { fetchServerDiscovery } from "./serverDiscovery";
+import {
+  fetchServerDiscovery,
+  fetchServerCatalog,
+  type ServerCatalogResult,
+} from "./serverDiscovery";
 import {
   STRATEGY_LIBRARY,
   type StrategyDefinition,
@@ -214,71 +218,6 @@ function decodeTradeFromHash(hashStr: string): {
   } catch {
     return null;
   }
-}
-
-function fallbackDiscoverStrategies(
-  spot: number,
-  target: number,
-  sentiment: SentimentType,
-  expiration: ExpirationOption,
-  budget: number | null,
-  minRewardRisk: number | null,
-  bias: number,
-  iv: number,
-  config: StrategyDiscoveryConfig
-): DiscoveredStrategy[] {
-  const matches = STRATEGY_LIBRARY.filter((def) => {
-    if (sentiment === "all") return true;
-    if (sentiment === "bullish") return def.theses.includes("bullish") || def.theses.includes("very_bullish");
-    if (sentiment === "very_bullish") return def.theses.includes("very_bullish") || def.theses.includes("bullish");
-    if (sentiment === "bearish") return def.theses.includes("bearish") || def.theses.includes("very_bearish");
-    if (sentiment === "very_bearish") return def.theses.includes("very_bearish") || def.theses.includes("bearish");
-    if (sentiment === "neutral") return def.theses.includes("neutral");
-    if (sentiment === "directional") return def.theses.includes("directional");
-    return false;
-  });
-  const candidates: DiscoveredStrategy[] = [];
-  for (const def of matches) {
-    try {
-      const legs = def.buildLegs(spot, expiration.dte, expiration.date, iv, config.riskFreeRate);
-      const analyzed = analyzeStrategy(
-        def.name,
-        def.category,
-        def.subtitle,
-        def.theses,
-        legs,
-        spot,
-        target,
-        expiration.dte,
-        expiration.date,
-        iv,
-        def.description,
-        bias,
-        config
-      );
-      if (budget !== null && analyzed.maxLoss !== null && analyzed.maxLoss > budget) continue;
-      if (minRewardRisk !== null && analyzed.rewardRiskRatio !== null && analyzed.rewardRiskRatio !== undefined && analyzed.rewardRiskRatio < minRewardRisk) continue;
-      candidates.push(analyzed);
-    } catch {
-      // skip invalid legs
-    }
-  }
-
-  candidates.sort((a, b) => {
-    if (sentiment === "very_bullish") {
-      const aExact = a.theses.includes("very_bullish") ? 1 : 0;
-      const bExact = b.theses.includes("very_bullish") ? 1 : 0;
-      if (aExact !== bExact) return bExact - aExact;
-    }
-    if (sentiment === "very_bearish") {
-      const aExact = a.theses.includes("very_bearish") ? 1 : 0;
-      const bExact = b.theses.includes("very_bearish") ? 1 : 0;
-      if (aExact !== bExact) return bExact - aExact;
-    }
-    return (b.factors?.compositeScore ?? 0) - (a.factors?.compositeScore ?? 0);
-  });
-
-  return candidates;
 }
 
 export function StrategyDiscoveryPanel({
@@ -649,6 +588,17 @@ export function StrategyDiscoveryPanel({
     return Number(spotPrice.toFixed(2));
   };
 
+  // Canonical strategy catalog state fetched from backend (default: 74 registered strategies)
+  const [serverCatalog, setServerCatalog] = useState<ServerCatalogResult | null>(null);
+
+  useEffect(() => {
+    fetchServerCatalog()
+      .then((cat) => setServerCatalog(cat))
+      .catch((err) => console.warn("[StrategyDiscoveryPanel] Failed to fetch server strategy catalog:", err));
+  }, []);
+
+  const catalogCount = serverCatalog?.count ?? 74;
+
   // Adjust target price default when sentiment or quote price changes
   const handleSentimentChange = (nextSentiment: SentimentType) => {
     hasInitialCustomLegsRef.current = false;
@@ -659,48 +609,12 @@ export function StrategyDiscoveryPanel({
     setCustomStrategyName(null);
     const target = getTargetPriceForSentiment(nextSentiment, quote.price, builderIv, selectedExpiration.dte);
     setTargetPrice(target);
-
-    // Immediately discover and select strategies for nextSentiment
-    const localStrategies = fallbackDiscoverStrategies(
-      quote.price,
-      target,
-      nextSentiment,
-      selectedExpiration,
-      budget,
-      minRewardRiskRatio,
-      optimizationBias,
-      builderIv / 100,
-      engineConfig
-    );
-    if (localStrategies.length > 0) {
-      setDiscoveredStrategies(localStrategies);
-      const top = localStrategies[0];
-      setSelectedStrategy(top);
-      setBuilderLegs([...top.legs]);
-    }
   };
 
   const handleSelectExpiration = (exp: ExpirationOption) => {
     setSelectedExpiration(exp);
     const target = getTargetPriceForSentiment(sentiment, quote.price, builderIv, exp.dte);
     setTargetPrice(target);
-    const localStrategies = fallbackDiscoverStrategies(
-      quote.price,
-      target,
-      sentiment,
-      exp,
-      budget,
-      minRewardRiskRatio,
-      optimizationBias,
-      builderIv / 100,
-      engineConfig
-    );
-    if (localStrategies.length > 0) {
-      setDiscoveredStrategies(localStrategies);
-      const top = localStrategies[0];
-      setSelectedStrategy(top);
-      setBuilderLegs([...top.legs]);
-    }
   };
 
   const handleSelectSymbol = (sym: string) => {
@@ -722,23 +636,6 @@ export function StrategyDiscoveryPanel({
       setQuote(fallback);
       const target = getTargetPriceForSentiment(sentiment, fallback.price, builderIv, selectedExpiration.dte);
       setTargetPrice(target);
-      const localStrategies = fallbackDiscoverStrategies(
-        fallback.price,
-        target,
-        sentiment,
-        selectedExpiration,
-        budget,
-        minRewardRiskRatio,
-        optimizationBias,
-        builderIv / 100,
-        engineConfig
-      );
-      if (localStrategies.length > 0) {
-        setDiscoveredStrategies(localStrategies);
-        const top = localStrategies[0];
-        setSelectedStrategy(top);
-        setBuilderLegs([...top.legs]);
-      }
     }
   };
 
@@ -747,23 +644,13 @@ export function StrategyDiscoveryPanel({
     handleSelectSymbol(symbolInput);
   };
 
-  // Generate strategy candidates using server discovery with local fallback
-  const [discoveredStrategies, setDiscoveredStrategies] = useState<DiscoveredStrategy[]>(() =>
-    fallbackDiscoverStrategies(
-      quote.price,
-      targetPrice,
-      sentiment,
-      selectedExpiration,
-      budget,
-      minRewardRiskRatio,
-      optimizationBias,
-      builderIv / 100,
-      engineConfig
-    )
-  );
+  // Discovered strategy candidates fetched exclusively from server pipeline (pure display layer)
+  const [discoveredStrategies, setDiscoveredStrategies] = useState<DiscoveredStrategy[]>([]);
+  const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
+    setIsDiscovering(true);
     fetchServerDiscovery({
       symbol: activeSymbol,
       currentPrice: quote.price,
@@ -775,39 +662,15 @@ export function StrategyDiscoveryPanel({
       bias: optimizationBias,
     })
       .then((res) => {
-        if (!cancelled && res.strategies.length > 0) {
+        if (!cancelled) {
           setDiscoveredStrategies(res.strategies);
-        } else if (!cancelled) {
-          setDiscoveredStrategies(
-            fallbackDiscoverStrategies(
-              quote.price,
-              targetPrice,
-              sentiment,
-              selectedExpiration,
-              budget,
-              minRewardRiskRatio,
-              optimizationBias,
-              builderIv / 100,
-              engineConfig
-            )
-          );
+          setIsDiscovering(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!cancelled) {
-          setDiscoveredStrategies(
-            fallbackDiscoverStrategies(
-              quote.price,
-              targetPrice,
-              sentiment,
-              selectedExpiration,
-              budget,
-              minRewardRiskRatio,
-              optimizationBias,
-              builderIv / 100,
-              engineConfig
-            )
-          );
+          console.warn("[StrategyDiscoveryPanel] Server discovery failed:", err);
+          setIsDiscovering(false);
         }
       });
 
@@ -1532,9 +1395,9 @@ export function StrategyDiscoveryPanel({
             type="button"
             className="strat-action-chip highlight"
             onClick={() => setShowStrategyModal(true)}
-            title={`Browse ${STRATEGY_LIBRARY.length} pre-made options strategies`}
+            title={`Browse ${catalogCount} pre-made options strategies`}
           >
-            📚 Strategies ({STRATEGY_LIBRARY.length})
+            📚 Strategies ({catalogCount})
           </button>
           <button
             type="button"
@@ -2036,7 +1899,7 @@ export function StrategyDiscoveryPanel({
                   type="button"
                   className="strat-change-strat-btn"
                   onClick={() => setShowStrategyModal(true)}
-                  title={`Change Strategy (${STRATEGY_LIBRARY.length} available)`}
+                  title={`Change Strategy (${catalogCount} available)`}
                 >
                   Change ▾
                 </button>
@@ -3119,7 +2982,7 @@ export function StrategyDiscoveryPanel({
           <div className="strat-strategy-picker-modal" onClick={(e) => e.stopPropagation()}>
             <div className="strat-modal-header">
               <div className="strat-modal-header-titles">
-                <h3>Options Strategy Library ({STRATEGY_LIBRARY.length} Strategies)</h3>
+                <h3>Options Strategy Library ({catalogCount} Strategies)</h3>
                 <span>Choose a pre-made strategy to evaluate profit/loss characteristics</span>
               </div>
               <button
