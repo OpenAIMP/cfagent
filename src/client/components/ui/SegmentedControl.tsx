@@ -1,4 +1,5 @@
 import React from "react";
+import { getSegmentNavigationTarget, getSegmentTabStop } from "./segmentedNavigation";
 
 export interface SegmentedControlOption<T extends string = string> {
   id: T;
@@ -17,11 +18,7 @@ export interface SegmentedControlProps<T extends string = string> {
   className?: string;
 }
 
-/**
- * SegmentedControl
- * Enterprise-grade, accessible, smooth sliding segmented pill switch.
- * Ideal for view toggles (Graph vs Matrix Table, Timeframe switches, Order sides).
- */
+/** Single-selection radio group; use a separate tabs pattern for navigation. */
 export function SegmentedControl<T extends string = string>({
   options,
   value,
@@ -30,26 +27,40 @@ export function SegmentedControl<T extends string = string>({
   ariaLabel = "Segmented toggle",
   className = "",
 }: SegmentedControlProps<T>) {
+  const buttons = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const tabStop = getSegmentTabStop(options, value);
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = getSegmentNavigationTarget(options, index, event.key);
+    if (target === null) return;
+    event.preventDefault();
+    buttons.current[target]?.focus();
+    if (options[target].id !== value) onChange(options[target].id);
+  }
+
   return (
     <div
       role="radiogroup"
       aria-label={ariaLabel}
       className={`segmented-control size-${size} ${className}`}
     >
-      {options.map((opt) => {
+      {options.map((opt, index) => {
         const isSelected = opt.id === value;
         return (
           <button
             key={opt.id}
+            ref={element => { buttons.current[index] = element; }}
             type="button"
             role="radio"
             aria-checked={isSelected}
-            tabIndex={isSelected ? 0 : -1}
+            tabIndex={index === tabStop ? 0 : -1}
             disabled={opt.disabled}
             className={`segmented-btn ${isSelected ? "selected" : ""} ${opt.disabled ? "disabled" : ""}`}
+            onKeyDown={event => handleKeyDown(event, index)}
             onClick={() => !opt.disabled && onChange(opt.id)}
           >
-            {opt.icon && <span className="segmented-icon">{opt.icon}</span>}
+            {opt.icon && <span className="segmented-icon" aria-hidden="true">{opt.icon}</span>}
             <span className="segmented-label">{opt.label}</span>
             {opt.badge !== undefined && (
               <span className="segmented-badge">{opt.badge}</span>
