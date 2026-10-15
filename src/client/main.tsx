@@ -2,21 +2,23 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
 import { applyThemeToDocument, getStoredTheme, initThemeListener } from "./theme";
-import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
+import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, initTypographyListener } from "./typography";
 import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
 import "./styles.css";
 import "./tokens.css";
 
-// Initialize appearance before React mounts; theme and density reads do not persist.
+// Startup applies preferences without writing storage.
 applyThemeToDocument(getStoredTheme());
-const disposeThemeListener = initThemeListener();
-applyTypography(getStoredFontScale(), getStoredFontStyle());
+applyTypographyToDocument(getStoredFontScale(), getStoredFontStyle());
 applyDensityToDocument(getStoredDensity());
+const disposeThemeListener = initThemeListener();
 const disposeDensityListener = initDensityListener();
+const disposeTypographyListener = initTypographyListener();
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeThemeListener();
     disposeDensityListener();
+    disposeTypographyListener();
   });
 }
 
