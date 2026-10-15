@@ -3,16 +3,22 @@ import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
 import { applyThemeToDocument, getStoredTheme, initThemeListener } from "./theme";
 import { applyTypography, getStoredFontScale, getStoredFontStyle } from "./typography";
-import { applyDensity, getStoredDensity } from "./designTokens";
+import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
 import "./styles.css";
 import "./tokens.css";
 
-// Initialize appearance before React mounts; theme initialization does not persist.
+// Initialize appearance before React mounts; theme and density reads do not persist.
 applyThemeToDocument(getStoredTheme());
 const disposeThemeListener = initThemeListener();
-if (import.meta.hot) import.meta.hot.dispose(disposeThemeListener);
 applyTypography(getStoredFontScale(), getStoredFontStyle());
-applyDensity(getStoredDensity());
+applyDensityToDocument(getStoredDensity());
+const disposeDensityListener = initDensityListener();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeThemeListener();
+    disposeDensityListener();
+  });
+}
 
 const devUser = import.meta.env.DEV
   ? {
