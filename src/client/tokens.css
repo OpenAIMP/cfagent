@@ -1627,6 +1627,160 @@ body.theme-light .btn-cancel-modal:hover {
   box-sizing: border-box;
 }
 
+/* E*TRADE OAuth PIN Verification Modal (Authorize E*TRADE Application) */
+.etrade-pin-modal {
+  width: 90% !important;
+  max-width: 520px !important;
+}
+
+.etrade-pin-modal .step-instruction {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  margin: var(--space-3, 0.75rem) 0 var(--space-2, 0.5rem);
+  font-size: var(--font-size-body-sm, 0.88rem);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="light"] .etrade-pin-modal .step-instruction,
+body.theme-light .etrade-pin-modal .step-instruction {
+  color: #334155 !important;
+}
+
+.etrade-pin-modal .step-number {
+  background: var(--color-accent, #38bdf8);
+  color: #0f172a;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full, 9999px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .etrade-pin-modal .step-number,
+body.theme-light .etrade-pin-modal .step-number {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+.etrade-pin-modal .btn-open-etrade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.65rem 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  margin: var(--space-2, 0.5rem) 0 var(--space-4, 1rem);
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.etrade-pin-modal .btn-open-etrade:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
+}
+
+[data-theme="light"] .etrade-pin-modal .btn-open-etrade,
+body.theme-light .etrade-pin-modal .btn-open-etrade {
+  background: #ecfdf5 !important;
+  color: #059669 !important;
+  border: 1px solid #6ee7b7 !important;
+}
+
+[data-theme="light"] .etrade-pin-modal .btn-open-etrade:hover,
+body.theme-light .etrade-pin-modal .btn-open-etrade:hover {
+  background: #d1fae5 !important;
+  color: #047857 !important;
+  border-color: #34d399 !important;
+}
+
+.etrade-pin-modal .pin-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
+  border: 1px solid var(--color-border-medium, rgba(56, 189, 248, 0.4));
+  border-radius: var(--radius-md, 8px);
+  color: var(--color-text-primary, #ffffff);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  letter-spacing: 0.12em;
+  text-align: center;
+  margin-bottom: var(--space-4, 1rem);
+  box-sizing: border-box;
+  font-weight: 700;
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.etrade-pin-modal .pin-input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+
+[data-theme="light"] .etrade-pin-modal .pin-input,
+body.theme-light .etrade-pin-modal .pin-input {
+  background: #ffffff !important;
+  border: 1.5px solid #94a3b8 !important;
+  color: #0f172a !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .etrade-pin-modal .pin-input:focus,
+body.theme-light .etrade-pin-modal .pin-input:focus {
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18) !important;
+}
+
+.etrade-pin-modal .btn-submit-pin {
+  flex: 2;
+  background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  padding: 0.75rem 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast, 120ms) ease;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
+}
+
+.etrade-pin-modal .btn-submit-pin:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45);
+  transform: translateY(-1px);
+}
+
+.etrade-pin-modal .btn-submit-pin:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+[data-theme="light"] .etrade-pin-modal .btn-submit-pin,
+body.theme-light .etrade-pin-modal .btn-submit-pin {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25) !important;
+}
+
+[data-theme="light"] .etrade-pin-modal .btn-submit-pin:hover:not(:disabled),
+body.theme-light .etrade-pin-modal .btn-submit-pin:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+}
+
+[data-theme="light"] .etrade-pin-modal p,
+body.theme-light .etrade-pin-modal p {
+  color: #475569 !important;
+}
+
 /* ==========================================================================
    6. E*TRADE LIVE REST DIAGNOSTICS MODAL (TOKEN ALIGNMENT)
    ========================================================================== */

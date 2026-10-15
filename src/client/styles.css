@@ -4761,14 +4761,14 @@ body {
   gap: 0.75rem;
   margin: 1rem 0 0.5rem;
   font-size: 0.88rem;
-  color: var(--color-text-secondary, #cbd5e1);
+  color: var(--color-text-secondary);
 }
 
 .step-number {
-  background: #38bdf8;
+  background: var(--color-accent, #38bdf8);
   color: #0f172a;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -4778,16 +4778,24 @@ body {
 }
 
 .btn-open-etrade {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
   border: 1px solid rgba(16, 185, 129, 0.35);
   border-radius: 8px;
-  padding: 0.6rem 1rem;
+  padding: 0.65rem 1.1rem;
   font-size: 0.85rem;
   font-weight: 600;
   text-decoration: none;
   margin: 0.5rem 0 1rem;
+  transition: all var(--transition-fast, 120ms) ease;
+}
+
+.btn-open-etrade:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
 }
 
 .pin-form {
@@ -4797,16 +4805,22 @@ body {
 .pin-input {
   width: 100%;
   padding: 0.75rem 1rem;
-  background: var(--color-input, rgba(0, 0, 0, 0.4));
-  border: 1px solid var(--color-input-border, rgba(56, 189, 248, 0.4));
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.4));
+  border: 1px solid var(--color-border-medium, rgba(56, 189, 248, 0.4));
   border-radius: 8px;
   color: var(--color-text-primary, #ffffff);
   font-variant-numeric: tabular-nums;
-  font-size: 1.1rem;
-  letter-spacing: 0.1em;
+  font-size: 1.15rem;
+  letter-spacing: 0.12em;
   text-align: center;
   margin-bottom: 1rem;
   box-sizing: border-box;
+  font-weight: 700;
+}
+
+.pin-input:focus {
+  border-color: var(--color-accent);
+  outline: none;
 }
 
 .modal-btn-row {
@@ -4823,6 +4837,7 @@ body {
   padding: 0.75rem;
   font-weight: 700;
   cursor: pointer;
+  transition: all var(--transition-fast, 120ms) ease;
 }
 
 .btn-cancel-modal {

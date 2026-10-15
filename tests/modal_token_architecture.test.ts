@@ -33,6 +33,16 @@ describe("Universal Modal System & Diagnostics Token Architecture", () => {
       expect(tokensCss).toContain(".btn-cancel-modal");
       expect(tokensCss).toContain('[data-theme="light"] .btn-cancel-modal');
     });
+
+    it("tokenizes E*TRADE OAuth PIN modal instructions, badges, inputs, and action buttons in light mode", () => {
+      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .step-instruction');
+      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .step-number');
+      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .btn-open-etrade');
+      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .pin-input');
+      expect(tokensCss).toContain('[data-theme="light"] .etrade-pin-modal .btn-submit-pin');
+      expect(tokensCss).toContain("background: #ecfdf5 !important");
+      expect(tokensCss).toContain("color: #059669 !important");
+    });
   });
 
   describe("Section 6: E*TRADE Live REST Diagnostics Modal Token Alignment", () => {
