@@ -15,6 +15,7 @@ import { FossResearchService } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { assessPortfolioConcentration } from "../services/portfolioConcentration";
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
+import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
@@ -1069,7 +1070,7 @@ Platform Workflows & UI Navigation Map:
 4. Workflow 4: Visual Multi-Leg Strategy Builder & Payoff Visualizer (Tab: 'trading' | API: /api/options/builder/payoff)
    - Construct custom 1-4 leg positions with interactive payoff curves, breakevens, and net Greeks.
 5. Workflow 5: Portfolio Positions & Account Sync (Tab: 'trading' | API: /api/etrade/positions)
-   - Live position sync with balances and per-position unrealized PnL, plus portfolio-level Greeks aggregation (Delta/Gamma/Theta/Vega/Rho, SPY beta-weighted Delta with betas computed from live price history, defined max loss vs NAV) via /api/etrade/portfolio-risk, plus correlation & concentration flags via /api/etrade/portfolio-risk/correlation and portfolio-aware position sizing via /api/etrade/portfolio-risk/size. Hedging proposals are not implemented (planned, issue #54).
+   - Live position sync with balances and per-position unrealized PnL, plus portfolio-level Greeks aggregation (Delta/Gamma/Theta/Vega/Rho, SPY beta-weighted Delta with betas computed from live price history, defined max loss vs NAV) via /api/etrade/portfolio-risk, plus correlation & concentration flags via /api/etrade/portfolio-risk/correlation and portfolio-aware position sizing via /api/etrade/portfolio-risk/size, plus draft hedge proposals sized from the aggregates (HITL review only, never auto-executed) via /api/etrade/hedge/analyze.
 6. Workflow 6: Brokerage Order Execution with HITL Guardrails (Tab: 'trading' | API: /api/etrade/order/preview)
    - Mandatory human approval for every trade. Order drafts are signed with Agent DIDs before confirmation.
 7. Workflow 7: Autonomous Background Execution & Cron (Tab: 'trading' | Durable Objects)
@@ -3003,6 +3004,20 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(sizeCandidateAgainstPortfolio(report, body.candidate));
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to size candidate" }, { status: 500 });
+      }
+    }
+
+    // Hedge proposals (issue #54): DRAFT hedging proposals sized from the
+    // portfolio aggregates — for the HITL order-preview flow only; this
+    // endpoint never places or previews an order itself.
+    if (path.endsWith("/etrade/hedge/analyze") && request.method === "POST") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
+        const analysis = await generateHedgeProposals(etrade);
+        return Response.json(analysis);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to generate hedge proposals" }, { status: 500 });
       }
     }
 
