@@ -14,6 +14,7 @@ import {
 import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub } from "./ScreenersHub";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
@@ -2143,9 +2144,13 @@ export function ETradeTradingHub({
             ))}
           </nav>
 
-          <AccountPanels activeEnv={activeEnv} onUnreadAlertsChange={onUnreadAlertsChange} />
+          <ErrorBoundary label="Account panels (alerts, transactions, watchlists, orders)">
+            <AccountPanels activeEnv={activeEnv} onUnreadAlertsChange={onUnreadAlertsChange} />
+          </ErrorBoundary>
 
-          <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleOptionsTrade} />
+          <ErrorBoundary label="Portfolio Risk panel">
+            <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleOptionsTrade} />
+          </ErrorBoundary>
         </div>
       )}
 
