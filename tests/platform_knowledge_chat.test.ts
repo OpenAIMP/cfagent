@@ -38,7 +38,7 @@ describe("Platform Capabilities & Chat Knowledge Retrieval Suite", () => {
       expect(workflowIds).toContain("options-strategy-discovery");
       expect(workflowIds).toContain("options-flows");
       expect(workflowIds).toContain("strategy-builder");
-      expect(workflowIds).toContain("position-risk-hedging");
+      expect(workflowIds).toContain("portfolio-positions-sync");
       expect(workflowIds).toContain("automated-execution-hitl");
       expect(workflowIds).toContain("background-cron-scheduling");
       expect(workflowIds).toContain("nlq-conversational-agent");
