@@ -9,6 +9,8 @@ export interface TickerTapeQuote {
   isPositive: boolean;
   type?: "stock" | "crypto" | "etf";
   rawPrice?: number;
+  source?: "Alpaca" | "Yahoo Finance" | "Reference";
+  timestamp?: number;
 }
 
 export interface MarketTickerTapeProps {
@@ -18,16 +20,16 @@ export interface MarketTickerTapeProps {
 }
 
 const DEFAULT_TICKERS: TickerTapeQuote[] = [
-  { symbol: "SPY", price: "$582.40", change: "+0.52%", isPositive: true, type: "etf" },
-  { symbol: "QQQ", price: "$492.15", change: "+0.94%", isPositive: true, type: "etf" },
-  { symbol: "DIA", price: "$428.10", change: "+0.26%", isPositive: true, type: "etf" },
-  { symbol: "NVDA", price: "$138.25", change: "+3.42%", isPositive: true, type: "stock" },
-  { symbol: "AAPL", price: "$232.10", change: "+0.84%", isPositive: true, type: "stock" },
-  { symbol: "MSFT", price: "$428.90", change: "+1.15%", isPositive: true, type: "stock" },
-  { symbol: "TSLA", price: "$220.50", change: "-1.24%", isPositive: false, type: "stock" },
-  { symbol: "BTC/USD", price: "$67,450.00", change: "+2.14%", isPositive: true, type: "crypto" },
-  { symbol: "ETH/USD", price: "$2,642.50", change: "+1.52%", isPositive: true, type: "crypto" },
-  { symbol: "SOL/USD", price: "$154.20", change: "+3.91%", isPositive: true, type: "crypto" },
+  { symbol: "SPY", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "QQQ", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "DIA", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "NVDA", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "AAPL", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "MSFT", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "TSLA", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "BTC/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
+  { symbol: "ETH/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
+  { symbol: "SOL/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
 ];
 
 export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }: MarketTickerTapeProps) {
@@ -40,7 +42,7 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
   });
 
   const [flashStates, setFlashStates] = useState<Record<string, "up" | "down">>({});
-  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [transport, setTransport] = useState<"connecting" | "websocket" | "polling" | "offline">("connecting");
   const rawPricesRef = useRef<Record<string, number>>({});
   const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -52,6 +54,8 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
     changePercent: number;
     isPositive: boolean;
     type?: "stock" | "crypto" | "etf";
+    source?: "Alpaca" | "Yahoo Finance" | "Reference";
+    timestamp?: number;
   }) => {
     const sym = q.symbol;
     const prev = rawPricesRef.current[sym];
@@ -82,6 +86,8 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
         isPositive: q.isPositive,
         type: q.type,
         rawPrice: q.price,
+        source: q.source,
+        timestamp: q.timestamp,
       },
     }));
   };
@@ -99,16 +105,19 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
         if (res.ok) {
           const data = (await res.json()) as any;
           if (Array.isArray(data?.quotes)) {
-            setIsLiveConnected(true);
             for (const item of data.quotes) {
               if (item && item.symbol) {
                 handleUpdate(item);
               }
             }
+            if (ws?.readyState !== WebSocket.OPEN) {
+              setTransport("polling");
+              if (!pollInterval) pollInterval = setInterval(fetchLiveQuotes, 12000);
+            }
           }
         }
       } catch {
-        // Retain baseline
+        if (ws?.readyState !== WebSocket.OPEN) setTransport("offline");
       }
     };
 
@@ -117,7 +126,7 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
 
     const startPolling = () => {
       if (pollInterval) return;
-      setIsLiveConnected(true);
+      setTransport("polling");
       pollInterval = setInterval(fetchLiveQuotes, 12000);
     };
 
@@ -130,7 +139,11 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
 
       ws.onopen = () => {
         if (!isSubscribed) return;
-        setIsLiveConnected(true);
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        setTransport("websocket");
         const symbols = DEFAULT_TICKERS.map((t) => t.symbol);
         ws?.send(JSON.stringify({ type: "subscribe", symbols }));
       };
@@ -145,6 +158,8 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
             }
           } else if (data.type === "tick" && data.tick) {
             handleUpdate(data.tick);
+          } else if (data.type === "ticks" && Array.isArray(data.ticks)) {
+            for (const tick of data.ticks) handleUpdate(tick);
           }
         } catch {
           // Ignore
@@ -184,6 +199,41 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
     }
   };
 
+  const providerSources = Array.from(new Set(
+    Object.values(quotes).flatMap((quote) =>
+      (quote.source === "Alpaca" || quote.source === "Yahoo Finance") &&
+      quote.timestamp !== undefined && Date.now() - quote.timestamp < 60000
+        ? [quote.source]
+        : []
+    )
+  ));
+  const hasReferenceQuotes = Object.values(quotes).some((quote) => quote.source === "Reference");
+  const sourceLabel = [...providerSources, ...(hasReferenceQuotes ? ["Reference"] : [])].join(" + ") || "Alpaca / Yahoo Finance";
+  const connectionLabel = transport === "websocket" ? "WebSocket" : transport === "polling" ? "Polling" : transport === "offline" ? "Offline" : "Connecting";
+  const liveSourceAvailable = providerSources.length > 0;
+  const feedStatus = liveSourceAvailable ? "live" : transport === "offline" ? "offline" : "syncing";
+
+  const renderTicker = (base: TickerTapeQuote, copy: "primary" | "duplicate") => {
+    const live = quotes[base.symbol] || base;
+    const flash = flashStates[base.symbol];
+    return (
+      <button
+        key={`${copy}-${base.symbol}`}
+        type="button"
+        className={`ticker-tape-chip ${flash ? `flash-${flash}` : ""}`}
+        onClick={() => handleClickItem(base.symbol)}
+        title={`${base.symbol}: ${live.price} (${live.change}) · ${live.source || "waiting for source"} · click to inspect`}
+        tabIndex={copy === "duplicate" ? -1 : undefined}
+      >
+        <span className="chip-symbol">{base.symbol}</span>
+        <span className="chip-price">{live.price}</span>
+        <span className={`chip-change ${live.isPositive ? "up" : "down"}`}>
+          {live.change}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div
       className={`market-ticker-tape ${className}`}
@@ -191,32 +241,21 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
       aria-label="Real-Time Market Ticker"
     >
       {/* Feed Status Indicator */}
-      <div className="ticker-tape-feed-badge" title="Live Level 1 streaming quotes from Yahoo Finance & Alpaca APIs">
-        <span className={`ticker-live-dot ${isLiveConnected ? "live" : "syncing"}`} />
-        <span className="ticker-live-text">REAL-TIME TICKER</span>
+      <div className={`ticker-tape-feed-badge ${feedStatus}`} title={`Feed: ${sourceLabel}. Transport: ${connectionLabel}`}>
+        <span className={`ticker-live-dot ${feedStatus}`} />
+        <span className="ticker-live-text">{liveSourceAvailable ? "LIVE" : transport === "offline" ? "OFFLINE" : "SYNCING"} · {sourceLabel} · {connectionLabel}</span>
       </div>
 
       {/* Scrolling / Chips Strip */}
-      <div className="ticker-tape-chips-track">
-        {DEFAULT_TICKERS.map((base) => {
-          const live = quotes[base.symbol] || base;
-          const flash = flashStates[base.symbol];
-          return (
-            <button
-              key={base.symbol}
-              type="button"
-              className={`ticker-tape-chip ${flash ? `flash-${flash}` : ""}`}
-              onClick={() => handleClickItem(base.symbol)}
-              title={`${base.symbol}: ${live.price} (${live.change}) — click to inspect or trade`}
-            >
-              <span className="chip-symbol">{base.symbol}</span>
-              <span className="chip-price">{live.price}</span>
-              <span className={`chip-change ${live.isPositive ? "up" : "down"}`}>
-                {live.change}
-              </span>
-            </button>
-          );
-        })}
+      <div className="ticker-tape-chips-viewport" aria-label="Live market quotes" aria-live="off">
+        <div className="ticker-tape-marquee">
+          <div className="ticker-tape-sequence">
+            {DEFAULT_TICKERS.map((base) => renderTicker(base, "primary"))}
+          </div>
+          <div className="ticker-tape-sequence" aria-hidden="true">
+            {DEFAULT_TICKERS.map((base) => renderTicker(base, "duplicate"))}
+          </div>
+        </div>
       </div>
     </div>
   );

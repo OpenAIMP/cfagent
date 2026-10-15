@@ -4,7 +4,7 @@
  * Implements Issue #21:
  * - Real-time streaming of Level 1 quotes (last price, bid, ask, volume, daily change %)
  * - Support for equities (NVDA, AAPL, MSFT, TSLA, SPY, QQQ) and crypto (BTC/USD, ETH/USD, SOL/USD)
- * - Tick update generator with realistic volatility modeling and NBBO spread maintenance
+ * - Provider-backed WebSocket quote updates with cached HTTP snapshot fallback
  * - WebSocket session lifecycle management with clean teardown and heartbeat support
  * - Batch HTTP snapshot fallback for non-WebSocket clients
  */
@@ -28,6 +28,7 @@ export interface MarketTickData {
   volume: string;
   isPositive: boolean;
   timestamp: number;
+  source: "Alpaca" | "Yahoo Finance" | "Reference";
 }
 
 export type MarketStreamClientMessage =
@@ -95,6 +96,7 @@ interface LiveMarketCacheEntry {
   expiresAt: number;
 }
 export const liveMarketCache = new Map<string, LiveMarketCacheEntry>();
+const failedQuoteRetryAfter = new Map<string, number>();
 
 /**
  * Fetch authentic real-time market quote from Yahoo Finance or Alpaca
@@ -105,6 +107,8 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
   if (cached && cached.expiresAt > Date.now()) {
     return cached.tick;
   }
+  const retryAfter = failedQuoteRetryAfter.get(norm) || 0;
+  if (retryAfter > Date.now()) return null;
 
   const type = classifyAssetType(norm);
   const isCrypto = type === "crypto";
@@ -160,8 +164,10 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
               volume: baseline.volume,
               isPositive: change >= 0,
               timestamp: Date.now(),
+              source: "Alpaca",
             };
             liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 20000 });
+            failedQuoteRetryAfter.delete(norm);
             return tick;
           }
         }
@@ -213,9 +219,11 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
           volume: formatVolume(Number(meta.regularMarketVolume || 0), isCrypto),
           isPositive: change >= 0,
           timestamp: Date.now(),
+          source: "Yahoo Finance",
         };
 
         liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 30000 });
+        failedQuoteRetryAfter.delete(norm);
         return tick;
       }
     }
@@ -223,6 +231,7 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
     // Fall back to baseline
   }
 
+  failedQuoteRetryAfter.set(norm, Date.now() + 30000);
   return null;
 }
 
@@ -274,6 +283,7 @@ export function getBaselineMarketTick(symbol: string): MarketTickData {
       volume: formatVolume(profile.volume, isCrypto),
       isPositive: profile.change >= 0,
       timestamp: Date.now(),
+      source: "Reference",
     };
   }
 
@@ -307,12 +317,11 @@ export function getBaselineMarketTick(symbol: string): MarketTickData {
     volume: formatVolume(1200000 + (pos % 10000000), isCrypto),
     isPositive: change >= 0,
     timestamp: Date.now(),
+    source: "Reference",
   };
 }
 
-/**
- * Generates the next realistic price tick from the previous tick.
- */
+/** Deterministic test/demo utility; the live WebSocket stream never calls this. */
 export function generateNextTick(prev: MarketTickData): MarketTickData {
   const isCrypto = prev.type === "crypto";
   // Realistic volatility: equities +-0.05% to +-0.25%, crypto +-0.1% to +-0.6%
@@ -371,7 +380,11 @@ export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
 
   const quotes = getBatchMarketQuotes(symbols);
   return Response.json(
-    { quotes, timestamp: Date.now(), source: "real-time" },
+    {
+      quotes,
+      timestamp: Date.now(),
+      source: Array.from(new Set(quotes.map((quote) => quote.source))).join(" + "),
+    },
     {
       headers: {
         "Content-Type": "application/json",
@@ -385,50 +398,33 @@ export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
 /**
  * Handles a duplex WebSocket connection for real-time market data quote streaming.
  */
-export async function handleMarketQuotesWebSocket(ws: WebSocket, _env?: Env): Promise<void> {
+export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Promise<void> {
   const subscribed = new Set<string>();
-  const liveStates = new Map<string, MarketTickData>();
+  let refreshInProgress = false;
 
-  // Interval timer for pushing realistic price ticks
-  const tickInterval = setInterval(() => {
+  const sendLiveQuotes = async () => {
     try {
+      if (subscribed.size === 0 || refreshInProgress) return;
+      refreshInProgress = true;
+      const symbols = Array.from(subscribed);
+      await refreshQuotesInBackground(symbols, env);
       if (subscribed.size === 0) return;
-
-      const subArray = Array.from(subscribed);
-      // Select 1 to 2 random symbols to generate ticks
-      const sampleCount = Math.min(subArray.length, Math.random() > 0.6 ? 2 : 1);
-      const chosenSymbols = new Set<string>();
-
-      for (let i = 0; i < sampleCount; i++) {
-        const randIdx = Math.floor(Math.random() * subArray.length);
-        chosenSymbols.add(subArray[randIdx]);
-      }
-
-      for (const sym of chosenSymbols) {
-        let current = liveStates.get(sym);
-        if (!current) {
-          current = getBaselineMarketTick(sym);
-        }
-        const nextTick = generateNextTick(current);
-        liveStates.set(sym, nextTick);
-
-        ws.send(
-          JSON.stringify({
-            type: "tick",
-            tick: nextTick,
-          })
-        );
-      }
+      const quotes = getBatchMarketQuotes(Array.from(subscribed));
+      ws.send(JSON.stringify({ type: "ticks", ticks: quotes }));
     } catch (_err) {
-      // In case WebSocket is closed or faulted, clear interval
-      clearInterval(tickInterval);
+      // A failed provider refresh leaves the last known quote visible.
+    } finally {
+      refreshInProgress = false;
     }
-  }, 1600);
+  };
+
+  // Provider quotes are cached for 20–30 seconds, so this cadence reuses them
+  // and only makes an upstream request when the cache expires.
+  const tickInterval = setInterval(() => void sendLiveQuotes(), 5000);
 
   const cleanup = () => {
     clearInterval(tickInterval);
     subscribed.clear();
-    liveStates.clear();
   };
 
   ws.addEventListener("close", cleanup);
@@ -445,13 +441,7 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, _env?: Env): Pr
           const upper = sym.toUpperCase().trim();
           if (!upper) continue;
           subscribed.add(upper);
-          if (!liveStates.has(upper)) {
-            const baseline = getBaselineMarketTick(upper);
-            liveStates.set(upper, baseline);
-            newSnapshots.push(baseline);
-          } else {
-            newSnapshots.push(liveStates.get(upper)!);
-          }
+          newSnapshots.push(getBatchMarketQuotes([upper])[0]);
         }
         ws.send(
           JSON.stringify({
@@ -459,11 +449,11 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, _env?: Env): Pr
             quotes: newSnapshots,
           })
         );
+        void sendLiveQuotes();
       } else if (msg.type === "unsubscribe" && Array.isArray(msg.symbols)) {
         for (const sym of msg.symbols) {
           const upper = sym.toUpperCase().trim();
           subscribed.delete(upper);
-          liveStates.delete(upper);
         }
       } else if (msg.type === "ping") {
         ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));

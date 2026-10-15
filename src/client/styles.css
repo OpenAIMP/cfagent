@@ -13443,16 +13443,36 @@ body.theme-light .nav-font-scale-text {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.64rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--color-success);
   text-transform: uppercase;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
   padding: 1px 6px;
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success);
   border-radius: var(--radius-xs);
+}
+
+.ticker-tape-feed-badge.syncing {
+  color: var(--color-warning);
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning);
+}
+
+.ticker-tape-feed-badge.offline {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger);
+}
+
+.ticker-live-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ticker-live-dot {
@@ -13470,23 +13490,64 @@ body.theme-light .nav-font-scale-text {
   box-shadow: 0 0 6px var(--color-warning);
 }
 
+.ticker-live-dot.offline {
+  background: var(--color-danger);
+  box-shadow: 0 0 6px var(--color-danger);
+  animation: none;
+}
+
 @keyframes tickerPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
 }
 
-.ticker-tape-chips-track {
+.ticker-tape-chips-viewport {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ticker-tape-marquee {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  animation: tickerMarquee 42s linear infinite;
+  will-change: transform;
+}
+
+.ticker-tape-sequence {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-  white-space: nowrap;
-  flex: 1;
+  flex: 0 0 auto;
+  padding-right: 0.4rem;
 }
 
-.ticker-tape-chips-track::-webkit-scrollbar {
-  display: none;
+.ticker-tape-chips-viewport:hover .ticker-tape-marquee,
+.ticker-tape-chips-viewport:focus-within .ticker-tape-marquee {
+  animation-play-state: paused;
+}
+
+@keyframes tickerMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-tape-chips-viewport {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .ticker-tape-marquee {
+    animation: none;
+    transform: none;
+    width: max-content;
+  }
+  .ticker-tape-sequence[aria-hidden="true"] {
+    display: none;
+  }
 }
 
 .ticker-tape-chip {
@@ -13507,77 +13568,53 @@ body.theme-light .nav-font-scale-text {
 }
 
 .ticker-tape-chip:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-medium);
+  color: var(--color-text-primary);
 }
 
 .ticker-tape-chip .chip-symbol {
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .ticker-tape-chip .chip-price {
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
 .ticker-tape-chip .chip-change {
   font-weight: 700;
-  font-size: 0.64rem;
+  font-size: var(--font-size-micro);
   padding: 0 3px;
   border-radius: 3px;
 }
 
 .ticker-tape-chip .chip-change.up {
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  background: var(--color-success-subtle);
 }
 
 .ticker-tape-chip .chip-change.down {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
 }
 
 .ticker-tape-chip.flash-up {
-  background: rgba(16, 185, 129, 0.28) !important;
-  border-color: #10b981 !important;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  background: var(--color-success-subtle) !important;
+  border-color: var(--color-success) !important;
+  box-shadow: 0 0 8px var(--color-success-subtle);
 }
 
 .ticker-tape-chip.flash-down {
-  background: rgba(239, 68, 68, 0.28) !important;
-  border-color: #ef4444 !important;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  background: var(--color-danger-subtle) !important;
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 8px var(--color-danger-subtle);
 }
 
 /* Light Theme Support */
-[data-theme="light"] .market-ticker-tape {
-  background: #f1f5f9 !important;
-  border-bottom: 1px solid #e2e8f0 !important;
-}
-
-[data-theme="light"] .ticker-tape-chip {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  color: #334155;
-}
-
-[data-theme="light"] .ticker-tape-chip .chip-symbol {
-  color: #0f172a;
-}
-
-[data-theme="light"] .ticker-tape-chip .chip-price {
-  color: #1e293b;
-}
-
-[data-theme="light"] .ticker-tape-chip:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-}
-
 /* ==========================================================================
    Externalized Ads & Partner Banners Configuration Styles
    ========================================================================== */
@@ -16016,26 +16053,26 @@ body.theme-light .btn-refresh-feed:hover {
 /* Top Market Ticker Tape & Top Header Utility Controls */
 [data-theme="light"] .market-ticker-tape,
 body.theme-light .market-ticker-tape {
-  background: #ffffff !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  background: var(--color-surface-raised) !important;
+  border-bottom: 1px solid var(--color-border-subtle) !important;
 }
 
 [data-theme="light"] .ticker-tape-chip,
 body.theme-light .ticker-tape-chip {
-  background: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
+  background: var(--color-surface-sunken) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+  color: var(--color-text-secondary) !important;
 }
 
 [data-theme="light"] .ticker-chip-sym,
 body.theme-light .ticker-chip-sym {
-  color: #0f172a !important;
+  color: var(--color-text-primary) !important;
   font-weight: 700 !important;
 }
 
 [data-theme="light"] .ticker-chip-price,
 body.theme-light .ticker-chip-price {
-  color: #0f172a !important;
+  color: var(--color-text-secondary) !important;
 }
 
 [data-theme="light"] .etrade-dynamic-menu-trigger,
