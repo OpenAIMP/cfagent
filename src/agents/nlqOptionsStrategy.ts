@@ -6,7 +6,7 @@
 
 import { OptionsAgentPipeline } from "../trading/options";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
-import { MAX_SCAN_SYMBOLS, OpportunityScanner, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
+import { MAX_SCAN_SYMBOLS, OpportunityScanner, type ScanMatrixRow, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
   ExpectedIvDirection,
@@ -396,7 +396,7 @@ export async function runOptionsStrategyAction(
   },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[] }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[] }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
@@ -567,10 +567,30 @@ async function runOpportunityScan(
   const skippedNote = result.skipped.length ? ` ${result.skipped.length} skipped (${result.skipped.slice(0, 3).map((s) => `${s.symbol}: ${s.reason}`).join("; ")}${result.skipped.length > 3 ? "; ..." : ""}).` : "";
   const truncNote = result.truncatedSymbols ? ` Only the first ${MAX_SCAN_SYMBOLS} symbols were scanned (${result.truncatedSymbols} not scanned) to stay within request limits.` : "";
   const assumptionNote = result.assumptions.length ? ` ${result.assumptions.join(" ")}` : "";
+  // Issue #22: per-type fit counts from the matrix — a name fits a type when
+  // its cell for that type has screen-passing candidates and a best pick.
+  const fitCounts = new Map<string, number>();
+  for (const matrixRow of result.matrix) {
+    for (const cell of matrixRow.cells) {
+      if (cell.passedCount > 0 && cell.best != null) {
+        fitCounts.set(cell.strategyType, (fitCounts.get(cell.strategyType) ?? 0) + 1);
+      }
+    }
+  }
+  const fitsNote = fitCounts.size
+    ? ` Fits by strategy type: ${[...fitCounts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([type, count]) => `${type} ${count}`)
+        .join(", ")}.`
+    : "";
   return {
     count: rows.length,
     status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
-    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}`,
+    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote}`,
     rows,
+    // Issue #22: the FULL skipped list travels in the result object (the
+    // summary above only shows up to 3 examples), plus the full fit matrix.
+    skipped: result.skipped,
+    matrix: result.matrix,
   };
 }
