@@ -6,6 +6,7 @@ import { DatabaseORM } from "../src/orm";
 import type { Env } from "../src/types";
 
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
+import { InMemoryScanRunStore } from "../src/trading/options/scanRunStore";
 import type { ETradeOptionChain } from "../src/types";
 
 describe("Autonomous Options Screening & Scheduling Pipeline", () => {
@@ -112,6 +113,53 @@ describe("Autonomous Options Screening & Scheduling Pipeline", () => {
       expect(result.data?.totalScanned).toBeGreaterThan(0);
       expect(result.data?.summary).toBeDefined();
       expect(result.data?.symbols).toEqual(["AAPL", "NVDA"]);
+    });
+
+    it("persists the scheduled scan run when a ScanRunStore is injected (issue #27)", async () => {
+      const store = new InMemoryScanRunStore({ idFactory: () => "scheduled-run-1" });
+      const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader", store);
+      const result = await service.autonomousOptionsAnalysis({
+        symbols: ["NVDA"],
+        thesis: "bullish",
+        riskProfile: "balanced",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.taskType).toBe("options_analysis");
+      expect(result.data?.totalScanned).toBe(1);
+
+      // The run the scheduled path produced is retrievable from the store,
+      // carrying the scan's mode and provenance.
+      const summaries = await store.list();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].id).toBe("scheduled-run-1");
+      expect(summaries[0].mode).toBe("per_name_best");
+      expect(summaries[0].modelVersion).toBeDefined();
+
+      const stored = await store.get("scheduled-run-1");
+      expect(stored).not.toBeNull();
+      expect(stored!.mode).toBe(summaries[0].mode);
+      expect(stored!.generatedAt).toBe(stored!.result.generatedAt);
+      expect(stored!.result.requestSnapshot.mode).toBe("per_name_best");
+      expect(stored!.result.requestSnapshot.template.thesis).toBe("bullish");
+      expect(stored!.result.coverage.scanned).toBe(1);
+      expect(stored!.result.coverage.considered).toBe(1);
+    });
+
+    it("behaves exactly as before when constructed without a ScanRunStore", async () => {
+      const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader");
+      const result = await service.autonomousOptionsAnalysis({
+        symbols: ["AAPL"],
+        thesis: "bullish",
+        riskProfile: "balanced",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.taskType).toBe("options_analysis");
+      expect(result.data).toBeDefined();
+      expect(result.data?.totalScanned).toBe(1);
+      expect(result.data?.summary).toBeDefined();
+      expect(result.data?.symbols).toEqual(["AAPL"]);
     });
 
     it("generates Slack Block Kit interactive buttons with [✓ Approve & Preview Order]", async () => {
