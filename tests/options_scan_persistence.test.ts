@@ -318,7 +318,7 @@ describe("scan provenance (issue #27)", () => {
     });
 
     expect(result.generatedAt).toBe("2026-10-16T14:30:00.000Z");
-    expect(result.modelVersion).toBe("1.0.0");
+    expect(result.modelVersion).toBe("1.1.0");
     expect(result.modelVersion).toBe(SCAN_MODEL_VERSION);
 
     // The snapshot echoes exactly what was asked (not what the gate or
