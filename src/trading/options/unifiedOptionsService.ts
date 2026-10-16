@@ -152,7 +152,13 @@ export class UnifiedOptionsService {
           .sort()
           .map((s) => {
             const o = req.perSymbol![s];
-            const t = o.target ? (o.target.kind === "absolute" ? `$${o.target.price}` : `${o.target.pct}%`) : "";
+            const t = o.target
+              ? o.target.kind === "absolute"
+                ? `$${o.target.price}`
+                : o.target.kind === "percent"
+                  ? `${o.target.pct}%`
+                  : `${o.target.multiple}EM`
+              : "";
             return `${s}=${o.thesis || ""}|${t}`;
           })
           .join(";")

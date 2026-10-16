@@ -584,12 +584,21 @@ async function runOpportunityScan(
     }
   }
 
+  // Issue #25: rows show the target in absolute dollars AND in
+  // expected-move units when the chain yielded an estimate — the EM
+  // distance is the cross-name comparison unit, the dollars are what
+  // the user trades against.
+  const targetText = (price: number | null | undefined, emUnits: number | null | undefined): string =>
+    price === null || price === undefined
+      ? "n/a"
+      : `${money(price)}${emUnits !== null && emUnits !== undefined ? ` (${emUnits >= 0 ? "+" : ""}${emUnits.toFixed(2)} EM)` : ""}`;
   const opportunityRow = (o: OpportunityRow, i: number) => {
     const c = o.pick.best!.candidate;
     return {
       rank: i + 1,
       symbol: o.symbol,
       underlyingPrice: money(o.underlyingPrice),
+      target: targetText(o.targetPrice, o.targetEmUnits),
       strategy: c.label,
       legs: c.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
       expiry: c.expirationDate,
@@ -620,6 +629,7 @@ async function runOpportunityScan(
       rank: i + 1,
       symbol: fit.symbol,
       underlyingPrice: "n/a",
+      target: targetText(fit.targetPrice, fit.targetEmUnits),
       strategy: best.label,
       legs: best.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
       expiry: best.expirationDate,

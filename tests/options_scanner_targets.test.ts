@@ -4,8 +4,9 @@
  *
  * Pinned behavior:
  *  - resolveScanTarget applies a stated target only to the symbol it was
- *    stated for; all other symbols get a thesis-derived target (spot ×
- *    factor).
+ *    stated for; all other symbols get a thesis-derived target (legacy
+ *    spot × factor without an expected-move estimate; EM-derived at the
+ *    scan level since issue #25 — see tests/options_scanner_vol_normalization.test.ts).
  *  - A stated target with no symbol attached is applied to NO scanned name.
  *  - scan() stamps each row with its targetSource and discloses the scoping
  *    in result.assumptions.
@@ -45,33 +46,36 @@ function baseTemplate(overrides: Partial<ScanRequestTemplate> = {}): ScanRequest
 }
 
 describe("resolveScanTarget (issue #19)", () => {
+  // Issue #25: called WITHOUT an expected-move estimate, resolution is
+  // the pre-#25 behavior exactly — same targetPrice/source values — and
+  // targetEmUnits is null (no estimate, no EM distance to report).
   it("applies a stated target to the symbol it was stated for", () => {
     const template = baseTemplate({ statedTarget: { price: 260, symbol: "EXP" } });
-    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 260, source: "stated" });
+    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 260, source: "stated", targetEmUnits: null });
   });
 
   it("matches the stated symbol case-insensitively", () => {
     const template = baseTemplate({ statedTarget: { price: 260, symbol: "exp" } });
-    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 260, source: "stated" });
+    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 260, source: "stated", targetEmUnits: null });
   });
 
   it("does NOT apply a stated target to a different symbol — thesis factor instead", () => {
     const template = baseTemplate({ statedTarget: { price: 260, symbol: "EXP" } });
     // The regression: the $40 name used to inherit the $260 target.
-    expect(resolveScanTarget(template, "CHP", 40)).toEqual({ targetPrice: 42, source: "thesis" });
+    expect(resolveScanTarget(template, "CHP", 40)).toEqual({ targetPrice: 42, source: "thesis", targetEmUnits: null });
   });
 
   it("applies a symbol-less stated target to no symbol", () => {
     const template = baseTemplate({ statedTarget: { price: 260 } });
-    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 262.5, source: "thesis" });
-    expect(resolveScanTarget(template, "CHP", 40)).toEqual({ targetPrice: 42, source: "thesis" });
+    expect(resolveScanTarget(template, "EXP", 250)).toEqual({ targetPrice: 262.5, source: "thesis", targetEmUnits: null });
+    expect(resolveScanTarget(template, "CHP", 40)).toEqual({ targetPrice: 42, source: "thesis", targetEmUnits: null });
   });
 
   it("derives targets from the thesis factor when nothing was stated", () => {
-    expect(resolveScanTarget(baseTemplate({ thesis: "bullish" }), "ANY", 200)).toEqual({ targetPrice: 210, source: "thesis" });
-    expect(resolveScanTarget(baseTemplate({ thesis: "bearish" }), "ANY", 200)).toEqual({ targetPrice: 190, source: "thesis" });
-    expect(resolveScanTarget(baseTemplate({ thesis: "large_move" }), "ANY", 200)).toEqual({ targetPrice: 220, source: "thesis" });
-    expect(resolveScanTarget(baseTemplate({ thesis: "range_bound" }), "ANY", 200)).toEqual({ targetPrice: 200, source: "thesis" });
+    expect(resolveScanTarget(baseTemplate({ thesis: "bullish" }), "ANY", 200)).toEqual({ targetPrice: 210, source: "thesis", targetEmUnits: null });
+    expect(resolveScanTarget(baseTemplate({ thesis: "bearish" }), "ANY", 200)).toEqual({ targetPrice: 190, source: "thesis", targetEmUnits: null });
+    expect(resolveScanTarget(baseTemplate({ thesis: "large_move" }), "ANY", 200)).toEqual({ targetPrice: 220, source: "thesis", targetEmUnits: null });
+    expect(resolveScanTarget(baseTemplate({ thesis: "range_bound" }), "ANY", 200)).toEqual({ targetPrice: 200, source: "thesis", targetEmUnits: null });
   });
 });
 
@@ -150,12 +154,20 @@ describe("OpportunityScanner stated-target scoping (issue #19)", () => {
     expect(chp).toBeDefined();
     expect(exp!.targetPrice).toBe(260);
     expect(exp!.targetSource).toBe("stated");
+    // Issue #25: the stated target's EM distance is reported too —
+    // (260 − 250) / (250 × 0.3×sqrt(30/365)) ≈ 0.465 EM.
+    expect(exp!.targetEmUnits).toBeCloseTo(0.4651, 3);
     // Regression assertion: the cheap name must NOT inherit the $260 target.
-    expect(chp!.targetPrice).toBe(42); // 40 × 1.05 bullish factor
+    // Issue #25: its thesis target is EM-derived — 40 × (1 + 0.6 EM) at
+    // the fixture's IV 0.3 / 30d (EM ≈ 8.60% of spot), not 40 × 1.05.
+    expect(chp!.targetPrice).toBe(42.06);
     expect(chp!.targetSource).toBe("thesis");
-    expect(result.assumptions).toHaveLength(1);
+    expect(chp!.targetEmUnits).toBeCloseTo(0.5988, 3);
+    // Stated-target scoping line + the #25 target-basis disclosure.
+    expect(result.assumptions).toHaveLength(2);
     expect(result.assumptions[0]).toContain("Stated target $260.00 applied to EXP only");
     expect(result.assumptions[0]).toContain("thesis-derived target");
+    expect(result.assumptions[1]).toContain("Thesis-derived targets are expressed in expected-move units");
   });
 
   it("discloses and ignores a stated target that names no symbol", async () => {
@@ -164,16 +176,24 @@ describe("OpportunityScanner stated-target scoping (issue #19)", () => {
 
     const exp = result.opportunities.find((o) => o.symbol === "EXP");
     expect(exp).toBeDefined();
-    expect(exp!.targetPrice).toBe(262.5); // 250 × 1.05 — the stated 260 was NOT applied
+    // Issue #25: EM-derived thesis target — 250 × (1 + 0.6 × 0.3×sqrt(30/365))
+    // ≈ 262.90. The stated 260 was NOT applied (pre-#25 this was 262.50).
+    expect(exp!.targetPrice).toBe(262.9);
     expect(exp!.targetSource).toBe("thesis");
-    expect(result.assumptions).toHaveLength(1);
+    // Symbol-less stated line + the #25 target-basis disclosure.
+    expect(result.assumptions).toHaveLength(2);
     expect(result.assumptions[0]).toContain("was stated without a symbol, so it was not applied to any scanned name");
+    expect(result.assumptions[1]).toContain("Thesis-derived targets are expressed in expected-move units");
   });
 
-  it("reports no assumptions when no target was stated", async () => {
+  it("reports no stated-target assumptions when no target was stated", async () => {
     const scanner = new OpportunityScanner(fakeScreener({ EXP: 250, CHP: 40 }));
     const result = await scanner.scan(["EXP", "CHP"], baseTemplate());
-    expect(result.assumptions).toEqual([]);
+    // Issue #25: the ONLY assumption is the target-basis disclosure —
+    // no stated-target or override lines exist for this scan.
+    expect(result.assumptions).toEqual([
+      "Thesis-derived targets are expressed in expected-move units (bullish +0.6 EM, bearish -0.6 EM, large_move +1.2 EM, range_bound 0 EM; 1 EM = the 1-sigma move to expiry implied by each name's own chain).",
+    ]);
     for (const row of result.opportunities) expect(row.targetSource).toBe("thesis");
   });
 });
@@ -240,6 +260,9 @@ describe("NLQ opportunity scan stated-target wiring (issue #19)", () => {
     expect(out.status).toBe("ranked_opportunities");
     expect(out.count).toBeGreaterThan(0);
     expect(out.summary).toContain("Stated target $260.00 applied to NVDA only");
-    expect(out.summary).toContain("thesis-derived target (spot × 1.05 for bullish)");
+    expect(out.summary).toContain("every other symbol uses a thesis-derived target.");
+    // Issue #25: the target basis is disclosed in EM units, not the
+    // legacy spot-factor parenthetical.
+    expect(out.summary).toContain("Thesis-derived targets are expressed in expected-move units");
   });
 });

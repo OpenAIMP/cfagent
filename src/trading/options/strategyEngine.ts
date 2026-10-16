@@ -445,8 +445,15 @@ function buildCandidate(
     ? Math.min(...risk.breakevens.map((b) => Math.abs(b - underlying))) / underlying * 100
     : 0;
   const cushion = clamp(Math.max(5, Math.min(100, Math.round(cushionPct * 4))));
+  // The maxLoss floor is 1% of per-contract notional (underlying × 100
+  // multiplier × 1% = underlying dollars), NOT a flat $100 (issue #25):
+  // a fixed-dollar floor is an absolute-dollar term in an otherwise
+  // scale-free score — it silently penalizes cheap names whose maxLoss
+  // sits under the constant while leaving expensive names untouched, so
+  // cross-name comparisons mixed units. A notional-relative floor keeps
+  // the guard against tiny-maxLoss blowups at every price scale.
   const capitalEfficiency = risk.maxLoss > 0
-    ? clamp(Math.max(10, Math.min(100, Math.round(targetPnl / Math.max(100, risk.maxLoss) * 100))))
+    ? clamp(Math.max(10, Math.min(100, Math.round(targetPnl / Math.max(underlying, risk.maxLoss) * 100))))
     : 50;
   const effectiveWeights = resolveScoreWeights(request.optimizationBias);
   const scoreBreakdown: StrategyScoreBreakdown = {
