@@ -620,6 +620,9 @@ async function runOpportunityScan(
   const assumptionNote = result.assumptions.length ? ` ${result.assumptions.join(" ")}` : "";
   // Issue #22: per-type fit counts from the matrix — a name fits a type when
   // its cell for that type has screen-passing candidates and a best pick.
+  // Issue #24 choice: these counts stay SCREEN-PASS evidence (the matrix is
+  // the #22 evidence layer); the fit gate is the qualification layer and
+  // its accounting lives in the accounting sentence / Gate segment below.
   const fitCounts = new Map<string, number>();
   for (const matrixRow of result.matrix) {
     for (const cell of matrixRow.cells) {
@@ -635,14 +638,20 @@ async function runOpportunityScan(
         .join(", ")}.`
     : "";
   // Issue #23: the summary always names the mode. Strategy-fit leads
-  // with the full accounting from the matrix (fits + no-fits + skipped
+  // with the full accounting (fit + borderline + no fit + skipped
   // partition the scanned batch); per-name-best keeps the established
   // wording plus a trailing mode label.
-  const noFitCount = result.matrix.filter((m) => m.verdict === "no_pass").length;
+  // Issue #24: "fit" in that accounting is the GATED fit (fitsTotal and
+  // the gate counts), not the #23 screen-pass count, and both modes gain
+  // a Gate segment carrying the bucket counts and the resolved gate
+  // parameters the scan was judged under.
   const matrixSkippedCount = result.matrix.filter((m) => m.verdict === "skipped").length;
+  const gp = result.gateParams;
+  const gatePct = (f: number) => (f * 100).toFixed(1).replace(/\.0$/, "");
+  const gateNote = ` Gate: ${result.gate.fit} fit, ${result.gate.borderline} borderline, ${result.gate.noFit} no fit (min score ${gp.minCompositeScore}, min POP ${gatePct(gp.minProbabilityOfProfit)}%, ${gp.requireFresh ? "fresh quotes required" : "fresh quotes not required"}).`;
   const summary = result.mode === "strategy_fit"
-    ? `Strategy fit scan over ${scopeLabel}: ${result.scanned} names accounted — ${result.fitsTotal} fit, ${noFitCount} no fit, ${matrixSkippedCount} skipped.${fitsNote}${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}`
-    : `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote} (mode: per-name best)`;
+    ? `Strategy fit scan over ${scopeLabel}: ${result.scanned} names accounted — ${result.fitsTotal} fit, ${result.gate.borderline} borderline, ${result.gate.noFit} no fit, ${matrixSkippedCount} skipped.${fitsNote}${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${gateNote}`
+    : `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote} (mode: per-name best)${gateNote}`;
   return {
     count: rows.length,
     status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
