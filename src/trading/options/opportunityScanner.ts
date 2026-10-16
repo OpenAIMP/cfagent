@@ -25,7 +25,7 @@ const CONCURRENCY = baseOppConfig.concurrency;
  * with different model versions are never silently compared as if they
  * were produced by the same model.
  */
-export const SCAN_MODEL_VERSION = "1.1.0";
+export const SCAN_MODEL_VERSION = "1.1.1";
 
 /**
  * The two strategy questions a scan can answer (issue #23):
@@ -235,6 +235,90 @@ export interface ScanMatrixRow {
   gateReasons: string[];
 }
 
+/** One strategy type's aggregate across every symbol in a scan (issue
+ *  #26): the cross-symbol roll-up of the fit matrix's per-symbol cells.
+ *  Counts are sums of the cells' own counts, so they reconcile with the
+ *  matrix exactly. Semantics note: "passed" here is the #22 screen-pass
+ *  (the scanner's StrategyRiskAgent screen) — the single-name roll-up
+ *  (StrategyTypeRollup in strategies/ledger.ts) counts acceptance-rule
+ *  passes from the evaluation ledger instead. The two surfaces keep
+ *  their own pipeline's meaning; they are not the same gate. */
+export interface ScanTypeRollup {
+  strategyType: string;
+  /** Symbols whose matrix row has a cell of this type (i.e. at least
+   *  one candidate of the type was built for the symbol). Skipped
+   *  symbols have no cells and contribute nothing. */
+  symbolsEvaluated: number;
+  /** Symbols whose cell for this type has at least one screen-passing
+   *  candidate. */
+  symbolsPassed: number;
+  evaluatedCount: number;
+  passedCount: number;
+  rejectedCount: number;
+  /** Rejection-reason histogram merged across symbols. */
+  rejectionReasons: Record<string, number>;
+  /** The highest-composite cell best of this type across the scan,
+   *  with the symbol it belongs to; null when no symbol produced a
+   *  passing candidate of this type. */
+  bestOverall: ({ symbol: string } & ScanMatrixCellBest) | null;
+}
+
+/**
+ * Aggregate a scan's fit matrix into per-strategy-type roll-ups (issue
+ * #26). Pure and exported for direct unit testing. Ordering follows the
+ * matrix-cell discipline: best composite descending, best-less types
+ * last, strategy type ascending on ties. A bestOverall tie on
+ * compositeScore breaks by symbol ascending, so the aggregate is
+ * independent of batch order.
+ */
+export function rollupScanTypes(matrix: ScanMatrixRow[]): ScanTypeRollup[] {
+  const byType = new Map<string, ScanTypeRollup>();
+  for (const row of matrix) {
+    for (const cell of row.cells) {
+      let entry = byType.get(cell.strategyType);
+      if (!entry) {
+        entry = {
+          strategyType: cell.strategyType,
+          symbolsEvaluated: 0,
+          symbolsPassed: 0,
+          evaluatedCount: 0,
+          passedCount: 0,
+          rejectedCount: 0,
+          rejectionReasons: {},
+          bestOverall: null,
+        };
+        byType.set(cell.strategyType, entry);
+      }
+      entry.symbolsEvaluated++;
+      if (cell.passedCount > 0) entry.symbolsPassed++;
+      entry.evaluatedCount += cell.evaluatedCount;
+      entry.passedCount += cell.passedCount;
+      entry.rejectedCount += cell.rejectedCount;
+      for (const [reason, count] of Object.entries(cell.rejectionReasons)) {
+        entry.rejectionReasons[reason] = (entry.rejectionReasons[reason] ?? 0) + count;
+      }
+      if (cell.best) {
+        const current = entry.bestOverall;
+        if (
+          !current ||
+          cell.best.compositeScore > current.compositeScore ||
+          (cell.best.compositeScore === current.compositeScore && row.symbol < current.symbol)
+        ) {
+          entry.bestOverall = { symbol: row.symbol, ...cell.best };
+        }
+      }
+    }
+  }
+  return [...byType.values()].sort((a, b) => {
+    const sa = a.bestOverall?.compositeScore;
+    const sb = b.bestOverall?.compositeScore;
+    if (sa !== undefined && sb !== undefined && sa !== sb) return sb - sa;
+    if (sa !== undefined && sb === undefined) return -1;
+    if (sa === undefined && sb !== undefined) return 1;
+    return a.strategyType.localeCompare(b.strategyType);
+  });
+}
+
 /** What a scan was asked (issue #27): the resolved template fields that
  *  shaped the run, the mode, the ranking profile, and the screen filter.
  *  The resolved fit gate rides separately on the result as `gateParams`
@@ -291,6 +375,12 @@ export interface OpportunityScanResult {
   /** The full names × strategy-types fit matrix (issue #22): one row for
    *  every symbol in the scanned batch, in batch (input) order. */
   matrix: ScanMatrixRow[];
+  /** Per-strategy-type roll-up across the whole scan (issue #26): the
+   *  matrix aggregated by type — how many symbols evaluated/passed each
+   *  type, candidate totals that reconcile with the matrix cells, and
+   *  the best candidate of each type overall. Derived from `matrix`
+   *  alone (rollupScanTypes); carries no new verdicts. */
+  typeRollup: ScanTypeRollup[];
   /** Which of the two strategy questions this scan answered (issue #23). */
   mode: ScanMode;
   /** Strategy-fit mode only: the matrix rows whose fit-gate bucket is
@@ -770,6 +860,7 @@ export class OpportunityScanner {
       truncatedSymbols: Math.max(0, unique.length - batch.length),
       assumptions,
       matrix,
+      typeRollup: rollupScanTypes(matrix),
       mode,
       fits: fitRows.slice(offset, options.limit === undefined ? undefined : offset + options.limit),
       fitsTotal: fitRows.length,
