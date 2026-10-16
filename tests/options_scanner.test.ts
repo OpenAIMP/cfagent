@@ -21,6 +21,13 @@
  * Stated-target scoping is NOT re-tested here; it is pinned by
  * tests/options_scanner_targets.test.ts (issue #19).
  *
+ * Issue #22 additions (second describe block onward): the names ×
+ * strategy-types fit matrix — one row per scanned symbol in batch order,
+ * per-type evaluated/passed/rejected counts with rejection-reason
+ * histograms, per-type best candidates, pass / no_pass / skipped verdicts —
+ * plus the NLQ wiring: the full skipped list and matrix on the result
+ * object and the "Fits by strategy type:" sentence in the summary.
+ *
  * Fixtures are deterministic: a fake screener (pattern from
  * tests/options_agents.test.ts) serves canned chains keyed by symbol, with
  * per-symbol behaviors — trade at a spot, empty screen (with optional
@@ -32,8 +39,9 @@ import {
   OpportunityScanner,
   type ScanRequestTemplate,
 } from "../src/trading/options/opportunityScanner";
+import { parseOptionsStrategyIntent, runOptionsStrategyAction } from "../src/agents/nlqOptionsStrategy";
 import type { DynamicOptionsScreener } from "../src/trading/optionsScreener";
-import type { OptionScreenResult, ScreenedOptionContractItem } from "../src/types";
+import type { ETradeOptionChain, OptionScreenResult, ScreenedOptionContractItem } from "../src/types";
 
 const expiryDate = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
 
@@ -349,5 +357,279 @@ describe("OpportunityScanner.scan (issue #30)", () => {
       expect(result.truncatedSymbols).toBe(0);
     }
     expect(calls).toEqual([]); // nothing was evaluated
+  });
+});
+
+describe("OpportunityScanner.scan fit matrix (issue #22)", () => {
+  it("M1. returns a matrix row per symbol with per-type evaluated/passed/rejected counts", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({ AAA: trade(100), BBB: trade(250) }));
+    // Input order is BBB-first: the matrix follows batch (input) order,
+    // unlike opportunities which are score-ordered.
+    const result = await scanner.scan(["BBB", "AAA"], baseTemplate());
+
+    expect(result.matrix.map((m) => m.symbol)).toEqual(["BBB", "AAA"]);
+    const aaa = result.matrix[1];
+    expect(aaa.verdict).toBe("pass");
+    expect(aaa.skipReason).toBeUndefined();
+    expect(aaa.targetPrice).toBe(105); // 100 × 1.05 bullish thesis factor
+    expect(aaa.targetSource).toBe("thesis");
+
+    // Fixture economics (probe-verified): the default template builds three
+    // strategy types and the unfiltered screen passes every candidate.
+    const byType = new Map(aaa.cells.map((c) => [c.strategyType, c]));
+    expect([...byType.keys()].sort()).toEqual(["call_debit_spread", "long_call", "put_credit_spread"]);
+    expect(byType.get("call_debit_spread")).toMatchObject({ evaluatedCount: 7, passedCount: 7, rejectedCount: 0, rejectionReasons: {} });
+    expect(byType.get("put_credit_spread")).toMatchObject({ evaluatedCount: 7, passedCount: 7, rejectedCount: 0, rejectionReasons: {} });
+    expect(byType.get("long_call")).toMatchObject({ evaluatedCount: 3, passedCount: 3, rejectedCount: 0, rejectionReasons: {} });
+    for (const cell of aaa.cells) {
+      expect(cell.evaluatedCount).toBe(cell.passedCount + cell.rejectedCount);
+      expect(cell.best).not.toBeNull();
+      expect(cell.best!.candidateId).toBeTruthy();
+      expect(cell.best!.legs.length).toBeGreaterThan(0);
+      expect(cell.best!.compositeScore).toBeGreaterThan(0);
+    }
+    // The BBB row has the same three types (counts differ with spot).
+    expect(result.matrix[0].cells.map((c) => c.strategyType).sort()).toEqual(["call_debit_spread", "long_call", "put_credit_spread"]);
+    expect(result.matrix[0].verdict).toBe("pass");
+  });
+
+  it("M2. cell best is the type's highest-composite candidate and agrees with the pick", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({ AAA: trade(100) }));
+    const result = await scanner.scan(["AAA"], baseTemplate());
+
+    const row = result.matrix[0];
+    // Cells are ordered by best compositeScore descending.
+    const composites = row.cells.map((c) => c.best!.compositeScore);
+    expect(composites).toEqual([...composites].sort((a, b) => b - a));
+    // The top cell is the same candidate the legacy pick path chose, at the
+    // same composite score — the matrix and the pick can never disagree.
+    const top = row.cells[0];
+    expect(top.strategyType).toBe("call_debit_spread"); // fixture economics: the winning type at spot 100
+    expect(top.best!.candidateId).toBe(result.opportunities[0].pick.best!.candidate.id);
+    expect(top.best!.compositeScore).toBe(result.opportunities[0].score);
+    // best mirrors the candidate's own fields.
+    const candidate = result.opportunities[0].pick.best!.candidate;
+    expect(top.best).toMatchObject({
+      label: candidate.label,
+      score: candidate.score,
+      expirationDate: candidate.expirationDate,
+      netDebit: candidate.netDebit,
+      maxLoss: candidate.maxLoss,
+      maxProfit: candidate.maxProfit,
+      maxProfitUnbounded: candidate.maxProfitUnbounded,
+      targetRewardRisk: candidate.targetRewardRisk,
+      probabilityOfProfit: candidate.modelImpliedProbabilityOfProfit,
+    });
+    expect(top.best!.legs).toEqual(candidate.legs);
+  });
+
+  it("M3. cell ordering is deterministic across identical scans", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({ AAA: trade(100), BBB: trade(250) }));
+    const project = (r: Awaited<ReturnType<OpportunityScanner["scan"]>>) =>
+      r.matrix.map((m) => [
+        m.symbol,
+        m.verdict,
+        m.cells.map((c) => [c.strategyType, c.evaluatedCount, c.passedCount, c.rejectedCount, c.best?.compositeScore ?? null]),
+      ]);
+    const first = await scanner.scan(["AAA", "BBB"], baseTemplate());
+    const second = await scanner.scan(["AAA", "BBB"], baseTemplate());
+    expect(project(second)).toEqual(project(first));
+    // Best-less cells sort after cells with a best (covered structurally in
+    // M4/M5); within one scan, composites never increase along the row.
+    for (const row of first.matrix) {
+      const withBest = row.cells.filter((c) => c.best).map((c) => c.best!.compositeScore);
+      expect(withBest).toEqual([...withBest].sort((a, b) => b - a));
+    }
+  });
+
+  it("M4. a symbol screened to nothing is no_pass with rejection counts and reasons", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({ AAA: trade(100) }));
+    // Impossible PoP floor: every built candidate is rejected by the screen.
+    const result = await scanner.scan(["AAA"], baseTemplate(), {
+      strategyFilter: { minProbabilityOfProfit: 1.01 },
+    });
+
+    expect(result.opportunities).toEqual([]);
+    const row = result.matrix[0];
+    expect(row.symbol).toBe("AAA");
+    expect(row.verdict).toBe("no_pass");
+    expect(row.skipReason).toBeUndefined();
+    expect(row.targetPrice).toBe(105); // evaluated, so the target was resolved
+    expect(row.cells.length).toBeGreaterThanOrEqual(2);
+    for (const cell of row.cells) {
+      expect(cell.passedCount).toBe(0);
+      expect(cell.best).toBeNull();
+      expect(cell.rejectedCount).toBe(cell.evaluatedCount);
+      expect(cell.rejectedCount).toBeGreaterThan(0);
+      // Every rejection is accounted for in the reason histogram.
+      expect(Object.values(cell.rejectionReasons).reduce((a, b) => a + b, 0)).toBe(cell.rejectedCount);
+      for (const reason of Object.keys(cell.rejectionReasons)) {
+        expect(reason).toContain("below 101.0%");
+      }
+    }
+  });
+
+  it("M5. partial screening leaves passed and rejected counts side by side", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({ AAA: trade(100) }));
+    // Only long_call is a selected type; the other built types are all
+    // rejected by the screen while long_call passes — verdict stays "pass".
+    const result = await scanner.scan(["AAA"], baseTemplate(), {
+      strategyFilter: { strategyTypes: ["long_call"] },
+    });
+
+    const row = result.matrix[0];
+    expect(row.verdict).toBe("pass");
+    const byType = new Map(row.cells.map((c) => [c.strategyType, c]));
+    expect(byType.get("long_call")).toMatchObject({ evaluatedCount: 3, passedCount: 3, rejectedCount: 0 });
+    expect(byType.get("long_call")!.best).not.toBeNull();
+    for (const type of ["call_debit_spread", "put_credit_spread"] as const) {
+      const cell = byType.get(type)!;
+      expect(cell.passedCount).toBe(0);
+      expect(cell.rejectedCount).toBe(cell.evaluatedCount);
+      expect(cell.best).toBeNull();
+      expect(Object.values(cell.rejectionReasons).reduce((a, b) => a + b, 0)).toBe(cell.rejectedCount);
+      for (const reason of Object.keys(cell.rejectionReasons)) {
+        expect(reason).toContain("not in selected strategy types");
+      }
+    }
+    // Cells with a best sort before best-less cells.
+    expect(row.cells[0].strategyType).toBe("long_call");
+  });
+
+  it("M6. skipped symbols appear in the matrix with their reason; every symbol appears exactly once", async () => {
+    const scanner = new OpportunityScanner(fakeScreener({
+      GOOD: trade(100),
+      VE: { kind: "empty", validationError: "No chains available for VE" },
+      ERR: { kind: "throw", message: "upstream exploded" },
+    }));
+    const result = await scanner.scan(["GOOD", "VE", "ERR"], baseTemplate());
+
+    expect(result.matrix).toHaveLength(result.scanned);
+    expect(result.matrix.map((m) => m.symbol)).toEqual(["GOOD", "VE", "ERR"]);
+    expect(new Set(result.matrix.map((m) => m.symbol)).size).toBe(3);
+
+    const good = result.matrix[0];
+    expect(good.verdict).toBe("pass");
+    expect(good.cells.length).toBeGreaterThan(0);
+
+    const ve = result.matrix[1];
+    expect(ve.verdict).toBe("skipped");
+    expect(ve.skipReason).toBe("No chains available for VE");
+    expect(ve.cells).toEqual([]);
+    expect(ve.targetPrice).toBeNull();
+    expect(ve.targetSource).toBeNull();
+
+    const err = result.matrix[2];
+    expect(err.verdict).toBe("skipped");
+    expect(err.skipReason).toBe("upstream exploded");
+    expect(err.cells).toEqual([]);
+  });
+});
+
+// --- NLQ level (issue #22): the scan result object carries the FULL skipped
+// --- list and the matrix, and the summary gains per-type fit counts. The
+// --- scan runs through the real DynamicOptionsScreener over a stub E*TRADE
+// --- client (harness pattern from tests/options_scanner_targets.test.ts).
+
+function chainFor(symbol: string, spot: number, expiry: { year: number; month: number; day: number }): ETradeOptionChain {
+  const quoteTimestamp = Date.now();
+  const leg = (type: "CALL" | "PUT", strike: number) => {
+    const mid = legMid(spot, strike, type);
+    const deltaMag = Math.max(0.15, Math.min(0.85, 0.5 + (spot - strike) / 40));
+    return {
+      timeStamp: quoteTimestamp,
+      adjustedFlag: false,
+      optionType: type,
+      strikePrice: strike,
+      symbol: `${symbol}${strike}${type === "CALL" ? "C" : "P"}`,
+      bid: Math.max(0.05, mid - 0.1),
+      ask: mid + 0.1,
+      lastPrice: mid,
+      volume: 1_000,
+      openInterest: 2_000,
+      delta: type === "CALL" ? deltaMag : -deltaMag,
+      gamma: 0.02,
+      theta: -0.03,
+      impliedVolatility: 0.3,
+    };
+  };
+  return {
+    symbol,
+    underlyingPrice: spot,
+    selectedExpiry: expiry,
+    pairs: [0.9, 0.95, 1, 1.05, 1.1].map((mult) => {
+      const strike = Math.round(spot * mult * 100) / 100;
+      return { call: leg("CALL", strike), put: leg("PUT", strike) };
+    }),
+  } as unknown as ETradeOptionChain;
+}
+
+describe("NLQ opportunity scan fit matrix wiring (issue #22)", () => {
+  it("returns the full skipped list and matrix in the result object and fit counts in the summary", async () => {
+    const intent = parseOptionsStrategyIntent(
+      "Best bullish option trades for NVDA, AMD, ZZZA, ZZZB, ZZZC, ZZZD max loss $5000",
+    );
+    expect(intent?.action).toBe("options_opportunities");
+    expect(intent?.filters.scope).toEqual({
+      kind: "symbols",
+      symbols: ["NVDA", "AMD", "ZZZA", "ZZZB", "ZZZC", "ZZZD"],
+    });
+
+    const expiryDateObj = new Date(Date.now() + 30 * 86_400_000);
+    const expiry = { year: expiryDateObj.getUTCFullYear(), month: expiryDateObj.getUTCMonth() + 1, day: expiryDateObj.getUTCDate() };
+    const spots: Record<string, number> = { NVDA: 250, AMD: 40 };
+    const client = {
+      getOptionExpireDates: async () => [expiry],
+      // Symbols outside the spots map have no chain at all: the screener
+      // records a fetch error and the scanner skips them.
+      getOptionChains: async (args: { symbol: string }) =>
+        spots[args.symbol] !== undefined ? chainFor(args.symbol, spots[args.symbol], expiry) : null,
+    };
+    const etrade = {
+      client: client as never,
+      fetchQuoteRemote: async () => ({ lastPrice: 0 }),
+      getWatchlists: async () => [],
+      screenMarketsAsync: async () => ({ stocks: [] }),
+    };
+
+    const out = await runOptionsStrategyAction(etrade as never, intent!.action, intent!.filters);
+    expect(out.status).toBe("ranked_opportunities");
+
+    // The FULL skipped list is in the result object — all four chain-less
+    // names — even though the summary text only shows 3 examples + "…".
+    expect(out.summary).toContain("4 skipped (");
+    expect(out.summary).toContain("; ...)");
+    expect(out.skipped).toBeDefined();
+    expect(out.skipped!.map((s) => s.symbol).sort()).toEqual(["ZZZA", "ZZZB", "ZZZC", "ZZZD"]);
+    for (const s of out.skipped!) expect(s.reason).toContain("returned no data");
+
+    // The matrix is in the result object: one row per scanned symbol, in
+    // scope order, with the chain-less names as "skipped" rows.
+    expect(out.matrix).toBeDefined();
+    expect(out.matrix!.map((m) => m.symbol)).toEqual(["NVDA", "AMD", "ZZZA", "ZZZB", "ZZZC", "ZZZD"]);
+    expect(out.matrix!.map((m) => m.verdict)).toEqual(["pass", "pass", "skipped", "skipped", "skipped", "skipped"]);
+    for (const row of out.matrix!.slice(2)) {
+      expect(row.skipReason).toContain("returned no data");
+      expect(row.cells).toEqual([]);
+    }
+
+    // Per-type fit counts in the summary — exact sentence for these fixture
+    // economics, and consistent with counts rebuilt from the matrix object.
+    expect(out.summary).toContain(
+      "Fits by strategy type: call_debit_spread 2, protective_collar 2, put_credit_spread 2, bear_call_ladder 1, call_backspread 1, long_call 1, protective_put 1, strap 1.",
+    );
+    const fitCounts = new Map<string, number>();
+    for (const row of out.matrix!) {
+      for (const cell of row.cells) {
+        if (cell.passedCount > 0 && cell.best != null) {
+          fitCounts.set(cell.strategyType, (fitCounts.get(cell.strategyType) ?? 0) + 1);
+        }
+      }
+    }
+    const expectedSentence = `Fits by strategy type: ${[...fitCounts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([type, count]) => `${type} ${count}`)
+      .join(", ")}.`;
+    expect(out.summary).toContain(expectedSentence);
   });
 });
