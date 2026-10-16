@@ -7,6 +7,7 @@ import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import type { ScanRunStore } from "../trading/options/scanRunStore";
 import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { getDynamicLiveFlowItems } from "../trading/options/flows";
@@ -131,6 +132,12 @@ export interface NLQQueryResult {
   llmValidation?: NLQValidationResult;
   discrepancy?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
+  /** Issue #27: id of the persisted scan run (options_opportunities
+   *  only, when the caller threaded a ScanRunStore through). */
+  scanRunId?: string;
+  /** Issue #27: whether the scan run was persisted; false means a
+   *  store was supplied but its save failed (the scan still succeeded). */
+  persisted?: boolean;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
   discovery?: StockScreenResult["discovery"];
   validationError?: string;
@@ -2266,7 +2273,8 @@ export async function executeNLQQueryAsync(
   plan: NLQPlan,
   env?: Env,
   userLogin?: string,
-  userDid?: string
+  userDid?: string,
+  deps?: { scanRunStore?: ScanRunStore }
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
   const loginStr = typeof userLogin === "string" ? userLogin : undefined;
@@ -2543,7 +2551,7 @@ export async function executeNLQQueryAsync(
     }
 
     if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
-      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined);
+      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, deps);
       return {
         plan,
         domain: "trading",
@@ -2555,6 +2563,10 @@ export async function executeNLQQueryAsync(
         quoteQuality: res.quoteQuality as NLQQueryResult["quoteQuality"],
         rejections: res.rejections as NLQQueryResult["rejections"],
         provenance: res.bestTrade ? { bestTrade: res.bestTrade } : undefined,
+        // Issue #27: surface the persisted scan run id (opportunities
+        // scans only; undefined everywhere else).
+        scanRunId: res.scanRunId,
+        persisted: res.persisted,
         rows: res.rows,
         executedAt,
       };
@@ -2806,7 +2818,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean }
+  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2819,7 +2831,15 @@ export async function executeNaturalLanguageQuery(
 
   const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM });
   const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context);
-  const result = await executeNLQQueryAsync(orm, sessionId, plan, env, userLogin, userDid);
+  const result = await executeNLQQueryAsync(
+    orm,
+    sessionId,
+    plan,
+    env,
+    userLogin,
+    userDid,
+    resolvedOptions?.scanRunStore ? { scanRunStore: resolvedOptions.scanRunStore } : undefined,
+  );
   if (!result.planSource && plan.planSource) {
     result.planSource = plan.planSource;
   }
