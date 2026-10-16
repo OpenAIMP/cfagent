@@ -7,6 +7,7 @@
 import { OptionsAgentPipeline } from "../trading/options";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
 import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
+import type { ScanRunStore } from "../trading/options/scanRunStore";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
   ExpectedIvDirection,
@@ -410,13 +411,14 @@ export async function runOptionsStrategyAction(
   },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode }> {
+  deps?: { scanRunStore?: ScanRunStore },
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
       filters.scope = { kind: "universe", filters: { minMarketCap: 50 }, maxSymbols: 25 };
     }
-    return runOpportunityScan(etrade, filters);
+    return runOpportunityScan(etrade, filters, deps?.scanRunStore);
   }
 
   const request = { ...filters.request } as Partial<StrategyRequest>;
@@ -520,6 +522,7 @@ export async function runOptionsStrategyAction(
 async function runOpportunityScan(
   etrade: Parameters<typeof runOptionsStrategyAction>[0],
   filters: OptionsStrategyIntent["filters"] | undefined,
+  scanRunStore?: ScanRunStore,
 ) {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   const scope = filters?.scope;
@@ -561,6 +564,25 @@ async function runOpportunityScan(
     strategyFilter: filters.strategyFilter,
     mode: filters.mode,
   });
+
+  // Issue #27: persist the run when the caller supplied a store (the
+  // orchestrator threads one over the Durable Object's storage). The
+  // result's provenance (generatedAt, modelVersion, requestSnapshot,
+  // configSnapshot, coverage, gateParams) is what makes the stored run
+  // auditable and diffable later. Persistence must NEVER fail a scan:
+  // a store error leaves the scan result intact, flagged persisted:
+  // false, with the failure logged and swallowed.
+  let scanRunId: string | undefined;
+  let persisted = false;
+  if (scanRunStore) {
+    try {
+      const saved = await scanRunStore.save(result);
+      scanRunId = saved.id;
+      persisted = true;
+    } catch (err) {
+      console.error("Failed to persist opportunity scan run", err);
+    }
+  }
 
   const opportunityRow = (o: OpportunityRow, i: number) => {
     const c = o.pick.best!.candidate;
@@ -663,5 +685,9 @@ async function runOpportunityScan(
     matrix: result.matrix,
     // Issue #23: which strategy question this scan answered.
     mode: result.mode,
+    // Issue #27: persistence outcome — present only when a store was
+    // supplied (contexts without one behave exactly as before). On a
+    // store failure scanRunId is absent and persisted is false.
+    ...(scanRunStore ? { scanRunId, persisted } : {}),
   };
 }
