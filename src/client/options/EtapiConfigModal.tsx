@@ -200,6 +200,14 @@ export function EtapiConfigModal({
         opportunityScanner: {
           maxScanSymbols: Number(maxScanSymbols),
           concurrency: 3,
+          // Fit-gate defaults (issue #24) — carried so a saved config
+          // stays complete; not edited in this modal.
+          fitGate: {
+            minCompositeScore: 55,
+            minProbabilityOfProfit: 0.35,
+            requireFresh: true,
+            minConfidence: "MEDIUM" as const,
+          },
           targetFactors: {
             bullish: Number(bullishFactor),
             bearish: Number(bearishFactor),

@@ -42,9 +42,23 @@ export interface EtapiStrategyEngineConfig {
   scoreWeights: EtapiStrategyScoreWeights;
 }
 
+/** Fit-gate parameters for opportunity scans (issue #24): the bar a
+ *  symbol's best pick must clear for the symbol to count as a "fit".
+ *  Defaults are set from the fixture pick distribution (probe, #24):
+ *  standard FRESH recommended picks score 62+ composite with POP 0.36+,
+ *  so these defaults pass them while stale / research-only picks fail
+ *  on freshness and confidence regardless of their composite. */
+export interface EtapiFitGateConfig {
+  minCompositeScore: number;
+  minProbabilityOfProfit: number;
+  requireFresh: boolean;
+  minConfidence: "LOW" | "MEDIUM" | "HIGH";
+}
+
 export interface EtapiOpportunityScannerConfig {
   maxScanSymbols: number;
   concurrency: number;
+  fitGate: EtapiFitGateConfig;
   targetFactors: {
     bullish: number;
     bearish: number;
@@ -207,6 +221,12 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   opportunityScanner: {
     maxScanSymbols: 20,
     concurrency: 3,
+    fitGate: {
+      minCompositeScore: 55,
+      minProbabilityOfProfit: 0.35,
+      requireFresh: true,
+      minConfidence: "MEDIUM",
+    },
     targetFactors: {
       bullish: 1.05,
       bearish: 0.95,

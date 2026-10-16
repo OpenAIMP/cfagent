@@ -869,9 +869,12 @@ describe("NLQ scan modes (issue #23)", () => {
     // Fixture economics (probe-verified): condor candidates are built for
     // both chained names but none passes the screen (no fit); the
     // chain-less name is skipped. The summary leads with that accounting.
+    // Issue #24: the accounting is now the GATED accounting — the two
+    // evaluated no-pick names are gate "no fit" (nothing borderline).
     expect(out.summary).toContain(
-      "Strategy fit scan over watchlist Semis: 3 names accounted — 0 fit, 2 no fit, 1 skipped.",
+      "Strategy fit scan over watchlist Semis: 3 names accounted — 0 fit, 0 borderline, 2 no fit, 1 skipped.",
     );
+    expect(out.summary).toContain("Gate: 0 fit, 0 borderline, 2 no fit (min score 55, min POP 35%, fresh quotes required).");
     // Every scanned name appears exactly once in the matrix, and the
     // verdicts partition the batch: fits + no-fits + skipped == scanned.
     expect(out.matrix!.map((m) => m.symbol)).toEqual(["NVDA", "AMD", "ZZZA"]);
@@ -893,7 +896,9 @@ describe("NLQ scan modes (issue #23)", () => {
     const out = await runOptionsStrategyAction(etrade as never, intent!.action, intent!.filters);
 
     expect(out.mode).toBe("strategy_fit");
-    expect(out.summary).toContain("12 names accounted — 12 fit, 0 no fit, 0 skipped.");
+    // Issue #24: the accounting sentence carries the borderline bucket;
+    // all 12 fixture picks clear the default gate, so the counts hold.
+    expect(out.summary).toContain("12 names accounted — 12 fit, 0 borderline, 0 no fit, 0 skipped.");
     // ALL 12 fits get rows — the top-10 opportunities cap does not apply.
     expect(out.count).toBe(12);
     expect(out.rows.map((r) => r.symbol)).toEqual(symbols);

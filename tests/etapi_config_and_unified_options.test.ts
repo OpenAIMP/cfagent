@@ -378,8 +378,10 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
     expect(fitResult.success).toBe(true);
     expect(fitResult.action).toBe("opportunities");
     // The summary labels the mode and reports the fit accounting.
+    // Issue #24: the fits are GATED fits (both fixture picks clear the
+    // default gate, so the count holds) and the gate buckets are appended.
     expect(fitResult.summary).toBe(
-      "Opportunity scan across 2 symbols (mode: strategy fit): 2 of 2 names fit.",
+      "Opportunity scan across 2 symbols (mode: strategy fit): 2 of 2 names fit. Gate: 2 fit, 0 borderline, 0 no fit.",
     );
     // executionData carries the mode and the unpaginated fit list.
     expect(fitResult.data.mode).toBe("strategy_fit");
@@ -390,6 +392,15 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
     const amdRow = fitResult.data.matrix.find((m: { symbol: string }) => m.symbol === "AMD");
     expect(amdRow).toMatchObject({ targetPrice: 44, targetSource: "percent" });
     expect(fitResult.data.assumptions).toContain("Per-name overrides applied: AMD (target +10.0%).");
+    // Issue #24: the result carries the gate accounting and the resolved
+    // gate parameters it was judged under.
+    expect(fitResult.data.gate).toEqual({ fit: 2, borderline: 0, noFit: 0 });
+    expect(fitResult.data.gateParams).toEqual({
+      minCompositeScore: 55,
+      minProbabilityOfProfit: 0.35,
+      requireFresh: true,
+      minConfidence: "MEDIUM",
+    });
 
     // No mode given → per_name_best, the pre-#23 behavior, still labeled.
     const bestResult = await service.execute({

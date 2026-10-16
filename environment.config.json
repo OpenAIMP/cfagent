@@ -54,6 +54,12 @@
           "bearish": 0.95,
           "large_move": 1.10,
           "range_bound": 1.00
+        },
+        "fitGate": {
+          "minCompositeScore": 55,
+          "minProbabilityOfProfit": 0.35,
+          "requireFresh": true,
+          "minConfidence": "MEDIUM"
         }
       },
       "llmIdeas": {

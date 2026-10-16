@@ -9,7 +9,7 @@ import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgen
 import { RecommendationAgent, type BestTradePick, type RankedStrategy, type RiskProfile } from "./recommendationAgent";
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
 import { MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
-import { getOpportunityScannerConfig } from "../../config/etapiConfig";
+import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
 
 const baseOppConfig = getOpportunityScannerConfig();
 export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
@@ -65,6 +65,86 @@ export interface OpportunityRow {
   targetSource: "stated" | "percent" | "thesis";
   pick: BestTradePick;
   score: number;
+  /** Fit-gate verdict for this row's pick (issue #24): "fit" when the
+   *  pick clears every gate criterion, otherwise "borderline" with the
+   *  failed criteria in gateReasons. (A row exists only when there is a
+   *  pick, so "no_fit" never appears here.) */
+  gateBucket: FitGateBucket;
+  gateReasons: string[];
+}
+
+/** The fit gate's qualification buckets (issue #24). */
+export type FitGateBucket = "fit" | "borderline" | "no_fit";
+
+/** Fit-gate parameters (issue #24): the bar a symbol's best pick must
+ *  clear to count as a fit. Resolved per scan from the config defaults
+ *  in getOpportunityScannerConfig() plus any per-call overrides. */
+export type FitGateParams = EtapiFitGateConfig;
+
+const CONFIDENCE_RANK: Record<BestTradePick["confidence"], number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+
+/** Percent rendering for gate prose: 0.35 → "35", 0.425 → "42.5". */
+function gatePct(fraction: number): string {
+  return (fraction * 100).toFixed(1).replace(/\.0$/, "");
+}
+
+/**
+ * Evaluate one symbol's best-trade pick against the fit gate (issue
+ * #24). Pure and exported for direct unit testing.
+ *
+ * A pick that clears every criterion is a "fit"; a pick that exists but
+ * fails at least one is "borderline" (the criteria it failed are listed
+ * in `reasons`, in a fixed order: composite, POP, freshness, confidence,
+ * research-only). A pick with no best candidate (status "no_trade") is
+ * "no_fit" with the recommender's rationale as the reason. Thresholds
+ * are inclusive: a value exactly at a minimum passes. One nuance: the
+ * recommender's stale-quote blocker merely restates the freshness fact,
+ * so when requireFresh is waived it does not also disqualify the pick
+ * via the research-only criterion (other blockers always do).
+ */
+export function evaluateFitGate(
+  pick: BestTradePick,
+  gate: FitGateParams,
+): { bucket: FitGateBucket; reasons: string[] } {
+  if (!pick.best) {
+    return { bucket: "no_fit", reasons: pick.rationale.length ? [...pick.rationale] : ["No qualifying strategy"] };
+  }
+  const candidate = pick.best.candidate;
+  const reasons: string[] = [];
+  if (pick.best.compositeScore < gate.minCompositeScore) {
+    reasons.push(`composite score ${pick.best.compositeScore.toFixed(1)} below minimum ${gate.minCompositeScore}`);
+  }
+  if (candidate.modelImpliedProbabilityOfProfit < gate.minProbabilityOfProfit) {
+    reasons.push(
+      `probability of profit ${(candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}% below minimum ${gatePct(gate.minProbabilityOfProfit)}%`,
+    );
+  }
+  if (gate.requireFresh && candidate.dataFreshness !== "FRESH") {
+    reasons.push(`quote data is ${candidate.dataFreshness}`);
+  }
+  if (CONFIDENCE_RANK[pick.confidence] < CONFIDENCE_RANK[gate.minConfidence]) {
+    reasons.push(`confidence ${pick.confidence} below minimum ${gate.minConfidence}`);
+  }
+  if (pick.status === "research_only") {
+    // Status and blockers are two views of the same fact, so they surface
+    // as ONE reason listing the blockers. The stale-quote blocker is a
+    // third view of the freshness fact: when the caller waives the
+    // freshness criterion (requireFresh false) it is governed by that
+    // criterion alone and does not disqualify via research-only as well.
+    // Every other blocker (no positive max profit, POP under 20%) always
+    // counts — no gate parameter waives it.
+    const effectiveBlockers = gate.requireFresh
+      ? pick.blockers
+      : pick.blockers.filter((b) => !b.startsWith("Quote data is "));
+    if (effectiveBlockers.length) {
+      reasons.push(`pick is research-only (blockers present): ${effectiveBlockers.slice(0, 2).join("; ")}`);
+    } else if (pick.blockers.length === 0) {
+      // Unreachable today (research_only implies blockers); kept so a
+      // future blocker-free research_only still fails the gate.
+      reasons.push("pick is research-only");
+    }
+  }
+  return { bucket: reasons.length === 0 ? "fit" : "borderline", reasons };
 }
 
 /** The best screen-passing candidate of one strategy type for one symbol
@@ -98,8 +178,11 @@ export interface ScanMatrixCell {
 
 /** One symbol's row in the names × strategy-types fit matrix (issue #22).
  *  The verdict is a screen-pass verdict only — "pass" means at least one
- *  candidate passed the screen in at least one type; score-threshold fit
- *  gating is issue #24, not this. */
+ *  candidate passed the screen in at least one type. Qualification is a
+ *  separate layer (issue #24): gateBucket applies the fit gate to the
+ *  symbol's best pick — "fit" / "borderline" for evaluated symbols with
+ *  a pick, "no_fit" for evaluated symbols with none — and is null for
+ *  skipped symbols, which were never judged. */
 export interface ScanMatrixRow {
   symbol: string;
   verdict: "pass" | "no_pass" | "skipped";
@@ -111,6 +194,11 @@ export interface ScanMatrixRow {
   /** One cell per strategy type that had at least one built candidate;
    *  empty for skipped symbols. */
   cells: ScanMatrixCell[];
+  /** Fit-gate bucket for this symbol (issue #24); null when skipped. */
+  gateBucket: FitGateBucket | null;
+  /** The gate's failed criteria (or the no-trade rationale); empty for
+   *  fits and for skipped symbols. */
+  gateReasons: string[];
 }
 
 export interface OpportunityScanResult {
@@ -127,14 +215,24 @@ export interface OpportunityScanResult {
   matrix: ScanMatrixRow[];
   /** Which of the two strategy questions this scan answered (issue #23). */
   mode: ScanMode;
-  /** Strategy-fit mode only: the matrix rows whose verdict is "pass",
-   *  paginated by the scan's offset/limit. Empty in per_name_best mode,
-   *  where `opportunities` is the headline list. "Fitting" is the #22
-   *  screen-pass verdict — score-threshold gating is issue #24. */
+  /** Strategy-fit mode only: the matrix rows whose fit-gate bucket is
+   *  "fit" (issue #24 — a gated fit implies a screen pass, since a pick
+   *  exists), paginated by the scan's offset/limit. Empty in
+   *  per_name_best mode, where `opportunities` is the headline list. */
   fits: ScanMatrixRow[];
-  /** Strategy-fit mode only: total "pass" rows BEFORE pagination slicing.
-   *  0 in per_name_best mode. */
+  /** Strategy-fit mode only: total gated "fit" rows BEFORE pagination
+   *  slicing. 0 in per_name_best mode. */
   fitsTotal: number;
+  /** Fit-gate accounting over EVALUATED symbols (issue #24): counts of
+   *  matrix rows by gate bucket. Skipped symbols are not counted — they
+   *  were never judged. */
+  gate: { fit: number; borderline: number; noFit: number };
+  /** Every matrix row whose gate bucket is "borderline", in batch
+   *  order, in both modes (issue #24). */
+  borderline: ScanMatrixRow[];
+  /** The resolved fit-gate parameters this scan was judged under
+   *  (issue #24) — provenance for every "fit" declared in the result. */
+  gateParams: FitGateParams;
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
@@ -316,14 +414,18 @@ export class OpportunityScanner {
        *  "per_name_best". In strategy_fit mode `limit` paginates `fits`
        *  instead of `opportunities`. */
       mode?: ScanMode;
-      /** Strategy-fit pagination offset into the pass rows; default 0. */
+      /** Strategy-fit pagination offset into the fit rows; default 0. */
       offset?: number;
+      /** Fit-gate overrides for this call (issue #24), merged over the
+       *  config defaults from getOpportunityScannerConfig(). */
+      fitGate?: Partial<FitGateParams>;
     } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
     const batch = unique.slice(0, MAX_SCAN_SYMBOLS);
     const profile = options.riskProfile ?? "balanced";
     const mode = options.mode ?? "per_name_best";
+    const gate: FitGateParams = { ...baseOppConfig.fitGate, ...options.fitGate };
     const skipped: OpportunityScanResult["skipped"] = [];
     const overrideAssumption = scanOverrideAssumption(template, batch);
     const assumptions = [
@@ -343,6 +445,10 @@ export class OpportunityScanner {
         targetPrice: null,
         targetSource: null,
         cells: [],
+        // Skipped symbols were never evaluated, so the gate never judged
+        // them: null bucket, no reasons — they are not "no_fit".
+        gateBucket: null,
+        gateReasons: [],
       });
       try {
         const snapshot = await this.data.loadSnapshot({ ...requestTemplate, symbol });
@@ -370,20 +476,35 @@ export class OpportunityScanner {
         // candidate per strategy type, ranked once via the recommender.
         // The pick path below is unchanged and still uses pickBestTrade.
         const cells = buildMatrixCells(built.candidates, rejected, this.recommender.rank(matched, request, profile));
+        const pick = this.recommender.pickBestTrade(matched, request, profile, 2);
+        // The fit gate (issue #24) qualifies the pick: it rides on the
+        // matrix row (fit / borderline / no_fit) and on the opportunity
+        // row when a pick exists. The #22 verdict stays screen-pass.
+        const gateEval = evaluateFitGate(pick, gate);
         const matrix: ScanMatrixRow = {
           symbol,
           verdict: cells.some((c) => c.passedCount > 0) ? "pass" : "no_pass",
           targetPrice,
           targetSource,
           cells,
+          gateBucket: gateEval.bucket,
+          gateReasons: gateEval.reasons,
         };
-        const pick = this.recommender.pickBestTrade(matched, request, profile, 2);
         if (!pick.best) {
           skipped.push({ symbol, reason: pick.rationale[0] || "No qualifying strategy" });
           return { opportunity: null, matrix };
         }
         return {
-          opportunity: { symbol, underlyingPrice: price, targetPrice, targetSource, pick, score: pick.best.compositeScore },
+          opportunity: {
+            symbol,
+            underlyingPrice: price,
+            targetPrice,
+            targetSource,
+            pick,
+            score: pick.best.compositeScore,
+            gateBucket: gateEval.bucket,
+            gateReasons: gateEval.reasons,
+          },
           matrix,
         };
       } catch (err) {
@@ -398,11 +519,22 @@ export class OpportunityScanner {
       .filter((r): r is OpportunityRow => r !== null)
       .sort((a, b) => b.score - a.score || a.symbol.localeCompare(b.symbol));
     const matrix = outcomes.map((o) => o.matrix);
-    // Strategy-fit accounting (issue #23): every "pass" matrix row is a
-    // fit. `limit` paginates this list in strategy_fit mode, so
+    // Fit-gate accounting (issue #24): buckets count EVALUATED symbols
+    // only — skipped rows carry a null bucket and are never judged.
+    const gateCounts = { fit: 0, borderline: 0, noFit: 0 };
+    for (const row of matrix) {
+      if (row.gateBucket === "fit") gateCounts.fit++;
+      else if (row.gateBucket === "borderline") gateCounts.borderline++;
+      else if (row.gateBucket === "no_fit") gateCounts.noFit++;
+    }
+    const borderline = matrix.filter((m) => m.gateBucket === "borderline");
+    // Strategy-fit accounting (issues #23 + #24): a "fit" is a matrix row
+    // whose gate bucket is "fit" — since #24 this replaces the #23
+    // screen-pass definition; a gated fit implies a pick, hence a pass.
+    // `limit` paginates this list in strategy_fit mode, so
     // `opportunities` keeps its default top-10 cap there; in
     // per_name_best mode `limit` slices `opportunities` as it always has.
-    const passRows = mode === "strategy_fit" ? matrix.filter((m) => m.verdict === "pass") : [];
+    const fitRows = mode === "strategy_fit" ? matrix.filter((m) => m.gateBucket === "fit") : [];
     const offset = options.offset ?? 0;
     return {
       scanned: batch.length,
@@ -413,8 +545,11 @@ export class OpportunityScanner {
       assumptions,
       matrix,
       mode,
-      fits: passRows.slice(offset, options.limit === undefined ? undefined : offset + options.limit),
-      fitsTotal: passRows.length,
+      fits: fitRows.slice(offset, options.limit === undefined ? undefined : offset + options.limit),
+      fitsTotal: fitRows.length,
+      gate: gateCounts,
+      borderline,
+      gateParams: gate,
     };
   }
 }
