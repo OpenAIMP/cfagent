@@ -32,6 +32,7 @@ import {
   type StrategyCandidate,
 } from "./index";
 import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanSymbolOverride } from "./opportunityScanner";
+import type { ScanRunStore } from "./scanRunStore";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
@@ -124,15 +125,21 @@ const MEMORY_CACHE = new Map<string, CacheEntry>();
 export class UnifiedOptionsService {
   private config: EtapiConfig;
   private orm?: DatabaseORM;
+  /** Issue #27: optional scan-run persistence seam. When supplied,
+   *  opportunities scans are stored and the response data carries
+   *  scanRunId/persisted; when absent, behavior is exactly as before. */
+  private scanRunStore?: ScanRunStore;
 
   constructor(
     private env: Env,
     private userLogin: string = "default_trader",
     private overrideEnv?: string,
-    orm?: DatabaseORM
+    orm?: DatabaseORM,
+    scanRunStore?: ScanRunStore
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
+    this.scanRunStore = scanRunStore;
   }
 
   private getCacheKey(req: UnifiedOptionsRequest): string {
@@ -248,6 +255,20 @@ export class UnifiedOptionsService {
             ...(req.mode ? { mode: req.mode } : {}),
           });
           executionData = scanResult;
+          // Issue #27: persist the run when a store was injected (the
+          // orchestrator's unified route supplies one over the Durable
+          // Object's storage). Persistence must never fail a scan: on a
+          // store error the result still returns, flagged persisted:
+          // false with the failure logged and swallowed.
+          if (this.scanRunStore) {
+            try {
+              const saved = await this.scanRunStore.save(scanResult);
+              executionData = { ...scanResult, scanRunId: saved.id, persisted: true };
+            } catch (err) {
+              console.error("Failed to persist opportunity scan run", err);
+              executionData = { ...scanResult, persisted: false };
+            }
+          }
           // Issue #23: the summary labels the mode; strategy-fit reports
           // the fit accounting instead of the best-trade count.
           // Issue #24: both modes append the fit-gate bucket counts; in
