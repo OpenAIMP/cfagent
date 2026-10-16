@@ -11,7 +11,8 @@ import {
   ETradeBrokerStatus,
   TradeRecord,
 } from "../types";
-import { OptionsResearchPanel, type OptionsTradeContext } from "./OptionsResearchPanel";
+import { OptionsResearchPanel } from "./OptionsResearchPanel";
+import type { TradeAssetClass, TradeOrderContext } from "./trading/tradeOrderContext";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -213,7 +214,8 @@ export function ETradeTradingHub({
   const [lastExecutionResult, setLastExecutionResult] = useState<ETradeOrderExecutionResult | null>(null);
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [orderError, setOrderError] = useState("");
-  const [orderContext, setOrderContext] = useState<OptionsTradeContext | null>(null);
+  const [orderContext, setOrderContext] = useState<TradeOrderContext | null>(null);
+  const [orderAssetClass, setOrderAssetClass] = useState<TradeAssetClass>("equity");
   const [optionsJob, setOptionsJob] = useState<"idle" | "running" | "ready">("idle");
 
   // Orders Ledger state
@@ -933,21 +935,31 @@ export function ETradeTradingHub({
     }
   };
 
-  const handleOptionsTrade = (ctx: OptionsTradeContext) => {
-    setOrderContext(ctx);
-    setOrderSymbol(ctx.symbol);
+  const handleTradeOrder = (ctx: TradeOrderContext) => {
+    const seededOptionLegs = ctx.assetClass === "options" && !ctx.optionLegs?.length
+      ? [{ securityType: "OPTN" as const, side: ctx.action === "SELL" || ctx.action === "SELL_SHORT" ? "SELL" as const : "BUY" as const, quantity: 1, optionType: "CALL" as const }]
+      : ctx.optionLegs;
+    const preparedContext: TradeOrderContext = {
+      ...ctx,
+      optionLegs: seededOptionLegs,
+      strategyNetDebit: ctx.strategyNetDebit ?? (ctx.assetClass === "options" ? (ctx.action === "SELL" || ctx.action === "SELL_SHORT" ? -1 : 1) : undefined),
+    };
+    setOrderContext(preparedContext);
+    setOrderAssetClass(ctx.assetClass);
+    setOrderSymbol(preparedContext.symbol);
     // Multi-leg order direction is defined by each leg. Keep the ticket's
     // generic header action neutral for option strategies; never label a long
     // put structure as a stock short order.
-    setOrderAction(ctx.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "BUY" : ctx.action);
-    setOrderType(ctx.optionLegs?.length || ctx.underlyingPrice ? "LIMIT" : "MARKET");
-    setOrderQuantity(ctx.quantity);
-    if (ctx.optionLegs?.length && ctx.strategyNetDebit !== undefined) {
-      const unitMultiplier = ctx.optionLegs.some((leg) => leg.securityType === "OPTN")
+    setOrderAction(preparedContext.assetClass === "options" ? "BUY" : preparedContext.action);
+    setOrderType(preparedContext.assetClass === "options" || preparedContext.optionLegs?.length || preparedContext.underlyingPrice ? "LIMIT" : "MARKET");
+    setOrderQuantity(preparedContext.quantity);
+    if (preparedContext.assetClass === "options" && preparedContext.strategyNetDebit !== undefined) {
+      const unitMultiplier = preparedContext.optionLegs?.some((leg) => leg.securityType === "OPTN")
         ? 100
-        : ctx.optionLegs.reduce((total, leg) => total + leg.quantity, 0) || 1;
-      setOrderLimitPrice((Math.abs(ctx.strategyNetDebit) / unitMultiplier).toFixed(2));
-    } else if (ctx.underlyingPrice) setOrderLimitPrice(ctx.underlyingPrice.toFixed(2));
+        : preparedContext.optionLegs?.reduce((total, leg) => total + leg.quantity, 0) || 1;
+      setOrderLimitPrice((Math.abs(preparedContext.strategyNetDebit) / unitMultiplier).toFixed(2));
+    } else if (preparedContext.assetClass === "options") setOrderLimitPrice("0.01");
+    else if (preparedContext.underlyingPrice) setOrderLimitPrice(preparedContext.underlyingPrice.toFixed(2));
     setActiveDraft(null);
     setLastExecutionResult(null);
     setOrderError("");
@@ -955,7 +967,7 @@ export function ETradeTradingHub({
     onSelectSubTab?.("order");
   };
 
-  const updateOptionLeg = (index: number, patch: Partial<NonNullable<OptionsTradeContext["optionLegs"]>[number]>) => {
+  const updateOptionLeg = (index: number, patch: Partial<NonNullable<TradeOrderContext["optionLegs"]>[number]>) => {
     setOrderContext((current) => {
       if (!current?.optionLegs) return current;
       const optionLegs = current.optionLegs.map((leg, legIndex) => legIndex === index ? { ...leg, ...patch } : leg);
@@ -977,8 +989,8 @@ export function ETradeTradingHub({
           side: "BUY",
           quantity: 1,
           optionType: firstOption?.optionType || "CALL",
-          strike: firstOption?.strike || 1,
-          expirationDate: firstOption?.expirationDate || new Date().toISOString().slice(0, 10),
+          strike: firstOption?.strike,
+          expirationDate: firstOption?.expirationDate,
         }],
       };
     });
@@ -1008,6 +1020,7 @@ export function ETradeTradingHub({
 
   const handleQuickTrade = (stock: ScreenedStockItem | ETradePosition | ETradeQuote, defaultAction: "BUY" | "SELL" = "BUY") => {
     setOrderContext(null);
+    setOrderAssetClass("equity");
     setOrderSymbol(stock.symbol);
     setOrderAction(defaultAction);
     const quoteBid = (stock as any).bid;
@@ -1030,7 +1043,8 @@ export function ETradeTradingHub({
     if (!position.optionType || !position.strikePrice || !position.expirationDate) return;
     const closingSide = position.positionType === "SHORT" ? "BUY" : "SELL";
     const contractPrice = Number(position.currentPrice || position.marketPrice || position.pricePaid || 0);
-    handleOptionsTrade({
+    handleTradeOrder({
+      assetClass: "options",
       symbol: position.symbol,
       action: closingSide === "BUY" ? "BUY_TO_COVER" : "SELL",
       quantity: Math.max(1, Math.floor(Math.abs(position.quantity))),
@@ -1056,6 +1070,16 @@ export function ETradeTradingHub({
     setActiveDraft(null);
     setLastExecutionResult(null);
 
+    if (orderAssetClass === "options") {
+      const optionLegs = orderContext?.optionLegs?.filter((leg) => leg.securityType === "OPTN") || [];
+      const hasIncompleteLeg = optionLegs.some((leg) => !leg.optionType || !Number.isFinite(leg.strike) || Number(leg.strike) <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(leg.expirationDate || ""));
+      if (!optionLegs.length || hasIncompleteLeg) {
+        setOrderError("Complete each option leg with a call or put, positive strike, expiration date, and contract count before requesting broker preview.");
+        setPreviewLoading(false);
+        return;
+      }
+    }
+
     const price = parseFloat(orderLimitPrice);
     if (orderType === "LIMIT" && (isNaN(price) || price <= 0)) {
       setOrderError("Please specify a valid limit price");
@@ -1068,6 +1092,7 @@ export function ETradeTradingHub({
         method: "POST",
         headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify({
+          assetClass: orderAssetClass,
           symbol: orderSymbol.toUpperCase(),
           orderAction,
           action: orderAction,
@@ -1144,6 +1169,7 @@ export function ETradeTradingHub({
         method: "POST",
         headers: { "Content-Type": "application/json", "x-environment": activeEnv },
         body: JSON.stringify({
+          assetClass: activeDraft.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "options" : "equity",
           symbol: activeDraft.symbol,
           orderAction: activeDraft.action,
           action: activeDraft.action,
@@ -1247,6 +1273,8 @@ export function ETradeTradingHub({
     oauthMsg,
     user?.login,
   ]);
+
+  const orderLegs = orderContext?.optionLegs ?? [];
 
   return (
     <div className="etrade-trading-hub">
@@ -1728,7 +1756,7 @@ export function ETradeTradingHub({
         <OptionsResearchPanel
           activeEnv={activeEnv}
           userLogin={user?.login}
-          onPreviewTrade={handleOptionsTrade}
+          onPreviewTrade={handleTradeOrder}
           onJobStateChange={setOptionsJob}
           onSendPrompt={onSendPrompt}
         />
@@ -1742,9 +1770,9 @@ export function ETradeTradingHub({
             <div className="order-form-card">
               <div className="card-header-styled" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
                 <div>
-                  <h4>⚡ E*TRADE Fast Order Ticket</h4>
+                  <h4>⚡ {orderAssetClass === "options" ? "Options Order Ticket" : "Equity / ETF Order Ticket"}</h4>
                   <span className="header-subtitle">
-                    {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN")
+                    {orderAssetClass === "options"
                       ? "Broker-priced options strategy preview with human approval required"
                       : orderContext?.optionLegs?.length
                         ? "Stock strategy preview with human approval required"
@@ -1765,7 +1793,7 @@ export function ETradeTradingHub({
                 )}
               </div>
 
-              {orderError && (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? (
+              {orderError && (orderAssetClass === "options" ? (
                 <div className="options-preview-error" role="alert">
                   <strong>Options preview failed. No order was created or submitted.</strong>
                   <span>{/unapproved options position|options approval levels/i.test(orderError)
@@ -1779,20 +1807,20 @@ export function ETradeTradingHub({
               ) : <div className="form-error-alert" role="alert">⚠️ {orderError}</div>)}
               {orderContext && (
                 <div className="options-order-context">
-                  <strong>{orderContext.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Options strategy" : "From Strategy Research"}</strong>
+                  <strong>{orderContext.assetClass === "options" ? "Options strategy" : "From Strategy Research"}</strong>
                   <span>{orderContext.label}</span>
-                  {orderContext.optionLegs?.some((leg) => leg.securityType === "OPTN") ? (
+                  {orderContext.assetClass === "options" ? (
                     <div className="options-leg-editor" aria-label="Edit option strategy legs">
                       <div className="options-leg-editor-heading">
                         <div>
                           <strong>Build your order</strong>
                           <span>Review and edit every contract before requesting E*TRADE’s preview.</span>
                         </div>
-                        <button type="button" className="options-leg-add" onClick={addOptionLeg} disabled={orderContext.optionLegs.length >= 4 || orderContext.optionLegs.some((leg) => leg.securityType === "EQ")}>
+                        <button type="button" className="options-leg-add" onClick={addOptionLeg} disabled={orderLegs.length >= 4 || orderLegs.some((leg) => leg.securityType === "EQ")}>
                           + Add leg
                         </button>
                       </div>
-                      {orderContext.optionLegs.map((leg, index) => (
+                      {orderLegs.map((leg, index) => (
                         <div className="options-leg-row" key={`option-leg-${index}`}>
                           <div className="options-leg-title"><strong>Leg {index + 1}</strong><span>{leg.securityType === "OPTN" ? "OPTION" : "STOCK"}</span></div>
                           <label>Side
@@ -1830,14 +1858,14 @@ export function ETradeTradingHub({
               <form onSubmit={handlePreviewOrder} className="order-ticket-form">
                 {/* Symbol and Instant Quote */}
                 <div className="form-group">
-                  <label>{orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Underlying Symbol" : "Ticker Symbol"}</label>
+                  <label>{orderAssetClass === "options" ? "Underlying Symbol" : "Ticker Symbol"}</label>
                   <div className="symbol-input-row">
                     <input
                       type="text"
                       className="ticker-input"
                       placeholder="e.g. NVDA, AAPL"
                       value={orderSymbol}
-                      readOnly={Boolean(orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN"))}
+                      readOnly={orderAssetClass === "options"}
                       onChange={(e) => {
                         const s = e.target.value.toUpperCase();
                         setOrderSymbol(s);
@@ -2077,7 +2105,7 @@ export function ETradeTradingHub({
                     </button>
                   </div>
                   <div className="qty-preset-chips">
-                    {(orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? [1, 2, 5, 10, 25] : [5, 10, 25, 50, 100]).map((q) => (
+                    {(orderAssetClass === "options" ? [1, 2, 5, 10, 25] : [5, 10, 25, 50, 100]).map((q) => (
                       <button
                         key={q}
                         type="button"
@@ -2088,7 +2116,7 @@ export function ETradeTradingHub({
                           setLastExecutionResult(null);
                         }}
                       >
-                        {q} {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "units" : "shs"}
+                        {q} {orderContext?.optionLegs?.length ? "units" : "shs"}
                       </button>
                     ))}
                   </div>
@@ -2110,7 +2138,7 @@ export function ETradeTradingHub({
                       ${(
                         orderQuantity *
                         (orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : orderQuote?.lastPrice || 0) *
-                        (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN")
+                        (orderAssetClass === "options"
                           ? 100
                           : orderContext?.optionLegs?.reduce((total, leg) => total + leg.quantity, 0) || 1)
                       ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -2126,14 +2154,14 @@ export function ETradeTradingHub({
                     style={{ flex: 1 }}
                     disabled={previewLoading || !orderSymbol.trim()}
                     title="Generate cryptographic order preview with Trading Agent DID"
-                    aria-label="Preview Order with Agent DID"
+                    aria-label={orderAssetClass === "options" ? "Preview Options Order" : "Preview Equity Order"}
                   >
                     {previewLoading ? (
                       "Creating Cryptographic Preview…"
                     ) : (
                       <>
                         <span className="btn-preview-icon" aria-hidden="true" style={{ marginRight: "0.4rem" }}>📋</span>
-                        {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Preview Options Order" : "Preview Order with Agent DID"}
+                        {orderAssetClass === "options" ? "Preview Options Order" : "Preview Equity Order"}
                       </>
                     )}
                   </button>
@@ -2146,14 +2174,25 @@ export function ETradeTradingHub({
                       const estPrice = orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : (orderQuote?.lastPrice || 100);
                       const totalVal = orderQuantity * estPrice;
                       setRiskSubject({
-                        title: `${orderAction} ${orderQuantity}x ${orderSymbol.toUpperCase()} (${orderType})`,
+                        title: orderAssetClass === "options"
+                          ? `${orderContext?.label || "Options strategy"} · ${orderQuantity} unit(s)`
+                          : `${orderAction} ${orderQuantity}x ${orderSymbol.toUpperCase()} (${orderType})`,
                         underlyingSymbol: orderSymbol.toUpperCase(),
                         underlyingPrice: estPrice,
-                        strategyType: `${orderAction} Order Ticket`,
+                        strategyType: orderAssetClass === "options" ? orderContext?.label || "Options Order Ticket" : `${orderAction} Order Ticket`,
                         sentiment: orderAction.includes("BUY") ? "bullish" : "bearish",
                         quantity: orderQuantity,
-                        positionType: "EQUITY",
-                        maxLoss: totalVal,
+                        positionType: orderAssetClass === "options" ? "MULTI_LEG" : "EQUITY",
+                        maxLoss: orderAssetClass === "options" ? undefined : totalVal,
+                        netDebit: orderAssetClass === "options" ? orderContext?.strategyNetDebit : undefined,
+                        legsText: orderContext?.legs.join(" / "),
+                        legs: orderContext?.optionLegs?.map((leg) => ({
+                          side: leg.side,
+                          quantity: leg.quantity * orderQuantity,
+                          optionType: leg.optionType,
+                          strike: leg.strike,
+                          expirationDate: leg.expirationDate,
+                        })),
                         breakevens: [estPrice],
                         breakevenText: `Execution/Limit: $${estPrice.toFixed(2)}`,
                       });
@@ -2509,7 +2548,7 @@ export function ETradeTradingHub({
           </ErrorBoundary>
 
           <ErrorBoundary label="Portfolio Risk panel">
-            <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleOptionsTrade} />
+            <PortfolioRiskPanel activeEnv={activeEnv} onPreviewHedge={handleTradeOrder} />
           </ErrorBoundary>
         </div>
       )}

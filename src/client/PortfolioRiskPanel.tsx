@@ -33,12 +33,12 @@ import {
   type SizingCandidate,
   type SizingResult,
 } from "./portfolioRiskApi";
-import type { OptionsTradeContext } from "./options/OptionsResearchPanel";
+import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./portfolioRiskPanel.css";
 
 interface PortfolioRiskPanelProps {
   activeEnv: string;
-  onPreviewHedge: (ctx: OptionsTradeContext) => void;
+  onPreviewHedge: (ctx: TradeOrderContext) => void;
 }
 
 export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskPanelProps) {

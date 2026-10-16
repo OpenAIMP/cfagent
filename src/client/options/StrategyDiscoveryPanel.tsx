@@ -39,7 +39,7 @@ import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEval
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
-import type { OptionsTradeContext } from "./OptionsResearchPanel";
+import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { SegmentedControl, PillGroup } from "../components/ui";
 
@@ -127,7 +127,7 @@ interface StrategyDiscoveryPanelProps {
   initialSymbol?: string;
   activeEnv?: "TEST" | "PROD";
   userLogin?: string;
-  onPreviewTrade?: (ctx: OptionsTradeContext) => void;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
   flowTradeBanner?: {
     title: string;
@@ -1330,7 +1330,9 @@ export function StrategyDiscoveryPanel({
   // Fast order ticket context creator
   const sendToFastOrder = () => {
     if (!onPreviewTrade || !selectedStrategy || !canTradeBuilderCandidate) return;
-    const ctx: OptionsTradeContext = {
+    const activeLegs = builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed);
+    const ctx: TradeOrderContext = {
+      assetClass: activeLegs.some((leg) => leg.optionType !== "STOCK") ? "options" : "equity",
       symbol: activeSymbol,
       action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
       quantity: 1,
@@ -1342,7 +1344,7 @@ export function StrategyDiscoveryPanel({
             leg.optionType === "STOCK" ? "Shares" : `${leg.strike}${leg.optionType[0]} ${leg.expirationDate}`
           } @ $${leg.entryPrice.toFixed(2)}`
       ),
-      optionLegs: builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed).map((leg) => ({
+      optionLegs: activeLegs.map((leg) => ({
         securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
         side: leg.side,
         quantity: leg.quantity,
@@ -1822,7 +1824,9 @@ export function StrategyDiscoveryPanel({
                         className="strat-card-icon-btn trade"
                         onClick={(e) => {
                           e.stopPropagation();
-                          const ctx: OptionsTradeContext = {
+                          const activeLegs = strat.legs.filter((leg) => !leg.isExcluded && !leg.isClosed);
+                          const ctx: TradeOrderContext = {
+                            assetClass: activeLegs.some((leg) => leg.optionType !== "STOCK") ? "options" : "equity",
                             symbol: activeSymbol,
                             action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
                             quantity: 1,
@@ -1834,7 +1838,7 @@ export function StrategyDiscoveryPanel({
                                   leg.optionType === "STOCK" ? "Shares" : `${leg.strike}${leg.optionType[0]} ${leg.expirationDate}`
                                 } @ $${leg.entryPrice.toFixed(2)}`
                             ),
-                            optionLegs: strat.legs.filter((leg) => !leg.isExcluded && !leg.isClosed).map((leg) => ({
+                            optionLegs: activeLegs.map((leg) => ({
                               securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
                               side: leg.side,
                               quantity: leg.quantity,
@@ -1889,6 +1893,14 @@ export function StrategyDiscoveryPanel({
                           breakevenText: strat.breakevens.map((b) => `$${b.toFixed(2)}`).join(" · "),
                           underlyingPrice: spot,
                           legs: strat.legs.map((l) => `${l.side} ${l.quantity} ${activeSymbol} ${selectedExpiration.date} $${l.strike} ${l.optionType}`),
+                          optionLegs: strat.legs.filter((l) => !l.isExcluded && !l.isClosed).map((l) => ({
+                            securityType: l.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+                            side: l.side,
+                            quantity: l.quantity,
+                            optionType: l.optionType === "STOCK" ? undefined : l.optionType,
+                            strike: l.optionType === "STOCK" ? undefined : l.strike,
+                            expirationDate: l.optionType === "STOCK" ? undefined : l.expirationDate,
+                          })),
                         });
                       }}
                       title={`Evaluate ${strat.name} with AI / LLM`}
@@ -2035,6 +2047,14 @@ export function StrategyDiscoveryPanel({
                     breakevenText: (selectedStrategy?.breakevens || []).map((b) => `$${b.toFixed(2)}`).join(" · "),
                     underlyingPrice: spot,
                     legs: builderLegs.map((l) => `${l.side} ${l.quantity} ${activeSymbol} ${selectedExpiration.date} $${l.strike} ${l.optionType}`),
+                    optionLegs: builderLegs.filter((l) => !l.isExcluded && !l.isClosed).map((l) => ({
+                      securityType: l.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+                      side: l.side,
+                      quantity: l.quantity,
+                      optionType: l.optionType === "STOCK" ? undefined : l.optionType,
+                      strike: l.optionType === "STOCK" ? undefined : l.strike,
+                      expirationDate: l.optionType === "STOCK" ? undefined : l.expirationDate,
+                    })),
                   });
                 }}
               >

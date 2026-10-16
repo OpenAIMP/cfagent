@@ -21,8 +21,11 @@ import type {
 } from "../types";
 
 export type TradingPlatformId = "etrade" | "alpaca" | "foss" | "sandbox";
+/** Asset classes with implemented order forms and broker routing. Extend this union with a dedicated order adapter when a new market is added. */
+export type TradeAssetClass = "equity" | "options";
 
 export interface OrderPreviewParams {
+  assetClass?: TradeAssetClass;
   symbol: string;
   action?: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
   orderAction?: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";

@@ -23,6 +23,7 @@ import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
+import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { TabHoverItem } from "../TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "../components/CapabilityNavBar";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
@@ -32,45 +33,31 @@ import "./optionsResearch.css";
 interface OptionsResearchPanelProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
-  onPreviewTrade?: (ctx: OptionsTradeContext) => void;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onJobStateChange?: (state: "idle" | "running" | "ready") => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
-export interface OptionsTradeContext {
-  symbol: string;
-  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
-  quantity: number;
-  underlyingPrice?: number;
-  label: string;
-  legs: string[];
-  optionLegs?: Array<{
-    securityType: "EQ" | "OPTN";
-    side: "BUY" | "SELL";
-    quantity: number;
-    optionType?: "CALL" | "PUT";
-    strike?: number;
-    expirationDate?: string;
-  }>;
-  strategyNetDebit?: number;
-}
+export type { TradeOrderContext } from "../trading/tradeOrderContext";
 
-function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, underlyingPrice?: number): OptionsTradeContext {
+function toTradeContext(candidate: StrategyCandidate, thesis: OptionThesis, underlyingPrice?: number): TradeOrderContext {
+  const optionLegs = candidate.legs.map((leg) => ({
+    securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+    side: leg.side,
+    quantity: leg.quantity,
+    optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+    strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+    expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+  }));
   return {
+    assetClass: optionLegs.some((leg) => leg.securityType === "OPTN") ? "options" : "equity",
     symbol: candidate.symbol,
     action: thesis === "bearish" ? "SELL_SHORT" : "BUY",
     quantity: 1,
     underlyingPrice,
     label: `${candidate.label} (${candidate.expirationDate}), max loss ${candidate.maxLoss === null ? "unlimited" : `$${candidate.maxLoss}`}`,
     legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
-    optionLegs: candidate.legs.map((leg) => ({
-      securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
-      side: leg.side,
-      quantity: leg.quantity,
-      optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
-      strike: leg.optionType === "STOCK" ? undefined : leg.strike,
-      expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
-    })),
+    optionLegs,
     strategyNetDebit: candidate.netDebit,
   };
 }
@@ -425,6 +412,14 @@ export function candidateToEval(candidate: StrategyCandidate, thesis?: OptionThe
     breakevenText: breakevenText(candidate),
     underlyingPrice: candidate.underlyingPrice,
     legs: candidate.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+    optionLegs: candidate.legs.map((leg) => ({
+      securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+      side: leg.side,
+      quantity: leg.quantity,
+      optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+      strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+      expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+    })),
   };
 }
 
