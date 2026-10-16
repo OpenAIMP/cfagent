@@ -250,9 +250,12 @@ export class UnifiedOptionsService {
           executionData = scanResult;
           // Issue #23: the summary labels the mode; strategy-fit reports
           // the fit accounting instead of the best-trade count.
+          // Issue #24: both modes append the fit-gate bucket counts; in
+          // strategy-fit mode fitsTotal is already the GATED fit count.
+          const gateSegment = ` Gate: ${scanResult.gate.fit} fit, ${scanResult.gate.borderline} borderline, ${scanResult.gate.noFit} no fit.`;
           summary = scanResult.mode === "strategy_fit"
-            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.`
-            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)`;
+            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.${gateSegment}`
+            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)${gateSegment}`;
           break;
         }
 
