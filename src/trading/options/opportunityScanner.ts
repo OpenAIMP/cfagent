@@ -10,6 +10,7 @@ import { RecommendationAgent, type BestTradePick, type RankedStrategy, type Risk
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
 import { MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
+import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { ScreenedOptionContractItem } from "../../types";
 
 const baseOppConfig = getOpportunityScannerConfig();
@@ -25,7 +26,7 @@ const CONCURRENCY = baseOppConfig.concurrency;
  * with different model versions are never silently compared as if they
  * were produced by the same model.
  */
-export const SCAN_MODEL_VERSION = "1.1.1";
+export const SCAN_MODEL_VERSION = "1.1.2";
 
 /**
  * The two strategy questions a scan can answer (issue #23):
@@ -322,7 +323,11 @@ export function rollupScanTypes(matrix: ScanMatrixRow[]): ScanTypeRollup[] {
 /** What a scan was asked (issue #27): the resolved template fields that
  *  shaped the run, the mode, the ranking profile, and the screen filter.
  *  The resolved fit gate rides separately on the result as `gateParams`
- *  (issue #24) and is deliberately not duplicated here. */
+ *  (issue #24) and is deliberately not duplicated here. When a saved
+ *  strategy profile was applied (issue #28), `template` holds the
+ *  EFFECTIVE (post-merge) fields and `profile` carries the full applied
+ *  profile object, so a persisted run stays self-describing; it is null
+ *  for profile-less scans. */
 export interface ScanRequestSnapshot {
   template: {
     thesis: StrategyRequest["thesis"];
@@ -338,6 +343,7 @@ export interface ScanRequestSnapshot {
   mode: ScanMode;
   riskProfile: RiskProfile;
   strategyFilter?: StrategyScreenFilter;
+  profile: StrategyProfile | null;
 }
 
 /** The resolved scanner configuration a scan ran under (issue #27),
@@ -401,6 +407,11 @@ export interface OpportunityScanResult {
   /** The resolved fit-gate parameters this scan was judged under
    *  (issue #24) — provenance for every "fit" declared in the result. */
   gateParams: FitGateParams;
+  /** The saved strategy profile this scan ran under (issue #28): id,
+   *  name, and version — the acceptance stamp that makes verdicts
+   *  comparable across sessions. Null when no profile was applied; the
+   *  full profile object rides in requestSnapshot.profile. */
+  profileRef: ProfileRef | null;
   /** When this result was generated, ISO 8601 (issue #27). */
   generatedAt: string;
   /** The scan-model version that produced this result (issue #27);
@@ -687,6 +698,21 @@ export class OpportunityScanner {
       /** Fit-gate overrides for this call (issue #24), merged over the
        *  config defaults from getOpportunityScannerConfig(). */
       fitGate?: Partial<FitGateParams>;
+      /** Saved strategy profile to run under (issue #28): its
+       *  StrategyRequest-level fields fill the template wherever the
+       *  caller did not declare the field explicit (see
+       *  `explicitFields`), its fitGate layers between the config
+       *  defaults and `fitGate`, and its riskProfile / mode apply
+       *  unless declared explicit. The applied profile is disclosed in
+       *  `assumptions` and stamped into `profileRef` +
+       *  `requestSnapshot.profile`. */
+      profile?: StrategyProfile;
+      /** Field names the caller declares as request-expressed for the
+       *  profile merge (issue #28): template-level StrategyRequest
+       *  fields (thesis, maxPlannedLoss, ...) plus the option-level
+       *  declarations "riskProfile" and "mode". Declared fields keep
+       *  the caller's values; the profile supplies the rest. */
+      explicitFields?: string[];
       /** Clock override for deterministic provenance (issue #27): the
        *  result's `generatedAt` is stamped from this instant instead of
        *  the wall clock. */
@@ -695,19 +721,38 @@ export class OpportunityScanner {
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
     const batch = unique.slice(0, MAX_SCAN_SYMBOLS);
-    const profile = options.riskProfile ?? "balanced";
-    const mode = options.mode ?? "per_name_best";
-    const gate: FitGateParams = { ...baseOppConfig.fitGate, ...options.fitGate };
+    // Saved strategy profile (issue #28): the profile is the BASE layer
+    // of this scan — everything downstream (request building, target
+    // resolution, the fit gate, the provenance snapshot) runs on the
+    // EFFECTIVE values computed here, never on the raw inputs.
+    const strategyProfile = options.profile;
+    const explicitSet = new Set(options.explicitFields ?? []);
+    let effectiveTemplate = template;
+    let appliedProfileFields: string[] = [];
+    if (strategyProfile) {
+      const applied = applyProfileFields(template, strategyProfile, explicitSet);
+      effectiveTemplate = applied.merged;
+      appliedProfileFields = applied.appliedFields;
+    }
+    const profileGateApplied = strategyProfile?.fitGate !== undefined;
+    const profile = explicitSet.has("riskProfile")
+      ? options.riskProfile ?? "balanced"
+      : strategyProfile?.riskProfile ?? options.riskProfile ?? "balanced";
+    const mode = explicitSet.has("mode")
+      ? options.mode ?? "per_name_best"
+      : strategyProfile?.mode ?? options.mode ?? "per_name_best";
+    const gate: FitGateParams = { ...baseOppConfig.fitGate, ...(strategyProfile?.fitGate ?? {}), ...options.fitGate };
     const skipped: OpportunityScanResult["skipped"] = [];
-    const overrideAssumption = scanOverrideAssumption(template, batch);
+    const overrideAssumption = scanOverrideAssumption(effectiveTemplate, batch);
     const assumptions = [
-      ...scanTargetAssumptions(template),
+      ...scanTargetAssumptions(effectiveTemplate),
       ...(overrideAssumption ? [overrideAssumption] : []),
+      ...(strategyProfile ? [profileDisclosure(strategyProfile, appliedProfileFields, profileGateApplied)] : []),
     ];
     // The stated target and the per-name overrides are scan-level scoping
     // metadata, not request fields: strip them so per-symbol
     // StrategyRequests stay exactly StrategyRequest-shaped.
-    const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = template;
+    const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = effectiveTemplate;
 
     const outcomes = await mapLimit(batch, CONCURRENCY, async (symbol): Promise<{ opportunity: OpportunityRow | null; matrix: ScanMatrixRow }> => {
       const skippedMatrixRow = (reason: string): ScanMatrixRow => ({
@@ -735,7 +780,7 @@ export class OpportunityScanner {
         // its target resolution and, when it carries a thesis, the thesis
         // its build/screen/pick run under. The snapshot load above stays
         // on the shared template, as before.
-        const override = template.perSymbol?.[symbol];
+        const override = effectiveTemplate.perSymbol?.[symbol];
         // Expected-move estimate (issue #25): the 1-sigma move to expiry
         // implied by this symbol's own chain, from the scan's clock so
         // provenance-stamped runs stay reproducible. Null when the chain
@@ -744,7 +789,7 @@ export class OpportunityScanner {
         // fallback disclosure below.
         const emPct = estimateExpectedMovePct(snapshot.contracts, price, options.now ?? new Date());
         const { targetPrice, source: targetSource, targetEmUnits } = resolveScanTarget(
-          template,
+          effectiveTemplate,
           symbol,
           price,
           override,
@@ -867,23 +912,25 @@ export class OpportunityScanner {
       gate: gateCounts,
       borderline,
       gateParams: gate,
+      profileRef: strategyProfile ? toProfileRef(strategyProfile) : null,
       generatedAt: (options.now ?? new Date()).toISOString(),
       modelVersion: SCAN_MODEL_VERSION,
       requestSnapshot: {
         template: {
-          thesis: template.thesis,
-          targetDate: template.targetDate,
-          minDte: template.minDte,
-          maxDte: template.maxDte,
-          maxPlannedLoss: template.maxPlannedLoss,
-          minRewardRisk: template.minRewardRisk,
-          allowedStrategies: template.allowedStrategies,
-          statedTarget: template.statedTarget,
-          perSymbol: template.perSymbol,
+          thesis: effectiveTemplate.thesis,
+          targetDate: effectiveTemplate.targetDate,
+          minDte: effectiveTemplate.minDte,
+          maxDte: effectiveTemplate.maxDte,
+          maxPlannedLoss: effectiveTemplate.maxPlannedLoss,
+          minRewardRisk: effectiveTemplate.minRewardRisk,
+          allowedStrategies: effectiveTemplate.allowedStrategies,
+          statedTarget: effectiveTemplate.statedTarget,
+          perSymbol: effectiveTemplate.perSymbol,
         },
         mode,
         riskProfile: profile,
         strategyFilter: options.strategyFilter,
+        profile: strategyProfile ?? null,
       },
       configSnapshot: {
         maxScanSymbols: baseOppConfig.maxScanSymbols,
