@@ -8,7 +8,9 @@ import { FossResearchService } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
-import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
+import type { ProfileRef } from "../trading/options/strategyProfile";
+import type { StrategyProfileStore } from "../trading/options/strategyProfileStore";
+import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyDeps, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { getDynamicLiveFlowItems } from "../trading/options/flows";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
@@ -138,6 +140,9 @@ export interface NLQQueryResult {
   /** Issue #27: whether the scan run was persisted; false means a
    *  store was supplied but its save failed (the scan still succeeded). */
   persisted?: boolean;
+  /** Issue #28: the saved strategy profile an options action ran under
+   *  (id + name + version), when one was selected in the question. */
+  profileRef?: ProfileRef | null;
   scanLedger?: StockScreenLedger | Record<string, unknown>;
   discovery?: StockScreenResult["discovery"];
   validationError?: string;
@@ -2274,7 +2279,7 @@ export async function executeNLQQueryAsync(
   env?: Env,
   userLogin?: string,
   userDid?: string,
-  deps?: { scanRunStore?: ScanRunStore }
+  deps?: OptionsStrategyDeps
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
   const loginStr = typeof userLogin === "string" ? userLogin : undefined;
@@ -2551,7 +2556,13 @@ export async function executeNLQQueryAsync(
     }
 
     if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
-      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, deps);
+      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
+        scanRunStore: deps?.scanRunStore,
+        profileStore: deps?.profileStore,
+        // Issue #28: profile resolution is scoped to the session's
+        // login — the same fallback chain the ETradeService above uses.
+        userLogin: deps?.userLogin ?? login,
+      });
       return {
         plan,
         domain: "trading",
@@ -2567,6 +2578,8 @@ export async function executeNLQQueryAsync(
         // scans only; undefined everywhere else).
         scanRunId: res.scanRunId,
         persisted: res.persisted,
+        // Issue #28: surface the applied profile's provenance stamp.
+        profileRef: res.profileRef,
         rows: res.rows,
         executedAt,
       };
@@ -2818,7 +2831,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore }
+  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2838,7 +2851,9 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore ? { scanRunStore: resolvedOptions.scanRunStore } : undefined,
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin }
+      : undefined,
   );
   if (!result.planSource && plan.planSource) {
     result.planSource = plan.planSource;
