@@ -59,7 +59,22 @@ export interface EtapiOpportunityScannerConfig {
   maxScanSymbols: number;
   concurrency: number;
   fitGate: EtapiFitGateConfig;
+  /** Legacy thesis target factors (spot multipliers). Used only as the
+   *  fallback when a symbol's chain yields no expected-move estimate
+   *  (issue #25); the primary derivation is targetEmMultiples. */
   targetFactors: {
+    bullish: number;
+    bearish: number;
+    large_move: number;
+    range_bound: number;
+  };
+  /** Thesis targets expressed in expected-move units (issue #25):
+   *  signed multiples of the 1-sigma move to expiry implied by each
+   *  name's own chain, so a "bullish" target is the same statistical
+   *  distance for a high-IV name as for a low-IV name. Calibration
+   *  anchor: at IV 30% over 30 days (EM ≈ 8.6% of spot) these multiples
+   *  reproduce the legacy targetFactors ≈1.05 / 0.95 / 1.10 / 1.00. */
+  targetEmMultiples: {
     bullish: number;
     bearish: number;
     large_move: number;
@@ -232,6 +247,12 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       bearish: 0.95,
       large_move: 1.10,
       range_bound: 1.00,
+    },
+    targetEmMultiples: {
+      bullish: 0.6,
+      bearish: -0.6,
+      large_move: 1.2,
+      range_bound: 0,
     },
   },
   llmIdeas: {
