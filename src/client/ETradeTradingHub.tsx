@@ -214,7 +214,6 @@ export function ETradeTradingHub({
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [orderError, setOrderError] = useState("");
   const [orderContext, setOrderContext] = useState<OptionsTradeContext | null>(null);
-  const [autoPreview, setAutoPreview] = useState(false);
   const [optionsJob, setOptionsJob] = useState<"idle" | "running" | "ready">("idle");
 
   // Orders Ledger state
@@ -954,15 +953,58 @@ export function ETradeTradingHub({
     setOrderError("");
     setSubTab("order");
     onSelectSubTab?.("order");
-    setAutoPreview(true);
   };
 
-  useEffect(() => {
-    if (!autoPreview) return;
-    setAutoPreview(false);
-    void handlePreviewOrder({ preventDefault() {} } as React.FormEvent);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPreview]);
+  const updateOptionLeg = (index: number, patch: Partial<NonNullable<OptionsTradeContext["optionLegs"]>[number]>) => {
+    setOrderContext((current) => {
+      if (!current?.optionLegs) return current;
+      const optionLegs = current.optionLegs.map((leg, legIndex) => legIndex === index ? { ...leg, ...patch } : leg);
+      return { ...current, optionLegs };
+    });
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOrderError("");
+  };
+
+  const addOptionLeg = () => {
+    setOrderContext((current) => {
+      if (!current?.optionLegs || current.optionLegs.length >= 4) return current;
+      const firstOption = current.optionLegs.find((leg) => leg.securityType === "OPTN");
+      return {
+        ...current,
+        optionLegs: [...current.optionLegs, {
+          securityType: "OPTN",
+          side: "BUY",
+          quantity: 1,
+          optionType: firstOption?.optionType || "CALL",
+          strike: firstOption?.strike || 1,
+          expirationDate: firstOption?.expirationDate || new Date().toISOString().slice(0, 10),
+        }],
+      };
+    });
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOrderError("");
+  };
+
+  const removeOptionLeg = (index: number) => {
+    setOrderContext((current) => current?.optionLegs
+      ? { ...current, optionLegs: current.optionLegs.filter((_, legIndex) => legIndex !== index) }
+      : current);
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOrderError("");
+  };
+
+  const setOptionNetOrderDirection = (credit: boolean) => {
+    setOrderContext((current) => current ? {
+      ...current,
+      strategyNetDebit: (credit ? -1 : 1) * Math.abs(Number.parseFloat(orderLimitPrice) || 0) * 100,
+    } : current);
+    setActiveDraft(null);
+    setLastExecutionResult(null);
+    setOrderError("");
+  };
 
   const handleQuickTrade = (stock: ScreenedStockItem | ETradePosition | ETradeQuote, defaultAction: "BUY" | "SELL" = "BUY") => {
     setOrderContext(null);
@@ -1723,25 +1765,79 @@ export function ETradeTradingHub({
                 )}
               </div>
 
-              {orderError && <div className="form-error-alert">⚠️ {orderError}</div>}
+              {orderError && (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? (
+                <div className="options-preview-error" role="alert">
+                  <strong>Options preview failed. No order was created or submitted.</strong>
+                  <span>{/unapproved options position|options approval levels/i.test(orderError)
+                    ? "E*TRADE says this strategy is not approved for the account, or conflicts with current positions or open orders. Review the account’s options approval and open orders with E*TRADE."
+                    : "Review the contract details and correct the issue before requesting another broker preview."}</span>
+                  <details>
+                    <summary>Broker response</summary>
+                    <p>{orderError}</p>
+                  </details>
+                </div>
+              ) : <div className="form-error-alert" role="alert">⚠️ {orderError}</div>)}
               {orderContext && (
                 <div className="options-order-context">
-                  <strong>From Strategy Research:</strong> {orderContext.label}
-                  <ul>{orderContext.legs.map((leg) => <li key={leg}>{leg}</li>)}</ul>
-                  <em>{orderContext.optionLegs?.length ? "Every active leg is included in the broker's complex-order preview. Check each side, contract, expiry, quantity, net limit, and broker buying-power result before approval." : "Review the underlying order details. Nothing is placed until you approve."}</em>
+                  <strong>{orderContext.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Options strategy" : "From Strategy Research"}</strong>
+                  <span>{orderContext.label}</span>
+                  {orderContext.optionLegs?.some((leg) => leg.securityType === "OPTN") ? (
+                    <div className="options-leg-editor" aria-label="Edit option strategy legs">
+                      <div className="options-leg-editor-heading">
+                        <div>
+                          <strong>Build your order</strong>
+                          <span>Review and edit every contract before requesting E*TRADE’s preview.</span>
+                        </div>
+                        <button type="button" className="options-leg-add" onClick={addOptionLeg} disabled={orderContext.optionLegs.length >= 4 || orderContext.optionLegs.some((leg) => leg.securityType === "EQ")}>
+                          + Add leg
+                        </button>
+                      </div>
+                      {orderContext.optionLegs.map((leg, index) => (
+                        <div className="options-leg-row" key={`option-leg-${index}`}>
+                          <div className="options-leg-title"><strong>Leg {index + 1}</strong><span>{leg.securityType === "OPTN" ? "OPTION" : "STOCK"}</span></div>
+                          <label>Side
+                            <select value={leg.side} onChange={(event) => updateOptionLeg(index, { side: event.target.value as "BUY" | "SELL" })}>
+                              <option value="BUY">Buy</option><option value="SELL">Sell</option>
+                            </select>
+                          </label>
+                          {leg.securityType === "OPTN" && <>
+                            <label>Type
+                              <select value={leg.optionType || "CALL"} onChange={(event) => updateOptionLeg(index, { optionType: event.target.value as "CALL" | "PUT" })}>
+                                <option value="CALL">Call</option><option value="PUT">Put</option>
+                              </select>
+                            </label>
+                            <label>Strike ($)
+                              <input type="number" min="0.01" step="0.5" value={leg.strike ?? ""} onChange={(event) => updateOptionLeg(index, { strike: Number(event.target.value) })} />
+                            </label>
+                            <label>Expiration
+                              <input type="date" value={leg.expirationDate || ""} onChange={(event) => updateOptionLeg(index, { expirationDate: event.target.value })} />
+                            </label>
+                          </>}
+                          <label>{leg.securityType === "OPTN" ? "Contracts" : "Shares"}
+                            <input type="number" min="1" step="1" value={leg.quantity} onChange={(event) => updateOptionLeg(index, { quantity: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
+                          </label>
+                          <button type="button" className="options-leg-remove" onClick={() => removeOptionLeg(index)} aria-label={`Remove leg ${index + 1}`} disabled={(orderContext.optionLegs?.length ?? 0) <= 1}>Remove</button>
+                        </div>
+                      ))}
+                      <p className="options-leg-editor-help">1. Edit the contracts and net limit. 2. Request E*TRADE’s preview. 3. Review and approve only if the broker accepts it. Nothing is submitted before your approval; E*TRADE still validates account approval, buying power, and existing positions.</p>
+                    </div>
+                  ) : (
+                    <ul>{orderContext.legs.map((leg) => <li key={leg}>{leg}</li>)}</ul>
+                  )}
                 </div>
               )}
 
               <form onSubmit={handlePreviewOrder} className="order-ticket-form">
                 {/* Symbol and Instant Quote */}
                 <div className="form-group">
-                  <label>Ticker Symbol</label>
+                  <label>{orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Underlying Symbol" : "Ticker Symbol"}</label>
                   <div className="symbol-input-row">
                     <input
                       type="text"
                       className="ticker-input"
                       placeholder="e.g. NVDA, AAPL"
                       value={orderSymbol}
+                      readOnly={Boolean(orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN"))}
                       onChange={(e) => {
                         const s = e.target.value.toUpperCase();
                         setOrderSymbol(s);
@@ -1861,6 +1957,13 @@ export function ETradeTradingHub({
                 </div>}
 
                 {/* Order Type and Pricing */}
+                {(orderContext?.optionLegs?.filter((leg) => leg.securityType === "OPTN").length ?? 0) > 1 && (
+                  <div className="options-net-order-control" role="group" aria-label="Net order direction">
+                    <span>Net order</span>
+                    <button type="button" className={(orderContext?.strategyNetDebit ?? 0) >= 0 ? "active" : ""} onClick={() => setOptionNetOrderDirection(false)}>Debit</button>
+                    <button type="button" className={(orderContext?.strategyNetDebit ?? 0) < 0 ? "active" : ""} onClick={() => setOptionNetOrderDirection(true)}>Credit</button>
+                  </div>
+                )}
                 <div className="form-row-2">
                   <div className="form-group">
                     <label>Order Type</label>
@@ -1892,6 +1995,7 @@ export function ETradeTradingHub({
                         setOrderLimitPrice(e.target.value);
                         setActiveDraft(null);
                         setLastExecutionResult(null);
+                        setOrderError("");
                       }}
                     />
                   </div>
@@ -1942,12 +2046,12 @@ export function ETradeTradingHub({
                       type="button"
                       className="qty-btn"
                       onClick={() => {
-                        setOrderQuantity(Math.max(1, orderQuantity - 5));
+                        setOrderQuantity(Math.max(1, orderQuantity - (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5)));
                         setActiveDraft(null);
                         setLastExecutionResult(null);
                       }}
                     >
-                      -5
+                      {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "−1" : "−5"}
                     </button>
                     <input
                       type="number"
@@ -1964,16 +2068,16 @@ export function ETradeTradingHub({
                       type="button"
                       className="qty-btn"
                       onClick={() => {
-                        setOrderQuantity(orderQuantity + 5);
+                        setOrderQuantity(orderQuantity + (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5));
                         setActiveDraft(null);
                         setLastExecutionResult(null);
                       }}
                     >
-                      +5
+                      {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "+1" : "+5"}
                     </button>
                   </div>
                   <div className="qty-preset-chips">
-                    {[5, 10, 25, 50, 100].map((q) => (
+                    {(orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? [1, 2, 5, 10, 25] : [5, 10, 25, 50, 100]).map((q) => (
                       <button
                         key={q}
                         type="button"
@@ -1984,7 +2088,7 @@ export function ETradeTradingHub({
                           setLastExecutionResult(null);
                         }}
                       >
-                        {q} shs
+                        {q} {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "units" : "shs"}
                       </button>
                     ))}
                   </div>
@@ -2029,7 +2133,7 @@ export function ETradeTradingHub({
                     ) : (
                       <>
                         <span className="btn-preview-icon" aria-hidden="true" style={{ marginRight: "0.4rem" }}>📋</span>
-                        Preview Order with Agent DID
+                        {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "Preview Options Order" : "Preview Order with Agent DID"}
                       </>
                     )}
                   </button>
