@@ -384,8 +384,12 @@ describe("OpportunityScanner.scan fit matrix (issue #22)", () => {
     const aaa = result.matrix[1];
     expect(aaa.verdict).toBe("pass");
     expect(aaa.skipReason).toBeUndefined();
-    expect(aaa.targetPrice).toBe(105); // 100 × 1.05 bullish thesis factor
+    // Issue #25: the thesis target is EM-derived — 100 × (1 + 0.6 × EM)
+    // with EM = 0.3×sqrt(30/365) ≈ 8.60% from the fixture chain (IV 0.3,
+    // 30d expiry), i.e. +0.6 EM ≈ 105.16 — not the legacy 100 × 1.05.
+    expect(aaa.targetPrice).toBe(105.16);
     expect(aaa.targetSource).toBe("thesis");
+    expect(aaa.targetEmUnits).toBeCloseTo(0.6, 2);
 
     // Fixture economics (probe-verified): the default template builds three
     // strategy types and the unfiltered screen passes every candidate.
@@ -467,7 +471,7 @@ describe("OpportunityScanner.scan fit matrix (issue #22)", () => {
     expect(row.symbol).toBe("AAA");
     expect(row.verdict).toBe("no_pass");
     expect(row.skipReason).toBeUndefined();
-    expect(row.targetPrice).toBe(105); // evaluated, so the target was resolved
+    expect(row.targetPrice).toBe(105.16); // evaluated, so the target was resolved (EM-derived, issue #25)
     expect(row.cells.length).toBeGreaterThanOrEqual(2);
     for (const cell of row.cells) {
       expect(cell.passedCount).toBe(0);
@@ -734,19 +738,21 @@ describe("OpportunityScanner.scan modes (issue #23)", () => {
 
 describe("OpportunityScanner per-name overrides (issue #23)", () => {
   it("O1. resolveScanTarget: percent, absolute-beats-stated, and thesis-override pins", () => {
+    // Issue #25: no EM estimate is passed in these pins, so resolution is
+    // the legacy behavior and targetEmUnits is null throughout.
     // Percent override resolves against the symbol's own spot.
     expect(resolveScanTarget(baseTemplate(), "EXP", 250, { target: { kind: "percent", pct: 10 } }))
-      .toEqual({ targetPrice: 275, source: "percent" });
+      .toEqual({ targetPrice: 275, source: "percent", targetEmUnits: null });
     expect(resolveScanTarget(baseTemplate(), "EXP", 200, { target: { kind: "percent", pct: -5 } }))
-      .toEqual({ targetPrice: 190, source: "percent" });
+      .toEqual({ targetPrice: 190, source: "percent", targetEmUnits: null });
     // An absolute override beats the shared stated target for the symbol.
     const withStated = baseTemplate({ statedTarget: { price: 260, symbol: "EXP" } });
     expect(resolveScanTarget(withStated, "EXP", 250, { target: { kind: "absolute", price: 300 } }))
-      .toEqual({ targetPrice: 300, source: "stated" });
+      .toEqual({ targetPrice: 300, source: "stated", targetEmUnits: null });
     // A thesis-only override steers the derived factor (bearish 0.95, not
     // the template's bullish 1.05).
     expect(resolveScanTarget(baseTemplate(), "BR", 200, { thesis: "bearish" }))
-      .toEqual({ targetPrice: 190, source: "thesis" });
+      .toEqual({ targetPrice: 190, source: "thesis", targetEmUnits: null });
   });
 
   it("O2. a percent override prices off the symbol's own spot and is disclosed", async () => {
@@ -757,14 +763,20 @@ describe("OpportunityScanner per-name overrides (issue #23)", () => {
 
     const exp = result.opportunities.find((o) => o.symbol === "EXP");
     expect(exp).toBeDefined();
-    expect(exp!.targetPrice).toBe(275); // 250 × 1.10
+    expect(exp!.targetPrice).toBe(275); // 250 × 1.10 — explicit targets never move (issue #25)
     expect(exp!.targetSource).toBe("percent");
+    // Its EM distance is still reported: (275 − 250) / (250 × 0.0860) ≈ 1.163 EM.
+    expect(exp!.targetEmUnits).toBeCloseTo(1.1627, 3);
     const expMatrix = result.matrix.find((m) => m.symbol === "EXP");
     expect(expMatrix).toMatchObject({ targetPrice: 275, targetSource: "percent" });
-    // The untouched name keeps its thesis-derived target.
+    // The untouched name keeps its thesis-derived target — EM-derived
+    // since issue #25: 40 × (1 + 0.6 × 0.3×sqrt(30/365)) ≈ 42.06.
     const chp = result.opportunities.find((o) => o.symbol === "CHP");
-    expect(chp).toMatchObject({ targetPrice: 42, targetSource: "thesis" });
-    expect(result.assumptions).toEqual(["Per-name overrides applied: EXP (target +10.0%)."]);
+    expect(chp).toMatchObject({ targetPrice: 42.06, targetSource: "thesis" });
+    expect(result.assumptions).toEqual([
+      "Per-name overrides applied: EXP (target +10.0%).",
+      "Thesis-derived targets are expressed in expected-move units (bullish +0.6 EM, bearish -0.6 EM, large_move +1.2 EM, range_bound 0 EM; 1 EM = the 1-sigma move to expiry implied by each name's own chain).",
+    ]);
   });
 
   it("O3. an absolute override beats the shared stated target in a scan", async () => {
@@ -784,18 +796,26 @@ describe("OpportunityScanner per-name overrides (issue #23)", () => {
     expect(result.assumptions[1]).toBe("Per-name overrides applied: EXP (target $300.00).");
   });
 
-  it("O4. a thesis override changes the derived factor for that symbol only", async () => {
+  it("O4. a thesis override changes the derived target for that symbol only", async () => {
     const scanner = new OpportunityScanner(fakeScreener({ BR: trade(200), BULL: trade(200) }));
     const result = await scanner.scan(["BR", "BULL"], baseTemplate({
       allowedStrategies: ["long_call", "long_put", "put_debit_spread", "put_credit_spread"],
       perSymbol: { BR: { thesis: "bearish" } },
     }));
 
+    // Issue #25: both targets are EM-derived at the fixture's IV 0.3 /
+    // 30d (EM ≈ 8.60% of spot) — bearish −0.6 EM ≈ 189.68, bullish
+    // +0.6 EM ≈ 210.32 (pre-#25 legacy factors gave 190 / 210).
     const br = result.matrix.find((m) => m.symbol === "BR");
-    expect(br).toMatchObject({ targetPrice: 190, targetSource: "thesis" }); // 200 × 0.95 bearish
+    expect(br).toMatchObject({ targetPrice: 189.68, targetSource: "thesis" });
+    expect(br!.targetEmUnits).toBeCloseTo(-0.6, 2);
     const bull = result.matrix.find((m) => m.symbol === "BULL");
-    expect(bull).toMatchObject({ targetPrice: 210, targetSource: "thesis" }); // 200 × 1.05 bullish
-    expect(result.assumptions).toEqual(["Per-name overrides applied: BR (thesis bearish)."]);
+    expect(bull).toMatchObject({ targetPrice: 210.32, targetSource: "thesis" });
+    expect(bull!.targetEmUnits).toBeCloseTo(0.6, 2);
+    expect(result.assumptions).toEqual([
+      "Per-name overrides applied: BR (thesis bearish).",
+      "Thesis-derived targets are expressed in expected-move units (bullish +0.6 EM, bearish -0.6 EM, large_move +1.2 EM, range_bound 0 EM; 1 EM = the 1-sigma move to expiry implied by each name's own chain).",
+    ]);
   });
 
   it("O5. the disclosure lists applied overrides by symbol ascending and ignores out-of-batch keys", async () => {
@@ -811,13 +831,15 @@ describe("OpportunityScanner per-name overrides (issue #23)", () => {
 
     expect(result.assumptions).toEqual([
       "Per-name overrides applied: AMD (thesis bearish, target +8.0%); NVDA (target $260.00).",
+      "Thesis-derived targets are expressed in expected-move units (bullish +0.6 EM, bearish -0.6 EM, large_move +1.2 EM, range_bound 0 EM; 1 EM = the 1-sigma move to expiry implied by each name's own chain).",
     ]);
     // AMD's percent target prices off AMD's spot even with a thesis
-    // override attached (the explicit target wins); MSFT is untouched.
+    // override attached (the explicit target wins); MSFT is untouched —
+    // its thesis target is EM-derived since issue #25 (≈105.16).
     const amd = result.matrix.find((m) => m.symbol === "AMD");
     expect(amd).toMatchObject({ targetPrice: 43.2, targetSource: "percent" }); // 40 × 1.08
     const msft = result.matrix.find((m) => m.symbol === "MSFT");
-    expect(msft).toMatchObject({ targetPrice: 105, targetSource: "thesis" });
+    expect(msft).toMatchObject({ targetPrice: 105.16, targetSource: "thesis" });
   });
 });
 
