@@ -33,6 +33,8 @@ import {
 } from "./index";
 import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanSymbolOverride } from "./opportunityScanner";
 import type { ScanRunStore } from "./scanRunStore";
+import { applyProfileFields, toProfileRef, type StrategyProfile } from "./strategyProfile";
+import type { StrategyProfileStore } from "./strategyProfileStore";
 import { buildTypeRollup } from "./strategies/ledger";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
@@ -83,6 +85,13 @@ export interface UnifiedOptionsRequest {
   /** Opportunities only (issue #23): per-name thesis/target overrides
    *  keyed by (uppercase) symbol. */
   perSymbol?: Record<string, ScanSymbolOverride>;
+  /** Saved strategy profile to run under (issue #28): `profileId` is
+   *  preferred; `profileName` resolves case-insensitively against the
+   *  caller's profiles. Resolved before anything runs — an unknown
+   *  profile is an error result, never a silent profile-less run.
+   *  Applies to the opportunities and single-name actions. */
+  profileId?: string;
+  profileName?: string;
   filter?: OptionScreenerFilter;
   channel?: OmnichannelContext;
   question?: string;
@@ -123,6 +132,21 @@ interface CacheEntry {
 }
 const MEMORY_CACHE = new Map<string, CacheEntry>();
 
+/** Request-body fields a caller expressed (issue #28): a field counts
+ *  as expressed when it is present (not undefined) in the body. These
+ *  are the StrategyRequest-level fields a saved profile can supply;
+ *  posture fields (riskProfile / mode) are added for the opportunities
+ *  action, whose scanner options they steer. */
+const PROFILE_BODY_FIELDS = ["thesis", "expectedIvDirection", "maxPlannedLoss", "minRewardRisk", "allowedStrategies", "optimizationBias"] as const;
+function bodyPresentFields(req: UnifiedOptionsRequest, includePosture: boolean): string[] {
+  const present: string[] = PROFILE_BODY_FIELDS.filter((field) => req[field] !== undefined);
+  if (includePosture) {
+    if (req.riskProfile !== undefined) present.push("riskProfile");
+    if (req.mode !== undefined) present.push("mode");
+  }
+  return present;
+}
+
 export class UnifiedOptionsService {
   private config: EtapiConfig;
   private orm?: DatabaseORM;
@@ -130,20 +154,26 @@ export class UnifiedOptionsService {
    *  opportunities scans are stored and the response data carries
    *  scanRunId/persisted; when absent, behavior is exactly as before. */
   private scanRunStore?: ScanRunStore;
+  /** Issue #28: optional saved-profile store. When supplied, requests
+   *  may select a profile by id/name; when absent, a request that names
+   *  a profile fails with an availability error. */
+  private profileStore?: StrategyProfileStore;
 
   constructor(
     private env: Env,
     private userLogin: string = "default_trader",
     private overrideEnv?: string,
     orm?: DatabaseORM,
-    scanRunStore?: ScanRunStore
+    scanRunStore?: ScanRunStore,
+    profileStore?: StrategyProfileStore
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
     this.scanRunStore = scanRunStore;
+    this.profileStore = profileStore;
   }
 
-  private getCacheKey(req: UnifiedOptionsRequest): string {
+  private getCacheKey(req: UnifiedOptionsRequest, profile?: StrategyProfile): string {
     const sym = (req.symbol || (req.symbols ? req.symbols.join(",") : "")).toUpperCase();
     // Scan mode and per-symbol overrides change the opportunities result
     // (issue #23), so they belong in the key: without them a caller could be
@@ -164,24 +194,59 @@ export class UnifiedOptionsService {
           })
           .join(";")
       : "";
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}`;
+    // Issue #28: profile application happens INSIDE the scan / request
+    // assembly, so two calls differing only by profile would otherwise
+    // collide on this key and be served each other's cached results.
+    // The RESOLVED profile segments the key by id + version — a profile
+    // edit (version bump) busts the cache, and a profile call never
+    // shares an entry with a profile-less one.
+    const profileSegment = profile ? `profile=${profile.id}@v${profile.version}` : "";
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
     const channel = req.channel || "ui";
     const cacheTtlMs = this.config.cache.chainTtlSeconds * 1000;
-    const cacheKey = this.getCacheKey(req);
     const now = Date.now();
+
+    // Issue #28: resolve the saved profile FIRST, before the cache is
+    // consulted — the resolved profile (id + version) segments the
+    // cache key, and a failed resolution must never be served a cached
+    // profile-less result (nor cached itself). An unknown id/name, or
+    // no store wired, is an error result in the service's existing
+    // style; the action does NOT silently run without the profile.
+    let strategyProfile: StrategyProfile | undefined;
+    let profileError: string | undefined;
+    if (req.profileId || req.profileName) {
+      if (!this.profileStore) {
+        profileError = "Saved profiles aren't available in this context.";
+      } else {
+        const found = req.profileId
+          ? await this.profileStore.get(this.userLogin, req.profileId)
+          : await this.profileStore.getByName(this.userLogin, req.profileName!);
+        if (found) {
+          strategyProfile = found;
+        } else {
+          profileError = req.profileId
+            ? `No saved profile with id "${req.profileId}".`
+            : `No saved profile named "${req.profileName}".`;
+        }
+      }
+    }
+    const cacheKey = this.getCacheKey(req, strategyProfile);
 
     const cached = MEMORY_CACHE.get(cacheKey);
     let executionData: any;
     let summary = "";
     let isFromCache = false;
 
-    if (cached && now - cached.timestamp < cacheTtlMs) {
+    if (!profileError && cached && now - cached.timestamp < cacheTtlMs) {
       executionData = cached.data;
       summary = cached.summary;
       isFromCache = true;
+    } else if (profileError) {
+      executionData = { error: profileError };
+      summary = profileError;
     } else {
       const etrade = new ETradeService(
         this.orm || new DatabaseORM({ exec: () => [] }),
@@ -220,9 +285,14 @@ export class UnifiedOptionsService {
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
           };
+          // Issue #28: a selected profile layers under the body's own
+          // fields — fields present in the body stay explicit.
+          const effectiveRequest = strategyProfile
+            ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
+            : strategyRequest;
 
           const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(strategyRequest, {
+          const pipelineResult = await pipeline.run(effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
 
@@ -238,12 +308,13 @@ export class UnifiedOptionsService {
               evaluations: pipelineResult.strategies.evaluations,
               snapshot: pipelineResult.snapshot,
               typeRollup,
+              ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
             };
             summary = bestCandidate
-              ? `Best trade for ${symbol} (${strategyRequest.thesis}): ${bestCandidate.label} (Score: ${bestScore})`
-              : `No suitable option trade found for ${symbol} matching ${strategyRequest.thesis} criteria.`;
+              ? `Best trade for ${symbol} (${effectiveRequest.thesis}): ${bestCandidate.label} (Score: ${bestScore})`
+              : `No suitable option trade found for ${symbol} matching ${effectiveRequest.thesis} criteria.`;
           } else {
-            executionData = { ...pipelineResult, typeRollup };
+            executionData = { ...pipelineResult, typeRollup, ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}) };
             summary = `Generated ${pipelineResult.ranked.length} evaluated strategy candidates for ${symbol}.`;
           }
           break;
@@ -265,6 +336,15 @@ export class UnifiedOptionsService {
           }, {
             riskProfile: req.riskProfile || "balanced",
             ...(req.mode ? { mode: req.mode } : {}),
+            // Issue #28: the profile layers under the body's own
+            // fields — every field actually present in the body
+            // (thesis, caps, types, bias, and the posture fields
+            // riskProfile / mode) is declared explicit, so the profile
+            // supplies only what the caller left unsaid. The scan
+            // result itself carries profileRef + the profile snapshot.
+            ...(strategyProfile
+              ? { profile: strategyProfile, explicitFields: bodyPresentFields(req, true) }
+              : {}),
           });
           executionData = scanResult;
           // Issue #27: persist the run when a store was injected (the
@@ -338,8 +418,13 @@ export class UnifiedOptionsService {
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
           };
+          // Issue #28: a selected profile layers under the body's own
+          // fields — fields present in the body stay explicit.
+          const effectiveRequest = strategyProfile
+            ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
+            : strategyRequest;
           const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(strategyRequest, {
+          const pipelineResult = await pipeline.run(effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
@@ -347,7 +432,7 @@ export class UnifiedOptionsService {
           try {
             llmJudgment = await rankCandidatesWithLlm(
               this.env,
-              strategyRequest,
+              effectiveRequest,
               req.riskProfile || "balanced",
               pipelineResult.snapshot.contracts,
               candidates
@@ -357,6 +442,7 @@ export class UnifiedOptionsService {
           }
           executionData = {
             mode: "same_candidate_ranking",
+            ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
             quant: {
               ranked: pipelineResult.ranked.slice(0, 10),
               scoreWeights: pipelineResult.strategies.scoreWeights,
@@ -394,8 +480,13 @@ export class UnifiedOptionsService {
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
           };
+          // Issue #28: a selected profile layers under the body's own
+          // fields — fields present in the body stay explicit.
+          const effectiveRequest = strategyProfile
+            ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
+            : strategyRequest;
           const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(strategyRequest, {
+          const pipelineResult = await pipeline.run(effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
@@ -403,7 +494,7 @@ export class UnifiedOptionsService {
           try {
             llmJudgment = await rankCandidatesWithLlm(
               this.env,
-              strategyRequest,
+              effectiveRequest,
               req.riskProfile || "balanced",
               pipelineResult.snapshot.contracts,
               candidates
@@ -413,6 +504,7 @@ export class UnifiedOptionsService {
           }
           executionData = {
             mode: "llm_evaluation_of_quant_candidates",
+            ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
             deprecatedAction: req.action,
             notice: "llm_ideas no longer analyzes raw chains independently (issue #29); it evaluates the quant pipeline's candidates, following the compare pattern.",
             symbol,

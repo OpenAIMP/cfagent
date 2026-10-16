@@ -45,6 +45,8 @@ import { buildCalibratedOptionChains } from "../trading/options/calibratedOption
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { SqlScanRunStore, diffScanRuns } from "../trading/options/scanRunStore";
+import { validateStrategyProfile, type StrategyProfileSpec } from "../trading/options/strategyProfile";
+import { SqlStrategyProfileStore } from "../trading/options/strategyProfileStore";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading/options/strategies/catalog";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -846,7 +848,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           this.env,
           typeof payload.userLogin === "string" ? payload.userLogin : this.sessionKey(),
           getUserDid(this.sessionKey()),
-          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) },
+          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) },
         );
       } else {
         throw new Error(`Unsupported async capability: ${job.capability}`);
@@ -1419,7 +1421,7 @@ Agentic Best Practices & Workflow Rules:
             this.env,
             userLogin,
             undefined,
-            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) }
+            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) }
           );
           if (result && result.status !== "error") {
             if (Array.isArray(result.rows) && result.rows.length > 0) {
@@ -1721,7 +1723,7 @@ Agentic Best Practices & Workflow Rules:
           this.env,
           userLogin,
           userDid,
-          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) }
+          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) }
         );
         this.audit("nlq.executed", "nlq", {
           query,
@@ -3854,6 +3856,103 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Saved strategy profiles (issue #28): named, versioned "my
+    // strategy" objects, scoped per user. Scans and single-name actions
+    // resolve them by name (NLQ) or id/name (unified body) and stamp
+    // the applied profile into scan provenance. Validation is the
+    // route's job (validateStrategyProfile); the store enforces only
+    // per-user name uniqueness. The profiles UI panel is issue #84's
+    // surface — these routes are the API it will consume.
+    if (path.endsWith("/etrade/options/profiles") && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlStrategyProfileStore(sql);
+        const profiles = await store.list(userLogin);
+        return Response.json({ count: profiles.length, profiles });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to list strategy profiles" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/etrade/options/profiles") && request.method === "POST") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        const { name, ...spec } = body;
+        const profileName = typeof name === "string" ? name : "";
+        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
+        if (validationError) {
+          return Response.json({ error: validationError }, { status: 400 });
+        }
+        const store = new SqlStrategyProfileStore(sql);
+        try {
+          const profile = await store.create(userLogin, profileName, spec as StrategyProfileSpec);
+          return Response.json(profile, { status: 201 });
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 400 });
+        }
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 500 });
+      }
+    }
+
+    const profileIdMatch = path.match(/\/etrade\/options\/profiles\/([^/]+)$/);
+    if (profileIdMatch && request.method === "GET") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlStrategyProfileStore(sql);
+        const profile = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
+        if (!profile) {
+          return Response.json({ error: "profile not found" }, { status: 404 });
+        }
+        return Response.json(profile);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch strategy profile" }, { status: 500 });
+      }
+    }
+
+    if (profileIdMatch && request.method === "PUT") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlStrategyProfileStore(sql);
+        const existing = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
+        if (!existing) {
+          return Response.json({ error: "profile not found" }, { status: 404 });
+        }
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        const { name, ...spec } = body;
+        // The body name wins when present; otherwise the profile keeps
+        // its current name (validation runs against the effective one).
+        const profileName = typeof name === "string" ? name : existing.name;
+        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
+        if (validationError) {
+          return Response.json({ error: validationError }, { status: 400 });
+        }
+        try {
+          const updated = await store.update(userLogin, existing.id, spec as StrategyProfileSpec, typeof name === "string" ? name : undefined);
+          return Response.json(updated);
+        } catch (err) {
+          return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 400 });
+        }
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 500 });
+      }
+    }
+
+    if (profileIdMatch && request.method === "DELETE") {
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlStrategyProfileStore(sql);
+        const deleted = await store.delete(userLogin, decodeURIComponent(profileIdMatch[1]));
+        if (!deleted) {
+          return Response.json({ error: "profile not found" }, { status: 404 });
+        }
+        return Response.json({ deleted: true });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete strategy profile" }, { status: 500 });
+      }
+    }
+
     // ==========================================
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
@@ -4424,7 +4523,7 @@ Agentic Best Practices & Workflow Rules:
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm(), new SqlScanRunStore(this.ctx.storage.sql));
+        const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm(), new SqlScanRunStore(this.ctx.storage.sql), new SqlStrategyProfileStore(this.ctx.storage.sql));
         const result = await service.execute(reqData);
 
         const channel = reqData.channel || "ui";
