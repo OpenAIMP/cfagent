@@ -1,6 +1,6 @@
-import React, { useState, useId } from "react";
+import React, { useEffect, useRef, useState, useId } from "react";
 
-const CHART_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const CHART_FONT = "var(--font-sans)";
 
 export interface ChartPoint {
   x: number;
@@ -81,12 +81,34 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
 }) => {
   const uniqueId = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [internalHoverX, setInternalHoverX] = useState<number | null>(null);
+  const [availableWidth, setAvailableWidth] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = Math.floor(entry.contentRect.width);
+      if (nextWidth > 0) setAvailableWidth((current) => current === nextWidth ? current : nextWidth);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const activeHoverX = externalHoverX !== undefined ? externalHoverX : internalHoverX;
 
-  // Set default dimensions based on mode
-  const svgW = width ?? (mode === "mini_payoff" ? 300 : 800);
-  const svgH = height ?? (mode === "mini_payoff" ? 90 : 340);
+  // Recompute the SVG coordinate space from its container. This keeps axis
+  // labels readable at narrow widths while keeping full charts inside the
+  // available viewport.
+  const isMini = mode === "mini_payoff";
+  const defaultWidth = width ?? (isMini ? 300 : 800);
+  const defaultHeight = height ?? (isMini ? 90 : 340);
+  const svgW = isMini ? defaultWidth : availableWidth ?? defaultWidth;
+  const svgH = isMini
+    ? defaultHeight
+    : availableWidth
+      ? Math.max(220, Math.min(defaultHeight, (svgW * defaultHeight) / defaultWidth))
+      : defaultHeight;
 
   // If no points, render placeholder
   if (!points || points.length < 2) {
@@ -101,7 +123,6 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
   }
 
   // Padding definitions
-  const isMini = mode === "mini_payoff";
   const padL = isMini ? 8 : 62;
   const padR = isMini ? 8 : 28;
   const padT = isMini ? 8 : 22;
@@ -252,18 +273,18 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
   const clipBelowId = `chart_below_zero_${uniqueId}`;
 
   return (
-    <div className={`universal-chart-container ${isMini ? "mini-chart" : "full-chart"} ${className}`} style={{ position: "relative", width: "100%" }}>
+    <div ref={containerRef} className={`universal-chart-container ${isMini ? "mini-chart" : "full-chart"} ${className}`} style={{ position: "relative", width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }}>
       <svg
         className="universal-chart-svg"
         viewBox={`0 0 ${svgW} ${svgH}`}
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label={ariaLabel}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        // Give the SVG a definite rendered height. A percentage height here has no
-        // reference because the chart wrapper is intrinsically sized, which can
-        // collapse the full-size payoff chart in flex/grid layouts.
-        style={{ width: "100%", height: `${svgH}px`, display: "block", overflow: "visible" }}
+        // Cap full-size charts to the viewport; the responsive viewBox keeps
+        // labels and plot geometry proportional inside that box.
+        style={{ width: "100%", height: isMini ? `${svgH}px` : `min(${svgH}px, var(--chart-max-height, 52vh))`, display: "block", overflow: "hidden" }}
       >
         <defs>
           <linearGradient id={gainGradId} x1="0" y1="0" x2="0" y2="1">
@@ -298,7 +319,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x={padL - 10}
               y={toY(val) + 4}
               fill="var(--color-text-muted)"
-              fontSize="11"
+              fontSize="var(--font-size-caption, 12px)"
               fontFamily={CHART_FONT}
               textAnchor="end"
             >
@@ -314,7 +335,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
             x={toX(val)}
             y={svgH - 12}
             fill="var(--color-text-muted)"
-            fontSize="11"
+            fontSize="var(--font-size-caption, 12px)"
             fontFamily={CHART_FONT}
             textAnchor="middle"
           >
@@ -410,7 +431,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 x={beX}
                 y={padT - 6}
                 fill="var(--color-text-primary)"
-                fontSize="9.5"
+                fontSize="var(--font-size-micro, 10px)"
                 fontFamily={CHART_FONT}
                 fontWeight="bold"
                 textAnchor="middle"
@@ -438,7 +459,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 x={toX(spotPrice)}
                 y={padT + 12}
                 fill="var(--color-accent)"
-                fontSize="11"
+                fontSize="var(--font-size-caption, 12px)"
                 fontWeight="bold"
                 fontFamily={CHART_FONT}
                 textAnchor="middle"
@@ -465,7 +486,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x={toX(targetPrice)}
               y={padT + 26}
               fill="var(--color-warning)"
-              fontSize="11"
+              fontSize="var(--font-size-caption, 12px)"
               fontWeight="bold"
               fontFamily={CHART_FONT}
               textAnchor="middle"
@@ -528,10 +549,10 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 stroke="var(--color-border-focus)"
                 strokeWidth="1"
               />
-              <text x="8" y="16" fill="var(--color-text-muted)" fontSize="10" fontFamily={CHART_FONT}>
+              <text x="8" y="16" fill="var(--color-text-muted)" fontSize="var(--font-size-caption, 12px)" fontFamily={CHART_FONT}>
                 Price: <tspan fill="var(--color-text-primary)" fontWeight="bold">{formatX(currentHoverX)}</tspan>
               </text>
-              <text x="8" y="34" fill="var(--color-text-muted)" fontSize="10" fontFamily={CHART_FONT}>
+              <text x="8" y="34" fill="var(--color-text-muted)" fontSize="var(--font-size-caption, 12px)" fontFamily={CHART_FONT}>
                 P/L:{" "}
                 <tspan
                   fill={(hoveredSecondaryY ?? hoveredPrimaryY ?? 0) >= 0 ? "var(--color-success)" : "var(--color-danger)"}
@@ -541,7 +562,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
                 </tspan>
               </text>
               {hoverProbabilities && (
-                <text x="8" y="50" fill="var(--color-accent)" fontSize="9.5" fontFamily={CHART_FONT} fontWeight="bold">
+                <text x="8" y="50" fill="var(--color-accent)" fontSize="var(--font-size-micro, 10px)" fontFamily={CHART_FONT} fontWeight="var(--font-weight-bold, 700)">
                   {`← ${hoverProbabilities.probBelowPct}% | ${hoverProbabilities.probAbovePct}% →`}
                 </text>
               )}

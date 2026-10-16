@@ -108,6 +108,25 @@ describe("server discovery mapping (issue #29)", () => {
     expect(panelCode).toContain('discoveryDataSource === "live"');
     expect(panelCode).toContain('dataTab === "live"');
 
+    // Payoff sentiment controls must show the same server-ranked result set,
+    // and a live selected strategy must remain tradeable after leg edits.
+    expect(panelCode).toContain('aria-label="Market sentiment for payoff strategies"');
+    expect(panelCode).toContain("Backend-ranked strategies");
+    expect(panelCode).toContain("Loading backend-ranked strategies for");
+    expect(panelCode).not.toContain("discoveredStrategies.some((candidate) => candidate.id === selectedStrategy.id)");
+    expect(panelCode).not.toContain("JSON.stringify(builderLegs) === JSON.stringify(selectedStrategy.legs)");
+
+    // Full-size charts derive dimensions from their container and use the UX
+    // token height cap; the heatmap stays inside a token-sized scroll viewport.
+    const chartCode = fs.readFileSync(path.resolve("src/client/components/UniversalChart.tsx"), "utf8");
+    const strategyCss = fs.readFileSync(path.resolve("src/client/options/strategyDiscovery.css"), "utf8");
+    const tokenCss = fs.readFileSync(path.resolve("src/client/tokens.css"), "utf8");
+    expect(chartCode).toContain("new ResizeObserver");
+    expect(chartCode).toContain("var(--chart-max-height, 52vh)");
+    expect(strategyCss).toContain("max-height: var(--chart-scroll-max-height)");
+    expect(tokenCss).toContain("--chart-max-height: min(52vh, 32rem)");
+    expect(tokenCss).toContain("--chart-scroll-max-height: min(50vh, 26rem)");
+
     // The order-preview endpoint must pass complete option strategies through
     // to E*TRADE instead of silently degrading them to equity orders.
     expect(orchestratorCode).toContain("optionLegs: Array.isArray(body.optionLegs) ? body.optionLegs : undefined");
