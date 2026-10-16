@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { AGENT_DIDS, createDidAttestationSync } from "../../agents/did";
+import { AGENT_DIDS } from "../../agents/did";
+import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
-export interface AutopilotPolicyLimits {
-  maxPositionPct: number;
-  cashReservePct: number;
-  ordersPerDay: number;
-  drawdownAlertPct: number;
-  universe: string;
-  riskProfile: "conservative" | "moderate" | "aggressive";
-}
+/**
+ * Limits are defined by the policy engine — the single source of truth shared
+ * with the server, so the limit the UI shows is the limit that is enforced.
+ */
+export type { AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 
 export interface AutonomousActionItem {
   id: string;
@@ -129,11 +127,9 @@ export function mapAuditLogToAutonomousAction(e: AuditLogRawEvent): AutonomousAc
     (e.agent === "judge" ? AGENT_DIDS.JUDGE : e.agent === "trading" ? AGENT_DIDS.TRADING : AGENT_DIDS.ORCHESTRATOR)
   );
 
-  const signature = String(
-    payload.proofSignature ||
-    payload.signature ||
-    `sig_ed25519_${e.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}`
-  );
+  // No fabricated fallback (autopilot Phase 1): an unsigned ledger row must
+  // read as unsigned, or the ledger cannot be trusted as evidence.
+  const signature = String(payload.proofSignature || payload.signature || "");
 
   // Formatted timestamp
   let timestamp = e.created_at;
@@ -209,14 +205,8 @@ export interface AutopilotControlCenterProps {
   className?: string;
 }
 
-const DEFAULT_LIMITS: AutopilotPolicyLimits = {
-  maxPositionPct: 10.0,
-  cashReservePct: 5.0,
-  ordersPerDay: 10,
-  drawdownAlertPct: 20.0,
-  universe: "Default large caps/ETFs",
-  riskProfile: "moderate",
-};
+/** Engine defaults (autopilot Phase 1) — never re-declared here. */
+const DEFAULT_LIMITS: AutopilotPolicyLimits = normalizeAutopilotLimits(null);
 
 export const INITIAL_ACTIONS: AutonomousActionItem[] = [
   {
@@ -325,6 +315,7 @@ export function AutopilotControlCenter({
   const [isSimulating, setIsSimulating] = useState(false);
   const [killSwitchModalOpen, setKillSwitchModalOpen] = useState(false);
   const [isKillSwitched, setIsKillSwitched] = useState(false);
+  const [isServerBacked, setIsServerBacked] = useState(false);
   const [isLoadingLive, setIsLoadingLive] = useState(false);
   const [isLiveFeed, setIsLiveFeed] = useState(false);
 
@@ -402,6 +393,33 @@ export function AutopilotControlCenter({
     }
   }, []);
 
+  // Server-owned autopilot state (autopilot Phase 1): the Durable Object is the
+  // source of truth for run state, limits, and the kill switch — not this tab.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/autopilot");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as any;
+        if (cancelled || !data || typeof data !== "object") return;
+        setIsServerBacked(true);
+        if (typeof data.running === "boolean") setIsRunning(data.running);
+        if (typeof data.killSwitch === "boolean") setIsKillSwitched(data.killSwitch);
+        if (data.limits) {
+          const normalized = normalizeAutopilotLimits(data.limits);
+          setPolicyLimits(normalized);
+          setEditLimitsDraft(normalized);
+        }
+      } catch {
+        if (!cancelled) setIsServerBacked(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Initial fetch and global refresh listener
   useEffect(() => {
     fetchLiveAutonomousActions();
@@ -415,18 +433,47 @@ export function AutopilotControlCenter({
     };
   }, [fetchLiveAutonomousActions]);
 
-  const handleToggleAutopilot = () => {
+  const handleToggleAutopilot = async () => {
     if (isKillSwitched) {
       alert("Platform kill switch is active. Clear the kill switch before resuming Autopilot.");
       return;
     }
-    setIsRunning((prev) => !prev);
+    const next = !isRunning;
+    setIsRunning(next);
+    try {
+      const res = await fetch("/api/autopilot/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ running: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setIsServerBacked(true);
+    } catch {
+      setIsServerBacked(false);
+      console.warn("[Autopilot] Run state could not be persisted server-side; showing this tab only.");
+    }
   };
 
-  const handleSaveLimits = (e: React.FormEvent) => {
+  const handleSaveLimits = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPolicyLimits(editLimitsDraft);
+    const normalized = normalizeAutopilotLimits(editLimitsDraft);
+    setPolicyLimits(normalized);
+    setEditLimitsDraft(normalized);
     setIsEditModalOpen(false);
+    try {
+      const res = await fetch("/api/autopilot/limits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limits: normalized }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json().catch(() => null)) as any;
+      if (data?.limits) setPolicyLimits(normalizeAutopilotLimits(data.limits));
+      setIsServerBacked(true);
+    } catch {
+      setIsServerBacked(false);
+      console.warn("[Autopilot] Limits could not be persisted server-side; showing this tab only.");
+    }
   };
 
   const handleResetLimits = () => {
@@ -441,83 +488,62 @@ export function AutopilotControlCenter({
     }
   };
 
-  // Run a real-time policy check simulation and record it to backend ledger
-  const handleSimulateAutonomousAction = () => {
+  // Server-side policy check (autopilot Phase 1). RiskPolicyEngine decides the
+  // verdict inside the Durable Object, signs it there, and writes it to the
+  // ledger; the browser no longer decides whether policy passed.
+  const handleSimulateAutonomousAction = async () => {
     setIsSimulating(true);
-
-    setTimeout(() => {
-      const symbols = ["TSLA", "MSFT", "AMZN", "BTC/USD", "SPY"];
-      const chosenSym = symbols[Math.floor(Math.random() * symbols.length)];
-      const now = new Date().toLocaleTimeString("en-US", { hour12: true });
-      const orderAction = Math.random() > 0.4 ? "Buy" : "Sell";
-      const shares = Math.floor(Math.random() * 20) + 5;
-
-      const passed = !isKillSwitched && Math.random() > 0.15;
-      let status: AutonomousActionItem["status"] = "verified";
-
-      if (isKillSwitched) {
-        status = "blocked";
-      } else if (!isRunning) {
-        status = "routed_to_approval";
-      } else if (passed) {
-        status = "executed";
-      } else {
-        status = "blocked";
-      }
-
-      const attestation = createDidAttestationSync({
-        draftId: `action_${chosenSym}_${Date.now()}`,
-        action: `${orderAction} ${shares} shares (${chosenSym})`,
-        amount: shares * 100,
-        currency: "USD",
-        customer: user?.login || "autopilot_trader",
-        gateway: "etrade_autopilot",
-        proposerDid: AGENT_DIDS.TRADING,
-        authorizerDid: isRunning ? AGENT_DIDS.ORCHESTRATOR : "did:user:pending-human-authorization",
-      });
-
-      const newAction: AutonomousActionItem = {
-        id: `act-${Date.now()}`,
-        timestamp: now,
-        actionType: "order",
-        symbol: chosenSym,
-        summary: `Autonomous ${orderAction} ${shares} shares (${chosenSym})`,
-        policyCheckRule: passed
-          ? `Max position size ≤ ${policyLimits.maxPositionPct.toFixed(2)}%`
-          : `Position size exceeded ${policyLimits.maxPositionPct.toFixed(2)}% threshold`,
-        policyCheckPassed: passed,
-        status,
-        didAttestation: {
-          did: attestation.proposerDid,
-          signature: attestation.signature,
-        },
-        source: "simulated",
+    try {
+      const intents = {
+        symbol: (policyLimits.universeSymbols?.[0] || "SPY").toUpperCase(),
+        action: "BUY",
+        quantity: 10,
+        orderType: "MARKET",
+        dryRun: true,
+        requestedBy: user?.login || "autopilot_trader",
       };
-
-      setActions((prev) => [newAction, ...prev.slice(0, 49)]);
-      setIsSimulating(false);
-
-      // Asynchronously persist to backend SQLite WAL audit ledger
-      fetch("/api/audit", {
+      const res = await fetch("/api/autopilot/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "autopilot.policy_check",
-          agent: "trading",
-          payload: {
-            symbol: chosenSym,
-            summary: newAction.summary,
-            policyCheckRule: newAction.policyCheckRule,
-            policyCheckPassed: passed,
-            status,
-            proposerDid: attestation.proposerDid,
-            authorizerDid: attestation.authorizerDid,
-            proofSignature: attestation.signature,
-            amount: shares * 100,
-          },
-        }),
-      }).catch(() => {});
-    }, 600);
+        body: JSON.stringify(intents),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { verdict?: any; attestation?: any };
+      const verdict = data?.verdict;
+      if (!verdict) throw new Error("Malformed policy response");
+
+      setIsServerBacked(true);
+      const positionPct = verdict.projections?.positionPctOfNav;
+      const newAction: AutonomousActionItem = {
+        id: String(verdict.verdictId || `act-${Date.now()}`),
+        timestamp: new Date(verdict.evaluatedAt || Date.now()).toLocaleTimeString("en-US", { hour12: true }),
+        actionType: "policy_check",
+        symbol: String(verdict.intents?.symbol || intents.symbol),
+        summary: `Policy check (${verdict.dryRun ? "dry run" : "live"}) — ${verdict.intents?.action || intents.action} ${
+          verdict.intents?.quantity ?? intents.quantity
+        } ${verdict.intents?.symbol || intents.symbol}`,
+        policyCheckRule: verdict.bindingRule
+          ? `Blocked: ${verdict.bindingRule}`
+          : `Max position (${typeof positionPct === "number" ? positionPct.toFixed(2) : "—"}%) ≤ ${Number(
+              verdict.limits?.maxPositionPct ?? policyLimits.maxPositionPct
+            ).toFixed(2)}%`,
+        policyCheckPassed: Boolean(verdict.passed),
+        status: !verdict.passed ? "blocked" : verdict.requiresApproval ? "routed_to_approval" : "verified",
+        didAttestation: {
+          did: String(data?.attestation?.proposerDid || AGENT_DIDS.TRADING),
+          signature: String(data?.attestation?.signature || ""),
+        },
+        source: "live",
+      };
+
+      setActions((prev) => [newAction, ...prev.filter((p) => p.id !== newAction.id).slice(0, 49)]);
+    } catch (err) {
+      console.warn("[Autopilot] Policy check failed:", err);
+      setIsServerBacked(false);
+      alert("Policy check failed: the policy engine did not answer, so no verdict was recorded.");
+    } finally {
+      setIsSimulating(false);
+    }
   };
 
   const filteredActions = actions.filter((act) => {
@@ -545,6 +571,14 @@ export function AutopilotControlCenter({
           <div className="status-card-header">
             <span className="card-micro-label">Status</span>
             {isKillSwitched && <span className="kill-switch-pill">KILL SWITCH TRIPPED</span>}
+            {!isServerBacked && (
+              <span
+                className="kill-switch-pill"
+                title="The Durable Object did not answer; the state shown here is this tab only."
+              >
+                LOCAL ONLY
+              </span>
+            )}
           </div>
 
           <div className="status-main-display">
@@ -721,7 +755,7 @@ export function AutopilotControlCenter({
               className="btn-simulate-action"
               onClick={handleSimulateAutonomousAction}
               disabled={isSimulating}
-              title="Trigger a simulated autonomous policy evaluation"
+              title="Run a real policy evaluation server-side and record the signed verdict"
             >
               {isSimulating ? "Evaluating Policy…" : "⚡ Run Policy Check"}
             </button>
@@ -742,7 +776,7 @@ export function AutopilotControlCenter({
               className="btn-simulate-action secondary"
               onClick={handleSimulateAutonomousAction}
             >
-              Trigger Test Policy Evaluation
+              Trigger Policy Evaluation
             </button>
           </div>
         ) : (
@@ -811,7 +845,11 @@ export function AutopilotControlCenter({
                           }
                           title="Click to copy cryptographic DID signature"
                         >
-                          {isCopied ? "✓ Copied" : action.didAttestation.signature.slice(0, 14) + "…"}
+                          {isCopied
+                            ? "✓ Copied"
+                            : action.didAttestation.signature
+                            ? action.didAttestation.signature.slice(0, 14) + "…"
+                            : "UNSIGNED"}
                         </button>
                       </td>
                     </tr>
@@ -1039,13 +1077,25 @@ export function AutopilotControlCenter({
                 type="button"
                 className={isKillSwitched ? "btn-resume-autopilot" : "btn-pause-autopilot"}
                 onClick={() => {
-                  if (!isKillSwitched) {
-                    setIsKillSwitched(true);
-                    setIsRunning(false);
-                  } else {
-                    setIsKillSwitched(false);
-                  }
+                  const next = !isKillSwitched;
+                  setIsKillSwitched(next);
+                  if (next) setIsRunning(false);
                   setKillSwitchModalOpen(false);
+                  // Persisted server-side so the kill switch survives a reload
+                  // and applies to every client (autopilot Phase 1).
+                  fetch("/api/autopilot/kill-switch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      active: next,
+                      reason: next ? `Activated from control center by ${user?.login || "operator"}` : null,
+                    }),
+                  })
+                    .then((res) => {
+                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      setIsServerBacked(true);
+                    })
+                    .catch(() => setIsServerBacked(false));
                 }}
               >
                 {isKillSwitched ? "Disarm Kill Switch & Restore Access" : "ACTIVATE KILL SWITCH NOW"}

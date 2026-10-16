@@ -14,6 +14,17 @@ import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
+import {
+  evaluatePolicy,
+  describeVerdict,
+  attestVerdict,
+  normalizeAutopilotLimits,
+  buildAccountStateFromBalance,
+  type AutopilotAccountState,
+  type OrderIntent,
+  type PolicyVerdict,
+  type PolicyVerdictAttestation,
+} from "../services/riskPolicyEngine";
 import { assessPortfolioConcentration } from "../services/portfolioConcentration";
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
@@ -381,6 +392,45 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         updated_at TEXT NOT NULL
       )
     `);
+    // Autopilot policy state (autopilot Phase 1): server-owned run state,
+    // limits, kill switch, and daily order budget. Previously all four lived in
+    // browser localStorage, so a reload cleared the kill switch and a second
+    // browser ran its own envelope.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_autopilot (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    // Append-only verdict ledger: every policy decision, its inputs, and a
+    // signature produced server-side where the decision is made.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_policy_verdicts (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        action TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        notional REAL,
+        mode TEXT NOT NULL,
+        dry_run INTEGER NOT NULL DEFAULT 0,
+        passed INTEGER NOT NULL,
+        execution_allowed INTEGER NOT NULL,
+        requires_approval INTEGER NOT NULL,
+        binding_rule TEXT,
+        detail TEXT NOT NULL,
+        limits_json TEXT NOT NULL,
+        projections_json TEXT NOT NULL,
+        findings_json TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        signing_key_id TEXT NOT NULL,
+        proposer_did TEXT NOT NULL,
+        authorizer_did TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_policy_verdicts_created ON mas_policy_verdicts(created_at DESC)");
     sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_referrals (
         id TEXT PRIMARY KEY,
@@ -859,6 +909,212 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch {
       // Don't fail execution if audit insertion fails
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Autopilot policy envelope (autopilot Phase 1)
+  //
+  // The Durable Object owns run state, limits, and the kill switch so that one
+  // envelope governs every client and channel, and so the kill switch survives
+  // a page reload. Policy decisions are recorded with a server-side signature.
+  // ---------------------------------------------------------------------------
+
+  private static readonly AUTOPILOT_STATE_KEY = "autopilot_state_v1";
+
+  private marketDateKey(now: Date = new Date()): string {
+    // Daily order budgets roll at 00:00 UTC. Deliberately simple and
+    // deterministic; an exchange-local (America/New_York) rollover is a
+    // follow-up that needs tz-aware handling.
+    return now.toISOString().slice(0, 10);
+  }
+
+  private readAutopilotStateRaw(): Record<string, any> {
+    try {
+      const sql = this.ensureTables();
+      const rows = Array.from(
+        sql.exec("SELECT value FROM mas_autopilot WHERE key = ?", OrchestratorAgent.AUTOPILOT_STATE_KEY)
+      ) as Array<{ value: string }>;
+      const raw = rows[0]?.value;
+      return raw ? (JSON.parse(raw) as Record<string, any>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private getAutopilotState() {
+    const raw = this.readAutopilotStateRaw();
+    const today = this.marketDateKey();
+    const storedDate = typeof raw.ordersDate === "string" ? raw.ordersDate : today;
+    return {
+      running: Boolean(raw.running),
+      killSwitch: Boolean(raw.killSwitch),
+      killSwitchReason: (raw.killSwitchReason as string | null) ?? null,
+      limits: normalizeAutopilotLimits(raw.limits ?? null),
+      ordersToday: storedDate === today ? Number(raw.ordersToday) || 0 : 0,
+      ordersDate: today,
+      peakEquity: typeof raw.peakEquity === "number" && Number.isFinite(raw.peakEquity) ? raw.peakEquity : null,
+      updatedAt: (raw.updatedAt as string | null) ?? null,
+    };
+  }
+
+  private writeAutopilotState(patch: Record<string, unknown>) {
+    const current = this.getAutopilotState();
+    const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
+    try {
+      const sql = this.ensureTables();
+      sql.exec(
+        "INSERT OR REPLACE INTO mas_autopilot (key, value, updated_at) VALUES (?, ?, ?)",
+        OrchestratorAgent.AUTOPILOT_STATE_KEY,
+        JSON.stringify(next),
+        next.updatedAt
+      );
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Autopilot: failed to persist state:", err);
+    }
+    return next;
+  }
+
+  /** Counts a broker submission against today's autonomous order budget. */
+  private incrementAutopilotOrdersToday(): void {
+    const state = this.getAutopilotState();
+    this.writeAutopilotState({ ordersToday: state.ordersToday + 1, ordersDate: state.ordersDate });
+  }
+
+  /** Best-effort broker balance snapshot; null when unavailable. */
+  private async fetchBrokerBalanceSnapshot(userLogin: string, requestedEnv: unknown): Promise<unknown | null> {
+    try {
+      const valid = await getValidTokens(this.env, userLogin, requestedEnv as any);
+      if (!valid) return null;
+      const client = new ETradeRestClient(this.env, userLogin, requestedEnv as any);
+      const accounts = await client.fetchAccounts();
+      const key = accounts?.[0]?.accountKey || accounts?.[0]?.accountId;
+      if (!key) return null;
+      return await client.fetchBalance(key);
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Autopilot: balance snapshot unavailable:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Net open exposure for a symbol from the executed trade ledger. A canonical
+   * live-book feed is a follow-up; until then this is the book view available
+   * server-side, and a null result makes the envelope fail closed.
+   */
+  private openNotionalForSymbol(symbol: string): number | null {
+    try {
+      const trades = this.getOrm().trades?.findMany({}) as Array<Record<string, any>> | undefined;
+      if (!trades) return null;
+      const target = symbol.toUpperCase();
+      let net = 0;
+      for (const t of trades) {
+        if (String(t.symbol || "").toUpperCase() !== target) continue;
+        if (String(t.status || "") !== "executed") continue;
+        const qty = Number(t.quantity) || 0;
+        const price = Number(t.price) || 0;
+        net += String(t.action || "").toUpperCase().startsWith("SELL") ? -qty * price : qty * price;
+      }
+      return Math.max(0, net);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Evaluates the envelope, signs the verdict server-side, and records it.
+   * Used by the preview gate, the execute gate, and the dry-run endpoint.
+   */
+  private async evaluateAndRecordAutopilotVerdict(params: {
+    userLogin: string;
+    requestedEnv: unknown;
+    sessionId: string;
+    intent: OrderIntent;
+    draftId?: string | null;
+    dryRun?: boolean;
+  }): Promise<{ verdict: PolicyVerdict; attestation: PolicyVerdictAttestation }> {
+    const state = this.getAutopilotState();
+    const balance = await this.fetchBrokerBalanceSnapshot(params.userLogin, params.requestedEnv);
+    const accountState: AutopilotAccountState = buildAccountStateFromBalance(balance, {
+      ordersToday: state.ordersToday,
+      peakEquity: state.peakEquity,
+      asOf: new Date().toISOString(),
+    });
+    // Overlay the per-symbol exposure a balance payload cannot express.
+    accountState.positionNotionalForSymbol = this.openNotionalForSymbol(params.intent.symbol);
+
+    const verdict = evaluatePolicy({
+      intent: params.intent,
+      limits: state.limits,
+      flags: { running: state.running, killSwitch: state.killSwitch, killSwitchReason: state.killSwitchReason },
+      state: accountState,
+      dryRun: params.dryRun,
+    });
+
+    const attestation = await attestVerdict(verdict, {
+      signingKey: this.env.SESSION_SECRET,
+      authorizerDid: state.running ? AGENT_DIDS.ORCHESTRATOR : "did:user:pending-human-authorization",
+    });
+
+    // Track peak equity so drawdown can be computed on later evaluations.
+    if (accountState.equity !== null && (state.peakEquity === null || accountState.equity > state.peakEquity)) {
+      this.writeAutopilotState({ peakEquity: accountState.equity });
+    }
+
+    try {
+      const sql = this.ensureTables();
+      sql.exec(
+        "INSERT INTO mas_policy_verdicts (id, session_id, symbol, action, quantity, notional, mode, dry_run, passed, execution_allowed, requires_approval, binding_rule, detail, limits_json, projections_json, findings_json, signature, signing_key_id, proposer_did, authorizer_did, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        verdict.verdictId,
+        params.sessionId,
+        verdict.intents.symbol,
+        verdict.intents.action,
+        verdict.intents.quantity,
+        verdict.intents.notional,
+        verdict.mode,
+        verdict.dryRun ? 1 : 0,
+        verdict.passed ? 1 : 0,
+        verdict.executionAllowed ? 1 : 0,
+        verdict.requiresApproval ? 1 : 0,
+        verdict.bindingRule,
+        verdict.detail,
+        JSON.stringify(verdict.limits),
+        JSON.stringify(verdict.projections),
+        JSON.stringify(verdict.findings),
+        attestation.signature,
+        attestation.keyId,
+        attestation.proposerDid,
+        attestation.authorizerDid,
+        verdict.evaluatedAt
+      );
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Autopilot: failed to persist verdict:", err);
+    }
+
+    // Ledger event the control center already knows how to render.
+    this.audit("autopilot.policy_verdict", "trading", {
+      verdictId: verdict.verdictId,
+      draftId: params.draftId ?? null,
+      symbol: verdict.intents.symbol,
+      summary: `${verdict.intents.action} ${verdict.intents.quantity} ${verdict.intents.symbol}${
+        verdict.dryRun ? " (dry run)" : ""
+      }`,
+      policyCheckRule: describeVerdict(verdict),
+      policyCheckPassed: verdict.passed,
+      status: !verdict.passed || !verdict.executionAllowed
+        ? "blocked"
+        : verdict.requiresApproval
+        ? "routed_to_approval"
+        : "verified",
+      bindingRule: verdict.bindingRule,
+      dryRun: Boolean(verdict.dryRun),
+      mode: verdict.mode,
+      proposerDid: attestation.proposerDid,
+      authorizerDid: attestation.authorizerDid,
+      proofSignature: attestation.signature,
+      projections: verdict.projections,
+    });
+
+    return { verdict, attestation };
   }
 
   private recordMessage(role: "user" | "assistant" | "system", content: string, agent: AgentName | "orchestrator") {
@@ -1760,6 +2016,108 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ success: true, message: "Audit event recorded" });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // Autopilot control center (autopilot Phase 1): server-owned run state,
+    // limits, kill switch, and policy verdicts.
+    // ---------------------------------------------------------------------
+    if (path.endsWith("/autopilot") && request.method === "GET") {
+      try {
+        const state = this.getAutopilotState();
+        let recentVerdicts: Array<Record<string, unknown>> = [];
+        try {
+          const sql = this.ensureTables();
+          recentVerdicts = Array.from(
+            sql.exec(
+              "SELECT id, symbol, action, quantity, notional, mode, dry_run, passed, execution_allowed, requires_approval, binding_rule, detail, signature, proposer_did, authorizer_did, created_at FROM mas_policy_verdicts ORDER BY created_at DESC LIMIT 25"
+            )
+          ) as Array<Record<string, unknown>>;
+        } catch {
+          recentVerdicts = [];
+        }
+        return Response.json({ ...state, engine: "riskPolicyEngine", recentVerdicts });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to read autopilot state" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/autopilot/state") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        if (typeof body.running !== "boolean") {
+          return Response.json({ error: "running (boolean) is required" }, { status: 400 });
+        }
+        const next = this.writeAutopilotState({ running: body.running });
+        this.audit("autopilot.state_changed", "trading", {
+          running: next.running,
+          by: request.headers.get("x-user-login") || sessionId || "unknown",
+        });
+        return Response.json(next);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to update autopilot state" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/autopilot/kill-switch") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const active = Boolean(body.active);
+        const reason = active
+          ? String(body.reason || "Emergency stop from the autopilot control center").slice(0, 200)
+          : null;
+        const next = this.writeAutopilotState({ killSwitch: active, killSwitchReason: reason });
+        this.audit("autopilot.kill_switch", "trading", { active, reason });
+        return Response.json(next);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to update kill switch" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/autopilot/limits") && (request.method === "POST" || request.method === "PUT")) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const limits = normalizeAutopilotLimits(body?.limits ?? body);
+        const next = this.writeAutopilotState({ limits });
+        this.audit("autopilot.limits_updated", "trading", { limits });
+        return Response.json(next);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to update policy limits" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/autopilot/evaluate") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const symbol = String(body.symbol || "").trim().toUpperCase();
+        const quantity = Number(body.quantity) || 0;
+        if (!symbol || quantity <= 0) {
+          return Response.json({ error: "symbol and a positive quantity are required" }, { status: 400 });
+        }
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
+        // This endpoint is declared before the E*TRADE routes resolve the
+        // environment header, so it resolves the same value locally.
+        const envHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
+        const snapshotEnv: "TEST" | "PROD" | undefined = envHeader === "TEST" || envHeader === "PROD" ? envHeader : undefined;
+        const { verdict, attestation } = await this.evaluateAndRecordAutopilotVerdict({
+          userLogin,
+          requestedEnv: snapshotEnv,
+          sessionId,
+          dryRun: body.dryRun !== false,
+          intent: {
+            symbol,
+            action: String(body.action || "BUY").toUpperCase(),
+            quantity,
+            orderType: body.orderType || "MARKET",
+            estimatedPrice: Number.isFinite(limitPrice as number) ? (limitPrice as number) : null,
+            estimatedTotal: Number.isFinite(Number(body.estimatedTotal)) ? Number(body.estimatedTotal) : null,
+          },
+        });
+        return Response.json({ verdict, attestation, requestedBy: String(body.requestedBy || userLogin) });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to evaluate policy" }, { status: 500 });
       }
     }
 
@@ -2719,6 +3077,50 @@ Agentic Best Practices & Workflow Rules:
           proposerDid: preview.proposerDid,
         });
 
+        // Autopilot policy envelope (autopilot Phase 1). Evaluated server-side
+        // and recorded with a signed verdict. Paused ⇒ advisory (the human
+        // authorizer still decides); running ⇒ hard gate, re-checked at execute.
+        try {
+          const evaluated = await this.evaluateAndRecordAutopilotVerdict({
+            userLogin,
+            requestedEnv,
+            sessionId,
+            draftId: preview.orderId,
+            intent: {
+              symbol: preview.symbol,
+              action: preview.orderAction,
+              quantity: preview.quantity,
+              orderType: preview.orderType,
+              estimatedPrice: typeof preview.estimatedPrice === "number" ? preview.estimatedPrice : null,
+              estimatedTotal: typeof preview.estimatedTotal === "number" ? preview.estimatedTotal : null,
+            },
+          });
+          (preview as any).policyVerdict = evaluated.verdict;
+          if (!evaluated.verdict.executionAllowed) {
+            return Response.json(
+              {
+                error: `Autopilot policy blocked this order: ${evaluated.verdict.detail}`,
+                bindingRule: evaluated.verdict.bindingRule,
+                policyVerdict: evaluated.verdict,
+              },
+              { status: 409 }
+            );
+          }
+        } catch (policyErr) {
+          console.warn("[OrchestratorAgent] Autopilot policy evaluation failed at preview:", policyErr);
+          this.audit("autopilot.policy_check_failed", "trading", {
+            stage: "preview",
+            orderId: preview.orderId,
+            error: policyErr instanceof Error ? policyErr.message : String(policyErr),
+          });
+          if (this.getAutopilotState().running) {
+            return Response.json(
+              { error: "Autopilot policy check could not be completed; refusing to preview while autopilot is running." },
+              { status: 503 }
+            );
+          }
+        }
+
         // Schedule a 15-minute expiration timer (900 seconds) for this draft
         try {
           if (typeof (this as any).schedule === "function") {
@@ -2853,6 +3255,51 @@ Agentic Best Practices & Workflow Rules:
           }
         }
 
+        // Autopilot policy envelope gate (autopilot Phase 1). Re-evaluated at
+        // execution time because orders/day, drawdown, and exposure may have
+        // moved since the draft was previewed.
+        let executionVerdict: PolicyVerdict | null = null;
+        try {
+          const evaluated = await this.evaluateAndRecordAutopilotVerdict({
+            userLogin,
+            requestedEnv,
+            sessionId,
+            draftId: orderId,
+            intent: {
+              symbol,
+              action,
+              quantity,
+              orderType,
+              estimatedPrice: typeof existingRecord.price === "number" ? existingRecord.price : null,
+              estimatedTotal: typeof existingRecord.totalValue === "number" ? existingRecord.totalValue : null,
+            },
+          });
+          executionVerdict = evaluated.verdict;
+          if (!evaluated.verdict.executionAllowed) {
+            return Response.json(
+              {
+                error: `Autopilot policy blocked execution: ${evaluated.verdict.detail}`,
+                bindingRule: evaluated.verdict.bindingRule,
+                policyVerdict: evaluated.verdict,
+              },
+              { status: 409 }
+            );
+          }
+        } catch (policyErr) {
+          console.warn("[OrchestratorAgent] Autopilot policy evaluation failed at execute:", policyErr);
+          this.audit("autopilot.policy_check_failed", "trading", {
+            stage: "execute",
+            orderId,
+            error: policyErr instanceof Error ? policyErr.message : String(policyErr),
+          });
+          if (this.getAutopilotState().running) {
+            return Response.json(
+              { error: "Autopilot policy check could not be completed; refusing to execute while autopilot is running." },
+              { status: 503 }
+            );
+          }
+        }
+
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         let result: any;
 
@@ -2880,6 +3327,7 @@ Agentic Best Practices & Workflow Rules:
               authorizerDid: userDid,
               updatedAt: new Date().toISOString(),
             });
+            this.incrementAutopilotOrdersToday();
           }
         } else {
           result = etrade.executeOrder(orderId, userDid, decision);
@@ -2900,6 +3348,7 @@ Agentic Best Practices & Workflow Rules:
           authorizerDid: userDid,
           status: result.status,
           executionId: result.executionId,
+          policyVerdictId: executionVerdict?.verdictId ?? null,
         });
 
         // Automatically dispatch official transaction snap to Slack via ETradeBrowserService
