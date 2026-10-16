@@ -6,7 +6,7 @@
 
 import { OptionsAgentPipeline } from "../trading/options";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
-import { MAX_SCAN_SYMBOLS, OpportunityScanner, type ScanMatrixRow, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
+import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
   ExpectedIvDirection,
@@ -33,6 +33,10 @@ export interface OptionsStrategyIntent {
     targetPriceInferred: boolean;
     thesisInferred: boolean;
     scope?: OpportunityScope;
+    /** Which strategy question a scan answers (issue #23): set only on
+     *  the scan path — "strategy_fit" for fit questions ("which names fit
+     *  ...?"), otherwise "per_name_best". Single-name paths ignore it. */
+    mode?: ScanMode;
     showEvaluations?: boolean;
   };
 }
@@ -320,10 +324,20 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
       ? "aggressive"
       : "balanced";
 
+  // Issue #23: a scan answers the fit question (Q1 — "which names fit my
+  // strategy?") when the question is phrased as one; every other scan
+  // keeps the per-name-best reading (Q2). Only set on the scan path.
+  const mode: ScanMode | undefined = scope
+    ? /\bfit(s|ting)?\b/i.test(question)
+      ? "strategy_fit"
+      : "per_name_best"
+    : undefined;
+
   return {
     action: scope ? "options_opportunities" : isBest ? "options_best_trade" : "options_strategies",
     filters: {
       request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined,
+      mode,
       showEvaluations: /\b(evaluated|ledger|accept(?:ed|ance)|reject(?:ed|ion)|why)\b/i.test(question) && /strateg/i.test(question),
     },
   };
@@ -396,7 +410,7 @@ export async function runOptionsStrategyAction(
   },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[] }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
@@ -542,9 +556,13 @@ async function runOpportunityScan(
       : {}),
   } as ScanRequestTemplate;
   const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
-  const result = await scanner.scan(symbols, template, { riskProfile: filters.riskProfile, strategyFilter: filters.strategyFilter });
+  const result = await scanner.scan(symbols, template, {
+    riskProfile: filters.riskProfile,
+    strategyFilter: filters.strategyFilter,
+    mode: filters.mode,
+  });
 
-  const rows = result.opportunities.map((o, i) => {
+  const opportunityRow = (o: OpportunityRow, i: number) => {
     const c = o.pick.best!.candidate;
     return {
       rank: i + 1,
@@ -563,7 +581,40 @@ async function runOpportunityScan(
       confidence: o.pick.confidence,
       quoteFreshness: c.dataFreshness,
     };
-  });
+  };
+  // Issue #23: in strategy-fit mode the rows are the fitting names — ALL
+  // of them (no top-10 truncation). A fit name with an opportunity row
+  // reuses it; a fit name ranked past the opportunities top-10 is built
+  // from its matrix row's best overall cell instead (the cells are ordered
+  // by best compositeScore, so the first cell with a best is the overall
+  // best). Pick-only fields have no cell counterpart and read "n/a".
+  const opportunityBySymbol = new Map(result.opportunities.map((o) => [o.symbol, o]));
+  const fitRow = (fit: ScanMatrixRow, i: number) => {
+    const o = opportunityBySymbol.get(fit.symbol);
+    if (o) return opportunityRow(o, i);
+    const best = fit.cells.find((cell) => cell.best)?.best;
+    if (!best) return { rank: i + 1, symbol: fit.symbol };
+    return {
+      rank: i + 1,
+      symbol: fit.symbol,
+      underlyingPrice: "n/a",
+      strategy: best.label,
+      legs: best.legs.map((l) => `${l.side} ${l.quantity} ${l.strike}${l.optionType[0]}`).join(" / "),
+      expiry: best.expirationDate,
+      netDebitCredit: best.netDebit >= 0 ? `${money(best.netDebit)} debit` : `${money(-best.netDebit)} credit`,
+      maxLoss: money(best.maxLoss),
+      maxProfit: best.maxProfitUnbounded ? "Unlimited" : money(best.maxProfit),
+      probabilityOfProfit: `${(best.probabilityOfProfit * 100).toFixed(1)}%`,
+      targetRewardRisk: `${best.targetRewardRisk.toFixed(2)}x`,
+      score: best.compositeScore,
+      status: "n/a",
+      confidence: "n/a",
+      quoteFreshness: "n/a",
+    };
+  };
+  const rows = result.mode === "strategy_fit"
+    ? result.fits.map((fit, i) => fitRow(fit, i))
+    : result.opportunities.map((o, i) => opportunityRow(o, i));
   const skippedNote = result.skipped.length ? ` ${result.skipped.length} skipped (${result.skipped.slice(0, 3).map((s) => `${s.symbol}: ${s.reason}`).join("; ")}${result.skipped.length > 3 ? "; ..." : ""}).` : "";
   const truncNote = result.truncatedSymbols ? ` Only the first ${MAX_SCAN_SYMBOLS} symbols were scanned (${result.truncatedSymbols} not scanned) to stay within request limits.` : "";
   const assumptionNote = result.assumptions.length ? ` ${result.assumptions.join(" ")}` : "";
@@ -583,14 +634,25 @@ async function runOpportunityScan(
         .map(([type, count]) => `${type} ${count}`)
         .join(", ")}.`
     : "";
+  // Issue #23: the summary always names the mode. Strategy-fit leads
+  // with the full accounting from the matrix (fits + no-fits + skipped
+  // partition the scanned batch); per-name-best keeps the established
+  // wording plus a trailing mode label.
+  const noFitCount = result.matrix.filter((m) => m.verdict === "no_pass").length;
+  const matrixSkippedCount = result.matrix.filter((m) => m.verdict === "skipped").length;
+  const summary = result.mode === "strategy_fit"
+    ? `Strategy fit scan over ${scopeLabel}: ${result.scanned} names accounted — ${result.fitsTotal} fit, ${noFitCount} no fit, ${matrixSkippedCount} skipped.${fitsNote}${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}`
+    : `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote} (mode: per-name best)`;
   return {
     count: rows.length,
     status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
-    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote}`,
+    summary,
     rows,
     // Issue #22: the FULL skipped list travels in the result object (the
     // summary above only shows up to 3 examples), plus the full fit matrix.
     skipped: result.skipped,
     matrix: result.matrix,
+    // Issue #23: which strategy question this scan answered.
+    mode: result.mode,
   };
 }
