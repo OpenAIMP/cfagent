@@ -8,6 +8,8 @@ import { OptionsAgentPipeline } from "../trading/options";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
 import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading/options/opportunityScanner";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
+import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "../trading/options/strategyProfile";
+import type { StrategyProfileStore } from "../trading/options/strategyProfileStore";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
   ExpectedIvDirection,
@@ -42,11 +44,41 @@ export interface OptionsStrategyIntent {
      *  the scan path — "strategy_fit" for fit questions ("which names fit
      *  ...?"), otherwise "per_name_best". Single-name paths ignore it. */
     mode?: ScanMode;
+    /** Saved strategy profile selected by name in the question (issue
+     *  #28): "scan … against my income profile" sets profileName
+     *  "income". Resolved against the caller's profile store at run
+     *  time; an unresolvable name fails the action rather than running
+     *  profile-less. */
+    profileName?: string;
     showEvaluations?: boolean;
   };
 }
 
 const WATCHLIST_STOP = new Set(["MY", "THE", "A", "AN", "THIS", "EACH", "ANY", "ALL", "SAVED", "ONE"]);
+
+const PROFILE_NAME_STOPS = new Set(["strategy", "watchlist", "against", "with", "using", "profile"]);
+
+/**
+ * Saved-profile selection (issue #28): "my <name> profile" — "against
+ * my income profile", "with my income profile", "using my income
+ * profile", "scan … my income profile". The capture cannot cross the
+ * scope/phrasing words (watchlist / against / with / using / profile),
+ * so in "across my Semis watchlist against my income profile" the first
+ * "my" (the watchlist's) cannot swallow the profile name: its
+ * continuation is blocked at "watchlist" and " profile" does not
+ * follow there, so the match retries at the second "my" and captures
+ * "income". A bare "my strategy profile" names no profile (the guard
+ * below), and an empty capture is ignored.
+ */
+function detectProfileName(question: string): string | undefined {
+  const match = question.match(
+    /\bmy\s+((?:[a-z][a-z0-9_-]*)(?:\s+(?!(?:watchlist|against|with|using|profile)\b)[a-z][a-z0-9_-]*)*)\s+profile\b/i,
+  );
+  if (!match) return undefined;
+  const name = match[1].trim().replace(/\s+/g, " ");
+  if (!name || PROFILE_NAME_STOPS.has(name.toLowerCase())) return undefined;
+  return name;
+}
 
 function detectScope(question: string): OpportunityScope | null {
   // Contract-level screens (e.g. "Screen call options...") are handled by options_screen, not strategy opportunity scanner
@@ -338,11 +370,17 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
       : "per_name_best"
     : undefined;
 
+  // Issue #28: a saved profile selected by name ("against my income
+  // profile") rides on the filters of BOTH the scan and single-name
+  // paths; it is resolved against the caller's store at run time.
+  const profileName = detectProfileName(question);
+
   return {
     action: scope ? "options_opportunities" : isBest ? "options_best_trade" : "options_strategies",
     filters: {
       request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined,
       mode,
+      ...(profileName ? { profileName } : {}),
       showEvaluations: /\b(evaluated|ledger|accept(?:ed|ance)|reject(?:ed|ion)|why)\b/i.test(question) && /strateg/i.test(question),
     },
   };
@@ -415,6 +453,36 @@ function bestByTypeClause(rollup: StrategyTypeRollup[]): string {
   return ` Best by type: ${top.map((t) => `${t.label} ${t.bestComposite!.toFixed(1)}`).join("; ")}.`;
 }
 
+/** Dependencies threaded into the options actions by the NLQ runtime
+ *  (issue #27's scan-run store; issue #28's profile store + userLogin). */
+export interface OptionsStrategyDeps {
+  scanRunStore?: ScanRunStore;
+  profileStore?: StrategyProfileStore;
+  userLogin?: string;
+}
+
+/**
+ * Resolve a profile selected by name (issue #28). An unresolvable
+ * selection FAILS the action — running without the profile the user
+ * asked for would silently answer a different question. The userLogin
+ * comes from deps (threaded by the orchestrator through nlq.ts from
+ * the session); standalone contexts fall back to the app's default
+ * trader, matching the unified route's convention.
+ */
+async function resolveStrategyProfile(
+  deps: OptionsStrategyDeps | undefined,
+  profileName: string,
+): Promise<{ profile: StrategyProfile } | { error: string }> {
+  if (!deps?.profileStore) {
+    return { error: "Saved profiles aren't available in this context." };
+  }
+  const profile = await deps.profileStore.getByName(deps.userLogin ?? "default_trader", profileName);
+  if (!profile) {
+    return { error: `No saved profile named "${profileName}".` };
+  }
+  return { profile };
+}
+
 export async function runOptionsStrategyAction(
   etrade: {
     client: ConstructorParameters<typeof DynamicOptionsScreener>[0];
@@ -424,17 +492,33 @@ export async function runOptionsStrategyAction(
   },
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
-  deps?: { scanRunStore?: ScanRunStore },
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[] }> {
+  deps?: OptionsStrategyDeps,
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
       filters.scope = { kind: "universe", filters: { minMarketCap: 50 }, maxSymbols: 25 };
     }
-    return runOpportunityScan(etrade, filters, deps?.scanRunStore);
+    return runOpportunityScan(etrade, filters, deps);
   }
 
-  const request = { ...filters.request } as Partial<StrategyRequest>;
+  let request = { ...filters.request } as Partial<StrategyRequest>;
+  // Issue #28: a profile selected in the question forms the base layer
+  // of the single-name request too — applied BEFORE the assumed-target
+  // derivation below so the target factor follows the EFFECTIVE thesis.
+  // The question's own thesis stays explicit when the user stated it
+  // (not inferred); the profile has no target field, so a stated or
+  // assumed target is never overridden.
+  let strategyProfile: StrategyProfile | undefined;
+  let profileAppliedFields: string[] = [];
+  if (filters.profileName) {
+    const resolved = await resolveStrategyProfile(deps, filters.profileName);
+    if ("error" in resolved) return fail(resolved.error);
+    strategyProfile = resolved.profile;
+    const applied = applyProfileFields(request, strategyProfile, new Set(filters.thesisInferred ? [] : ["thesis"]));
+    request = applied.merged;
+    profileAppliedFields = applied.appliedFields;
+  }
   let assumedTarget = false;
   if (request.targetPrice === undefined) {
     try {
@@ -495,12 +579,15 @@ export async function runOptionsStrategyAction(
   // clause in each summary.
   const typeRollup = buildTypeRollup(result.strategies.evaluations, result.ranked);
   const byType = bestByTypeClause(typeRollup);
+  // Issue #28: the summary names the applied profile and what it
+  // contributed, in the same disclosure wording the scanner uses.
+  const profileClause = strategyProfile ? ` ${profileDisclosure(strategyProfile, profileAppliedFields, false)}` : "";
 
   if (action === "options_strategies") {
     return {
       count: rankedRows.length,
       status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
-      summary: `Options Strategy Screener (${request.symbol}, ${request.thesis}, ${filters.riskProfile} ranking): ${scan}${freshness}${note}${byType}`,
+      summary: `Options Strategy Screener (${request.symbol}, ${request.thesis}, ${filters.riskProfile} ranking): ${scan}${freshness}${note}${byType}${profileClause}`,
       rows: filters.showEvaluations ? evaluationRows : rankedRows,
       rejections: result.snapshot.rejections.slice(0, 15),
       quoteQuality: result.snapshot.screen.quoteQuality,
@@ -508,6 +595,7 @@ export async function runOptionsStrategyAction(
       evaluations: result.strategies.evaluations,
       nameLedger: result.strategies.nameLedger,
       typeRollup,
+      ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
     };
   }
 
@@ -528,7 +616,7 @@ export async function runOptionsStrategyAction(
   return {
     count: planRows.length,
     status: pick.status,
-    summary: `${headline}${pick.blockers.length ? ` Blockers: ${pick.blockers.join(" ")}` : ""} ${scan}${freshness}${note} ${pick.disclaimer}${byType}`,
+    summary: `${headline}${pick.blockers.length ? ` Blockers: ${pick.blockers.join(" ")}` : ""} ${scan}${freshness}${note} ${pick.disclaimer}${byType}${profileClause}`,
     rows: planRows.length > 0 ? planRows : rankedRows,
     evaluations: result.strategies.evaluations,
     nameLedger: result.strategies.nameLedger,
@@ -537,14 +625,16 @@ export async function runOptionsStrategyAction(
     bestTrade: pick,
     validationError: result.snapshot.validationError,
     typeRollup,
+    ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
   };
 }
 
 async function runOpportunityScan(
   etrade: Parameters<typeof runOptionsStrategyAction>[0],
   filters: OptionsStrategyIntent["filters"] | undefined,
-  scanRunStore?: ScanRunStore,
+  deps?: OptionsStrategyDeps,
 ) {
+  const scanRunStore = deps?.scanRunStore;
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   const scope = filters?.scope;
   if (!filters || !scope) return fail("Say where to look, e.g. \"across my Semis watchlist\" or \"across large cap stocks\".");
@@ -569,6 +659,16 @@ async function runOpportunityScan(
   }
   if (symbols.length === 0) return fail("The selected scope contained no symbols.");
 
+  // Issue #28: resolve the selected profile BEFORE scanning — an
+  // unknown name (or no store in this context) fails the action rather
+  // than silently scanning profile-less.
+  let strategyProfile: StrategyProfile | undefined;
+  if (filters.profileName) {
+    const resolved = await resolveStrategyProfile(deps, filters.profileName);
+    if ("error" in resolved) return fail(resolved.error);
+    strategyProfile = resolved.profile;
+  }
+
   const { symbol: statedSymbol, targetPrice, ...rest } = filters.request;
   // Issue #19: a target parsed from the question was stated for the named
   // symbol only — carry it into the scan as a scoped statedTarget so it is
@@ -584,6 +684,20 @@ async function runOpportunityScan(
     riskProfile: filters.riskProfile,
     strategyFilter: filters.strategyFilter,
     mode: filters.mode,
+    // Issue #28: the profile layers under the question's own inputs.
+    // The question's thesis is explicit when the user stated it (not
+    // inferred from strategy names / defaults); the mode is ALWAYS
+    // explicit — NLQ derives it from the question's fit phrasing (issue
+    // #23), so a profile never flips which question is being answered.
+    // The parser's riskProfile is NOT declared: its default yields to
+    // the profile's posture. (statedTarget / perSymbol are not profile
+    // fields and survive by construction.)
+    ...(strategyProfile
+      ? {
+          profile: strategyProfile,
+          explicitFields: [...(filters.thesisInferred ? [] : ["thesis"]), "mode"],
+        }
+      : {}),
   });
 
   // Issue #27: persist the run when the caller supplied a store (the
@@ -732,5 +846,9 @@ async function runOpportunityScan(
     // supplied (contexts without one behave exactly as before). On a
     // store failure scanRunId is absent and persisted is false.
     ...(scanRunStore ? { scanRunId, persisted } : {}),
+    // Issue #28: the applied profile's provenance stamp — the scan
+    // result (and any persisted run) already carries it; this mirrors
+    // it onto the action result.
+    ...(strategyProfile ? { profileRef: result.profileRef } : {}),
   };
 }
