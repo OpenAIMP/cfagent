@@ -17,6 +17,7 @@ import {
   type OptionThesis,
   type OptionStrategyType,
 } from "../trading/options";
+import type { ScanRunStore } from "../trading/options/scanRunStore";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "./tradingWebhooks";
@@ -38,7 +39,8 @@ export class ScheduledTasksService {
   constructor(
     private env: Env,
     private orm?: DatabaseORM,
-    private userLogin: string = "default_trader"
+    private userLogin: string = "default_trader",
+    private scanRunStore?: ScanRunStore
   ) {}
 
   /**
@@ -339,7 +341,8 @@ export class ScheduledTasksService {
         this.env,
         this.userLogin,
         options.environment,
-        this.orm
+        this.orm,
+        this.scanRunStore
       );
 
       const response = await unifiedService.execute({
