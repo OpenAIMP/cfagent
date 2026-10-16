@@ -984,6 +984,29 @@ export function ETradeTradingHub({
     onSelectSubTab?.("order");
   };
 
+  const handleCloseOptionPosition = (position: ETradePosition) => {
+    if (!position.optionType || !position.strikePrice || !position.expirationDate) return;
+    const closingSide = position.positionType === "SHORT" ? "BUY" : "SELL";
+    const contractPrice = Number(position.currentPrice || position.marketPrice || position.pricePaid || 0);
+    handleOptionsTrade({
+      symbol: position.symbol,
+      action: closingSide === "BUY" ? "BUY_TO_COVER" : "SELL",
+      quantity: Math.max(1, Math.floor(Math.abs(position.quantity))),
+      label: `Close ${position.positionType === "SHORT" ? "short" : "long"} ${position.optionType.toLowerCase()} position · ${position.expirationDate} $${position.strikePrice}`,
+      legs: [`${closingSide} ${Math.abs(position.quantity)} ${position.optionType} ${position.symbol} $${position.strikePrice} exp ${position.expirationDate}`],
+      optionLegs: [{
+        securityType: "OPTN",
+        side: closingSide,
+        quantity: 1,
+        optionType: position.optionType,
+        strike: position.strikePrice,
+        expirationDate: position.expirationDate,
+      }],
+      // Option positions are quoted per share; strategy prices are per contract.
+      strategyNetDebit: (closingSide === "BUY" ? 1 : -1) * contractPrice * 100,
+    });
+  };
+
   const handlePreviewOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setOrderError("");
@@ -2179,9 +2202,11 @@ export function ETradeTradingHub({
               );
             })()}
             <div className="port-summary-card">
-              <span className="summary-title">Total Active Positions</span>
-              <span className="summary-amount">{positions.length} Stocks</span>
-              <span className="summary-change">Equities &amp; ETFs</span>
+              <span className="summary-title">Active Positions</span>
+              <span className="summary-amount">{positions.length}</span>
+              <span className="summary-change">
+                {positions.filter((position) => position.securityType === "OPTN").length} options · {positions.filter((position) => position.securityType !== "OPTN").length} equities &amp; ETFs
+              </span>
             </div>
           </div>
 
@@ -2253,11 +2278,16 @@ export function ETradeTradingHub({
                         <td>
                           <div className="ticker-company">
                             <span className="ticker-badge">{pos.symbol}</span>
-                            <span className="company-title">{pos.description}</span>
+                            <span className="company-title">
+                              {pos.securityType === "OPTN"
+                                ? `${pos.optionType || "Option"} $${Number(pos.strikePrice || 0).toFixed(2)} · ${pos.expirationDate || "Expiry unavailable"}`
+                                : pos.description}
+                            </span>
                           </div>
+                          {pos.securityType === "OPTN" && <span className="position-type-badge">{pos.positionType === "SHORT" ? "Short option" : "Long option"}</span>}
                         </td>
                         <td>
-                          <span className="qty-val">{pos.quantity} shares</span>
+                          <span className="qty-val">{pos.quantity} {pos.securityType === "OPTN" ? "contracts" : "shares"}</span>
                         </td>
                         <td>
                           <span>${costBasis.toFixed(2)}</span>
@@ -2280,22 +2310,35 @@ export function ETradeTradingHub({
                         </td>
                         <td>
                           <div className="table-actions-cell">
-                            <button
-                              type="button"
-                              className="btn-act-buy"
-                              onClick={() => handleQuickTrade(pos, "BUY")}
-                              title="Add more shares"
-                            >
-                              + Buy
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-act-sell"
-                              onClick={() => handleQuickTrade(pos, "SELL")}
-                              title="Sell to close position"
-                            >
-                              - Close
-                            </button>
+                            {pos.securityType === "OPTN" && pos.optionType && pos.strikePrice && pos.expirationDate ? (
+                              <button
+                                type="button"
+                                className="btn-act-sell"
+                                onClick={() => handleCloseOptionPosition(pos)}
+                                title="Build a broker-priced closing order for this option position"
+                              >
+                                - Close Option
+                              </button>
+                            ) : pos.securityType === "OPTN" ? (
+                              <span className="position-action-unavailable" title="The broker did not return enough contract details to build a closing order.">Contract details unavailable</span>
+                            ) : <>
+                              <button
+                                type="button"
+                                className="btn-act-buy"
+                                onClick={() => handleQuickTrade(pos, "BUY")}
+                                title="Add more shares"
+                              >
+                                + Buy
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-act-sell"
+                                onClick={() => handleQuickTrade(pos, "SELL")}
+                                title="Sell to close position"
+                              >
+                                - Close
+                              </button>
+                            </>}
                             <button
                               type="button"
                               className="btn-risk-analysis"
