@@ -44,7 +44,9 @@ describe("Portfolio Tab Click & Render Inspection", () => {
     expect(html).toContain("Portfolio Holdings &amp; Open Positions");
     expect(html).toContain("Portfolio Equity");
     expect(html).toContain("Available Cash");
-    expect(html).toContain("Total Active Positions");
+    // Renamed from "Total Active Positions" in 868e754 (option position close
+    // workflow), which also added the options/equities breakdown below it.
+    expect(html).toContain('<span class="summary-title">Active Positions</span>');
     expect(html).toContain("Refresh Positions");
     expect(html).toContain("Fast Order Ticket");
     expect(html).toContain("Load Demo Holdings");
