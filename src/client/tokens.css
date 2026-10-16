@@ -71,6 +71,8 @@
   --input-padding: 0.5rem 0.75rem;
   --table-row-height: 2.75rem;
   --card-padding: 1.25rem;
+  --chart-max-height: min(52vh, 32rem);
+  --chart-scroll-max-height: min(50vh, 26rem);
 
   /* Compact options discovery controls (shared component sizing tokens) */
   --font-size-micro: 0.65rem;
@@ -1543,6 +1545,16 @@ code:not(.did-pill code) {
   background: var(--color-danger-subtle);
   color: var(--color-danger);
   font-size: var(--font-size-body-sm);
+}
+
+.universal-chart-container {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.universal-chart-svg {
+  max-width: 100%;
 }
 
 @media (max-width: 640px) {

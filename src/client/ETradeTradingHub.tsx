@@ -1702,9 +1702,11 @@ export function ETradeTradingHub({
                 <div>
                   <h4>⚡ E*TRADE Fast Order Ticket</h4>
                   <span className="header-subtitle">
-                    {orderContext?.optionLegs?.length
+                    {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN")
                       ? "Broker-priced options strategy preview with human approval required"
-                      : "Zero-commission equity trading with agentic DID stamping"}
+                      : orderContext?.optionLegs?.length
+                        ? "Stock strategy preview with human approval required"
+                        : "Zero-commission equity trading with agentic DID stamping"}
                   </span>
                 </div>
                 {orderSymbol && (
@@ -1724,7 +1726,7 @@ export function ETradeTradingHub({
               {orderError && <div className="form-error-alert">⚠️ {orderError}</div>}
               {orderContext && (
                 <div className="options-order-context">
-                  <strong>From Auto Options Research:</strong> {orderContext.label}
+                  <strong>From Strategy Research:</strong> {orderContext.label}
                   <ul>{orderContext.legs.map((leg) => <li key={leg}>{leg}</li>)}</ul>
                   <em>{orderContext.optionLegs?.length ? "Every active leg is included in the broker's complex-order preview. Check each side, contract, expiry, quantity, net limit, and broker buying-power result before approval." : "Review the underlying order details. Nothing is placed until you approve."}</em>
                 </div>

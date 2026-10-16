@@ -602,6 +602,11 @@ export function StrategyDiscoveryPanel({
   // Adjust target price default when sentiment or quote price changes
   const handleSentimentChange = (nextSentiment: SentimentType) => {
     hasInitialCustomLegsRef.current = false;
+    // Do not leave the previous thesis' server-ranked list visible while the
+    // replacement candidates are loading.
+    setIsDiscovering(true);
+    setDiscoveredStrategies([]);
+    setDiscoveryError("");
     if (builderLegs.length > 0) {
       setPreviousStrategyLegs([...builderLegs]);
     }
@@ -776,8 +781,8 @@ export function StrategyDiscoveryPanel({
     dataTab === "live" &&
     discoveryDataSource === "live" &&
     selectedStrategy &&
-    discoveredStrategies.some((candidate) => candidate.id === selectedStrategy.id) &&
-    JSON.stringify(builderLegs) === JSON.stringify(selectedStrategy.legs)
+    builderLegs.some((leg) => !leg.isExcluded && !leg.isClosed) &&
+    builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed).length <= 4
   );
 
   // Effective DTE and time remaining for the Date slider
@@ -1469,12 +1474,17 @@ export function StrategyDiscoveryPanel({
           >
             💾 Save
           </button>
-          {onPreviewTrade && canTradeBuilderCandidate && (
+          {onPreviewTrade && selectedStrategy && (
             <button
               type="button"
-              className="strat-action-chip trade-fast"
+              className={`strat-action-chip trade-fast ${canTradeBuilderCandidate ? "" : "disabled"}`}
               onClick={sendToFastOrder}
-              title={`Send ${currentStrategyName} to Trade Order Ticket`}
+              disabled={!canTradeBuilderCandidate}
+              title={canTradeBuilderCandidate
+                ? `Send ${currentStrategyName} to Trade Order Ticket`
+                : builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed).length > 4
+                  ? "E*TRADE supports up to four legs in one order."
+                  : "A live broker chain and at least one active strategy leg are required."}
             >
               ⚡ Trade
             </button>
@@ -2112,6 +2122,11 @@ export function StrategyDiscoveryPanel({
               })}
             </div>
             {discoveryError && <div className="strat-server-candidates-error" role="alert">{discoveryError}</div>}
+            {isDiscovering && (
+              <div className="strat-server-candidates-empty" role="status" aria-live="polite">
+                Loading backend-ranked strategies for {SENTIMENT_ITEMS.find((item) => item.id === sentiment)?.label || sentiment}…
+              </div>
+            )}
             {!isDiscovering && discoveredStrategies.length === 0 && (
               <div className="strat-server-candidates-empty" role="status">
                 No backend candidates are available for this sentiment and market data source. Change sentiment or refresh the option chain.
