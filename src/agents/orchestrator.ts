@@ -44,6 +44,7 @@ import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiC
 import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
+import { SqlScanRunStore, diffScanRuns } from "../trading/options/scanRunStore";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
 import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading/options/strategies/catalog";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -195,7 +196,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       }
     }
     const user = payload?.userLogin || this.sessionKey();
-    const service = new ScheduledTasksService(this.env, this.getOrm(), user);
+    const service = new ScheduledTasksService(this.env, this.getOrm(), user, new SqlScanRunStore(this.ctx.storage.sql));
     const res = await service.autoRenewETradeTokens(user, payload?.env);
     if (!res.success) {
       console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
@@ -215,7 +216,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       }
     }
     const runScreen = async () => {
-      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousMarketScreen(payload);
       if (res.success && res.data?.opportunities && res.data.opportunities.length > 0) {
         if (typeof (this as any).broadcast === "function") {
@@ -256,7 +257,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       }
     }
     const runAnalysis = async () => {
-      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousOptionsAnalysis(payload);
       if (res.success && res.data) {
         if (typeof (this as any).broadcast === "function") {
@@ -317,7 +318,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    */
   async expireStaleOrderDraft(payload: { orderId: string; userLogin?: string }): Promise<void> {
     if (!payload?.orderId) return;
-    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey());
+    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
     await service.expireStaleOrderDraft(payload.orderId);
   }
 
@@ -326,7 +327,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    */
   async sendScheduledReminder(payload: { reminderId: string; message: string; userLogin?: string }): Promise<void> {
     if (!payload?.reminderId) return;
-    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey());
+    const service = new ScheduledTasksService(this.env, this.getOrm(), payload.userLogin || this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
     const res = await service.dispatchReminder(payload.reminderId, payload.message);
     if (typeof (this as any).broadcast === "function") {
       try {
@@ -845,6 +846,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           this.env,
           typeof payload.userLogin === "string" ? payload.userLogin : this.sessionKey(),
           getUserDid(this.sessionKey()),
+          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) },
         );
       } else {
         throw new Error(`Unsupported async capability: ${job.capability}`);
@@ -1415,7 +1417,9 @@ Agentic Best Practices & Workflow Rules:
             sessionId,
             userText,
             this.env,
-            userLogin
+            userLogin,
+            undefined,
+            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) }
           );
           if (result && result.status !== "error") {
             if (Array.isArray(result.rows) && result.rows.length > 0) {
@@ -1717,7 +1721,7 @@ Agentic Best Practices & Workflow Rules:
           this.env,
           userLogin,
           userDid,
-          { context: contextHeader, validateWithLLM: body.validateWithLLM }
+          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql) }
         );
         this.audit("nlq.executed", "nlq", {
           query,
@@ -3782,6 +3786,60 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Persisted opportunity scan runs (issue #27): scans executed with a
+    // store attached (NLQ path + unified opportunities route) are
+    // retrievable here with their full provenance, and two runs can be
+    // diffed run-over-run. Declared in list → diff → by-id order: the
+    // diff route must win over the by-id pattern below.
+    if (path.endsWith("/etrade/options/scans") && request.method === "GET") {
+      try {
+        const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
+        const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+        const store = new SqlScanRunStore(sql);
+        const scans = await store.list({ limit, offset });
+        return Response.json({ count: scans.length, scans });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to list scan runs" }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/etrade/options/scans/diff") && request.method === "GET") {
+      try {
+        const fromId = url.searchParams.get("from") || "";
+        const toId = url.searchParams.get("to") || "";
+        if (!fromId || !toId) {
+          return Response.json({ error: "from and to scan run ids are required" }, { status: 400 });
+        }
+        const store = new SqlScanRunStore(sql);
+        const from = await store.get(fromId);
+        const to = await store.get(toId);
+        if (!from || !to) {
+          return Response.json({ error: "scan run not found" }, { status: 404 });
+        }
+        return Response.json({
+          from: { id: from.id, generatedAt: from.generatedAt },
+          to: { id: to.id, generatedAt: to.generatedAt },
+          diff: diffScanRuns(from.result, to.result),
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to diff scan runs" }, { status: 500 });
+      }
+    }
+
+    const scanRunIdMatch = path.match(/\/etrade\/options\/scans\/([^/]+)$/);
+    if (scanRunIdMatch && request.method === "GET") {
+      try {
+        const store = new SqlScanRunStore(sql);
+        const run = await store.get(decodeURIComponent(scanRunIdMatch[1]));
+        if (!run) {
+          return Response.json({ error: "scan run not found" }, { status: 404 });
+        }
+        return Response.json(run);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch scan run" }, { status: 500 });
+      }
+    }
+
     // ==========================================
     // Dynamic Options Screener Engine Endpoint
     // ==========================================
@@ -4352,7 +4410,7 @@ Agentic Best Practices & Workflow Rules:
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm());
+        const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm(), new SqlScanRunStore(this.ctx.storage.sql));
         const result = await service.execute(reqData);
 
         const channel = reqData.channel || "ui";
@@ -4921,7 +4979,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/schedules/trigger-options-analysis") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey());
+        const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
         const result = await service.autonomousOptionsAnalysis(body);
         return Response.json(result);
       } catch (err: any) {
