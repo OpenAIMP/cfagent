@@ -15,6 +15,29 @@ const baseOppConfig = getOpportunityScannerConfig();
 export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
 const CONCURRENCY = baseOppConfig.concurrency;
 
+/**
+ * The two strategy questions a scan can answer (issue #23):
+ *  - "strategy_fit" — Q1: "which names fit my strategy?" Returns the full
+ *    accounting: every fitting name in `fits`, not a best-trade top-N.
+ *  - "per_name_best" — Q2: "what is the best trade per name?" The headline
+ *    list stays `opportunities` (top-N best-per-name), exactly the
+ *    pre-#23 behavior, and is the default.
+ */
+export type ScanMode = "strategy_fit" | "per_name_best";
+
+/**
+ * Per-name parameters for one symbol in a scan (issue #23): a thesis
+ * and/or target that override the shared template for that symbol only.
+ * Supplied explicitly at the API/template level (e.g. the #84 UI form);
+ * NLQ prose parsing does not produce these.
+ */
+export interface ScanSymbolOverride {
+  thesis?: StrategyRequest["thesis"];
+  target?:
+    | { kind: "absolute"; price: number }
+    | { kind: "percent"; pct: number };
+}
+
 export type ScanRequestTemplate = Omit<StrategyRequest, "symbol" | "targetPrice"> & {
   /**
    * A target price the user stated for one specific symbol (issue #19).
@@ -24,6 +47,12 @@ export type ScanRequestTemplate = Omit<StrategyRequest, "symbol" | "targetPrice"
    * single-name question must never leak onto the other names in a scan.
    */
   statedTarget?: { price: number; symbol?: string };
+  /**
+   * Per-name parameters keyed by (uppercase) symbol (issue #23). An
+   * override target wins over the shared statedTarget for that symbol —
+   * it is the more specific instruction.
+   */
+  perSymbol?: Record<string, ScanSymbolOverride>;
 };
 
 export interface OpportunityRow {
@@ -31,8 +60,9 @@ export interface OpportunityRow {
   underlyingPrice: number;
   targetPrice: number;
   /** Where this row's target came from: the user's stated target for this
-   *  symbol ("stated") or the thesis factor on spot ("thesis"). */
-  targetSource: "stated" | "thesis";
+   *  symbol ("stated"), a per-name percent override ("percent"), or the
+   *  thesis factor on spot ("thesis"). */
+  targetSource: "stated" | "percent" | "thesis";
   pick: BestTradePick;
   score: number;
 }
@@ -77,7 +107,7 @@ export interface ScanMatrixRow {
   skipReason?: string;
   /** Null when the symbol was skipped before a spot price existed. */
   targetPrice: number | null;
-  targetSource: "stated" | "thesis" | null;
+  targetSource: "stated" | "percent" | "thesis" | null;
   /** One cell per strategy type that had at least one built candidate;
    *  empty for skipped symbols. */
   cells: ScanMatrixCell[];
@@ -95,6 +125,16 @@ export interface OpportunityScanResult {
   /** The full names × strategy-types fit matrix (issue #22): one row for
    *  every symbol in the scanned batch, in batch (input) order. */
   matrix: ScanMatrixRow[];
+  /** Which of the two strategy questions this scan answered (issue #23). */
+  mode: ScanMode;
+  /** Strategy-fit mode only: the matrix rows whose verdict is "pass",
+   *  paginated by the scan's offset/limit. Empty in per_name_best mode,
+   *  where `opportunities` is the headline list. "Fitting" is the #22
+   *  screen-pass verdict — score-threshold gating is issue #24. */
+  fits: ScanMatrixRow[];
+  /** Strategy-fit mode only: total "pass" rows BEFORE pagination slicing.
+   *  0 in per_name_best mode. */
+  fitsTotal: number;
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
@@ -104,17 +144,33 @@ const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.t
  * target applies only to the symbol it was stated for; every other symbol
  * uses the thesis factor on its own spot price. Pure and exported for
  * direct unit testing.
+ *
+ * Precedence (issue #23): a per-name override target for this symbol wins
+ * over the shared statedTarget — it is the more specific instruction. A
+ * per-name thesis override (with no override target) also steers the
+ * thesis factor used for the derived fallback.
  */
 export function resolveScanTarget(
   template: ScanRequestTemplate,
   symbol: string,
   spotPrice: number,
-): { targetPrice: number; source: "stated" | "thesis" } {
+  override?: ScanSymbolOverride,
+): { targetPrice: number; source: "stated" | "percent" | "thesis" } {
+  if (override?.target?.kind === "absolute") {
+    return { targetPrice: override.target.price, source: "stated" };
+  }
+  if (override?.target?.kind === "percent") {
+    return {
+      targetPrice: Number((spotPrice * (1 + override.target.pct / 100)).toFixed(2)),
+      source: "percent",
+    };
+  }
   const stated = template.statedTarget;
   if (stated?.symbol && stated.symbol.trim().toUpperCase() === symbol.toUpperCase()) {
     return { targetPrice: stated.price, source: "stated" };
   }
-  return { targetPrice: Number((spotPrice * TARGET_FACTOR[template.thesis]).toFixed(2)), source: "thesis" };
+  const thesis = override?.thesis ?? template.thesis;
+  return { targetPrice: Number((spotPrice * TARGET_FACTOR[thesis]).toFixed(2)), source: "thesis" };
 }
 
 /** Disclosure lines for a scan whose request carried a stated target. */
@@ -129,6 +185,32 @@ function scanTargetAssumptions(template: ScanRequestTemplate): string[] {
   return [
     `A target of $${stated.price.toFixed(2)} was stated without a symbol, so it was not applied to any scanned name; thesis-derived targets were used for all symbols.`,
   ];
+}
+
+/**
+ * The single disclosure line for per-name overrides (issue #23): one entry
+ * per symbol in the scanned batch that carries an override, symbols
+ * ascending. Returns null when no batch symbol is overridden (or every
+ * override is empty), so the caller can omit the line entirely.
+ */
+function scanOverrideAssumption(template: ScanRequestTemplate, batch: string[]): string | null {
+  if (!template.perSymbol) return null;
+  const applied = batch
+    .filter((symbol) => template.perSymbol![symbol])
+    .sort((a, b) => a.localeCompare(b));
+  const entries: string[] = [];
+  for (const symbol of applied) {
+    const override = template.perSymbol[symbol];
+    const clauses: string[] = [];
+    if (override.thesis) clauses.push(`thesis ${override.thesis}`);
+    if (override.target?.kind === "absolute") {
+      clauses.push(`target $${override.target.price.toFixed(2)}`);
+    } else if (override.target?.kind === "percent") {
+      clauses.push(`target ${override.target.pct >= 0 ? "+" : ""}${override.target.pct.toFixed(1)}%`);
+    }
+    if (clauses.length) entries.push(`${symbol} (${clauses.join(", ")})`);
+  }
+  return entries.length ? `Per-name overrides applied: ${entries.join("; ")}.` : null;
 }
 
 /**
@@ -226,16 +308,32 @@ export class OpportunityScanner {
   async scan(
     symbols: string[],
     template: ScanRequestTemplate,
-    options: { riskProfile?: RiskProfile; strategyFilter?: StrategyScreenFilter; limit?: number } = {}
+    options: {
+      riskProfile?: RiskProfile;
+      strategyFilter?: StrategyScreenFilter;
+      limit?: number;
+      /** Which strategy question to answer (issue #23); default
+       *  "per_name_best". In strategy_fit mode `limit` paginates `fits`
+       *  instead of `opportunities`. */
+      mode?: ScanMode;
+      /** Strategy-fit pagination offset into the pass rows; default 0. */
+      offset?: number;
+    } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
     const batch = unique.slice(0, MAX_SCAN_SYMBOLS);
     const profile = options.riskProfile ?? "balanced";
+    const mode = options.mode ?? "per_name_best";
     const skipped: OpportunityScanResult["skipped"] = [];
-    const assumptions = scanTargetAssumptions(template);
-    // The stated target is scan-level scoping metadata, not a request field:
-    // strip it so per-symbol StrategyRequests stay exactly StrategyRequest-shaped.
-    const { statedTarget: _statedTarget, ...requestTemplate } = template;
+    const overrideAssumption = scanOverrideAssumption(template, batch);
+    const assumptions = [
+      ...scanTargetAssumptions(template),
+      ...(overrideAssumption ? [overrideAssumption] : []),
+    ];
+    // The stated target and the per-name overrides are scan-level scoping
+    // metadata, not request fields: strip them so per-symbol
+    // StrategyRequests stay exactly StrategyRequest-shaped.
+    const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = template;
 
     const outcomes = await mapLimit(batch, CONCURRENCY, async (symbol): Promise<{ opportunity: OpportunityRow | null; matrix: ScanMatrixRow }> => {
       const skippedMatrixRow = (reason: string): ScanMatrixRow => ({
@@ -254,11 +352,17 @@ export class OpportunityScanner {
           skipped.push({ symbol, reason });
           return { opportunity: null, matrix: skippedMatrixRow(reason) };
         }
-        const { targetPrice, source: targetSource } = resolveScanTarget(template, symbol, price);
+        // Per-name parameters (issue #23): this symbol's override steers
+        // its target resolution and, when it carries a thesis, the thesis
+        // its build/screen/pick run under. The snapshot load above stays
+        // on the shared template, as before.
+        const override = template.perSymbol?.[symbol];
+        const { targetPrice, source: targetSource } = resolveScanTarget(template, symbol, price, override);
         const request: StrategyRequest = {
           ...requestTemplate,
           symbol,
           targetPrice,
+          thesis: override?.thesis ?? requestTemplate.thesis,
         };
         const built = this.risk.buildStrategies(snapshot.contracts, request);
         const { matched, rejected } = this.risk.screenStrategies(built.candidates, options.strategyFilter);
@@ -293,14 +397,24 @@ export class OpportunityScanner {
       .map((o) => o.opportunity)
       .filter((r): r is OpportunityRow => r !== null)
       .sort((a, b) => b.score - a.score || a.symbol.localeCompare(b.symbol));
+    const matrix = outcomes.map((o) => o.matrix);
+    // Strategy-fit accounting (issue #23): every "pass" matrix row is a
+    // fit. `limit` paginates this list in strategy_fit mode, so
+    // `opportunities` keeps its default top-10 cap there; in
+    // per_name_best mode `limit` slices `opportunities` as it always has.
+    const passRows = mode === "strategy_fit" ? matrix.filter((m) => m.verdict === "pass") : [];
+    const offset = options.offset ?? 0;
     return {
       scanned: batch.length,
       withTrades: opportunities.length,
-      opportunities: opportunities.slice(0, options.limit ?? 10),
+      opportunities: opportunities.slice(0, mode === "per_name_best" ? options.limit ?? 10 : 10),
       skipped,
       truncatedSymbols: Math.max(0, unique.length - batch.length),
       assumptions,
-      matrix: outcomes.map((o) => o.matrix),
+      matrix,
+      mode,
+      fits: passRows.slice(offset, options.limit === undefined ? undefined : offset + options.limit),
+      fitsTotal: passRows.length,
     };
   }
 }

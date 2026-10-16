@@ -31,7 +31,7 @@ import {
   type OptionStrategyType,
   type StrategyCandidate,
 } from "./index";
-import { OpportunityScanner, type OpportunityScanResult } from "./opportunityScanner";
+import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanSymbolOverride } from "./opportunityScanner";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
@@ -74,6 +74,13 @@ export interface UnifiedOptionsRequest {
   /** Optimization bias (0 = max return, 100 = max chance); converted to
    *  score weights server-side (issue #29). */
   optimizationBias?: number;
+  /** Opportunities only (issue #23): which strategy question the scan
+   *  answers — "strategy_fit" (which names fit?) or "per_name_best"
+   *  (best trade per name, the default). */
+  mode?: ScanMode;
+  /** Opportunities only (issue #23): per-name thesis/target overrides
+   *  keyed by (uppercase) symbol. */
+  perSymbol?: Record<string, ScanSymbolOverride>;
   filter?: OptionScreenerFilter;
   channel?: OmnichannelContext;
   question?: string;
@@ -130,7 +137,20 @@ export class UnifiedOptionsService {
 
   private getCacheKey(req: UnifiedOptionsRequest): string {
     const sym = (req.symbol || (req.symbols ? req.symbols.join(",") : "")).toUpperCase();
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}`;
+    // Scan mode and per-symbol overrides change the opportunities result
+    // (issue #23), so they belong in the key: without them a caller could be
+    // served another mode's cached scan.
+    const perSymbol = req.perSymbol
+      ? Object.keys(req.perSymbol)
+          .sort()
+          .map((s) => {
+            const o = req.perSymbol![s];
+            const t = o.target ? (o.target.kind === "absolute" ? `$${o.target.price}` : `${o.target.pct}%`) : "";
+            return `${s}=${o.thesis || ""}|${t}`;
+          })
+          .join(";")
+      : "";
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -222,11 +242,17 @@ export class UnifiedOptionsService {
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
+            ...(req.perSymbol ? { perSymbol: req.perSymbol } : {}),
           }, {
             riskProfile: req.riskProfile || "balanced",
+            ...(req.mode ? { mode: req.mode } : {}),
           });
           executionData = scanResult;
-          summary = `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups.`;
+          // Issue #23: the summary labels the mode; strategy-fit reports
+          // the fit accounting instead of the best-trade count.
+          summary = scanResult.mode === "strategy_fit"
+            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.`
+            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)`;
           break;
         }
 
