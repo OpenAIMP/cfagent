@@ -33,6 +33,7 @@ import {
 } from "./index";
 import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanSymbolOverride } from "./opportunityScanner";
 import type { ScanRunStore } from "./scanRunStore";
+import { buildTypeRollup } from "./strategies/ledger";
 import { getEtapiConfig, type EtapiConfig } from "../../config/etapiConfig";
 import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
@@ -225,6 +226,10 @@ export class UnifiedOptionsService {
             riskProfile: req.riskProfile || "balanced",
           });
 
+          // Issue #26: every single-name pipeline result carries the
+          // per-strategy-type roll-up (best-per-type + ledger counts),
+          // built by the same pure builder the NLQ actions use.
+          const typeRollup = buildTypeRollup(pipelineResult.strategies.evaluations, pipelineResult.ranked);
           if (req.action === "best_trade") {
             const bestCandidate = pipelineResult.bestTrade?.best?.candidate;
             const bestScore = pipelineResult.bestTrade?.best?.compositeScore ?? bestCandidate?.score;
@@ -232,12 +237,13 @@ export class UnifiedOptionsService {
               bestTrade: pipelineResult.bestTrade,
               evaluations: pipelineResult.strategies.evaluations,
               snapshot: pipelineResult.snapshot,
+              typeRollup,
             };
             summary = bestCandidate
               ? `Best trade for ${symbol} (${strategyRequest.thesis}): ${bestCandidate.label} (Score: ${bestScore})`
               : `No suitable option trade found for ${symbol} matching ${strategyRequest.thesis} criteria.`;
           } else {
-            executionData = pipelineResult;
+            executionData = { ...pipelineResult, typeRollup };
             summary = `Generated ${pipelineResult.ranked.length} evaluated strategy candidates for ${symbol}.`;
           }
           break;
@@ -355,6 +361,9 @@ export class UnifiedOptionsService {
               ranked: pipelineResult.ranked.slice(0, 10),
               scoreWeights: pipelineResult.strategies.scoreWeights,
               candidateCount: candidates.length,
+              // Issue #26: per-type roll-up over the FULL ranked set
+              // (not the top-10 slice above).
+              typeRollup: buildTypeRollup(pipelineResult.strategies.evaluations, pipelineResult.ranked),
             },
             llm: llmJudgment?.status === "error" ? llmJudgment : { status: "complete", ...llmJudgment },
             contracts: pipelineResult.snapshot.contracts,
@@ -412,6 +421,9 @@ export class UnifiedOptionsService {
               ranked: pipelineResult.ranked.slice(0, 10),
               scoreWeights: pipelineResult.strategies.scoreWeights,
               candidateCount: candidates.length,
+              // Issue #26: per-type roll-up over the FULL ranked set
+              // (not the top-10 slice above).
+              typeRollup: buildTypeRollup(pipelineResult.strategies.evaluations, pipelineResult.ranked),
             },
             llm: llmJudgment?.status === "error" ? llmJudgment : { status: "complete", ...llmJudgment },
             contracts: pipelineResult.snapshot.contracts,

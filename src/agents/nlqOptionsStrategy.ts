@@ -6,7 +6,7 @@
 
 import { OptionsAgentPipeline } from "../trading/options";
 import { defaultRegistry } from "../trading/options/strategies/catalog";
-import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate } from "../trading/options/opportunityScanner";
+import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading/options/opportunityScanner";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type {
@@ -16,7 +16,11 @@ import type {
   StrategyRequest,
 } from "../trading/options/strategyEngine";
 import type { RiskProfile } from "../trading/options/recommendationAgent";
+import { buildTypeRollup, type StrategyTypeRollup } from "../trading/options/strategies/ledger";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading/options/strategyRiskAgent";
+
+export { buildTypeRollup } from "../trading/options/strategies/ledger";
+export type { StrategyTypeRollup } from "../trading/options/strategies/ledger";
 
 export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities";
 
@@ -402,6 +406,15 @@ export function buildStrategyLedgerRows(
   });
 }
 
+/** Compact "Best by type:" summary clause (issue #26): the top 3 types
+ *  that produced a ranked candidate, by composite. Empty when no type
+ *  has a best — the clause is omitted rather than asserted falsely. */
+function bestByTypeClause(rollup: StrategyTypeRollup[]): string {
+  const top = rollup.filter((t) => t.best !== null).slice(0, 3);
+  if (!top.length) return "";
+  return ` Best by type: ${top.map((t) => `${t.label} ${t.bestComposite!.toFixed(1)}`).join("; ")}.`;
+}
+
 export async function runOptionsStrategyAction(
   etrade: {
     client: ConstructorParameters<typeof DynamicOptionsScreener>[0];
@@ -412,7 +425,7 @@ export async function runOptionsStrategyAction(
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
   deps?: { scanRunStore?: ScanRunStore },
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[] }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
@@ -476,18 +489,25 @@ export async function runOptionsStrategyAction(
   }
   const strategyDescriptions = new Map(defaultRegistry.list().map((def) => [def.id, def.description]));
   const evaluationRows = buildStrategyLedgerRows(result.strategies.evaluations, bestScoreByStrategy, strategyDescriptions);
+  // Issue #26: the per-type roll-up rides on BOTH single-name actions —
+  // the best-per-type winners next to the overall best (best trade) and
+  // next to the ranked candidate list (strategies) — with a compact
+  // clause in each summary.
+  const typeRollup = buildTypeRollup(result.strategies.evaluations, result.ranked);
+  const byType = bestByTypeClause(typeRollup);
 
   if (action === "options_strategies") {
     return {
       count: rankedRows.length,
       status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
-      summary: `Options Strategy Screener (${request.symbol}, ${request.thesis}, ${filters.riskProfile} ranking): ${scan}${freshness}${note}`,
+      summary: `Options Strategy Screener (${request.symbol}, ${request.thesis}, ${filters.riskProfile} ranking): ${scan}${freshness}${note}${byType}`,
       rows: filters.showEvaluations ? evaluationRows : rankedRows,
       rejections: result.snapshot.rejections.slice(0, 15),
       quoteQuality: result.snapshot.screen.quoteQuality,
       validationError: result.snapshot.validationError,
       evaluations: result.strategies.evaluations,
       nameLedger: result.strategies.nameLedger,
+      typeRollup,
     };
   }
 
@@ -508,7 +528,7 @@ export async function runOptionsStrategyAction(
   return {
     count: planRows.length,
     status: pick.status,
-    summary: `${headline}${pick.blockers.length ? ` Blockers: ${pick.blockers.join(" ")}` : ""} ${scan}${freshness}${note} ${pick.disclaimer}`,
+    summary: `${headline}${pick.blockers.length ? ` Blockers: ${pick.blockers.join(" ")}` : ""} ${scan}${freshness}${note} ${pick.disclaimer}${byType}`,
     rows: planRows.length > 0 ? planRows : rankedRows,
     evaluations: result.strategies.evaluations,
     nameLedger: result.strategies.nameLedger,
@@ -516,6 +536,7 @@ export async function runOptionsStrategyAction(
     quoteQuality: result.snapshot.screen.quoteQuality,
     bestTrade: pick,
     validationError: result.snapshot.validationError,
+    typeRollup,
   };
 }
 
@@ -681,9 +702,18 @@ async function runOpportunityScan(
   const gp = result.gateParams;
   const gatePct = (f: number) => (f * 100).toFixed(1).replace(/\.0$/, "");
   const gateNote = ` Gate: ${result.gate.fit} fit, ${result.gate.borderline} borderline, ${result.gate.noFit} no fit (min score ${gp.minCompositeScore}, min POP ${gatePct(gp.minProbabilityOfProfit)}%, ${gp.requireFresh ? "fresh quotes required" : "fresh quotes not required"}).`;
+  // Issue #26: the cross-symbol type roll-up's headline — the top 3
+  // types by their best candidate anywhere in the scan, with the symbol
+  // that produced it. A different cut from the "Fits by strategy type:"
+  // sentence above (screen-pass symbol counts per type): this one names
+  // each type's single best instance. Omitted when no type has a best.
+  const topTypes = result.typeRollup.filter((t) => t.bestOverall !== null).slice(0, 3);
+  const typeBestNote = topTypes.length
+    ? ` Best by type: ${topTypes.map((t) => `${t.strategyType} ${t.bestOverall!.compositeScore.toFixed(1)} (${t.bestOverall!.symbol})`).join("; ")}.`
+    : "";
   const summary = result.mode === "strategy_fit"
-    ? `Strategy fit scan over ${scopeLabel}: ${result.scanned} names accounted — ${result.fitsTotal} fit, ${result.gate.borderline} borderline, ${result.gate.noFit} no fit, ${matrixSkippedCount} skipped.${fitsNote}${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${gateNote}`
-    : `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote} (mode: per-name best)${gateNote}`;
+    ? `Strategy fit scan over ${scopeLabel}: ${result.scanned} names accounted — ${result.fitsTotal} fit, ${result.gate.borderline} borderline, ${result.gate.noFit} no fit, ${matrixSkippedCount} skipped.${fitsNote}${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${gateNote}${typeBestNote}`
+    : `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}${fitsNote} (mode: per-name best)${gateNote}${typeBestNote}`;
   return {
     count: rows.length,
     status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
@@ -693,6 +723,9 @@ async function runOpportunityScan(
     // summary above only shows up to 3 examples), plus the full fit matrix.
     skipped: result.skipped,
     matrix: result.matrix,
+    // Issue #26: the cross-symbol per-type roll-up, same object the
+    // scanner produced (and persisted runs carry).
+    typeRollup: result.typeRollup,
     // Issue #23: which strategy question this scan answered.
     mode: result.mode,
     // Issue #27: persistence outcome — present only when a store was
