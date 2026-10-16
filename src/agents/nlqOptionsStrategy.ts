@@ -531,8 +531,16 @@ async function runOpportunityScan(
   }
   if (symbols.length === 0) return fail("The selected scope contained no symbols.");
 
-  const { symbol: _omit, targetPrice, ...rest } = filters.request;
-  const template = { ...rest, targetPrice } as ScanRequestTemplate;
+  const { symbol: statedSymbol, targetPrice, ...rest } = filters.request;
+  // Issue #19: a target parsed from the question was stated for the named
+  // symbol only — carry it into the scan as a scoped statedTarget so it is
+  // never applied to the other scanned names.
+  const template = {
+    ...rest,
+    ...(targetPrice !== undefined
+      ? { statedTarget: statedSymbol ? { price: targetPrice, symbol: statedSymbol } : { price: targetPrice } }
+      : {}),
+  } as ScanRequestTemplate;
   const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
   const result = await scanner.scan(symbols, template, { riskProfile: filters.riskProfile, strategyFilter: filters.strategyFilter });
 
@@ -558,10 +566,11 @@ async function runOpportunityScan(
   });
   const skippedNote = result.skipped.length ? ` ${result.skipped.length} skipped (${result.skipped.slice(0, 3).map((s) => `${s.symbol}: ${s.reason}`).join("; ")}${result.skipped.length > 3 ? "; ..." : ""}).` : "";
   const truncNote = result.truncatedSymbols ? ` Only the first ${MAX_SCAN_SYMBOLS} symbols were scanned (${result.truncatedSymbols} not scanned) to stay within request limits.` : "";
+  const assumptionNote = result.assumptions.length ? ` ${result.assumptions.join(" ")}` : "";
   return {
     count: rows.length,
     status: rows.length > 0 ? "ranked_opportunities" : "no_opportunities",
-    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.`,
+    summary: `Opportunity scan over ${scopeLabel}: ${result.scanned} symbols scanned, ${result.withTrades} with a qualifying ${filters.request.thesis} trade (${filters.riskProfile} ranking).${skippedNote}${truncNote} Research only; verify live quotes and approve any order manually.${assumptionNote}`,
     rows,
   };
 }
