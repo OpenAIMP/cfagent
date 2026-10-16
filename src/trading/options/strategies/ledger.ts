@@ -1,4 +1,6 @@
 import type { StrategyCandidate, StrategyRequest } from "../strategyEngine";
+import type { RankedStrategy } from "../recommendationAgent";
+import type { ScanMatrixCellBest } from "../opportunityScanner";
 import type { AcceptanceRule, EvaluationObserver, EvaluationStatus, StrategyDefinition, StrategyEvaluation } from "./types";
 
 /** Chain of responsibility: the first rule that returns a reason rejects the candidate. */
@@ -98,4 +100,102 @@ export class EvaluationLedger implements EvaluationObserver {
       };
     });
   }
+}
+
+/** One strategy type's roll-up for a single-name run (issue #26): the
+ *  per-type winner plus the type's evaluation-ledger stats, so "best
+ *  iron condor on AAPL" is answerable next to the overall best trade.
+ *  `strategyType` is the strategy definition id — in this codebase a
+ *  candidate's `type` IS its definition id (buildStrategyLedgerRows
+ *  keys best scores the same way); `category` is the coarser family.
+ *  "passed" here counts candidates that passed the ACCEPTANCE RULES
+ *  (the evaluation ledger's accepted counts). The scan roll-up
+ *  (ScanTypeRollup in opportunityScanner.ts) counts risk-screen passes
+ *  instead — each surface keeps its own pipeline's meaning. */
+export interface StrategyTypeRollup {
+  strategyType: string;
+  label: string;
+  category: StrategyEvaluation["category"];
+  /** Candidates the engine generated for this type (ledger). */
+  evaluatedCount: number;
+  /** Generated candidates that passed the acceptance rules (ledger). */
+  passedCount: number;
+  rejectedCount: number;
+  /** The ledger's rejection reasons for this type as a histogram —
+   *  build failures and acceptance-rule rejections, as recorded. */
+  rejectionReasons: Record<string, number>;
+  /** The highest-composite RANKED candidate of this type, flattened to
+   *  the ScanMatrixCellBest shape; null when no candidate of the type
+   *  reached the ranking — including types that passed acceptance but
+   *  were all screened out before ranking (passedCount > 0, best null
+   *  is honest: acceptance and ranking are different gates). */
+  best: ScanMatrixCellBest | null;
+  bestComposite: number | null;
+}
+
+/** Flatten a ranked candidate to the ScanMatrixCellBest shape — the
+ *  same projection buildMatrixCells applies on the scan side, so a
+ *  per-type best reads identically on both surfaces. */
+function flattenRankedBest(entry: RankedStrategy): ScanMatrixCellBest {
+  const c = entry.candidate;
+  return {
+    candidateId: c.id,
+    label: c.label,
+    compositeScore: entry.compositeScore,
+    score: c.score,
+    expirationDate: c.expirationDate,
+    legs: c.legs,
+    netDebit: c.netDebit,
+    maxLoss: c.maxLoss,
+    maxProfit: c.maxProfit,
+    maxProfitUnbounded: c.maxProfitUnbounded,
+    targetRewardRisk: c.targetRewardRisk,
+    probabilityOfProfit: c.modelImpliedProbabilityOfProfit,
+  };
+}
+
+/**
+ * Build the per-strategy-type roll-up for a single-name run (issue
+ * #26) from the evaluation ledger and the ranked candidates. Pure and
+ * exported for direct unit testing. Counts come from the ledger alone,
+ * so they reconcile with it exactly: Σ evaluatedCount = Σ generated
+ * and Σ passedCount = Σ accepted over the input evaluations. Ordering
+ * follows the matrix-cell discipline: best composite descending,
+ * best-less types last, strategy type ascending on ties.
+ */
+export function buildTypeRollup(
+  evaluations: StrategyEvaluation[],
+  ranked: RankedStrategy[],
+): StrategyTypeRollup[] {
+  const bestByType = new Map<string, RankedStrategy>();
+  for (const entry of ranked) {
+    const current = bestByType.get(entry.candidate.type);
+    if (!current || entry.compositeScore > current.compositeScore) {
+      bestByType.set(entry.candidate.type, entry);
+    }
+  }
+  const entries = evaluations.map((e): StrategyTypeRollup => {
+    const rejectionReasons: Record<string, number> = {};
+    for (const r of e.reasons) rejectionReasons[r.reason] = (rejectionReasons[r.reason] ?? 0) + r.count;
+    const top = bestByType.get(e.id);
+    return {
+      strategyType: e.id,
+      label: e.label,
+      category: e.category,
+      evaluatedCount: e.generated,
+      passedCount: e.accepted,
+      rejectedCount: e.generated - e.accepted,
+      rejectionReasons,
+      best: top ? flattenRankedBest(top) : null,
+      bestComposite: top ? top.compositeScore : null,
+    };
+  });
+  return entries.sort((a, b) => {
+    if (a.bestComposite !== null && b.bestComposite !== null && a.bestComposite !== b.bestComposite) {
+      return b.bestComposite - a.bestComposite;
+    }
+    if (a.bestComposite !== null && b.bestComposite === null) return -1;
+    if (a.bestComposite === null && b.bestComposite !== null) return 1;
+    return a.strategyType.localeCompare(b.strategyType);
+  });
 }
