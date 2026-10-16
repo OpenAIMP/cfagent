@@ -196,6 +196,7 @@ function fabricatedResult(
     gate,
     borderline: [],
     gateParams: { minCompositeScore: 55, minProbabilityOfProfit: 0.35, requireFresh: true, minConfidence: "MEDIUM" },
+    profileRef: null,
     generatedAt,
     modelVersion: SCAN_MODEL_VERSION,
     requestSnapshot: {
@@ -208,6 +209,7 @@ function fabricatedResult(
       },
       mode: "strategy_fit",
       riskProfile: "balanced",
+      profile: null,
     },
     configSnapshot: {
       maxScanSymbols: MAX_SCAN_SYMBOLS,
@@ -319,7 +321,7 @@ describe("scan provenance (issue #27)", () => {
     });
 
     expect(result.generatedAt).toBe("2026-10-16T14:30:00.000Z");
-    expect(result.modelVersion).toBe("1.1.1");
+    expect(result.modelVersion).toBe("1.1.2");
     expect(result.modelVersion).toBe(SCAN_MODEL_VERSION);
 
     // The snapshot echoes exactly what was asked (not what the gate or
