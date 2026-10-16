@@ -16,6 +16,17 @@ export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
 const CONCURRENCY = baseOppConfig.concurrency;
 
 /**
+ * Version of the scan model (issue #27): the semantics that produced a
+ * result — scoring, the fit gate, the fit matrix, and the scan modes.
+ * Bump discipline: ANY change to scoring, gating, matrix construction,
+ * or mode semantics bumps this version (patch for purely additive
+ * fields, minor/major for changed verdicts), so persisted runs stamped
+ * with different model versions are never silently compared as if they
+ * were produced by the same model.
+ */
+export const SCAN_MODEL_VERSION = "1.0.0";
+
+/**
  * The two strategy questions a scan can answer (issue #23):
  *  - "strategy_fit" — Q1: "which names fit my strategy?" Returns the full
  *    accounting: every fitting name in `fits`, not a best-trade top-N.
@@ -201,6 +212,49 @@ export interface ScanMatrixRow {
   gateReasons: string[];
 }
 
+/** What a scan was asked (issue #27): the resolved template fields that
+ *  shaped the run, the mode, the ranking profile, and the screen filter.
+ *  The resolved fit gate rides separately on the result as `gateParams`
+ *  (issue #24) and is deliberately not duplicated here. */
+export interface ScanRequestSnapshot {
+  template: {
+    thesis: StrategyRequest["thesis"];
+    targetDate: string;
+    minDte?: number;
+    maxDte?: number;
+    maxPlannedLoss: number;
+    minRewardRisk: number;
+    allowedStrategies: StrategyRequest["allowedStrategies"];
+    statedTarget?: { price: number; symbol?: string };
+    perSymbol?: Record<string, ScanSymbolOverride>;
+  };
+  mode: ScanMode;
+  riskProfile: RiskProfile;
+  strategyFilter?: StrategyScreenFilter;
+}
+
+/** The resolved scanner configuration a scan ran under (issue #27),
+ *  from getOpportunityScannerConfig(). */
+export interface ScanConfigSnapshot {
+  maxScanSymbols: number;
+  targetFactors: Record<StrategyRequest["thesis"], number>;
+}
+
+/** Coverage accounting for a scan (issue #27): how much of the requested
+ *  universe was actually judged. `considered` = unique symbols asked
+ *  for; `scanned` = symbols in the (capped) batch; `truncated` =
+ *  considered − scanned; `evaluated` = symbols with a non-skipped
+ *  matrix row; `errors` = symbols skipped (never evaluated);
+ *  `withTrades` mirrors the result's withTrades count. */
+export interface ScanCoverage {
+  considered: number;
+  scanned: number;
+  truncated: number;
+  evaluated: number;
+  errors: number;
+  withTrades: number;
+}
+
 export interface OpportunityScanResult {
   scanned: number;
   withTrades: number;
@@ -233,6 +287,19 @@ export interface OpportunityScanResult {
   /** The resolved fit-gate parameters this scan was judged under
    *  (issue #24) — provenance for every "fit" declared in the result. */
   gateParams: FitGateParams;
+  /** When this result was generated, ISO 8601 (issue #27). */
+  generatedAt: string;
+  /** The scan-model version that produced this result (issue #27);
+   *  see SCAN_MODEL_VERSION for the bump discipline. */
+  modelVersion: string;
+  /** What the scan was asked — template, mode, profile, filter
+   *  (issue #27). */
+  requestSnapshot: ScanRequestSnapshot;
+  /** The resolved scanner config the scan ran under (issue #27). */
+  configSnapshot: ScanConfigSnapshot;
+  /** Coverage accounting (issue #27): how much of the requested
+   *  universe was actually judged. */
+  coverage: ScanCoverage;
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
@@ -419,6 +486,10 @@ export class OpportunityScanner {
       /** Fit-gate overrides for this call (issue #24), merged over the
        *  config defaults from getOpportunityScannerConfig(). */
       fitGate?: Partial<FitGateParams>;
+      /** Clock override for deterministic provenance (issue #27): the
+       *  result's `generatedAt` is stamped from this instant instead of
+       *  the wall clock. */
+      now?: Date;
     } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
@@ -536,6 +607,12 @@ export class OpportunityScanner {
     // per_name_best mode `limit` slices `opportunities` as it always has.
     const fitRows = mode === "strategy_fit" ? matrix.filter((m) => m.gateBucket === "fit") : [];
     const offset = options.offset ?? 0;
+    // Provenance (issue #27): when the scan ran, which model produced
+    // it, exactly what was asked, the config it ran under, and how much
+    // of the requested universe was actually judged. Pure data — the
+    // scanner performs no I/O; persistence lives behind the
+    // ScanRunStore seam (src/trading/options/scanRunStore.ts).
+    const skippedRows = matrix.filter((m) => m.verdict === "skipped").length;
     return {
       scanned: batch.length,
       withTrades: opportunities.length,
@@ -550,6 +627,36 @@ export class OpportunityScanner {
       gate: gateCounts,
       borderline,
       gateParams: gate,
+      generatedAt: (options.now ?? new Date()).toISOString(),
+      modelVersion: SCAN_MODEL_VERSION,
+      requestSnapshot: {
+        template: {
+          thesis: template.thesis,
+          targetDate: template.targetDate,
+          minDte: template.minDte,
+          maxDte: template.maxDte,
+          maxPlannedLoss: template.maxPlannedLoss,
+          minRewardRisk: template.minRewardRisk,
+          allowedStrategies: template.allowedStrategies,
+          statedTarget: template.statedTarget,
+          perSymbol: template.perSymbol,
+        },
+        mode,
+        riskProfile: profile,
+        strategyFilter: options.strategyFilter,
+      },
+      configSnapshot: {
+        maxScanSymbols: baseOppConfig.maxScanSymbols,
+        targetFactors: { ...baseOppConfig.targetFactors },
+      },
+      coverage: {
+        considered: unique.length,
+        scanned: batch.length,
+        truncated: Math.max(0, unique.length - batch.length),
+        evaluated: matrix.length - skippedRows,
+        errors: skippedRows,
+        withTrades: opportunities.length,
+      },
     };
   }
 }
