@@ -214,6 +214,14 @@ export function EtapiConfigModal({
             large_move: Number(largeMoveFactor),
             range_bound: 1.0,
           },
+          // Expected-move target multiples (issue #25) — carried so a
+          // saved config stays complete; not edited in this modal.
+          targetEmMultiples: {
+            bullish: 0.6,
+            bearish: -0.6,
+            large_move: 1.2,
+            range_bound: 0,
+          },
         },
         ai: {
           defaultModel: selectedDefaultModel,
