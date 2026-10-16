@@ -2082,6 +2082,66 @@ export function StrategyDiscoveryPanel({
             </div>
           </div>
 
+          <section className="strat-server-candidates" aria-label="Backend-ranked strategies for payoff analysis">
+            <div className="strat-server-candidates-header">
+              <div>
+                <h3>Backend-ranked strategies</h3>
+                <p>Choose a market sentiment to load live server-ranked candidates into the payoff analyzer.</p>
+              </div>
+              <span className={`strat-server-source ${discoveryDataSource}`}>
+                {isDiscovering ? "Refreshing candidates…" : discoveryDataSource === "live" ? "Live broker chain" : discoveryDataSource === "calibrated-demo" ? "Calibrated demo data" : "Data unavailable"}
+              </span>
+            </div>
+            <div className="strat-sentiment-group strat-sentiment-selector strat-payoff-sentiments" role="radiogroup" aria-label="Market sentiment for payoff strategies">
+              {SENTIMENT_ITEMS.map((item) => {
+                const isActive = sentiment === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
+                    onClick={() => handleSentimentChange(item.id)}
+                    role="radio"
+                    aria-checked={isActive}
+                    title={`Load backend-ranked ${item.label.toLowerCase()} strategies`}
+                  >
+                    <div className="strat-sentiment-circle">{item.icon}</div>
+                    <span className="strat-sentiment-label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {discoveryError && <div className="strat-server-candidates-error" role="alert">{discoveryError}</div>}
+            {!isDiscovering && discoveredStrategies.length === 0 && (
+              <div className="strat-server-candidates-empty" role="status">
+                No backend candidates are available for this sentiment and market data source. Change sentiment or refresh the option chain.
+              </div>
+            )}
+            {discoveredStrategies.length > 0 && (
+              <div className="strat-server-candidates-list" aria-label={`${discoveredStrategies.length} backend-ranked strategies`}>
+                {discoveredStrategies.slice(0, 8).map((strategy) => (
+                  <button
+                    key={strategy.id}
+                    type="button"
+                    className={`strat-server-candidate ${selectedStrategy?.id === strategy.id ? "active" : ""}`}
+                    disabled={isDiscovering}
+                    aria-pressed={selectedStrategy?.id === strategy.id}
+                    onClick={() => {
+                      if (builderLegs.length > 0) setPreviousStrategyLegs([...builderLegs]);
+                      setSelectedStrategy(strategy);
+                      setCustomStrategyName(null);
+                      setBuilderLegs([...strategy.legs]);
+                    }}
+                  >
+                    <span className="strat-server-candidate-title">{strategy.name}</span>
+                    <span className="strat-server-candidate-meta">{strategy.subtitle}</span>
+                    <span className="strat-server-candidate-risk">Max loss {strategy.maxLoss === null ? "Unlimited" : `$${strategy.maxLoss.toLocaleString()}`} · POP {strategy.chanceOfProfit}%</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* Capability 12: Strategy Comparison Banner */}
           {previousStrategyLegs && previousStrategyLegs.length > 0 && (
             <div className="strat-compare-banner">
