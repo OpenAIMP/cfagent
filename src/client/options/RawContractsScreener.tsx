@@ -3,7 +3,7 @@ import { apiFetch as fetch } from "../apiFetch";
 import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
-import type { OptionsTradeContext } from "./OptionsResearchPanel";
+import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
 
@@ -11,7 +11,7 @@ interface RawContractsScreenerProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
   initialSymbol?: string;
-  onPreviewTrade?: (ctx: OptionsTradeContext) => void;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onSelectContract?: (contract: ScreenedOptionContractItem) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
@@ -615,12 +615,22 @@ export function RawContractsScreener({
                             title="Preview buy trade order"
                             onClick={() =>
                               onPreviewTrade({
+                                assetClass: "options",
                                 symbol: c.underlyingSymbol,
                                 action: "BUY",
                                 quantity: 1,
                                 underlyingPrice: c.underlyingPrice,
                                 label: `Buy 1x ${contractLabel} (${c.optionType} $${c.strikePrice})`,
                                 legs: [`BUY 1 ${contractLabel} @ $${mid.toFixed(2)}`],
+                                optionLegs: [{
+                                  securityType: "OPTN",
+                                  side: "BUY",
+                                  quantity: 1,
+                                  optionType: c.optionType,
+                                  strike: c.strikePrice,
+                                  expirationDate: c.expirationDate,
+                                }],
+                                strategyNetDebit: mid * 100,
                               })
                             }
                           >

@@ -108,6 +108,9 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
   }
 
   async previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft> {
+    if (params.assetClass === "options" || params.optionLegs?.some((leg) => leg.securityType === "OPTN")) {
+      throw new Error("This broker adapter currently supports equity orders only. Options orders require a broker adapter with native options preview support.");
+    }
     const quote = await this.getQuote(params.symbol);
     const orderId = `alp_ord_${crypto.randomUUID().slice(0, 8)}`;
     const userDid = getUserDid(params.sessionId || this.userLogin);

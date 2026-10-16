@@ -3053,14 +3053,28 @@ Agentic Best Practices & Workflow Rules:
         const orderType = body.orderType || "MARKET";
         const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
         const stopPrice = body.stopPrice !== undefined ? Number(body.stopPrice) : undefined;
+        const optionLegs = Array.isArray(body.optionLegs) ? body.optionLegs : undefined;
+        const inferredAssetClass = optionLegs?.some((leg: any) => leg.securityType === "OPTN") ? "options" : "equity";
+        const rawAssetClass = body.assetClass === undefined ? inferredAssetClass : String(body.assetClass).toLowerCase();
+        if (rawAssetClass !== "equity" && rawAssetClass !== "options") {
+          return Response.json({ error: `Unsupported order asset class: ${rawAssetClass}.` }, { status: 400 });
+        }
+        const assetClass = rawAssetClass as "equity" | "options";
+        if (assetClass === "options" && !optionLegs?.some((leg: any) => leg.securityType === "OPTN")) {
+          return Response.json({ error: "Options orders require at least one complete option contract leg." }, { status: 400 });
+        }
+        if (assetClass === "equity" && optionLegs?.some((leg: any) => leg.securityType === "OPTN")) {
+          return Response.json({ error: "Option contract legs must be routed as an options order." }, { status: 400 });
+        }
 
         if (!symbol) {
-          return Response.json({ error: "Stock symbol is required" }, { status: 400 });
+          return Response.json({ error: "Order symbol is required" }, { status: 400 });
         }
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const preview = await etrade.previewOrderRemote({
+          assetClass,
           sessionId,
           symbol,
           orderAction,
@@ -3068,7 +3082,7 @@ Agentic Best Practices & Workflow Rules:
           orderType,
           limitPrice,
           stopPrice,
-          optionLegs: Array.isArray(body.optionLegs) ? body.optionLegs : undefined,
+          optionLegs,
           strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined,
         });
 

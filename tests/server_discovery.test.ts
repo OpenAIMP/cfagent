@@ -129,7 +129,8 @@ describe("server discovery mapping (issue #29)", () => {
 
     // The order-preview endpoint must pass complete option strategies through
     // to E*TRADE instead of silently degrading them to equity orders.
-    expect(orchestratorCode).toContain("optionLegs: Array.isArray(body.optionLegs) ? body.optionLegs : undefined");
+    expect(orchestratorCode).toContain("assetClass,");
+    expect(orchestratorCode).toContain("optionLegs,");
     expect(orchestratorCode).toContain("strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined");
     expect(orchestratorCode).toContain("demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled()");
   });

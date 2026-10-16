@@ -224,12 +224,20 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     const symbol = params.symbol.trim().toUpperCase();
     const action = (params.action || params.orderAction || "BUY") as "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
     const optionLegs = params.optionLegs || [];
+    const isOptionsOrder = params.assetClass === "options" || optionLegs.some((leg) => leg.securityType === "OPTN");
+    const assetClass = params.assetClass || (isOptionsOrder ? "options" : "equity");
+    if (params.assetClass === "options" && !optionLegs.some((leg) => leg.securityType === "OPTN")) {
+      throw new Error("Options orders require at least one option contract leg.");
+    }
+    if (params.assetClass === "equity" && optionLegs.some((leg) => leg.securityType === "OPTN")) {
+      throw new Error("Option contract legs cannot be previewed as an equity order.");
+    }
     // A complex options preview is priced from its net limit and option legs;
     // requiring an underlying equity quote here could block valid option orders.
-    const quote = optionLegs.length ? undefined : await this.getQuote(symbol);
+    const quote = isOptionsOrder || optionLegs.length ? undefined : await this.getQuote(symbol);
     const legsError = validateTradingOrderLegs(optionLegs, symbol);
     if (legsError) throw new Error(legsError);
-    if (optionLegs.length && (!Number.isFinite(params.strategyNetDebit) || params.orderType !== "LIMIT" || !Number.isFinite(params.limitPrice) || Number(params.limitPrice) <= 0)) {
+    if (isOptionsOrder && (!Number.isFinite(params.strategyNetDebit) || params.orderType !== "LIMIT" || !Number.isFinite(params.limitPrice) || Number(params.limitPrice) <= 0)) {
       throw new Error("Options strategies require a finite net debit/credit and a positive limit price for broker preview.");
     }
     const orderId = `ord_${crypto.randomUUID().slice(0, 8)}`;
@@ -258,7 +266,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     // Never create a local/simulated options draft from modeled client prices.
     // A strategy order must be previewed by the connected broker using its
     // current market data before it can enter the human-approval flow.
-    if (optionLegs.length && (!hasKeys || !authStatus.authenticated)) {
+    if (isOptionsOrder && (!hasKeys || !authStatus.authenticated)) {
       throw new Error("Connect and authorize E*TRADE to preview option strategies with current broker market data. No simulated option preview is available.");
     }
 
@@ -318,7 +326,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       ? `E*TRADE ${brokerOrderType} Preview: ${params.quantity} strategy unit(s) of ${symbol} @ ${params.limitPrice ? `$${params.limitPrice.toFixed(2)} net` : "market"}. Estimated total: $${estimatedTotal.toLocaleString()} USD. No order has been placed; human approval is required.`
       : `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote!.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.`;
     const storedPreviewNotes = optionLegs.length
-      ? JSON.stringify({ kind: "strategy-order-v1", brokerOrderType, optionLegs, strategyNetDebit: params.strategyNetDebit, note: brokerNotice })
+      ? JSON.stringify({ kind: "strategy-order-v1", assetClass, brokerOrderType, optionLegs, strategyNetDebit: params.strategyNetDebit, note: brokerNotice })
       : brokerNotice;
 
     const draft: ETradeOrderDraft = {

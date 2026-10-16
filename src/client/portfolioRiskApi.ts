@@ -10,7 +10,7 @@ import type { PortfolioRiskReport } from "../services/portfolioRisk";
 import type { ConcentrationReport } from "../services/portfolioConcentration";
 import type { SizingCandidate, SizingResult } from "../services/positionSizing";
 import type { HedgeAnalysis, HedgeProposal } from "../services/hedgeProposals";
-import type { OptionsTradeContext } from "./options/OptionsResearchPanel";
+import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import { apiFetch } from "./apiFetch";
 
 export type { PortfolioRiskReport, ConcentrationReport, SizingCandidate, SizingResult, HedgeAnalysis, HedgeProposal };
@@ -77,15 +77,16 @@ export function fmtNumber(value: number | null | undefined, digits = 2): string 
 }
 
 /**
- * Converts a hedge DRAFT into the order-ticket context the hub's existing
- * HITL flow consumes (handleOptionsTrade). The panel never previews or
+ * Converts a hedge DRAFT into the asset-aware order-ticket context the hub's
+ * HITL flow consumes. The panel never previews or
  * executes anything itself — this hand-off is the only bridge, and the
  * human still reviews and approves in the order ticket.
  */
-export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: number | null): OptionsTradeContext {
+export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: number | null): TradeOrderContext {
   const move = `β-weighted Δ ${fmtSignedUsd(proposal.preHedgeBetaWeightedDeltaDollars)} → ${fmtSignedUsd(proposal.postHedgeBetaWeightedDeltaDollars)}`;
   if (proposal.instrument === "SPY_SHARES") {
     return {
+      assetClass: "equity",
       symbol: "SPY",
       action: proposal.side,
       quantity: proposal.quantity,
@@ -95,6 +96,7 @@ export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: n
     };
   }
   return {
+    assetClass: "options",
     symbol: "SPY",
     action: proposal.side,
     quantity: proposal.quantity,
@@ -103,6 +105,15 @@ export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: n
     legs: [
       `${proposal.side} ${proposal.quantity} SPY ${proposal.strike} PUT exp ${proposal.expirationDate} — est. cost ${fmtUsd(Math.abs(proposal.estimatedCost), 2)}`,
     ],
+    optionLegs: [{
+      securityType: "OPTN",
+      side: proposal.side,
+      quantity: 1,
+      optionType: "PUT",
+      strike: proposal.strike,
+      expirationDate: proposal.expirationDate,
+    }],
+    strategyNetDebit: Math.sign(proposal.estimatedCost || 1) * Math.abs(proposal.estimatedCost) / Math.max(1, proposal.quantity),
   };
 }
 

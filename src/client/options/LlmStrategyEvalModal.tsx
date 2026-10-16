@@ -8,7 +8,7 @@ import {
   type RawOptionsIdeasExport,
   type RetrievedOptionsDataExport,
 } from "./optionsIdeasExport";
-import type { OptionsTradeContext } from "./OptionsResearchPanel";
+import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
 export interface StrategyToEvaluate {
@@ -26,6 +26,7 @@ export interface StrategyToEvaluate {
   breakevenText?: string;
   underlyingPrice?: number;
   legs?: string[];
+  optionLegs?: TradeOrderLeg[];
 }
 
 interface LlmOptionsIdeasResponse {
@@ -62,7 +63,7 @@ export interface LlmStrategyEvalModalProps {
   activeEnv?: "TEST" | "PROD";
   userLogin?: string;
   strategy: StrategyToEvaluate | null;
-  onPreviewTrade?: (ctx: OptionsTradeContext) => void;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
 }
 
 export function LlmStrategyEvalModal({
@@ -176,13 +177,16 @@ export function LlmStrategyEvalModal({
 
   const handleOrderTicket = () => {
     if (!onPreviewTrade || !strategy) return;
-    const ctx: OptionsTradeContext = {
+    const ctx: TradeOrderContext = {
+      assetClass: "options",
       symbol: strategy.symbol,
       action: strategy.sentiment?.includes("bearish") ? "SELL_SHORT" : "BUY",
       quantity: 1,
       underlyingPrice: strategy.underlyingPrice,
       label: `${strategy.strategyName} (LLM Evaluated)`,
       legs: strategy.legs || [strategy.legsText || strategy.strategyName],
+      optionLegs: strategy.optionLegs,
+      strategyNetDebit: strategy.netDebit,
     };
     onPreviewTrade(ctx);
   };
