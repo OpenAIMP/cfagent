@@ -2,6 +2,10 @@
  * Issue #29, slice 7: the client engine's cushion / capital-efficiency /
  * POP lenses absorbed into the server scoring engine, and the panel's bias
  * slider expressed as a server request weighting (resolveScoreWeights).
+ *
+ * Issue #25 addendum: the capital-efficiency maxLoss floor is 1% of
+ * per-contract notional (spot-relative), not a flat $100 — pinned by the
+ * spot-40 test below, where the two floors genuinely differ.
  */
 import { describe, expect, it } from "vitest";
 import type { ScreenedOptionContractItem } from "../src/types";
@@ -139,6 +143,65 @@ describe("absorbed lenses in candidate scoring (issue #29)", () => {
       / candidate.underlyingPrice * 100;
     const expected = Math.max(5, Math.min(100, Math.round(cushionPct * 4)));
     expect(candidate.scoreBreakdown.cushion).toBe(expected);
+  });
+
+  it("computes capital efficiency against a spot-relative maxLoss floor (issue #25)", () => {
+    // Spot-40 chain (same economics as the spot-100 fixture, scaled):
+    // narrow debit spreads here carry maxLoss between $40 (1% of the
+    // $4,000 per-contract notional) and $100 — exactly the window where
+    // the pre-#25 flat $100 floor and the spot-relative floor differ.
+    const spot = 40;
+    const contracts = [36, 38, 40, 42, 44].flatMap((strike) => {
+      const timeValue = Math.max(0.3, 3 - Math.abs(strike - spot) * 0.12);
+      const callMid = Math.max(0.3, Math.max(spot - strike, 0) + timeValue);
+      const putMid = Math.max(0.3, Math.max(strike - spot, 0) + timeValue);
+      const delta = Math.max(0.15, Math.min(0.85, 0.5 + (spot - strike) / 40));
+      const base = {
+        underlyingSymbol: "XYZ",
+        underlyingPrice: spot,
+        daysToExpiration: 30,
+        expirationDate: expiryDate,
+        moneyness: "ATM" as const,
+        strikeDistancePct: (Math.abs(strike - spot) / spot) * 100,
+        spreadPct: 8,
+        quoteAgeSeconds: 0,
+        quoteTimestamp: new Date(Date.now()).toISOString(),
+        quoteFreshness: "FRESH" as const,
+        lastPrice: 2.5,
+        volume: 1_000,
+        openInterest: 2_000,
+        gamma: 0.02,
+        theta: -0.03,
+        vega: 0.12,
+        impliedVolatility: 0.3,
+        adjustedFlag: false,
+        technicalSignal: "Test fixture",
+        highlightReason: "Test fixture",
+      };
+      return [
+        { ...base, optionType: "CALL" as const, symbol: `XYZ${strike}C`, strikePrice: strike, bid: callMid - 0.1, ask: callMid + 0.1, delta },
+        { ...base, optionType: "PUT" as const, symbol: `XYZ${strike}P`, strikePrice: strike, bid: putMid - 0.1, ask: putMid + 0.1, delta: -delta },
+      ];
+    });
+    const result = recommendOptionStrategies(contracts, request({
+      targetPrice: 42,
+      allowedStrategies: ["call_debit_spread"],
+    }));
+    // (targetPnl between $10 and maxLoss keeps both formulas off their
+    // 10/100 clamps, so the floor choice is what the values show.)
+    const inWindow = result.candidates.filter(
+      (c) => c.maxLoss > spot && c.maxLoss < 100 && c.targetPnl > 10 && c.targetPnl < c.maxLoss,
+    );
+    expect(inWindow.length).toBeGreaterThan(0);
+    for (const candidate of inWindow) {
+      const clampLens = (v: number) => Math.max(10, Math.min(100, Math.round(v)));
+      const spotFloor = clampLens(candidate.targetPnl / Math.max(candidate.underlyingPrice, candidate.maxLoss) * 100);
+      const flatFloor = clampLens(candidate.targetPnl / Math.max(100, candidate.maxLoss) * 100);
+      // The fixture must actually discriminate the two formulas…
+      expect(spotFloor).not.toBe(flatFloor);
+      // …and the engine must use the spot-relative one.
+      expect(candidate.scoreBreakdown.capitalEfficiency).toBe(spotFloor);
+    }
   });
 
   it("threads optimizationBias from the request into the reported weights", () => {
