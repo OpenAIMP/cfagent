@@ -19,6 +19,45 @@ import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import { UnifiedOptionsService } from "../src/trading/options/unifiedOptionsService";
 import type { Env, ETradeOptionChain, ScreenedStockItem } from "../src/types";
 
+/** Full two-sided chain fixture for the opportunities scan (issue #23):
+ *  five strike pairs around spot with the same economics as the scanner
+ *  suites' chain builders. */
+function scanChainFixture(symbol: string, spot: number, expiry: { year: number; month: number; day: number }): ETradeOptionChain {
+  const legMid = (strike: number, type: "CALL" | "PUT") => {
+    const intrinsic = type === "CALL" ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0);
+    return Math.max(0.3, intrinsic + Math.max(0.3, 3 - Math.abs(strike - spot) * 0.12));
+  };
+  const leg = (type: "CALL" | "PUT", strike: number) => {
+    const mid = legMid(strike, type);
+    const deltaMag = Math.max(0.15, Math.min(0.85, 0.5 + (spot - strike) / 40));
+    return {
+      timeStamp: Date.now(),
+      adjustedFlag: false,
+      optionType: type,
+      strikePrice: strike,
+      symbol: `${symbol}${strike}${type === "CALL" ? "C" : "P"}`,
+      bid: Math.max(0.05, mid - 0.1),
+      ask: mid + 0.1,
+      lastPrice: mid,
+      volume: 1_000,
+      openInterest: 2_000,
+      delta: type === "CALL" ? deltaMag : -deltaMag,
+      gamma: 0.02,
+      theta: -0.03,
+      impliedVolatility: 0.3,
+    };
+  };
+  return {
+    symbol,
+    underlyingPrice: spot,
+    selectedExpiry: expiry,
+    pairs: [0.9, 0.95, 1, 1.05, 1.1].map((mult) => {
+      const strike = Math.round(spot * mult * 100) / 100;
+      return { call: leg("CALL", strike), put: leg("PUT", strike) };
+    }),
+  } as unknown as ETradeOptionChain;
+}
+
 describe("ETAPI Externalized Configuration & Unified Options Service", () => {
   beforeEach(() => {
     setRuntimeEtapiConfigOverrides(null);
@@ -315,6 +354,54 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
 
     const emailOutput = catalogResult.toEmailHtml();
     expect(emailOutput).toContain("74 Strategies");
+  });
+
+  it("handles unified action: opportunities in strategy_fit mode with per-name overrides (issue #23)", async () => {
+    const expiryDateObj = new Date(Date.now() + 35 * 86_400_000);
+    const expiry = { year: expiryDateObj.getUTCFullYear(), month: expiryDateObj.getUTCMonth() + 1, day: expiryDateObj.getUTCDate() };
+    const targetDate = `${expiry.year}-${String(expiry.month).padStart(2, "0")}-${String(expiry.day).padStart(2, "0")}`;
+    DynamicOptionsScreener.setTestChainsFixture({
+      NVDA: scanChainFixture("NVDA", 250, expiry),
+      AMD: scanChainFixture("AMD", 40, expiry),
+      MSFT: scanChainFixture("MSFT", 100, expiry),
+    });
+
+    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+    const fitResult = await service.execute({
+      action: "opportunities",
+      symbols: ["NVDA", "AMD"],
+      mode: "strategy_fit",
+      targetDate,
+      perSymbol: { AMD: { target: { kind: "percent", pct: 10 } } },
+    });
+
+    expect(fitResult.success).toBe(true);
+    expect(fitResult.action).toBe("opportunities");
+    // The summary labels the mode and reports the fit accounting.
+    expect(fitResult.summary).toBe(
+      "Opportunity scan across 2 symbols (mode: strategy fit): 2 of 2 names fit.",
+    );
+    // executionData carries the mode and the unpaginated fit list.
+    expect(fitResult.data.mode).toBe("strategy_fit");
+    expect(fitResult.data.fitsTotal).toBe(2);
+    expect(fitResult.data.fits).toHaveLength(2);
+    expect(fitResult.data.fits.map((f: { symbol: string }) => f.symbol)).toEqual(["NVDA", "AMD"]);
+    // The per-name percent override priced AMD off its own spot (40 × 1.10).
+    const amdRow = fitResult.data.matrix.find((m: { symbol: string }) => m.symbol === "AMD");
+    expect(amdRow).toMatchObject({ targetPrice: 44, targetSource: "percent" });
+    expect(fitResult.data.assumptions).toContain("Per-name overrides applied: AMD (target +10.0%).");
+
+    // No mode given → per_name_best, the pre-#23 behavior, still labeled.
+    const bestResult = await service.execute({
+      action: "opportunities",
+      symbols: ["MSFT"],
+      targetDate,
+    });
+    expect(bestResult.success).toBe(true);
+    expect(bestResult.data.mode).toBe("per_name_best");
+    expect(bestResult.data.fits).toEqual([]);
+    expect(bestResult.data.fitsTotal).toBe(0);
+    expect(bestResult.summary).toContain("(mode: per-name best)");
   });
 });
 
