@@ -10,6 +10,7 @@ import { RecommendationAgent, type BestTradePick, type RankedStrategy, type Risk
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
 import { MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
+import type { ScreenedOptionContractItem } from "../../types";
 
 const baseOppConfig = getOpportunityScannerConfig();
 export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
@@ -24,7 +25,7 @@ const CONCURRENCY = baseOppConfig.concurrency;
  * with different model versions are never silently compared as if they
  * were produced by the same model.
  */
-export const SCAN_MODEL_VERSION = "1.0.0";
+export const SCAN_MODEL_VERSION = "1.1.0";
 
 /**
  * The two strategy questions a scan can answer (issue #23):
@@ -46,8 +47,21 @@ export interface ScanSymbolOverride {
   thesis?: StrategyRequest["thesis"];
   target?:
     | { kind: "absolute"; price: number }
-    | { kind: "percent"; pct: number };
+    | { kind: "percent"; pct: number }
+    /** Target expressed in expected-move units (issue #25, completing
+     *  the #23 deferral): spot × (1 + multiple × EM%), where EM% is the
+     *  1-sigma move to expiry implied by the symbol's own chain. Needs
+     *  an expected-move estimate; without one it cannot resolve and the
+     *  symbol falls back to its thesis derivation. */
+    | { kind: "em"; multiple: number };
 }
+
+/** Where a scan row's target came from (issues #19, #23, #25): the
+ *  user's stated target for the symbol ("stated"), a per-name percent
+ *  override ("percent"), a per-name expected-move override ("em"), or
+ *  the thesis derivation ("thesis" — expected-move-based when the
+ *  symbol's chain yields an estimate, the legacy spot factor when not). */
+export type ScanTargetSource = "stated" | "percent" | "thesis" | "em";
 
 export type ScanRequestTemplate = Omit<StrategyRequest, "symbol" | "targetPrice"> & {
   /**
@@ -70,10 +84,15 @@ export interface OpportunityRow {
   symbol: string;
   underlyingPrice: number;
   targetPrice: number;
-  /** Where this row's target came from: the user's stated target for this
-   *  symbol ("stated"), a per-name percent override ("percent"), or the
-   *  thesis factor on spot ("thesis"). */
-  targetSource: "stated" | "percent" | "thesis";
+  /** Where this row's target came from; see ScanTargetSource. */
+  targetSource: ScanTargetSource;
+  /** The target's distance from spot in expected-move units (issue
+   *  #25): (target − spot) / (spot × EM%), where EM% is the 1-sigma
+   *  move to expiry implied by this name's own chain. The cross-name
+   *  comparison unit — two names whose targets sit at the same EM
+   *  distance are being asked for statistically equivalent moves.
+   *  Null when the chain yielded no expected-move estimate. */
+  targetEmUnits: number | null;
   pick: BestTradePick;
   score: number;
   /** Fit-gate verdict for this row's pick (issue #24): "fit" when the
@@ -201,7 +220,11 @@ export interface ScanMatrixRow {
   skipReason?: string;
   /** Null when the symbol was skipped before a spot price existed. */
   targetPrice: number | null;
-  targetSource: "stated" | "percent" | "thesis" | null;
+  targetSource: ScanTargetSource | null;
+  /** The target's distance from spot in expected-move units (issue
+   *  #25); null for skipped symbols and when the chain yielded no
+   *  expected-move estimate. */
+  targetEmUnits: number | null;
   /** One cell per strategy type that had at least one built candidate;
    *  empty for skipped symbols. */
   cells: ScanMatrixCell[];
@@ -238,6 +261,7 @@ export interface ScanRequestSnapshot {
 export interface ScanConfigSnapshot {
   maxScanSymbols: number;
   targetFactors: Record<StrategyRequest["thesis"], number>;
+  targetEmMultiples: Record<StrategyRequest["thesis"], number>;
 }
 
 /** Coverage accounting for a scan (issue #27): how much of the requested
@@ -303,39 +327,124 @@ export interface OpportunityScanResult {
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
+const TARGET_EM_MULTIPLE: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetEmMultiples;
+
+/** Signed EM-multiple rendering for disclosure prose: 0.6 → "+0.6",
+ *  -0.6 → "-0.6", 0 → "0". */
+function formatEmMultiple(multiple: number): string {
+  const v = Number(multiple.toFixed(2));
+  return v > 0 ? `+${v}` : `${v}`;
+}
+
+/** The chain fields the expected-move estimate reads. */
+export type ExpectedMoveContract = Pick<
+  ScreenedOptionContractItem,
+  "strikePrice" | "impliedVolatility" | "expirationDate" | "symbol"
+>;
+
+/**
+ * Estimate a symbol's expected move to expiry as a fraction of spot
+ * (issue #25): IV × sqrt(days/365) from the most at-the-money contract
+ * in the chain — the 1-sigma move the chain itself implies. Pure and
+ * exported for direct unit testing.
+ *
+ * Only contracts with a usable IV (> 0) and a parseable expirationDate
+ * qualify. The most-ATM contract wins (min |strike − spot|); ties break
+ * deterministically by earliest expirationDate, then lowest strike,
+ * then symbol. Days are counted from `now` to the chosen expiry (UTC
+ * midnight). Returns null when no contract qualifies or the chosen
+ * expiry is today/past — callers then fall back to legacy percentage
+ * targets for the symbol and disclose that they did.
+ */
+export function estimateExpectedMovePct(
+  contracts: ReadonlyArray<ExpectedMoveContract>,
+  spotPrice: number,
+  now: Date,
+): number | null {
+  if (!Number.isFinite(spotPrice) || spotPrice <= 0) return null;
+  let best: { contract: ExpectedMoveContract; distance: number; expiryMs: number } | null = null;
+  for (const contract of contracts) {
+    const iv = contract.impliedVolatility;
+    if (typeof iv !== "number" || !Number.isFinite(iv) || iv <= 0) continue;
+    if (!Number.isFinite(contract.strikePrice)) continue;
+    const expiryMs = Date.parse(`${contract.expirationDate}T00:00:00.000Z`);
+    if (!Number.isFinite(expiryMs)) continue;
+    const distance = Math.abs(contract.strikePrice - spotPrice);
+    if (
+      best === null ||
+      distance < best.distance ||
+      (distance === best.distance &&
+        (expiryMs < best.expiryMs ||
+          (expiryMs === best.expiryMs &&
+            (contract.strikePrice < best.contract.strikePrice ||
+              (contract.strikePrice === best.contract.strikePrice &&
+                contract.symbol < best.contract.symbol)))))
+    ) {
+      best = { contract, distance, expiryMs };
+    }
+  }
+  if (best === null) return null;
+  const days = Math.ceil((best.expiryMs - now.getTime()) / 86_400_000);
+  if (days <= 0) return null;
+  const pct = (best.contract.impliedVolatility as number) * Math.sqrt(days / 365);
+  return Number.isFinite(pct) && pct > 0 ? pct : null;
+}
 
 /**
  * Resolve the target price for one symbol in a scan (issue #19). A stated
  * target applies only to the symbol it was stated for; every other symbol
- * uses the thesis factor on its own spot price. Pure and exported for
- * direct unit testing.
+ * gets a thesis-derived target. Pure and exported for direct unit
+ * testing.
  *
  * Precedence (issue #23): a per-name override target for this symbol wins
  * over the shared statedTarget — it is the more specific instruction. A
  * per-name thesis override (with no override target) also steers the
- * thesis factor used for the derived fallback.
+ * thesis used for the derived fallback.
+ *
+ * Units (issue #25): explicit targets (stated, absolute/percent
+ * overrides) are absolute by definition and never move. The thesis
+ * derivation is expressed in expected-move units when the caller
+ * supplies an estimate (`em`): target = spot × (1 + multiple × EM%),
+ * so the same thesis asks for a statistically equivalent move on every
+ * name. Without an estimate it is the legacy spot × targetFactors
+ * product, exactly as before #25. Either way, when an estimate exists
+ * the result also reports the resolved target's distance in EM units.
  */
 export function resolveScanTarget(
   template: ScanRequestTemplate,
   symbol: string,
   spotPrice: number,
   override?: ScanSymbolOverride,
-): { targetPrice: number; source: "stated" | "percent" | "thesis" } {
+  em?: { pct: number } | null,
+): { targetPrice: number; source: ScanTargetSource; targetEmUnits: number | null } {
+  const emPct = em && Number.isFinite(em.pct) && em.pct > 0 ? em.pct : null;
+  const emUnits = (targetPrice: number): number | null =>
+    emPct === null ? null : Number(((targetPrice - spotPrice) / (spotPrice * emPct)).toFixed(4));
   if (override?.target?.kind === "absolute") {
-    return { targetPrice: override.target.price, source: "stated" };
+    return { targetPrice: override.target.price, source: "stated", targetEmUnits: emUnits(override.target.price) };
   }
   if (override?.target?.kind === "percent") {
-    return {
-      targetPrice: Number((spotPrice * (1 + override.target.pct / 100)).toFixed(2)),
-      source: "percent",
-    };
+    const targetPrice = Number((spotPrice * (1 + override.target.pct / 100)).toFixed(2));
+    return { targetPrice, source: "percent", targetEmUnits: emUnits(targetPrice) };
+  }
+  if (override?.target?.kind === "em" && emPct !== null) {
+    const targetPrice = Number((spotPrice * (1 + override.target.multiple * emPct)).toFixed(2));
+    return { targetPrice, source: "em", targetEmUnits: emUnits(targetPrice) };
   }
   const stated = template.statedTarget;
   if (stated?.symbol && stated.symbol.trim().toUpperCase() === symbol.toUpperCase()) {
-    return { targetPrice: stated.price, source: "stated" };
+    return { targetPrice: stated.price, source: "stated", targetEmUnits: emUnits(stated.price) };
   }
   const thesis = override?.thesis ?? template.thesis;
-  return { targetPrice: Number((spotPrice * TARGET_FACTOR[thesis]).toFixed(2)), source: "thesis" };
+  if (emPct !== null) {
+    const targetPrice = Number((spotPrice * (1 + TARGET_EM_MULTIPLE[thesis] * emPct)).toFixed(2));
+    return { targetPrice, source: "thesis", targetEmUnits: emUnits(targetPrice) };
+  }
+  return {
+    targetPrice: Number((spotPrice * TARGET_FACTOR[thesis]).toFixed(2)),
+    source: "thesis",
+    targetEmUnits: null,
+  };
 }
 
 /** Disclosure lines for a scan whose request carried a stated target. */
@@ -344,7 +453,7 @@ function scanTargetAssumptions(template: ScanRequestTemplate): string[] {
   if (!stated) return [];
   if (stated.symbol) {
     return [
-      `Stated target $${stated.price.toFixed(2)} applied to ${stated.symbol.trim().toUpperCase()} only; every other symbol uses a thesis-derived target (spot × ${TARGET_FACTOR[template.thesis]} for ${template.thesis}).`,
+      `Stated target $${stated.price.toFixed(2)} applied to ${stated.symbol.trim().toUpperCase()} only; every other symbol uses a thesis-derived target.`,
     ];
   }
   return [
@@ -372,6 +481,8 @@ function scanOverrideAssumption(template: ScanRequestTemplate, batch: string[]):
       clauses.push(`target $${override.target.price.toFixed(2)}`);
     } else if (override.target?.kind === "percent") {
       clauses.push(`target ${override.target.pct >= 0 ? "+" : ""}${override.target.pct.toFixed(1)}%`);
+    } else if (override.target?.kind === "em") {
+      clauses.push(`target ${formatEmMultiple(override.target.multiple)} EM`);
     }
     if (clauses.length) entries.push(`${symbol} (${clauses.join(", ")})`);
   }
@@ -515,6 +626,7 @@ export class OpportunityScanner {
         skipReason: reason,
         targetPrice: null,
         targetSource: null,
+        targetEmUnits: null,
         cells: [],
         // Skipped symbols were never evaluated, so the gate never judged
         // them: null bucket, no reasons — they are not "no_fit".
@@ -534,7 +646,20 @@ export class OpportunityScanner {
         // its build/screen/pick run under. The snapshot load above stays
         // on the shared template, as before.
         const override = template.perSymbol?.[symbol];
-        const { targetPrice, source: targetSource } = resolveScanTarget(template, symbol, price, override);
+        // Expected-move estimate (issue #25): the 1-sigma move to expiry
+        // implied by this symbol's own chain, from the scan's clock so
+        // provenance-stamped runs stay reproducible. Null when the chain
+        // carries no usable IV — the symbol then resolves its thesis
+        // target from the legacy percentage factor and is named in the
+        // fallback disclosure below.
+        const emPct = estimateExpectedMovePct(snapshot.contracts, price, options.now ?? new Date());
+        const { targetPrice, source: targetSource, targetEmUnits } = resolveScanTarget(
+          template,
+          symbol,
+          price,
+          override,
+          emPct === null ? null : { pct: emPct },
+        );
         const request: StrategyRequest = {
           ...requestTemplate,
           symbol,
@@ -557,6 +682,7 @@ export class OpportunityScanner {
           verdict: cells.some((c) => c.passedCount > 0) ? "pass" : "no_pass",
           targetPrice,
           targetSource,
+          targetEmUnits,
           cells,
           gateBucket: gateEval.bucket,
           gateReasons: gateEval.reasons,
@@ -571,6 +697,7 @@ export class OpportunityScanner {
             underlyingPrice: price,
             targetPrice,
             targetSource,
+            targetEmUnits,
             pick,
             score: pick.best.compositeScore,
             gateBucket: gateEval.bucket,
@@ -607,6 +734,28 @@ export class OpportunityScanner {
     // per_name_best mode `limit` slices `opportunities` as it always has.
     const fitRows = mode === "strategy_fit" ? matrix.filter((m) => m.gateBucket === "fit") : [];
     const offset = options.offset ?? 0;
+    // Target-basis disclosures (issue #25), assembled post-scan from the
+    // matrix rows so they are never asserted falsely: the EM line appears
+    // only when at least one evaluated symbol's target was actually
+    // EM-derived (a thesis derivation with an estimate, or an em
+    // override); the fallback line names every evaluated symbol whose
+    // chain yielded no estimate — its thesis target came from the legacy
+    // percentage factor (and an em override on it could not resolve).
+    // On an evaluated row, targetEmUnits is null exactly when no estimate
+    // existed for the symbol.
+    const evaluatedRows = matrix.filter((m) => m.verdict !== "skipped");
+    if (evaluatedRows.some((m) => m.targetSource === "em" || (m.targetSource === "thesis" && m.targetEmUnits !== null))) {
+      const mult = baseOppConfig.targetEmMultiples;
+      assumptions.push(
+        `Thesis-derived targets are expressed in expected-move units (bullish ${formatEmMultiple(mult.bullish)} EM, bearish ${formatEmMultiple(mult.bearish)} EM, large_move ${formatEmMultiple(mult.large_move)} EM, range_bound ${formatEmMultiple(mult.range_bound)} EM; 1 EM = the 1-sigma move to expiry implied by each name's own chain).`,
+      );
+    }
+    const emFallbackSymbols = evaluatedRows.filter((m) => m.targetEmUnits === null).map((m) => m.symbol);
+    if (emFallbackSymbols.length) {
+      assumptions.push(
+        `Expected-move estimate unavailable for ${emFallbackSymbols.join(", ")}; legacy percentage targets were used for those names.`,
+      );
+    }
     // Provenance (issue #27): when the scan ran, which model produced
     // it, exactly what was asked, the config it ran under, and how much
     // of the requested universe was actually judged. Pure data — the
@@ -648,6 +797,7 @@ export class OpportunityScanner {
       configSnapshot: {
         maxScanSymbols: baseOppConfig.maxScanSymbols,
         targetFactors: { ...baseOppConfig.targetFactors },
+        targetEmMultiples: { ...baseOppConfig.targetEmMultiples },
       },
       coverage: {
         considered: unique.length,
