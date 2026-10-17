@@ -71,6 +71,12 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // PR #2 — A2A routing (issue #160): agent discovery + JSON-RPC dispatch
+    if (path.startsWith("/a2a/") || path.startsWith("/.well-known/")) {
+      const { handleA2A } = await import("./a2a");
+      return handleA2A(request, env as any);
+    }
+
     if ((path === "/nlq/webhook" || path === "/api/trading/nlq/webhook") && request.method === "POST") {
       if (!env.INBOUND_NLQ_WEBHOOK_SECRET) {
         return Response.json({ error: "INBOUND_NLQ_WEBHOOK_SECRET is not configured." }, { status: 503 });
