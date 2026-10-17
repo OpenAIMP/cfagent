@@ -2047,8 +2047,21 @@ export class ETradeRestClient {
     chainType?: "CALL" | "PUT" | "CALLPUT";
     includeRawResponse?: boolean;
   }): Promise<ETradeOptionChain | null> {
+    // Issue #155: lastError is the failure signal for this call. It is
+    // cleared on entry and set on EVERY failure return below, so a null
+    // result with lastError set means "upstream failure" and a null
+    // result without one means "genuinely no chain" — callers (routes,
+    // screener, IV collector) rely on that distinction.
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !params.symbol) return null;
+    if (!params.symbol) {
+      this.lastError = "E*TRADE option chains request is missing a symbol.";
+      return null;
+    }
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for option chain requests.";
+      return null;
+    }
 
     const query = new URLSearchParams({ symbol: params.symbol.toUpperCase().trim() });
     if (params.expiryYear) query.set("expiryYear", String(params.expiryYear));
@@ -2098,15 +2111,24 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.OptionChainResponse;
-      if (!resp) return null;
+      if (!resp) {
+        // HTTP 200 but no chain payload at all: an upstream error body
+        // (or unparseable response), not a genuine empty chain — a real
+        // empty chain still carries the OptionChainResponse wrapper.
+        this.lastError = `E*TRADE Option Chains API returned an unexpected empty response for ${params.symbol.toUpperCase()}.`;
+        return null;
+      }
 
       let rawPairs = resp.OptionPair;
-      if (!rawPairs) return {
-        symbol: params.symbol.toUpperCase(),
-        underlyingPrice: Number(resp.nearPrice || 0),
-        ...(params.includeRawResponse ? { raw: resp } : {}),
-        pairs: [],
-      };
+      if (!rawPairs) {
+        this.lastError = undefined;
+        return {
+          symbol: params.symbol.toUpperCase(),
+          underlyingPrice: Number(resp.nearPrice || 0),
+          ...(params.includeRawResponse ? { raw: resp } : {}),
+          pairs: [],
+        };
+      }
       if (!Array.isArray(rawPairs)) rawPairs = [rawPairs];
 
       const mapContract = (c: any, type: "CALL" | "PUT") => {
@@ -2142,6 +2164,7 @@ export class ETradeRestClient {
         put: mapContract(p.Put, "PUT"),
       }));
 
+      this.lastError = undefined;
       return {
         symbol: params.symbol.toUpperCase(),
         underlyingPrice: Number(resp.nearPrice || 0),
@@ -2154,6 +2177,9 @@ export class ETradeRestClient {
         pairs,
       };
     } catch (err) {
+      if (!this.lastError) {
+        this.lastError = `E*TRADE option chains request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       console.warn("[ETradeClient] getOptionChains error:", err);
       return null;
     }
@@ -2164,8 +2190,20 @@ export class ETradeRestClient {
    * GET /v1/market/optionexpiredate
    */
   async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+    // Issue #155: same lastError contract as getOptionChains — cleared
+    // on entry, set on every failure return, so an empty result with
+    // lastError set means "upstream failure" and an empty result
+    // without one means "genuinely no expirations".
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !symbol) return [];
+    if (!symbol) {
+      this.lastError = "E*TRADE option expire-date request is missing a symbol.";
+      return [];
+    }
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for option expire-date requests.";
+      return [];
+    }
 
     const query = new URLSearchParams({ symbol: symbol.toUpperCase().trim() });
     if (expiryType) query.set("expiryType", expiryType);
@@ -2206,10 +2244,19 @@ export class ETradeRestClient {
         return [];
       }
       const data = (await res.json().catch(() => ({}))) as any;
-      let rawDates = data?.OptionExpireDateResponse?.ExpirationDate;
+      const expireResponse = data?.OptionExpireDateResponse;
+      if (!expireResponse) {
+        // HTTP 200 but no payload wrapper at all: an upstream error
+        // body (or unparseable response), not a genuine empty — a real
+        // empty still carries the OptionExpireDateResponse wrapper.
+        this.lastError = `E*TRADE Option Expire Date API returned an unexpected empty response for ${symbol.toUpperCase()}.`;
+        return [];
+      }
+      let rawDates = expireResponse.ExpirationDate;
       if (!rawDates) return [];
       if (!Array.isArray(rawDates)) rawDates = [rawDates];
 
+      this.lastError = undefined;
       return rawDates.map((d: any) => ({
         year: Number(d.year || 0),
         month: Number(d.month || 0),
