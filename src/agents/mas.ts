@@ -259,7 +259,10 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         }
       }
 
-      // Tasks confirmation
+      // Tasks confirmation. Issue #141: the audit notice and audit
+      // event must state the actual decision — a REJECTED task was
+      // previously announced (and audited) as "confirmed and added to
+      // scheduled execution queue", the opposite of what happened.
       const status = decision === "approved" ? "scheduled" : "rejected";
       const payload = {
         draftId,
@@ -267,9 +270,12 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         decision,
         executedAt: now,
         note: note || (decision === "approved" ? "Human confirmed operation" : "Operation rejected by user"),
-        auditNotice: "Task confirmed and added to scheduled execution queue.",
+        auditNotice:
+          decision === "approved"
+            ? "Task confirmed and added to scheduled execution queue."
+            : "Task draft rejected by human reviewer.",
       };
-      audit(isPayment ? "payment.confirmed" : "task.confirmed", isPayment ? "payments" : "tasks", payload);
+      audit(decision === "approved" ? "task.confirmed" : "task.rejected", "tasks", payload);
       return payload;
     },
   });
