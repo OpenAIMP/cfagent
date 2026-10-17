@@ -23,7 +23,7 @@ import type {
 } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { executeNaturalLanguageQuery } from "../../agents/nlq";
+import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
@@ -125,12 +125,19 @@ export function tuneFinancialPronunciation(text: string): string {
 export class ETradeVoiceTradingService {
   private env: Env;
   private orm?: DatabaseORM;
+  /** Issue #109: the hosting agent's scheduling port, forwarded to the
+   *  NLQ executor so voice-created schedules are real. Absent in
+   *  contexts with no hosting agent; scheduling turns then fail
+   *  honestly instead of claiming success. */
+  private schedulingPort?: NLQSchedulingPort;
 
   constructor(
     envOrOrm: Env | DatabaseORM,
     ormOrEnv?: DatabaseORM | Env,
-    private sessionId: string = "voice_agent_session"
+    private sessionId: string = "voice_agent_session",
+    schedulingPort?: NLQSchedulingPort
   ) {
+    this.schedulingPort = schedulingPort;
     if (envOrOrm instanceof DatabaseORM || (envOrOrm && ("initializeSchema" in (envOrOrm as any) || "watchlists" in (envOrOrm as any)))) {
       this.orm = envOrOrm as DatabaseORM;
       this.env = ormOrEnv as Env;
@@ -340,6 +347,7 @@ export class ETradeVoiceTradingService {
         this.env,
         this.sessionId,
         authorizerDid,
+        this.schedulingPort ? { schedulingPort: this.schedulingPort } : undefined,
       );
 
       const domain = plan.domain;
@@ -727,6 +735,38 @@ export class ETradeVoiceTradingService {
       if (domain === "scheduling") {
         const scheduleAction = plan.scheduleData?.action || "list";
         const row: Record<string, any> = (nlqRes.rows?.[0] || {}) as any;
+
+        // Issue #109: the NLQ executor reports scheduling outcomes
+        // truthfully against the real Agent scheduler. Never voice a
+        // success the executor did not confirm.
+        if (nlqRes.status === "error") {
+          const spokenText = tuneFinancialPronunciation(
+            nlqRes.summary || "Scheduling is unavailable right now, so nothing was scheduled."
+          );
+          return {
+            success: false,
+            spokenText,
+            displayMarkdown: `### ⏰ Scheduling Unavailable\n\n${nlqRes.summary || "The scheduling action could not be completed."}`,
+            actionType: "schedule",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+
+        if (scheduleAction === "cancel" && nlqRes.status === "not_found") {
+          const schedId = String(row.scheduleId || plan.scheduleData?.scheduleId || "the task");
+          const spokenText = tuneFinancialPronunciation(
+            `I could not find a schedule with ID ${schedId}. It may have already fired or been cancelled, so nothing was removed. Say "Show scheduled tasks" to see the active ones.`
+          );
+          return {
+            success: false,
+            spokenText,
+            displayMarkdown: `### 🛑 Schedule Not Found\n\n- **Schedule ID:** \`${schedId}\`\n- **Status:** **NOT FOUND**\n\n*No timer was removed.*`,
+            actionType: "schedule",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
 
         if (scheduleAction === "create") {
           const schedId = String(row.id || "sched_task");
