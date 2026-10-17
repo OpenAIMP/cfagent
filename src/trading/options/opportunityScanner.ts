@@ -328,7 +328,43 @@ export function rollupScanTypes(matrix: ScanMatrixRow[]): ScanTypeRollup[] {
  *  EFFECTIVE (post-merge) fields and `profile` carries the full applied
  *  profile object, so a persisted run stays self-describing; it is null
  *  for profile-less scans. */
+/** The caller's original request, recorded verbatim (issue #103) so a
+ *  stored run can be REPLAYED, not just audited. Plain data in the
+ *  unified request's field vocabulary (symbols, thesis, caps, profile
+ *  selection, pagination) plus the template fields the unified request
+ *  grew to carry (statedTarget, minDte, maxDte) — declared here, in the
+ *  scanner's own module, so the scanner never imports the unified
+ *  service's types (layering). Callers attach it to the result's
+ *  requestSnapshot before persistence; the scanner itself never sets
+ *  it (it cannot know the caller's envelope — defaults it resolved,
+ *  fields it never saw). Absent on runs recorded before issue #103 and
+ *  on results from callers that do not record one; replays of those
+ *  fall back to mapping the effective template (issue #84 slice 5). */
+export interface ScanRequestRecord {
+  symbols?: string[];
+  thesis?: StrategyRequest["thesis"];
+  riskProfile?: RiskProfile;
+  mode?: ScanMode;
+  profileId?: string;
+  profileName?: string;
+  limit?: number;
+  offset?: number;
+  targetDate?: string;
+  expectedIvDirection?: StrategyRequest["expectedIvDirection"];
+  optimizationBias?: number;
+  maxPlannedLoss?: number;
+  minRewardRisk?: number;
+  allowedStrategies?: StrategyRequest["allowedStrategies"];
+  perSymbol?: Record<string, ScanSymbolOverride>;
+  statedTarget?: { price: number; symbol?: string };
+  minDte?: number;
+  maxDte?: number;
+}
+
 export interface ScanRequestSnapshot {
+  /** The caller's original request, when the calling path recorded
+   *  one (issue #103) — the replayable form of this snapshot. */
+  request?: ScanRequestRecord;
   template: {
     thesis: StrategyRequest["thesis"];
     targetDate: string;
