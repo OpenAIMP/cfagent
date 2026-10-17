@@ -12,6 +12,8 @@ export interface ScheduledTaskItem {
   cron?: string;
   date?: string;
   delayInSeconds?: number;
+  /** Agents SDK Schedule.time: unix seconds of the next execution. */
+  time?: number;
   createdAt?: string;
   nextRun?: string;
 }
@@ -22,6 +24,71 @@ export interface ScheduledOptionsManagerProps {
   onPreviewTrade?: (candidate: any) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
+
+/**
+ * The app's baseline schedules: registered by OrchestratorAgent.onStart
+ * on every agent start, so they are part of the product, not user data.
+ * Recognising them by callback lets the UI label them honestly, offer
+ * each job's own on-demand trigger, and protect them from the
+ * edit/cancel flows that are safe for user-created schedules.
+ */
+export interface SystemJobInfo {
+  label: string;
+  description: string;
+  triggerRoute: string;
+}
+
+export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
+  autoRenewETradeTokens: {
+    label: "E*TRADE Token Renewal (System)",
+    description:
+      "Renews the E*TRADE OAuth tokens before they expire at midnight ET, so every background job keeps its broker access.",
+    triggerRoute: "/api/schedules/trigger-renew",
+  },
+  autonomousMarketScreen: {
+    label: "Autonomous Market Screen (System)",
+    description:
+      "Continuously screens the market (Technology sector) for notable setups and broadcasts alerts when it finds opportunities.",
+    triggerRoute: "/api/schedules/trigger-screen",
+  },
+  collectIvHistory: {
+    label: "IV History Collection (System)",
+    description:
+      "Records one closing ATM implied-volatility data point per tracked symbol each weekday, building the IV history series used for IV rank and percentile.",
+    triggerRoute: "/api/schedules/trigger-iv-collection",
+  },
+};
+
+/**
+ * Callback → its on-demand trigger route. Callbacks absent here
+ * (sendScheduledReminder, expireStaleOrderDraft, executeAsyncJob, …)
+ * have no trigger route and render no Trigger control — a card's
+ * Trigger always runs that card's own job, never a different one.
+ */
+export const TRIGGER_ROUTES: Record<string, string> = {
+  autonomousOptionsAnalysis: "/api/schedules/trigger-options-analysis",
+  autonomousMarketScreen: SYSTEM_JOBS.autonomousMarketScreen.triggerRoute,
+  autoRenewETradeTokens: SYSTEM_JOBS.autoRenewETradeTokens.triggerRoute,
+  collectIvHistory: SYSTEM_JOBS.collectIvHistory.triggerRoute,
+};
+
+export function systemJobFor(callback: unknown): SystemJobInfo | undefined {
+  return typeof callback === "string" ? SYSTEM_JOBS[callback] : undefined;
+}
+
+export function triggerRouteFor(callback: unknown): string | undefined {
+  return typeof callback === "string" ? TRIGGER_ROUTES[callback] : undefined;
+}
+
+/** Jobs the create form can register. Anything else stays API-only. */
+export type CreatableJob = "optionsAnalysis" | "ivCollection";
+
+export const JOB_CALLBACKS: Record<CreatableJob, string> = {
+  optionsAnalysis: "autonomousOptionsAnalysis",
+  ivCollection: "collectIvHistory",
+};
+
+export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
 
 const SYMBOL_PRESETS = [
   { label: "Megacap Tech", symbols: "NVDA, AAPL, MSFT, AMZN, GOOGL" },
@@ -48,6 +115,55 @@ const CRON_PRESETS = [
   { label: "Daily Overnight (11:00 PM ET)", etHour: 23, etMinute: 0, daysOfWeek: "*" },
 ];
 
+/** The payload object of a schedule, or {} when absent/malformed. */
+function payloadOf(item: ScheduledTaskItem): Record<string, any> {
+  const p = item?.payload;
+  return p && typeof p === "object" && !Array.isArray(p) ? p : {};
+}
+
+/** Faithful one-line rendering of an arbitrary payload value. */
+export function formatPayloadValue(value: any): string {
+  if (value === undefined || value === null) return "—";
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.map((v) => String(v)).join(", ") : "—";
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[object]";
+    }
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+/** Next-run display from an SDK Schedule object (detail or list row). */
+export function formatNextRun(schedule: any): string {
+  const t = schedule?.time;
+  if (typeof t === "number" && Number.isFinite(t) && t > 0) {
+    const d = new Date(t * 1000);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleString();
+  }
+  if (typeof schedule?.nextRun === "string" && schedule.nextRun) return schedule.nextRun;
+  if (typeof schedule?.date === "string" && schedule.date) {
+    const d = new Date(schedule.date);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleString();
+  }
+  return "—";
+}
+
+function cadenceText(item: ScheduledTaskItem): string {
+  if (item.intervalSeconds) return `Every ${Math.round(item.intervalSeconds / 60)} min`;
+  if (item.cron) return `Cron: ${item.cron}`;
+  if (item.type === "delayed" && item.delayInSeconds) return `Once, after ${item.delayInSeconds}s`;
+  if (item.type === "scheduled" && item.date) {
+    const d = new Date(item.date);
+    return Number.isNaN(d.getTime()) ? "One-shot (date)" : `Once at ${d.toLocaleString()}`;
+  }
+  return "Scheduled Timer";
+}
+
 export function ScheduledOptionsManager({
   activeEnv = "sandbox",
   userLogin = "default_trader",
@@ -66,12 +182,15 @@ export function ScheduledOptionsManager({
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
   // Form State
+  const [jobType, setJobType] = useState<CreatableJob>("optionsAnalysis");
   const [targetSymbols, setTargetSymbols] = useState("NVDA, AAPL, SPY, MSFT");
-  const [scheduleType, setScheduleType] = useState<"interval" | "cron">("interval");
+  const [scheduleType, setScheduleType] = useState<ScheduleMode>("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [cronExpression, setCronExpression] = useState(() =>
     etToUtcCron({ hour: 9, minute: 30, daysOfWeek: "1-5" })
   );
+  const [delaySeconds, setDelaySeconds] = useState(1800);
+  const [scheduledDate, setScheduledDate] = useState("");
   const [thesis, setThesis] = useState<"bullish" | "bearish" | "neutral" | "directional">("bullish");
   const [riskProfile, setRiskProfile] = useState<"conservative" | "balanced" | "aggressive">("balanced");
   const [pushToSlack, setPushToSlack] = useState(true);
@@ -79,30 +198,50 @@ export function ScheduledOptionsManager({
   const [emailTo, setEmailTo] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
 
-  // Live On-Demand Execution State
-  const [triggeringNow, setTriggeringNow] = useState(false);
+  // On-Demand Execution State: which trigger is in flight — "hero" for
+  // the banner Run Now button, otherwise the schedule's id.
+  const [triggeringKey, setTriggeringKey] = useState<string | null>(null);
   const [liveResult, setLiveResult] = useState<any | null>(null);
+
+  // System-schedule cancel guard: the id awaiting inline confirmation.
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
+
+  // Detail expansion state (GET /api/schedules/:id, fetched on demand)
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const authHeaders = useCallback(
+    (extra: Record<string, string> = {}) => ({
+      ...extra,
+      "x-environment": activeEnv,
+      "x-user-login": userLogin,
+    }),
+    [activeEnv, userLogin]
+  );
 
   // Fetch Schedules
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/schedules", {
-        headers: {
-          "x-environment": activeEnv,
-          "x-user-login": userLogin,
-        },
-      });
+      const res = await fetch("/api/schedules", { headers: authHeaders() });
       const data = (await res.json().catch(() => ({}))) as any;
-      if (res.ok && Array.isArray(data.schedules)) {
-        setSchedules(data.schedules);
-      } else if (res.ok && Array.isArray(data)) {
-        setSchedules(data);
+      const rawList = Array.isArray(data?.schedules) ? data.schedules : Array.isArray(data) ? data : null;
+      if (res.ok && rawList) {
+        // Shape-guard: only rows the card renderer can trust — a
+        // malformed row must never crash the panel.
+        setSchedules(
+          rawList.filter(
+            (s: any) =>
+              s && typeof s === "object" && typeof s.id === "string" && typeof s.callback === "string"
+          )
+        );
       } else {
         setSchedules([]);
         if (data && data.error) setError(data.error);
@@ -114,18 +253,13 @@ export function ScheduledOptionsManager({
     } finally {
       setLoading(false);
     }
-  }, [activeEnv, userLogin]);
+  }, [authHeaders]);
 
   // Fetch Audit Trail
   const fetchAudit = useCallback(async () => {
     setLoadingAudit(true);
     try {
-      const res = await fetch("/api/audit?limit=40", {
-        headers: {
-          "x-environment": activeEnv,
-          "x-user-login": userLogin,
-        },
-      });
+      const res = await fetch("/api/audit?limit=40", { headers: authHeaders() });
       const data = (await res.json()) as any;
       if (res.ok && Array.isArray(data.events)) {
         const filtered = data.events.filter((e: any) =>
@@ -140,27 +274,42 @@ export function ScheduledOptionsManager({
     } finally {
       setLoadingAudit(false);
     }
-  }, [activeEnv, userLogin]);
+  }, [authHeaders]);
 
   useEffect(() => {
     fetchSchedules();
     fetchAudit();
   }, [fetchSchedules, fetchAudit]);
 
-  // Edit Existing Schedule
+  // Open the modal for a NEW schedule (never an edit session).
+  const openCreateModal = () => {
+    setEditingScheduleId(null);
+    setJobType("optionsAnalysis");
+    setModalOpen(true);
+  };
+
+  // Edit Existing Schedule — user-created options analysis only. System
+  // schedules and other callbacks have no Edit control at all (see the
+  // card renderer): the form cannot represent them, and "editing" one
+  // would cancel it and recreate an analysis schedule in its place.
   const handleEditSchedule = (item: ScheduledTaskItem) => {
     setEditingScheduleId(item.id);
-    const syms = item.payload?.symbols;
+    setJobType("optionsAnalysis");
+    const payload = payloadOf(item);
+    const syms = payload.symbols;
     setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "NVDA, AAPL, SPY, MSFT");
-    setThesis(item.payload?.thesis || "bullish");
-    setRiskProfile(item.payload?.riskProfile || "balanced");
-    setScheduleType(item.type === "cron" ? "cron" : "interval");
+    setThesis(payload.thesis || "bullish");
+    setRiskProfile(payload.riskProfile || "balanced");
+    setScheduleType(
+      item.type === "cron" || item.type === "delayed" || item.type === "scheduled" ? item.type : "interval"
+    );
     if (item.intervalSeconds) setIntervalSeconds(item.intervalSeconds);
     if (item.cron) setCronExpression(item.cron);
-    setPushToSlack(item.payload?.pushToSlack !== false);
-    if (item.payload?.slackChannel) setSlackChannel(item.payload.slackChannel);
-    if (item.payload?.emailTo) setEmailTo(item.payload.emailTo);
-    if (item.payload?.webhookUrl) setWebhookUrl(item.payload.webhookUrl);
+    if (item.delayInSeconds) setDelaySeconds(item.delayInSeconds);
+    setPushToSlack(payload.pushToSlack !== false);
+    if (payload.slackChannel) setSlackChannel(payload.slackChannel);
+    if (payload.emailTo) setEmailTo(payload.emailTo);
+    if (payload.webhookUrl) setWebhookUrl(payload.webhookUrl);
     setModalOpen(true);
   };
 
@@ -171,32 +320,50 @@ export function ScheduledOptionsManager({
     setError(null);
     setSuccessMsg(null);
 
-    const symbols = targetSymbols
-      .split(",")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean);
+    const isIvJob = !editingScheduleId && jobType === "ivCollection";
 
-    const payload = {
-      symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY"],
-      thesis,
-      riskProfile,
-      pushToSlack,
-      slackChannel: pushToSlack ? slackChannel : undefined,
-      emailTo: emailTo.trim() || undefined,
-      webhookUrl: webhookUrl.trim() || undefined,
-      environment: activeEnv,
-    };
+    let callback: string;
+    let payload: Record<string, any>;
+    if (isIvJob) {
+      callback = JOB_CALLBACKS.ivCollection;
+      payload = { userLogin };
+    } else {
+      const symbols = targetSymbols
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      callback = JOB_CALLBACKS.optionsAnalysis;
+      payload = {
+        symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY"],
+        thesis,
+        riskProfile,
+        pushToSlack,
+        slackChannel: pushToSlack ? slackChannel : undefined,
+        emailTo: emailTo.trim() || undefined,
+        webhookUrl: webhookUrl.trim() || undefined,
+        environment: activeEnv,
+      };
+    }
 
     const requestBody: any = {
-      callback: "autonomousOptionsAnalysis",
+      callback,
       scheduleType,
       payload,
     };
 
     if (scheduleType === "interval") {
       requestBody.intervalSeconds = Number(intervalSeconds);
-    } else {
+    } else if (scheduleType === "cron") {
       requestBody.cron = cronExpression.trim();
+    } else if (scheduleType === "delayed") {
+      requestBody.delayInSeconds = Number(delaySeconds);
+    } else if (scheduleType === "scheduled") {
+      if (!scheduledDate) {
+        setError("Pick a date and time for the one-shot run.");
+        setSubmitting(false);
+        return;
+      }
+      requestBody.date = new Date(scheduledDate).toISOString();
     }
 
     try {
@@ -205,11 +372,7 @@ export function ScheduledOptionsManager({
         try {
           await fetch("/api/schedules/cancel", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-environment": activeEnv,
-              "x-user-login": userLogin,
-            },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ id: editingScheduleId }),
           });
         } catch (priorErr) {
@@ -219,11 +382,7 @@ export function ScheduledOptionsManager({
 
       const res = await fetch("/api/schedules/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          "x-user-login": userLogin,
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(requestBody),
       });
 
@@ -248,22 +407,20 @@ export function ScheduledOptionsManager({
     }
   };
 
-  // Cancel Schedule
-  const handleCancelSchedule = async (scheduleId: string) => {
-    if (!confirm(`Cancel scheduled task ${scheduleId}?`)) return;
+  // Cancel Schedule — the actual POST. Guarding lives in the callers:
+  // window.confirm for user schedules, the inline two-step confirm for
+  // system schedules.
+  const doCancelSchedule = async (scheduleId: string) => {
     try {
       const res = await fetch("/api/schedules/cancel", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          "x-user-login": userLogin,
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ id: scheduleId }),
       });
       const data = (await res.json()) as any;
       if (res.ok && (data.cancelled || data.success)) {
         setSuccessMsg(`✓ Schedule ${scheduleId} cancelled`);
+        setConfirmingCancelId(null);
         fetchSchedules();
         fetchAudit();
       } else {
@@ -274,9 +431,53 @@ export function ScheduledOptionsManager({
     }
   };
 
-  // Trigger Immediate Execution
-  const handleTriggerNow = async (customPayload?: any) => {
-    setTriggeringNow(true);
+  const handleCancelSchedule = async (scheduleId: string) => {
+    if (!confirm(`Cancel scheduled task ${scheduleId}?`)) return;
+    await doCancelSchedule(scheduleId);
+  };
+
+  // Run one schedule's own job on demand, via that job's trigger route.
+  const handleTriggerCard = async (item: ScheduledTaskItem) => {
+    const route = triggerRouteFor(item.callback);
+    if (!route) return;
+    setTriggeringKey(item.id);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch(route, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payloadOf(item)),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success !== false && !data.error) {
+        const label = systemJobFor(item.callback)?.label || "Autonomous Options Intelligence";
+        if (item.callback === "autonomousOptionsAnalysis") {
+          if (data.data) setLiveResult(data.data);
+          setSuccessMsg(`✓ ${label} executed! Found ${data.data?.withTrades ?? 0} actionable setups.`);
+        } else if (item.callback === "collectIvHistory" && data.data && typeof data.data === "object") {
+          const d = data.data;
+          setSuccessMsg(
+            `✓ ${label} executed for ${d.date || "today"}: ${d.recorded ?? 0} recorded, ` +
+              `${d.alreadyRecorded ?? 0} already recorded, ${d.failed ?? 0} failed.`
+          );
+        } else {
+          setSuccessMsg(`✓ ${label} executed.${data.message ? ` ${data.message}` : ""}`);
+        }
+        fetchAudit();
+      } else {
+        setError(data.error || "Execution failed");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to execute schedule");
+    } finally {
+      setTriggeringKey(null);
+    }
+  };
+
+  // Hero "Run Now": an immediate options analysis with the form state.
+  const handleTriggerNow = async () => {
+    setTriggeringKey("hero");
     setError(null);
     setSuccessMsg(null);
     setLiveResult(null);
@@ -286,7 +487,7 @@ export function ScheduledOptionsManager({
       .map((s) => s.trim().toUpperCase())
       .filter(Boolean);
 
-    const payload = customPayload || {
+    const payload = {
       symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY", "MSFT"],
       thesis,
       riskProfile,
@@ -298,13 +499,9 @@ export function ScheduledOptionsManager({
     };
 
     try {
-      const res = await fetch("/api/schedules/trigger-options-analysis", {
+      const res = await fetch(TRIGGER_ROUTES.autonomousOptionsAnalysis, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-environment": activeEnv,
-          "x-user-login": userLogin,
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -319,7 +516,36 @@ export function ScheduledOptionsManager({
     } catch (err: any) {
       setError(err.message || "Failed to execute options analysis");
     } finally {
-      setTriggeringNow(false);
+      setTriggeringKey(null);
+    }
+  };
+
+  // Detail expansion: fetch the authoritative SDK Schedule by id.
+  const handleToggleDetails = async (item: ScheduledTaskItem) => {
+    if (detailId === item.id) {
+      setDetailId(null);
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    setDetailId(item.id);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(item.id)}`, {
+        headers: authHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data && typeof data === "object" && typeof data.id === "string") {
+        setDetail(data);
+      } else {
+        setDetailError(data?.error || "Schedule details unavailable.");
+      }
+    } catch (err: any) {
+      setDetailError(err.message || "Schedule details unavailable.");
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -341,18 +567,18 @@ export function ScheduledOptionsManager({
             type="button"
             className="btn-sched-secondary"
             onClick={() => handleTriggerNow()}
-            disabled={triggeringNow}
+            disabled={triggeringKey !== null}
             title="Execute the options intelligence scan immediately on demand"
           >
-            {triggeringNow ? "⚡ Running Screen…" : "⚡ Run Now"}
+            {triggeringKey === "hero" ? "⚡ Running Screen…" : "⚡ Run Now"}
           </button>
           <button
             type="button"
             className="btn-sched-primary"
-            onClick={() => setModalOpen(true)}
-            title="Register a new durable interval or cron options screening schedule"
+            onClick={openCreateModal}
+            title="Register a new durable schedule"
           >
-            <span>+</span> New Options Schedule
+            <span>+</span> New Schedule
           </button>
         </div>
       </div>
@@ -465,102 +691,243 @@ export function ScheduledOptionsManager({
             <button
               type="button"
               className="btn-sched-primary"
-              onClick={() => setModalOpen(true)}
+              onClick={openCreateModal}
             >
-              + Create First Options Schedule
+              + Create First Schedule
             </button>
           </div>
         ) : (
           <div className="schedules-grid">
             {schedules.map((item) => {
+              const systemJob = systemJobFor(item.callback);
+              const isSystem = Boolean(systemJob);
               const isOptions = item.callback === "autonomousOptionsAnalysis";
-              const symbols = item.payload?.symbols || [];
-              const thesisStr = item.payload?.thesis || "BULLISH";
+              const payload = payloadOf(item);
+              const triggerRoute = triggerRouteFor(item.callback);
+              const title = systemJob?.label || (isOptions ? "Autonomous Options Intelligence" : item.callback);
+              const symbols = Array.isArray(payload.symbols)
+                ? payload.symbols.filter((s: any) => typeof s === "string")
+                : [];
+              const confirmingCancel = confirmingCancelId === item.id;
 
               return (
                 <div
                   key={item.id}
-                  className={`schedule-item-card ${isOptions ? "is-options" : ""}`}
+                  className={`schedule-item-card ${isOptions ? "is-options" : ""} ${isSystem ? "is-system" : ""}`}
                 >
                   <div className="schedule-card-top">
-                    <span className={`schedule-type-badge ${item.type}`}>
-                      {item.type}
-                    </span>
+                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                      <span className={`schedule-type-badge ${item.type}`}>
+                        {item.type}
+                      </span>
+                      {isSystem && <span className="schedule-system-badge">System</span>}
+                    </div>
                     <span className="schedule-id-snippet" title={item.id}>
                       {item.id.slice(0, 16)}…
                     </span>
                   </div>
 
                   <div>
-                    <h5 className="schedule-title">
-                      {isOptions ? "Autonomous Options Intelligence" : item.callback}
-                    </h5>
-                    <div className="schedule-cadence">
-                      {item.intervalSeconds ? `Every ${Math.round(item.intervalSeconds / 60)} min` : item.cron ? `Cron: ${item.cron}` : "Scheduled Timer"}
-                    </div>
+                    <h5 className="schedule-title">{title}</h5>
+                    <div className="schedule-cadence">{cadenceText(item)}</div>
+                    {systemJob && (
+                      <p className="schedule-system-note">
+                        {systemJob.description} Registered by the app at startup.
+                      </p>
+                    )}
                   </div>
 
-                  <div className="schedule-payload-details">
-                    <div className="payload-row">
-                      <span className="payload-label">Target Symbols:</span>
-                      <div className="payload-symbols-pills">
-                        {symbols.length > 0 ? (
-                          symbols.map((sym: string) => (
-                            <span key={sym} className="sym-tag">
-                              {sym}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="payload-value">Sector Scanner</span>
-                        )}
+                  {isOptions ? (
+                    <div className="schedule-payload-details">
+                      <div className="payload-row">
+                        <span className="payload-label">Target Symbols:</span>
+                        <div className="payload-symbols-pills">
+                          {symbols.length > 0 ? (
+                            symbols.map((sym: string) => (
+                              <span key={sym} className="sym-tag">
+                                {sym}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="payload-value">Sector Scanner</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {(typeof payload.thesis === "string" || typeof payload.riskProfile === "string") && (
+                        <div className="payload-row">
+                          <span className="payload-label">Thesis &amp; Risk:</span>
+                          <span className="payload-value">
+                            {typeof payload.thesis === "string" ? payload.thesis.toUpperCase() : "—"} ·{" "}
+                            {typeof payload.riskProfile === "string" ? payload.riskProfile : "—"}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="payload-row">
+                        <span className="payload-label">Omnichannel:</span>
+                        <div className="channel-indicators">
+                          {payload.pushToSlack && <span className="chan-badge slack" title="Slack Alerts">Slack</span>}
+                          {payload.emailTo && <span className="chan-badge email" title="Email Briefs">Email</span>}
+                          {payload.webhookUrl && <span className="chan-badge webhook" title="Signed Webhook">Webhook</span>}
+                          <span className="chan-badge" style={{ background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }}>Broadcast</span>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <div className="schedule-payload-details">
+                      {Object.keys(payload).length > 0 ? (
+                        Object.entries(payload).map(([key, value]) => (
+                          <div className="payload-row" key={key}>
+                            <span className="payload-label">{key}:</span>
+                            <span className="payload-value">{formatPayloadValue(value)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="payload-row">
+                          <span className="payload-label">Payload:</span>
+                          <span className="payload-value">— none —</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                    <div className="payload-row">
-                      <span className="payload-label">Thesis &amp; Risk:</span>
-                      <span className="payload-value">
-                        {thesisStr.toUpperCase()} · {item.payload?.riskProfile || "Balanced"}
+                  {confirmingCancel && (
+                    <div className="schedule-cancel-confirm" role="alert">
+                      <span>
+                        Stop the <strong>{title}</strong> system job? It stays off only until the
+                        agent restarts — restarting re-registers it. Until then, this background
+                        function does not run.
                       </span>
-                    </div>
-
-                    <div className="payload-row">
-                      <span className="payload-label">Omnichannel:</span>
-                      <div className="channel-indicators">
-                        {item.payload?.pushToSlack && <span className="chan-badge slack" title="Slack Alerts">Slack</span>}
-                        {item.payload?.emailTo && <span className="chan-badge email" title="Email Briefs">Email</span>}
-                        {item.payload?.webhookUrl && <span className="chan-badge webhook" title="Signed Webhook">Webhook</span>}
-                        <span className="chan-badge" style={{ background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }}>Broadcast</span>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <button
+                          type="button"
+                          className="btn-sched-cancel-sm"
+                          onClick={() => doCancelSchedule(item.id)}
+                        >
+                          Yes, cancel it
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sched-action-sm"
+                          onClick={() => setConfirmingCancelId(null)}
+                        >
+                          Keep it
+                        </button>
                       </div>
                     </div>
-                  </div>
+                  )}
+
+                  {detailId === item.id && (
+                    <div className="schedule-detail-panel">
+                      {detailLoading ? (
+                        <p className="schedule-detail-status">Loading schedule details…</p>
+                      ) : detailError ? (
+                        <p className="schedule-detail-status" role="alert">{detailError}</p>
+                      ) : detail ? (
+                        <>
+                          <div className="payload-row">
+                            <span className="payload-label">Schedule ID:</span>
+                            <span className="payload-value schedule-detail-id">{detail.id}</span>
+                          </div>
+                          <div className="payload-row">
+                            <span className="payload-label">Type:</span>
+                            <span className="payload-value">{detail.type || item.type}</span>
+                          </div>
+                          <div className="payload-row">
+                            <span className="payload-label">Callback:</span>
+                            <span className="payload-value">{detail.callback || item.callback}</span>
+                          </div>
+                          <div className="payload-row">
+                            <span className="payload-label">Next run:</span>
+                            <span className="payload-value">{formatNextRun(detail)}</span>
+                          </div>
+                          {typeof detail.cron === "string" && (
+                            <div className="payload-row">
+                              <span className="payload-label">Cron (UTC):</span>
+                              <span className="payload-value">{detail.cron}</span>
+                            </div>
+                          )}
+                          {typeof detail.intervalSeconds === "number" && (
+                            <div className="payload-row">
+                              <span className="payload-label">Interval:</span>
+                              <span className="payload-value">{detail.intervalSeconds}s</span>
+                            </div>
+                          )}
+                          {typeof detail.delayInSeconds === "number" && (
+                            <div className="payload-row">
+                              <span className="payload-label">Delay:</span>
+                              <span className="payload-value">{detail.delayInSeconds}s</span>
+                            </div>
+                          )}
+                          {typeof detail.date === "string" && (
+                            <div className="payload-row">
+                              <span className="payload-label">Runs at:</span>
+                              <span className="payload-value">{formatNextRun({ date: detail.date })}</span>
+                            </div>
+                          )}
+                          <div className="payload-row" style={{ alignItems: "flex-start" }}>
+                            <span className="payload-label">Payload:</span>
+                            <pre className="schedule-detail-payload">
+                              {JSON.stringify(detail.payload ?? null, null, 2)}
+                            </pre>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="schedule-card-footer">
                     <button
                       type="button"
                       className="btn-sched-action-sm"
-                      onClick={() => handleTriggerNow(item.payload)}
-                      disabled={triggeringNow}
-                      title="Run analysis immediately with this schedule's payload"
+                      onClick={() => handleToggleDetails(item)}
+                      title="Inspect this schedule (type, next run, payload)"
                     >
-                      ⚡ Trigger Now
+                      {detailId === item.id ? "▾ Hide Details" : "🔍 Details"}
                     </button>
-                    <button
-                      type="button"
-                      className="btn-sched-action-sm"
-                      style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
-                      onClick={() => handleEditSchedule(item)}
-                      title="Update parameters or cadence for this schedule"
-                    >
-                      ✏ Edit / Update
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-sched-cancel-sm"
-                      onClick={() => handleCancelSchedule(item.id)}
-                      title="Permanently cancel this durable schedule"
-                    >
-                      ✕ Cancel
-                    </button>
+                    {triggerRoute && (
+                      <button
+                        type="button"
+                        className="btn-sched-action-sm"
+                        onClick={() => handleTriggerCard(item)}
+                        disabled={triggeringKey !== null}
+                        title={`Run ${title} immediately, on demand`}
+                      >
+                        {triggeringKey === item.id ? "⚡ Running…" : "⚡ Trigger Now"}
+                      </button>
+                    )}
+                    {!isSystem && isOptions && (
+                      <button
+                        type="button"
+                        className="btn-sched-action-sm"
+                        style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
+                        onClick={() => handleEditSchedule(item)}
+                        title="Update parameters or cadence for this schedule"
+                      >
+                        ✏ Edit / Update
+                      </button>
+                    )}
+                    {!confirmingCancel &&
+                      (isSystem ? (
+                        <button
+                          type="button"
+                          className="btn-sched-cancel-sm"
+                          onClick={() => setConfirmingCancelId(item.id)}
+                          title="Cancel this system schedule (it is re-registered when the agent restarts)"
+                        >
+                          ✕ Cancel
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-sched-cancel-sm"
+                          onClick={() => handleCancelSchedule(item.id)}
+                          title="Permanently cancel this durable schedule"
+                        >
+                          ✕ Cancel
+                        </button>
+                      ))}
                   </div>
                 </div>
               );
@@ -645,8 +1012,8 @@ export function ScheduledOptionsManager({
           <div className="sched-modal-card" onClick={(e) => e.stopPropagation()}>
             <header className="sched-modal-header">
               <div>
-                <h3>{editingScheduleId ? "✏ Update Options Screening Schedule" : "⏰ Configure New Options Schedule"}</h3>
-                <p>Register a durable Cloudflare Agents SDK timer to screen options 24/7 in the background.</p>
+                <h3>{editingScheduleId ? "✏ Update Options Screening Schedule" : "⏰ Configure New Schedule"}</h3>
+                <p>Register a durable Cloudflare Agents SDK timer to run in the background.</p>
               </div>
               <button
                 type="button"
@@ -658,33 +1025,60 @@ export function ScheduledOptionsManager({
             </header>
 
             <form onSubmit={handleCreateSchedule} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
-              {/* Target Symbols Input & Quick Presets */}
-              <div className="sched-form-group">
-                <label className="sched-form-label">
-                  Target Equity Symbols
-                  <span className="hint">Comma-separated tickers</span>
-                </label>
-                <input
-                  type="text"
-                  className="sched-input"
-                  value={targetSymbols}
-                  onChange={(e) => setTargetSymbols(e.target.value)}
-                  placeholder="e.g. NVDA, AAPL, SPY, MSFT"
-                  required
-                />
-                <div className="preset-chips-row">
-                  {SYMBOL_PRESETS.map((p) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      className="preset-chip"
-                      onClick={() => setTargetSymbols(p.symbols)}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+              {/* Job Picker (create only — edits are analysis-only) */}
+              {!editingScheduleId && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Job
+                    <span className="hint">What runs when this schedule fires</span>
+                  </label>
+                  <select
+                    className="sched-select"
+                    value={jobType}
+                    onChange={(e) => setJobType(e.target.value as CreatableJob)}
+                  >
+                    <option value="optionsAnalysis">Autonomous Options Analysis</option>
+                    <option value="ivCollection">IV History Collection</option>
+                  </select>
+                  {jobType === "ivCollection" && (
+                    <p className="sched-preset-note">
+                      Records one ATM IV data point per tracked symbol (your watchlists plus the
+                      curated universe) into the IV history series. No analysis options apply —
+                      the job runs under your login.
+                    </p>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {/* Target Symbols Input & Quick Presets (options analysis only) */}
+              {(editingScheduleId || jobType === "optionsAnalysis") && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Target Equity Symbols
+                    <span className="hint">Comma-separated tickers</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="sched-input"
+                    value={targetSymbols}
+                    onChange={(e) => setTargetSymbols(e.target.value)}
+                    placeholder="e.g. NVDA, AAPL, SPY, MSFT"
+                    required
+                  />
+                  <div className="preset-chips-row">
+                    {SYMBOL_PRESETS.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className="preset-chip"
+                        onClick={() => setTargetSymbols(p.symbols)}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Schedule Cadence / Type */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
@@ -693,14 +1087,16 @@ export function ScheduledOptionsManager({
                   <select
                     className="sched-select"
                     value={scheduleType}
-                    onChange={(e) => setScheduleType(e.target.value as any)}
+                    onChange={(e) => setScheduleType(e.target.value as ScheduleMode)}
                   >
                     <option value="interval">Interval (Every X Minutes/Hours)</option>
                     <option value="cron">Cron Expression (Specific Time/Days)</option>
+                    <option value="delayed">Delayed (Once, After a Delay)</option>
+                    <option value="scheduled">One-Shot (Specific Date &amp; Time)</option>
                   </select>
                 </div>
 
-                {scheduleType === "interval" ? (
+                {scheduleType === "interval" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Interval Seconds</label>
                     <input
@@ -725,7 +1121,9 @@ export function ScheduledOptionsManager({
                       ))}
                     </div>
                   </div>
-                ) : (
+                )}
+
+                {scheduleType === "cron" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Cron Expression</label>
                     <input
@@ -759,133 +1157,170 @@ export function ScheduledOptionsManager({
                     </p>
                   </div>
                 )}
-              </div>
 
-              {/* Thesis & Risk Profile */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                <div className="sched-form-group">
-                  <label className="sched-form-label">Market Thesis / Outlook</label>
-                  <select
-                    className="sched-select"
-                    value={thesis}
-                    onChange={(e) => setThesis(e.target.value as any)}
-                  >
-                    <option value="bullish">Bullish (Calls, Bull Spreads)</option>
-                    <option value="bearish">Bearish (Puts, Bear Spreads)</option>
-                    <option value="neutral">Neutral (Iron Condor, Calendar)</option>
-                    <option value="directional">Directional (Breakouts &amp; Straddles)</option>
-                  </select>
-                </div>
-
-                <div className="sched-form-group">
-                  <label className="sched-form-label">Risk Profile</label>
-                  <select
-                    className="sched-select"
-                    value={riskProfile}
-                    onChange={(e) => setRiskProfile(e.target.value as any)}
-                  >
-                    <option value="conservative">Conservative (High POP &gt; 65%, Defined Risk)</option>
-                    <option value="balanced">Balanced (Optimal R/R &gt; 1.5x, Moderate POP)</option>
-                    <option value="aggressive">Aggressive (Maximum Leverage &amp; Upside)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Omnichannel Dispatch Options */}
-              <div className="sched-form-group">
-                <label className="sched-form-label">
-                  Omnichannel Notification Dispatch
-                  <span className="hint">Push trade alerts automatically</span>
-                </label>
-
-                <div className="channels-checkbox-grid">
-                  {/* Slack */}
-                  <label className="channel-check-card">
-                    <div className="channel-check-top">
-                      <input
-                        type="checkbox"
-                        checked={pushToSlack}
-                        onChange={(e) => setPushToSlack(e.target.checked)}
-                      />
-                      <strong>Slack Block Kit</strong>
-                    </div>
-                    <span className="channel-check-desc">
-                      Interactive cards with <code>[✓ Approve &amp; Preview Order]</code> buttons
-                    </span>
-                    {pushToSlack && (
-                      <input
-                        type="text"
-                        className="sched-input"
-                        style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                        value={slackChannel}
-                        onChange={(e) => setSlackChannel(e.target.value)}
-                        placeholder="Slack Channel (e.g. #trading-desk)"
-                      />
-                    )}
-                  </label>
-
-                  {/* Email */}
-                  <label className="channel-check-card">
-                    <div className="channel-check-top">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(emailTo)}
-                        onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
-                      />
-                      <strong>Dark-Mode Email Brief</strong>
-                    </div>
-                    <span className="channel-check-desc">
-                      Detailed payoff metrics grid, breakevens, and Greeks summary
-                    </span>
-                    {Boolean(emailTo) && (
-                      <input
-                        type="email"
-                        className="sched-input"
-                        style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                        value={emailTo}
-                        onChange={(e) => setEmailTo(e.target.value)}
-                        placeholder="Recipient Email (e.g. trader@firm.com)"
-                      />
-                    )}
-                  </label>
-
-                  {/* Webhook */}
-                  <label className="channel-check-card">
-                    <div className="channel-check-top">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(webhookUrl)}
-                        onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/options" : "")}
-                      />
-                      <strong>Outbound Signed Webhook</strong>
-                    </div>
-                    <span className="channel-check-desc">
-                      HMAC SHA-256 authenticated JSON payload for institutional trade engines
-                    </span>
-                    {Boolean(webhookUrl) && (
-                      <input
-                        type="url"
-                        className="sched-input"
-                        style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                        value={webhookUrl}
-                        onChange={(e) => setWebhookUrl(e.target.value)}
-                        placeholder="https://..."
-                      />
-                    )}
-                  </label>
-
-                  {/* Broadcast */}
-                  <div className="channel-check-card" style={{ opacity: 0.9 }}>
-                    <div className="channel-check-top">
-                      <input type="checkbox" checked disabled />
-                      <strong>WebSocket UI Broadcast</strong>
-                    </div>
-                    <span className="channel-check-desc">
-                      Live real-time pop-up notification pushed to all connected client tabs
-                    </span>
+                {scheduleType === "delayed" && (
+                  <div className="sched-form-group">
+                    <label className="sched-form-label">Delay Seconds</label>
+                    <input
+                      type="number"
+                      className="sched-input"
+                      value={delaySeconds}
+                      onChange={(e) => setDelaySeconds(Number(e.target.value))}
+                      min={1}
+                      step={60}
+                      required
+                    />
+                    <p className="sched-preset-note">
+                      Runs once, this many seconds after the schedule is saved.
+                    </p>
                   </div>
-                </div>
+                )}
+
+                {scheduleType === "scheduled" && (
+                  <div className="sched-form-group">
+                    <label className="sched-form-label">Run At (One-Shot)</label>
+                    <input
+                      type="datetime-local"
+                      className="sched-input"
+                      value={scheduledDate}
+                      onChange={(e) => setScheduledDate(e.target.value)}
+                      required
+                    />
+                    <p className="sched-preset-note">
+                      Runs once at the chosen date and time (your local time).
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {/* Thesis & Risk Profile + Dispatch (options analysis only) */}
+              {(editingScheduleId || jobType === "optionsAnalysis") && (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="sched-form-group">
+                      <label className="sched-form-label">Market Thesis / Outlook</label>
+                      <select
+                        className="sched-select"
+                        value={thesis}
+                        onChange={(e) => setThesis(e.target.value as any)}
+                      >
+                        <option value="bullish">Bullish (Calls, Bull Spreads)</option>
+                        <option value="bearish">Bearish (Puts, Bear Spreads)</option>
+                        <option value="neutral">Neutral (Iron Condor, Calendar)</option>
+                        <option value="directional">Directional (Breakouts &amp; Straddles)</option>
+                      </select>
+                    </div>
+
+                    <div className="sched-form-group">
+                      <label className="sched-form-label">Risk Profile</label>
+                      <select
+                        className="sched-select"
+                        value={riskProfile}
+                        onChange={(e) => setRiskProfile(e.target.value as any)}
+                      >
+                        <option value="conservative">Conservative (High POP &gt; 65%, Defined Risk)</option>
+                        <option value="balanced">Balanced (Optimal R/R &gt; 1.5x, Moderate POP)</option>
+                        <option value="aggressive">Aggressive (Maximum Leverage &amp; Upside)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="sched-form-group">
+                    <label className="sched-form-label">
+                      Omnichannel Notification Dispatch
+                      <span className="hint">Push trade alerts automatically</span>
+                    </label>
+
+                    <div className="channels-checkbox-grid">
+                      {/* Slack */}
+                      <label className="channel-check-card">
+                        <div className="channel-check-top">
+                          <input
+                            type="checkbox"
+                            checked={pushToSlack}
+                            onChange={(e) => setPushToSlack(e.target.checked)}
+                          />
+                          <strong>Slack Block Kit</strong>
+                        </div>
+                        <span className="channel-check-desc">
+                          Interactive cards with <code>[✓ Approve &amp; Preview Order]</code> buttons
+                        </span>
+                        {pushToSlack && (
+                          <input
+                            type="text"
+                            className="sched-input"
+                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                            value={slackChannel}
+                            onChange={(e) => setSlackChannel(e.target.value)}
+                            placeholder="Slack Channel (e.g. #trading-desk)"
+                          />
+                        )}
+                      </label>
+
+                      {/* Email */}
+                      <label className="channel-check-card">
+                        <div className="channel-check-top">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(emailTo)}
+                            onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
+                          />
+                          <strong>Dark-Mode Email Brief</strong>
+                        </div>
+                        <span className="channel-check-desc">
+                          Detailed payoff metrics grid, breakevens, and Greeks summary
+                        </span>
+                        {Boolean(emailTo) && (
+                          <input
+                            type="email"
+                            className="sched-input"
+                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                            value={emailTo}
+                            onChange={(e) => setEmailTo(e.target.value)}
+                            placeholder="Recipient Email (e.g. trader@firm.com)"
+                          />
+                        )}
+                      </label>
+
+                      {/* Webhook */}
+                      <label className="channel-check-card">
+                        <div className="channel-check-top">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(webhookUrl)}
+                            onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/options" : "")}
+                          />
+                          <strong>Outbound Signed Webhook</strong>
+                        </div>
+                        <span className="channel-check-desc">
+                          HMAC SHA-256 authenticated JSON payload for institutional trade engines
+                        </span>
+                        {Boolean(webhookUrl) && (
+                          <input
+                            type="url"
+                            className="sched-input"
+                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                            value={webhookUrl}
+                            onChange={(e) => setWebhookUrl(e.target.value)}
+                            placeholder="https://..."
+                          />
+                        )}
+                      </label>
+
+                      {/* Broadcast */}
+                      <div className="channel-check-card" style={{ opacity: 0.9 }}>
+                        <div className="channel-check-top">
+                          <input type="checkbox" checked disabled />
+                          <strong>WebSocket UI Broadcast</strong>
+                        </div>
+                        <span className="channel-check-desc">
+                          Live real-time pop-up notification pushed to all connected client tabs
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <footer className="sched-modal-footer">
                 <button
