@@ -23,6 +23,16 @@
  *     persist when a store is supplied (returning scanRunId +
  *     persisted: true), and a store whose save throws still returns a
  *     successful scan flagged persisted: false.
+ *  6. Issue #103 polish — summaries carry profileRef; saves may be
+ *     stamped with the saver's userLogin and list/get then scope per
+ *     user (legacy unscoped runs visible to everyone; the SQL store
+ *     migrates a pre-scoping table by adding user_login); the unified
+ *     opportunities request grew statedTarget/minDte/maxDte/offset,
+ *     forwards them into the scan, and both scan paths record the
+ *     original request on requestSnapshot.request for verbatim replay.
+ *     (The FakeScanSql harness was extended for the new statements:
+ *     PRAGMA table_info, the ALTER, the 7-column INSERT, and the
+ *     visibility-filtered list SELECT.)
  *
  * Fixtures are deterministic (fake screener / stub client patterns from
  * tests/options_scanner.test.ts). No live market data, no network.
@@ -239,12 +249,22 @@ interface FakeScanRow {
   generated_at: string;
   mode: string;
   model_version: string;
+  user_login: string | null;
   summary_json: string;
   result_json: string;
 }
 
+/** Column sets for the issue #103 migration: tables created before
+ *  per-user scoping have no user_login column until ensure() ALTERs
+ *  one in. Tests seed `tableExists`/`columns` to simulate a legacy
+ *  table. */
+const LEGACY_SCAN_COLUMNS = ["id", "generated_at", "mode", "model_version", "summary_json", "result_json"];
+const FULL_SCAN_COLUMNS = ["id", "generated_at", "mode", "model_version", "user_login", "summary_json", "result_json"];
+
 class FakeScanSql implements ScanSqlExecutor {
   rows: FakeScanRow[] = [];
+  tableExists = false;
+  columns: string[] = [];
 
   private sorted(): FakeScanRow[] {
     return [...this.rows].sort((a, b) =>
@@ -262,11 +282,30 @@ class FakeScanSql implements ScanSqlExecutor {
 
   exec(query: string, ...params: unknown[]): Iterable<unknown> {
     const q = query.replace(/\s+/g, " ").trim();
-    if (q.startsWith("CREATE TABLE") || q.startsWith("CREATE INDEX")) return [];
+    if (q.startsWith("CREATE TABLE")) {
+      // CREATE TABLE IF NOT EXISTS: a pre-existing (legacy) table
+      // keeps its columns; a fresh table gets the full current set.
+      if (!this.tableExists) {
+        this.tableExists = true;
+        this.columns = [...FULL_SCAN_COLUMNS];
+      }
+      return [];
+    }
+    if (q.startsWith("CREATE INDEX")) return [];
+    if (q.startsWith("PRAGMA table_info")) {
+      return this.columns.map((name) => ({ name }));
+    }
+    if (q.startsWith("ALTER TABLE mas_opportunity_scans ADD COLUMN user_login")) {
+      if (!this.columns.includes("user_login")) this.columns.push("user_login");
+      for (const row of this.rows) row.user_login = null;
+      return [];
+    }
     if (q.startsWith("INSERT INTO mas_opportunity_scans")) {
-      const [id, generated_at, mode, model_version, summary_json, result_json] = params as string[];
+      const [id, generated_at, mode, model_version, user_login, summary_json, result_json] = params as [
+        string, string, string, string, string | null, string, string,
+      ];
       if (!this.rows.some((r) => r.id === id)) {
-        this.rows.push({ id, generated_at, mode, model_version, summary_json, result_json });
+        this.rows.push({ id, generated_at, mode, model_version, user_login, summary_json, result_json });
       }
       return [];
     }
@@ -275,9 +314,14 @@ class FakeScanSql implements ScanSqlExecutor {
         .filter((r) => r.id === params[0])
         .map((r) => ({ summary_json: r.summary_json, result_json: r.result_json }));
     }
-    if (q.startsWith("SELECT summary_json FROM mas_opportunity_scans ORDER BY")) {
-      const [limit, offset] = params as number[];
+    if (q.startsWith("SELECT summary_json FROM mas_opportunity_scans WHERE")) {
+      // Issue #103: the visibility predicate is part of the statement
+      // (user_login IS NULL OR user_login = scope); a NULL scope
+      // parameter matches only the legacy rows, exactly like SQLite's
+      // `= NULL` never being true.
+      const [scope, limit, offset] = params as [string | null, number, number];
       return this.sorted()
+        .filter((r) => r.user_login == null || (scope != null && r.user_login === scope))
         .slice(offset, offset + limit)
         .map((r) => ({ summary_json: r.summary_json }));
     }
@@ -715,8 +759,12 @@ describe("unified opportunities persistence (issue #27)", () => {
     expect(data.scanRunId).toBe("unified-run-1");
     expect(data.persisted).toBe(true);
 
-    const stored = await store.get("unified-run-1");
+    // Issue #103: the save was stamped with the service's userLogin,
+    // so the read-back names its owner scope (another login — or no
+    // scope at all — would read the run as absent).
+    const stored = await store.get("unified-run-1", { userLogin: "default_trader" });
     expect(stored).not.toBeNull();
+    expect(stored!.userLogin).toBe("default_trader");
     expect(stored!.result.generatedAt).toBe(data.generatedAt);
     expect(stored!.result.matrix).toHaveLength(2);
     expect(stored!.result.requestSnapshot.template.thesis).toBe("bullish");
@@ -730,5 +778,225 @@ describe("unified opportunities persistence (issue #27)", () => {
     const data = result.data as unknown as { scanRunId?: string; persisted?: boolean };
     expect(data.scanRunId).toBeUndefined();
     expect(data.persisted).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Issue #103: profileRef in summaries, per-user scoping, replayable
+//    request records
+// ---------------------------------------------------------------------------
+
+describe("scan history polish — profileRef in summaries (issue #103)", () => {
+  async function expectProfileRef(store: ScanRunStore): Promise<void> {
+    const withProfile: OpportunityScanResult = {
+      ...fabricatedResult("2026-10-16T09:00:00.000Z", [{ symbol: "AAA", gateBucket: "fit" }]),
+      profileRef: { id: "prof-9", name: "Income", version: 3 },
+    };
+    const withoutProfile = fabricatedResult("2026-10-16T10:00:00.000Z", [{ symbol: "BBB", gateBucket: "fit" }]);
+    await store.save(withProfile);
+    await store.save(withoutProfile);
+
+    const summaries = await store.list();
+    expect(summaries).toHaveLength(2);
+    // The profile stamp rides the SUMMARY — a history list can label
+    // the profile without fetching every run in full.
+    expect(summaries.find((s) => s.id === "prof-run")!.profileRef).toEqual({ id: "prof-9", name: "Income", version: 3 });
+    expect(summaries.find((s) => s.id === "plain-run")!.profileRef).toBeNull();
+    expect((await store.get("prof-run"))!.profileRef).toEqual({ id: "prof-9", name: "Income", version: 3 });
+  }
+
+  it("InMemoryScanRunStore summaries carry profileRef (null when no profile ran)", async () => {
+    await expectProfileRef(new InMemoryScanRunStore({ idFactory: idQueue("prof-run", "plain-run") }));
+  });
+
+  it("SqlScanRunStore summaries carry profileRef (null when no profile ran)", async () => {
+    await expectProfileRef(new SqlScanRunStore(new FakeScanSql(), { idFactory: idQueue("prof-run", "plain-run") }));
+  });
+});
+
+describe("scan history polish — per-user scoping (issue #103)", () => {
+  /** The same scoping contract against both stores: a run saved
+   *  under a login is visible only to it; a legacy unscoped run is
+   *  visible to everyone; an unscoped caller sees only legacy runs.
+   *  The routes' diff composes two scoped gets, so a cross-scope get
+   *  returning null here is exactly the route's 404 precondition. */
+  async function expectScoping(store: ScanRunStore): Promise<void> {
+    await store.save(fabricatedResult("2026-10-16T10:00:00.000Z", [{ symbol: "AAA", gateBucket: "fit" }]), {
+      userLogin: "alice",
+    });
+    await store.save(fabricatedResult("2026-10-16T11:00:00.000Z", [{ symbol: "BBB", gateBucket: "fit" }]), {
+      userLogin: "bob",
+    });
+    await store.save(fabricatedResult("2026-10-16T09:00:00.000Z", [{ symbol: "CCC", gateBucket: "fit" }]));
+
+    expect((await store.list({ userLogin: "alice" })).map((s) => s.id)).toEqual(["alice-run", "legacy-run"]);
+    expect((await store.list({ userLogin: "bob" })).map((s) => s.id)).toEqual(["bob-run", "legacy-run"]);
+    expect((await store.list()).map((s) => s.id)).toEqual(["legacy-run"]);
+    // Summaries expose whose run each is (legacy carries no login).
+    expect((await store.list({ userLogin: "alice" })).find((s) => s.id === "alice-run")!.userLogin).toBe("alice");
+    expect((await store.list({ userLogin: "alice" })).find((s) => s.id === "legacy-run")!.userLogin).toBeUndefined();
+
+    // Pagination walks only visible rows (filter before slicing).
+    expect((await store.list({ userLogin: "alice", limit: 1 })).map((s) => s.id)).toEqual(["alice-run"]);
+    expect((await store.list({ userLogin: "alice", limit: 1, offset: 1 })).map((s) => s.id)).toEqual(["legacy-run"]);
+
+    // Get: the owner reads it, anyone else — and an unscoped read —
+    // gets null (existence never leaks across users).
+    expect((await store.get("alice-run", { userLogin: "alice" }))!.id).toBe("alice-run");
+    expect(await store.get("alice-run", { userLogin: "bob" })).toBeNull();
+    expect(await store.get("alice-run")).toBeNull();
+    expect((await store.get("legacy-run", { userLogin: "bob" }))!.id).toBe("legacy-run");
+    expect((await store.get("legacy-run"))!.id).toBe("legacy-run");
+  }
+
+  it("InMemoryScanRunStore scopes list/get per user", async () => {
+    await expectScoping(new InMemoryScanRunStore({ idFactory: idQueue("alice-run", "bob-run", "legacy-run") }));
+  });
+
+  it("SqlScanRunStore scopes list/get per user", async () => {
+    await expectScoping(new SqlScanRunStore(new FakeScanSql(), { idFactory: idQueue("alice-run", "bob-run", "legacy-run") }));
+  });
+
+  it("SQL store migrates a pre-scoping table (no user_login column) at ensure time", async () => {
+    const fake = new FakeScanSql();
+    const legacyResult = fabricatedResult("2026-10-10T00:00:00.000Z", [{ symbol: "AAA", gateBucket: "fit" }]);
+    // A summary exactly as pre-#103 code wrote it: no profileRef, no
+    // userLogin — and a table without the user_login column.
+    const legacySummary = {
+      id: "legacy-1",
+      generatedAt: legacyResult.generatedAt,
+      mode: legacyResult.mode,
+      modelVersion: legacyResult.modelVersion,
+      gate: legacyResult.gate,
+      coverage: legacyResult.coverage,
+    };
+    fake.tableExists = true;
+    fake.columns = [...LEGACY_SCAN_COLUMNS];
+    fake.rows.push({
+      id: "legacy-1",
+      generated_at: legacyResult.generatedAt,
+      mode: legacyResult.mode,
+      model_version: legacyResult.modelVersion,
+      user_login: null,
+      summary_json: JSON.stringify(legacySummary),
+      result_json: JSON.stringify(legacyResult),
+    });
+
+    const store = new SqlScanRunStore(fake, { idFactory: idQueue("post-migration") });
+    // The legacy row reads back under any scope (it has no login)…
+    expect((await store.list({ userLogin: "alice" })).map((s) => s.id)).toEqual(["legacy-1"]);
+    expect((await store.get("legacy-1", { userLogin: "bob" }))!.result.generatedAt).toBe(legacyResult.generatedAt);
+    // …and ensure() added the column exactly once.
+    expect(fake.columns).toContain("user_login");
+
+    // New scoped saves land in the migrated column and scope normally.
+    await store.save(fabricatedResult("2026-10-16T00:00:00.000Z", [{ symbol: "BBB", gateBucket: "fit" }]), {
+      userLogin: "alice",
+    });
+    expect(fake.rows.find((r) => r.id === "post-migration")!.user_login).toBe("alice");
+    expect((await store.list({ userLogin: "alice" })).map((s) => s.id)).toEqual(["post-migration", "legacy-1"]);
+    expect((await store.list({ userLogin: "bob" })).map((s) => s.id)).toEqual(["legacy-1"]);
+  });
+});
+
+describe("scan history polish — recorded request + forwarding (issue #103)", () => {
+  afterEach(() => {
+    DynamicOptionsScreener.clearTestChainsFixture();
+  });
+
+  it("unified opportunities forwards statedTarget/minDte/maxDte into the scan and records the original request", async () => {
+    DynamicOptionsScreener.setTestChainsFixture({ NVDA: chainFor("NVDA", 250, expiryObj) });
+    const store = new InMemoryScanRunStore({ idFactory: idQueue("recorded-run-1") });
+    const service = new UnifiedOptionsService(
+      { ETRADE_ENVIRONMENT: "sandbox" } as Env,
+      "alice",
+      undefined,
+      undefined,
+      store,
+    );
+    const request = {
+      action: "opportunities" as const,
+      symbols: ["NVDA"],
+      targetDate: expiryDate,
+      statedTarget: { price: 300, symbol: "NVDA" },
+      minDte: 10,
+      maxDte: 45,
+    };
+    const result = await service.execute(request);
+    expect(result.success).toBe(true);
+    expect(result.meta.cached).toBe(false);
+    const data = result.data as unknown as OpportunityScanResult & { scanRunId?: string };
+
+    // Forwarding: the fields reached the scan template, so the
+    // snapshot's effective template carries them…
+    expect(data.requestSnapshot.template.statedTarget).toEqual({ price: 300, symbol: "NVDA" });
+    expect(data.requestSnapshot.template.minDte).toBe(10);
+    expect(data.requestSnapshot.template.maxDte).toBe(45);
+    // …and the stated target actually governed NVDA's row: its source
+    // is "stated" and its price is the stated one, not a derivation.
+    const nvdaRow = data.matrix.find((r) => r.symbol === "NVDA")!;
+    expect(nvdaRow.targetSource).toBe("stated");
+    expect(nvdaRow.targetPrice).toBe(300);
+
+    // The recorded request is the caller's original ask — the
+    // replayable form — attached before return AND before persistence.
+    expect(data.requestSnapshot.request).toEqual({
+      symbols: ["NVDA"],
+      targetDate: expiryDate,
+      statedTarget: { price: 300, symbol: "NVDA" },
+      minDte: 10,
+      maxDte: 45,
+    });
+    const stored = await store.get("recorded-run-1", { userLogin: "alice" });
+    expect(stored).not.toBeNull();
+    expect(stored!.result.requestSnapshot.request).toEqual(data.requestSnapshot.request);
+    expect(stored!.userLogin).toBe("alice");
+    expect((await store.list({ userLogin: "alice" })).map((s) => s.id)).toEqual(["recorded-run-1"]);
+    expect(await store.list({ userLogin: "bob" })).toEqual([]);
+
+    // Cache: an identical call is served from cache; a different
+    // stated target must NOT be (the key segments on it).
+    const again = await service.execute(request);
+    expect(again.meta.cached).toBe(true);
+    const differentTarget = await service.execute({ ...request, statedTarget: { price: 310, symbol: "NVDA" } });
+    expect(differentTarget.meta.cached).toBe(false);
+    expect((differentTarget.data as unknown as OpportunityScanResult).requestSnapshot.template.statedTarget).toEqual({
+      price: 310,
+      symbol: "NVDA",
+    });
+  });
+
+  it("NLQ opportunities scan records its request and scopes the save by deps.userLogin", async () => {
+    const intent = parseOptionsStrategyIntent("Best bullish option trades for NVDA and AMD max loss $5000");
+    const spots: Record<string, number> = { NVDA: 250, AMD: 40 };
+    const client = {
+      getOptionExpireDates: async () => [expiryObj],
+      getOptionChains: async (args: { symbol: string }) =>
+        spots[args.symbol] !== undefined ? chainFor(args.symbol, spots[args.symbol], expiryObj) : null,
+    };
+    const etrade = { client, environment: { kind: "sandbox" as const } };
+    const store = new InMemoryScanRunStore({ idFactory: idQueue("nlq-recorded-1") });
+
+    const result = await runOptionsStrategyAction(etrade as never, intent.action, intent.filters, {
+      scanRunStore: store,
+      userLogin: "carol",
+    });
+    expect(result.status).toBe("ranked_opportunities");
+    expect(result.scanRunId).toBe("nlq-recorded-1");
+
+    const stored = await store.get("nlq-recorded-1", { userLogin: "carol" });
+    expect(stored).not.toBeNull();
+    expect(stored!.userLogin).toBe("carol");
+    expect(await store.get("nlq-recorded-1", { userLogin: "dave" })).toBeNull();
+    // The NLQ record: the resolved batch and the question's expressed
+    // fields (thesis, loss cap) — no stated target was asked, so none
+    // is recorded; the profile selection would ride as profileName.
+    const record = stored!.result.requestSnapshot.request;
+    expect(record).toBeDefined();
+    expect(record!.symbols).toEqual(["NVDA", "AMD"]);
+    expect(record!.thesis).toBe("bullish");
+    expect(record!.maxPlannedLoss).toBe(5000);
+    expect(record!.statedTarget).toBeUndefined();
+    expect(record!.profileId).toBeUndefined();
   });
 });
