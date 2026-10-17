@@ -3811,8 +3811,12 @@ Agentic Best Practices & Workflow Rules:
       try {
         const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
         const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+        // Issue #103: history is scoped per user, like profiles —
+        // runs the caller saved are theirs; legacy runs saved before
+        // scoping (no user_login) remain visible to everyone.
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const store = new SqlScanRunStore(sql);
-        const scans = await store.list({ limit, offset });
+        const scans = await store.list({ limit, offset, userLogin });
         return Response.json({ count: scans.length, scans });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to list scan runs" }, { status: 500 });
@@ -3826,9 +3830,13 @@ Agentic Best Practices & Workflow Rules:
         if (!fromId || !toId) {
           return Response.json({ error: "from and to scan run ids are required" }, { status: 400 });
         }
+        // Issue #103: both runs must be visible to the caller — an
+        // invisible run produces the same 404 as a missing one, so a
+        // diff can never leak another user's run (or its existence).
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const store = new SqlScanRunStore(sql);
-        const from = await store.get(fromId);
-        const to = await store.get(toId);
+        const from = await store.get(fromId, { userLogin });
+        const to = await store.get(toId, { userLogin });
         if (!from || !to) {
           return Response.json({ error: "scan run not found" }, { status: 404 });
         }
@@ -3845,8 +3853,11 @@ Agentic Best Practices & Workflow Rules:
     const scanRunIdMatch = path.match(/\/etrade\/options\/scans\/([^/]+)$/);
     if (scanRunIdMatch && request.method === "GET") {
       try {
+        // Issue #103: scoped like the list — another user's run is
+        // indistinguishable from a pruned one (same 404).
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const store = new SqlScanRunStore(sql);
-        const run = await store.get(decodeURIComponent(scanRunIdMatch[1]));
+        const run = await store.get(decodeURIComponent(scanRunIdMatch[1]), { userLogin });
         if (!run) {
           return Response.json({ error: "scan run not found" }, { status: 404 });
         }

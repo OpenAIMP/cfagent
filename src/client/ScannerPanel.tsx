@@ -48,6 +48,13 @@
  *    renders the server's ScanRunDiff verbatim — nothing is diffed
  *    or scored client-side.
  *
+ *  - Issue #103 polish on slice 5: history rows show the run's
+ *    profile chip (the summary carries profileRef now), the list is
+ *    scoped to the signed-in user server-side (legacy unscoped runs
+ *    stay visible to everyone), and runs recorded since #103 carry
+ *    their original request — re-running one of those replays it
+ *    verbatim instead of mapping the snapshot (buildRerunRequest).
+ *
  * All HTTP goes through scannerApi → apiFetch (the 202 async-job
  * polling convention, issue #71).
  */
@@ -292,11 +299,18 @@ export function shortenRunId(id: string): string {
 }
 
 /**
- * Build the re-run request for a stored run from its saved
- * requestSnapshot (issue #27 provenance), for replay through the
+ * Build the re-run request for a stored run, for replay through the
  * normal unified scan path.
  *
- * What the snapshot carries (ScanRequestSnapshot in
+ * Runs recorded since issue #103 carry the caller's ORIGINAL request
+ * (requestSnapshot.request: the resolved symbols, every expressed
+ * unified field, the profile selection, the stated target and DTE
+ * bounds the unified request now carries). Those replay verbatim —
+ * a true re-run, nothing dropped (a screen filter, when the original
+ * scan ran under one, still has no unified field and is named).
+ *
+ * Legacy runs (recorded before #103) have only the snapshot to map
+ * from. What it carries (ScanRequestSnapshot in
  * opportunityScanner.ts): the EFFECTIVE template (thesis, targetDate,
  * minDte/maxDte, maxPlannedLoss, minRewardRisk, allowedStrategies,
  * statedTarget, perSymbol — post-profile-merge), the mode, the risk
@@ -304,21 +318,50 @@ export function shortenRunId(id: string): string {
  * It does NOT record the requested symbol list, the pagination
  * limit/offset, expectedIvDirection, or optimizationBias.
  *
- * The unified request body has no fields for a stated target, DTE
- * bounds, or a screen filter (and the opportunities path never
- * forwards one), so those snapshot fields cannot be replayed: they
- * are returned in `dropped` and named in the UI's re-run note —
- * never silently discarded. The symbol list is rebuilt from the
- * stored result's matrix rows: the batch the original run actually
- * scanned, in batch order (symbols the original request asked for
- * beyond the scan cap were truncated at scan time and recorded
- * nowhere — that loss is also named in `dropped`). The applied
- * profile replays by id, so the fresh run re-resolves the profile's
- * CURRENT version and its fit gate, exactly as a new run would.
+ * For those runs the snapshot's stated target, DTE bounds, and screen
+ * filter cannot be replayed faithfully — the template is the
+ * post-profile-merge view, and pinning its merged bounds over a
+ * re-resolved profile would freeze values the profile may have
+ * legitimately changed since — so they are returned in `dropped` and
+ * named in the UI's re-run note, never silently discarded. The symbol
+ * list is rebuilt from the stored result's matrix rows: the batch
+ * the original run actually scanned, in batch order (symbols the
+ * original request asked for beyond the scan cap were truncated at
+ * scan time and recorded nowhere — that loss is also named in
+ * `dropped`). The applied profile replays by id, so the fresh run
+ * re-resolves the profile's CURRENT version and its fit gate,
+ * exactly as a new run would.
  */
 export function buildRerunRequest(run: { result: OpportunityScanResult }): { body: UnifiedOptionsRequest; dropped: string[] } {
   const result = run.result;
   const snapshot = result.requestSnapshot;
+  const record = snapshot?.request;
+  if (record) {
+    const dropped: string[] = [];
+    if (snapshot?.strategyFilter) dropped.push("screen filter");
+    const body: UnifiedOptionsRequest = {
+      action: "opportunities",
+      ...(record.symbols && record.symbols.length > 0 ? { symbols: record.symbols } : {}),
+      ...(record.thesis !== undefined ? { thesis: record.thesis } : {}),
+      ...(record.targetDate !== undefined ? { targetDate: record.targetDate } : {}),
+      ...(record.expectedIvDirection !== undefined ? { expectedIvDirection: record.expectedIvDirection } : {}),
+      ...(record.maxPlannedLoss !== undefined ? { maxPlannedLoss: record.maxPlannedLoss } : {}),
+      ...(record.minRewardRisk !== undefined ? { minRewardRisk: record.minRewardRisk } : {}),
+      ...(record.allowedStrategies !== undefined ? { allowedStrategies: record.allowedStrategies } : {}),
+      ...(record.optimizationBias !== undefined ? { optimizationBias: record.optimizationBias } : {}),
+      ...(record.perSymbol !== undefined ? { perSymbol: record.perSymbol } : {}),
+      ...(record.statedTarget !== undefined ? { statedTarget: record.statedTarget } : {}),
+      ...(record.minDte !== undefined ? { minDte: record.minDte } : {}),
+      ...(record.maxDte !== undefined ? { maxDte: record.maxDte } : {}),
+      ...(record.riskProfile !== undefined ? { riskProfile: record.riskProfile } : {}),
+      ...(record.mode !== undefined ? { mode: record.mode } : {}),
+      ...(record.profileId !== undefined ? { profileId: record.profileId } : {}),
+      ...(record.profileName !== undefined ? { profileName: record.profileName } : {}),
+      ...(record.limit !== undefined ? { limit: record.limit } : {}),
+      ...(record.offset !== undefined ? { offset: record.offset } : {}),
+    };
+    return { body, dropped };
+  }
   const template = snapshot?.template;
   const dropped: string[] = [];
   if (template?.statedTarget) dropped.push("stated target");
@@ -1001,11 +1044,12 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
     }
   };
 
-  /** Re-run a stored run: replay its saved requestSnapshot through
-   *  the same scan path the Run button uses. The fresh result lands
-   *  as a normal new run (and persists as a new history entry);
-   *  snapshot fields the unified body cannot carry are named in the
-   *  note, never dropped silently. */
+  /** Re-run a stored run: replay its saved request through the same
+   *  scan path the Run button uses (verbatim for runs recorded since
+   *  issue #103; the snapshot mapping for legacy runs — see
+   *  buildRerunRequest). The fresh result lands as a normal new run
+   *  (and persists as a new history entry); anything a replay cannot
+   *  carry is named in the note, never dropped silently. */
   const rerunRun = async (summary: ScanRunSummary) => {
     if (scanning) return;
     setHistoryBusyId(summary.id);
@@ -1423,6 +1467,9 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
             <div className="scp-row-main">
               <strong>{new Date(run.generatedAt).toLocaleString()}</strong>{" "}
               <span className="scp-badge">{MODE_LABELS[run.mode] ?? run.mode}</span>
+              {run.profileRef && (
+                <span className="scp-badge scp-badge-profile">Profile: {run.profileRef.name} v{run.profileRef.version}</span>
+              )}
               <span className="scp-row-summary">
                 model v{run.modelVersion} · {run.coverage?.scanned ?? 0} scanned · {run.coverage?.evaluated ?? 0} evaluated
                 {" "}· gate: {run.gate?.fit ?? 0} fit / {run.gate?.borderline ?? 0} borderline / {run.gate?.noFit ?? 0} no fit

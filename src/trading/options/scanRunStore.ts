@@ -19,6 +19,13 @@
  * indexed on created_at): mas_* tables in DO SQLite. SqlScanRunStore
  * follows that pattern, with the table ensured lazily by the store so
  * ensureTables() needs no new entry.
+ *
+ * Issue #103 polish: summaries carry the run's profileRef (no N+1
+ * fetch to label a history row), and saves may stamp the saver's
+ * userLogin — list/get then scope per user (see visibleToCaller for
+ * the rule; rows written before scoping have user_login NULL and stay
+ * visible to everyone). The column is added idempotently at ensure
+ * time for pre-existing tables.
  */
 
 import type {
@@ -27,6 +34,7 @@ import type {
   ScanCoverage,
   ScanMode,
 } from "./opportunityScanner";
+import type { ProfileRef } from "./strategyProfile";
 
 /** Days a persisted scan run is retained. 365 matches the settled
  *  retention for discovery runs: diffing a scan against the same setup
@@ -47,6 +55,18 @@ export interface ScanRunSummary {
   modelVersion: string;
   gate: OpportunityScanResult["gate"];
   coverage: ScanCoverage;
+  /** The saved profile the run ran under (issue #103, completing
+   *  #28's stamp): copied from the result so history rows can show it
+   *  without fetching every run in full. Null when no profile was
+   *  applied. Summaries persisted before issue #103 lack the field at
+   *  runtime (undefined); readers must treat absent as null. */
+  profileRef: ProfileRef | null;
+  /** The login that saved the run (issue #103 per-user scoping).
+   *  Optional deliberately: runs persisted before scoping existed —
+   *  and runs saved by contexts with no identity — carry none, and
+   *  an absent login is exactly what makes a run "legacy" under the
+   *  visibility rule (see visibleToCaller). */
+  userLogin?: string;
 }
 
 /** A persisted scan run: its summary plus the full result as produced. */
@@ -57,16 +77,37 @@ export interface StoredScanRun extends ScanRunSummary {
 export interface ScanRunStore {
   /** Persist a scan result and return the stored run (with its id).
    *  Saving also prunes: rows older than the retention window and rows
-   *  beyond the row cap are deleted, oldest first. */
-  save(result: OpportunityScanResult): Promise<StoredScanRun>;
+   *  beyond the row cap are deleted, oldest first. `userLogin` stamps
+   *  the saver's identity for per-user scoping (issue #103); call
+   *  sites with no identity omit it and the run is saved unscoped —
+   *  identity is never invented here. */
+  save(result: OpportunityScanResult, options?: { userLogin?: string }): Promise<StoredScanRun>;
   /** Newest-first summaries (generatedAt descending, id descending on
-   *  ties), paginated by limit/offset. */
-  list(options?: { limit?: number; offset?: number }): Promise<ScanRunSummary[]>;
-  /** The full stored run, or null when the id is unknown (or pruned). */
-  get(id: string): Promise<StoredScanRun | null>;
+   *  ties), paginated by limit/offset, filtered by the visibility
+   *  rule when a `userLogin` scope is given (and when it is not — an
+   *  unscoped caller sees only unscoped runs). */
+  list(options?: { limit?: number; offset?: number; userLogin?: string }): Promise<ScanRunSummary[]>;
+  /** The full stored run, or null when the id is unknown (or pruned)
+   *  or the run is not visible to the `userLogin` scope — invisibility
+   *  reads exactly like absence, so a run's existence never leaks
+   *  across users. */
+  get(id: string, options?: { userLogin?: string }): Promise<StoredScanRun | null>;
   /** Delete rows older than the retention window (relative to `now`)
-   *  and rows beyond the row cap; returns how many rows were deleted. */
+   *  and rows beyond the row cap; returns how many rows were deleted.
+   *  Retention is global (not per-user), as before issue #103. */
   prune(now: Date): Promise<number>;
+}
+
+/**
+ * The per-user visibility rule (issue #103), applied identically by
+ * both stores and relied on by the scans routes: a run saved WITH a
+ * userLogin is visible only to that login; a run saved WITHOUT one
+ * (everything persisted before issue #103, and anything saved by an
+ * identity-less context) is visible to every caller, scoped or not.
+ * An unscoped caller (no userLogin) therefore sees only legacy runs.
+ */
+export function visibleToCaller(summary: ScanRunSummary, userLogin?: string): boolean {
+  return summary.userLogin === undefined || summary.userLogin === null || summary.userLogin === userLogin;
 }
 
 /**
@@ -93,20 +134,28 @@ const TABLE = "mas_opportunity_scans";
 
 const CREATE_TABLE_SQL =
   `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, generated_at TEXT NOT NULL, ` +
-  `mode TEXT NOT NULL, model_version TEXT NOT NULL, summary_json TEXT NOT NULL, result_json TEXT NOT NULL)`;
+  `mode TEXT NOT NULL, model_version TEXT NOT NULL, user_login TEXT, summary_json TEXT NOT NULL, result_json TEXT NOT NULL)`;
 const CREATE_INDEX_SQL =
   `CREATE INDEX IF NOT EXISTS idx_mas_opportunity_scans_generated_at ON ${TABLE} (generated_at DESC)`;
 const INSERT_SQL =
-  `INSERT INTO ${TABLE} (id, generated_at, mode, model_version, summary_json, result_json) VALUES (?, ?, ?, ?, ?, ?)`;
-const GET_SQL = `SELECT summary_json, result_json FROM ${TABLE} WHERE id = ?`;
+  `INSERT INTO ${TABLE} (id, generated_at, mode, model_version, user_login, summary_json, result_json) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+// The visibility predicate lives in the list statement itself (issue
+// #103) so pagination walks only rows the caller may see — filtering
+// after LIMIT/OFFSET would return short pages. With a NULL scope
+// parameter the `user_login = NULL` comparison is never true, so an
+// unscoped caller gets exactly the legacy (user_login IS NULL) rows.
 const LIST_SQL =
-  `SELECT summary_json FROM ${TABLE} ORDER BY generated_at DESC, id DESC LIMIT ? OFFSET ?`;
+  `SELECT summary_json FROM ${TABLE} WHERE (user_login IS NULL OR user_login = ?) ` +
+  `ORDER BY generated_at DESC, id DESC LIMIT ? OFFSET ?`;
+const GET_SQL = `SELECT summary_json, result_json FROM ${TABLE} WHERE id = ?`;
 const COUNT_SQL = `SELECT COUNT(*) AS count FROM ${TABLE}`;
 const PRUNE_AGE_SQL = `DELETE FROM ${TABLE} WHERE generated_at < ?`;
 const PRUNE_CAP_SQL =
   `DELETE FROM ${TABLE} WHERE id NOT IN (SELECT id FROM ${TABLE} ORDER BY generated_at DESC, id DESC LIMIT ?)`;
+const TABLE_INFO_SQL = `PRAGMA table_info(${TABLE})`;
+const ADD_USER_LOGIN_COLUMN_SQL = `ALTER TABLE ${TABLE} ADD COLUMN user_login TEXT`;
 
-function summarize(id: string, result: OpportunityScanResult): ScanRunSummary {
+function summarize(id: string, result: OpportunityScanResult, userLogin?: string): ScanRunSummary {
   return {
     id,
     generatedAt: result.generatedAt,
@@ -114,6 +163,8 @@ function summarize(id: string, result: OpportunityScanResult): ScanRunSummary {
     modelVersion: result.modelVersion,
     gate: result.gate,
     coverage: result.coverage,
+    profileRef: result.profileRef ?? null,
+    ...(userLogin !== undefined ? { userLogin } : {}),
   };
 }
 
@@ -153,6 +204,16 @@ export class SqlScanRunStore implements ScanRunStore {
     if (this.ensured) return;
     this.sql.exec(CREATE_TABLE_SQL);
     this.sql.exec(CREATE_INDEX_SQL);
+    // Issue #103 migration: tables created before per-user scoping
+    // have no user_login column. PRAGMA table_info (the repo's ORM
+    // uses the same probe) → ALTER TABLE ADD COLUMN when missing;
+    // existing rows read back NULL, which the visibility rule treats
+    // as legacy/unscoped. Idempotent: once the column exists the
+    // probe finds it and no ALTER runs.
+    const columns = Array.from(this.sql.exec(TABLE_INFO_SQL)) as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "user_login")) {
+      this.sql.exec(ADD_USER_LOGIN_COLUMN_SQL);
+    }
     this.ensured = true;
   }
 
@@ -161,10 +222,10 @@ export class SqlScanRunStore implements ScanRunStore {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async save(result: OpportunityScanResult): Promise<StoredScanRun> {
+  async save(result: OpportunityScanResult, options: { userLogin?: string } = {}): Promise<StoredScanRun> {
     this.ensure();
     const id = this.idFactory();
-    const summary = summarize(id, result);
+    const summary = summarize(id, result, options.userLogin);
     const run: StoredScanRun = { ...summary, result };
     this.sql.exec(
       INSERT_SQL,
@@ -172,6 +233,7 @@ export class SqlScanRunStore implements ScanRunStore {
       result.generatedAt,
       result.mode,
       result.modelVersion,
+      summary.userLogin ?? null,
       JSON.stringify(summary),
       JSON.stringify(result),
     );
@@ -182,19 +244,24 @@ export class SqlScanRunStore implements ScanRunStore {
     return run;
   }
 
-  async list(options: { limit?: number; offset?: number } = {}): Promise<ScanRunSummary[]> {
+  async list(options: { limit?: number; offset?: number; userLogin?: string } = {}): Promise<ScanRunSummary[]> {
     this.ensure();
     const limit = options.limit ?? 25;
     const offset = options.offset ?? 0;
-    const rows = Array.from(this.sql.exec(LIST_SQL, limit, offset)) as Array<{ summary_json: string }>;
+    const rows = Array.from(this.sql.exec(LIST_SQL, options.userLogin ?? null, limit, offset)) as Array<{
+      summary_json: string;
+    }>;
     return rows.map((r) => JSON.parse(r.summary_json) as ScanRunSummary);
   }
 
-  async get(id: string): Promise<StoredScanRun | null> {
+  async get(id: string, options: { userLogin?: string } = {}): Promise<StoredScanRun | null> {
     this.ensure();
     const rows = Array.from(this.sql.exec(GET_SQL, id)) as Array<{ summary_json: string; result_json: string }>;
     if (!rows.length) return null;
     const summary = JSON.parse(rows[0].summary_json) as ScanRunSummary;
+    // The summary is the scoping authority (it is what summarize()
+    // stamped); an invisible run reads as absent.
+    if (!visibleToCaller(summary, options.userLogin)) return null;
     const result = JSON.parse(rows[0].result_json) as OpportunityScanResult;
     return { ...summary, result };
   }
@@ -224,24 +291,27 @@ export class InMemoryScanRunStore implements ScanRunStore {
     this.maxRows = options.maxRows ?? SCAN_RUN_MAX_ROWS;
   }
 
-  async save(result: OpportunityScanResult): Promise<StoredScanRun> {
-    const run: StoredScanRun = { ...summarize(this.idFactory(), result), result };
+  async save(result: OpportunityScanResult, options: { userLogin?: string } = {}): Promise<StoredScanRun> {
+    const run: StoredScanRun = { ...summarize(this.idFactory(), result, options.userLogin), result };
     this.runs.push(run);
     await this.prune(new Date(result.generatedAt));
     return run;
   }
 
-  async list(options: { limit?: number; offset?: number } = {}): Promise<ScanRunSummary[]> {
+  async list(options: { limit?: number; offset?: number; userLogin?: string } = {}): Promise<ScanRunSummary[]> {
     const limit = options.limit ?? 25;
     const offset = options.offset ?? 0;
     return [...this.runs]
+      .filter((r) => visibleToCaller(r, options.userLogin))
       .sort(byNewestFirst)
       .slice(offset, offset + limit)
       .map(({ result: _result, ...summary }) => summary);
   }
 
-  async get(id: string): Promise<StoredScanRun | null> {
-    return this.runs.find((r) => r.id === id) ?? null;
+  async get(id: string, options: { userLogin?: string } = {}): Promise<StoredScanRun | null> {
+    const run = this.runs.find((r) => r.id === id) ?? null;
+    if (!run || !visibleToCaller(run, options.userLogin)) return null;
+    return run;
   }
 
   async prune(now: Date): Promise<number> {
