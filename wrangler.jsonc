@@ -13,12 +13,18 @@
       {
         "name": "OPTIONS_SCANNER_MCP",
         "class_name": "OptionsScannerMCP"
-      }
+      },
+      // PR #3 — x402 PaymentsAgent DO (ledger + budget guards)
+      { "name": "PAYMENTS_AGENT", "class_name": "PaymentsAgent" },
+      // PR #4 — ScheduledAgent DO (autonomous cron-driven goals)
+      { "name": "SCHEDULED_AGENT", "class_name": "ScheduledAgent" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SearchAgent"] },
-    { "tag": "v2", "new_sqlite_classes": ["OptionsScannerMCP"] }
+    { "tag": "v2", "new_sqlite_classes": ["OptionsScannerMCP"] },
+    // PR #3 + PR #4 — new SQLite DO classes
+    { "tag": "v3", "new_sqlite_classes": ["PaymentsAgent", "ScheduledAgent"] }
   ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
@@ -28,9 +34,18 @@
   "triggers": {
     "crons": [
       "0 13 * * 1-5",
-      "0 3 * * *"
+      "0 3 * * *",
+      // PR #4 — ScheduledAgent tick every 30 min
+      "*/30 * * * *"
     ]
   },
+  // PR #6 — Vectorize for VectorMemory (create index first: npx wrangler vectorize create vector-memory --dimensions 768 --metric cosine)
+  "vectorize": [
+    {
+      "binding": "VECTOR_MEMORY",
+      "index_name": "vector-memory"
+    }
+  ],
   "vars": {
     "AI_SEARCH_ENDPOINT": "https://f57a6011-bc38-4d64-856d-69ad4c90042a.search.ai.cloudflare.com",
     "APP_NAME": "AI Search Agent",
@@ -41,4 +56,3 @@
     "_comment_wallet": "Set CF_WALLET_RECIPIENT via: wrangler secret put CF_WALLET_RECIPIENT"
   }
 }
-
