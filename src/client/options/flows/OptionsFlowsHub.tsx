@@ -18,6 +18,9 @@ import {
   filterCongressFlowItems,
   calculateFlowSummary,
   formatFlowDateTime,
+  summarizeFlowProvenance,
+  FLOW_PROVENANCE_LABELS,
+  FLOW_PROVENANCE_NOTICE,
 } from "../../../trading/options/flows/flowService";
 import { FlowFiltersSidebar } from "./FlowFiltersSidebar";
 import { FlowSummaryDualBars } from "./FlowSummaryDualBars";
@@ -78,7 +81,8 @@ export function OptionsFlowsHub({
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
 
-  // Live / Historical items: pure real-time data feeds
+  // Flow items are modelled estimates derived from option-chain snapshots
+  // (issue #119) — there is no live trade-tape feed behind this view.
   const [liveItems, setLiveItems] = useState<LiveFlowItem[]>([]);
   const [marketFlowItems, setMarketFlowItems] = useState<LiveFlowItem[]>([]);
   const [hasLoadedInitial, setHasLoadedInitial] = useState<boolean>(false);
@@ -187,6 +191,18 @@ export function OptionsFlowsHub({
       party: filterConfig.congressParty,
     });
   }, [congressItems, filterConfig]);
+
+  // Provenance mix of the currently loaded flow items (issue #119) — drives
+  // the disclosure banner and header pill so generated/static data can never
+  // be presented as a live tape.
+  const flowProvenance = useMemo(() => summarizeFlowProvenance(liveItems), [liveItems]);
+  const flowProvenanceText = useMemo(() => {
+    if (liveItems.length === 0) return FLOW_PROVENANCE_NOTICE;
+    const parts = flowProvenance.provenances.map(
+      (p) => `${flowProvenance.counts[p]} ${FLOW_PROVENANCE_LABELS[p].toLowerCase()}`
+    );
+    return `${FLOW_PROVENANCE_NOTICE} Current items: ${parts.join(" · ")}.`;
+  }, [liveItems, flowProvenance]);
 
   const summaryData: FlowSummary = useMemo(() => {
     // Market Summary must ALWAYS represent the market-wide flow across active general filters,
@@ -390,22 +406,22 @@ export function OptionsFlowsHub({
           },
           {
             id: "live",
-            label: "Live Flow",
-            badge: "LIVE",
-            badgeType: "live",
+            label: "Modelled Flow",
+            badge: "ESTIMATES",
+            badgeType: "amber",
             tooltip: {
-              eyebrow: "REAL-TIME ALERTS",
-              title: "Live Institutional Flow",
-              description: "Real-time block trades, sweeps, and multi-leg prints synthesized directly from live market feeds.",
+              eyebrow: "CHAIN-DERIVED ESTIMATES",
+              title: "Modelled Institutional Flow Estimates",
+              description: "Flow estimates modelled from option-chain snapshots (contract volume, open interest, last price). Not exchange trade prints — no options trade-tape feed is connected.",
             },
           },
           {
             id: "historical",
-            label: "Historical Flow",
+            label: "Flow (Current Estimates)",
             tooltip: {
-              eyebrow: "FLOW ARCHIVE",
-              title: "Historical Options Flow",
-              description: "Aggregated past institutional flow patterns across major equity tickers.",
+              eyebrow: "NO HISTORICAL TAPE",
+              title: "Options Flow — Current Estimates",
+              description: "No historical options trade tape is available in this product. This view shows the same current modelled flow estimates as the Modelled Flow tab.",
             },
           },
           {
@@ -439,9 +455,12 @@ export function OptionsFlowsHub({
         rightContent={
           <>
             <CopilotTriggerButton label="✨ Ask Copilot" />
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--color-success)", background: "var(--color-success-subtle)", padding: "4px 8px", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-success)", fontWeight: 600 }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--color-success)", boxShadow: "0 0 6px var(--color-success)" }} />
-              <span>LIVE</span>
+            <div
+              title={FLOW_PROVENANCE_NOTICE}
+              style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--color-warning)", background: "var(--color-warning-subtle, var(--color-surface-sunken))", padding: "4px 8px", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-warning)", fontWeight: 600 }}
+            >
+              <span>🧪</span>
+              <span>{flowProvenance.provenances.includes("generated") ? "MODELLED · INCLUDES GENERATED SAMPLES" : "MODELLED — NOT A TRADE TAPE"}</span>
               {lastSyncTime && <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}>{lastSyncTime}</span>}
             </div>
             <button
@@ -449,7 +468,7 @@ export function OptionsFlowsHub({
               onClick={() => fetchLiveFlows(filterConfig)}
               disabled={isRefreshing}
               style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
-              title="Fetch fresh real-time options flow prints"
+              title="Refresh modelled options flow estimates"
             >
               {isRefreshing ? "Refreshing..." : "↻ Refresh"}
             </button>
@@ -487,11 +506,12 @@ export function OptionsFlowsHub({
         }
       />
 
-      {/* Live Options Flow Stream Status */}
+      {/* Provenance disclosure (issue #119): this is modelled flow, not a tape */}
       <div className="flows-delay-banner">
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-success)", display: "inline-block", flexShrink: 0 }} />
-          <span style={{ fontWeight: 600 }}>Live Real-Time Stream: Dark Pool Sweeps, Unusual Block Trades &amp; Institutional Momentum</span>
+          <span aria-hidden="true">🧪</span>
+          <span style={{ fontWeight: 600 }}>Modelled Options Flow — not a live trade tape</span>
+          <span style={{ fontWeight: 400, color: "var(--color-text-muted)" }}>{flowProvenanceText}</span>
         </div>
 
         <div className="flows-delay-banner-right">
@@ -519,19 +539,19 @@ export function OptionsFlowsHub({
             !hasLoadedInitial && isRefreshing ? (
               <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
-                  Aggregating Real-Time Options Flow Leaderboard...
+                  Aggregating Modelled Options Flow Leaderboard...
                 </div>
                 <div style={{ fontSize: "0.85rem" }}>
-                  Calculating net bullish vs bearish institutional dollar volumes directly from live market exchanges
+                  Calculating net bullish vs bearish dollar volumes from modelled flow estimates derived from option-chain snapshots
                 </div>
               </div>
             ) : summaryData.totalTrades === 0 ? (
               <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
-                  No live feed available
+                  No flow estimates available
                 </div>
                 <div style={{ fontSize: "0.85rem" }}>
-                  No live options market prints currently available from exchange streams.
+                  No option-chain data is currently available to derive flow estimates.
                 </div>
               </div>
             ) : (
@@ -551,7 +571,7 @@ export function OptionsFlowsHub({
                   <div className="flow-drilldown-info">
                     <span className="flow-drilldown-badge">TICKER DRILLDOWN</span>
                     <span className="flow-drilldown-text">
-                      Showing Live Flow for <strong>{filterConfig.tickers.join(", ")}</strong>
+                      Showing modelled flow for <strong>{filterConfig.tickers.join(", ")}</strong>
                     </span>
                   </div>
                   <div className="flow-drilldown-actions">
@@ -575,21 +595,21 @@ export function OptionsFlowsHub({
               {!hasLoadedInitial && isRefreshing ? (
                 <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                   <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
-                    Streaming Real-Time Institutional Options Flow...
+                    Loading Modelled Institutional Options Flow Estimates...
                   </div>
                   <div style={{ fontSize: "0.85rem" }}>
-                    Fetching authentic market orders, sweeps, and block trades from live exchange feeds
+                    Deriving sweep and block estimates from option-chain snapshots — not exchange trade prints
                   </div>
                 </div>
               ) : filteredLiveItems.length === 0 ? (
                 <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
                   <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
-                    No live feed available
+                    No flow estimates available
                   </div>
                   <div style={{ fontSize: "0.85rem" }}>
                     {filterConfig.tickers.length > 0 || filterConfig.minPremium > 0
-                      ? "No live prints matching the current filter criteria."
-                      : "No live options flow prints currently available from exchange feeds."}
+                      ? "No modelled flow items matching the current filter criteria."
+                      : "No option-chain data currently available to derive flow estimates."}
                   </div>
                 </div>
               ) : (
@@ -630,6 +650,13 @@ export function OptionsFlowsHub({
                         <td>
                           <span className={`flow-type-badge ${item.type.toLowerCase()}`}>
                             {item.type}
+                          </span>
+                          <span className={`flow-prov-badge prov-${item.provenance}`} title={FLOW_PROVENANCE_NOTICE}>
+                            {item.provenance === "chain-derived"
+                              ? "chain-derived"
+                              : item.provenance === "generated"
+                                ? "🧪 generated"
+                                : "static sample"}
                           </span>
                         </td>
                         <td>
