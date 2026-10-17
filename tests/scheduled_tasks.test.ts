@@ -305,8 +305,9 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
     it("registers baseline cron and interval tasks on initialization", async () => {
       const harness = new AgentSchedulerHarness();
 
-      // Simulate onStart baseline registration
-      await harness.schedule("0 23 * * *", "autoRenewETradeTokens", { userLogin: sessionId }, { idempotent: true });
+      // Simulate onStart baseline registration (renewal cron is
+      // "0 3 * * *" UTC = 23:00 EDT / 22:00 EST since issue #107)
+      await harness.schedule("0 3 * * *", "autoRenewETradeTokens", { userLogin: sessionId }, { idempotent: true });
       await harness.scheduleEvery(300, "autonomousMarketScreen", { sector: "Technology" });
 
       const all = await harness.listSchedules();
@@ -315,7 +316,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       const cron = await harness.listSchedules({ type: "cron" });
       expect(cron.length).toBe(1);
       expect(cron[0].callback).toBe("autoRenewETradeTokens");
-      expect(cron[0].cron).toBe("0 23 * * *");
+      expect(cron[0].cron).toBe("0 3 * * *");
 
       const interval = await harness.listSchedules({ type: "interval" });
       expect(interval.length).toBe(1);
