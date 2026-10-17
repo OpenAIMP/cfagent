@@ -7,7 +7,7 @@
  * - run_sandbox_command & run_quant_backtest (Sandbox Container)
  * - think_trade_validation (Think Harness)
  * - ai_search_financial_docs (AI Search)
- * - execute_durable_twap (Durable Fibers)
+ * - execute_durable_twap (Durable Fibers — TWAP preview planning; places no orders)
  */
 
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
@@ -245,7 +245,15 @@ export class AISearchFinancialDocsCommand implements IMcpToolCommand<{ query: st
 }
 
 /**
- * 8. Durable TWAP Order Command
+ * 8. Durable TWAP Order Preview Command
+ *
+ * Issue #135: this command previously counted each slice's broker order
+ * PREVIEW as a fill and audited the plan as an execution. A preview places
+ * no order and fills nothing. The command is now an honest TWAP previewer:
+ * it returns per-slice preview drafts labelled as previews, and real
+ * execution must go through the human-in-the-loop order flow
+ * (etrade_preview_order → etrade_execute_order with an explicit human
+ * decision) — an MCP tool cannot approve its own orders.
  */
 export class DurableTWAPOrderCommand implements IMcpToolCommand<{
   symbol: string;
@@ -255,15 +263,15 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
   intervalSeconds?: number;
 }> {
   readonly name = "execute_durable_twap";
-  readonly description = "Execute a durable TWAP order across slices with Cloudflare durable execution and checkpointing";
+  readonly description = "Preview a durable TWAP order PLAN: splits the order into slices and runs each slice through the broker order preview with Cloudflare durable checkpointing. This tool does NOT place orders and nothing fills — it returns preview drafts only (status: \"previewed\", executed: false). Real execution requires the human-in-the-loop order flow: etrade_preview_order followed by etrade_execute_order with an explicit human decision.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
       symbol: { type: "string", description: "Stock ticker e.g. NVDA" },
       action: { type: "string", enum: ["BUY", "SELL"] },
-      totalQuantity: { type: "number", description: "Total shares to execute" },
-      slices: { type: "number", description: "Number of execution slices" },
-      intervalSeconds: { type: "number", description: "Interval in seconds between slices" },
+      totalQuantity: { type: "number", description: "Total shares in the TWAP plan (previewed slice by slice; nothing is executed)" },
+      slices: { type: "number", description: "Number of preview slices" },
+      intervalSeconds: { type: "number", description: "Interval in seconds between slice previews" },
     },
     required: ["symbol", "action", "totalQuantity", "slices"],
   };
@@ -279,7 +287,7 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
     const fiberService = new ETradeDurableFiberService(context.orm, context.env, context.sessionId);
     const tradingService = new ETradeService(context.orm, context.env, context.sessionId);
 
-    const result = await fiberService.executeDurableTWAP(
+    const plan = await fiberService.previewDurableTWAP(
       {
         symbol: input.symbol,
         action: input.action,
@@ -298,7 +306,33 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
       }
     );
 
-    context.audit("twap.executed", "trading", { symbol: input.symbol, totalFilled: result.totalFilled });
-    return result;
+    context.audit("twap.previewed", "trading", {
+      symbol: input.symbol,
+      action: input.action,
+      slicesPreviewed: plan.slicesPreviewed,
+      totalPreviewed: plan.totalPreviewed,
+      executed: false,
+    });
+
+    return {
+      status: "previewed",
+      executed: false,
+      planCompleted: plan.completed,
+      note: "TWAP preview plan only — every slice was run through the broker order PREVIEW. No orders were placed and no shares were filled. To execute for real, each slice must go through the human-in-the-loop order flow (etrade_preview_order → etrade_execute_order with an explicit human decision).",
+      symbol: input.symbol,
+      action: input.action,
+      totalPreviewed: plan.totalPreviewed,
+      slicesPreviewed: plan.slicesPreviewed,
+      previews: plan.previews.map((entry) => ({
+        slice: entry.slice,
+        quantity: entry.quantity,
+        orderId: entry.preview?.orderId,
+        status: entry.preview?.status ?? "previewed",
+        estimatedPrice: entry.preview?.estimatedPrice,
+        estimatedTotal: entry.preview?.estimatedTotal,
+        pricingQuoteStatus: entry.preview?.pricingQuoteStatus,
+      })),
+      fiberId: plan.fiberId,
+    };
   }
 }
