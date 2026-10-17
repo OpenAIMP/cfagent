@@ -95,10 +95,13 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
     // deleted from the product. filterNewsFlowItems is exercised here over
     // locally defined fixtures; production news comes only from the real
     // fetchRealMarketNews feed.
+    // Issue #132: NewsFlowItem.sentimentMethod is required — these fixtures
+    // carry hand-set labels, so they are stamped as assessed ("llm") with a
+    // fixture model id rather than "unavailable" (which must stay neutral).
     const fixtures: NewsFlowItem[] = [
-      { id: "fx_news_1", time: "9:00am", timestamp: 1000, headline: "Fixture headline one", symbols: ["NVDA", "AMD"], source: "Fixture Wire", sentiment: "bullish" },
-      { id: "fx_news_2", time: "9:05am", timestamp: 2000, headline: "Fixture headline two", symbols: ["GOOGL"], source: "Fixture Wire", sentiment: "neutral" },
-      { id: "fx_news_3", time: "9:10am", timestamp: 3000, headline: "Fixture headline three", symbols: ["NVDA"], source: "Fixture Wire", sentiment: "bearish" },
+      { id: "fx_news_1", time: "9:00am", timestamp: 1000, headline: "Fixture headline one", symbols: ["NVDA", "AMD"], source: "Fixture Wire", sentiment: "bullish", sentimentMethod: "llm", sentimentModel: "fixture-model" },
+      { id: "fx_news_2", time: "9:05am", timestamp: 2000, headline: "Fixture headline two", symbols: ["GOOGL"], source: "Fixture Wire", sentiment: "neutral", sentimentMethod: "llm", sentimentModel: "fixture-model" },
+      { id: "fx_news_3", time: "9:10am", timestamp: 3000, headline: "Fixture headline three", symbols: ["NVDA"], source: "Fixture Wire", sentiment: "bearish", sentimentMethod: "llm", sentimentModel: "fixture-model" },
     ];
 
     const nvdaNews = filterNewsFlowItems(fixtures, ["NVDA"]);
