@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { executionCardPresentation } from "./executionCard";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { resolveErrorAspect } from "../aspects/errorCodes";
@@ -516,20 +517,24 @@ function ToolResultView({
     const price = data?.limitPrice || data?.estimatedPrice || data?.executionPrice || data?.lastPrice;
 
     if (isExecution) {
+      // Issue #123 (F16): FILLED/EXECUTED only on an explicit success
+      // signal; ambiguous results render a neutral status, and no broker
+      // reference is ever fabricated. See executionCardPresentation.
+      const execCard = executionCardPresentation(data);
       return (
         <div className="tool-card confirm-card trading-card">
           <div className="tool-card-header" onClick={() => setOpen(!open)}>
             <span className="tool-icon">📈</span>
             <div className="tool-summary">
-              <strong>E*TRADE Execution:</strong> {data.success !== false ? "FILLED" : "CANCELLED"} {quantity} {symbol} ({action})
+              <strong>E*TRADE Execution:</strong> {execCard.verdict} {quantity} {symbol} ({action})
             </div>
-            <span className={`tool-status-pill ${data.success !== false ? "success" : "priority-urgent"}`}>
-              {data.status ? String(data.status).toUpperCase() : "EXECUTED"}
+            <span className={`tool-status-pill ${execCard.pillClass}`}>
+              {execCard.pillLabel}
             </span>
             <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
           </div>
           <div className="confirm-details">
-            {data.message || `Order ${orderId} executed on E*TRADE broker. Ref: ${data.brokerOrderRef || "simulated"}`}
+            {execCard.detail}
           </div>
           {open && (
             <div className="tool-card-body">
