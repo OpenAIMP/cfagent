@@ -700,18 +700,44 @@ async function runOpportunityScan(
       : {}),
   });
 
+  // Issue #103: record the request this scan answered, in the same
+  // replayable vocabulary the unified path records — the resolved
+  // symbol batch, the template as asked (pre-profile-merge), the
+  // posture/mode, and the profile selection BY NAME (NLQ resolves
+  // profiles by name; the unified replay resolves it the same way).
+  // Fields the question never expressed stay absent.
+  result.requestSnapshot.request = {
+    symbols,
+    ...(template.thesis !== undefined ? { thesis: template.thesis } : {}),
+    ...(template.targetDate !== undefined ? { targetDate: template.targetDate } : {}),
+    ...(template.expectedIvDirection !== undefined ? { expectedIvDirection: template.expectedIvDirection } : {}),
+    ...(template.maxPlannedLoss !== undefined ? { maxPlannedLoss: template.maxPlannedLoss } : {}),
+    ...(template.minRewardRisk !== undefined ? { minRewardRisk: template.minRewardRisk } : {}),
+    ...(template.allowedStrategies !== undefined ? { allowedStrategies: template.allowedStrategies } : {}),
+    ...(template.perSymbol !== undefined ? { perSymbol: template.perSymbol } : {}),
+    ...(template.statedTarget !== undefined ? { statedTarget: template.statedTarget } : {}),
+    ...(template.minDte !== undefined ? { minDte: template.minDte } : {}),
+    ...(template.maxDte !== undefined ? { maxDte: template.maxDte } : {}),
+    ...(filters.riskProfile !== undefined ? { riskProfile: filters.riskProfile } : {}),
+    ...(filters.mode !== undefined ? { mode: filters.mode } : {}),
+    ...(filters.profileName !== undefined ? { profileName: filters.profileName } : {}),
+  };
+
   // Issue #27: persist the run when the caller supplied a store (the
   // orchestrator threads one over the Durable Object's storage). The
   // result's provenance (generatedAt, modelVersion, requestSnapshot,
   // configSnapshot, coverage, gateParams) is what makes the stored run
   // auditable and diffable later. Persistence must NEVER fail a scan:
   // a store error leaves the scan result intact, flagged persisted:
-  // false, with the failure logged and swallowed.
+  // false, with the failure logged and swallowed. Issue #103: the save
+  // is stamped with deps.userLogin when the caller threaded one (the
+  // orchestrator does, through nlq.ts); contexts without an identity
+  // save unscoped — the login is never invented here.
   let scanRunId: string | undefined;
   let persisted = false;
   if (scanRunStore) {
     try {
-      const saved = await scanRunStore.save(result);
+      const saved = await scanRunStore.save(result, { userLogin: deps?.userLogin });
       scanRunId = saved.id;
       persisted = true;
     } catch (err) {
