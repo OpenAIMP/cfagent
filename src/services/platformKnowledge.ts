@@ -586,7 +586,7 @@ function getAnalysisAndExecutionWorkflowsMarkdown(): string {
     `   - **Endpoints**: \`POST /api/schedules/trigger-screen\`, \`POST /api/schedules/trigger-renew\`, \`GET /api/jobs\`.`,
     ``,
     `4. **E4: Omnichannel Execution & One-Click Approvals (Slack, Email, Voice)**`,
-    `   - **Scope**: Interactive Slack Block Kit trading, signed inbound email trading, one-click mobile approval links (\`/trade/approve\`), and voice trading.`,
+    `   - **Scope**: Interactive Slack Block Kit trading (interactions verified against the Slack signing secret), inbound email trading with reply-to-approve (APPROVE <orderId>), session-authenticated in-app approval (\`GET /trade/approve\` forwards to the HITL execute path), and voice trading. No bearer/signed approval links exist: execution requires a draft still in 'previewed' state and matches the preview exactly; drafts expire unexecuted after 900 seconds.`,
     `   - **Components**: \`ETradeSlackTradingService\`, \`ETradeEmailTradingService\`, \`ETradeVoiceTradingService\`, \`ETradeWebhookService\`.`,
     `   - **APIs Leveraged**: Slack Web API, Cloudflare \`EMAIL\` binding, Cloudflare WebSockets (\`/voice/trade\`), HMAC-SHA256 webhooks.`,
     `   - **Endpoints**: \`POST /slack/events\`, \`POST /slack/interactions\`, \`GET /trade/approve\`, \`POST /api/trading/reports/webhook\`.`,

@@ -743,11 +743,11 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     categoryLabel: "Omnichannel",
     badge: "Slack, Email & Voice",
     badgeColor: "green",
-    subtitle: "Interact anywhere: Slack Block Kit buttons, inbound email with .xlsx workbooks, HMAC-signed 1-click mobile approval URLs, and duplex WebSockets.",
-    overview: "Multi-channel execution gateway allowing traders to interact with the platform from anywhere: Slack mentions with Block Kit visual cards, inbound email parsing with attached .xlsx workbooks, secure HMAC-signed 1-click mobile trade approval links (/trade/approve), and full-duplex WebRTC voice sessions.",
+    subtitle: "Interact anywhere: Slack Block Kit buttons, inbound email with .xlsx workbooks, session-authenticated in-app approvals, and duplex WebSockets.",
+    overview: "Multi-channel execution gateway allowing traders to interact with the platform from anywhere: Slack mentions with Block Kit visual cards, inbound email parsing with attached .xlsx workbooks, session-authenticated trade approval in the signed-in app (GET /trade/approve forwards to the same HITL execution path), and full-duplex WebRTC voice sessions.",
     apiEndpoint: "POST /slack/events · GET /trade/approve · POST /api/trading/reports/email",
     targetTab: "trading",
-    keyParameters: "hmacSignature: sha256, approvalTtl: 300s, voiceProtocol: audio/pcm",
+    keyParameters: "approvalAuth: app session / Slack signing secret, draftTtl: 900s, voiceProtocol: audio/pcm",
     governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
@@ -762,19 +762,19 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
       {
         step: "Step 3",
-        title: "Cryptographic Approval Link",
-        description: "Generates tamper-proof HMAC-SHA256 one-click approval links (/trade/approve?orderId=...&sig=...).",
+        title: "Human Approval (HITL)",
+        description: "The previewed draft awaits an authenticated human approval: an 'Approve Trade' click on the Slack card (verified against the Slack signing secret), an APPROVE reply to the preview email, or approval in the signed-in app. There are no bearer approval links; drafts expire unexecuted after 900 seconds.",
       },
       {
         step: "Step 4",
         title: "Omnichannel Execution & Receipt",
-        description: "User clicks approval link on mobile; broker executes order and dispatches confirmation back to the channel.",
+        description: "Once approved, the broker executes the previewed order exactly as drafted and dispatches confirmation back to the channel.",
       },
     ],
     keyFeatures: [
       "Slack Block Kit cards with interactive 'Approve Trade' buttons.",
       "Email quantitative workbooks in native .xlsx format.",
-      "HMAC-SHA256 signed one-click trade approval links with 5-minute expiry.",
+      "Session-authenticated approvals behind a strict HITL gate — only drafts still in 'previewed' state can execute, exactly as previewed; drafts expire after 15 minutes.",
       "Real-time voice trading over full-duplex WebSocket audio sessions.",
     ],
     dataSources: [
@@ -783,8 +783,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Outbound HMAC-SHA256 Webhooks (OUTBOUND_WEBHOOK_URL)",
     ],
     faq: {
-      question: "How are one-click trade approval links secured against replay attacks?",
-      answer: "Each approval link is signed with an HMAC-SHA256 secret, contains a unique order draft nonce, and strictly expires after 300 seconds (5 minutes).",
+      question: "How are trade approvals protected against forged or replayed approvals?",
+      answer: "There are no bearer approval links to forge or replay. Every approval is an authenticated human action — a Slack interaction verified against the Slack signing secret, an APPROVE reply to the preview email, or a click inside the signed-in app — and execution accepts only drafts still in 'previewed' state, with the executed parameters required to match the preview exactly. A draft can execute at most once and expires unexecuted after 900 seconds.",
     },
     sampleQueryOrAction: "Dispatch trade report with .xlsx attachment to analyst@example.com",
   },

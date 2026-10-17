@@ -695,14 +695,29 @@ export default {
       }
     }
 
-    // --- One-Click Email HITL Trade Approval Endpoint ---
+    // --- Session-Authenticated HITL Trade Approval Shortcut ---
+    // Issue #149: no signed/bearer approval links exist in this product —
+    // nothing mints signature-carrying approval links for this route (the copy that
+    // claimed HMAC-signed links with a 300s expiry was fiction and has been
+    // corrected). Approval requires the caller's own app session, exactly
+    // like the in-app approval buttons: this route forwards the decision
+    // to the session user's agent, whose /etrade/order/execute handler
+    // re-checks the HITL gate, that the draft exists and is still
+    // "previewed" (drafts expire unexecuted via expireStaleOrderDraft),
+    // and that execution parameters match the preview. Previously this
+    // route proceeded under a hard-coded fallback identity when no session
+    // existed, letting an UNAUTHENTICATED request attempt execution under
+    // an assumed identity — that fallback is removed.
     if (path === "/trade/approve") {
       const orderId = url.searchParams.get("orderId");
       if (!orderId) {
         return new Response("Missing orderId parameter", { status: 400 });
       }
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "email_authorized_user";
+      if (!session) {
+        return new Response("Unauthorized: sign in to approve a trade.", { status: 401 });
+      }
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/etrade/order/execute", "https://agent.internal");
       const forwardReq = new Request(targetUrl, {
