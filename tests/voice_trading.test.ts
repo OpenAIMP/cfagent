@@ -9,7 +9,8 @@ import {
   ETradeVoiceTradingService,
   handleVoiceWebSocketConnection,
 } from "../src/trading/voice/agent";
-import type { Env, VoiceTradingTurnRequest } from "../src/types";
+import type { AgentScheduleItem, Env, VoiceTradingTurnRequest } from "../src/types";
+import type { NLQSchedulingPort } from "../src/agents/nlq";
 
 // Lightweight Mock WebSocket implementation for Vitest node environment
 class MockDuplexWebSocket {
@@ -43,6 +44,58 @@ class MockDuplexWebSocket {
 
   getParsedMessages(): any[] {
     return this.sent.map((s) => JSON.parse(s));
+  }
+}
+
+// Issue #109: in-memory NLQSchedulingPort for voice scheduling turns.
+// The NLQ executor now arms real schedules through the injected port,
+// so voice tests provide this fake instead of relying on the old
+// fabricated NLQ success path.
+class FakeVoiceSchedulingPort implements NLQSchedulingPort {
+  items: AgentScheduleItem[] = [];
+  private seq = 0;
+
+  constructor(seed: AgentScheduleItem[] = []) {
+    this.items = [...seed];
+  }
+
+  async schedule(when: Date | string | number, callback: string, payload?: unknown): Promise<AgentScheduleItem> {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const item: AgentScheduleItem = {
+      id: `voice-port-id-${++this.seq}`,
+      callback,
+      payload,
+      type: typeof when === "number" ? "delayed" : typeof when === "string" ? "cron" : "scheduled",
+      time: typeof when === "number" ? nowSec + when : nowSec + 3600,
+      ...(typeof when === "string" ? { cron: when } : {}),
+      ...(typeof when === "number" ? { delayInSeconds: when } : {}),
+    };
+    this.items.push(item);
+    return item;
+  }
+
+  async scheduleEvery(intervalSeconds: number, callback: string, payload?: unknown): Promise<AgentScheduleItem> {
+    const item: AgentScheduleItem = {
+      id: `voice-port-id-${++this.seq}`,
+      callback,
+      payload,
+      type: "interval",
+      intervalSeconds,
+      time: Math.floor(Date.now() / 1000) + intervalSeconds,
+    };
+    this.items.push(item);
+    return item;
+  }
+
+  async cancelSchedule(id: string): Promise<boolean> {
+    const idx = this.items.findIndex((i) => i.id === id);
+    if (idx === -1) return false;
+    this.items.splice(idx, 1);
+    return true;
+  }
+
+  async listSchedules(): Promise<AgentScheduleItem[]> {
+    return [...this.items];
   }
 }
 
@@ -358,7 +411,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally schedules a reminder task: 'Remind me to check apple in ten minutes'", async () => {
-      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId, new FakeVoiceSchedulingPort());
       const req: VoiceTradingTurnRequest = {
         transcript: "Remind me to check apple in ten minutes",
         sessionId,
@@ -376,7 +429,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally schedules recurring market screen: 'Schedule market screen every five minutes'", async () => {
-      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId, new FakeVoiceSchedulingPort());
       const req: VoiceTradingTurnRequest = {
         transcript: "Schedule market screen every five minutes",
         sessionId,
@@ -391,7 +444,12 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally lists active background tasks: 'Show scheduled tasks'", async () => {
-      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const port = new FakeVoiceSchedulingPort([
+        { id: "baseline-renew-id", callback: "autoRenewETradeTokens", type: "cron", cron: "0 3 * * *", time: nowSec + 3600, payload: { userLogin: sessionId } },
+        { id: "baseline-screen-id", callback: "autonomousMarketScreen", type: "interval", intervalSeconds: 300, time: nowSec + 300, payload: { sector: "Technology", maxItems: 5 } },
+      ]);
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId, port);
       const req: VoiceTradingTurnRequest = {
         transcript: "Show scheduled tasks",
         sessionId,
@@ -406,7 +464,10 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally cancels a scheduled task: 'Cancel schedule sched_test_123'", async () => {
-      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
+      const port = new FakeVoiceSchedulingPort([
+        { id: "sched_test_123", callback: "sendScheduledReminder", type: "delayed", delayInSeconds: 600, time: Math.floor(Date.now() / 1000) + 600, payload: { message: "test reminder" } },
+      ]);
+      const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId, port);
       const req: VoiceTradingTurnRequest = {
         transcript: "Cancel schedule sched_test_123",
         sessionId,
@@ -419,6 +480,8 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
       expect(res.spokenText).toMatch(/Task schedule sched.*123 has been cancelled successfully/i);
       expect(res.displayMarkdown).toContain("Task Schedule Cancelled");
       expect(res.displayMarkdown).toContain("sched_test_123");
+      // Issue #109: the cancellation really removed the schedule from the port.
+      expect(port.items).toHaveLength(0);
     });
 
     it("strictly drafts trade orders in 'previewed' status without moving funds", async () => {

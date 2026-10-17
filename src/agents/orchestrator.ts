@@ -2,7 +2,7 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
@@ -83,6 +83,7 @@ import type {
   AsyncJobSubmission,
   AsyncJobStatus,
   TransactionSnapData,
+  AgentScheduleItem,
 } from "../types";
 
 /**
@@ -423,6 +424,38 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         // Non-critical broadcast error
       }
     }
+  }
+
+  /**
+   * Issue #109: binds this agent's Cloudflare Agents scheduling API
+   * into the narrow port the NLQ executor consumes, so schedules
+   * created/listed/cancelled from natural language are real SDK
+   * schedules with real ids. Each binding fails loudly when the
+   * underlying method is unavailable; the NLQ executor converts that
+   * into an honest failure reply rather than a fabricated success.
+   */
+  private nlqSchedulingPort(): NLQSchedulingPort {
+    const agent = this as any;
+    const unavailable = (name: string) =>
+      new Error(`Agent scheduling API method '${name}' is unavailable in this runtime`);
+    return {
+      schedule: async (when, callback, payload, options) => {
+        if (typeof agent.schedule !== "function") throw unavailable("schedule");
+        return (await agent.schedule(when, callback, payload, options)) as AgentScheduleItem;
+      },
+      scheduleEvery: async (intervalSeconds, callback, payload) => {
+        if (typeof agent.scheduleEvery !== "function") throw unavailable("scheduleEvery");
+        return (await agent.scheduleEvery(intervalSeconds, callback, payload)) as AgentScheduleItem;
+      },
+      cancelSchedule: async (id) => {
+        if (typeof agent.cancelSchedule !== "function") throw unavailable("cancelSchedule");
+        return (await agent.cancelSchedule(id)) as boolean;
+      },
+      listSchedules: async () => {
+        if (typeof agent.listSchedules !== "function") throw unavailable("listSchedules");
+        return (await agent.listSchedules()) as AgentScheduleItem[];
+      },
+    };
   }
 
   private ensureTables() {
@@ -926,7 +959,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           this.env,
           typeof payload.userLogin === "string" ? payload.userLogin : this.sessionKey(),
           getUserDid(this.sessionKey()),
-          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) },
+          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() },
         );
       } else {
         throw new Error(`Unsupported async capability: ${job.capability}`);
@@ -1499,7 +1532,7 @@ Agentic Best Practices & Workflow Rules:
             this.env,
             userLogin,
             undefined,
-            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) }
+            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
           );
           if (result && result.status !== "error") {
             if (Array.isArray(result.rows) && result.rows.length > 0) {
@@ -1801,7 +1834,7 @@ Agentic Best Practices & Workflow Rules:
           this.env,
           userLogin,
           userDid,
-          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql) }
+          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
         );
         this.audit("nlq.executed", "nlq", {
           query,
@@ -3730,7 +3763,7 @@ Agentic Best Practices & Workflow Rules:
       try {
         const body = (await request.json().catch(() => ({}))) as any;
         const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
-        const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin);
+        const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin, this.nlqSchedulingPort());
         const result = await voiceService.processVoiceTurn({
           ...body,
           sessionId: userLogin,
