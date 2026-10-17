@@ -380,3 +380,19 @@
 .scp-cell-btn:hover {
   background: rgba(88, 166, 255, 0.16);
 }
+/* Slice 3: trust layer — target-provenance chips, composite captions,
+   borderline bucket chips. */
+.scp-chip-target {
+  margin-left: 0.35rem;
+  background: rgba(167, 139, 250, 0.16);
+  color: #c9b8f7;
+}
+.scp-cell-caption {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa4b2;
+}
+.scp-borderline .scp-badge + .scp-badge {
+  margin-left: 0.3rem;
+}
