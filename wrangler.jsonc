@@ -39,7 +39,7 @@
       "*/30 * * * *"
     ]
   },
-  // PR #6 — Vectorize for VectorMemory (create index first: npx wrangler vectorize create vector-memory --dimensions 768 --metric cosine)
+  // PR #6 — Vectorize for VectorMemory
   "vectorize": [
     {
       "binding": "VECTOR_MEMORY",
