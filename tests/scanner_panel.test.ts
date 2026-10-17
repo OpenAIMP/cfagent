@@ -9,6 +9,9 @@
  * Slice 3 additions: the trust layer — target-source chips on every
  * target, the labelled "Data as of" header + scan model version,
  * composite-score labelling, and borderline bucket chips.
+ * Slice 5 additions: scan history (#27) — the history client against
+ * the scans routes, the history list with provenance, View / Re-run /
+ * Diff, with fixtures typed against the real store types.
  *
  * Harness follows the established panel tests: the REAL apiFetch is
  * driven against a stubbed global fetch, and — per the #71 lesson —
@@ -24,9 +27,11 @@ import { createRoot, type Root } from "react-dom/client";
 import {
   ScannerPanel,
   ScanResultsView,
+  ScanDiffView,
   MODE_LABELS,
   buildScanRequest,
   buildProfileSpec,
+  buildRerunRequest,
   profileSummary,
   profileToForm,
   emptyProfileForm,
@@ -35,11 +40,13 @@ import {
   matrixStrategyTypes,
   topRejectionReason,
   matrixCellTradeContext,
+  shortenRunId,
   TargetSourceChip,
   TARGET_SOURCE_LABELS,
   type ProfileFormState,
 } from "../src/client/ScannerPanel";
 import type {
+  OpportunityScanResult,
   ScanMatrixCellBest,
   ScanMatrixRow,
   ScanTargetSource,
@@ -50,9 +57,18 @@ import type { TradeOrderContext } from "../src/client/trading/tradeOrderContext"
 import {
   runOpportunityScan,
   listProfiles,
+  listScanRuns,
+  getScanRun,
+  getScanRunDiff,
   coerceScanResponse,
   type OpportunityScanResponse,
+  type ScanRunDiffResult,
 } from "../src/client/scannerApi";
+import type {
+  ScanRunDiff,
+  ScanRunSummary,
+  StoredScanRun,
+} from "../src/trading/options/scanRunStore";
 import type { StrategyProfile } from "../src/trading/options/strategyProfile";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -207,7 +223,16 @@ interface StubState {
   unifiedViaJob: boolean;
   createError?: string;
   nextId: number;
+  /** Persisted scan runs the scans routes serve (slice 5). */
+  scanRuns: StoredScanRun[];
+  /** Canned diffs for the diff route, keyed `${fromId}|${toId}`;
+   *  a pair with no entry diffs as all-empty. */
+  scanDiffs: Record<string, ScanRunDiff>;
 }
+
+const EMPTY_SCAN_DIFF: ScanRunDiff = {
+  newFits: [], droppedFits: [], stillFitting: [], bucketChanges: [], addedSymbols: [], removedSymbols: [],
+};
 
 function installFetch(state: StubState) {
   const calls: RecordedCall[] = [];
@@ -232,6 +257,38 @@ function installFetch(state: StubState) {
         return Response.json({ jobId: "job-scan", status: "queued", statusUrl: "/api/jobs/job-scan" }, { status: 202 });
       }
       return Response.json(state.unifiedEnvelope);
+    }
+    // Scan-history routes (issue #27), declared in the orchestrator's
+    // own order: list → diff → by-id (the diff route must win over the
+    // by-id pattern). A run id the state no longer holds is the
+    // route's 404, exactly like a pruned run server-side.
+    if (url.includes("/api/etrade/options/scans/diff")) {
+      const params = new URL(url, "http://stub").searchParams;
+      const from = state.scanRuns.find((r) => r.id === params.get("from"));
+      const to = state.scanRuns.find((r) => r.id === params.get("to"));
+      if (!params.get("from") || !params.get("to")) {
+        return Response.json({ error: "from and to scan run ids are required" }, { status: 400 });
+      }
+      if (!from || !to) return Response.json({ error: "scan run not found" }, { status: 404 });
+      return Response.json({
+        from: { id: from.id, generatedAt: from.generatedAt },
+        to: { id: to.id, generatedAt: to.generatedAt },
+        diff: state.scanDiffs[`${from.id}|${to.id}`] ?? EMPTY_SCAN_DIFF,
+      });
+    }
+    if (url.includes("/api/etrade/options/scans")) {
+      const scanIdMatch = url.match(/\/api\/etrade\/options\/scans\/([^/?]+)/);
+      if (scanIdMatch) {
+        const run = state.scanRuns.find((r) => r.id === decodeURIComponent(scanIdMatch[1]));
+        if (!run) return Response.json({ error: "scan run not found" }, { status: 404 });
+        return Response.json(run);
+      }
+      const limitParam = new URL(url, "http://stub").searchParams.get("limit");
+      const summaries = state.scanRuns.map(({ result: _result, ...summary }) => summary);
+      return Response.json({
+        count: summaries.length,
+        scans: limitParam ? summaries.slice(0, Number(limitParam)) : summaries,
+      });
     }
     if (url.endsWith("/api/etrade/options/profiles")) {
       if (method === "GET") return Response.json({ count: state.profiles.length, profiles: state.profiles });
@@ -283,6 +340,8 @@ function freshState(overrides: Partial<StubState> = {}): StubState {
     unifiedEnvelope: perNameEnvelope,
     unifiedViaJob: false,
     nextId: 1,
+    scanRuns: [],
+    scanDiffs: {},
     ...overrides,
   };
 }
@@ -1206,5 +1265,457 @@ describe("slice 3 — borderline bucket chips", () => {
     expect(notes[0].textContent).toContain("Borderline (evaluated, below the gate): NVDA");
     const chips = [...notes[0].querySelectorAll(".scp-badge-borderline")].map((c) => c.textContent);
     expect(chips).toEqual(["NVDA"]);
+  });
+});
+
+// Slice 5 fixtures — typed against the REAL store/result types --------------
+// NOTE: ScanRunSummary (the list projection) carries NO profileRef —
+// the profile stamp lives only on the full result (result.profileRef).
+// These literals pin that shape: a summary with a profile field would
+// not compile.
+
+function historyRow(symbol: string, gateBucket: "fit" | "borderline" | "no_fit"): ScanMatrixRow {
+  return {
+    symbol,
+    verdict: "pass",
+    targetPrice: 300,
+    targetSource: "thesis",
+    targetEmUnits: 0.5,
+    gateBucket,
+    gateReasons: [],
+    cells: [
+      {
+        strategyType: "iron_condor",
+        best: {
+          candidateId: `${symbol.toLowerCase()}-ic`, label: "Iron Condor", compositeScore: 66.4, score: 60,
+          expirationDate: "2026-11-20", legs: [], netDebit: -2.1, maxLoss: 290,
+          maxProfit: 210, maxProfitUnbounded: false, targetRewardRisk: 0.72,
+          probabilityOfProfit: 0.61,
+        },
+        evaluatedCount: 5, passedCount: 2, rejectedCount: 3, rejectionReasons: {},
+      },
+    ],
+  };
+}
+
+const historyGateParams = { minCompositeScore: 55, minProbabilityOfProfit: 0.35, requireFresh: true, minConfidence: "MEDIUM" as const };
+const historyConfigSnapshot = {
+  maxScanSymbols: 25,
+  targetFactors: { bullish: 1.1, bearish: 0.9, range_bound: 1, large_move: 1.15 },
+  targetEmMultiples: { bullish: 0.6, bearish: -0.6, range_bound: 0, large_move: 1.2 },
+};
+
+const olderAapl = historyRow("AAPL", "fit");
+const olderMsft = historyRow("MSFT", "borderline");
+const olderOldco = historyRow("OLDCO", "fit");
+
+const olderResult: OpportunityScanResult = {
+  scanned: 3,
+  withTrades: 2,
+  opportunities: [],
+  skipped: [],
+  truncatedSymbols: 0,
+  assumptions: [],
+  matrix: [olderAapl, olderMsft, olderOldco],
+  typeRollup: [],
+  mode: "strategy_fit",
+  fits: [olderAapl, olderOldco],
+  fitsTotal: 2,
+  gate: { fit: 2, borderline: 1, noFit: 0 },
+  borderline: [olderMsft],
+  gateParams: historyGateParams,
+  profileRef: { id: "prof-1", name: "Income", version: 2 },
+  generatedAt: "2026-10-15T14:00:00.000Z",
+  modelVersion: "1.1.2",
+  requestSnapshot: {
+    template: {
+      thesis: "bullish",
+      targetDate: "2026-11-20",
+      minDte: 20,
+      maxDte: 45,
+      maxPlannedLoss: 750,
+      minRewardRisk: 1.5,
+      allowedStrategies: ["all"],
+      statedTarget: { price: 500, symbol: "SPY" },
+      perSymbol: { MSFT: { target: { kind: "percent", pct: 5 } } },
+    },
+    mode: "strategy_fit",
+    riskProfile: "balanced",
+    profile: incomeProfile,
+  },
+  configSnapshot: historyConfigSnapshot,
+  coverage: { considered: 3, scanned: 3, truncated: 0, evaluated: 3, errors: 0, withTrades: 2 },
+};
+
+const newerAapl = historyRow("AAPL", "fit");
+const newerMsft = historyRow("MSFT", "fit");
+
+const newerResult: OpportunityScanResult = {
+  scanned: 2,
+  withTrades: 2,
+  opportunities: [],
+  skipped: [],
+  truncatedSymbols: 0,
+  assumptions: [],
+  matrix: [newerAapl, newerMsft],
+  typeRollup: [],
+  mode: "strategy_fit",
+  fits: [newerAapl, newerMsft],
+  fitsTotal: 2,
+  gate: { fit: 2, borderline: 0, noFit: 0 },
+  borderline: [],
+  gateParams: historyGateParams,
+  profileRef: { id: "prof-1", name: "Income", version: 2 },
+  generatedAt: "2026-10-16T14:00:00.000Z",
+  modelVersion: "1.1.2",
+  requestSnapshot: {
+    template: {
+      thesis: "bullish",
+      targetDate: "2026-11-20",
+      maxPlannedLoss: 750,
+      minRewardRisk: 1.5,
+      allowedStrategies: ["all"],
+    },
+    mode: "strategy_fit",
+    riskProfile: "balanced",
+    profile: incomeProfile,
+  },
+  configSnapshot: historyConfigSnapshot,
+  coverage: { considered: 2, scanned: 2, truncated: 0, evaluated: 2, errors: 0, withTrades: 2 },
+};
+
+const olderRun: StoredScanRun = {
+  id: "3f9c1e2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
+  generatedAt: olderResult.generatedAt,
+  mode: olderResult.mode,
+  modelVersion: olderResult.modelVersion,
+  gate: olderResult.gate,
+  coverage: olderResult.coverage,
+  result: olderResult,
+};
+
+const newerRun: StoredScanRun = {
+  id: "7b2d4f6a-1c3e-4a5b-9d8e-2f4a6b8c0d1e",
+  generatedAt: newerResult.generatedAt,
+  mode: newerResult.mode,
+  modelVersion: newerResult.modelVersion,
+  gate: newerResult.gate,
+  coverage: newerResult.coverage,
+  result: newerResult,
+};
+
+/** A run whose stored result is missing its array fields — the shape
+ *  guard in getScanRun must fill them before anything renders it. */
+const sparseRun = {
+  id: "sparse-run",
+  generatedAt: "2026-10-14T14:00:00.000Z",
+  mode: "per_name_best",
+  modelVersion: "1.1.2",
+  gate: { fit: 0, borderline: 0, noFit: 0 },
+  coverage: { considered: 1, scanned: 1, truncated: 0, evaluated: 0, errors: 1, withTrades: 0 },
+  result: { mode: "per_name_best", generatedAt: "2026-10-14T14:00:00.000Z", modelVersion: "1.1.2" },
+} as unknown as StoredScanRun;
+
+const historyDiff: ScanRunDiff = {
+  newFits: ["MSFT"],
+  droppedFits: ["OLDCO"],
+  stillFitting: ["AAPL"],
+  bucketChanges: [{ symbol: "MSFT", from: "borderline", to: "fit" }],
+  addedSymbols: [],
+  removedSymbols: ["OLDCO"],
+};
+
+function historyState(overrides: Partial<StubState> = {}): StubState {
+  return freshState({
+    scanRuns: [newerRun, olderRun], // the list route is newest-first
+    scanDiffs: { [`${olderRun.id}|${newerRun.id}`]: historyDiff },
+    ...overrides,
+  });
+}
+
+function historyRows(): HTMLElement[] {
+  const section = container.querySelector(".scp-history");
+  if (!section) throw new Error("history section not rendered");
+  return [...section.querySelectorAll<HTMLElement>(".scp-row")];
+}
+
+// Slice 5 client ----------------------------------------------------------------
+
+describe("slice 5 — scan history client (issue #27 read API)", () => {
+  it("listScanRuns reads the { count, scans } envelope with env + user headers; summaries carry no result", async () => {
+    const calls = installFetch(historyState());
+    const summaries = await listScanRuns("PROD", "trader1");
+    expect(summaries.map((s) => s.id)).toEqual([newerRun.id, olderRun.id]);
+    expect(summaries[0]).not.toHaveProperty("result");
+    expect(summaries[0].modelVersion).toBe("1.1.2");
+    const get = calls.find((c) => c.url.includes("/api/etrade/options/scans"));
+    expect(get?.method).toBe("GET");
+    expect(get?.headers?.["x-environment"]).toBe("PROD");
+    expect(get?.headers?.["x-user-login"]).toBe("trader1");
+  });
+
+  it("listScanRuns forwards an explicit limit as the route's limit param", async () => {
+    const calls = installFetch(historyState());
+    const summaries = await listScanRuns("TEST", "trader1", 1);
+    expect(summaries).toHaveLength(1);
+    const get = calls.find((c) => c.url.includes("/api/etrade/options/scans"));
+    expect(get?.url).toContain("limit=1");
+  });
+
+  it("getScanRun returns the stored run with its result coerced through the scan shape guard", async () => {
+    installFetch(historyState({ scanRuns: [sparseRun] }));
+    const detail = await getScanRun("TEST", "trader1", "sparse-run");
+    expect(detail.id).toBe("sparse-run");
+    expect(detail.result.opportunities).toEqual([]);
+    expect(detail.result.fits).toEqual([]);
+    expect(detail.result.matrix).toEqual([]);
+    expect(detail.result.modelVersion).toBe("1.1.2");
+  });
+
+  it("getScanRun surfaces the route's 404 message verbatim for a pruned run", async () => {
+    installFetch(historyState());
+    await expect(getScanRun("TEST", "trader1", "pruned-away")).rejects.toThrow("scan run not found");
+  });
+
+  it("getScanRunDiff calls the diff route with from/to params and returns the server diff verbatim", async () => {
+    const calls = installFetch(historyState());
+    const result = await getScanRunDiff("TEST", "trader1", olderRun.id, newerRun.id);
+    const call = calls.find((c) => c.url.includes("/api/etrade/options/scans/diff"));
+    expect(call?.url).toContain(`from=${olderRun.id}`);
+    expect(call?.url).toContain(`to=${newerRun.id}`);
+    expect(result.from).toEqual({ id: olderRun.id, generatedAt: olderRun.generatedAt });
+    expect(result.to).toEqual({ id: newerRun.id, generatedAt: newerRun.generatedAt });
+    expect(result.diff).toEqual(historyDiff);
+  });
+
+  it("getScanRunDiff surfaces the server's error when either run is gone", async () => {
+    installFetch(historyState());
+    await expect(getScanRunDiff("TEST", "trader1", olderRun.id, "pruned-away")).rejects.toThrow("scan run not found");
+  });
+});
+
+// Slice 5 helpers -----------------------------------------------------------------
+
+describe("slice 5 helpers — buildRerunRequest / shortenRunId", () => {
+  it("replays exactly what the snapshot carries: matrix symbols, template fields, mode, profile id", () => {
+    const { body } = buildRerunRequest(olderRun);
+    expect(body.action).toBe("opportunities");
+    expect(body.symbols).toEqual(["AAPL", "MSFT", "OLDCO"]); // the scanned batch, in matrix order
+    expect(body.thesis).toBe("bullish");
+    expect(body.targetDate).toBe("2026-11-20");
+    expect(body.maxPlannedLoss).toBe(750);
+    expect(body.minRewardRisk).toBe(1.5);
+    expect(body.allowedStrategies).toEqual(["all"]);
+    expect(body.perSymbol).toEqual({ MSFT: { target: { kind: "percent", pct: 5 } } });
+    expect(body.mode).toBe("strategy_fit");
+    expect(body.riskProfile).toBe("balanced");
+    expect(body.profileId).toBe("prof-1");
+  });
+
+  it("names the snapshot fields the unified body cannot carry instead of dropping them silently", () => {
+    const { dropped } = buildRerunRequest(olderRun);
+    expect(dropped).toEqual(["stated target", "DTE bounds (min/max DTE)"]);
+  });
+
+  it("a snapshot without stated target or DTE bounds drops nothing", () => {
+    const { body, dropped } = buildRerunRequest(newerRun);
+    expect(dropped).toEqual([]);
+    expect(body.symbols).toEqual(["AAPL", "MSFT"]);
+    expect(body.profileId).toBe("prof-1");
+  });
+
+  it("shortenRunId truncates long ids and leaves short ones whole", () => {
+    expect(shortenRunId(olderRun.id)).toBe("3f9c1e2a…");
+    expect(shortenRunId("sparse-run")).toBe("sparse-run");
+  });
+});
+
+// Slice 5 diff view (pure render) ---------------------------------------------------
+
+describe("slice 5 — ScanDiffView (server diff, rendered verbatim)", () => {
+  const diffData: ScanRunDiffResult = {
+    from: { id: olderRun.id, generatedAt: olderRun.generatedAt },
+    to: { id: newerRun.id, generatedAt: newerRun.generatedAt },
+    diff: historyDiff,
+  };
+
+  it("renders new fits, dropped fits, still fitting, bucket changes, and removed symbols", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(React.createElement(ScanDiffView, { data: diffData })).replace(/<!-- -->/g, "");
+    expect(html).toContain("Scan diff");
+    expect(html).toContain(new Date(olderRun.generatedAt).toLocaleString());
+    expect(html).toContain(new Date(newerRun.generatedAt).toLocaleString());
+    expect(html).toContain("New fits:");
+    expect(html).toContain("Dropped fits:");
+    expect(html).toContain("Still fitting (1):");
+    expect(html).toContain("Bucket changes:");
+    expect(html).toContain("MSFT");
+    expect(html).toContain("OLDCO");
+    expect(html).toContain("AAPL");
+    expect(html).toContain("Removed symbols:");
+    expect(html).toContain("scp-badge-borderline"); // the from-bucket badge
+    expect(html).toContain("scp-badge-fit"); // fit chips + the to-bucket badge
+    expect(html).not.toContain("No changes between these runs.");
+  });
+
+  it("an all-empty diff renders the explicit no-changes state", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(
+      React.createElement(ScanDiffView, { data: { ...diffData, diff: EMPTY_SCAN_DIFF } }),
+    ).replace(/<!-- -->/g, "");
+    expect(html).toContain("No changes between these runs.");
+    expect(html).not.toContain("New fits:");
+  });
+
+  it("identical fits with no changes still state 'no changes' and list who is still fitting", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(
+      React.createElement(ScanDiffView, { data: { ...diffData, diff: { ...EMPTY_SCAN_DIFF, stillFitting: ["AAPL"] } } }),
+    ).replace(/<!-- -->/g, "");
+    expect(html).toContain("No changes between these runs.");
+    expect(html).toContain("Still fitting (1):");
+  });
+});
+
+// Slice 5 history UI ------------------------------------------------------------------
+
+describe("slice 5 — scan history (surface 5)", () => {
+  it("lists saved runs with their provenance: time, mode label, model, coverage, gate, run id", async () => {
+    installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    const rows = historyRows();
+    expect(rows).toHaveLength(2);
+    const [newer, older] = rows;
+    expect(newer.textContent).toContain(new Date(newerRun.generatedAt).toLocaleString());
+    expect(newer.textContent).toContain(MODE_LABELS.strategy_fit);
+    expect(newer.textContent).toContain("model v1.1.2");
+    expect(newer.textContent).toContain("2 scanned · 2 evaluated");
+    expect(newer.textContent).toContain("gate: 2 fit / 0 borderline / 0 no fit");
+    expect(older.textContent).toContain(new Date(olderRun.generatedAt).toLocaleString());
+    expect(older.textContent).toContain("3 scanned · 3 evaluated");
+    expect(older.textContent).toContain("gate: 2 fit / 1 borderline / 0 no fit");
+    // The full id stays on the row (title attribute); display is shortened.
+    const meta = older.querySelector(".scp-row-meta");
+    expect(meta?.getAttribute("title")).toBe(olderRun.id);
+    expect(meta?.textContent).toContain("3f9c1e2a…");
+    // Only the newer row can diff against a previous run.
+    expect(buttonByText(newer, "Diff vs previous")).toBeTruthy();
+    expect([...older.querySelectorAll("button")].some((b) => b.textContent?.includes("Diff vs previous"))).toBe(false);
+  });
+
+  it("renders the empty state naming that runs save automatically", async () => {
+    installFetch(freshState());
+    await renderPanel();
+    await waitForText("No saved scan runs yet.");
+    expect(container.textContent).toContain("Runs are saved automatically when a scan completes");
+  });
+
+  it("View renders the stored result under the saved-scan banner and issues no scan POST", async () => {
+    const calls = installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    await click(buttonByText(historyRows()[0], "View"));
+    await waitForText("viewing the stored result, not a new run");
+    expect(container.textContent).toContain(
+      `Saved scan from ${new Date(newerRun.generatedAt).toLocaleString()} — viewing the stored result, not a new run.`,
+    );
+    // The stored result renders through the normal results view.
+    expect(container.textContent).toContain("Iron Condor");
+    expect(container.textContent).toContain("Profile: Income v2");
+    // Viewing is read-only: no unified scan request was issued.
+    expect(calls.some((c) => c.url.endsWith("/api/trading/options/unified"))).toBe(false);
+
+    // A fresh run replaces the view — the banner must not linger.
+    await submitForm(container.querySelector("form.scp-form")!);
+    await waitForText("Bull Call Spread");
+    expect(container.textContent).not.toContain("viewing the stored result");
+  });
+
+  it("Re-run replays the saved request through the unified path and names what was not replayed", async () => {
+    const calls = installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    await click(buttonByText(historyRows()[1], "Re-run"));
+    await waitForText("Re-ran the scan from");
+    expect(container.textContent).toContain(`Re-ran the scan from ${new Date(olderRun.generatedAt).toLocaleString()}.`);
+    expect(container.textContent).toContain("Not replayed");
+    expect(container.textContent).toContain("stated target");
+    expect(container.textContent).not.toContain("viewing the stored result");
+
+    const post = calls.filter((c) => c.url.endsWith("/api/trading/options/unified")).at(-1);
+    expect(post?.body.symbols).toEqual(["AAPL", "MSFT", "OLDCO"]);
+    expect(post?.body.thesis).toBe("bullish");
+    expect(post?.body.targetDate).toBe("2026-11-20");
+    expect(post?.body.maxPlannedLoss).toBe(750);
+    expect(post?.body.minRewardRisk).toBe(1.5);
+    expect(post?.body.allowedStrategies).toEqual(["all"]);
+    expect(post?.body.perSymbol).toEqual({ MSFT: { target: { kind: "percent", pct: 5 } } });
+    expect(post?.body.mode).toBe("strategy_fit");
+    expect(post?.body.riskProfile).toBe("balanced");
+    expect(post?.body.profileId).toBe("prof-1");
+  });
+
+  it("Diff vs previous renders the server diff in place of the results", async () => {
+    const calls = installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    await click(buttonByText(historyRows()[0], "Diff vs previous"));
+    await waitForText("Scan diff");
+    const diff = container.querySelector(".scp-diff");
+    expect(diff).not.toBeNull();
+    expect(diff!.textContent).toContain("New fits:");
+    expect(diff!.textContent).toContain("MSFT");
+    expect(diff!.textContent).toContain("Dropped fits:");
+    expect(diff!.textContent).toContain("OLDCO");
+    expect(diff!.textContent).toContain("Still fitting (1):");
+    expect(diff!.textContent).toContain("Bucket changes:");
+    const call = calls.find((c) => c.url.includes("/api/etrade/options/scans/diff"));
+    expect(call?.url).toContain(`from=${olderRun.id}`);
+    expect(call?.url).toContain(`to=${newerRun.id}`);
+  });
+
+  it("an all-empty diff renders the explicit no-changes state", async () => {
+    installFetch(historyState({ scanDiffs: {} }));
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    await click(buttonByText(historyRows()[0], "Diff vs previous"));
+    await waitForText("No changes between these runs.");
+  });
+
+  it("compare picks diff any two runs (older becomes the diff's from)", async () => {
+    const calls = installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    // Pick the OLDER run first on purpose: ordering is by timestamp.
+    for (const row of [historyRows()[1], historyRows()[0]]) {
+      const box = row.querySelector<HTMLInputElement>(".scp-compare input")!;
+      await click(box);
+    }
+    await waitForText("Comparing 2 of 2 runs picked.");
+    await click(buttonByText(container, "Show diff"));
+    await waitForText("Scan diff");
+    expect(container.querySelector(".scp-diff")!.textContent).toContain("New fits:");
+    const call = calls.find((c) => c.url.includes("/api/etrade/options/scans/diff"));
+    expect(call?.url).toContain(`from=${olderRun.id}`);
+    expect(call?.url).toContain(`to=${newerRun.id}`);
+  });
+
+  it("a diff against a run pruned since the list loaded surfaces the server's message", async () => {
+    const state = historyState();
+    installFetch(state);
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    state.scanRuns = [newerRun]; // the older run is pruned server-side
+    await click(buttonByText(historyRows()[0], "Diff vs previous"));
+    await waitForText("scan run not found");
+    expect(container.querySelector(".scp-error")?.textContent).toContain("scan run not found");
   });
 });

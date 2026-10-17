@@ -15,6 +15,20 @@
  *    profile directly; validation and duplicate-name failures are
  *    400 `{ error: "..." }` whose message is surfaced verbatim.
  *
+ * Slice 5 adds the scan-history client for the #27 read API:
+ *  - GET /api/etrade/options/scans?limit=&offset= returns
+ *    `{ count, scans }` (ScanRunSummary rows, newest first);
+ *  - GET /api/etrade/options/scans/:id returns the StoredScanRun
+ *    directly (summary fields + the full stored result);
+ *  - GET /api/etrade/options/scans/diff?from=&to= returns
+ *    `{ from: { id, generatedAt }, to: { id, generatedAt }, diff }`.
+ *    The diff route is declared before the by-id route server-side
+ *    precisely so "diff" is never read as a run id. Failures are
+ *    non-200 `{ error: "..." }` ("scan run not found" when a run was
+ *    pruned) whose message is surfaced verbatim. Unlike the profiles
+ *    routes, the scans handlers do not scope by user server-side; the
+ *    headers are still sent, per the house pattern.
+ *
  * Type-only imports from the server modules keep the shapes
  * single-sourced (the portfolioRiskApi pattern). All HTTP goes through
  * apiFetch, which transparently polls the worker's 202 async-job stub
@@ -30,9 +44,22 @@ import type {
   StrategyProfile,
   StrategyProfileSpec,
 } from "../trading/options/strategyProfile";
+import type {
+  ScanRunDiff,
+  ScanRunSummary,
+  StoredScanRun,
+} from "../trading/options/scanRunStore";
 import type { UnifiedOptionsRequest } from "../trading/options/unifiedOptionsService";
 
-export type { OpportunityScanResult, ScanMode, StrategyProfile, StrategyProfileSpec };
+export type {
+  OpportunityScanResult,
+  ScanMode,
+  StrategyProfile,
+  StrategyProfileSpec,
+  ScanRunDiff,
+  ScanRunSummary,
+  StoredScanRun,
+};
 
 /** The unified route's UI envelope for the opportunities action:
  *  OpportunityScanResult fields at the top level (formatForUi spread),
@@ -179,4 +206,87 @@ export async function deleteProfile(
   });
   const data = (await resp.json().catch(() => ({}))) as { error?: string };
   if (!resp.ok) throw new Error(data.error || `Failed to delete strategy profile (${resp.status})`);
+}
+
+// Scan history (issue #27 read API) --------------------------------------
+
+const SCANS_PATH = "/api/etrade/options/scans";
+
+/** A stored scan run ready for display: the summary fields plus the
+ *  full result, coerced through the same shape guard as a live scan
+ *  response so ScanResultsView gets its guarded shape. */
+export interface ScanRunDetail extends ScanRunSummary {
+  result: OpportunityScanResponse;
+}
+
+/** The diff route's envelope: both runs' stamps plus the diff. */
+export interface ScanRunDiffResult {
+  from: { id: string; generatedAt: string };
+  to: { id: string; generatedAt: string };
+  diff: ScanRunDiff;
+}
+
+/** Newest-first summaries of the persisted scan runs. */
+export async function listScanRuns(
+  activeEnv: string,
+  userLogin?: string,
+  limit?: number,
+): Promise<ScanRunSummary[]> {
+  const query = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
+  const resp = await apiFetch(`${SCANS_PATH}${query}`, { headers: headers(activeEnv, userLogin) });
+  const data = (await resp.json().catch(() => ({}))) as { scans?: unknown; error?: string };
+  if (!resp.ok) throw new Error(data.error || `Failed to list scan runs (${resp.status})`);
+  return asArray<ScanRunSummary>(data.scans);
+}
+
+/** One persisted run with its full stored result. A pruned or unknown
+ *  id is the route's 404 "scan run not found", surfaced verbatim. */
+export async function getScanRun(
+  activeEnv: string,
+  userLogin: string | undefined,
+  id: string,
+): Promise<ScanRunDetail> {
+  const resp = await apiFetch(`${SCANS_PATH}/${encodeURIComponent(id)}`, {
+    headers: headers(activeEnv, userLogin),
+  });
+  const data = (await resp.json().catch(() => ({}))) as StoredScanRun & { error?: string };
+  if (!resp.ok) throw new Error(data.error || `Failed to fetch scan run (${resp.status})`);
+  if (!data.result || typeof data.result !== "object") {
+    throw new Error("Unexpected scan run shape — the stored run payload was incomplete.");
+  }
+  return { ...data, result: coerceScanResponse(data.result) };
+}
+
+/** Run-over-run diff: `fromId` is the older run (the diff's `a`),
+ *  `toId` the newer (its `b`) — newFits are fits in `to` that were not
+ *  fits in `from`. Computed server-side by diffScanRuns; the arrays
+ *  are shape-guarded here, never recomputed. */
+export async function getScanRunDiff(
+  activeEnv: string,
+  userLogin: string | undefined,
+  fromId: string,
+  toId: string,
+): Promise<ScanRunDiffResult> {
+  const params = new URLSearchParams({ from: fromId, to: toId });
+  const resp = await apiFetch(`${SCANS_PATH}/diff?${params.toString()}`, {
+    headers: headers(activeEnv, userLogin),
+  });
+  const data = (await resp.json().catch(() => ({}))) as Partial<ScanRunDiffResult> & { error?: string };
+  if (!resp.ok) throw new Error(data.error || `Failed to diff scan runs (${resp.status})`);
+  if (!data.diff || typeof data.diff !== "object") {
+    throw new Error("Unexpected diff shape — the diff payload was incomplete.");
+  }
+  const diff = data.diff as ScanRunDiff;
+  return {
+    from: data.from ?? { id: fromId, generatedAt: "" },
+    to: data.to ?? { id: toId, generatedAt: "" },
+    diff: {
+      newFits: asArray(diff.newFits),
+      droppedFits: asArray(diff.droppedFits),
+      stillFitting: asArray(diff.stillFitting),
+      bucketChanges: asArray(diff.bucketChanges),
+      addedSymbols: asArray(diff.addedSymbols),
+      removedSymbols: asArray(diff.removedSymbols),
+    },
+  };
 }
