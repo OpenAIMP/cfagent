@@ -356,6 +356,22 @@
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
+/* Provenance badge (issue #119): every flow item is modelled, never a tape print */
+.flow-prov-badge {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.flow-prov-badge.prov-generated,
+.flow-prov-badge.prov-static {
+  color: var(--color-warning);
+}
+
 /* NEWS FLOW TABLE */
 .news-headline-cell {
   line-height: 1.45;
