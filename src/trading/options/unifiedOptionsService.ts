@@ -31,7 +31,7 @@ import {
   type OptionStrategyType,
   type StrategyCandidate,
 } from "./index";
-import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanSymbolOverride } from "./opportunityScanner";
+import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanRequestRecord, type ScanSymbolOverride } from "./opportunityScanner";
 import type { ScanRunStore } from "./scanRunStore";
 import { applyProfileFields, toProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { StrategyProfileStore } from "./strategyProfileStore";
@@ -85,6 +85,21 @@ export interface UnifiedOptionsRequest {
   /** Opportunities only (issue #23): per-name thesis/target overrides
    *  keyed by (uppercase) symbol. */
   perSymbol?: Record<string, ScanSymbolOverride>;
+  /** Opportunities only (issue #103): a target the caller stated for
+   *  one symbol ({ price, symbol }) or the batch — forwarded into the
+   *  scan template's statedTarget, where the scanner scopes it to its
+   *  own symbol. Previously only the NLQ path could state one. */
+  statedTarget?: { price: number; symbol?: string };
+  /** Opportunities only (issue #103): DTE bounds, forwarded into the
+   *  scan template. Also profile-suppliable fields (issue #28): when a
+   *  profile is selected and the body omits them, the profile's
+   *  bounds apply instead. */
+  minDte?: number;
+  maxDte?: number;
+  /** Opportunities only (issue #103): strategy-fit pagination offset
+   *  into the fit rows, forwarded like `limit` (which slice 1 of #84
+   *  wired the same way). */
+  offset?: number;
   /** Saved strategy profile to run under (issue #28): `profileId` is
    *  preferred; `profileName` resolves case-insensitively against the
    *  caller's profiles. Resolved before anything runs — an unknown
@@ -137,7 +152,11 @@ const MEMORY_CACHE = new Map<string, CacheEntry>();
  *  are the StrategyRequest-level fields a saved profile can supply;
  *  posture fields (riskProfile / mode) are added for the opportunities
  *  action, whose scanner options they steer. */
-const PROFILE_BODY_FIELDS = ["thesis", "expectedIvDirection", "maxPlannedLoss", "minRewardRisk", "allowedStrategies", "optimizationBias"] as const;
+// Issue #103: minDte/maxDte join the list — they became body fields
+// the same change that grew the request to carry them; a body that
+// states DTE bounds must win over the profile's, like every other
+// expressed field.
+const PROFILE_BODY_FIELDS = ["thesis", "expectedIvDirection", "maxPlannedLoss", "minRewardRisk", "allowedStrategies", "optimizationBias", "minDte", "maxDte"] as const;
 function bodyPresentFields(req: UnifiedOptionsRequest, includePosture: boolean): string[] {
   const present: string[] = PROFILE_BODY_FIELDS.filter((field) => req[field] !== undefined);
   if (includePosture) {
@@ -205,7 +224,14 @@ export class UnifiedOptionsService {
     // pagination / row cap) once forwarded to the scanner, so it belongs
     // in the key for the same reason mode and profile do — two calls
     // differing only by limit must not share a cached scan.
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}`;
+    // Issue #103: statedTarget / minDte / maxDte / offset joined the
+    // forwarded set, so they segment the key the same way — a scan
+    // under a stated target must never be served to a caller who
+    // stated a different one (or none).
+    const statedTargetSegment = req.statedTarget
+      ? `${req.statedTarget.symbol ?? ""}@${req.statedTarget.price}`
+      : "";
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -337,6 +363,15 @@ export class UnifiedOptionsService {
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
             ...(req.perSymbol ? { perSymbol: req.perSymbol } : {}),
+            // Issue #103: the template fields the request grew to
+            // carry — a stated target (the scanner scopes it to its
+            // own symbol) and DTE bounds. They ride the template like
+            // perSymbol does, so the profile merge treats them as
+            // ordinary template fields (body-present ones are declared
+            // explicit below and win over the profile's).
+            ...(req.statedTarget ? { statedTarget: req.statedTarget } : {}),
+            ...(req.minDte !== undefined ? { minDte: req.minDte } : {}),
+            ...(req.maxDte !== undefined ? { maxDte: req.maxDte } : {}),
           }, {
             riskProfile: req.riskProfile || "balanced",
             ...(req.mode ? { mode: req.mode } : {}),
@@ -346,6 +381,9 @@ export class UnifiedOptionsService {
             // caps rows in per-name mode. It was previously dropped,
             // which made a caller's limit a no-op.
             ...(req.limit !== undefined ? { limit: req.limit } : {}),
+            // Issue #103: `offset` paginates strategy-fit fits
+            // alongside `limit`; forwarded (and cached) the same way.
+            ...(req.offset !== undefined ? { offset: req.offset } : {}),
             // Issue #28: the profile layers under the body's own
             // fields — every field actually present in the body
             // (thesis, caps, types, bias, and the posture fields
@@ -356,15 +394,46 @@ export class UnifiedOptionsService {
               ? { profile: strategyProfile, explicitFields: bodyPresentFields(req, true) }
               : {}),
           });
+          // Issue #103: record the caller's original request on the
+          // result BEFORE it is returned or persisted, so a stored run
+          // can be replayed verbatim (the snapshot's template alone is
+          // the EFFECTIVE, post-profile view — it cannot reconstruct
+          // the symbol list as asked, the pagination, or which fields
+          // the caller actually expressed). Only fields the caller
+          // sent are recorded; symbols/targetDate are the resolved
+          // values the scan actually ran under.
+          const requestRecord: ScanRequestRecord = {
+            symbols,
+            targetDate,
+            ...(req.thesis !== undefined ? { thesis: req.thesis } : {}),
+            ...(req.riskProfile !== undefined ? { riskProfile: req.riskProfile } : {}),
+            ...(req.mode !== undefined ? { mode: req.mode } : {}),
+            ...(req.profileId !== undefined ? { profileId: req.profileId } : {}),
+            ...(req.profileName !== undefined ? { profileName: req.profileName } : {}),
+            ...(req.limit !== undefined ? { limit: req.limit } : {}),
+            ...(req.offset !== undefined ? { offset: req.offset } : {}),
+            ...(req.expectedIvDirection !== undefined ? { expectedIvDirection: req.expectedIvDirection } : {}),
+            ...(req.optimizationBias !== undefined ? { optimizationBias: req.optimizationBias } : {}),
+            ...(req.maxPlannedLoss !== undefined ? { maxPlannedLoss: req.maxPlannedLoss } : {}),
+            ...(req.minRewardRisk !== undefined ? { minRewardRisk: req.minRewardRisk } : {}),
+            ...(req.allowedStrategies !== undefined ? { allowedStrategies: req.allowedStrategies } : {}),
+            ...(req.perSymbol !== undefined ? { perSymbol: req.perSymbol } : {}),
+            ...(req.statedTarget !== undefined ? { statedTarget: req.statedTarget } : {}),
+            ...(req.minDte !== undefined ? { minDte: req.minDte } : {}),
+            ...(req.maxDte !== undefined ? { maxDte: req.maxDte } : {}),
+          };
+          scanResult.requestSnapshot.request = requestRecord;
           executionData = scanResult;
           // Issue #27: persist the run when a store was injected (the
           // orchestrator's unified route supplies one over the Durable
           // Object's storage). Persistence must never fail a scan: on a
           // store error the result still returns, flagged persisted:
-          // false with the failure logged and swallowed.
+          // false with the failure logged and swallowed. Issue #103:
+          // the save is stamped with this service's userLogin so the
+          // history routes can scope the run to its owner.
           if (this.scanRunStore) {
             try {
-              const saved = await this.scanRunStore.save(scanResult);
+              const saved = await this.scanRunStore.save(scanResult, { userLogin: this.userLogin });
               executionData = { ...scanResult, scanRunId: saved.id, persisted: true };
             } catch (err) {
               console.error("Failed to persist opportunity scan run", err);
