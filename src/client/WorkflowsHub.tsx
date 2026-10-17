@@ -686,11 +686,11 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     categoryLabel: "Automation",
     badge: "Cloudflare DO Alarms",
     badgeColor: "purple",
-    subtitle: "24/7 background automation: auto-renews E*TRADE OAuth access tokens daily at 23:00 ET, runs scans every 5 min, and broadcasts WebSocket alerts.",
-    overview: "24/7 background automation powered by Cloudflare Durable Object Alarms. Automatically renews E*TRADE OAuth access tokens daily at 23:00 ET before midnight expiration, triggers market screening scans every 5 minutes (300 seconds), processes queued async jobs, and broadcasts live alerts over WebSockets.",
+    subtitle: "24/7 background automation: auto-renews E*TRADE OAuth access tokens daily at 23:00 EDT / 22:00 EST, runs scans every 5 min, and broadcasts WebSocket alerts.",
+    overview: "24/7 background automation powered by Cloudflare Durable Object Alarms. Automatically renews E*TRADE OAuth access tokens daily at 23:00 EDT / 22:00 EST (03:00 UTC), always at least an hour ahead of the midnight-ET expiration, triggers market screening scans every 5 minutes (300 seconds), processes queued async jobs, and broadcasts live alerts over WebSockets.",
     apiEndpoint: "POST /api/schedules/trigger-renew · POST /api/schedules/trigger-screen",
     targetTab: "trading",
-    keyParameters: "cron: '0 23 * * *' (renew), interval: 300s (screen), keepAliveWhile: active",
+    keyParameters: "cron: '0 3 * * *' UTC (renew, 23:00 EDT / 22:00 EST), interval: 300s (screen), keepAliveWhile: active",
     governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
@@ -701,7 +701,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 2",
         title: "OAuth Token Renewal Daemon",
-        description: "Executes daily at 23:00 ET. Calls E*TRADE renew_access_token API to prevent session expiration at midnight.",
+        description: "Executes daily at 23:00 EDT / 22:00 EST (03:00 UTC) — always at least an hour before the midnight-ET expiration. Calls E*TRADE renew_access_token API to prevent session expiration at midnight.",
       },
       {
         step: "Step 3",
