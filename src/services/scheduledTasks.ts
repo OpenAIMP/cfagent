@@ -41,6 +41,25 @@ export interface AutonomousOptionsAnalysisOptions {
   environment?: string;
 }
 
+/**
+ * Failure contract for scheduled jobs (issue #112 — deliberate; do not
+ * "fix" by throwing):
+ *
+ * These methods NEVER throw to their scheduler caller. A failure is
+ * returned as a terminal `{ success: false, error }` result and is
+ * surfaced by the service itself — an audit event plus, for user-facing
+ * jobs, a session message — and by the OrchestratorAgent callback's
+ * broadcast. The Cloudflare Agents SDK retries a THROWING callback by
+ * default ({ maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 3000 }), but
+ * that platform retry is deliberately NOT used here: a broker/data
+ * failure will not heal within 100ms–3s, and a blind retry could
+ * duplicate notifications after a partial success. The async-job
+ * plumbing makes the same choice explicitly, passing
+ * `retry: { maxAttempts: 1 }` on its schedule() calls. A failed
+ * scheduled run stays failed — visible in the audit log, the session,
+ * and the broadcast — until its next scheduled fire or a manual
+ * trigger.
+ */
 export class ScheduledTasksService {
   constructor(
     private env: Env,
@@ -187,6 +206,29 @@ export class ScheduledTasksService {
         timestamp,
       };
     } catch (err: any) {
+      // Failure surfacing (issue #112): screen failures used to vanish —
+      // no audit event, no session message — unlike options analysis.
+      // Audit and surface them symmetrically.
+      this.audit("screener.screen_failed", {
+        sector: options.sector || "ALL",
+        error: err.message,
+      });
+
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Market Screen failed for sector ${options.sector || "ALL"}: ${err.message || "Market screener execution error"}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+
       return {
         success: false,
         taskType: "market_screen",
@@ -457,6 +499,24 @@ export class ScheduledTasksService {
         thesis: targetThesis,
         error: err.message,
       });
+
+      // Failure surfacing (issue #112): mirror the success path's
+      // session message so a failed run is visible in the conversation,
+      // not only in the audit log.
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ")}: ${err.message || "Scheduled options analysis failed"}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
 
       return {
         success: false,

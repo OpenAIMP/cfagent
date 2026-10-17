@@ -286,6 +286,29 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
             // Non-critical broadcast error
           }
         }
+      } else if (!res.success) {
+        // Failure surfacing (issue #112): a failed screen used to vanish
+        // silently. The service now audits it and records a session
+        // message; broadcast the failure too so live clients see it.
+        // Deliberately no throw: platform callback retry is not used
+        // for scheduled jobs — see the failure contract on
+        // ScheduledTasksService.
+        if (typeof (this as any).broadcast === "function") {
+          try {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "market_alert",
+                title: "Autonomous Screener Failed",
+                success: false,
+                sector: payload?.sector,
+                error: res.error,
+                timestamp: res.timestamp,
+              })
+            );
+          } catch {
+            // Non-critical broadcast error
+          }
+        }
       }
     };
 
@@ -323,6 +346,29 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
                 withTrades: res.data.withTrades,
                 opportunities: res.data.opportunities,
                 notifications: res.data.notifications,
+                timestamp: res.timestamp,
+              })
+            );
+          } catch {
+            // Non-critical broadcast error
+          }
+        }
+      } else if (!res.success) {
+        // Failure surfacing (issue #112): mirror the success broadcast
+        // for failures — the service audits the failure and records a
+        // session message, and live clients get this broadcast.
+        // Deliberately no throw: platform callback retry is not used
+        // for scheduled jobs — see the failure contract on
+        // ScheduledTasksService.
+        if (typeof (this as any).broadcast === "function") {
+          try {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "options_alert",
+                title: "Autonomous Options Intelligence Failed",
+                success: false,
+                symbols: payload?.symbols,
+                error: res.error,
                 timestamp: res.timestamp,
               })
             );
