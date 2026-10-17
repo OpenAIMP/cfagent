@@ -778,7 +778,7 @@ export default {
         });
       }
       if (sub === "news") {
-        const liveNews = await fetchRealMarketNews(tickers);
+        const liveNews = await fetchRealMarketNews(tickers, env);
         return Response.json({
           success: true,
           count: liveNews.length,
