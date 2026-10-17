@@ -384,6 +384,34 @@
   margin-right: 0.4rem;
 }
 
+/* Issue #132: LLM sentiment assessment badge (news table). */
+.news-sentiment-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.news-sentiment-badge.bullish {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.news-sentiment-badge.bearish {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.news-sentiment-badge.unassessed {
+  font-weight: 600;
+  opacity: 0.75;
+}
+
 /* INSIDER FLOW TABLE */
 .insider-member-cell {
   font-weight: 600;
