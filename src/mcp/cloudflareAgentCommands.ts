@@ -52,7 +52,7 @@ export class BrowserInspectCommand implements IMcpToolCommand<{ url: string; sel
  */
 export class BrowserScreenshotCommand implements IMcpToolCommand<{ url: string }> {
   readonly name = "browser_screenshot";
-  readonly description = "Capture screenshot of financial charts or brokerage confirmations using Cloudflare Browser Agent";
+  readonly description = "Capture screenshot of financial charts or brokerage confirmations using Cloudflare Browser Agent. The result's screenshotKind field states the truth: \"capture\" means a real browser capture; \"placeholder\" means Browser Rendering was unavailable and the image is a labelled placeholder illustration with no page content — never present a placeholder as a screenshot of the page.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -65,7 +65,7 @@ export class BrowserScreenshotCommand implements IMcpToolCommand<{ url: string }
   async execute(input: { url: string }, context: McpToolContext) {
     const browser = new ETradeBrowserService(context.env);
     const result = await browser.captureScreenshot(input.url);
-    context.audit("browser.screenshot", "browser", { url: input.url, success: result.success });
+    context.audit("browser.screenshot", "browser", { url: input.url, success: result.success, screenshotKind: result.screenshotKind });
     return result;
   }
 }

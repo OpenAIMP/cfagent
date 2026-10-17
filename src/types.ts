@@ -1313,6 +1313,14 @@ export interface BrowserInspectResult {
   text?: string;
   tables?: Array<Array<string>>;
   screenshotBase64?: string;
+  /**
+   * Provenance of `screenshotBase64` (issue #120): "capture" only when the
+   * image really came from Cloudflare Browser Rendering of the page;
+   * "placeholder" when it is a locally generated illustration produced
+   * because no browser capture was available. A placeholder contains no
+   * page content and must never be presented as a screenshot of the page.
+   */
+  screenshotKind?: "capture" | "placeholder";
   error?: string;
   timestamp: string;
 }
@@ -1330,6 +1338,14 @@ export interface TransactionSnapData {
   accountKey?: string;
   commission?: number;
   timestamp?: string;
+  /**
+   * Issue #120: set ONLY by a flow that recorded an actual human approval
+   * for this transaction (e.g. a Slack approve interaction, a conversational
+   * approval, or the HITL authorize/execute call). The generated receipt
+   * prints "Human-in-the-Loop Verified" only when this is true; otherwise
+   * the receipt states that no human approval was recorded.
+   */
+  humanApproved?: boolean;
   notes?: string;
   legs?: Array<{
     action: string;

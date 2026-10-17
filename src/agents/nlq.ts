@@ -1843,6 +1843,9 @@ export function executeNLQQuery(
               totalValue: existingTrade.totalValue,
               environment: (env?.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
               timestamp: executedAt,
+              // This dispatch runs inside the authorize_order action — the
+              // user's explicit approval of a previewed draft (issue #120).
+              humanApproved: true,
             }).catch(console.warn);
           } catch {
             // Non-blocking snap dispatch

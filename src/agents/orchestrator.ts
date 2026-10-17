@@ -3544,6 +3544,10 @@ Agentic Best Practices & Workflow Rules:
               totalValue: existingRecord.totalValue || (quantity * (existingRecord.price || 0)),
               environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
               timestamp: new Date().toISOString(),
+              // This route is the HITL authorize/execute gate: execution
+              // here means the session user submitted decision "approved"
+              // for this draft (issue #120).
+              humanApproved: decision === "approved",
             });
           } catch (snapErr) {
             console.warn("[OrchestratorAgent] Note: could not send transaction snap to Slack:", snapErr);
