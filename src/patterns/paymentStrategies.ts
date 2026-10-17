@@ -995,7 +995,14 @@ export class PaymentStrategyFactory {
   ]);
 
   static getStrategy(gateway: SupportedGateway): IPaymentGatewayStrategy {
-    const strategy = this.strategies.get(gateway) || this.strategies.get("sandbox")!;
+    const strategy = this.strategies.get(gateway);
+    if (!strategy) {
+      // Default-deny (issue #148): never resolve an unrecognized gateway to
+      // the sandbox harness. The sandbox strategy's own contract is that it
+      // is used strictly when a caller explicitly names it; silently
+      // substituting it let a nonsense gateway create checkouts/refunds.
+      throw new Error(`Unsupported payment gateway: ${gateway}`);
+    }
     return strategy;
   }
 

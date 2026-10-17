@@ -7,7 +7,7 @@ import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQ
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
-import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
+import { PaymentGatewayService, normalizeGateway, isWebhookGateway, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
@@ -2853,7 +2853,17 @@ Agentic Best Practices & Workflow Rules:
     // Unified Payment Webhook listener (Stripe, PayPal, Lemon Squeezy with HMAC Verification)
     if (path.endsWith("/payments/webhook") && request.method === "POST") {
       try {
-        const provider = (url.searchParams.get("provider") || "stripe") as SupportedGateway;
+        const providerParam = url.searchParams.get("provider") || "stripe";
+        const provider = normalizeGateway(providerParam) as SupportedGateway;
+
+        // Defence in depth (issue #148): reject unsupported providers at
+        // the route, before verification and before any state change. The
+        // service's verifier independently default-denies them; a webhook
+        // from an unverifiable provider must never settle a transaction.
+        if (!isWebhookGateway(provider)) {
+          return Response.json({ error: `Unsupported webhook provider: ${providerParam}` }, { status: 401 });
+        }
+
         const rawBody = await request.text();
         const paymentService = new PaymentGatewayService(this.env);
 
