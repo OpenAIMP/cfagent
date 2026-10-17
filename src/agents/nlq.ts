@@ -1418,41 +1418,30 @@ export function executeNLQQuery(
     const action = plan.agenticPaymentsData?.action || "wallet_status";
 
     if (action === "wallet_status") {
-      let totalSpent = 0;
-      let totalEarned = 0;
-      let count = 0;
-      if (orm.transactions) {
-        const allTx = orm.transactions.findMany();
-        for (const tx of allTx) {
-          if (tx.gateway === "x402" || tx.gateway === "mpp") {
-            count++;
-            if (tx.action === "agentic_payment" || tx.action === "charge") {
-              totalEarned += tx.amount;
-            } else if (tx.action === "micropayment" || tx.action === "payout") {
-              totalSpent += tx.amount;
-            }
-          }
-        }
-      }
-      const balance = Math.max(0, 50.0 + totalEarned - totalSpent);
-      const network = env?.X402_NETWORK || "base-sepolia";
-      const autoLimit = Number(env?.X402_AUTO_APPROVE_LIMIT || 0.05);
+      // Issue #122: delegate to the payment service (single source of truth)
+      // and disclose that the balance is a simulated local-ledger figure —
+      // a $50.00 local starting credit plus/minus locally recorded entries,
+      // NOT an on-chain wallet balance.
+      const wallet = paymentService.getWalletStatusSync();
 
       return {
         plan,
         domain: "agentic_payments",
         targetTable: "mas_agentic_wallet",
         count: 1,
-        summary: `Cloudflare Agentic Wallet: Balance $${balance.toFixed(2)} USDC on ${network}. Auto-approve limit: $${autoLimit.toFixed(2)}. Total spent: $${totalSpent.toFixed(2)}, total earned: $${totalEarned.toFixed(2)} across ${count} micropayments.`,
+        summary: `Cloudflare Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
         rows: [
           {
-            network,
-            balanceUSD: `$${balance.toFixed(2)}`,
-            autoApproveLimitUSD: `$${autoLimit.toFixed(2)}`,
-            totalSpentUSD: `$${totalSpent.toFixed(2)}`,
-            totalEarnedUSD: `$${totalEarned.toFixed(2)}`,
-            micropaymentCount: count,
-            status: "ACTIVE",
+            network: wallet.network,
+            balanceUSD: `$${wallet.balanceUSD.toFixed(2)}`,
+            autoApproveLimitUSD: `$${wallet.autoApproveLimitUSD.toFixed(2)}`,
+            totalSpentUSD: `$${wallet.totalSpentUSD.toFixed(2)}`,
+            totalEarnedUSD: `$${wallet.totalEarnedUSD.toFixed(2)}`,
+            micropaymentCount: wallet.transactionCount,
+            status: "SIMULATED",
+            simulated: true,
+            source: wallet.source,
+            startingCreditUSD: `$${wallet.startingCreditUSD.toFixed(2)}`,
           },
         ],
         executedAt,
@@ -2970,6 +2959,9 @@ export async function executeNLQQueryAsync(
       });
 
       const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
+      // Issue #122: no payment is collected or verified on this path — the
+      // receipt is a simulated local record and must say so (never
+      // status "verified", never a fabricated txHash).
       const receipt: any = {
         receiptId: `rcpt_${Date.now()}`,
         protocol: "x402",
@@ -2979,9 +2971,10 @@ export async function executeNLQQueryAsync(
         network: env?.X402_NETWORK || "base-sepolia",
         payer: login,
         recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
-        status: "verified",
-        txHash: `0x_${Date.now().toString(16)}`,
+        status: "simulated",
+        simulated: true,
         timestamp: executedAt,
+        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
       };
       await paymentService.recordPaymentTransaction(receipt, "inbound");
 
@@ -2990,7 +2983,7 @@ export async function executeNLQQueryAsync(
         domain: "agentic_payments",
         targetTable: "etrade_premium_options",
         count: res.contracts.length,
-        summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}.`,
+        summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).`,
         rows: res.contracts.slice(0, 10).map((c) => ({
           contract: c.osiKey || c.displaySymbol || c.symbol,
           strike: `$${c.strikePrice.toFixed(2)}`,
@@ -3010,6 +3003,8 @@ export async function executeNLQQueryAsync(
       const report = await foss.generateResearchReport(sym);
 
       const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
+      // Issue #122: same rule as paid_scan — a simulated local record, never
+      // a "verified" receipt with a fabricated txHash.
       const receipt: any = {
         receiptId: `rcpt_${Date.now()}`,
         protocol: "x402",
@@ -3019,9 +3014,10 @@ export async function executeNLQQueryAsync(
         network: env?.X402_NETWORK || "base-sepolia",
         payer: userLogin || sessionId || "default_trader",
         recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
-        status: "verified",
-        txHash: `0x_${Date.now().toString(16)}`,
+        status: "simulated",
+        simulated: true,
         timestamp: executedAt,
+        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
       };
       await paymentService.recordPaymentTransaction(receipt, "inbound");
 
@@ -3036,7 +3032,9 @@ export async function executeNLQQueryAsync(
         count: 1,
         // Issue #117: a paid report built on non-live inputs must say so —
         // the buyer is told what the data actually is.
-        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}.${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live FOSS data, and its target is a profile estimate, not analyst consensus.` : ""}`,
+        // Issue #122: and the "payment" is a simulated local record — the
+        // summary must say no real payment was collected or verified.
+        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live FOSS data, and its target is a profile estimate, not analyst consensus.` : ""}`,
         rows: [
           {
             symbol: report.symbol,
@@ -3045,6 +3043,7 @@ export async function executeNLQQueryAsync(
             targetPrice,
             currentPrice,
             receiptId: receipt.receiptId,
+            paymentSimulated: true,
             provenance: report.provenance,
           },
         ],
