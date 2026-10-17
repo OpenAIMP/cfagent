@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   RAW_LIVE_FLOW_ITEMS,
-  RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
   RAW_CONGRESS_FLOW_ITEMS,
   DEFAULT_SAVED_PRESETS,
@@ -23,10 +22,13 @@ import {
 } from "../src/trading/options/flows/flowService";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import type { ETradeOptionChain } from "../src/types";
+import type { NewsFlowItem } from "../src/trading/options/flows/types";
 
 describe("Options Flows Engine & Institutional Activity Suite", () => {
-  it("contains curated live flows matching OptionStrat institutional data", () => {
+  it("contains the static fixture flow table, every row stamped provenance: static (issue #119)", () => {
     expect(RAW_LIVE_FLOW_ITEMS.length).toBeGreaterThanOrEqual(15);
+    // Static seed/demo rows must never present as live market data.
+    expect(RAW_LIVE_FLOW_ITEMS.every((f) => f.provenance === "static")).toBe(true);
 
     const symbols = RAW_LIVE_FLOW_ITEMS.map((f) => f.symbol);
     expect(symbols).toContain("QQQ");
@@ -90,14 +92,23 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
   });
 
   it("filters news flow items by tagged tickers", () => {
-    expect(RAW_NEWS_FLOW_ITEMS.length).toBeGreaterThanOrEqual(8);
+    // Issue #119 (audit F18): the hard-coded RAW_NEWS_FLOW_ITEMS wire —
+    // fabricated headlines attributed to Bloomberg/Reuters/WSJ — was
+    // deleted from the product. filterNewsFlowItems is exercised here over
+    // locally defined fixtures; production news comes only from the real
+    // fetchRealMarketNews feed.
+    const fixtures: NewsFlowItem[] = [
+      { id: "fx_news_1", time: "9:00am", timestamp: 1000, headline: "Fixture headline one", symbols: ["NVDA", "AMD"], source: "Fixture Wire", sentiment: "bullish" },
+      { id: "fx_news_2", time: "9:05am", timestamp: 2000, headline: "Fixture headline two", symbols: ["GOOGL"], source: "Fixture Wire", sentiment: "neutral" },
+      { id: "fx_news_3", time: "9:10am", timestamp: 3000, headline: "Fixture headline three", symbols: ["NVDA"], source: "Fixture Wire", sentiment: "bearish" },
+    ];
 
-    const nvdaNews = filterNewsFlowItems(RAW_NEWS_FLOW_ITEMS, ["NVDA"]);
-    expect(nvdaNews.length).toBeGreaterThan(0);
+    const nvdaNews = filterNewsFlowItems(fixtures, ["NVDA"]);
+    expect(nvdaNews.length).toBe(2);
     expect(nvdaNews.every((n) => n.symbols.includes("NVDA"))).toBe(true);
 
-    const googNews = filterNewsFlowItems(RAW_NEWS_FLOW_ITEMS, ["GOOGL"]);
-    expect(googNews.length).toBeGreaterThan(0);
+    const googNews = filterNewsFlowItems(fixtures, ["GOOGL"]);
+    expect(googNews.length).toBe(1);
   });
 
   it("filters insider flow items by ticker and executive member name", () => {
@@ -254,7 +265,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
   });
 
   describe("Dynamic Options Flow Engine (Option Chain Conversion & Live Synthesis)", () => {
-    it("converts an ETradeOptionChain into dynamic institutional LiveFlowItem prints", () => {
+    it("converts an ETradeOptionChain into chain-derived LiveFlowItem estimates (not prints)", () => {
       const mockChain: ETradeOptionChain = {
         symbol: "NVDA",
         underlyingPrice: 125.5,
@@ -289,6 +300,8 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
 
       const flowItems = convertOptionChainToFlowItems(mockChain);
       expect(flowItems.length).toBe(2);
+      // Issue #119: chain-derived estimates, never tape prints.
+      expect(flowItems.every((f) => f.provenance === "chain-derived")).toBe(true);
 
       // 1. Call print: 130C, lastPrice 4.5 >= ask 4.4 -> BUY, volume 2500 >= 1000 and premium >= 250k -> BLOCK
       const callPrint = flowItems.find((f) => f.strategy.includes("Call"))!;
@@ -315,9 +328,11 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       expect(putPrint.isOtm).toBe(true);
     });
 
-    it("synthesizes dynamic options flow universe with authentic market prints and live timestamps", () => {
+    it("generates the template flow universe with every item stamped provenance: generated", () => {
       const dynamicFlows = generateDynamicFlowUniverse();
       expect(dynamicFlows.length).toBeGreaterThanOrEqual(30);
+      // Issue #119: the generated fallback must label itself as generated.
+      expect(dynamicFlows.every((f) => f.provenance === "generated")).toBe(true);
 
       const symbols = new Set(dynamicFlows.map((f) => f.symbol));
       expect(symbols.has("NVDA")).toBe(true);
@@ -372,6 +387,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       const customTrade = customFlows.find((f) => f.symbol === "CUSTOM" && f.strike === 80)!;
       expect(customTrade.sentiment).toBe("bullish");
       expect(customTrade.volOverOi).toBe(true);
+      expect(customTrade.provenance).toBe("chain-derived");
 
       DynamicOptionsScreener.clearTestChainsFixture();
     });
@@ -407,6 +423,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       const customTrades = [
         {
           id: "trade_1",
+          provenance: "chain-derived",
           time: "11:55am",
           timestamp: Date.now(),
           symbol: "IWM",
@@ -431,6 +448,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         },
         {
           id: "trade_2",
+          provenance: "chain-derived",
           time: "11:54am",
           timestamp: Date.now() - 60000,
           symbol: "SPY",
@@ -468,6 +486,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       const allTrades = [
         {
           id: "t_large",
+          provenance: "chain-derived",
           time: "11:50am",
           timestamp: Date.now(),
           symbol: "NVDA",
@@ -492,6 +511,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         },
         {
           id: "t_mid",
+          provenance: "chain-derived",
           time: "11:45am",
           timestamp: Date.now() - 300000,
           symbol: "IWM",
@@ -516,6 +536,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         },
         {
           id: "t_small",
+          provenance: "chain-derived",
           time: "11:40am",
           timestamp: Date.now() - 600000,
           symbol: "MARA",
@@ -650,6 +671,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         // STX: $3M bullish vs $1M bearish -> Net Bullish
         {
           id: "stx_bull",
+          provenance: "chain-derived",
           time: "2:20pm",
           timestamp: Date.now(),
           symbol: "STX",
@@ -674,6 +696,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         },
         {
           id: "stx_bear",
+          provenance: "chain-derived",
           time: "2:21pm",
           timestamp: Date.now(),
           symbol: "STX",
@@ -699,6 +722,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         // CEG: $200k bullish vs $800k bearish -> Net Bearish
         {
           id: "ceg_bull",
+          provenance: "chain-derived",
           time: "2:22pm",
           timestamp: Date.now(),
           symbol: "CEG",
@@ -723,6 +747,7 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
         },
         {
           id: "ceg_bear",
+          provenance: "chain-derived",
           time: "2:23pm",
           timestamp: Date.now(),
           symbol: "CEG",
