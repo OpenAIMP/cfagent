@@ -275,3 +275,108 @@
   align-items: center;
   margin-top: 1rem;
 }
+/* Slice 2: type roll-up cards (#26) + fit matrix board (#22). */
+.scp-legend {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: #9aa4b2;
+  max-width: 720px;
+}
+.scp-rollup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+.scp-rollup-card {
+  min-width: 210px;
+  flex: 1;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.scp-rollup-type {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+.scp-rollup-line {
+  margin-top: 0.2rem;
+  font-size: 0.83rem;
+  color: #c6cdd6;
+}
+.scp-rollup-meta {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: #9aa4b2;
+}
+.scp-rollup-best {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: #c6cdd6;
+}
+.scp-badge-verdict-pass {
+  background: rgba(46, 204, 113, 0.18);
+  color: #7be2a8;
+}
+.scp-badge-verdict-no_pass {
+  background: rgba(240, 180, 41, 0.16);
+  color: #f0b429;
+}
+.scp-badge-verdict-skipped {
+  background: rgba(255, 255, 255, 0.08);
+  color: #9aa4b2;
+}
+.scp-matrix-scroll {
+  overflow-x: auto;
+  margin-top: 0.4rem;
+}
+.scp-matrix-table th,
+.scp-matrix-table td {
+  min-width: 120px;
+}
+.scp-matrix-table .scp-matrix-symbol {
+  min-width: 170px;
+}
+.scp-matrix-symbol .scp-badge + .scp-badge {
+  margin-left: 0.3rem;
+}
+.scp-cell-score {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.scp-cell-label {
+  font-size: 0.75rem;
+  color: #9aa4b2;
+}
+.scp-cell-reason {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: #9aa4b2;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scp-cell-empty {
+  color: #5b6572;
+}
+.scp-skip-reason {
+  color: #9aa4b2;
+  font-style: italic;
+}
+.scp-cell-btn {
+  display: block;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(88, 166, 255, 0.07);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.scp-cell-btn:hover {
+  background: rgba(88, 166, 255, 0.16);
+}
