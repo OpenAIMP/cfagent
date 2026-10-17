@@ -17,7 +17,7 @@ import { FossResearchService } from "../services/fossResearch";
  */
 export class FossGetQuoteCommand implements IMcpToolCommand {
   readonly name = "foss_get_quote";
-  readonly description = "Retrieve real-time market quote, bid/ask spread, 24h change, and volume using FOSS engines (Yahoo Finance or Alpaca Market Data v2).";
+  readonly description = "Retrieve market quote, bid/ask spread, 24h change, and volume using FOSS engines (Yahoo Finance or Alpaca Market Data v2). The result carries `provenance` (live/static/generated): when a live fetch fails the quote falls back to non-live FOSS data and says so — never present a non-live quote as live provider data.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -36,7 +36,7 @@ export class FossGetQuoteCommand implements IMcpToolCommand {
   async execute(input: { symbol: string; provider?: "yfinance" | "alpaca" | "hybrid" }, context: McpToolContext) {
     const service = new FossResearchService(context.env);
     const quote = await service.getQuote(input.symbol, input.provider || "hybrid");
-    context.audit?.("foss.quote.fetched", "research", { symbol: input.symbol, provider: quote.provider, price: quote.price });
+    context.audit?.("foss.quote.fetched", "research", { symbol: input.symbol, provider: quote.provider, price: quote.price, provenance: quote.provenance });
     return quote;
   }
 }
@@ -47,7 +47,7 @@ export class FossGetQuoteCommand implements IMcpToolCommand {
  */
 export class FossFundamentalsCommand implements IMcpToolCommand {
   readonly name = "foss_company_fundamentals";
-  readonly description = "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), 52-week statistics, and Wall Street analyst targets via Yahoo Finance FOSS.";
+  readonly description = "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), 52-week statistics, and analyst targets via Yahoo Finance FOSS. The result carries `provenance` (live/static/generated): non-live fundamentals include formula-estimated analyst fields and must not be presented as live analyst data.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -64,7 +64,7 @@ export class FossFundamentalsCommand implements IMcpToolCommand {
   async execute(input: { symbol: string }, context: McpToolContext) {
     const service = new FossResearchService(context.env);
     const fundamentals = await service.getFundamentals(input.symbol);
-    context.audit?.("foss.fundamentals.fetched", "research", { symbol: input.symbol, marketCap: fundamentals.marketCap, pe: fundamentals.peTrailing });
+    context.audit?.("foss.fundamentals.fetched", "research", { symbol: input.symbol, marketCap: fundamentals.marketCap, pe: fundamentals.peTrailing, provenance: fundamentals.provenance });
     return fundamentals;
   }
 }
@@ -75,7 +75,7 @@ export class FossFundamentalsCommand implements IMcpToolCommand {
  */
 export class FossHistoricalBarsCommand implements IMcpToolCommand {
   readonly name = "foss_historical_bars";
-  readonly description = "Query historical OHLCV pricing bars, VWAP, and volume series for equities and crypto.";
+  readonly description = "Query historical OHLCV pricing bars, VWAP, and volume series for equities and crypto. Every bar carries `provenance` (live/generated): when the provider fetch fails the series is synthetically generated from the FOSS profile and labelled generated — not historical market data.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -96,8 +96,9 @@ export class FossHistoricalBarsCommand implements IMcpToolCommand {
   async execute(input: { symbol: string; timeframe?: string; limit?: number }, context: McpToolContext) {
     const service = new FossResearchService(context.env);
     const bars = await service.getHistoricalBars(input.symbol, input.timeframe || "1D", input.limit || 30);
-    context.audit?.("foss.bars.fetched", "research", { symbol: input.symbol, count: bars.length });
-    return { symbol: input.symbol.toUpperCase(), count: bars.length, bars };
+    const provenance = bars[0]?.provenance ?? "generated";
+    context.audit?.("foss.bars.fetched", "research", { symbol: input.symbol, count: bars.length, provenance });
+    return { symbol: input.symbol.toUpperCase(), count: bars.length, provenance, bars };
   }
 }
 
@@ -107,7 +108,7 @@ export class FossHistoricalBarsCommand implements IMcpToolCommand {
  */
 export class FossMarketResearchCommand implements IMcpToolCommand {
   readonly name = "foss_market_research";
-  readonly description = "Generate an autonomous equity research report synthesizing real-time quoting, institutional valuation, technical RSI/MACD indicators, analyst consensus, and cryptographic W3C Agent DID attestation.";
+  readonly description = "Generate an autonomous equity research report synthesizing quoting, valuation, technical RSI/MACD indicators, analyst targets, and cryptographic W3C Agent DID attestation. The report carries `provenance` (weakest of its inputs) — a non-live report is based on static/generated FOSS data, its target is a profile estimate (not analyst consensus), and its attestation binds that provenance into the signed payload.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -124,7 +125,7 @@ export class FossMarketResearchCommand implements IMcpToolCommand {
   async execute(input: { symbol: string }, context: McpToolContext) {
     const service = new FossResearchService(context.env);
     const report = await service.generateResearchReport(input.symbol);
-    context.audit?.("foss.research.generated", "research", { symbol: input.symbol, rating: report.analystRating, did: report.agentAttestation.did });
+    context.audit?.("foss.research.generated", "research", { symbol: input.symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
     return report;
   }
 }
@@ -152,7 +153,7 @@ export class FossAlpacaSnapshotCommand implements IMcpToolCommand {
   async execute(input: { symbol: string }, context: McpToolContext) {
     const service = new FossResearchService(context.env);
     const snapshot = await service.getAlpacaSnapshot(input.symbol);
-    context.audit?.("foss.alpaca.snapshot", "research", { symbol: input.symbol, assetClass: snapshot.assetClass, tradePrice: snapshot.latestTrade.price });
+    context.audit?.("foss.alpaca.snapshot", "research", { symbol: input.symbol, assetClass: snapshot.assetClass, tradePrice: snapshot.latestTrade.price, provenance: snapshot.provenance });
     return snapshot;
   }
 }
