@@ -33,12 +33,17 @@ import { MockSqlStorage } from "./mock-sql";
  * behaviour: an allow-list of user-creatable callbacks (HTTP 400 for
  * anything else), HTTP 503 {success:false, error} when scheduling is
  * unavailable or throws, and real SDK ids on success.
+ *
+ * Issue #108 converted the route to the typed Agents SDK API: the
+ * scheduling methods are typed members of the Agent base class and
+ * always exist, so the honest-failure path is exercised with stubs
+ * that throw — the only way scheduling can fail at runtime.
  */
 describe("POST /api/schedules/create (#111)", () => {
   let scheduleCalls: any[];
   let scheduleEveryCalls: any[];
 
-  function makeAgent(withSdk: boolean) {
+  function makeAgent() {
     const sql = new MockSqlStorage();
     const ctx = {
       storage: { sql },
@@ -47,16 +52,14 @@ describe("POST /api/schedules/create (#111)", () => {
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
     agent.env = { APP_ENV: "TEST" } as any;
-    if (withSdk) {
-      agent.schedule = async (when: any, callback: string, payload: any, options: any) => {
-        scheduleCalls.push([when, callback, payload, options]);
-        return { id: `real-schedule-${scheduleCalls.length}`, callback, payload };
-      };
-      agent.scheduleEvery = async (intervalSeconds: number, callback: string, payload: any) => {
-        scheduleEveryCalls.push([intervalSeconds, callback, payload]);
-        return { id: `real-interval-${scheduleEveryCalls.length}`, callback, payload };
-      };
-    }
+    agent.schedule = async (when: any, callback: string, payload: any, options: any) => {
+      scheduleCalls.push([when, callback, payload, options]);
+      return { id: `real-schedule-${scheduleCalls.length}`, callback, payload };
+    };
+    agent.scheduleEvery = async (intervalSeconds: number, callback: string, payload: any) => {
+      scheduleEveryCalls.push([intervalSeconds, callback, payload]);
+      return { id: `real-interval-${scheduleEveryCalls.length}`, callback, payload };
+    };
     return agent;
   }
 
@@ -92,7 +95,7 @@ describe("POST /api/schedules/create (#111)", () => {
   });
 
   it("rejects an unknown callback with 400 and creates no schedule", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
     const { status, body } = await postCreate(agent, {
       scheduleType: "cron",
       cron: "0 3 * * *",
@@ -110,7 +113,7 @@ describe("POST /api/schedules/create (#111)", () => {
   it.each(["executeAsyncJob", "expireStaleOrderDraft"])(
     "rejects the internal-only callback %s with 400 and creates no schedule",
     async (callback) => {
-      const agent = makeAgent(true);
+      const agent = makeAgent();
       const { status, body } = await postCreate(agent, {
         scheduleType: "interval",
         intervalSeconds: 300,
@@ -126,7 +129,7 @@ describe("POST /api/schedules/create (#111)", () => {
   );
 
   it("accepts collectIvHistory on a cron and returns the SDK's real schedule id", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
     const payload = { userLogin: "default_trader" };
     const { status, body } = await postCreate(agent, {
       scheduleType: "cron",
@@ -143,7 +146,7 @@ describe("POST /api/schedules/create (#111)", () => {
   });
 
   it("accepts autonomousOptionsAnalysis on an interval via scheduleEvery", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
     const payload = { symbols: ["NVDA"], thesis: "bullish" };
     const { status, body } = await postCreate(agent, {
       scheduleType: "interval",
@@ -159,7 +162,7 @@ describe("POST /api/schedules/create (#111)", () => {
   });
 
   it("accepts the remaining allow-listed callbacks across the delayed and scheduled modes", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
 
     const delayed = await postCreate(agent, {
       delayInSeconds: 900,
@@ -196,7 +199,7 @@ describe("POST /api/schedules/create (#111)", () => {
   });
 
   it("preserves the cron idempotent opt-out (body.idempotent === false)", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
     const { status } = await postCreate(agent, {
       scheduleType: "cron",
       cron: "0 3 * * *",
@@ -214,9 +217,21 @@ describe("POST /api/schedules/create (#111)", () => {
     ["scheduled", { scheduleType: "scheduled", date: "2026-10-20T14:00:00.000Z" }],
     ["delayed", { delayInSeconds: 60 }],
   ])(
-    "returns an honest 503 with no fabricated id when the SDK method is unavailable (%s mode)",
+    "returns an honest 503 with no fabricated id when the SDK scheduling call is unavailable (%s mode)",
     async (_mode, fields) => {
-      const agent = makeAgent(false); // no schedule / scheduleEvery on the agent
+      // Issue #108: the route calls the typed Agents SDK API directly —
+      // schedule/scheduleEvery are typed members of the Agent base class
+      // and always exist, so a missing-method state can no longer occur
+      // (the #111 simulation deleted the methods; that state is now
+      // impossible). "Unavailable" is simulated the way it can actually
+      // happen at runtime: the scheduling call itself throws.
+      const agent = makeAgent();
+      agent.schedule = async () => {
+        throw new Error("schedule() unavailable in this runtime (test stub)");
+      };
+      agent.scheduleEvery = async () => {
+        throw new Error("scheduleEvery() unavailable in this runtime (test stub)");
+      };
       const { status, body } = await postCreate(agent, {
         ...fields,
         callback: "collectIvHistory",
@@ -231,7 +246,7 @@ describe("POST /api/schedules/create (#111)", () => {
   );
 
   it("returns an honest 503 when the SDK scheduling call throws", async () => {
-    const agent = makeAgent(true);
+    const agent = makeAgent();
     agent.schedule = async () => {
       throw new Error("durable object storage exploded");
     };
@@ -250,5 +265,21 @@ describe("POST /api/schedules/create (#111)", () => {
   it("pins the source: no fabricated sched_mock_ id remains anywhere in src/", () => {
     const source = readFileSync("src/agents/orchestrator.ts", "utf8");
     expect(source).not.toContain("sched_mock_");
+  });
+
+  it("pins the source: scheduling call sites use the typed SDK API (#108)", () => {
+    const source = readFileSync("src/agents/orchestrator.ts", "utf8");
+    // No (this as any) receiver casts on scheduling calls (the first
+    // pattern also covers scheduleEvery) or on waitUntilStable.
+    expect(source).not.toContain("(this as any).schedule");
+    expect(source).not.toContain("(this as any).listSchedules");
+    expect(source).not.toContain("(this as any).getScheduleById");
+    expect(source).not.toContain("(this as any).cancelSchedule");
+    expect(source).not.toContain("(this as any).waitUntilStable");
+    // The dead list-route fallback chain (deprecated getSchedules call,
+    // scheduler.list) and the #111 missing-method helper are gone.
+    expect(source).not.toContain("getSchedules(");
+    expect(source).not.toContain(".scheduler.list(");
+    expect(source).not.toContain("schedulingUnavailable(");
   });
 });
