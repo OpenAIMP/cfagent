@@ -3969,6 +3969,16 @@ Agentic Best Practices & Workflow Rules:
           noOfStrikes,
           chainType,
         });
+        if (!chain) {
+          // Issue #155: a null chain with a recorded client error is an
+          // upstream failure (expired OAuth, missing credentials,
+          // network), not an empty chain — surface it as a 502 naming
+          // the cause instead of a fabricated 200 empty payload.
+          const upstreamError = etrade.getLastError();
+          if (upstreamError) {
+            return Response.json({ error: upstreamError, symbol }, { status: 502 });
+          }
+        }
         return Response.json(chain || { symbol, underlyingPrice: 0, pairs: [] });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch option chains" }, { status: 500 });
@@ -3983,6 +3993,15 @@ Agentic Best Practices & Workflow Rules:
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
         const dates = await etrade.getOptionExpireDates(symbol, expiryType);
+        if (dates.length === 0) {
+          // Issue #155: distinguish an upstream failure (client error
+          // recorded) from a symbol that genuinely has no expirations —
+          // only the genuine empty keeps the 200 empty payload.
+          const upstreamError = etrade.getLastError();
+          if (upstreamError) {
+            return Response.json({ error: upstreamError, symbol }, { status: 502 });
+          }
+        }
         return Response.json({ count: dates.length, dates });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch option expire dates" }, { status: 500 });
