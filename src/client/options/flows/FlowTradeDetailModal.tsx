@@ -166,7 +166,7 @@ export function FlowTradeDetailModal({
         </div>
 
         <div className="flow-modal-delayed-note">
-          *Real-time live streaming market feed
+          *Modelled flow estimate ({trade.provenance}) — derived from option-chain data or generated templates, not an exchange trade print. This product has no live options trade-tape feed.
         </div>
 
         {/* Performance Box */}
