@@ -1,7 +1,7 @@
 import { generateText, generateObject } from "ai";
 import { getWorkersAIModel, DEFAULT_AI_MODEL, resolveAiModelName } from "./model";
 import { z } from "zod";
-import type { Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
+import type { AgentScheduleItem, Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
@@ -84,6 +84,7 @@ export const nlqPlanSchema = z.object({
       delayInSeconds: z.number().optional(),
       intervalSeconds: z.number().optional(),
       cron: z.string().optional(),
+      date: z.string().optional(),
       scheduleId: z.string().optional(),
       description: z.string().optional(),
     })
@@ -158,6 +159,34 @@ export interface NLQQueryResult {
   warnings?: string[];
   displayMarkdown?: string;
   movers?: StockScreenResult["movers"];
+}
+
+/**
+ * Issue #109: narrow port over the hosting Agent's Cloudflare Agents
+ * scheduling API. The orchestrator binds its own schedule /
+ * scheduleEvery / cancelSchedule / listSchedules methods into this
+ * shape and injects it through the NLQ execution deps, so scheduling
+ * plans arm REAL SDK schedules (persisted in cf_agent_schedules) and
+ * return REAL schedule ids. Contexts without a port (e.g. the MCP
+ * facade) get honest failures from the scheduling executor instead of
+ * fabricated success.
+ */
+export interface NLQSchedulingPort {
+  schedule(
+    when: Date | string | number,
+    callback: string,
+    payload?: unknown,
+    options?: { idempotent?: boolean }
+  ): Promise<AgentScheduleItem>;
+  scheduleEvery(intervalSeconds: number, callback: string, payload?: unknown): Promise<AgentScheduleItem>;
+  cancelSchedule(id: string): Promise<boolean>;
+  listSchedules(): Promise<AgentScheduleItem[]>;
+}
+
+/** Execution deps for executeNLQQueryAsync: the options-strategy deps
+ *  plus the optional scheduling port (issue #109). */
+export interface NLQExecutionDeps extends OptionsStrategyDeps {
+  schedulingPort?: NLQSchedulingPort;
 }
 
 const STOP_WORDS_REGEX = /\b(questions?|messages?|chats?|history|transcript|conversations?|asked|queries|all|results?|references?|containing|contains|with|for|about|find|show|list|get|any|where|me)\b/gi;
@@ -1317,140 +1346,26 @@ export function executeNLQQuery(
   }
 
   // 1b. Task Scheduling Operations (Cloudflare Agents Schedule API)
+  // Issue #109: scheduling actions arm REAL Agent schedules through the
+  // injected NLQSchedulingPort, which only the asynchronous executor
+  // (executeNLQQueryAsync) can call. The sync executor must never
+  // fabricate a schedule — it previously invented `sched_<type>_<ts>`
+  // ids, wrote a schedule.created audit event against a nonexistent
+  // mas_schedules table, and reported success for schedules that did
+  // not exist. Direct sync calls now get an honest refusal, matching
+  // the guard pattern used for async-only trading actions below.
   if (plan.domain === "scheduling") {
     const action = plan.scheduleData?.action || "list";
-
-    if (action === "list") {
-      const scheduleEvents = orm.events
-        ? orm.events.findMany({
-            where: { type: "schedule.created" },
-            orderBy: "created_at DESC",
-            limit: plan.limit || 20,
-          })
-        : [];
-
-      const baselineSchedules = [
-        {
-          id: "sched_cron_etrade_renew",
-          callback: "autoRenewETradeTokens",
-          type: "cron",
-          cron: "0 3 * * *",
-          description: "Proactive E*TRADE OAuth 1.0a token renewal before midnight ET",
-          status: "ACTIVE",
-        },
-        {
-          id: "sched_interval_market_screen",
-          callback: "autonomousMarketScreen",
-          type: "interval",
-          intervalSeconds: 300,
-          description: "Autonomous market screener (Technology sector)",
-          status: "ACTIVE",
-        },
-      ];
-
-      const customSchedules = scheduleEvents.map((evt) => {
-        const p: any = evt.payload || {};
-        return {
-          id: p.scheduleId || evt.id,
-          callback: p.callback || "customTask",
-          type: p.scheduleType || "delayed",
-          description: p.description || p.callback || "Scheduled task",
-          status: "REGISTERED",
-          createdAt: evt.createdAt,
-        };
-      });
-
-      const all = [...baselineSchedules, ...customSchedules];
-
-      return {
-        plan,
-        domain: "scheduling",
-        targetTable: "mas_schedules",
-        count: all.length,
-        summary: `Found ${all.length} active and registered scheduled task(s) for Cloudflare Agent.`,
-        rows: all,
-        executedAt,
-      };
-    }
-
-    if (action === "cancel") {
-      const scheduleId = plan.scheduleData?.scheduleId || "";
-      if (orm.events) {
-        try {
-          orm.events.create({
-            id: crypto.randomUUID(),
-            sessionId,
-            type: "schedule.cancelled",
-            agent: "orchestrator",
-            payload: { scheduleId, cancelledAt: executedAt },
-            createdAt: executedAt,
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      return {
-        plan,
-        domain: "scheduling",
-        targetTable: "mas_schedules",
-        count: 1,
-        summary: `Task schedule '${scheduleId}' cancelled successfully.`,
-        rows: [{ scheduleId, status: "CANCELLED", cancelledAt: executedAt }],
-        executedAt,
-      };
-    }
-
-    if (action === "create") {
-      const { scheduleType, callback, delayInSeconds, intervalSeconds, cron, description } = plan.scheduleData || {};
-      const newId = `sched_${scheduleType || "delayed"}_${Date.now().toString(36)}`;
-
-      if (orm.events) {
-        try {
-          orm.events.create({
-            id: crypto.randomUUID(),
-            sessionId,
-            type: "schedule.created",
-            agent: "orchestrator",
-            payload: {
-              scheduleId: newId,
-              scheduleType: scheduleType || "delayed",
-              callback: callback || "sendScheduledReminder",
-              delayInSeconds,
-              intervalSeconds,
-              cron,
-              description: description || "Scheduled task",
-              createdAt: executedAt,
-            },
-            createdAt: executedAt,
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      return {
-        plan,
-        domain: "scheduling",
-        targetTable: "mas_schedules",
-        count: 1,
-        summary: `Task scheduled successfully [ID: ${newId}]. Type: ${scheduleType || "delayed"}. Callback: ${callback || "sendScheduledReminder"}${description ? ` ("${description}")` : ""}.`,
-        rows: [
-          {
-            id: newId,
-            callback: callback || "sendScheduledReminder",
-            type: scheduleType || "delayed",
-            delayInSeconds,
-            intervalSeconds,
-            cron,
-            description,
-            status: "SCHEDULED",
-            scheduledAt: executedAt,
-          },
-        ],
-        executedAt,
-      };
-    }
+    return {
+      plan,
+      domain: "scheduling",
+      targetTable: "cf_agent_schedules",
+      count: 0,
+      status: "error",
+      summary: `Scheduling (${action}): this action requires the asynchronous NLQ executor (executeNLQQueryAsync) with a live agent scheduling port. Nothing was created, cancelled, or listed by this call.`,
+      rows: [],
+      executedAt,
+    };
   }
 
   // 1c. Cloudflare Agentic Payments Operations (x402 & MPP)
@@ -2272,6 +2187,233 @@ export function executeNLQQuery(
 /**
  * Asynchronous NLQ execution pipeline for real-time live quoting and market screening
  */
+/** Human-readable description for a real SDK schedule, used by the
+ *  scheduling list action. Reminder schedules describe themselves via
+ *  their payload message; the baseline system callbacks get stable
+ *  labels so listings stay informative without hardcoding schedules
+ *  that may not exist (issue #109). */
+function describeScheduleItem(item: AgentScheduleItem): string {
+  const payload: any = item.payload || {};
+  if (typeof payload.message === "string" && payload.message) return payload.message;
+  switch (item.callback) {
+    case "autoRenewETradeTokens":
+      return "Proactive E*TRADE OAuth token renewal";
+    case "autonomousMarketScreen":
+      return "Autonomous market screener";
+    case "collectIvHistory":
+      return "Daily IV history collection";
+    case "autonomousOptionsAnalysis":
+      return "Autonomous options analysis";
+    case "expireStaleOrderDraft":
+      return "Order draft auto-expiry (15-minute HITL window)";
+    case "sendScheduledReminder":
+      return "Scheduled reminder";
+    default:
+      return item.callback;
+  }
+}
+
+/**
+ * Issue #109: executes scheduling plans against the REAL Cloudflare
+ * Agents scheduling API via the injected port. Every outcome is
+ * truthful: creation returns the SDK-issued schedule id, cancellation
+ * reports the SDK's actual verdict, listing reflects the Scheduler's
+ * live rows (including the baseline system schedules), and any
+ * missing port or API failure produces an explicit failure result —
+ * never a fabricated success.
+ */
+async function executeSchedulingAction(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  port: NLQSchedulingPort | undefined,
+  userLogin: string,
+  executedAt: string
+): Promise<NLQQueryResult> {
+  const action = plan.scheduleData?.action || "list";
+  const base = { plan, domain: "scheduling", targetTable: "cf_agent_schedules", executedAt };
+
+  const failure = (summary: string): NLQQueryResult => ({
+    ...base,
+    count: 0,
+    status: "error",
+    summary,
+    rows: [],
+  });
+
+  if (!port) {
+    return failure(
+      `Scheduling (${action}) unavailable: no live agent scheduling port is wired in this context, so the request was NOT executed. No schedule was created, cancelled, or listed.`
+    );
+  }
+
+  const audit = (type: string, payload: Record<string, unknown>) => {
+    if (!orm.events) return;
+    try {
+      orm.events.create({
+        id: crypto.randomUUID(),
+        sessionId,
+        type,
+        agent: "orchestrator",
+        payload,
+        createdAt: executedAt,
+      });
+    } catch {
+      // Audit is best-effort; the Scheduler itself is the source of truth.
+    }
+  };
+
+  if (action === "list") {
+    let schedules: AgentScheduleItem[];
+    try {
+      schedules = await port.listSchedules();
+    } catch (err) {
+      return failure(
+        `Failed to list schedules: ${err instanceof Error ? err.message : String(err)}. No schedule data could be read.`
+      );
+    }
+    const rows = schedules.slice(0, plan.limit || 25).map((s) => ({
+      id: s.id,
+      callback: s.callback,
+      type: s.type,
+      ...(s.cron ? { cron: s.cron } : {}),
+      ...(s.intervalSeconds ? { intervalSeconds: s.intervalSeconds } : {}),
+      ...(s.delayInSeconds ? { delayInSeconds: s.delayInSeconds } : {}),
+      description: describeScheduleItem(s),
+      status: "ACTIVE",
+      ...(s.time ? { nextRunAt: new Date(s.time * 1000).toISOString() } : {}),
+    }));
+    return {
+      ...base,
+      count: rows.length,
+      status: rows.length > 0 ? "matches_found" : "no_matches",
+      summary:
+        rows.length > 0
+          ? `Found ${rows.length} active scheduled task(s) registered with the Cloudflare Agent scheduler.`
+          : "No active scheduled tasks are registered with the Cloudflare Agent scheduler.",
+      rows,
+    };
+  }
+
+  if (action === "cancel") {
+    const scheduleId = plan.scheduleData?.scheduleId || "";
+    if (!scheduleId) {
+      return failure("Schedule cancellation failed: no schedule ID was provided, so nothing was cancelled.");
+    }
+    let cancelled: boolean;
+    try {
+      cancelled = await port.cancelSchedule(scheduleId);
+    } catch (err) {
+      return failure(
+        `Failed to cancel schedule '${scheduleId}': ${err instanceof Error ? err.message : String(err)}. The schedule was NOT cancelled.`
+      );
+    }
+    if (!cancelled) {
+      return {
+        ...base,
+        count: 0,
+        status: "not_found",
+        summary: `Schedule '${scheduleId}' was not found among the agent's active schedules, so nothing was cancelled. It may have already fired or been cancelled.`,
+        rows: [{ scheduleId, status: "NOT_FOUND", cancelledAt: executedAt }],
+      };
+    }
+    audit("schedule.cancelled", { scheduleId, cancelledAt: executedAt });
+    return {
+      ...base,
+      count: 1,
+      status: "cancelled",
+      summary: `Task schedule '${scheduleId}' cancelled successfully.`,
+      rows: [{ scheduleId, status: "CANCELLED", cancelledAt: executedAt }],
+    };
+  }
+
+  // action === "create"
+  const sd: NonNullable<NLQPlan["scheduleData"]> = plan.scheduleData ?? { action: "create" };
+  const callback = sd.callback || "sendScheduledReminder";
+  const description = sd.description || "Scheduled task";
+  const scheduleType =
+    sd.scheduleType ||
+    (sd.cron ? "cron" : sd.intervalSeconds ? "interval" : sd.date ? "scheduled" : "delayed");
+
+  // Payload contracts are owned by the orchestrator callbacks:
+  // sendScheduledReminder expects { reminderId, message, userLogin? }
+  // (its reminderId is the dispatch/audit identifier, distinct from
+  // the schedule id the SDK returns); autonomousMarketScreen takes the
+  // same sector payload the onStart baseline registration uses.
+  const payload: Record<string, unknown> =
+    callback === "sendScheduledReminder"
+      ? { reminderId: crypto.randomUUID(), message: description, userLogin }
+      : callback === "autonomousMarketScreen"
+        ? { sector: "Technology", maxItems: 5 }
+        : { userLogin, description };
+
+  let created: AgentScheduleItem;
+  try {
+    if (scheduleType === "interval") {
+      if (!sd.intervalSeconds || sd.intervalSeconds <= 0) {
+        return failure("Schedule creation failed: an interval schedule requires a positive intervalSeconds. The schedule was NOT created.");
+      }
+      created = await port.scheduleEvery(sd.intervalSeconds, callback, payload);
+    } else if (scheduleType === "cron") {
+      if (!sd.cron) {
+        return failure("Schedule creation failed: a cron schedule requires a cron expression. The schedule was NOT created.");
+      }
+      created = await port.schedule(sd.cron, callback, payload, { idempotent: true });
+    } else if (scheduleType === "scheduled") {
+      if (!sd.date) {
+        return failure("Schedule creation failed: a one-time schedule requires a date. The schedule was NOT created.");
+      }
+      const when = new Date(sd.date);
+      if (Number.isNaN(when.getTime())) {
+        return failure(`Schedule creation failed: '${sd.date}' is not a valid date. The schedule was NOT created.`);
+      }
+      created = await port.schedule(when, callback, payload);
+    } else {
+      // delayed
+      if (!sd.delayInSeconds || sd.delayInSeconds <= 0) {
+        return failure("Schedule creation failed: a delayed schedule requires a positive delayInSeconds. The schedule was NOT created.");
+      }
+      created = await port.schedule(sd.delayInSeconds, callback, payload);
+    }
+  } catch (err) {
+    return failure(
+      `Failed to create schedule: ${err instanceof Error ? err.message : String(err)}. The schedule was NOT created.`
+    );
+  }
+
+  audit("schedule.created", {
+    scheduleId: created.id,
+    scheduleType: created.type,
+    callback: created.callback,
+    delayInSeconds: created.delayInSeconds,
+    intervalSeconds: created.intervalSeconds,
+    cron: created.cron,
+    description,
+    createdAt: executedAt,
+  });
+
+  return {
+    ...base,
+    count: 1,
+    status: "scheduled",
+    summary: `Task scheduled successfully [ID: ${created.id}]. Type: ${created.type}. Callback: ${created.callback}${description ? ` ("${description}")` : ""}.`,
+    rows: [
+      {
+        id: created.id,
+        callback: created.callback,
+        type: created.type,
+        ...(created.delayInSeconds ? { delayInSeconds: created.delayInSeconds } : {}),
+        ...(created.intervalSeconds ? { intervalSeconds: created.intervalSeconds } : {}),
+        ...(created.cron ? { cron: created.cron } : {}),
+        description,
+        status: "SCHEDULED",
+        ...(created.time ? { nextRunAt: new Date(created.time * 1000).toISOString() } : {}),
+        scheduledAt: executedAt,
+      },
+    ],
+  };
+}
+
 export async function executeNLQQueryAsync(
   orm: DatabaseORM,
   sessionId: string,
@@ -2279,7 +2421,7 @@ export async function executeNLQQueryAsync(
   env?: Env,
   userLogin?: string,
   userDid?: string,
-  deps?: OptionsStrategyDeps
+  deps?: NLQExecutionDeps
 ): Promise<NLQQueryResult> {
   const executedAt = new Date().toISOString();
   const loginStr = typeof userLogin === "string" ? userLogin : undefined;
@@ -2821,6 +2963,20 @@ export async function executeNLQQueryAsync(
     }
   }
 
+  if (plan.domain === "scheduling") {
+    // Issue #109: real Agent schedules via the injected port (see
+    // executeSchedulingAction). Handled here, never by the sync
+    // executor, which can only refuse honestly.
+    return executeSchedulingAction(
+      orm,
+      sessionId,
+      plan,
+      deps?.schedulingPort,
+      loginStr || sessionId || "default_trader",
+      executedAt
+    );
+  }
+
   return executeNLQQuery(orm, sessionId, plan, env, effectiveUserDid);
 }
 
@@ -2831,7 +2987,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore }
+  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2851,8 +3007,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin }
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {
