@@ -1,3 +1,29 @@
+/**
+ * Provenance of an options flow item (issue #119, audit F17).
+ *
+ * There is NO live trade-tape / print source anywhere in this product, so no
+ * flow item may ever claim to be an executed print. Every item is modelled:
+ * - "chain-derived": computed from a real option-chain snapshot (contract
+ *   volume, open interest, last price). The chain fields are real, but the
+ *   trade side, size, premium and timing are modelled estimates.
+ * - "static": a row from the built-in static fixture table
+ *   (RAW_LIVE_FLOW_ITEMS) — seed/demo data, not market data.
+ * - "generated": a template-generated sample item
+ *   (generateDynamicFlowUniverse), produced when no chain data is available.
+ */
+export type FlowItemProvenance = "chain-derived" | "static" | "generated";
+
+export interface FlowProvenanceSummary {
+  /** Distinct provenance values present in the item set. */
+  provenances: FlowItemProvenance[];
+  /** Item count per provenance value. */
+  counts: Record<FlowItemProvenance, number>;
+  /** Always true: this product has no trade tape, so all flow is modelled. */
+  isModelled: true;
+  /** Plain-language disclosure of what the flow data is and is not. */
+  notice: string;
+}
+
 export type FlowOrderType = "SWEEP" | "SPLIT" | "BLOCK" | "SINGLE";
 export type FlowSide = "BUY" | "SELL";
 export type FlowOptionType = "calls" | "puts" | "spreads";
@@ -18,6 +44,12 @@ export interface LiveFlowItem {
   id: string;
   time: string;
   timestamp: number;
+  /**
+   * Where this item actually came from (issue #119). Required so no
+   * producer can emit an unlabelled item: nothing in this service is a
+   * real executed print — see FlowItemProvenance.
+   */
+  provenance: FlowItemProvenance;
   symbol: string;
   companyName?: string;
   underlyingPrice: number;
@@ -127,6 +159,8 @@ export interface FlowLeaderboardItem {
 }
 
 export interface FlowSummary {
+  /** Provenance of the items this summary was computed over (issue #119). */
+  provenance: FlowProvenanceSummary;
   totalTrades: number;
   totalPremium: number;
   callPremium: number;
