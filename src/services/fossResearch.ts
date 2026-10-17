@@ -5,7 +5,18 @@
  * - GoF Strategy Pattern: IFossMarketDataProvider implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridFossProvider.
  * - GoF Facade Pattern: FossResearchService coordinates quoting, fundamental analysis, historical bars, and research reports.
  * - GRASP Information Expert: Resolves valuations, financial ratios, analyst price targets, and Level 1/2 spreads.
- * - GRASP Protected Variations: Seamless runtime failover between live Alpaca/YFinance endpoints and deterministic high-fidelity FOSS datasets.
+ * - GRASP Protected Variations: Runtime failover between live Alpaca/YFinance endpoints and deterministic FOSS datasets.
+ *
+ * PROVENANCE (issue #117, audit #115 F10/F11): the failover above is never
+ * silent. Every quote, bar series, fundamentals object, snapshot, and
+ * research report carries `provenance` — "live" (fetched from the named
+ * provider in this call), "static" (bundled FOSS_MARKET_UNIVERSE table), or
+ * "generated" (deterministically invented profile / synthetic bars /
+ * formula analyst estimates) — plus a human-readable `note` whenever it is
+ * not live. A fallback may record which provider was attempted (`provider`),
+ * but provenance is what states what the data actually is; consumers must
+ * not present non-live values as live provider data. This mirrors the
+ * betaService/correlationService labelling standard.
  */
 
 import type {
@@ -13,6 +24,7 @@ import type {
   FossQuote,
   FossHistoricalBar,
   FossCompanyFundamentals,
+  FossDataProvenance,
   AlpacaMarketSnapshot,
   FossResearchReport,
   FossProviderStatus,
@@ -1539,6 +1551,50 @@ export const FOSS_MARKET_UNIVERSE: Record<string, StockMarketProfile> = {
 /**
  * Deterministically generates high-fidelity stock profiles for any custom ticker
  */
+/** Provenance of a FOSS profile: bundled table entry vs hash-invented (#117). */
+export type FossProfileProvenance = "static" | "generated";
+
+export function fossProfileProvenance(symbol: string): FossProfileProvenance {
+  return FOSS_MARKET_UNIVERSE[symbol.toUpperCase().trim()] ? "static" : "generated";
+}
+
+function resolveProfile(symbol: string): { profile: StockMarketProfile; provenance: FossProfileProvenance } {
+  return { profile: getOrCreateProfile(symbol), provenance: fossProfileProvenance(symbol) };
+}
+
+const FOSS_PROVENANCE_RANK: Record<FossDataProvenance, number> = { live: 3, static: 2, generated: 1 };
+
+/** Weakest (least-live) of a set — a composite object is only as live as its weakest input (#117). */
+export function weakestFossProvenance(...provenances: FossDataProvenance[]): FossDataProvenance {
+  let weakest: FossDataProvenance = "live";
+  for (const p of provenances) {
+    if (FOSS_PROVENANCE_RANK[p] < FOSS_PROVENANCE_RANK[weakest]) weakest = p;
+  }
+  return weakest;
+}
+
+/** Human-readable origin note for a non-live object; undefined when live (#117). */
+export function fossProvenanceNote(provenance: FossDataProvenance, subject: string): string | undefined {
+  switch (provenance) {
+    case "live":
+      return undefined;
+    case "static":
+      return `${subject} served from the bundled FOSS static universe table — not fetched live in this call.`;
+    case "generated":
+      return `${subject} is deterministically generated FOSS data — estimated values, not live market data.`;
+  }
+}
+
+/** Truthful `source` label for the GET /foss/bars route response, derived from the bars' actual provenance (#117). */
+export function fossBarsSourceLabel(provider: "yfinance" | "alpaca" | "hybrid", provenance: FossDataProvenance): string {
+  if (provenance === "live") {
+    return provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API";
+  }
+  return provenance === "static"
+    ? "FOSS static universe table (not live market data)"
+    : "FOSS generated series (not live market data)";
+}
+
 function getOrCreateProfile(symbol: string): StockMarketProfile {
   const norm = symbol.toUpperCase().trim();
   if (FOSS_MARKET_UNIVERSE[norm]) {
@@ -1597,7 +1653,9 @@ function getOrCreateProfile(symbol: string): StockMarketProfile {
 }
 
 /**
- * Generates historical OHLCV bars
+ * Generates historical OHLCV bars. These are a synthetic sine/random walk
+ * seeded on the profile price — every bar is stamped provenance "generated"
+ * so no consumer can mistake them for fetched history (#117).
  */
 function generateHistoricalBars(profile: StockMarketProfile, limit: number = 30): FossHistoricalBar[] {
   const bars: FossHistoricalBar[] = [];
@@ -1616,6 +1674,7 @@ function generateHistoricalBars(profile: StockMarketProfile, limit: number = 30)
     const volume = Math.round(profile.volume * (0.8 + Math.sin(i) * 0.3));
 
     bars.push({
+      provenance: "generated",
       timestamp,
       open,
       high,
@@ -1778,10 +1837,12 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   }
 
   getQuoteSync(symbol: string): FossQuote {
-    const p = getOrCreateProfile(symbol);
+    const { profile: p, provenance } = resolveProfile(symbol);
     return {
       symbol: p.symbol,
       provider: "yfinance",
+      provenance,
+      note: fossProvenanceNote(provenance, "Quote"),
       companyName: p.name,
       price: p.price,
       lastPrice: p.price,
@@ -1874,6 +1935,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
             return {
               symbol: meta.symbol || cleanSym,
               provider: "yfinance",
+              provenance: "live",
               companyName,
               price,
               lastPrice: price,
@@ -1905,8 +1967,10 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   }
 
   getFundamentalsSync(symbol: string): FossCompanyFundamentals {
-    const p = getOrCreateProfile(symbol);
+    const { profile: p, provenance } = resolveProfile(symbol);
     return {
+      provenance,
+      note: fossProvenanceNote(provenance, "Fundamentals"),
       symbol: p.symbol,
       companyName: p.name,
       sector: p.sector,
@@ -1961,6 +2025,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
             const finMod = result.financialData || {};
 
             return {
+              provenance: "live",
               symbol: cleanSym,
               companyName: priceMod.longName || priceMod.shortName || `${cleanSym} Inc.`,
               sector: finMod.sector || "Technology",
@@ -2005,6 +2070,13 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
         if (meta) {
           const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose ?? 0);
           return {
+            // Chart metadata is real, but the analyst block below (targets =
+            // price×1.15/1.35/0.90, "buy", 20 opinions, beta 1.0, margins) is
+            // formula-invented because quoteSummary was unavailable. The
+            // object is therefore "generated": those fields are estimates,
+            // never analyst data, and must not flow onward as consensus (#117).
+            provenance: "generated",
+            note: "Fundamentals fallback: analyst targets, recommendation, analyst count, beta, and margins are formula estimates (quoteSummary unavailable) — not analyst data.",
             symbol: cleanSym,
             companyName: meta.longName || meta.shortName || `${cleanSym} Inc.`,
             sector: "Technology",
@@ -2091,6 +2163,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
                 const l = quote.low?.[i] ?? c;
                 const v = quote.volume?.[i] ?? 0;
                 bars.unshift({
+                  provenance: "live",
                   timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
                   open: Number(Number(o).toFixed(2)),
                   high: Number(Number(h).toFixed(2)),
@@ -2155,10 +2228,12 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   getQuoteSync(symbol: string): FossQuote {
-    const p = getOrCreateProfile(symbol);
+    const { profile: p, provenance } = resolveProfile(symbol);
     return {
       symbol: p.symbol,
       provider: "alpaca",
+      provenance,
+      note: fossProvenanceNote(provenance, "Quote"),
       companyName: p.name,
       price: p.price,
       lastPrice: p.price,
@@ -2199,6 +2274,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
             return {
               symbol: symbol.toUpperCase(),
               provider: "alpaca",
+              provenance: "live",
               companyName: `${symbol.toUpperCase()} Asset`,
               price: Number(mid.toFixed(2)),
               lastPrice: Number(mid.toFixed(2)),
@@ -2228,8 +2304,10 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   getFundamentalsSync(symbol: string): FossCompanyFundamentals {
-    const p = getOrCreateProfile(symbol);
+    const { profile: p, provenance } = resolveProfile(symbol);
     return {
+      provenance,
+      note: fossProvenanceNote(provenance, "Fundamentals"),
       symbol: p.symbol,
       companyName: p.name,
       sector: p.sector,
@@ -2271,6 +2349,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
           const rawBars = isCrypto ? data?.bars?.[symbol] : data?.bars;
           if (Array.isArray(rawBars) && rawBars.length > 0) {
             return rawBars.map((b: any) => ({
+              provenance: "live" as const,
               timestamp: String(b.t).split("T")[0],
               open: Number(b.o || 0),
               high: Number(b.h || 0),
@@ -2291,11 +2370,13 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   getMarketSnapshotSync(symbol: string): AlpacaMarketSnapshot {
-    const p = getOrCreateProfile(symbol);
+    const { profile: p, provenance } = resolveProfile(symbol);
     const bars = generateHistoricalBars(p, 5);
     const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
 
     return {
+      provenance,
+      note: fossProvenanceNote(provenance, "Snapshot"),
       symbol: p.symbol,
       assetClass: isCrypto ? "crypto" : "us_equity",
       latestTrade: {
@@ -2314,6 +2395,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
       dailyBar: bars[bars.length - 1],
       prevDailyBar: bars[bars.length - 2] || bars[0],
       minuteBar: {
+        provenance: "generated",
         timestamp: new Date().toISOString(),
         open: p.price - 0.05,
         high: p.price + 0.1,
@@ -2340,6 +2422,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
             const bid = Number(s.latestQuote?.bp || 0);
             const ask = Number(s.latestQuote?.ap || 0);
             return {
+              provenance: "live",
               symbol: symbol.toUpperCase(),
               assetClass: isCrypto ? "crypto" : "us_equity",
               latestTrade: {
@@ -2356,6 +2439,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
               },
               nbboSpread: Number((ask - bid).toFixed(3)),
               dailyBar: {
+                provenance: "live",
                 timestamp: s.dailyBar?.t || new Date().toISOString(),
                 open: Number(s.dailyBar?.o || 0),
                 high: Number(s.dailyBar?.h || 0),
@@ -2365,6 +2449,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
                 vwap: Number(s.dailyBar?.vw || 0),
               },
               prevDailyBar: {
+                provenance: "live",
                 timestamp: s.prevDailyBar?.t || new Date().toISOString(),
                 open: Number(s.prevDailyBar?.o || 0),
                 high: Number(s.prevDailyBar?.h || 0),
@@ -2374,6 +2459,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
                 vwap: Number(s.prevDailyBar?.vw || 0),
               },
               minuteBar: {
+                provenance: "live",
                 timestamp: s.minuteBar?.t || new Date().toISOString(),
                 open: Number(s.minuteBar?.o || 0),
                 high: Number(s.minuteBar?.h || 0),
@@ -2551,9 +2637,13 @@ export class HybridFossProvider implements IFossMarketDataProvider {
   getQuoteSync(symbol: string): FossQuote {
     const alpacaQuote = this.alpaca.getQuoteSync(symbol);
     const yfFundamentals = this.yfinance.getFundamentalsSync(symbol);
+    // Composite quote: only as live as its weakest input (#117).
+    const provenance = weakestFossProvenance(alpacaQuote.provenance, yfFundamentals.provenance);
     return {
       ...alpacaQuote,
       provider: "hybrid",
+      provenance,
+      note: fossProvenanceNote(provenance, "Quote"),
       companyName: yfFundamentals.companyName,
       trailingPE: yfFundamentals.peTrailing,
       marketCap: yfFundamentals.marketCap,
@@ -2566,9 +2656,14 @@ export class HybridFossProvider implements IFossMarketDataProvider {
       isAlpacaLive ? this.alpaca.getQuote(symbol) : this.yfinance.getQuote(symbol),
       this.yfinance.getFundamentals(symbol),
     ]);
+    // The price may be live while the merged valuation fields are not (or
+    // vice versa) — the composite carries the weakest provenance (#117).
+    const provenance = weakestFossProvenance(priceQuote.provenance, yfFundamentals.provenance);
     return {
       ...priceQuote,
       provider: "hybrid",
+      provenance,
+      note: fossProvenanceNote(provenance, "Quote"),
       companyName: yfFundamentals.companyName || priceQuote.companyName,
       trailingPE: yfFundamentals.peTrailing || priceQuote.trailingPE,
       marketCap: yfFundamentals.marketCap || priceQuote.marketCap,
@@ -2709,65 +2804,7 @@ export class FossResearchService {
     const quote = this.getQuoteSync(sym, "hybrid");
     const fundamentals = this.getFundamentalsSync(sym);
     const bars = this.getHistoricalBarsSync(sym, "1D", 30);
-
-    // Calculate technical indicators
-    const closes = bars.map(b => b.close);
-    let rsi14 = 54.2;
-    if (closes.length >= 15) {
-      let gains = 0;
-      let losses = 0;
-      for (let i = closes.length - 14; i < closes.length; i++) {
-        const diff = closes[i] - closes[i - 1];
-        if (diff >= 0) gains += diff;
-        else losses += Math.abs(diff);
-      }
-      const rs = losses === 0 ? 100 : gains / losses;
-      rsi14 = Number((100 - 100 / (1 + rs)).toFixed(1));
-    }
-
-    const currentPrice = quote.price;
-    const support = Number((currentPrice * 0.94).toFixed(2));
-    const resistance = Number((currentPrice * 1.06).toFixed(2));
-    const isBullish = currentPrice > (fundamentals.fiftyTwoWeekHigh + fundamentals.fiftyTwoWeekLow) / 2;
-
-    const rating = fundamentals.recommendationKey
-      ? fundamentals.recommendationKey.toUpperCase().replace("_", " ")
-      : isBullish ? "BUY" : "HOLD";
-
-    const aiAnalysis = `Autonomous research synthesis for ${fundamentals.companyName} (${sym}): Trading at $${quote.price.toFixed(2)} with a trailing P/E of ${fundamentals.peTrailing || "N/A"} and market cap of $${(fundamentals.marketCap / 1e9).toFixed(1)}B. 14-day RSI stands at ${rsi14} indicating ${rsi14 < 35 ? "oversold accumulation" : rsi14 > 70 ? "overbought momentum" : "balanced range"}. Consensus target price of $${fundamentals.targetMeanPrice?.toFixed(2) || "N/A"} offers an implied upside of ${fundamentals.targetMeanPrice ? (((fundamentals.targetMeanPrice - currentPrice) / currentPrice) * 100).toFixed(1) : "0.0"}%. Overall stance: ${rating}.`;
-
-    // Generate cryptographic W3C Agent DID attestation stamp
-    const attestation = createDidAttestationSync({
-      draftId: `rep_${crypto.randomUUID().slice(0, 8)}`,
-      action: "equity_research_report",
-      amount: quote.price,
-      currency: "USD",
-      customer: sym,
-      gateway: "yfinance",
-      proposerDid: AGENT_DIDS.RESEARCH,
-    });
-
-    return {
-      symbol: sym,
-      provider: "hybrid",
-      quote,
-      fundamentals,
-      bars,
-      technicalSummary: {
-        rsi14,
-        macd: isBullish ? "BULLISH_CONVERGENCE" : "BEARISH_DIVERGENCE",
-        trend50vs200SMA: isBullish ? "GOLDEN_CROSS" : "NEUTRAL_CONSOLIDATION",
-        support,
-        resistance,
-      },
-      aiAnalysis,
-      analystRating: rating,
-      agentAttestation: {
-        did: AGENT_DIDS.RESEARCH,
-        signature: attestation.signature,
-        timestamp: attestation.timestamp,
-      },
-    };
+    return this.assembleResearchReport(sym, quote, fundamentals, bars);
   }
 
   async generateResearchReport(symbol: string): Promise<FossResearchReport> {
@@ -2777,8 +2814,35 @@ export class FossResearchService {
       this.getFundamentals(sym),
       this.getHistoricalBars(sym, "1D", 30),
     ]);
+    return this.assembleResearchReport(sym, quote, fundamentals, bars);
+  }
 
-    // Calculate technical indicators on real closing prices
+  /**
+   * Shared report assembly for the sync and async generators (#117).
+   *
+   * Provenance rules: the report carries the weakest provenance of its
+   * inputs; the narrative may quote a target as analyst "consensus" ONLY
+   * when the fundamentals are live — otherwise it is labelled a profile
+   * target estimate from non-live FOSS data; the technical summary is
+   * flagged `heuristic` (support/resistance are price×0.94/×1.06 formulas
+   * and the MACD/trend labels come from a single price-vs-midpoint
+   * comparison); and the report provenance is bound into the DID
+   * attestation's signed payload so the stamp cannot certify fabricated
+   * inputs as research.
+   */
+  private assembleResearchReport(
+    sym: string,
+    quote: FossQuote,
+    fundamentals: FossCompanyFundamentals,
+    bars: FossHistoricalBar[]
+  ): FossResearchReport {
+    const provenance = weakestFossProvenance(
+      quote.provenance,
+      fundamentals.provenance,
+      ...bars.map((b) => b.provenance)
+    );
+
+    // Calculate technical indicators on the closing prices
     const closes = bars.map(b => b.close);
     let rsi14 = 54.2;
     if (closes.length >= 15) {
@@ -2815,16 +2879,31 @@ export class FossResearchService {
         : "N/A";
 
     const peDisplay = fundamentals.peTrailing || quote.trailingPE || "N/A";
-    const targetDisplay = fundamentals.targetMeanPrice && fundamentals.targetMeanPrice > 0
-      ? `$${fundamentals.targetMeanPrice.toFixed(2)}`
+
+    const hasTarget = Boolean(fundamentals.targetMeanPrice && fundamentals.targetMeanPrice > 0);
+    const targetValue = hasTarget ? (fundamentals.targetMeanPrice as number) : 0;
+    const impliedUpsidePct = hasTarget
+      ? (((targetValue - currentPrice) / currentPrice) * 100).toFixed(1)
       : "N/A";
+    // A target may be called "consensus" only when the fundamentals were
+    // actually fetched live; a static/generated profile target is an
+    // estimate and is named as one (#117).
+    const targetSentence = !hasTarget
+      ? fundamentals.provenance === "live"
+        ? "No consensus target is available."
+        : "No target estimate is available from the non-live FOSS profile."
+      : fundamentals.provenance === "live"
+        ? `Consensus target price of $${targetValue.toFixed(2)} offers an implied upside of ${impliedUpsidePct}%.`
+        : `Profile target estimate of $${targetValue.toFixed(2)} (from ${fundamentals.provenance} FOSS data — not live analyst consensus) implies ${impliedUpsidePct}% versus the quoted price.`;
 
-    const impliedUpside = fundamentals.targetMeanPrice && fundamentals.targetMeanPrice > 0
-      ? `${(((fundamentals.targetMeanPrice - currentPrice) / currentPrice) * 100).toFixed(1)}%`
-      : "N/A";
+    const dataNotice = provenance !== "live"
+      ? `Data notice: this report is based on ${provenance} FOSS data, not live market data. `
+      : "";
 
-    const aiAnalysis = `Autonomous research synthesis for ${fundamentals.companyName} (${sym}): Trading at $${quote.price.toFixed(2)} with a trailing P/E of ${peDisplay} and market cap of ${mcapFormatted}. 14-day RSI stands at ${rsi14} indicating ${rsi14 < 35 ? "oversold accumulation" : rsi14 > 70 ? "overbought momentum" : "balanced range"}. Consensus target price of ${targetDisplay} offers an implied upside of ${impliedUpside}. Overall stance: ${rating}.`;
+    const aiAnalysis = `${dataNotice}Autonomous research synthesis for ${fundamentals.companyName} (${sym}): Trading at $${quote.price.toFixed(2)} with a trailing P/E of ${peDisplay} and market cap of ${mcapFormatted}. 14-day RSI stands at ${rsi14} indicating ${rsi14 < 35 ? "oversold accumulation" : rsi14 > 70 ? "overbought momentum" : "balanced range"}. ${targetSentence} Overall stance: ${rating}.`;
 
+    // Cryptographic W3C Agent DID attestation stamp — the report's data
+    // provenance is bound into the signed payload (#117).
     const attestation = createDidAttestationSync({
       draftId: `rep_${crypto.randomUUID().slice(0, 8)}`,
       action: "equity_research_report",
@@ -2833,11 +2912,13 @@ export class FossResearchService {
       customer: sym,
       gateway: "yfinance",
       proposerDid: AGENT_DIDS.RESEARCH,
+      dataProvenance: provenance,
     });
 
     return {
       symbol: sym,
       provider: "hybrid",
+      provenance,
       quote,
       fundamentals,
       bars,
@@ -2847,6 +2928,7 @@ export class FossResearchService {
         trend50vs200SMA: isBullish ? "GOLDEN_CROSS" : "NEUTRAL_CONSOLIDATION",
         support,
         resistance,
+        heuristic: true,
       },
       aiAnalysis,
       analystRating: rating,
@@ -2854,6 +2936,7 @@ export class FossResearchService {
         did: AGENT_DIDS.RESEARCH,
         signature: attestation.signature,
         timestamp: attestation.timestamp,
+        provenance,
       },
     };
   }
