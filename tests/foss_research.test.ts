@@ -413,7 +413,12 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(result.rows.length).toBeGreaterThan(0);
       expect(result.summary).toContain("NVDA");
       expect(result.summary).toContain("Target:");
-      expect(result.summary).toContain("Consensus:");
+      // Issue #117: the sync NLQ path serves the FOSS profile, whose rating
+      // is a profile estimate — the summary labels it "Rating:", never
+      // "Consensus:", and carries the non-live disclosure.
+      expect(result.summary).toContain("Rating:");
+      expect(result.summary).not.toContain("Consensus:");
+      expect(result.summary).toContain("not live analyst consensus");
     });
 
     it("executes NLQ quote query and returns real-time quote metrics", async () => {

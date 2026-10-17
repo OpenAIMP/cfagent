@@ -145,6 +145,8 @@ export async function createDidAttestation(params: {
   gateway: string;
   proposerDid?: string;
   authorizerDid?: string;
+  /** Optional data-provenance label bound into the signed payload (issue #117). */
+  dataProvenance?: string;
 }): Promise<DidAttestationProof> {
   const proofId = `proof_${crypto.randomUUID().slice(0, 12)}`;
   const timestamp = new Date().toISOString();
@@ -162,7 +164,8 @@ export async function createDidAttestation(params: {
     params.gateway,
     proposerDid,
     authorizerDid,
-    timestamp
+    timestamp,
+    ...(params.dataProvenance ? [`data:${params.dataProvenance}`] : []),
   ].join("|");
 
   const signature = await computeSha256Hex(payload);
@@ -191,6 +194,13 @@ export function createDidAttestationSync(params: {
   gateway: string;
   proposerDid?: string;
   authorizerDid?: string;
+  /**
+   * Optional data-provenance label (issue #117). When provided it is bound
+   * into the signed payload, so an attestation over non-live inputs says so
+   * inside the signature itself. Omitted by existing callers — their payload
+   * (and signatures' inputs) are unchanged.
+   */
+  dataProvenance?: string;
 }): DidAttestationProof {
   const proofId = `proof_${crypto.randomUUID().slice(0, 12)}`;
   const timestamp = new Date().toISOString();
@@ -208,7 +218,8 @@ export function createDidAttestationSync(params: {
     params.gateway,
     proposerDid,
     authorizerDid,
-    timestamp
+    timestamp,
+    ...(params.dataProvenance ? [`data:${params.dataProvenance}`] : []),
   ].join("|");
 
   const signature = `sig_0x${hashToHex(payload)}${hashToHex(payload + "_salt")}${hashToHex(payload + "_end")}`;

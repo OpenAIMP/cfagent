@@ -12,7 +12,7 @@ import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading/etrade/client";
-import { FossResearchService } from "../services/fossResearch";
+import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
 import {
@@ -4965,13 +4965,19 @@ Agentic Best Practices & Workflow Rules:
         const provider = (url.searchParams.get("provider") || "yfinance") as "yfinance" | "alpaca" | "hybrid";
         const foss = new FossResearchService(this.env);
         const bars = await foss.getHistoricalBars(symbol, timeframe, limit, provider);
+        // Issue #117: `source` is stamped from the bars' actual provenance —
+        // a provider API name only when the bars were really fetched live;
+        // generated/static fallback bars are labelled as such, and the
+        // provenance rides in the response alongside the per-bar fields.
+        const provenance = bars[0]?.provenance ?? "generated";
         return Response.json({
           symbol: symbol.toUpperCase(),
           provider,
           timeframe,
           count: bars.length,
           bars,
-          source: provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API",
+          provenance,
+          source: fossBarsSourceLabel(provider, provenance),
           timestamp: new Date().toISOString(),
         });
       } catch (err) {
@@ -4985,7 +4991,7 @@ Agentic Best Practices & Workflow Rules:
         const symbol = url.searchParams.get("symbol") || "NVDA";
         const foss = new FossResearchService(this.env);
         const report = await foss.generateResearchReport(symbol);
-        this.audit("foss.research_generated", "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did });
+        this.audit("foss.research_generated", "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
         return Response.json(report);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to generate research report" }, { status: 500 });

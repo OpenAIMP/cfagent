@@ -7,10 +7,59 @@ import type {
   FossQuote,
   FossCompanyFundamentals,
   FossHistoricalBar,
+  FossDataProvenance,
   AlpacaMarketSnapshot,
   FossResearchReport,
   FossProviderStatus,
 } from "../types";
+
+/**
+ * Data-provenance badge (issue #117). Every FOSS object now states whether
+ * it was fetched live, served from the static FOSS table, or generated.
+ * Non-live data is badged visibly — following the repo's 🧪 demo-labelling
+ * pattern — instead of being dressed as a live provider feed.
+ */
+export function fossProvenanceLabel(provenance?: FossDataProvenance): string {
+  switch (provenance) {
+    case "live":
+      return "● LIVE provider data";
+    case "static":
+      return "🧪 Static FOSS table — not live";
+    case "generated":
+      return "🧪 Generated FOSS estimate — not live market data";
+    default:
+      return "🧪 Provenance unknown — treat as not live";
+  }
+}
+
+export function FossProvenanceBadge({
+  provenance,
+  note,
+}: {
+  provenance?: FossDataProvenance;
+  note?: string;
+}) {
+  const isLive = provenance === "live";
+  return (
+    <span
+      title={note || fossProvenanceLabel(provenance)}
+      style={{
+        display: "inline-block",
+        padding: "0.1rem 0.45rem",
+        borderRadius: "999px",
+        fontSize: "0.68rem",
+        fontWeight: 700,
+        letterSpacing: "0.01em",
+        color: isLive ? "var(--color-success)" : "var(--color-warning)",
+        background: isLive ? "var(--color-success-subtle, transparent)" : "var(--color-warning-subtle, transparent)",
+        border: `1px solid ${isLive ? "var(--color-success)" : "var(--color-warning)"}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {fossProvenanceLabel(provenance)}
+    </span>
+  );
+}
 
 export interface User {
   login: string;
@@ -55,7 +104,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [barTimeframe, setBarTimeframe] = useState("1D");
   const [barLimit, setBarLimit] = useState(30);
   const [barProvider, setBarProvider] = useState<"yfinance" | "alpaca">("yfinance");
-  const [barsMeta, setBarsMeta] = useState<{ source?: string; timestamp?: string; provider?: string } | null>(null);
+  const [barsMeta, setBarsMeta] = useState<{ source?: string; timestamp?: string; provider?: string; provenance?: FossDataProvenance } | null>(null);
   const [barsLoading, setBarsLoading] = useState(false);
 
   // Alpaca Snapshot & Tracing State
@@ -232,9 +281,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     try {
       const resp = await fetch(`/api/foss/bars?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}&provider=${provider}`);
       if (resp.ok) {
-        const data = await resp.json() as { count: number; bars: FossHistoricalBar[]; source?: string; timestamp?: string; provider?: string };
+        const data = await resp.json() as { count: number; bars: FossHistoricalBar[]; source?: string; timestamp?: string; provider?: string; provenance?: FossDataProvenance };
         setBars(data.bars || []);
-        setBarsMeta({ source: data.source, timestamp: data.timestamp, provider: data.provider });
+        setBarsMeta({ source: data.source, timestamp: data.timestamp, provider: data.provider, provenance: data.provenance ?? data.bars?.[0]?.provenance });
       }
     } catch {
       // Ignore
@@ -563,8 +612,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
               <div className="dual-card-status-group">
                 <span className="dual-card-live-tag yahoo-live">
-                  <span className="status-dot green" />
-                  Yahoo Finance Live
+                  <span className={`status-dot ${yfinanceQuote?.provenance === "live" ? "green" : "amber"}`} />
+                  {yfinanceQuote?.provenance === "live" ? "Yahoo Finance Live" : "Yahoo Finance — non-live FOSS data"}
                 </span>
                 <span className="dual-card-live-tag alpaca-live">
                   <span className="status-dot amber" />
@@ -581,6 +630,26 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
 
+            {/* Same-profile disclosure (#117): when neither feed is live,
+                both cards show the SAME FOSS profile — say so plainly
+                instead of presenting two independent live sources. */}
+            {yfinanceQuote && alpacaQuote && yfinanceQuote.provenance !== "live" && alpacaQuote.provenance !== "live" && (
+              <div
+                role="note"
+                style={{
+                  margin: "0.25rem 0 0.5rem",
+                  padding: "0.45rem 0.6rem",
+                  borderRadius: "8px",
+                  border: "1px solid var(--color-warning)",
+                  color: "var(--color-warning)",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                }}
+              >
+                ⚠ Both feeds are currently serving the same non-live FOSS profile for {activeSymbol} — they are not two independent live sources.
+              </div>
+            )}
+
             {/* Dual Feed Columns: Yahoo Finance & Alpaca side-by-side */}
             <div className="dual-feed-columns-grid">
               {/* Yahoo Finance Card */}
@@ -589,8 +658,11 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="dual-feed-card-title yahoo-title">
                     📊 Yahoo Finance Feed
                   </span>
-                  <span className="dual-feed-market-state">
-                    {yfinanceQuote?.marketState || "REGULAR"}
+                  <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                    <FossProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
+                    <span className="dual-feed-market-state">
+                      {yfinanceQuote?.marketState || "REGULAR"}
+                    </span>
                   </span>
                 </div>
                 <div className="dual-feed-price-row">
@@ -627,8 +699,11 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="dual-feed-card-title alpaca-title">
                     🦙 Alpaca Market Data v2
                   </span>
-                  <span className="dual-feed-snapshot-badge">
-                    {snapshot ? "Live Snapshot" : "Alpaca Feed"}
+                  <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                    <FossProvenanceBadge provenance={alpacaQuote?.provenance ?? snapshot?.provenance} note={alpacaQuote?.note ?? snapshot?.note} />
+                    <span className="dual-feed-snapshot-badge">
+                      {snapshot ? (snapshot.provenance === "live" ? "Live Snapshot" : "FOSS Profile Snapshot") : "Alpaca Feed"}
+                    </span>
                   </span>
                 </div>
                 <div className="dual-feed-price-row">
@@ -646,7 +721,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                   <div>
                     <span className="dual-feed-stat-label">Latest Trade: </span>
-                    <strong className="dual-feed-stat-val">{snapshot?.latestTrade ? `$${snapshot.latestTrade.price} (${snapshot.latestTrade.size} shs)` : "Live Trade Ready"}</strong>
+                    <strong className="dual-feed-stat-val">{snapshot?.latestTrade ? `$${snapshot.latestTrade.price} (${snapshot.latestTrade.size} shs)` : "Awaiting trade data"}</strong>
                   </div>
                   <div>
                     <span className="dual-feed-stat-label">Minute Bar: </span>
@@ -707,7 +782,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {showAlpacaDrawerOnScreener && snapshot && (
               <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
                 <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "0.95rem" }}>
-                  🦙 Alpaca Market Snapshot Live Inspection — {activeSymbol}
+                  🦙 Alpaca Market Snapshot {snapshot.provenance === "live" ? "Live" : "FOSS Profile"} Inspection — {activeSymbol}
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
                   <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
@@ -1021,8 +1096,28 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                       {report.quote.change >= 0 ? "+" : ""}{report.quote.change.toFixed(2)} ({report.quote.changePercent >= 0 ? "+" : ""}{report.quote.changePercent.toFixed(2)}%)
                     </span>
                     <span className="source-tag">Source: {report.quote.provider.toUpperCase()} FOSS</span>
+                    <FossProvenanceBadge provenance={report.provenance} />
                   </div>
                 </div>
+
+                {/* Non-live banner (#117): a report built on static/generated
+                    inputs must not read as live research. */}
+                {report.provenance !== "live" && (
+                  <div
+                    role="note"
+                    style={{
+                      margin: "0.5rem 0",
+                      padding: "0.5rem 0.65rem",
+                      borderRadius: "8px",
+                      border: "1px solid var(--color-warning)",
+                      color: "var(--color-warning)",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    🧪 This report is built from {report.provenance} FOSS data — not live market data. Its target is a profile estimate, not analyst consensus, and its technical levels are heuristic formulas.
+                  </div>
+                )}
 
                 {/* AI Research Synthesis Narrative */}
                 <div className="report-ai-narrative">
@@ -1055,7 +1150,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <span className="value">${(report.fundamentals.marketCap / 1e9).toFixed(1)}B</span>
                   </div>
                   <div className="metric-pill-item">
-                    <span className="label">Consensus Target</span>
+                    <span className="label">{report.fundamentals.provenance === "live" ? "Consensus Target" : "Profile Target Estimate"}</span>
                     <span className="value target-highlight">
                       ${report.fundamentals.targetMeanPrice ? report.fundamentals.targetMeanPrice.toFixed(2) : "N/A"}
                     </span>
@@ -1105,13 +1200,17 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <span className="attest-label">Certified Timestamp:</span>
                     <span>{new Date(report.agentAttestation.timestamp).toLocaleString()}</span>
                   </div>
+                  <div className="attest-col">
+                    <span className="attest-label">Attested Data Provenance:</span>
+                    <span>{report.agentAttestation.provenance}</span>
+                  </div>
                 </div>
               </div>
 
               {/* Right Side: Analyst Rating & Action Card */}
               <div className="report-side-card">
                 <div className="analyst-rating-box">
-                  <h5>Wall Street Consensus</h5>
+                  <h5>{report.fundamentals.provenance === "live" ? "Wall Street Consensus" : "FOSS Profile Rating — not live consensus"}</h5>
                   <div className={`rating-big-badge ${getRecommendationBadgeClass(report.analystRating)}`}>
                     {report.analystRating}
                   </div>
@@ -1129,7 +1228,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                       <span>${report.fundamentals.targetHighPrice?.toFixed(2) || "N/A"}</span>
                     </div>
                     <div className="analyst-count-note">
-                      Based on {report.fundamentals.numberOfAnalystOpinions || 30} Wall Street analyst ratings
+                      {report.fundamentals.provenance === "live"
+                        ? `Based on ${report.fundamentals.numberOfAnalystOpinions || 30} Wall Street analyst ratings`
+                        : `Targets and the analyst count come from the ${report.fundamentals.provenance} FOSS profile — not live Wall Street data.`}
                     </div>
                   </div>
                 </div>
@@ -1167,7 +1268,10 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="dot yf-dot" />
                   <h4>Yahoo Finance FOSS Engine</h4>
                 </div>
-                <span className="provider-tag">yfinance API</span>
+                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                  <FossProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
+                  <span className="provider-tag">yfinance API</span>
+                </span>
               </div>
 
               {yfinanceQuote ? (
@@ -1231,7 +1335,10 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="dot alpaca-dot" />
                   <h4>Alpaca Market Data v2</h4>
                 </div>
-                <span className="provider-tag">Level 1/2 REST &amp; Paper</span>
+                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                  <FossProvenanceBadge provenance={alpacaQuote?.provenance} note={alpacaQuote?.note} />
+                  <span className="provider-tag">Level 1/2 REST &amp; Paper</span>
+                </span>
               </div>
 
               {alpacaQuote ? (
@@ -1301,6 +1408,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
           ) : fundamentals ? (
             <div className="fundamentals-layout">
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+                <FossProvenanceBadge provenance={fundamentals.provenance} note={fundamentals.note} />
+                {fundamentals.provenance !== "live" && (
+                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                    {fundamentals.note || "Fundamentals below are not live provider data."}
+                  </span>
+                )}
+              </div>
               {/* Valuation Multiples */}
               <div className="fund-card">
                 <h5>📊 Valuation Multiples (yfinance)</h5>
@@ -1418,8 +1533,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   loadHistoricalBars(activeSymbol, barTimeframe, barLimit, p);
                 }}
               >
-                <option value="yfinance">Yahoo Finance FOSS (Live)</option>
-                <option value="alpaca">Alpaca Data v2 (Live)</option>
+                <option value="yfinance">Yahoo Finance FOSS</option>
+                <option value="alpaca">Alpaca Data v2</option>
               </select>
               <label>Timeframe:</label>
               <select
@@ -1464,11 +1579,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
           {barsMeta && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-              <span>
-                📡 Verified Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
+              <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+                <span>
+                  📡 Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
+                </span>
+                <FossProvenanceBadge provenance={barsMeta.provenance} />
               </span>
               <span>
-                Live Synced: {barsMeta.timestamp ? new Date(barsMeta.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
+                {barsMeta.provenance === "live" ? "Live Synced" : "Retrieved"}: {barsMeta.timestamp ? new Date(barsMeta.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
               </span>
             </div>
           )}
@@ -1538,7 +1656,10 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="dot alpaca-dot" />
                   <h4>Alpaca Market Data v2 Snapshot: {snapshot.symbol}</h4>
                 </div>
-                <span className="asset-tag">{snapshot.assetClass.toUpperCase()}</span>
+                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                  <FossProvenanceBadge provenance={snapshot.provenance} note={snapshot.note} />
+                  <span className="asset-tag">{snapshot.assetClass.toUpperCase()}</span>
+                </span>
               </div>
 
               <div className="snapshot-grid">
@@ -1705,7 +1826,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <th>PEG Ratio</th>
                   <th>Price/Book</th>
                   <th>Beta</th>
-                  <th>Consensus Target</th>
+                  <th>Target (Mean)</th>
                   <th>Analyst Rating</th>
                 </tr>
               </thead>
@@ -1725,6 +1846,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                           <div className="ticker-company">
                             <span className="ticker-badge">{symbol}</span>
                             <span className="company-title">{f.companyName}</span>
+                            <FossProvenanceBadge provenance={quote.provenance === "live" && f.provenance === "live" ? "live" : quote.provenance === "generated" || f.provenance === "generated" ? "generated" : "static"} />
                           </div>
                         </td>
                         <td>
