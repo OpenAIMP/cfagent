@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "../apiFetch";
+import { etToUtcCron } from "./cronTime";
 import "./scheduledOptions.css";
 
 export interface ScheduledTaskItem {
@@ -36,11 +37,15 @@ const INTERVAL_PRESETS = [
   { label: "Every 4 hours", seconds: 14400 },
 ];
 
+// Presets are Eastern-Time intents: picking one converts the ET time to
+// a UTC cron for the current ET offset (see ./cronTime). The cron string
+// is computed at pick time, never stored here as a literal — a literal
+// would fire 4-5 hours early, as the previous hard-coded values did.
 const CRON_PRESETS = [
-  { label: "Market Open (9:30 AM ET M-F)", cron: "30 9 * * 1-5" },
-  { label: "Midday Scan (12:00 PM ET M-F)", cron: "0 12 * * 1-5" },
-  { label: "Market Close (4:00 PM ET M-F)", cron: "0 16 * * 1-5" },
-  { label: "Daily Overnight (11:00 PM ET)", cron: "0 23 * * *" },
+  { label: "Market Open (9:30 AM ET M-F)", etHour: 9, etMinute: 30, daysOfWeek: "1-5" },
+  { label: "Midday Scan (12:00 PM ET M-F)", etHour: 12, etMinute: 0, daysOfWeek: "1-5" },
+  { label: "Market Close (4:00 PM ET M-F)", etHour: 16, etMinute: 0, daysOfWeek: "1-5" },
+  { label: "Daily Overnight (11:00 PM ET)", etHour: 23, etMinute: 0, daysOfWeek: "*" },
 ];
 
 export function ScheduledOptionsManager({
@@ -64,7 +69,9 @@ export function ScheduledOptionsManager({
   const [targetSymbols, setTargetSymbols] = useState("NVDA, AAPL, SPY, MSFT");
   const [scheduleType, setScheduleType] = useState<"interval" | "cron">("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
-  const [cronExpression, setCronExpression] = useState("30 9 * * 1-5");
+  const [cronExpression, setCronExpression] = useState(() =>
+    etToUtcCron({ hour: 9, minute: 30, daysOfWeek: "1-5" })
+  );
   const [thesis, setThesis] = useState<"bullish" | "bearish" | "neutral" | "directional">("bullish");
   const [riskProfile, setRiskProfile] = useState<"conservative" | "balanced" | "aggressive">("balanced");
   const [pushToSlack, setPushToSlack] = useState(true);
@@ -735,12 +742,21 @@ export function ScheduledOptionsManager({
                           key={p.label}
                           type="button"
                           className="preset-chip"
-                          onClick={() => setCronExpression(p.cron)}
+                          onClick={() =>
+                            setCronExpression(
+                              etToUtcCron({ hour: p.etHour, minute: p.etMinute, daysOfWeek: p.daysOfWeek })
+                            )
+                          }
                         >
                           {p.label}
                         </button>
                       ))}
                     </div>
+                    <p className="sched-preset-note">
+                      Preset times are Eastern (ET) and are converted to UTC when picked, because
+                      schedules run in UTC. After the spring or autumn clock change, a saved schedule
+                      will fire one hour off its ET label until you re-save it.
+                    </p>
                   </div>
                 )}
               </div>

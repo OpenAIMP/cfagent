@@ -166,10 +166,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     }
 
     try {
-      // 1. Proactive daily E*TRADE token renewal at 23:00 ET (idempotent by default for cron)
+      // 1. Proactive daily E*TRADE token renewal. Cron expressions run in
+      // UTC, and no single UTC cron can track an ET wall-clock time across
+      // DST — so this is anchored to the invariant that matters, not to an
+      // exact ET hour: "0 3 * * *" UTC fires at 23:00 EDT / 22:00 EST,
+      // i.e. always at least 1 hour before the midnight-ET token expiry in
+      // both DST regimes. (Idempotent by default for cron.)
       if (typeof (this as any).schedule === "function") {
         await (this as any).schedule(
-          "0 23 * * *",
+          "0 3 * * *",
           "autoRenewETradeTokens",
           { userLogin: this.sessionKey() },
           { idempotent: true }
@@ -1409,7 +1414,7 @@ Platform Workflows & UI Navigation Map:
 6. Workflow 6: Brokerage Order Execution with HITL Guardrails (Tab: 'trading' | API: /api/etrade/order/preview)
    - Mandatory human approval for every trade. Order drafts are signed with Agent DIDs before confirmation.
 7. Workflow 7: Autonomous Background Execution & Cron (Tab: 'trading' | Durable Objects)
-   - Auto token renewal daily at 23:00 ET, interval market scans every 5m (300s), and WebSocket opportunity alerts.
+   - Auto token renewal daily at 23:00 EDT / 22:00 EST (03:00 UTC — always at least 1h before the midnight-ET token expiry), interval market scans every 5m (300s), and WebSocket opportunity alerts.
 8. Workflow 8: Natural Language Financial Intelligence (NLQ) (Tab: 'chat' / 'nlq')
    - Conversational analysis, SQLite ORM queries, and tool execution via chat.
 

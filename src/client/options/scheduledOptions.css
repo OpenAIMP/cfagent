@@ -494,6 +494,13 @@
   font-weight: 400;
 }
 
+.sched-preset-note {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
 .sched-input,
 .sched-select {
   background: rgba(18, 26, 47, 0.8);

@@ -1334,7 +1334,7 @@ export function executeNLQQuery(
           id: "sched_cron_etrade_renew",
           callback: "autoRenewETradeTokens",
           type: "cron",
-          cron: "0 23 * * *",
+          cron: "0 3 * * *",
           description: "Proactive E*TRADE OAuth 1.0a token renewal before midnight ET",
           status: "ACTIVE",
         },
