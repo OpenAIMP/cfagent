@@ -203,6 +203,9 @@ export class ETradeSlackTradingService {
               totalValue: targetTrade.totalValue,
               environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
               timestamp,
+              // This handler IS the human's conversational approval — the
+              // receipt may claim HITL verification (issue #120).
+              humanApproved: true,
             }, { channel });
           } catch (snapErr) {
             console.warn("[ETradeSlackAgent] Could not deliver snap receipt:", snapErr);
@@ -285,12 +288,13 @@ export class ETradeSlackTradingService {
             totalValue: trade.totalValue,
             environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
             timestamp: trade.updatedAt || trade.createdAt,
+            humanApproved: Boolean((trade as any).authorizerDid),
           }, { channel });
 
           const snapMsg: SlackBlockKitPayload = {
             channel,
             thread_ts: threadTs,
-            text: `📸 Transaction snapshot generated for ${trade.symbol} (${trade.id}): ${snapRes.success ? "Delivered to Slack" : snapRes.error}`,
+            text: `📸 Transaction snapshot generated for ${trade.symbol} (${trade.id}): ${snapRes.success ? "Delivered to Slack" : `Not delivered — ${snapRes.error}`}`,
           };
           await this.postSlackMessage(snapMsg);
           return {
@@ -308,7 +312,7 @@ export class ETradeSlackTradingService {
           const snapMsg: SlackBlockKitPayload = {
             channel,
             thread_ts: threadTs,
-            text: `📸 Browser Agent snapshot captured for ${target.toUpperCase()}: ${snapRes.success ? "Delivered to Slack" : snapRes.error}`,
+            text: `📸 Browser Agent snapshot for ${target.toUpperCase()}: ${snapRes.success ? "Delivered to Slack" : `Not delivered — ${snapRes.error}`}`,
           };
           await this.postSlackMessage(snapMsg);
           return {
@@ -836,6 +840,9 @@ export class ETradeSlackTradingService {
             totalValue: targetTrade.totalValue,
             environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
             timestamp,
+            // This dispatch follows the human's approve interaction — a
+            // recorded HITL approval (issue #120).
+            humanApproved: true,
           }, { channel: payload.channel?.id });
         } catch (snapErr) {
           console.warn("[ETradeSlackAgent] Could not deliver snap receipt:", snapErr);
@@ -883,6 +890,7 @@ export class ETradeSlackTradingService {
           totalValue: targetTrade.totalValue,
           environment: (this.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
           timestamp: targetTrade.updatedAt || targetTrade.createdAt,
+          humanApproved: Boolean((targetTrade as any).authorizerDid),
         }, { channel: payload.channel?.id });
 
         return {
@@ -890,7 +898,7 @@ export class ETradeSlackTradingService {
           actionId,
           orderId,
           status: "executed",
-          message: snapRes.success ? `Snapshot for ${targetTrade.symbol} delivered to Slack!` : (snapRes.error || "Failed"),
+          message: snapRes.success ? `Snapshot for ${targetTrade.symbol} delivered to Slack!` : `Not delivered — ${snapRes.error || "Failed"}`,
           timestamp,
         };
       }
