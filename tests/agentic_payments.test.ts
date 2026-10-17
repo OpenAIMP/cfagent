@@ -245,7 +245,22 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
         TRADING_PAID_SERVICES.OPTIONS_SCREENER.resource,
         0.05
       );
-      const { headers } = await paymentService.signPaymentProof(challenge, "0xSubscriberWallet");
+      // Issue #122: this test previously built its "valid" payment via the
+      // service's own signPaymentProof — the client-fabricates/server-accepts
+      // loop that #122 removes (simulated proofs are now rejected outright).
+      // Like the sibling tests above, it now presents a subscriber proof
+      // directly; the mocked claim verifier stands in for on-chain
+      // verification, which is what handleGatedEndpoint actually gates on.
+      const subscriberProof: X402PaymentProof = {
+        payer: "0xSubscriberWallet",
+        signature: "0x_sig_mock_valid_hash",
+        txHash: "0x_tx_subscriber",
+        nonce: challenge.nonce,
+        timestamp: Date.now(),
+      };
+      const headers = {
+        "PAYMENT-SIGNATURE": Buffer.from(JSON.stringify(subscriberProof)).toString("base64"),
+      };
 
       const req = new Request("https://agent.openaimp.com/api/premium/options-scan", {
         method: "GET",

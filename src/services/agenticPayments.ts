@@ -40,6 +40,20 @@ import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
 const consumedTxHashes = new Set<string>();
 
 /**
+ * Issue #122: this service's wallet is a LOCAL LEDGER simulation. It never
+ * reads an on-chain balance: the balance is a local starting credit plus or
+ * minus locally recorded ledger entries. These constants name that honestly
+ * and are surfaced on AgenticWalletStatus so every consumer renders the
+ * balance as what it is.
+ */
+export const AGENTIC_WALLET_STARTING_CREDIT_USD = 50.0;
+export const AGENTIC_WALLET_BALANCE_SOURCE = "local-ledger" as const;
+export const AGENTIC_WALLET_SIMULATED_NOTE =
+  "Simulated local-ledger balance: a $50.00 local starting credit plus/minus locally recorded agentic payment entries. This service does not read any on-chain wallet balance.";
+/** Signature-field value used on simulated proofs: deliberately NOT shaped like a cryptographic signature. */
+export const SIMULATED_PROOF_SIGNATURE = "SIMULATED_UNSIGNED_PROOF_NO_SIGNATURE";
+
+/**
  * Catalogue of Paid Trading Services offered by E*TRADE Trading Agent
  */
 export const TRADING_PAID_SERVICES: Record<string, PaidTradingServiceTier> = {
@@ -297,6 +311,13 @@ export class ETradeAgenticPaymentService {
           return { valid: false, reason: "Malformed PAYMENT-SIGNATURE: missing signature or payer address." };
         }
 
+        // Issue #122: a locally produced simulated proof is not a payment and
+        // must never be redeemable — reject it before any claim verification,
+        // regardless of how the configured claim verifier would treat it.
+        if (proof.simulated === true || proof.signature === SIMULATED_PROOF_SIGNATURE) {
+          return { valid: false, reason: "Simulated payment proofs are not accepted as payment: no real payment was made. A verifiable on-chain payment is required." };
+        }
+
         if (!("resource" in challenge) || !("nonce" in challenge)) {
           return { valid: false, reason: "x402 payments require an x402 challenge." };
         }
@@ -477,7 +498,17 @@ export class ETradeAgenticPaymentService {
   // =========================================================================
 
   /**
-   * Sign an x402 payment proof for an outbound payment challenge
+   * Build an x402 payment proof for an outbound payment challenge.
+   *
+   * Issue #122: this service holds NO signing key and settles nothing
+   * on-chain, so it cannot produce a real cryptographic proof. The returned
+   * proof is explicitly simulated: it is marked `simulated: true`, its
+   * signature field carries a plain-text non-signature marker (never a
+   * signature-shaped fabrication), and it carries no txHash and no
+   * facilitator token (no facilitator issued anything). Real verifiers —
+   * including this service's own verifyPayment — reject it; only demo/mock
+   * servers that skip verification would accept it, and receipts from such
+   * flows are recorded as simulated (see synthesizeReceipt).
    */
   async signPaymentProof(
     challenge: X402PaymentChallenge | MppChallenge,
@@ -485,20 +516,13 @@ export class ETradeAgenticPaymentService {
   ): Promise<{ x402Proof?: X402PaymentProof; mppProof?: MppPaymentProof; headers: Record<string, string> }> {
     const timestamp = Date.now();
     const nonce = "nonce" in challenge ? challenge.nonce : `n_${timestamp}`;
-    const amount = "amount" in challenge ? challenge.amount : 0.05;
-
-    // Cryptographic signature simulation (compatible with EIP-712 / viem signature standard)
-    const payloadToSign = `${payerAddress}:${challenge.recipient}:${amount}:${nonce}:${timestamp}`;
-    const signature = `0x_sig_${Buffer.from(payloadToSign).toString("hex").slice(0, 64)}`;
-    const txHash = `0x_tx_${crypto.randomUUID().replace(/-/g, "")}`;
 
     const x402Proof: X402PaymentProof = {
-      signature,
+      signature: SIMULATED_PROOF_SIGNATURE,
       payer: payerAddress,
-      txHash,
       nonce,
       timestamp,
-      facilitatorToken: `fac_tok_${Date.now()}`,
+      simulated: true,
     };
 
     const x402Header = Buffer.from(JSON.stringify(x402Proof)).toString("base64");
@@ -591,18 +615,24 @@ export class ETradeAgenticPaymentService {
 
     const data = (await paidRes.json().catch(() => ({}))) as T;
 
-    // Parse receipt from response header
+    // Parse receipt from response header. A server-issued receipt is used
+    // only when it is complete (receiptId + status + amount); anything less
+    // is not evidence of a verified payment, so fall back to an honestly
+    // labelled local simulated record (issue #122).
     let receipt: AgenticPaymentReceipt;
+    let serverReceipt: AgenticPaymentReceipt | undefined;
     const respHeader = paidRes.headers.get("PAYMENT-RESPONSE");
     if (respHeader) {
       try {
-        receipt = JSON.parse(Buffer.from(respHeader, "base64").toString("utf-8"));
+        const parsed = JSON.parse(Buffer.from(respHeader, "base64").toString("utf-8"));
+        if (parsed && parsed.receiptId && parsed.status && typeof parsed.amount === "number") {
+          serverReceipt = parsed as AgenticPaymentReceipt;
+        }
       } catch {
-        receipt = this.synthesizeReceipt(challenge, x402Proof?.txHash);
+        serverReceipt = undefined;
       }
-    } else {
-      receipt = this.synthesizeReceipt(challenge, x402Proof?.txHash);
     }
+    receipt = serverReceipt ?? this.synthesizeReceipt(challenge);
 
     // Record outbound transaction
     await this.recordPaymentTransaction(receipt, "outbound");
@@ -615,7 +645,14 @@ export class ETradeAgenticPaymentService {
     };
   }
 
-  private synthesizeReceipt(challenge: X402PaymentChallenge, txHash?: string): AgenticPaymentReceipt {
+  /**
+   * Issue #122: the local fallback receipt. The outbound proof this service
+   * produces is simulated and unsigned, and this service performed no
+   * settlement or verification — so the record says exactly that: status
+   * "simulated", no txHash (nothing exists on-chain to hash), and a note
+   * stating no real payment was made or verified.
+   */
+  private synthesizeReceipt(challenge: X402PaymentChallenge): AgenticPaymentReceipt {
     return {
       receiptId: `rcpt_out_${Date.now()}`,
       protocol: "x402",
@@ -625,11 +662,11 @@ export class ETradeAgenticPaymentService {
       network: challenge.network,
       payer: this.agentWalletAddress,
       recipient: challenge.recipient,
-      status: "paid",
-      txHash: txHash || `0x_tx_${Date.now()}`,
+      status: "simulated",
+      simulated: true,
       timestamp: new Date().toISOString(),
       proposerDid: AGENT_DIDS.TRADING,
-      note: `Outbound micropayment for ${challenge.description}`,
+      note: `Local record of a SIMULATED outbound payment for ${challenge.description}: the proof was unsigned (this service holds no signing key) and no on-chain settlement was made or verified. Not proof of payment.`,
     };
   }
 
@@ -646,6 +683,11 @@ export class ETradeAgenticPaymentService {
   ): Promise<TransactionRecord> {
     const now = new Date().toISOString();
     const action = direction === "inbound" ? ("agentic_payment" as const) : ("micropayment" as const);
+    // Issue #122: a simulated receipt records as a simulated ledger entry —
+    // never "completed", never with a fabricated `sig_…` proof signature.
+    const isSimulated = receipt.simulated === true || receipt.status === "simulated";
+    const baseNote =
+      receipt.note || `Cloudflare Agentic Payment (${(receipt.protocol || "x402").toUpperCase()}) on ${receipt.network || this.network}`;
     const txRecord: TransactionRecord = {
       id: `tx_${receipt.receiptId}`,
       sessionId: this.sessionId,
@@ -655,12 +697,12 @@ export class ETradeAgenticPaymentService {
       customer: direction === "inbound" ? receipt.payer : receipt.recipient,
       gateway: receipt.protocol === "mpp" ? "mpp" : "x402",
       gatewayRef: receipt.txHash || receipt.receiptId,
-      status: "completed",
+      status: isSimulated ? "simulated" : "completed",
       checkoutUrl: receipt.resource,
       proposerDid: receipt.proposerDid,
       authorizerDid: receipt.authorizerDid || `did:key:${receipt.payer}`,
-      proofSignature: receipt.signature || `sig_${receipt.receiptId}`,
-      note: receipt.note || `Cloudflare Agentic Payment (${(receipt.protocol || "x402").toUpperCase()}) on ${receipt.network || this.network}`,
+      proofSignature: receipt.signature || (isSimulated ? "none (simulated local record — no signature)" : "none (no signature recorded)"),
+      note: isSimulated ? `${baseNote} [Simulated local payment record — no real payment was made or verified.]` : baseNote,
       createdAt: now,
       updatedAt: now,
     };
@@ -684,6 +726,7 @@ export class ETradeAgenticPaymentService {
           payer: receipt.payer,
           recipient: receipt.recipient,
           txHash: receipt.txHash,
+          simulated: isSimulated,
           direction,
         },
         createdAt: now,
@@ -694,9 +737,20 @@ export class ETradeAgenticPaymentService {
   }
 
   /**
-   * Get real-time status of Agent Wallet and micropayment metrics
+   * Get the status of the Agent Wallet's LOCAL LEDGER simulation and
+   * micropayment metrics. The balance is simulated (see
+   * AGENTIC_WALLET_SIMULATED_NOTE) — never a live on-chain balance.
    */
   async getWalletStatus(): Promise<AgenticWalletStatus> {
+    return this.getWalletStatusSync();
+  }
+
+  /**
+   * Synchronous core of getWalletStatus — the ledger read is synchronous, and
+   * synchronous consumers (the NLQ sync executor) must render the SAME status
+   * object rather than re-implementing the balance (issue #122).
+   */
+  getWalletStatusSync(): AgenticWalletStatus {
     let totalSpent = 0;
     let totalEarned = 0;
     let count = 0;
@@ -715,8 +769,11 @@ export class ETradeAgenticPaymentService {
       }
     }
 
-    // Default simulated balance starting at $50.00 USDC
-    const startingBalance = 50.0;
+    // Issue #122: the balance is a simulated local-ledger figure — a local
+    // starting credit plus/minus locally recorded entries. It is labelled as
+    // such on the returned object itself so no surface can render it as an
+    // on-chain balance.
+    const startingBalance = AGENTIC_WALLET_STARTING_CREDIT_USD;
     const currentBalance = Math.max(0, startingBalance + totalEarned - totalSpent);
 
     return {
@@ -729,6 +786,10 @@ export class ETradeAgenticPaymentService {
       totalSpentUSD: totalSpent,
       totalEarnedUSD: totalEarned,
       transactionCount: count,
+      simulated: true,
+      source: AGENTIC_WALLET_BALANCE_SOURCE,
+      startingCreditUSD: startingBalance,
+      note: AGENTIC_WALLET_SIMULATED_NOTE,
     };
   }
 

@@ -109,7 +109,8 @@ export interface TransactionRecord {
   customer: string;
   gateway: "stripe" | "paypal" | "lemonsqueezy" | "sandbox" | "x402" | "mpp";
   gatewayRef?: string;
-  status: "draft" | "awaiting_confirmation" | "authorized" | "completed" | "failed" | "rejected";
+  /** "simulated" marks local records of simulated agentic payments — no real payment occurred (issue #122). */
+  status: "draft" | "awaiting_confirmation" | "authorized" | "completed" | "failed" | "rejected" | "simulated";
   checkoutUrl?: string;
   proposerDid: string;
   authorizerDid?: string;
@@ -1225,6 +1226,14 @@ export interface X402PaymentProof {
   nonce: string;
   timestamp: number;
   facilitatorToken?: string;
+  /**
+   * Issue #122: true when this proof was produced locally by
+   * ETradeAgenticPaymentService.signPaymentProof, which holds no signing key
+   * and settles nothing on-chain. A simulated proof is NOT a cryptographic
+   * signature and must never be presented or accepted as one;
+   * verifyPayment rejects simulated proofs outright.
+   */
+  simulated?: boolean;
 }
 
 export interface MppChallenge {
@@ -1254,7 +1263,14 @@ export interface AgenticPaymentReceipt {
   network: string;
   payer: string;
   recipient: string;
-  status: "paid" | "verified" | "failed";
+  /**
+   * "verified" is reserved for receipts issued after an actual verification
+   * (on-chain claim verification or the mppx gateway). Locally synthesised
+   * records of simulated payments use "simulated" (issue #122).
+   */
+  status: "paid" | "verified" | "failed" | "simulated";
+  /** Issue #122: true for locally synthesised records of simulated payments — no real payment was made or verified. */
+  simulated?: boolean;
   txHash?: string;
   signature?: string;
   timestamp: string;
@@ -1273,6 +1289,15 @@ export interface AgenticWalletStatus {
   totalSpentUSD: number;
   totalEarnedUSD: number;
   transactionCount: number;
+  /**
+   * Issue #122: this service never reads an on-chain balance. balanceUSD is a
+   * simulated local-ledger figure (see source/startingCreditUSD/note) and the
+   * markers below must travel with it to every surface that renders it.
+   */
+  simulated: boolean;
+  source: "local-ledger";
+  startingCreditUSD: number;
+  note: string;
 }
 
 export interface AgenticPaymentConfig {

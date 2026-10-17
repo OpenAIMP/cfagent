@@ -251,7 +251,7 @@ export class AgenticWalletStatusCommand implements IMcpToolCommand<{
 }> {
   readonly name = "agentic_wallet_status";
   readonly description =
-    "Check Cloudflare Agentic Payments (x402/MPP) wallet status, balance, auto-approval threshold, and transaction metrics.";
+    "Check Cloudflare Agentic Payments (x402/MPP) wallet status, auto-approval threshold, and transaction metrics. NOTE: the balance is a SIMULATED local-ledger figure (a $50.00 local starting credit plus/minus locally recorded entries) — this service does not read any on-chain wallet balance.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
