@@ -7,7 +7,10 @@
  * - Headless browser page inspection and DOM scraping via env.BROWSER (Cloudflare Browser Rendering)
  * - Capturing high-resolution screenshots of stock charts and broker order confirmations
  * - Extracting tabular financial data from client-rendered JavaScript dashboards
- * - Fallback simulation and DOM parser for deterministic testing
+ * - HTTP fetch + DOM parser fallback when Browser Rendering is unavailable.
+ *   That fallback extracts real page text/tables but CANNOT capture a
+ *   screenshot: any image it returns is a clearly labelled placeholder
+ *   (see BrowserInspectResult.screenshotKind, issue #120).
  */
 
 import type {
@@ -53,6 +56,8 @@ export class ETradeBrowserService {
             text: data.text || data.content || "",
             tables: data.tables || [],
             screenshotBase64: data.screenshotBase64,
+            // Only the real Browser Rendering path produces an actual capture.
+            screenshotKind: data.screenshotBase64 ? "capture" : undefined,
             timestamp,
           };
         }
@@ -98,10 +103,12 @@ export class ETradeBrowserService {
         text = text.slice(0, 5000) + "... [truncated]";
       }
 
-      // Generate synthetic chart screenshot base64 if requested
+      // No browser capture is possible on this fallback path. If a
+      // screenshot was requested, attach a clearly labelled placeholder
+      // illustration (issue #120) — never present it as a page capture.
       let screenshotBase64: string | undefined = undefined;
       if (options.screenshot) {
-        screenshotBase64 = this.generateChartPlaceholderBase64(url);
+        screenshotBase64 = this.generateScreenshotPlaceholderBase64(url);
       }
 
       return {
@@ -111,6 +118,7 @@ export class ETradeBrowserService {
         text,
         tables,
         screenshotBase64,
+        screenshotKind: screenshotBase64 ? "placeholder" : undefined,
         timestamp,
       };
     } catch (err: any) {
@@ -126,11 +134,12 @@ export class ETradeBrowserService {
   /**
    * Captures a screenshot of a trading dashboard or chart
    */
-  async captureScreenshot(url: string, selector?: string): Promise<{ success: boolean; screenshotBase64?: string; error?: string; timestamp: string }> {
+  async captureScreenshot(url: string, selector?: string): Promise<{ success: boolean; screenshotBase64?: string; screenshotKind?: "capture" | "placeholder"; error?: string; timestamp: string }> {
     const res = await this.inspectPage({ url, selector, screenshot: true });
     return {
       success: res.success,
       screenshotBase64: res.screenshotBase64,
+      screenshotKind: res.screenshotKind,
       error: res.error,
       timestamp: res.timestamp,
     };
@@ -168,12 +177,18 @@ export class ETradeBrowserService {
 
     const webhookUrl = options.webhookUrl || this.env?.SLACK_WEBHOOK_URL;
     const pageTitle = inspectRes.title || "Web Page";
+    // Issue #120: only a real Browser Rendering capture may be called a
+    // snapshot. A placeholder means no image of the page exists — say so.
+    const isPlaceholder = inspectRes.screenshotKind === "placeholder";
+    const headerLine = isPlaceholder
+      ? `📄 Page Summary (no screenshot captured): ${pageTitle.slice(0, 80)}`
+      : `📸 Browser Snapshot: ${pageTitle.slice(0, 80)}`;
     const blocks: any[] = [
       {
         type: "header",
         text: {
           type: "plain_text",
-          text: `📸 Browser Snapshot: ${pageTitle.slice(0, 80)}`,
+          text: headerLine,
           emoji: true,
         },
       },
@@ -181,10 +196,22 @@ export class ETradeBrowserService {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Target URL:* <${url}>\n*Caption:* ${options.caption || "Autonomous page snapshot captured via Cloudflare Browser Agent."}\n*Captured At:* \`${timestamp}\``,
+          text: `*Target URL:* <${url}>\n*Caption:* ${options.caption || (isPlaceholder ? "Page content extracted via Cloudflare Browser Agent (Browser Rendering unavailable, so no screenshot was captured)." : "Autonomous page snapshot captured via Cloudflare Browser Agent.")}\n*Captured At:* \`${timestamp}\``,
         },
       },
     ];
+
+    if (isPlaceholder) {
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "⚠️ Placeholder only: Browser Rendering was unavailable, so no screenshot of this page was captured. This message contains extracted page text only.",
+          },
+        ],
+      });
+    }
 
     if (inspectRes.text) {
       blocks.push({
@@ -198,7 +225,7 @@ export class ETradeBrowserService {
 
     const payload = {
       channel: options.channel,
-      text: `📸 Browser Snapshot: ${inspectRes.title} (${url})`,
+      text: `${headerLine} (${url})`,
       blocks,
     };
 
@@ -223,18 +250,44 @@ export class ETradeBrowserService {
           },
           body: JSON.stringify(payload),
         });
-        return { success: resp.ok, url, error: resp.ok ? undefined : `HTTP ${resp.status}`, timestamp };
+        const verdict = await this.slackBotApiAccepted(resp);
+        return { success: verdict.accepted, url, error: verdict.error, timestamp };
       } catch (err: any) {
         return { success: false, url, error: err.message, timestamp };
       }
     }
 
+    // Issue #120: nothing was delivered — report failure, not success.
     return {
-      success: true,
+      success: false,
       url,
       timestamp,
-      error: "Slack webhook URL or Bot token not configured; payload prepared successfully.",
+      error: "Not delivered: no Slack webhook URL or bot token is configured (set SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN); nothing was sent to Slack.",
     };
+  }
+
+  /**
+   * Interprets a Slack Bot API (chat.postMessage) response. Slack returns
+   * HTTP 200 with { ok: false, error } for many rejections, so HTTP status
+   * alone does not prove acceptance (issue #120).
+   */
+  private async slackBotApiAccepted(resp: Response): Promise<{ accepted: boolean; error?: string }> {
+    if (!resp.ok) {
+      return { accepted: false, error: `HTTP ${resp.status}` };
+    }
+    try {
+      if (typeof resp.json === "function") {
+        const data = (await resp.json()) as any;
+        if (data && typeof data.ok === "boolean") {
+          return data.ok
+            ? { accepted: true }
+            : { accepted: false, error: `Slack API error: ${data.error || "unknown_error"}` };
+        }
+      }
+    } catch {
+      // Non-JSON body — fall back to the HTTP status verdict.
+    }
+    return { accepted: true };
   }
 
   /**
@@ -268,18 +321,23 @@ export class ETradeBrowserService {
   }
 
   /**
-   * Generates a base64 encoded SVG image representation of a financial chart
+   * Generates a base64 encoded SVG placeholder used when no real browser
+   * screenshot could be captured (issue #120). The placeholder is labelled
+   * as a placeholder INSIDE the image itself, so any surface that displays
+   * it displays the disclaimer with it. It deliberately contains no chart,
+   * no prices, and no performance figures — nothing that could be mistaken
+   * for page content or market data.
    */
-  private generateChartPlaceholderBase64(url: string): string {
+  private generateScreenshotPlaceholderBase64(url: string): string {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
   <rect width="100%" height="100%" fill="#0a0f1d"/>
-  <text x="30" y="40" fill="#38bdf8" font-family="monospace" font-size="18" font-weight="bold">E*TRADE Trading Desk | Browser Snapshot</text>
-  <text x="30" y="70" fill="#94a3b8" font-family="monospace" font-size="12">${url}</text>
-  <line x1="30" y1="90" x2="770" y2="90" stroke="#1e293b" stroke-width="1"/>
-  <polyline fill="none" stroke="#22c55e" stroke-width="3" points="50,380 150,340 250,360 350,280 450,310 550,220 650,240 750,150" />
-  <circle cx="750" cy="150" r="5" fill="#22c55e" />
-  <text x="690" y="140" fill="#22c55e" font-family="monospace" font-size="12" font-weight="bold">+14.2%</text>
-  <text x="30" y="420" fill="#64748b" font-family="monospace" font-size="11">Captured via Cloudflare Browser Agent (${new Date().toLocaleTimeString()} ET)</text>
+  <rect x="16" y="16" width="768" height="418" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="10 6"/>
+  <text x="400" y="150" fill="#f59e0b" font-family="monospace" font-size="26" font-weight="bold" text-anchor="middle">PLACEHOLDER — NOT A SCREENSHOT</text>
+  <text x="400" y="195" fill="#e2e8f0" font-family="monospace" font-size="14" text-anchor="middle">No image of this page was captured.</text>
+  <text x="400" y="225" fill="#94a3b8" font-family="monospace" font-size="12" text-anchor="middle">Cloudflare Browser Rendering was unavailable, so this illustration was</text>
+  <text x="400" y="245" fill="#94a3b8" font-family="monospace" font-size="12" text-anchor="middle">generated locally. It shows no page content and no market data.</text>
+  <text x="400" y="300" fill="#38bdf8" font-family="monospace" font-size="12" text-anchor="middle">${url}</text>
+  <text x="400" y="410" fill="#64748b" font-family="monospace" font-size="11" text-anchor="middle">Generated placeholder • Cloudflare Browser Agent</text>
 </svg>`;
     return Buffer.from(svg).toString("base64");
   }
@@ -349,7 +407,7 @@ export class ETradeBrowserService {
 
   <!-- Footer Attestation -->
   <line x1="35" y1="330" x2="665" y2="330" stroke="#1e293b" stroke-width="1" />
-  <text x="35" y="355" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">Attested by Cloudflare Browser Agent (${AGENT_DIDS.BROWSER || "did:agent:openaimp:browser"}) • Human-in-the-Loop Verified</text>
+  <text x="35" y="355" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">Attested by Cloudflare Browser Agent (${AGENT_DIDS.BROWSER || "did:agent:openaimp:browser"}) • ${tx.humanApproved ? "Human-in-the-Loop Verified" : "Human approval not recorded for this transaction"}</text>
 </svg>`;
 
     return Buffer.from(svg).toString("base64");
@@ -488,13 +546,14 @@ export class ETradeBrowserService {
           body: JSON.stringify(payload),
         });
 
+        const verdict = await this.slackBotApiAccepted(resp);
         return {
-          success: resp.ok,
+          success: verdict.accepted,
           transactionId: tx.transactionId,
           symbol: tx.symbol,
           channel: options.channel,
           screenshotBase64,
-          error: resp.ok ? undefined : `HTTP ${resp.status}`,
+          error: verdict.error,
           timestamp,
         };
       } catch (err: any) {
@@ -508,12 +567,14 @@ export class ETradeBrowserService {
       }
     }
 
+    // Issue #120: the snap graphic was generated but nothing was delivered —
+    // report failure, not success.
     return {
-      success: true,
+      success: false,
       transactionId: tx.transactionId,
       symbol: tx.symbol,
       screenshotBase64,
-      error: "Slack webhook URL or Bot token not configured; snap prepared successfully.",
+      error: "Not delivered: no Slack webhook URL or bot token is configured (set SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN); the snap was prepared but nothing was sent to Slack.",
       timestamp,
     };
   }
