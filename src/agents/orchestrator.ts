@@ -45,6 +45,9 @@ import { buildCalibratedOptionChains } from "../trading/options/calibratedOption
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
 import { SqlScanRunStore, diffScanRuns } from "../trading/options/scanRunStore";
+import { SqlIvHistoryStore } from "../trading/options/ivHistoryStore";
+import { flattenWatchlistSymbols, getIvHistoryEntry, resolveTrackedSymbols } from "../trading/options/ivCollector";
+import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import { validateStrategyProfile, type StrategyProfileSpec } from "../trading/options/strategyProfile";
 import { SqlStrategyProfileStore } from "../trading/options/strategyProfileStore";
 import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
@@ -181,6 +184,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           { sector: "Technology", maxItems: 5 }
         );
       }
+
+      // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
+      // after the US close in both EST and EDT, so the day's record
+      // reads the closing chain. Weekdays only: the series is one
+      // record per trading session, and a weekend run would restate
+      // Friday's chain under a new date. (US holidays still record
+      // the prior session's chain — a disclosed approximation of one
+      // row, versus ~104 stale weekend rows a year.) Idempotent per
+      // (symbol, day) at the store, so a retry or manual trigger the
+      // same day is a no-op.
+      if (typeof (this as any).schedule === "function") {
+        await (this as any).schedule(
+          "15 22 * * 1-5",
+          "collectIvHistory",
+          { userLogin: this.sessionKey() },
+          { idempotent: true }
+        );
+      }
     } catch (schedErr) {
       console.warn("[OrchestratorAgent][onStart] Note on schedule registration:", schedErr);
     }
@@ -287,6 +308,58 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       await (this as any).keepAliveWhile(runAnalysis);
     } else {
       await runAnalysis();
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Daily IV History Collection
+   * (issue #15). Persists one ATM IV record per tracked name per day;
+   * names whose chains fail are reported failed in the run's audit —
+   * no record is ever fabricated for a missing day.
+   */
+  async collectIvHistory(payload?: { symbols?: string[]; environment?: string; userLogin?: string }): Promise<void> {
+    if (typeof (this as any).waitUntilStable === "function") {
+      try {
+        await (this as any).waitUntilStable({ timeout: 30_000 });
+      } catch {
+        // Continue if timeout or unhandled
+      }
+    }
+    const runCollection = async () => {
+      const service = new ScheduledTasksService(
+        this.env,
+        this.getOrm(),
+        payload?.userLogin || this.sessionKey(),
+        new SqlScanRunStore(this.ctx.storage.sql),
+        new SqlIvHistoryStore(this.ctx.storage.sql)
+      );
+      const res = await service.collectDailyIvHistory(payload);
+      if (!res.success) {
+        console.warn("[OrchestratorAgent] collectIvHistory error:", res.error);
+      } else if (typeof (this as any).broadcast === "function") {
+        try {
+          (this as any).broadcast(
+            JSON.stringify({
+              type: "iv_collection",
+              title: "Daily IV History Collection",
+              date: res.data?.date,
+              recorded: res.data?.recorded,
+              alreadyRecorded: res.data?.alreadyRecorded,
+              failed: res.data?.failed,
+              tracked: res.data?.trackedCount,
+              timestamp: res.timestamp,
+            })
+          );
+        } catch {
+          // Non-critical broadcast error
+        }
+      }
+    };
+
+    if (typeof (this as any).keepAliveWhile === "function") {
+      await (this as any).keepAliveWhile(runCollection);
+    } else {
+      await runCollection();
     }
   }
 
@@ -3867,6 +3940,42 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // IV history (issue #15): the daily collector's stored series,
+    // read back as IV rank / percentile with honest coverage. A name
+    // with no records is a state (observations 0, warmingUp true,
+    // latest null), never a 404 — absence of history is exactly what
+    // a warming-up system is supposed to report. Without ?symbol=,
+    // returns the per-name coverage summary for every tracked name
+    // (curated ∪ watchlists) plus any name that has records.
+    if (path.endsWith("/etrade/options/iv-history") && request.method === "GET") {
+      try {
+        const store = new SqlIvHistoryStore(sql);
+        const symbolParam = url.searchParams.get("symbol");
+        if (symbolParam) {
+          return Response.json(await getIvHistoryEntry(store, symbolParam));
+        }
+        let watchlistSymbols: string[] = [];
+        try {
+          watchlistSymbols = flattenWatchlistSymbols(this.getOrm().watchlists.findMany({}));
+        } catch {
+          // Watchlist read failure → curated universe only.
+        }
+        const tracked = resolveTrackedSymbols(
+          getCuratedStockUniverse().map((s) => s.symbol),
+          watchlistSymbols
+        );
+        const recorded = await store.listSymbols();
+        const names = [...new Set([...tracked, ...recorded])].sort();
+        const entries = [];
+        for (const symbol of names) {
+          entries.push(await getIvHistoryEntry(store, symbol));
+        }
+        return Response.json({ count: entries.length, names: entries });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch IV history" }, { status: 500 });
+      }
+    }
+
     // Saved strategy profiles (issue #28): named, versioned "my
     // strategy" objects, scoped per user. Scans and single-name actions
     // resolve them by name (NLQ) or id/name (unified body) and stamp
@@ -5108,6 +5217,26 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
+      }
+    }
+
+    // Trigger the daily IV history collection immediately on demand
+    // (issue #15) — same per-name outcomes the scheduled run produces;
+    // idempotent per (symbol, day), so a manual rerun is safe.
+    if (path.endsWith("/schedules/trigger-iv-collection") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const service = new ScheduledTasksService(
+          this.env,
+          this.getOrm(),
+          this.sessionKey(),
+          new SqlScanRunStore(this.ctx.storage.sql),
+          new SqlIvHistoryStore(this.ctx.storage.sql)
+        );
+        const result = await service.collectDailyIvHistory(body);
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger IV collection" }, { status: 500 });
       }
     }
 
