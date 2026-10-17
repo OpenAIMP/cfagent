@@ -15,6 +15,7 @@ vi.mock("@cloudflare/ai-chat", () => {
 
 import { BrowserAgent } from "../src/agents/browserAgent";
 import { SlackAgent } from "../src/agents/slackAgent";
+import { computeHmacSha256Hex } from "../src/services/cryptoUtils";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { AGENT_DIDS } from "../src/agents/did";
@@ -40,6 +41,32 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     storage: { sql },
     waitUntil: vi.fn(),
   });
+
+  // Issue #147: SlackAgent.onRequest requires a valid Slack signature
+  // whenever a signing secret is configured. The onRequest tests below
+  // previously posted UNSIGNED requests that were processed only via
+  // the removed missing-header bypass; they now present genuine
+  // signatures (real HMAC over the exact body, the test secret from
+  // mockEnv) so they keep verifying the same processing behaviour
+  // through the mandatory gate.
+  const slackSignedPost = async (url: string, body: string) => {
+    const ts = String(Math.floor(Date.now() / 1000));
+    const signature =
+      "v0=" +
+      (await computeHmacSha256Hex(
+        mockEnv.SLACK_SIGNING_SECRET as string,
+        `v0:${ts}:${body}`
+      ));
+    return new Request(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-slack-request-timestamp": ts,
+        "x-slack-signature": signature,
+      },
+      body,
+    });
+  };
 
   beforeEach(() => {
     sql = new MockSqlStorage();
@@ -418,14 +445,11 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
       expect(healthJson.capabilities).toContain("browser_agent_snaps");
 
       // URL Verification challenge from Slack Events API
-      const challengeReq = new Request("https://agent.internal/slack/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "url_verification",
-          challenge: "3eZbrAqvmAVdaMnujKqCnhPdAUpeA7nmBIKN1",
-        }),
+      const challengeBody = JSON.stringify({
+        type: "url_verification",
+        challenge: "3eZbrAqvmAVdaMnujKqCnhPdAUpeA7nmBIKN1",
       });
+      const challengeReq = await slackSignedPost("https://agent.internal/slack/events", challengeBody);
 
       const challengeRes = await slackAgent.onRequest(challengeReq);
       expect(challengeRes.status).toBe(200);
@@ -513,20 +537,17 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
       const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
 
       // Inbound Slack event: user says "approve ord_conv_approve_777"
-      const eventReq = new Request("https://agent.internal/slack/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "event_callback",
-          event: {
-            type: "app_mention",
-            user: "U_HUMAN_APPROVER",
-            text: "<@U_BOT> approve ord_conv_approve_777",
-            channel: "C_TRADING_ROOM",
-            ts: "1728364800.000100",
-          },
-        }),
+      const eventBody = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "app_mention",
+          user: "U_HUMAN_APPROVER",
+          text: "<@U_BOT> approve ord_conv_approve_777",
+          channel: "C_TRADING_ROOM",
+          ts: "1728364800.000100",
+        },
       });
+      const eventReq = await slackSignedPost("https://agent.internal/slack/events", eventBody);
 
       const eventRes = await slackAgent.onRequest(eventReq);
       expect(eventRes.status).toBe(200);
@@ -573,20 +594,17 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
 
       const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
 
-      const eventReq = new Request("https://agent.internal/slack/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "event_callback",
-          event: {
-            type: "message",
-            user: "U_TRADER_BOB",
-            text: "cancel ord_conv_cancel_555",
-            channel: "C_PRIVATE_DM",
-            ts: "1728364900.000200",
-          },
-        }),
+      const eventBody = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "message",
+          user: "U_TRADER_BOB",
+          text: "cancel ord_conv_cancel_555",
+          channel: "C_PRIVATE_DM",
+          ts: "1728364900.000200",
+        },
       });
+      const eventReq = await slackSignedPost("https://agent.internal/slack/events", eventBody);
 
       const eventRes = await slackAgent.onRequest(eventReq);
       expect(eventRes.status).toBe(200);
@@ -625,20 +643,17 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
 
       const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
 
-      const eventReq = new Request("https://agent.internal/slack/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "event_callback",
-          event: {
-            type: "message",
-            user: "U_SNAP_REQUESTER",
-            text: "snap ord_conv_snap_333",
-            channel: "C_SNAPS",
-            ts: "1728365000.000300",
-          },
-        }),
+      const eventBody = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "message",
+          user: "U_SNAP_REQUESTER",
+          text: "snap ord_conv_snap_333",
+          channel: "C_SNAPS",
+          ts: "1728365000.000300",
+        },
       });
+      const eventReq = await slackSignedPost("https://agent.internal/slack/events", eventBody);
 
       const eventRes = await slackAgent.onRequest(eventReq);
       expect(eventRes.status).toBe(200);
@@ -669,19 +684,16 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
 
       const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
 
-      const eventReq = new Request("https://agent.internal/slack/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "event_callback",
-          event: {
-            type: "message",
-            user: "U_TRADER",
-            text: "approve ord_already_executed",
-            channel: "C_TRADES",
-          },
-        }),
+      const eventBody = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "message",
+          user: "U_TRADER",
+          text: "approve ord_already_executed",
+          channel: "C_TRADES",
+        },
       });
+      const eventReq = await slackSignedPost("https://agent.internal/slack/events", eventBody);
 
       const eventRes = await slackAgent.onRequest(eventReq);
       expect(eventRes.status).toBe(200);
