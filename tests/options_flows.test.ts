@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   RAW_LIVE_FLOW_ITEMS,
-  RAW_INSIDER_FLOW_ITEMS,
-  RAW_CONGRESS_FLOW_ITEMS,
   DEFAULT_SAVED_PRESETS,
   DEFAULT_FILTER_CONFIG,
   filterLiveFlowItems,
@@ -22,7 +20,7 @@ import {
 } from "../src/trading/options/flows/flowService";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import type { ETradeOptionChain } from "../src/types";
-import type { NewsFlowItem } from "../src/trading/options/flows/types";
+import type { CongressFlowItem, InsiderFlowItem, NewsFlowItem } from "../src/trading/options/flows/types";
 
 describe("Options Flows Engine & Institutional Activity Suite", () => {
   it("contains the static fixture flow table, every row stamped provenance: static (issue #119)", () => {
@@ -112,35 +110,62 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
   });
 
   it("filters insider flow items by ticker and executive member name", () => {
-    expect(RAW_INSIDER_FLOW_ITEMS.length).toBeGreaterThanOrEqual(6);
+    // Issue #131: the dormant fabricated insider fixture table — invented
+    // trades attributed to named real executives — was deleted from the
+    // product. filterInsiderFlowItems is exercised here over locally
+    // defined, clearly fictional fixtures; production insider data comes
+    // only from the real fetchRealSecInsiderFilings (SEC EDGAR) fetcher.
+    const fixtures: InsiderFlowItem[] = [
+      { id: "fx_ins_1", reportDate: "6:03am", time: "6:03am", timestamp: 1000, symbol: "MTN", companyName: "Fixture Resorts, Inc.", trade: "Buy MTN Share Appreciation Right", member: "Angela Fixture", title: "Executive Vice President & CFO", premium: 3710000, premiumFormatted: "$3.71m", shares: 22500, price: 164.88, marketCap: "mid", assetType: "stock" },
+      { id: "fx_ins_2", reportDate: "6:03am", time: "6:03am", timestamp: 2000, symbol: "MTN", companyName: "Fixture Resorts, Inc.", trade: "Buy MTN Share Appreciation Right", member: "Fixture Person Two", title: "Chief Human Resources Officer", premium: 3170000, premiumFormatted: "$3.17m", shares: 19200, price: 165.1, marketCap: "mid", assetType: "stock" },
+      { id: "fx_ins_3", reportDate: "6:03am", time: "6:03am", timestamp: 3000, symbol: "MTN", companyName: "Fixture Resorts, Inc.", trade: "Buy MTN Share Appreciation Right", member: "Fixture Person Three", title: "Executive Chairperson", premium: 7590000, premiumFormatted: "$7.59m", shares: 46000, price: 165.0, marketCap: "mid", assetType: "stock" },
+      { id: "fx_ins_4", reportDate: "6:02am", time: "6:02am", timestamp: 4000, symbol: "MTN", companyName: "Fixture Resorts, Inc.", trade: "Buy MTN Share Appreciation Right", member: "Fixture Person Four", title: "Chief Operating Officer", premium: 1440000, premiumFormatted: "$1.44m", shares: 8700, price: 165.5, marketCap: "mid", assetType: "stock" },
+      { id: "fx_ins_5", reportDate: "6:02am", time: "6:02am", timestamp: 5000, symbol: "MTN", companyName: "Fixture Resorts, Inc.", trade: "Buy MTN Share Appreciation Right", member: "Fixture Person Five", title: "General Counsel & Corporate Secretary", premium: 2120000, premiumFormatted: "$2.12m", shares: 12850, price: 164.98, marketCap: "mid", assetType: "stock" },
+      { id: "fx_ins_6", reportDate: "6:02am", time: "6:02am", timestamp: 6000, symbol: "NVDA", companyName: "Fixture Semiconductors, Inc.", trade: "Open Market Purchase Common Stock", member: "Fixture Person Six", title: "President & CEO", premium: 15400000, premiumFormatted: "$15.4m", shares: 65000, price: 236.9, marketCap: "large", assetType: "stock" },
+      { id: "fx_ins_7", reportDate: "10/6 8:40pm", time: "8:40pm", timestamp: 7000, symbol: "AAPL", companyName: "Fixture Devices, Inc.", trade: "Purchase 25,000 Common Shares", member: "Fixture Person Seven", title: "Chair of the Board", premium: 900000, premiumFormatted: "$900k", shares: 25000, price: 36.0, marketCap: "large", assetType: "stock" },
+    ];
+    expect(fixtures.length).toBeGreaterThanOrEqual(6);
 
-    const mtnInsiders = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { tickers: ["MTN"] });
+    const mtnInsiders = filterInsiderFlowItems(fixtures, { tickers: ["MTN"] });
     expect(mtnInsiders.length).toBeGreaterThanOrEqual(5);
 
-    const angelaTrades = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { insiderNames: ["Angela"] });
+    const angelaTrades = filterInsiderFlowItems(fixtures, { insiderNames: ["Angela"] });
     expect(angelaTrades.length).toBe(1);
-    expect(angelaTrades[0].member).toContain("Angela A Korch");
+    expect(angelaTrades[0].member).toContain("Angela Fixture");
     expect(angelaTrades[0].premium).toBe(3710000);
 
-    const millionPlus = filterInsiderFlowItems(RAW_INSIDER_FLOW_ITEMS, { minPremium: 2000000 });
+    const millionPlus = filterInsiderFlowItems(fixtures, { minPremium: 2000000 });
     expect(millionPlus.every((i) => i.premium >= 2000000)).toBe(true);
   });
 
   it("filters congressional disclosures by chamber and political party", () => {
-    expect(RAW_CONGRESS_FLOW_ITEMS.length).toBeGreaterThanOrEqual(5);
+    // Issue #131: the dormant fabricated congress fixture table — invented
+    // trades attributed to named real politicians — was deleted from the
+    // product. filterCongressFlowItems is exercised here over locally
+    // defined, clearly fictional fixtures; production congressional data
+    // comes only from fetchRealCongressDisclosures.
+    const fixtures: CongressFlowItem[] = [
+      { id: "fx_cong_1", filingDate: "10/4/2026", transactionDate: "09/28/2026", time: "10/4 2:15pm", timestamp: 1000, politician: "Fixture Member One", chamber: "House", party: "Democrat", state: "CA-00", symbol: "NVDA", assetDescription: "Fixture Semiconductors, Inc. - Call Options", transaction: "Option Exercise", amountRange: "$1,000,001 - $5,000,000", estimatedPremium: 2500000, estimatedPremiumFormatted: "$2.50m" },
+      { id: "fx_cong_2", filingDate: "10/3/2026", transactionDate: "09/25/2026", time: "10/3 4:45pm", timestamp: 2000, politician: "Fixture Member Two", chamber: "House", party: "Republican", state: "TX-00", symbol: "MSFT", assetDescription: "Fixture Software, Inc. Common Stock", transaction: "Purchase", amountRange: "$500,001 - $1,000,000", estimatedPremium: 750000, estimatedPremiumFormatted: "$750k" },
+      { id: "fx_cong_3", filingDate: "10/2/2026", transactionDate: "09/22/2026", time: "10/2 11:30am", timestamp: 3000, politician: "Fixture Member Three", chamber: "House", party: "Democrat", state: "CA-00", symbol: "GOOGL", assetDescription: "Fixture Search, Inc. Class A Common Stock", transaction: "Purchase", amountRange: "$250,001 - $500,000", estimatedPremium: 350000, estimatedPremiumFormatted: "$350k" },
+      { id: "fx_cong_4", filingDate: "10/1/2026", transactionDate: "09/19/2026", time: "10/1 3:20pm", timestamp: 4000, politician: "Fixture Member Four", chamber: "Senate", party: "Republican", state: "AL", symbol: "PANW", assetDescription: "Fixture Security, Inc. Common Stock", transaction: "Purchase", amountRange: "$100,001 - $250,000", estimatedPremium: 175000, estimatedPremiumFormatted: "$175k" },
+      { id: "fx_cong_5", filingDate: "09/30/2026", transactionDate: "09/15/2026", time: "9/30 9:10am", timestamp: 5000, politician: "Fixture Member Five", chamber: "House", party: "Democrat", state: "NY-00", symbol: "AAPL", assetDescription: "Fixture Devices, Inc. Common Stock", transaction: "Sale", amountRange: "$50,001 - $100,000", estimatedPremium: 75000, estimatedPremiumFormatted: "$75k" },
+      { id: "fx_cong_6", filingDate: "09/29/2026", transactionDate: "09/14/2026", time: "9/29 5:00pm", timestamp: 6000, politician: "Fixture Member Six", chamber: "Senate", party: "Republican", state: "OK", symbol: "RTX", assetDescription: "Fixture Defense, Inc. Common Stock", transaction: "Purchase", amountRange: "$250,001 - $500,000", estimatedPremium: 380000, estimatedPremiumFormatted: "$380k" },
+    ];
+    expect(fixtures.length).toBeGreaterThanOrEqual(5);
 
-    const senateTrades = filterCongressFlowItems(RAW_CONGRESS_FLOW_ITEMS, { chamber: "Senate" });
+    const senateTrades = filterCongressFlowItems(fixtures, { chamber: "Senate" });
     expect(senateTrades.length).toBeGreaterThan(0);
     expect(senateTrades.every((c) => c.chamber === "Senate")).toBe(true);
 
-    const repTrades = filterCongressFlowItems(RAW_CONGRESS_FLOW_ITEMS, { party: "Republican" });
+    const repTrades = filterCongressFlowItems(fixtures, { party: "Republican" });
     expect(repTrades.length).toBeGreaterThan(0);
     expect(repTrades.every((c) => c.party === "Republican")).toBe(true);
 
-    const pelosiTrade = filterCongressFlowItems(RAW_CONGRESS_FLOW_ITEMS, { tickers: ["NVDA"] });
-    expect(pelosiTrade.length).toBeGreaterThan(0);
-    expect(pelosiTrade[0].politician).toBe("Nancy Pelosi");
-    expect(pelosiTrade[0].transaction).toBe("Option Exercise");
+    const nvdaTrade = filterCongressFlowItems(fixtures, { tickers: ["NVDA"] });
+    expect(nvdaTrade.length).toBeGreaterThan(0);
+    expect(nvdaTrade[0].politician).toBe("Fixture Member One");
+    expect(nvdaTrade[0].transaction).toBe("Option Exercise");
   });
 
   it("calculates accurate flow summary analytics and sentiment dial", () => {
