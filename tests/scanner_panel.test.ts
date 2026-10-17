@@ -1269,10 +1269,11 @@ describe("slice 3 — borderline bucket chips", () => {
 });
 
 // Slice 5 fixtures — typed against the REAL store/result types --------------
-// NOTE: ScanRunSummary (the list projection) carries NO profileRef —
-// the profile stamp lives only on the full result (result.profileRef).
-// These literals pin that shape: a summary with a profile field would
-// not compile.
+// NOTE: since issue #103 ScanRunSummary (the list projection) DOES
+// carry profileRef — the same stamp as the full result
+// (result.profileRef) — so history rows label the profile straight
+// from the summary. These literals pin that shape: a summary missing
+// the field would not compile.
 
 function historyRow(symbol: string, gateBucket: "fit" | "borderline" | "no_fit"): ScanMatrixRow {
   return {
@@ -1387,6 +1388,7 @@ const newerResult: OpportunityScanResult = {
 const olderRun: StoredScanRun = {
   id: "3f9c1e2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
   generatedAt: olderResult.generatedAt,
+  profileRef: olderResult.profileRef,
   mode: olderResult.mode,
   modelVersion: olderResult.modelVersion,
   gate: olderResult.gate,
@@ -1397,6 +1399,7 @@ const olderRun: StoredScanRun = {
 const newerRun: StoredScanRun = {
   id: "7b2d4f6a-1c3e-4a5b-9d8e-2f4a6b8c0d1e",
   generatedAt: newerResult.generatedAt,
+  profileRef: newerResult.profileRef,
   mode: newerResult.mode,
   modelVersion: newerResult.modelVersion,
   gate: newerResult.gate,
@@ -1415,6 +1418,35 @@ const sparseRun = {
   coverage: { considered: 1, scanned: 1, truncated: 0, evaluated: 0, errors: 1, withTrades: 0 },
   result: { mode: "per_name_best", generatedAt: "2026-10-14T14:00:00.000Z", modelVersion: "1.1.2" },
 } as unknown as StoredScanRun;
+
+/** A run recorded since issue #103: its snapshot carries the original
+ *  request (requestSnapshot.request). Note the request's fields
+ *  deliberately DIFFER from the snapshot template's merged values
+ *  (template statedTarget is SPY $500, minDte 20 — the record says
+ *  NVDA $300, minDte 10): the record is what the caller asked, and a
+ *  re-run must replay the record, not the merged template. */
+const recordedRun: StoredScanRun = {
+  ...olderRun,
+  id: "9c8b7a6f-5e4d-3c2b-1a09-8f7e6d5c4b3a",
+  generatedAt: "2026-10-17T09:30:00.000Z",
+  result: {
+    ...olderResult,
+    generatedAt: "2026-10-17T09:30:00.000Z",
+    requestSnapshot: {
+      ...olderResult.requestSnapshot,
+      request: {
+        symbols: ["NVDA", "PLTR"],
+        thesis: "bullish",
+        targetDate: "2026-11-20",
+        statedTarget: { price: 300, symbol: "NVDA" },
+        minDte: 10,
+        maxDte: 45,
+        profileId: "prof-1",
+        limit: 5,
+      },
+    },
+  },
+};
 
 const historyDiff: ScanRunDiff = {
   newFits: ["MSFT"],
@@ -1717,5 +1749,64 @@ describe("slice 5 — scan history (surface 5)", () => {
     await click(buttonByText(historyRows()[0], "Diff vs previous"));
     await waitForText("scan run not found");
     expect(container.querySelector(".scp-error")?.textContent).toContain("scan run not found");
+  });
+});
+
+// Issue #103 — history profile chip + recorded-request replay ---------------
+
+describe("issue #103 — history rows label the profile; recorded runs replay verbatim", () => {
+  it("history rows render the profile chip from the summary's profileRef", async () => {
+    installFetch(historyState());
+    await renderPanel();
+    await waitForText("Diff vs previous");
+
+    const rows = historyRows();
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.textContent).toContain("Profile: Income v2");
+      expect(row.querySelector(".scp-badge-profile")?.textContent).toBe("Profile: Income v2");
+    }
+  });
+
+  it("buildRerunRequest prefers the recorded request: exact body, nothing dropped", () => {
+    const { body, dropped } = buildRerunRequest(recordedRun);
+    expect(dropped).toEqual([]);
+    expect(body).toEqual({
+      action: "opportunities",
+      symbols: ["NVDA", "PLTR"],
+      thesis: "bullish",
+      targetDate: "2026-11-20",
+      statedTarget: { price: 300, symbol: "NVDA" },
+      minDte: 10,
+      maxDte: 45,
+      profileId: "prof-1",
+      limit: 5,
+    });
+  });
+
+  it("Re-run of a recorded run posts exactly the recorded fields and shows no dropped-fields note", async () => {
+    const calls = installFetch(historyState({ scanRuns: [recordedRun] }));
+    await renderPanel();
+    await waitForText("Profile: Income v2"); // the history row's chip — the list has loaded
+    const row = historyRows()[0];
+    expect(row.textContent).toContain(new Date(recordedRun.generatedAt).toLocaleString());
+
+    await click(buttonByText(row, "Re-run"));
+    await waitForText("Re-ran the scan from");
+    expect(container.textContent).toContain(`Re-ran the scan from ${new Date(recordedRun.generatedAt).toLocaleString()}.`);
+    expect(container.textContent).not.toContain("Not replayed");
+
+    const post = calls.filter((c) => c.url.endsWith("/api/trading/options/unified")).at(-1);
+    expect(post?.body).toEqual({
+      action: "opportunities",
+      symbols: ["NVDA", "PLTR"],
+      thesis: "bullish",
+      targetDate: "2026-11-20",
+      statedTarget: { price: 300, symbol: "NVDA" },
+      minDte: 10,
+      maxDte: 45,
+      profileId: "prof-1",
+      limit: 5,
+    });
   });
 });
