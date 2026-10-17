@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { executionCardPresentation } from "./executionCard";
+import { confirmationCardPresentation } from "./confirmationCard";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { resolveErrorAspect } from "../aspects/errorCodes";
@@ -316,24 +317,28 @@ function ToolResultView({
   const [open, setOpen] = useState(false);
   const normalizedType = (toolType || "").toLowerCase();
 
-  // 1. Human-In-The-Loop Confirmation Execution
+  // 1. Human-In-The-Loop Authorization Confirmation
   if (normalizedType.includes("confirm") || data?.auditNotice || (data?.draftId && (data?.status === "authorized" || data?.status === "scheduled" || data?.status === "rejected"))) {
-    const isApproved = data?.decision === "approved" || data?.status === "authorized" || data?.status === "scheduled";
+    // Issue #141: this card records a human AUTHORIZATION decision, not
+    // an execution. The pill states the decision (APPROVED / REJECTED);
+    // execution outcomes render on the E*TRADE execution card below.
+    // See confirmationCardPresentation.
+    const confirmCard = confirmationCardPresentation(data);
     const draftId = data?.draftId || "draft";
     return (
       <div className="tool-card confirm-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
-          <span className="tool-icon">{isApproved ? "🛡️" : "🚫"}</span>
+          <span className="tool-icon">{confirmCard.icon}</span>
           <div className="tool-summary">
-            <strong>Human Authorization:</strong> <code>{draftId}</code> ({isApproved ? "APPROVED" : "REJECTED"})
+            <strong>Human Authorization:</strong> <code>{draftId}</code> ({confirmCard.verdict})
           </div>
-          <span className={`tool-status-pill ${isApproved ? "success" : "priority-urgent"}`}>
-            {isApproved ? "EXECUTED" : "CANCELLED"}
+          <span className={`tool-status-pill ${confirmCard.pillClass}`}>
+            {confirmCard.pillLabel}
           </span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         <div className="confirm-details">
-          {data?.auditNotice || data?.note || "Draft confirmed by human reviewer."}
+          {data?.auditNotice || data?.note || confirmCard.detailFallback}
         </div>
         {open && (
           <div className="tool-card-body">
