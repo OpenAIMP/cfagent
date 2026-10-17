@@ -522,6 +522,11 @@ export class ETradeService {
     return this.client.getOptionExpireDates(symbol, expiryType);
   }
 
+  // Issue #155 note: this class's existing getLastError() (below)
+  // already forwards the client's error via the platform — the routes
+  // for the two methods above now read it to distinguish upstream
+  // failures from genuine empties.
+
   /**
    * Real E*TRADE REST API: Fetch live orders from exchange with OAuth 1.0a
    */
