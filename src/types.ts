@@ -601,6 +601,8 @@ export interface ETradeOrderDraft {
   term: "GOOD_FOR_DAY" | "GOOD_UNTIL_CANCEL";
   estimatedCommission: number;
   estimatedTotal: number;
+  /** Issue #118: quoteStatus of the quote this preview was priced from (e.g. "REALTIME", "STATIC_FALLBACK"). */
+  pricingQuoteStatus?: string;
   status: "draft" | "previewed" | "submitted" | "executed" | "rejected" | "cancelled" | "expired";
   proposerDid: string;
   authorizerDid: string;

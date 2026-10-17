@@ -1,9 +1,15 @@
 import { generateText, generateObject } from "ai";
 import { getWorkersAIModel, DEFAULT_AI_MODEL, resolveAiModelName } from "./model";
 import { z } from "zod";
-import type { AgentScheduleItem, Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
+import type { AgentScheduleItem, Env, ETradeQuote, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import {
+  STATIC_FALLBACK_QUOTE_STATUS,
+  isLiveQuoteStatus,
+  isNonLivePricingQuoteStatus,
+  nonLivePricingNotice,
+} from "../trading/etrade/platform";
 import { FossResearchService, weakestFossProvenance } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
@@ -1317,6 +1323,44 @@ export function formatMarketCap(cap?: number): string {
   return `$${cap.toFixed(1)}B`;
 }
 
+/**
+ * Issue #118 (audit F13): NLQ quote answers must announce provenance
+ * truthfully. "Real-time" is claimed ONLY for a quote actually fetched live
+ * (quoteStatus "REALTIME"); a static fallback / simulated / delayed /
+ * unavailable quote is labelled as what it is, in the summary and the rows,
+ * because chat and voice surfaces read this text verbatim.
+ */
+export function formatTradingQuoteHeadline(q: ETradeQuote): string {
+  const price = `$${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`;
+  const hasBidAsk = q.bid > 0 || q.ask > 0;
+  if (isLiveQuoteStatus(q.quoteStatus)) {
+    return `Real-time quote for ${q.symbol} (${q.companyName}): ${price}. Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`;
+  }
+  const status = q.quoteStatus || "UNKNOWN";
+  const label =
+    q.quoteStatus === STATIC_FALLBACK_QUOTE_STATUS
+      ? "Static fallback quote (not live market data)"
+      : q.quoteStatus === "SIMULATED_LEVEL1"
+        ? "Simulated quote (sandbox — not live market data)"
+        : q.quoteStatus === "DELAYED"
+          ? "Delayed quote"
+          : q.quoteStatus === "AUTH_REQUIRED"
+            ? "Quote unavailable (E*TRADE authentication required)"
+            : `Quote (status: ${status})`;
+  const bidAskClause =
+    q.quoteStatus === STATIC_FALLBACK_QUOTE_STATUS
+      ? "No live bid/ask available — static table price only."
+      : hasBidAsk
+        ? `Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`
+        : "No live bid/ask available.";
+  return `${label} for ${q.symbol} (${q.companyName}): ${price}. ${bidAskClause}`;
+}
+
+/** Bid/ask cell for NLQ quote rows: never renders an invented zero spread as real. */
+export function formatTradingQuoteBidAsk(q: ETradeQuote): string {
+  return q.bid > 0 || q.ask > 0 ? `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}` : "N/A (no live bid/ask)";
+}
+
 export function executeNLQQuery(
   orm: DatabaseORM,
   sessionId: string,
@@ -1620,7 +1664,7 @@ export function executeNLQQuery(
         domain: "trading",
         targetTable: "etrade_market_quotes",
         count: 1,
-        summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        summary: formatTradingQuoteHeadline(q),
         rows: [
           {
             symbol: q.symbol,
@@ -1629,12 +1673,13 @@ export function executeNLQQuery(
             change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
             changePeriod: "1D (Regular Trading Day)",
             priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
-            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            bidAsk: formatTradingQuoteBidAsk(q),
             volume: q.volume.toLocaleString(),
             range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
             peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
             marketCap: formatMarketCap(q.marketCap),
             source: q.source,
+            quoteStatus: q.quoteStatus || "UNKNOWN",
             quoteTimestamp: q.timestamp || executedAt,
           },
         ],
@@ -1714,12 +1759,19 @@ export function executeNLQQuery(
         }
       }
 
+      // Issue #118: if the preview was priced from a static fallback quote,
+      // the summary (read verbatim by chat/voice) must say so.
+      const pricingQuoteStatus = draft.pricingQuoteStatus ?? quote.quoteStatus;
+      const nonLivePricingNote = isNonLivePricingQuoteStatus(pricingQuoteStatus)
+        ? ` ${nonLivePricingNotice(pricingQuoteStatus)}`
+        : "";
+
       return {
         plan,
         domain: "trading",
         targetTable: "mas_trades",
         count: 1,
-        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`,
+        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.${nonLivePricingNote}`,
         rows: [
           {
             orderId: draft.orderId,
@@ -1729,6 +1781,7 @@ export function executeNLQQuery(
             orderType: draft.orderType,
             limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
             prevailingMarketPrice: marketPriceStr,
+            pricingQuoteStatus: pricingQuoteStatus || "UNKNOWN",
             relativePricing: relativeDesc,
             estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
             estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
@@ -2549,7 +2602,7 @@ export async function executeNLQQueryAsync(
         domain: "trading",
         targetTable: "etrade_market_quotes",
         count: 1,
-        summary: `Real-time quote for ${q.symbol} (${q.companyName}): $${q.lastPrice.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        summary: formatTradingQuoteHeadline(q),
         rows: [
           {
             symbol: q.symbol,
@@ -2558,12 +2611,13 @@ export async function executeNLQQueryAsync(
             change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
             changePeriod: "1D (Regular Trading Day)",
             priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
-            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            bidAsk: formatTradingQuoteBidAsk(q),
             volume: q.volume.toLocaleString(),
             range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
             peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
             marketCap: formatMarketCap(q.marketCap),
             source: q.source,
+            quoteStatus: q.quoteStatus || "UNKNOWN",
             quoteTimestamp: q.timestamp || executedAt,
           },
         ],
@@ -2621,7 +2675,13 @@ export async function executeNLQQueryAsync(
         }
       }
 
-      const summary = `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.`;
+      // Issue #118: same non-live pricing disclosure as the sync executor.
+      const pricingQuoteStatus = draft.pricingQuoteStatus ?? quote.quoteStatus;
+      const nonLivePricingNote = isNonLivePricingQuoteStatus(pricingQuoteStatus)
+        ? ` ${nonLivePricingNotice(pricingQuoteStatus)}`
+        : "";
+
+      const summary = `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.${nonLivePricingNote}`;
 
       return {
         plan,
@@ -2638,6 +2698,7 @@ export async function executeNLQQueryAsync(
             orderType: draft.orderType,
             limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
             prevailingMarketPrice: marketPriceStr,
+            pricingQuoteStatus: pricingQuoteStatus || "UNKNOWN",
             relativePricing: relativeDesc,
             estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
             estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,

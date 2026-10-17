@@ -37,6 +37,11 @@ import {
   ETradeTradingPlatform,
   ETradeRestClient,
   OrderPreviewParams,
+  STATIC_FALLBACK_QUOTE_STATUS,
+  STATIC_CURATED_QUOTE_SOURCE,
+  CACHED_UNIVERSE_QUOTE_SOURCE,
+  isNonLivePricingQuoteStatus,
+  nonLivePricingNotice,
 } from "../trading";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -141,6 +146,11 @@ export class ETradeService {
    */
   getQuote(symbol: string): ETradeQuote {
     const cleanSym = symbol.trim().toUpperCase();
+    // Issue #118 (audit F12): this synchronous path never fetches live data,
+    // so its quotes must carry truthful provenance — in the live environment
+    // a cached/static quote is stamped STATIC_FALLBACK with a source naming
+    // where the price actually came from, never a live-feed label.
+    const envConfig = resolveEnvironmentConfig(this.env, this.overrideEnv);
     const found = this.screener.getUniverse().find((s) => s.symbol === cleanSym);
     if (found) {
       return {
@@ -148,7 +158,8 @@ export class ETradeService {
         price: found.lastPrice,
         high52: found.week52High,
         low52: found.week52Low,
-        source: "E*TRADE Market Data Feed",
+        quoteStatus: found.quoteStatus ?? (envConfig.isLive ? STATIC_FALLBACK_QUOTE_STATUS : "SIMULATED_LEVEL1"),
+        source: envConfig.isLive ? (found.source ?? CACHED_UNIVERSE_QUOTE_SOURCE) : "E*TRADE Market Data Feed",
       };
     }
     const curated = getCuratedStockBySymbol(cleanSym);
@@ -161,18 +172,18 @@ export class ETradeService {
         price,
         change: 0,
         changePercent: 0,
-        bid: Number((price - 0.05).toFixed(2)),
-        ask: Number((price + 0.05).toFixed(2)),
-        volume: 1000000,
+        bid: 0,
+        ask: 0,
+        volume: 0,
         open: price,
         high: price,
         low: price,
-        week52High: Number((price * 1.25).toFixed(2)),
-        week52Low: Number((price * 0.75).toFixed(2)),
+        week52High: 0,
+        week52Low: 0,
         marketCap: curated.marketCap,
-        quoteStatus: "SIMULATED_LEVEL1",
+        quoteStatus: envConfig.isLive ? STATIC_FALLBACK_QUOTE_STATUS : "SIMULATED_LEVEL1",
         timestamp: new Date().toISOString(),
-        source: "E*TRADE Market Data Feed",
+        source: envConfig.isLive ? STATIC_CURATED_QUOTE_SOURCE : "E*TRADE Market Data Feed",
       };
     }
     return {
@@ -211,7 +222,10 @@ export class ETradeService {
     const executionPrice = orderType === "LIMIT" && params.limitPrice ? params.limitPrice : quote.lastPrice;
     const estimatedTotal = Number((executionPrice * params.quantity).toFixed(2));
 
-    const previewMessage = `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.`;
+    // Issue #118: disclose when the pricing quote is a static fallback (or
+    // unavailable) instead of presenting the preview as live-priced.
+    const pricingQuoteStatus = quote.quoteStatus;
+    const previewMessage = `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.${isNonLivePricingQuoteStatus(pricingQuoteStatus) ? ` ${nonLivePricingNotice(pricingQuoteStatus)}` : ""}`;
 
     const draft: ETradeOrderDraft = {
       orderId,
@@ -226,6 +240,7 @@ export class ETradeService {
       term: "GOOD_FOR_DAY",
       estimatedCommission: 0.0,
       estimatedTotal,
+      pricingQuoteStatus,
       status: "previewed",
       proposerDid: "did:agent:openaimp:trading",
       authorizerDid: userDid,
