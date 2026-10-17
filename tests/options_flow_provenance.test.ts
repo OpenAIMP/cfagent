@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 // src/server.ts re-exports the agent classes, whose real module graph pulls
@@ -202,5 +202,62 @@ describe("Issue #119 — fabricated news wire stays deleted (source pins)", () =
     expect(nlqSrc).not.toContain("dynamic institutional prints");
     expect(nlqSrc).toContain("describeFlowProvenance(filtered)");
     expect(nlqSrc).toContain("no live options trade tape");
+  });
+});
+
+describe("Issue #131 — fabricated insider/congress fixture tables stay deleted (source pins)", () => {
+  const flowServiceSrc = readFileSync("src/trading/options/flows/flowService.ts", "utf8");
+  const serverSrc = readFileSync("src/server.ts", "utf8");
+
+  // Every TypeScript source under src/, concatenated — the fabricated
+  // tables and the people invented for them must not resurface anywhere.
+  const srcTree = (readdirSync("src", { recursive: true }) as string[])
+    .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+    .map((f) => readFileSync(`src/${f}`, "utf8"))
+    .join("\n");
+
+  it("the dormant table identifiers are gone from flowService, server, and all of src/", () => {
+    expect(flowServiceSrc).not.toContain("RAW_INSIDER_FLOW_ITEMS");
+    expect(flowServiceSrc).not.toContain("RAW_CONGRESS_FLOW_ITEMS");
+    expect(serverSrc).not.toContain("RAW_INSIDER_FLOW_ITEMS");
+    expect(serverSrc).not.toContain("RAW_CONGRESS_FLOW_ITEMS");
+    expect(srcTree).not.toContain("RAW_INSIDER_FLOW_ITEMS");
+    expect(srcTree).not.toContain("RAW_CONGRESS_FLOW_ITEMS");
+  });
+
+  it("no fabricated insider trade is attributed to a named real executive in src/", () => {
+    const fabricatedExecutives = [
+      "Angela A Korch",
+      "Lynanne Kunkel",
+      "Robert A Katz",
+      "Gregory Jon Sullivan",
+      "Julie A DeCecco",
+      "Celeste Burgoyne",
+      "Jensen Huang",
+      "Vaibhav Taneja",
+      "Arthur D Levinson",
+    ];
+    for (const name of fabricatedExecutives) {
+      expect(srcTree).not.toContain(name);
+    }
+  });
+
+  it("no fabricated congressional trade is attributed to a named real politician in src/", () => {
+    const fabricatedPoliticians = [
+      "Nancy Pelosi",
+      "Michael McCaul",
+      "Ro Khanna",
+      "Tommy Tuberville",
+      "Dan Goldman",
+      "Markwayne Mullin",
+    ];
+    for (const name of fabricatedPoliticians) {
+      expect(srcTree).not.toContain(name);
+    }
+  });
+
+  it("the insider/congress routes still run on the real fetchers, not fixture data", () => {
+    expect(serverSrc).toContain("fetchRealSecInsiderFilings");
+    expect(serverSrc).toContain("fetchRealCongressDisclosures");
   });
 });
