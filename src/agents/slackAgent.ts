@@ -27,6 +27,7 @@ import { ETradeService } from "../services/etrade";
 import { executeNaturalLanguageQuery } from "./nlq";
 import { AGENT_DIDS } from "./did";
 import { ETradeSlackTradingService, verifySlackSignature } from "../trading/slack/agent";
+import { gateSlackRequest } from "../security/webhookSecurity";
 import { BrowserAgent } from "./browserAgent";
 
 export class SlackAgent extends AIChatAgent<Env> {
@@ -444,13 +445,31 @@ export class SlackAgent extends AIChatAgent<Env> {
       });
     }
 
-    // Verify Slack signature if secret is configured
-    if (this.env.SLACK_SIGNING_SECRET) {
+    // Issue #147: Slack signature verification is MANDATORY on the
+    // Slack ingress paths — the same gate the worker routes in
+    // src/server.ts apply (defense in depth: this agent is also
+    // reachable via Agents SDK routing, and the gate must hold at
+    // every layer a Slack payload can enter). Unconfigured → honest
+    // 503 before any processing; configured → a missing or invalid
+    // signature is rejected 401. Previously the check ran only when a
+    // secret was configured AND the caller presented signature
+    // headers, so unsigned requests were processed in every
+    // configuration.
+    const isSlackIngress =
+      path.endsWith("/commands") || path.endsWith("/slash") ||
+      path.endsWith("/interactions") ||
+      path.endsWith("/events") || path.endsWith("/slack");
+    if (request.method === "POST" && isSlackIngress) {
+      const gate = await gateSlackRequest(request.clone(), this.env.SLACK_SIGNING_SECRET);
+      if (!gate.ok) return gate.response;
+    } else if (request.method === "POST" && this.env.SLACK_SIGNING_SECRET) {
+      // Non-Slack POSTs (e.g. the manual /transaction-snap trigger):
+      // unchanged behaviour — when the caller presents Slack signature
+      // headers, a bad signature is still rejected.
       const ts = request.headers.get("x-slack-request-timestamp");
       const sig = request.headers.get("x-slack-signature");
-      if (request.method === "POST" && ts && sig) {
-        const clonedReq = request.clone();
-        const rawBody = await clonedReq.text();
+      if (ts && sig) {
+        const rawBody = await request.clone().text();
         const isValid = await verifySlackSignature(this.env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
         if (!isValid) {
           return new Response("Invalid Slack signature", { status: 401 });

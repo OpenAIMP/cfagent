@@ -97,3 +97,65 @@ export async function verifySlackSignature(
 
   return timingSafeEqual(expectedSig, signature);
 }
+
+export type SlackSignatureGateResult =
+  | { ok: true; rawBody: string }
+  | { ok: false; response: Response };
+
+/**
+ * Mandatory Slack ingress gate (issue #147).
+ *
+ * `verifySlackSignature` itself fails closed, but its callers used to
+ * wrap it in `if (SLACK_SIGNING_SECRET) { … }` — so in any deployment
+ * where the secret was not set, the LIVE Slack routes (slash commands,
+ * events, interactions) processed completely unauthenticated requests,
+ * including forged "approve <orderId>" events and approve-button
+ * interactions that execute previewed orders on E*TRADE. The check is
+ * now structural, shared by every Slack ingress layer (the worker
+ * routes in src/server.ts and SlackAgent.onRequest):
+ *
+ * - No signing secret configured → HTTP 503 naming the missing
+ *   configuration, BEFORE any request processing (the /nlq/webhook
+ *   precedent from issue #140). The failure is loud and safe: Slack
+ *   deliveries fail visibly instead of being silently trusted.
+ * - Secret configured → the signature is REQUIRED: a missing or
+ *   invalid signature is rejected with the same 401 the routes have
+ *   always returned for a bad signature.
+ * - Secret configured + valid signature → `{ ok: true, rawBody }` and
+ *   the caller proceeds exactly as before.
+ *
+ * The gate consumes the request body; callers that still need the
+ * body afterwards (e.g. Agent.onRequest routing) pass a clone.
+ * The request parameter is structural (headers + text) so both the
+ * DOM and Workers Request typings satisfy it.
+ */
+export async function gateSlackRequest(
+  request: { headers: Headers; text(): Promise<string> },
+  signingSecret?: string
+): Promise<SlackSignatureGateResult> {
+  if (!signingSecret) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: "SLACK_SIGNING_SECRET is not configured." },
+        { status: 503 }
+      ),
+    };
+  }
+
+  const rawBody = await request.text();
+  const isValid = await verifySlackSignature(
+    signingSecret,
+    request.headers.get("x-slack-request-timestamp"),
+    rawBody,
+    request.headers.get("x-slack-signature")
+  );
+  if (!isValid) {
+    return {
+      ok: false,
+      response: new Response("Invalid Slack signature", { status: 401 }),
+    };
+  }
+
+  return { ok: true, rawBody };
+}

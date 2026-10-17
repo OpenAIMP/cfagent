@@ -15,7 +15,8 @@ import {
 import { ETradeRestClient } from "./trading/etrade/client";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading/email/agent";
-import { verifySlackSignature, ETradeSlackTradingService } from "./trading/slack/agent";
+import { ETradeSlackTradingService } from "./trading/slack/agent";
+import { gateSlackRequest } from "./security/webhookSecurity";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
@@ -582,16 +583,11 @@ export default {
 
     // --- Omnichannel Trading Agent: Slack Slash Commands (/snap, /trade, /quote, /screen, etc.) ---
     if ((path === "/slack/commands" || path === "/slack/slash") && request.method === "POST") {
-      const rawBody = await request.text();
-      const sig = request.headers.get("x-slack-signature");
-      const ts = request.headers.get("x-slack-request-timestamp");
-
-      if (env.SLACK_SIGNING_SECRET) {
-        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
-        if (!isValid) {
-          return new Response("Invalid Slack signature", { status: 401 });
-        }
-      }
+      // Issue #147: signature verification is mandatory — unconfigured
+      // is a loud 503, never a silent pass-through (see gateSlackRequest).
+      const gate = await gateSlackRequest(request, env.SLACK_SIGNING_SECRET);
+      if (!gate.ok) return gate.response;
+      const rawBody = gate.rawBody;
 
       const params = new URLSearchParams(rawBody);
       const teamId = params.get("team_id") || "default_workspace";
@@ -607,16 +603,11 @@ export default {
 
     // --- Omnichannel Trading Agent: Slack Events Webhook ---
     if ((path === "/slack" || path === "/slack/events") && request.method === "POST") {
-      const rawBody = await request.text();
-      const sig = request.headers.get("x-slack-signature");
-      const ts = request.headers.get("x-slack-request-timestamp");
-
-      if (env.SLACK_SIGNING_SECRET) {
-        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
-        if (!isValid) {
-          return new Response("Invalid Slack signature", { status: 401 });
-        }
-      }
+      // Issue #147: signature verification is mandatory — unconfigured
+      // is a loud 503, never a silent pass-through (see gateSlackRequest).
+      const gate = await gateSlackRequest(request, env.SLACK_SIGNING_SECRET);
+      if (!gate.ok) return gate.response;
+      const rawBody = gate.rawBody;
 
       let parsed: any;
       try {
@@ -643,16 +634,11 @@ export default {
 
     // --- Omnichannel Trading Agent: Slack Interactive Component Actions ---
     if (path === "/slack/interactions" && request.method === "POST") {
-      const rawBody = await request.text();
-      const sig = request.headers.get("x-slack-signature");
-      const ts = request.headers.get("x-slack-request-timestamp");
-
-      if (env.SLACK_SIGNING_SECRET) {
-        const isValid = await verifySlackSignature(env.SLACK_SIGNING_SECRET, ts, rawBody, sig);
-        if (!isValid) {
-          return new Response("Invalid Slack signature", { status: 401 });
-        }
-      }
+      // Issue #147: signature verification is mandatory — unconfigured
+      // is a loud 503, never a silent pass-through (see gateSlackRequest).
+      const gate = await gateSlackRequest(request, env.SLACK_SIGNING_SECRET);
+      if (!gate.ok) return gate.response;
+      const rawBody = gate.rawBody;
 
       const params = new URLSearchParams(rawBody);
       const payloadRaw = params.get("payload");
