@@ -25,9 +25,14 @@
  *    The diff route is declared before the by-id route server-side
  *    precisely so "diff" is never read as a run id. Failures are
  *    non-200 `{ error: "..." }` ("scan run not found" when a run was
- *    pruned) whose message is surfaced verbatim. Unlike the profiles
- *    routes, the scans handlers do not scope by user server-side; the
- *    headers are still sent, per the house pattern.
+ *    pruned) whose message is surfaced verbatim. Since issue #103 the
+ *    scans handlers scope by the x-user-login header exactly like the
+ *    profiles routes: runs saved under a login are visible only to
+ *    it, and a run outside the caller's scope reads as the same 404
+ *    as a pruned one; legacy runs saved before scoping carry no login
+ *    and stay visible to everyone. Summaries also carry the run's
+ *    profileRef, so history rows label the profile without a fetch
+ *    per row.
  *
  * Type-only imports from the server modules keep the shapes
  * single-sourced (the portfolioRiskApi pattern). All HTTP goes through
