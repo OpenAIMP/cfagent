@@ -389,13 +389,13 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
       },
       {
         name: "Method B: Institutional Options Flows & Vol/OI Spikes",
-        badge: "Flows Tape",
+        badge: "Flow Estimates",
         badgeColor: "purple",
-        description: "Navigate to Options Flows tab. Filter by Vol/OI > 2.0x and Premium > $250,000 to identify institutional sweep activity in high-IV names.",
+        description: "Navigate to Options Flows tab. Filter by Vol/OI > 2.0x and Premium > $250,000 to identify institutional sweep activity in high-IV names. Flow items are modelled estimates derived from option-chain snapshots, not trade-tape prints.",
         actionSteps: [
           "Open Options Flows tab.",
           "Filter by Premium: > $250k and Vol/OI > 1.5x.",
-          "Returns real-time sweeps and blocks with aggressive positioning.",
+          "Returns modelled sweeps and blocks (chain-derived estimates) with aggressive positioning.",
         ],
         samplePayloadOrCommand: "getOptionsFlows({ minPremium: 250000, minVolOiRatio: 1.5 })",
         targetTab: "options-flows",
@@ -662,10 +662,10 @@ export const WORKFLOW_IMPROVEMENTS: WorkflowImprovementItem[] = [
   {
     id: "imp-flow-informed-discovery",
     number: 6,
-    title: "Real-Time Flow-Informed Strategy Discovery",
+    title: "Flow-Informed Strategy Discovery (Modelled Flow)",
     currentLimitation: "Workflow 2 (Strategy Discovery) and Workflow 4 (Options Flows) operate independently. Discovery does not know whether institutions are aggressively buying or selling the contracts it recommends.",
-    proposedEnhancement: "Inject institutional flow signals into the Opportunity Scoring algorithm: S_flow = (NetCallPremium - NetPutPremium) / TotalPremium. When recommending bullish spreads, boost the score of strikes that align with active institutional sweep prints from Workflow 4.",
-    impact: "Bridges quantitative strategy modeling with real-time institutional smart-money confirmation.",
+    proposedEnhancement: "Inject institutional flow signals into the Opportunity Scoring algorithm: S_flow = (NetCallPremium - NetPutPremium) / TotalPremium. When recommending bullish spreads, boost the score of strikes that align with active modelled institutional sweep estimates from Workflow 4.",
+    impact: "Bridges quantitative strategy modeling with modelled institutional smart-money flow confirmation.",
     targetComponents: ["src/trading/options/flows/flowService.ts", "src/client/options/strategyDiscoveryEngine.ts"],
   },
 ];

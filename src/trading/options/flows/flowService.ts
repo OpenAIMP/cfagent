@@ -8,6 +8,8 @@ import {
   SavedFilterPreset,
   FlowLeaderboardItem,
   EvaluatedFlowSentiment,
+  FlowItemProvenance,
+  FlowProvenanceSummary,
   FlowLegDetail,
   MarketCapCategory,
   AssetClassCategory,
@@ -21,6 +23,62 @@ import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
 import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
+
+/**
+ * Issue #119 (audit F17): this service has NO trade-tape source. Every flow
+ * item is a modelled estimate and carries a `provenance` saying exactly what
+ * it was derived from. These helpers keep that disclosure identical at every
+ * surface (API envelopes, UI banners, NLQ answers).
+ */
+export const FLOW_PROVENANCE_NOTICE =
+  "Options flow here is modelled from option-chain snapshots and generated templates. " +
+  "It is not a live exchange trade tape, and these items are not executed trade prints.";
+
+export const FLOW_PROVENANCE_LABELS: Record<FlowItemProvenance, string> = {
+  "chain-derived": "Chain-derived estimate",
+  static: "Static sample data",
+  generated: "Generated sample data",
+};
+
+export function summarizeFlowProvenance(items: LiveFlowItem[]): FlowProvenanceSummary {
+  const counts: Record<FlowItemProvenance, number> = {
+    "chain-derived": 0,
+    static: 0,
+    generated: 0,
+  };
+  for (const item of items) {
+    counts[item.provenance] = (counts[item.provenance] || 0) + 1;
+  }
+  return {
+    provenances: (Object.keys(counts) as FlowItemProvenance[]).filter((p) => counts[p] > 0),
+    counts,
+    isModelled: true,
+    notice: FLOW_PROVENANCE_NOTICE,
+  };
+}
+
+/**
+ * One-sentence basis statement for NLQ/chat answers, e.g.
+ * "modelled flow estimates (basis: 12 chain-derived from option-chain
+ * snapshots, 30 generated sample items — not executed trade prints)".
+ */
+export function describeFlowProvenance(items: LiveFlowItem[]): string {
+  if (items.length === 0) {
+    return "no flow items were available (no option-chain data could be derived)";
+  }
+  const { counts } = summarizeFlowProvenance(items);
+  const parts: string[] = [];
+  if (counts["chain-derived"] > 0) {
+    parts.push(`${counts["chain-derived"]} chain-derived from option-chain snapshots`);
+  }
+  if (counts.generated > 0) {
+    parts.push(`${counts.generated} generated sample items (no chain data available)`);
+  }
+  if (counts.static > 0) {
+    parts.push(`${counts.static} static sample items`);
+  }
+  return `basis: ${parts.join(", ")} — modelled estimates, not executed trade prints`;
+}
 
 export const DEFAULT_SAVED_PRESETS: SavedFilterPreset[] = [
   {
@@ -106,10 +164,17 @@ export const DEFAULT_FILTER_CONFIG: FlowFilterConfig = {
   congressParty: "all",
 };
 
+/**
+ * Static fixture table of sample flow rows (seed/demo data and test
+ * fixtures). These are NOT market data and are never returned by
+ * getDynamicLiveFlowItems; every row is stamped provenance: "static"
+ * (issue #119) so any surface that ever renders them must label them.
+ */
 export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   // WMT Active & Historical trades (Screenshots 2 & 3)
   {
     id: "wmt_flow_combo",
+    provenance: "static",
     time: "10/6 3:51pm",
     timestamp: 1791330660000,
     symbol: "WMT",
@@ -154,6 +219,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "wmt_flow_put",
+    provenance: "static",
     time: "10/6 3:50pm",
     timestamp: 1791330600000,
     symbol: "WMT",
@@ -191,6 +257,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "wmt_flow_calls",
+    provenance: "static",
     time: "10/6 3:32pm",
     timestamp: 1791329520000,
     symbol: "WMT",
@@ -229,6 +296,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "wmt_flow_sweep",
+    provenance: "static",
     time: "10/6 3:12pm",
     timestamp: 1791328320000,
     symbol: "WMT",
@@ -266,6 +334,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "wmt_flow_block",
+    provenance: "static",
     time: "10/6 3:10pm",
     timestamp: 1791328200000,
     symbol: "WMT",
@@ -305,6 +374,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   // Remaining institutional prints
   {
     id: "flow_1",
+    provenance: "static",
     time: "8:09am",
     timestamp: Date.now() - 360000,
     symbol: "XSP",
@@ -330,6 +400,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_spy_1",
+    provenance: "static",
     time: "8:03am",
     timestamp: Date.now() - 720000,
     symbol: "SPY",
@@ -354,6 +425,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_tsla_1",
+    provenance: "static",
     time: "7:59am",
     timestamp: Date.now() - 960000,
     symbol: "TSLA",
@@ -378,6 +450,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_nvda_1",
+    provenance: "static",
     time: "7:58am",
     timestamp: Date.now() - 1020000,
     symbol: "NVDA",
@@ -402,6 +475,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_2",
+    provenance: "static",
     time: "7:43am",
     timestamp: Date.now() - 1920000,
     symbol: "XSP",
@@ -427,6 +501,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_3",
+    provenance: "static",
     time: "10/6 4:12pm",
     timestamp: Date.now() - 54000000,
     symbol: "QQQ",
@@ -452,6 +527,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_4",
+    provenance: "static",
     time: "10/6 4:12pm",
     timestamp: Date.now() - 54000000,
     symbol: "QQQ",
@@ -477,6 +553,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_5",
+    provenance: "static",
     time: "10/6 4:11pm",
     timestamp: Date.now() - 54060000,
     symbol: "QQQ",
@@ -502,6 +579,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_6",
+    provenance: "static",
     time: "10/6 4:08pm",
     timestamp: Date.now() - 54240000,
     symbol: "QQQ",
@@ -527,6 +605,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_7",
+    provenance: "static",
     time: "10/6 4:00pm",
     timestamp: Date.now() - 54720000,
     symbol: "QQQ",
@@ -552,6 +631,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_8",
+    provenance: "static",
     time: "10/6 3:55pm",
     timestamp: Date.now() - 55020000,
     symbol: "NVDA",
@@ -577,6 +657,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_9",
+    provenance: "static",
     time: "10/6 3:55pm",
     timestamp: Date.now() - 55020000,
     symbol: "IWM",
@@ -602,6 +683,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_10",
+    provenance: "static",
     time: "10/6 3:53pm",
     timestamp: Date.now() - 55140000,
     symbol: "SPCH",
@@ -628,6 +710,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_11",
+    provenance: "static",
     time: "10/6 3:53pm",
     timestamp: Date.now() - 55140000,
     symbol: "SOXL",
@@ -653,6 +736,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_12",
+    provenance: "static",
     time: "10/6 3:52pm",
     timestamp: Date.now() - 55200000,
     symbol: "NVDA",
@@ -678,6 +762,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_13",
+    provenance: "static",
     time: "10/6 3:49pm",
     timestamp: Date.now() - 55380000,
     symbol: "AAPL",
@@ -703,6 +788,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_amzn_1",
+    provenance: "static",
     time: "10/6 3:48pm",
     timestamp: Date.now() - 55440000,
     symbol: "AMZN",
@@ -727,6 +813,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_amd_1",
+    provenance: "static",
     time: "10/6 3:46pm",
     timestamp: Date.now() - 55560000,
     symbol: "AMD",
@@ -751,6 +838,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_meta_1",
+    provenance: "static",
     time: "10/6 3:44pm",
     timestamp: Date.now() - 55680000,
     symbol: "META",
@@ -775,6 +863,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_14",
+    provenance: "static",
     time: "10/6 3:40pm",
     timestamp: Date.now() - 55920000,
     symbol: "ASTS",
@@ -800,6 +889,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_15",
+    provenance: "static",
     time: "10/6 3:35pm",
     timestamp: Date.now() - 56220000,
     symbol: "PLTR",
@@ -825,6 +915,7 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
   },
   {
     id: "flow_16",
+    provenance: "static",
     time: "10/6 3:30pm",
     timestamp: Date.now() - 56520000,
     symbol: "SMCI",
@@ -847,117 +938,6 @@ export const RAW_LIVE_FLOW_ITEMS: LiveFlowItem[] = [
     chance: 28,
     marketCap: "mid",
     assetType: "stock",
-  },
-];
-
-export const RAW_NEWS_FLOW_ITEMS: NewsFlowItem[] = [
-  {
-    id: "news_1",
-    time: "8:01am",
-    timestamp: Date.now() - 480000,
-    headline: "Google, Unity Collaborate For New, Integrated Gaming Platform To Be Launched Later In 2026",
-    symbols: ["U", "GOOG", "GOOGL"],
-    source: "Bloomberg Terminal",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_2",
-    time: "6:58am",
-    timestamp: Date.now() - 4260000,
-    headline: "Nebius Group Stock Is Falling Wednesday: What's Going On?",
-    symbols: ["NBIS", "NVDA", "NBIG"],
-    source: "Benzinga Newsdesk",
-    sentiment: "bearish",
-  },
-  {
-    id: "news_3",
-    time: "6:19am",
-    timestamp: Date.now() - 6600000,
-    headline: "Anthropic CEO Dario Amodei Took Home $18 Million in 2025 — How His Pay Compares With Google and Amazon CEOs: Report",
-    symbols: ["AMZN", "GOOGL", "GOOG", "NVDA", "ORCL"],
-    source: "Wall Street Journal",
-    sentiment: "neutral",
-  },
-  {
-    id: "news_4",
-    time: "6:02am",
-    timestamp: Date.now() - 7620000,
-    headline: "Meta, OpenAI and Anthropic Could Become Biotech Companies, Says Stanford Neuroscientist Andrew Huberman: 'Sounds Kind of Science Fiction'",
-    symbols: ["META"],
-    source: "Reuters Technology",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_5",
-    time: "5:35am",
-    timestamp: Date.now() - 9240000,
-    headline: "Paul Krugman Says AI Boom Is 'Crowding Out' Other Investments in a Way the Dot-Com Era Never Did: 'This Isn't a Hypothetical Risk'",
-    symbols: ["SPY", "AMZN", "GOOGL", "GOOG", "QQQ"],
-    source: "New York Times Financial",
-    sentiment: "bearish",
-  },
-  {
-    id: "news_6",
-    time: "5:18am",
-    timestamp: Date.now() - 10260000,
-    headline: "The Emmys Are Moving to Amazon Prime Video — And You Won't Need a Prime Subscription to Watch",
-    symbols: ["AMZN", "GOOGL", "GOOG", "NFLX", "CMCSA"],
-    source: "Variety",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_7",
-    time: "4:52am",
-    timestamp: Date.now() - 11820000,
-    headline: "Ray Dalio Says AI Bubble Is 'Close' to Bursting as Debt and Rising Rates Raise Red Flags",
-    symbols: ["NVDA", "AAPL", "META", "AMZN", "GOOGL", "GOOG", "MSFT", "ORCL"],
-    source: "Financial Times",
-    sentiment: "bearish",
-  },
-  {
-    id: "news_8",
-    time: "3:41am",
-    timestamp: Date.now() - 16080000,
-    headline: "Jim Cramer Predicts Elon Musk-Led SpaceX's Next Cash Cow Raking in $4 Billion a Month as SPCX Seeks $40 Billion for NVDA Chips",
-    symbols: ["SPCX", "GOOGL", "GOOG", "NVDA"],
-    source: "CNBC Squawk Box",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_aapl_1",
-    time: "3:40am",
-    timestamp: Date.now() - 16140000,
-    headline: "Apple M5 Ultra Architecture Leaks Point to Massive 50% AI Core Efficiency Increase",
-    symbols: ["AAPL", "TSM"],
-    source: "Bloomberg",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_tsla_1",
-    time: "3:24am",
-    timestamp: Date.now() - 17100000,
-    headline: "Tesla Robotaxi Fleet Begins Unsupervised Commercial Road Testing in Texas Triangle",
-    symbols: ["TSLA", "UBER"],
-    source: "Electrek",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_semi_1",
-    time: "3:22am",
-    timestamp: Date.now() - 17220000,
-    headline: "Semiconductor Equipment Orders Jump 28% MoM Signaling Next CapEx Wave",
-    symbols: ["ASML", "LRCX", "AMAT"],
-    source: "SemiAnalysis",
-    sentiment: "bullish",
-  },
-  {
-    id: "news_fed_1",
-    time: "3:03am",
-    timestamp: Date.now() - 18360000,
-    headline: "Federal Reserve Signals Rate Path Confidence as Core PCE Meets Expectations",
-    symbols: ["SPY", "QQQ", "TLT"],
-    source: "WSJ Macro",
-    sentiment: "neutral",
   },
 ];
 
@@ -1764,6 +1744,7 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
     .slice(0, 5);
 
   return {
+    provenance: summarizeFlowProvenance(items),
     totalTrades: items.length,
     totalPremium,
     callPremium,
@@ -1780,8 +1761,12 @@ export function calculateFlowSummary(items: LiveFlowItem[]): FlowSummary {
 }
 
 /**
- * Transforms an E*TRADE option chain into dynamic institutional LiveFlowItem records.
- * Analyzes contract volumes, open interests, and bid/ask cross executions.
+ * Derives modelled flow-estimate items from an E*TRADE option chain snapshot.
+ * Contract volume / open interest / prices are real chain fields, but there
+ * is no trade tape behind this: the trade side is inferred from last price
+ * vs bid/ask, the size and premium are estimated, and timestamps are
+ * assigned around the snapshot time. Every item is stamped
+ * provenance: "chain-derived" (issue #119) — these are NOT executed prints.
  */
 export function convertOptionChainToFlowItems(
   chain: ETradeOptionChain,
@@ -1857,6 +1842,7 @@ export function convertOptionChainToFlowItems(
         id: `${symbol.toLowerCase()}_chain_${type.toLowerCase()}_${strike}_${itemTimestamp}`,
         time: timeStr,
         timestamp: itemTimestamp,
+        provenance: "chain-derived",
         symbol,
         underlyingPrice,
         strategy,
@@ -2061,8 +2047,11 @@ export async function resolveDynamicFlowSymbols(
 }
 
 /**
- * Generates dynamic options flow items across active market underlyings
- * with authentic execution points, realistic Greeks, and up-to-the-minute timestamps.
+ * Generates template-based sample options flow items across the given
+ * underlyings. This is a fully GENERATED dataset (fixed trade templates over
+ * profile prices — no chain data involved), used only when no chain-derived
+ * items are available. Every item is stamped provenance: "generated"
+ * (issue #119) and surfaces must label it as sample data.
  */
 export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions): LiveFlowItem[] {
   const refTime = options?.referenceTimestamp ?? Date.now();
@@ -2144,6 +2133,7 @@ export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions
         id: `dyn_${profile.symbol.toLowerCase()}_${template.optType.toLowerCase()}_${strike}_${t}`,
         time: timeStr,
         timestamp: itemTimestamp,
+        provenance: "generated",
         symbol: profile.symbol,
         companyName: profile.companyName,
         underlyingPrice: profile.underlyingPrice,
@@ -2184,8 +2174,13 @@ export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions
 const realFlowsCache = new Map<string, { items: LiveFlowItem[]; expiresAt: number }>();
 
 /**
- * Fetches genuine real-time options contracts and trade executions from live market exchanges
- * via Yahoo Finance FOSS API with cookie/crumb authentication.
+ * Derives modelled flow-estimate items from a Yahoo Finance option-chain
+ * snapshot (FOSS API with cookie/crumb authentication). The chain fields
+ * (contract volume, open interest, last price, last-trade time) are real,
+ * but the items are estimates built from them — side is inferred from last
+ * price vs bid/ask and premium is volume × last price. They are NOT trade
+ * executions from an exchange tape; every item is stamped
+ * provenance: "chain-derived" (issue #119).
  */
 export async function fetchRealMarketFlowsForSymbol(
   symbol: string,
@@ -2307,7 +2302,8 @@ export async function fetchRealMarketFlowsForSymbol(
 
       const isOtm = isCall ? strike > underlyingPrice : strike < underlyingPrice;
 
-      // Real trade timestamp from exchange
+      // Contract last-trade time from the chain snapshot (a chain field,
+      // not the timestamp of an observed print)
       const tradeSeconds = Number(c.lastTradeDate || 0);
       const tradeTimestamp = tradeSeconds > 0 ? tradeSeconds * 1000 : refTime - idx * 60000;
       const timeStr = formatFlowDateTime(tradeTimestamp, refTime);
@@ -2336,6 +2332,7 @@ export async function fetchRealMarketFlowsForSymbol(
         id: `real_${cleanSym.toLowerCase()}_${c.contractSymbol || `${strike}_${optType}_${idx}`}`,
         time: timeStr,
         timestamp: tradeTimestamp,
+        provenance: "chain-derived",
         symbol: cleanSym,
         companyName,
         underlyingPrice,
@@ -2378,10 +2375,15 @@ export async function fetchRealMarketFlowsForSymbol(
 }
 
 /**
- * Main dynamic flow retriever combining:
- * 1. Converted live E*TRADE option chains for requested tickers.
- * 2. Real-time synthesized market universe prints.
- * 3. Seed benchmark items for full historical fidelity.
+ * Main flow-estimate retriever. There is no trade tape behind any of this
+ * (issue #119); in priority order it returns:
+ * 1. Estimates derived from E*TRADE option-chain snapshots for the
+ *    requested tickers (provenance: "chain-derived").
+ * 2. Estimates derived from Yahoo Finance option-chain snapshots
+ *    (provenance: "chain-derived").
+ * 3. ONLY when no chain data is available at all: the template-generated
+ *    sample universe (provenance: "generated"), which surfaces must label
+ *    as generated sample data.
  */
 export async function getDynamicLiveFlowItems(
   env?: Env,
@@ -2429,7 +2431,7 @@ export async function getDynamicLiveFlowItems(
     }
   }
 
-  // 4. Fetch real market options flow from live market exchanges (Yahoo Finance / Alpaca FOSS feeds)
+  // 4. Derive flow estimates from Yahoo Finance option-chain snapshots (FOSS feed)
   const realPromises = targetSymbols.map((sym) =>
     fetchRealMarketFlowsForSymbol(sym, {
       minPremium: filter?.minPremium,
@@ -2443,8 +2445,8 @@ export async function getDynamicLiveFlowItems(
     }
   }
 
-  // 4. If real market items were successfully found:
-  // Return the REAL market trades sorted by timestamp descending!
+  // 5. If chain-derived items were produced, return them sorted by
+  // timestamp descending (still modelled estimates, not tape prints).
   if (convertedItems.length > 0) {
     convertedItems.sort((a, b) => b.timestamp - a.timestamp);
 
@@ -2459,7 +2461,8 @@ export async function getDynamicLiveFlowItems(
     return filterLiveFlowItems(deduped, filter || {});
   }
 
-  // 5. Graceful offline fallback (only if network is completely unavailable e.g. offline sandbox or unit test runner without internet):
+  // 6. Fallback when no chain data is available at all (e.g. offline):
+  // the template-generated sample universe, stamped "generated".
   const dynamicUniverse = generateDynamicFlowUniverse({
     referenceTimestamp: refTime,
     symbols: targetSymbols.length > 0 ? targetSymbols : undefined,
@@ -2471,7 +2474,8 @@ export async function getDynamicLiveFlowItems(
 }
 
 /**
- * Computes dynamic options flow summary and dual leaderboards over live flow data.
+ * Computes options flow summary and dual leaderboards over modelled
+ * flow-estimate items (see getDynamicLiveFlowItems — no trade tape exists).
  */
 export async function getDynamicFlowSummary(
   env?: Env,
