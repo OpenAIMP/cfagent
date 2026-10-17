@@ -18,7 +18,7 @@ import type { ProfileRef } from "../trading/options/strategyProfile";
 import type { StrategyProfileStore } from "../trading/options/strategyProfileStore";
 import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyDeps, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
-import { getDynamicLiveFlowItems } from "../trading/options/flows";
+import { getDynamicLiveFlowItems, describeFlowProvenance } from "../trading/options/flows";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { getPlatformCapabilitiesDeskSummary } from "../services/platformKnowledge";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
@@ -2876,10 +2876,11 @@ export async function executeNLQQueryAsync(
         targetTable: "options_flows",
         count: filtered.length,
         summary: sym
-          ? `Options Flow: Found ${filtered.length} dynamic institutional prints for ${sym}.`
-          : `Options Flow: Found ${filtered.length} dynamic institutional prints across the market universe.`,
+          ? `Options Flow: Found ${filtered.length} modelled flow estimates for ${sym} (${describeFlowProvenance(filtered)}). This product has no live options trade tape, so these are not real-time executed prints.`
+          : `Options Flow: Found ${filtered.length} modelled flow estimates across the market universe (${describeFlowProvenance(filtered)}). This product has no live options trade tape, so these are not real-time executed prints.`,
         rows: filtered.slice(0, plan.limit || 25).map((f) => ({
           time: f.time,
+          provenance: f.provenance,
           symbol: f.symbol,
           underlyingPrice: `$${f.underlyingPrice.toFixed(2)}`,
           strategy: f.strategy,
