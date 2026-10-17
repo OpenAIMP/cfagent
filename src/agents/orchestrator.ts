@@ -152,6 +152,29 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
   return valid;
 }
 
+/**
+ * Callbacks a caller may arm through POST /api/schedules/create (#111).
+ *
+ * This route is the public way to create schedules, so it accepts only
+ * user-creatable jobs. Internal-only callbacks — `executeAsyncJob` (the
+ * async-job plumbing) and `expireStaleOrderDraft` (order-draft expiry) —
+ * are armed by the agent itself and are deliberately NOT in this list;
+ * the route rejects them with HTTP 400. `collectIvHistory` is included by
+ * user directive: IV history collection is a first-class schedulable job
+ * (its baseline cron is registered in onStart, and the schedules UI can
+ * create additional ones). NLQ scheduling (#109) does not use this list —
+ * it goes through the agent's NLQ scheduling port, not this route.
+ */
+export const CREATABLE_SCHEDULE_CALLBACKS = [
+  "autonomousOptionsAnalysis",
+  "autonomousMarketScreen",
+  "autoRenewETradeTokens",
+  "collectIvHistory",
+  "sendScheduledReminder",
+] as const;
+
+export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
+
 export class OrchestratorAgent extends AIChatAgent<Env> {
   /**
    * Cloudflare Agents Lifecycle: onStart
@@ -5193,23 +5216,47 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: "Callback method name is required" }, { status: 400 });
         }
 
+        // Callback allow-list (#111): this public route may only arm the
+        // user-creatable callbacks in CREATABLE_SCHEDULE_CALLBACKS.
+        // Anything else — including internal-only callbacks such as
+        // executeAsyncJob and expireStaleOrderDraft — is rejected, and no
+        // schedule is created.
+        if (!(CREATABLE_SCHEDULE_CALLBACKS as readonly string[]).includes(callback)) {
+          return Response.json(
+            {
+              success: false,
+              error: `Callback '${callback}' is not allowed: POST /api/schedules/create only accepts ${CREATABLE_SCHEDULE_CALLBACKS.join(", ")}`,
+            },
+            { status: 400 }
+          );
+        }
+
+        // No fabricated success (#111): if the Agents SDK scheduling method
+        // a mode needs is unavailable in this runtime, the route fails
+        // honestly with 503 instead of inventing a schedule id and
+        // reporting success for a schedule that does not exist.
+        const schedulingUnavailable = (method: string) =>
+          Response.json(
+            {
+              success: false,
+              error: `Scheduling unavailable: the agent runtime does not provide ${method}(), so no schedule was created`,
+            },
+            { status: 503 }
+          );
+
         let schedule: any;
         if (scheduleType === "interval" && intervalSeconds) {
-          schedule = typeof (this as any).scheduleEvery === "function"
-            ? await (this as any).scheduleEvery(Number(intervalSeconds), callback, payload)
-            : { id: `sched_mock_${Date.now()}`, type: "interval", intervalSeconds, callback, payload };
+          if (typeof (this as any).scheduleEvery !== "function") return schedulingUnavailable("scheduleEvery");
+          schedule = await (this as any).scheduleEvery(Number(intervalSeconds), callback, payload);
         } else if (scheduleType === "cron" && cron) {
-          schedule = typeof (this as any).schedule === "function"
-            ? await (this as any).schedule(cron, callback, payload, { idempotent: body.idempotent !== false })
-            : { id: `sched_mock_${Date.now()}`, type: "cron", cron, callback, payload };
+          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
+          schedule = await (this as any).schedule(cron, callback, payload, { idempotent: body.idempotent !== false });
         } else if (scheduleType === "scheduled" && date) {
-          schedule = typeof (this as any).schedule === "function"
-            ? await (this as any).schedule(new Date(date), callback, payload)
-            : { id: `sched_mock_${Date.now()}`, type: "scheduled", date, callback, payload };
+          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
+          schedule = await (this as any).schedule(new Date(date), callback, payload);
         } else if (delayInSeconds !== undefined) {
-          schedule = typeof (this as any).schedule === "function"
-            ? await (this as any).schedule(Number(delayInSeconds), callback, payload)
-            : { id: `sched_mock_${Date.now()}`, type: "delayed", delayInSeconds, callback, payload };
+          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
+          schedule = await (this as any).schedule(Number(delayInSeconds), callback, payload);
         } else {
           return Response.json(
             { error: "Invalid schedule parameters: provide intervalSeconds, cron, date, or delayInSeconds" },
@@ -5220,7 +5267,13 @@ Agentic Best Practices & Workflow Rules:
         this.audit("schedule.created", "orchestrator", { scheduleId: schedule?.id, callback, scheduleType });
         return Response.json({ success: true, schedule });
       } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to create schedule" }, { status: 500 });
+        // A throwing SDK scheduling call created nothing, so it gets the
+        // same honest 503 {success:false, error} shape as the
+        // unavailable-method path above (#111) — never a success response.
+        return Response.json(
+          { success: false, error: err.message || "Failed to create schedule" },
+          { status: 503 }
+        );
       }
     }
 
