@@ -20,13 +20,25 @@ export function timingSafeEqual(a: string, b: string): boolean {
 
 /**
  * Verifies an HMAC-SHA256 hex or standard signature against raw body content.
+ *
+ * FAIL CLOSED (issue #140): when no secret is configured, verification
+ * FAILS — an unconfigured verifier must never report a caller as
+ * verified. This previously returned `true` in a self-described
+ * "permissive development mode", which meant any deployment missing
+ * the secret accepted any (or no) signature on every inbound webhook
+ * consumer. It mirrors the outbound decision in issue #123 (F20):
+ * no configured secret → not verified, no default, no silent bypass.
+ * Callers that need to distinguish "not configured" from "bad
+ * signature" check for the secret themselves before calling (the
+ * /nlq/webhook route answers 503; the trading webhook processors
+ * answer 503 — see src/services/tradingWebhooks.ts).
  */
 export async function verifyHmacSha256Signature(
   rawBody: string,
   signature: string | null,
   secret?: string
 ): Promise<boolean> {
-  if (!secret) return true; // If no secret configured, accept in permissive development mode
+  if (!secret) return false; // Not configured → not verified. Never permissive.
   if (!signature) return false;
 
   try {
