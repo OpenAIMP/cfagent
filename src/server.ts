@@ -945,6 +945,16 @@ export default {
     const id = env.SEARCH_AGENT.idFromName(userLogin);
     const agent = env.SEARCH_AGENT.get(id);
 
+    // PR #4 — ScheduledAgent tick: evaluate due goals, budget-check,
+    // create Orchestrator jobs (issue #166).
+    if (event?.cron === "*/30 * * * *") {
+      const schedId = env.SCHEDULED_AGENT.idFromName("default");
+      const schedAgent = env.SCHEDULED_AGENT.get(schedId);
+      const tickPromise = schedAgent.onCron(env);
+      if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
+      else await tickPromise;
+      return;
+    }
     // Must match the renewal cron trigger in wrangler.jsonc: "0 3 * * *"
     // UTC = 23:00 EDT / 22:00 EST, always >= 1h before the midnight-ET
     // token expiry in both DST regimes (issue #107).
