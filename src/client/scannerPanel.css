@@ -1,0 +1,277 @@
+/* Opportunity Scanner panel (issue #84 slice 1) — scp- prefixed,
+   matches the Portfolio Risk / Account panels palette. */
+.scp-panel {
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.scp-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.scp-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.scp-asof {
+  color: #9aa4b2;
+  font-size: 0.8rem;
+}
+.scp-mode-switch {
+  display: inline-flex;
+  margin-top: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.scp-mode-btn {
+  padding: 0.45rem 0.9rem;
+  border: none;
+  background: transparent;
+  color: #c6cdd6;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.scp-mode-btn + .scp-mode-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+.scp-mode-btn.active {
+  background: rgba(88, 166, 255, 0.22);
+  color: #fff;
+  font-weight: 700;
+}
+.scp-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-end;
+  margin-top: 0.8rem;
+}
+.scp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.scp-field label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa4b2;
+}
+.scp-field input,
+.scp-field select {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font-size: 0.88rem;
+}
+.scp-field-wide {
+  flex: 1;
+  min-width: 220px;
+}
+.scp-field-wide input {
+  width: 100%;
+}
+.scp-run {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 600;
+}
+.scp-run:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.scp-note {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: #c6cdd6;
+}
+.scp-muted {
+  margin-top: 0.6rem;
+  color: #9aa4b2;
+  font-size: 0.85rem;
+}
+.scp-error {
+  margin-top: 0.7rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(240, 82, 82, 0.12);
+  color: #ff9c9c;
+  font-size: 0.85rem;
+}
+.scp-results {
+  margin-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0.8rem;
+}
+.scp-results-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.scp-counts {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: #c6cdd6;
+}
+.scp-table {
+  width: 100%;
+  margin-top: 0.8rem;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+.scp-table th,
+.scp-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+}
+.scp-table th {
+  color: #9aa4b2;
+  font-weight: 600;
+}
+.scp-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #c6cdd6;
+  white-space: nowrap;
+}
+.scp-badge-profile {
+  background: rgba(88, 166, 255, 0.18);
+  color: #8db9ff;
+}
+.scp-badge-fit {
+  background: rgba(46, 204, 113, 0.18);
+  color: #7be2a8;
+}
+.scp-badge-borderline {
+  background: rgba(240, 180, 41, 0.18);
+  color: #f0b429;
+}
+.scp-badge-no_fit,
+.scp-badge-none {
+  background: rgba(240, 82, 82, 0.16);
+  color: #ff9c9c;
+}
+.scp-reasons {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: #9aa4b2;
+  max-width: 240px;
+}
+.scp-nofit {
+  margin-top: 0.8rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  border: 1px dashed rgba(240, 180, 41, 0.45);
+  background: rgba(240, 180, 41, 0.07);
+  color: #f0d48a;
+  font-size: 0.88rem;
+}
+.scp-assumptions {
+  margin-top: 0.8rem;
+  font-size: 0.83rem;
+  color: #c6cdd6;
+}
+.scp-assumptions ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+.scp-subhead {
+  margin-top: 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.scp-mini-btn {
+  padding: 0.25rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.scp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.scp-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+  flex: 1;
+}
+.scp-row-summary {
+  font-size: 0.82rem;
+  color: #c6cdd6;
+}
+.scp-row-meta {
+  font-size: 0.75rem;
+  color: #9aa4b2;
+}
+.scp-danger {
+  padding: 0.25rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(229, 72, 77, 0.5);
+  background: transparent;
+  color: #ff9c9c;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.scp-danger.armed {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+  font-weight: 700;
+}
+.scp-profile-form {
+  margin-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0.4rem;
+}
+.scp-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+.scp-form-grid .scp-field {
+  min-width: 170px;
+}
+.scp-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.scp-check-inline {
+  margin-top: 1.35rem;
+}
+.scp-form-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1rem;
+}

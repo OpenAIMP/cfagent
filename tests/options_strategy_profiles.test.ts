@@ -872,3 +872,50 @@ describe("unified service profiles (issue #28)", () => {
     expect((afterEdit.data as { profileRef?: { version: number } }).profileRef?.version).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. Unified opportunities limit forwarding (issue #84 slice 1)
+// ---------------------------------------------------------------------------
+
+describe("unified opportunities limit forwarding (issue #84 slice 1)", () => {
+  afterEach(() => {
+    DynamicOptionsScreener.clearTestChainsFixture();
+  });
+
+  const env = { ETRADE_ENVIRONMENT: "sandbox" } as Env;
+
+  it("strategy_fit honors req.limit: fits paginate, fitsTotal stays whole, cache segments by limit", async () => {
+    DynamicOptionsScreener.setTestChainsFixture({
+      NVDA: chainFor("NVDA", 250, expiryObj),
+      AMD: chainFor("AMD", 40, expiryObj),
+      MSFT: chainFor("MSFT", 500, expiryObj),
+      AVGO: chainFor("AVGO", 300, expiryObj),
+    });
+    const service = new UnifiedOptionsService(env, "default_trader");
+    const base = {
+      action: "opportunities",
+      symbols: ["NVDA", "AMD", "MSFT", "AVGO"],
+      targetDate: expiryDate,
+      mode: "strategy_fit",
+    } as const;
+
+    const all = await service.execute({ ...base });
+    expect(all.success).toBe(true);
+    const allData = all.data as unknown as { fits: unknown[]; fitsTotal: number };
+    expect(allData.fitsTotal).toBeGreaterThanOrEqual(2);
+    expect(allData.fits.length).toBe(Math.min(allData.fitsTotal, 10));
+
+    const page = await service.execute({ ...base, limit: 1 });
+    expect(page.meta.cached).toBe(false);
+    const pageData = page.data as unknown as { fits: unknown[]; fitsTotal: number };
+    expect(pageData.fits.length).toBe(1);
+    expect(pageData.fitsTotal).toBe(allData.fitsTotal);
+
+    const pageAgain = await service.execute({ ...base, limit: 1 });
+    expect(pageAgain.meta.cached).toBe(true); // same limit caches under its own key
+
+    const bigger = await service.execute({ ...base, limit: 2 });
+    expect(bigger.meta.cached).toBe(false); // a different limit is a different entry
+    expect((bigger.data as unknown as { fits: unknown[] }).fits.length).toBe(2);
+  });
+});

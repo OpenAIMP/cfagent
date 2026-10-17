@@ -201,7 +201,11 @@ export class UnifiedOptionsService {
     // edit (version bump) busts the cache, and a profile call never
     // shares an entry with a profile-less one.
     const profileSegment = profile ? `profile=${profile.id}@v${profile.version}` : "";
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}`;
+    // Issue #84 slice 1: `limit` changes the opportunities result (fit
+    // pagination / row cap) once forwarded to the scanner, so it belongs
+    // in the key for the same reason mode and profile do — two calls
+    // differing only by limit must not share a cached scan.
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -336,6 +340,12 @@ export class UnifiedOptionsService {
           }, {
             riskProfile: req.riskProfile || "balanced",
             ...(req.mode ? { mode: req.mode } : {}),
+            // Issue #84 slice 1: the request declares `limit` (the
+            // scanner panel's fit-mode page size) — forward it into the
+            // scan, where it paginates fits in strategy_fit mode and
+            // caps rows in per-name mode. It was previously dropped,
+            // which made a caller's limit a no-op.
+            ...(req.limit !== undefined ? { limit: req.limit } : {}),
             // Issue #28: the profile layers under the body's own
             // fields — every field actually present in the body
             // (thesis, caps, types, bias, and the posture fields

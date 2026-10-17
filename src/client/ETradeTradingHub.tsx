@@ -15,6 +15,7 @@ import { OptionsResearchPanel } from "./OptionsResearchPanel";
 import type { TradeAssetClass, TradeOrderContext } from "./trading/tradeOrderContext";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
+import { ScannerPanel } from "./ScannerPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub } from "./ScreenersHub";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
@@ -1760,6 +1761,12 @@ export function ETradeTradingHub({
           onJobStateChange={setOptionsJob}
           onSendPrompt={onSendPrompt}
         />
+        {/* Issue #84 slice 1: Opportunity Scanner — explicit scan-mode
+            switch (#23) + saved strategy profiles (#28), behind its
+            own error boundary per the #71 containment rule. */}
+        <ErrorBoundary label="Opportunity Scanner panel">
+          <ScannerPanel activeEnv={activeEnv} userLogin={user?.login} />
+        </ErrorBoundary>
       </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
