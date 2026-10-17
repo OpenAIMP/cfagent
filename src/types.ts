@@ -1426,7 +1426,16 @@ export interface SandboxExecutionRequest {
 }
 
 export interface SandboxExecutionResult {
-  exitCode: number;
+  /**
+   * Issue #121 (audit F6): true only when a real container backend handled
+   * the request (its `error` field reports backend failures). False means
+   * NO backend is bound in this environment and the command was NOT run —
+   * in that case `exitCode` is null and `stdout`/`stderr` are empty, because
+   * this service never emulates shell execution or fabricates output.
+   */
+  executed: boolean;
+  /** Process exit code from the real backend; null when nothing ran. */
+  exitCode: number | null;
   stdout: string;
   stderr: string;
   durationMs: number;
@@ -1443,14 +1452,23 @@ export interface QuantBacktestRequest {
 export interface QuantBacktestResult {
   symbol: string;
   strategy: string;
+  /**
+   * Issue #121 (audit F7): the price series is generated in code, never
+   * historical market data. Metrics are genuinely computed from that
+   * synthetic series; a metric that cannot be computed from the run
+   * (e.g. win rate with no closed trades) is null, never default-filled.
+   */
+  dataSource: "synthetic";
   totalTrades: number;
-  winRate: number;
-  profitFactor: number;
-  sharpeRatio: number;
-  maxDrawdownPct: number;
-  netReturnPct: number;
+  winRate: number | null;
+  profitFactor: number | null;
+  sharpeRatio: number | null;
+  maxDrawdownPct: number | null;
+  netReturnPct: number | null;
   codeExecuted: string;
   logs: string;
+  /** Plain-language statement of what this result is and is not. */
+  note: string;
 }
 
 // =========================================================================
