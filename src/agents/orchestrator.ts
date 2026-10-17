@@ -1,4 +1,5 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
+import type { Schedule, ScheduleCriteria } from "agents";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
@@ -196,23 +197,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // exact ET hour: "0 3 * * *" UTC fires at 23:00 EDT / 22:00 EST,
       // i.e. always at least 1 hour before the midnight-ET token expiry in
       // both DST regimes. (Idempotent by default for cron.)
-      if (typeof (this as any).schedule === "function") {
-        await (this as any).schedule(
-          "0 3 * * *",
-          "autoRenewETradeTokens",
-          { userLogin: this.sessionKey() },
-          { idempotent: true }
-        );
-      }
+      await this.schedule(
+        "0 3 * * *",
+        "autoRenewETradeTokens",
+        { userLogin: this.sessionKey() },
+        { idempotent: true }
+      );
 
       // 2. Autonomous market screening interval (runs every 300 seconds / 5 min)
-      if (typeof (this as any).scheduleEvery === "function") {
-        await (this as any).scheduleEvery(
-          300,
-          "autonomousMarketScreen",
-          { sector: "Technology", maxItems: 5 }
-        );
-      }
+      await this.scheduleEvery(
+        300,
+        "autonomousMarketScreen",
+        { sector: "Technology", maxItems: 5 }
+      );
 
       // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
       // after the US close in both EST and EDT, so the day's record
@@ -223,14 +220,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // row, versus ~104 stale weekend rows a year.) Idempotent per
       // (symbol, day) at the store, so a retry or manual trigger the
       // same day is a no-op.
-      if (typeof (this as any).schedule === "function") {
-        await (this as any).schedule(
-          "15 22 * * 1-5",
-          "collectIvHistory",
-          { userLogin: this.sessionKey() },
-          { idempotent: true }
-        );
-      }
+      await this.schedule(
+        "15 22 * * 1-5",
+        "collectIvHistory",
+        { userLogin: this.sessionKey() },
+        { idempotent: true }
+      );
     } catch (schedErr) {
       console.warn("[OrchestratorAgent][onStart] Note on schedule registration:", schedErr);
     }
@@ -240,12 +235,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Proactively renews E*TRADE tokens before midnight ET
    */
   async autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void> {
-    if (typeof (this as any).waitUntilStable === "function") {
-      try {
-        await (this as any).waitUntilStable({ timeout: 30_000 });
-      } catch {
-        // Continue if timeout or unhandled
-      }
+    try {
+      await this.waitUntilStable({ timeout: 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
     }
     const user = payload?.userLogin || this.sessionKey();
     const service = new ScheduledTasksService(this.env, this.getOrm(), user, new SqlScanRunStore(this.ctx.storage.sql));
@@ -260,12 +253,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
   async autonomousMarketScreen(payload?: { sector?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
-    if (typeof (this as any).waitUntilStable === "function") {
-      try {
-        await (this as any).waitUntilStable({ timeout: 30_000 });
-      } catch {
-        // Continue if timeout or unhandled
-      }
+    try {
+      await this.waitUntilStable({ timeout: 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
     }
     const runScreen = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
@@ -324,12 +315,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Runs cross-symbol options discovery and dispatches omnichannel push alerts
    */
   async autonomousOptionsAnalysis(payload?: AutonomousOptionsAnalysisOptions): Promise<void> {
-    if (typeof (this as any).waitUntilStable === "function") {
-      try {
-        await (this as any).waitUntilStable({ timeout: 30_000 });
-      } catch {
-        // Continue if timeout or unhandled
-      }
+    try {
+      await this.waitUntilStable({ timeout: 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
     }
     const runAnalysis = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
@@ -393,12 +382,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * no record is ever fabricated for a missing day.
    */
   async collectIvHistory(payload?: { symbols?: string[]; environment?: string; userLogin?: string }): Promise<void> {
-    if (typeof (this as any).waitUntilStable === "function") {
-      try {
-        await (this as any).waitUntilStable({ timeout: 30_000 });
-      } catch {
-        // Continue if timeout or unhandled
-      }
+    try {
+      await this.waitUntilStable({ timeout: 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
     }
     const runCollection = async () => {
       const service = new ScheduledTasksService(
@@ -448,12 +435,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     messagesOrFactory: any[] | ((messages: any[]) => any[]),
     options?: { signal?: AbortSignal; timeoutMs?: number }
   ): Promise<{ requestId?: string; status: "completed" | "skipped" | "aborted" }> {
-    if (typeof (this as any).waitUntilStable === "function") {
-      try {
-        await (this as any).waitUntilStable({ timeout: options?.timeoutMs ?? 30_000 });
-      } catch {
-        // Continue if timeout or unhandled
-      }
+    try {
+      await this.waitUntilStable({ timeout: options?.timeoutMs ?? 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
     }
     if (typeof (this as any).saveMessages === "function") {
       return await (this as any).saveMessages(messagesOrFactory, options);
@@ -499,31 +484,26 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Issue #109: binds this agent's Cloudflare Agents scheduling API
    * into the narrow port the NLQ executor consumes, so schedules
    * created/listed/cancelled from natural language are real SDK
-   * schedules with real ids. Each binding fails loudly when the
-   * underlying method is unavailable; the NLQ executor converts that
-   * into an honest failure reply rather than a fabricated success.
+   * schedules with real ids.
+   *
+   * Issue #108: the bindings call the typed Agent methods directly —
+   * schedule/scheduleEvery/cancelSchedule/listSchedules are typed
+   * members of the Agent base class, so the old `(this as any)` +
+   * typeof-guard layer is gone. The port receives callback names as
+   * plain strings from NLQ plan parsing; the narrow `as keyof this`
+   * assertion is the one cast that remains, because the SDK signature
+   * requires a method-name key. It cannot fabricate success: an
+   * unknown name makes the SDK call throw, and the NLQ executor
+   * converts any throw into an honest failure reply.
    */
   private nlqSchedulingPort(): NLQSchedulingPort {
-    const agent = this as any;
-    const unavailable = (name: string) =>
-      new Error(`Agent scheduling API method '${name}' is unavailable in this runtime`);
     return {
-      schedule: async (when, callback, payload, options) => {
-        if (typeof agent.schedule !== "function") throw unavailable("schedule");
-        return (await agent.schedule(when, callback, payload, options)) as AgentScheduleItem;
-      },
-      scheduleEvery: async (intervalSeconds, callback, payload) => {
-        if (typeof agent.scheduleEvery !== "function") throw unavailable("scheduleEvery");
-        return (await agent.scheduleEvery(intervalSeconds, callback, payload)) as AgentScheduleItem;
-      },
-      cancelSchedule: async (id) => {
-        if (typeof agent.cancelSchedule !== "function") throw unavailable("cancelSchedule");
-        return (await agent.cancelSchedule(id)) as boolean;
-      },
-      listSchedules: async () => {
-        if (typeof agent.listSchedules !== "function") throw unavailable("listSchedules");
-        return (await agent.listSchedules()) as AgentScheduleItem[];
-      },
+      schedule: async (when, callback, payload, options) =>
+        (await this.schedule(when, callback as keyof this, payload, options)) as AgentScheduleItem,
+      scheduleEvery: async (intervalSeconds, callback, payload) =>
+        (await this.scheduleEvery(intervalSeconds, callback as keyof this, payload)) as AgentScheduleItem,
+      cancelSchedule: async (id) => await this.cancelSchedule(id),
+      listSchedules: async () => (await this.listSchedules()) as AgentScheduleItem[],
     };
   }
 
@@ -3323,16 +3303,14 @@ Agentic Best Practices & Workflow Rules:
 
         // Schedule a 15-minute expiration timer (900 seconds) for this draft
         try {
-          if (typeof (this as any).schedule === "function") {
-            const expSchedule = await (this as any).schedule(900, "expireStaleOrderDraft", { orderId: preview.orderId, userLogin });
-            if (expSchedule?.id) {
-              preview.expirationScheduleId = expSchedule.id;
-              preview.expiresAt = new Date(Date.now() + 900 * 1000).toISOString();
-              this.getOrm().trades?.update(preview.orderId, {
-                expirationScheduleId: expSchedule.id,
-                updatedAt: new Date().toISOString(),
-              });
-            }
+          const expSchedule = await this.schedule(900, "expireStaleOrderDraft", { orderId: preview.orderId, userLogin });
+          if (expSchedule?.id) {
+            preview.expirationScheduleId = expSchedule.id;
+            preview.expiresAt = new Date(Date.now() + 900 * 1000).toISOString();
+            this.getOrm().trades?.update(preview.orderId, {
+              expirationScheduleId: expSchedule.id,
+              updatedAt: new Date().toISOString(),
+            });
           }
         } catch (schedErr) {
           console.warn("[OrchestratorAgent] Note: could not schedule expiration timer:", schedErr);
@@ -3397,9 +3375,9 @@ Agentic Best Practices & Workflow Rules:
 
         // Handle user rejection / cancellation immediately
         if (decision === "rejected") {
-          if (existingRecord.expirationScheduleId && typeof (this as any).cancelSchedule === "function") {
+          if (existingRecord.expirationScheduleId) {
             try {
-              await (this as any).cancelSchedule(existingRecord.expirationScheduleId);
+              await this.cancelSchedule(existingRecord.expirationScheduleId);
             } catch {
               // Ignore cancel error if already triggered
             }
@@ -3534,9 +3512,9 @@ Agentic Best Practices & Workflow Rules:
         }
 
         // Cancel the scheduled expiration timer since the order has been executed
-        if (existingRecord.expirationScheduleId && typeof (this as any).cancelSchedule === "function") {
+        if (existingRecord.expirationScheduleId) {
           try {
-            await (this as any).cancelSchedule(existingRecord.expirationScheduleId);
+            await this.cancelSchedule(existingRecord.expirationScheduleId);
           } catch {
             // Ignore cancel error if already triggered
           }
@@ -5189,18 +5167,18 @@ Agentic Best Practices & Workflow Rules:
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
-        const type = url.searchParams.get("type") as any;
-        let schedules: any[] = [];
-        if (typeof (this as any).listSchedules === "function") {
-          schedules = await (this as any).listSchedules(type ? { type } : undefined);
-        } else if ((this as any).scheduler && typeof (this as any).scheduler.list === "function") {
-          schedules = await (this as any).scheduler.list(type ? { type } : undefined);
-        } else if (typeof (this as any).getSchedules === "function") {
-          schedules = (this as any).getSchedules(type ? { type } : undefined);
-        }
+        // Issue #108: the typed listSchedules() is called directly. The
+        // old fallback chain (listSchedules → scheduler.list → deprecated
+        // getSchedules → 200 with an empty list) is deleted: it masked a
+        // broken scheduling binding as "you have no schedules" (audit
+        // finding F14). A failure now surfaces as the 500 below.
+        const typeParam = url.searchParams.get("type");
+        const schedules = await this.listSchedules(
+          typeParam ? { type: typeParam as ScheduleCriteria["type"] } : undefined
+        );
         return Response.json({
-          count: Array.isArray(schedules) ? schedules.length : 0,
-          schedules: Array.isArray(schedules) ? schedules : [],
+          count: schedules.length,
+          schedules,
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
@@ -5226,9 +5204,7 @@ Agentic Best Practices & Workflow Rules:
         if (!scheduleId) {
           return Response.json({ error: "Schedule ID is required" }, { status: 400 });
         }
-        const cancelled = typeof (this as any).cancelSchedule === "function"
-          ? await (this as any).cancelSchedule(scheduleId)
-          : false;
+        const cancelled = await this.cancelSchedule(scheduleId);
         this.audit("schedule.cancelled", "orchestrator", { scheduleId, success: cancelled });
         return Response.json({ scheduleId, cancelled });
       } catch (err: any) {
@@ -5240,9 +5216,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.includes("/schedules/") && request.method === "GET") {
       try {
         const scheduleId = path.split("/schedules/").pop() || "";
-        const schedule = typeof (this as any).getScheduleById === "function"
-          ? await (this as any).getScheduleById(scheduleId)
-          : undefined;
+        const schedule = await this.getScheduleById(scheduleId);
         if (!schedule) {
           return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
         }
@@ -5277,32 +5251,22 @@ Agentic Best Practices & Workflow Rules:
           );
         }
 
-        // No fabricated success (#111): if the Agents SDK scheduling method
-        // a mode needs is unavailable in this runtime, the route fails
-        // honestly with 503 instead of inventing a schedule id and
-        // reporting success for a schedule that does not exist.
-        const schedulingUnavailable = (method: string) =>
-          Response.json(
-            {
-              success: false,
-              error: `Scheduling unavailable: the agent runtime does not provide ${method}(), so no schedule was created`,
-            },
-            { status: 503 }
-          );
-
-        let schedule: any;
+        // No fabricated success (#111): this route never invents a
+        // schedule id or reports success for a schedule that does not
+        // exist. Issue #108: the calls below use the typed Agents SDK
+        // API directly — schedule/scheduleEvery are typed members of
+        // the Agent base class, so the old missing-method guard is
+        // gone; if a typed call throws, the catch below returns the
+        // same honest 503 {success:false} shape.
+        let schedule: Schedule<unknown> | undefined;
         if (scheduleType === "interval" && intervalSeconds) {
-          if (typeof (this as any).scheduleEvery !== "function") return schedulingUnavailable("scheduleEvery");
-          schedule = await (this as any).scheduleEvery(Number(intervalSeconds), callback, payload);
+          schedule = await this.scheduleEvery(Number(intervalSeconds), callback, payload);
         } else if (scheduleType === "cron" && cron) {
-          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
-          schedule = await (this as any).schedule(cron, callback, payload, { idempotent: body.idempotent !== false });
+          schedule = await this.schedule(cron, callback, payload, { idempotent: body.idempotent !== false });
         } else if (scheduleType === "scheduled" && date) {
-          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
-          schedule = await (this as any).schedule(new Date(date), callback, payload);
+          schedule = await this.schedule(new Date(date), callback, payload);
         } else if (delayInSeconds !== undefined) {
-          if (typeof (this as any).schedule !== "function") return schedulingUnavailable("schedule");
-          schedule = await (this as any).schedule(Number(delayInSeconds), callback, payload);
+          schedule = await this.schedule(Number(delayInSeconds), callback, payload);
         } else {
           return Response.json(
             { error: "Invalid schedule parameters: provide intervalSeconds, cron, date, or delayInSeconds" },
@@ -5314,10 +5278,11 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ success: true, schedule });
       } catch (err: any) {
         // A throwing SDK scheduling call created nothing, so it gets the
-        // same honest 503 {success:false, error} shape as the
-        // unavailable-method path above (#111) — never a success response.
+        // honest 503 {success:false, error} shape (#111), worded as what
+        // it is — scheduling was unavailable and no schedule was created
+        // — never a success response and never a fabricated id.
         return Response.json(
-          { success: false, error: err.message || "Failed to create schedule" },
+          { success: false, error: `Scheduling unavailable: ${err.message || "Failed to create schedule"}` },
           { status: 503 }
         );
       }
