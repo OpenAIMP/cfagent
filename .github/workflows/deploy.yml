@@ -107,6 +107,18 @@ jobs:
       - name: Update wrangler.jsonc with KV ID
         run: sed -i "s/<YOUR_KV_NAMESPACE_ID>/$KV_ID/g" wrangler.jsonc
 
+      - name: Ensure Vectorize index for VectorMemory (PR #6)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if ! npx wrangler vectorize get vector-memory 2>/dev/null; then
+            echo "Creating vector-memory index..."
+            npx wrangler vectorize create vector-memory --dimensions 768 --metric cosine
+          else
+            echo "vector-memory index already exists"
+          fi
+
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
