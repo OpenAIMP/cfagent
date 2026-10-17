@@ -938,7 +938,10 @@ export default {
     const id = env.SEARCH_AGENT.idFromName(userLogin);
     const agent = env.SEARCH_AGENT.get(id);
 
-    if (event?.cron === "0 23 * * *") {
+    // Must match the renewal cron trigger in wrangler.jsonc: "0 3 * * *"
+    // UTC = 23:00 EDT / 22:00 EST, always >= 1h before the midnight-ET
+    // token expiry in both DST regimes (issue #107).
+    if (event?.cron === "0 3 * * *") {
       const renewPromise = agent.fetch(
         new Request("https://agent.internal/schedules/trigger-renew", {
           method: "POST",
