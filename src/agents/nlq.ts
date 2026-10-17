@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AgentScheduleItem, Env, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
-import { FossResearchService } from "../services/fossResearch";
+import { FossResearchService, weakestFossProvenance } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
@@ -2022,12 +2022,16 @@ export function executeNLQQuery(
 
     if (action === "fundamentals") {
       const f = foss.getFundamentalsSync(sym);
+      // Issue #117: a non-live target is a profile estimate, never "consensus".
+      const targetClause = f.provenance === "live"
+        ? `Consensus Target: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}).`
+        : `Profile Target Estimate: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}) — from ${f.provenance} FOSS data, not live analyst consensus.`;
       return {
         plan,
         domain: "research",
         targetTable: "yfinance_fundamentals",
         count: 1,
-        summary: `FOSS Fundamental Analysis for ${f.companyName} (${f.symbol}) via Yahoo Finance: Market Cap $${(f.marketCap / 1e9).toFixed(1)}B, Trailing P/E ${f.peTrailing || "N/A"}, Forward P/E ${f.peForward || "N/A"}, PEG ${f.pegRatio || "N/A"}. Consensus Target: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}).`,
+        summary: `FOSS Fundamental Analysis for ${f.companyName} (${f.symbol}) via Yahoo Finance: Market Cap $${(f.marketCap / 1e9).toFixed(1)}B, Trailing P/E ${f.peTrailing || "N/A"}, Forward P/E ${f.peForward || "N/A"}, PEG ${f.pegRatio || "N/A"}. ${targetClause}`,
         rows: [
           {
             symbol: f.symbol,
@@ -2041,6 +2045,8 @@ export function executeNLQQuery(
             range52Week: `$${f.fiftyTwoWeekLow.toFixed(2)} - $${f.fiftyTwoWeekHigh.toFixed(2)}`,
             targetPrice: `$${f.targetMeanPrice?.toFixed(2) || "N/A"}`,
             analystRating: f.recommendationKey?.toUpperCase() || "BUY",
+            provenance: f.provenance,
+            dataNote: f.note,
           },
         ],
         executedAt,
@@ -2054,7 +2060,9 @@ export function executeNLQQuery(
         domain: "research",
         targetTable: "alpaca_snapshot",
         count: 1,
-        summary: `Alpaca Real-time Market Snapshot for ${s.symbol}: Latest Trade $${s.latestTrade.price.toFixed(2)} (${s.latestTrade.size} shs). Best Bid $${s.latestQuote.bidPrice.toFixed(2)} / Ask $${s.latestQuote.askPrice.toFixed(2)}. Daily High $${s.dailyBar.high.toFixed(2)} / Low $${s.dailyBar.low.toFixed(2)}.`,
+        // Issue #117: the sync snapshot comes from the FOSS profile — only
+        // call it real-time when it was actually fetched live.
+        summary: `Alpaca ${s.provenance === "live" ? "Real-time" : "FOSS Profile (non-live)"} Market Snapshot for ${s.symbol}: Latest Trade $${s.latestTrade.price.toFixed(2)} (${s.latestTrade.size} shs). Best Bid $${s.latestQuote.bidPrice.toFixed(2)} / Ask $${s.latestQuote.askPrice.toFixed(2)}. Daily High $${s.dailyBar.high.toFixed(2)} / Low $${s.dailyBar.low.toFixed(2)}.`,
         rows: [
           {
             symbol: s.symbol,
@@ -2064,6 +2072,8 @@ export function executeNLQQuery(
             dayRange: `$${s.dailyBar.low.toFixed(2)} - $${s.dailyBar.high.toFixed(2)}`,
             volume: s.dailyBar.volume.toLocaleString(),
             vwap: s.dailyBar.vwap ? `$${s.dailyBar.vwap.toFixed(2)}` : "N/A",
+            provenance: s.provenance,
+            dataNote: s.note,
           },
         ],
         executedAt,
@@ -2077,7 +2087,9 @@ export function executeNLQQuery(
         domain: "research",
         targetTable: "foss_quote",
         count: 1,
-        summary: `Real-time quote for ${q.symbol} (${q.companyName || sym}) via ${q.provider}: $${q.price.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.`,
+        // Issue #117: the sync quote path serves the FOSS profile — a
+        // generated/static price must never be announced as real-time.
+        summary: `${q.provenance === "live" ? "Real-time" : `Non-live FOSS profile (${q.provenance})`} quote for ${q.symbol} (${q.companyName || sym}) via ${q.provider}: $${q.price.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.${q.provenance === "live" ? "" : " This price is not live market data."}`,
         rows: [
           {
             symbol: q.symbol,
@@ -2086,6 +2098,8 @@ export function executeNLQQuery(
             change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
             bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
             volume: q.volume.toLocaleString(),
+            provenance: q.provenance,
+            dataNote: q.note,
           },
         ],
         executedAt,
@@ -2095,12 +2109,15 @@ export function executeNLQQuery(
     if (action === "compare") {
       const syms = plan.researchData?.symbols || [sym, "AMD"];
       const comp = foss.compareStocksSync(syms);
+      const anyNonLive = comp.some(
+        (c) => weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance) !== "live"
+      );
       return {
         plan,
         domain: "research",
         targetTable: "foss_stock_comparison",
         count: comp.length,
-        summary: `FOSS Multi-Stock Valuation Comparison across ${comp.map((c) => c.symbol).join(", ")}.`,
+        summary: `FOSS Multi-Stock Valuation Comparison across ${comp.map((c) => c.symbol).join(", ")}.${anyNonLive ? " Values include non-live FOSS profile data (see provenance per row) — targets are profile estimates, not analyst consensus." : ""}`,
         rows: comp.map((c) => ({
           symbol: c.symbol,
           company: c.fundamentals.companyName,
@@ -2109,6 +2126,7 @@ export function executeNLQQuery(
           marketCap: `$${(c.fundamentals.marketCap / 1e9).toFixed(1)}B`,
           analystRating: c.fundamentals.recommendationKey?.toUpperCase() || "BUY",
           targetPrice: `$${c.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
+          provenance: weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance),
         })),
         executedAt,
       };
@@ -2121,7 +2139,10 @@ export function executeNLQQuery(
       domain: "research",
       targetTable: "foss_research_report",
       count: 1,
-      summary: `Autonomous Research Synthesis for ${rep.fundamentals.companyName} (${rep.symbol}): Target: $${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}, Consensus: ${rep.analystRating}. ${rep.aiAnalysis}`,
+      // Issue #117: the rating comes from the FOSS profile on this sync path —
+      // label it "Rating", never "Consensus"; the report's aiAnalysis carries
+      // the full data notice for non-live inputs.
+      summary: `Autonomous Research Synthesis for ${rep.fundamentals.companyName} (${rep.symbol}): Target: $${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}, Rating: ${rep.analystRating}. ${rep.aiAnalysis}`,
       rows: [
         {
           symbol: rep.symbol,
@@ -2134,6 +2155,7 @@ export function executeNLQQuery(
           rsi14: rep.technicalSummary.rsi14,
           technicalTrend: rep.technicalSummary.trend50vs200SMA,
           agentAttestationDid: rep.agentAttestation.did,
+          provenance: rep.provenance,
         },
       ],
       executedAt,
@@ -2947,7 +2969,9 @@ export async function executeNLQQueryAsync(
         domain: "agentic_payments",
         targetTable: "etrade_premium_research",
         count: 1,
-        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}.`,
+        // Issue #117: a paid report built on non-live inputs must say so —
+        // the buyer is told what the data actually is.
+        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}.${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live FOSS data, and its target is a profile estimate, not analyst consensus.` : ""}`,
         rows: [
           {
             symbol: report.symbol,
@@ -2956,6 +2980,7 @@ export async function executeNLQQueryAsync(
             targetPrice,
             currentPrice,
             receiptId: receipt.receiptId,
+            provenance: report.provenance,
           },
         ],
         executedAt,
