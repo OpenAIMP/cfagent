@@ -5,9 +5,19 @@
  *
  * Implements:
  * - Isolated container command runner via this.ctx.container
- * - Quantitative algorithmic backtesting (SMA Crossover, RSI Reversal, Mean Reversion, Breakout)
- * - Safe mathematical calculations for Sharpe Ratio, Max Drawdown, and Win Rates
+ * - Quantitative strategy calculation demos (SMA Crossover, RSI Reversal, Mean Reversion, Breakout)
+ * - Deterministic Sharpe Ratio, Max Drawdown, and Win Rate calculations
  * - Timeout enforcement and output character truncation (10,000 chars)
+ *
+ * Honesty contract (issue #121, audit #115 F6/F7):
+ * - runCommand executes ONLY through a real bound container. When no
+ *   container is bound it returns executed:false with exitCode:null and an
+ *   explicit error — shell execution is never emulated and output is never
+ *   fabricated.
+ * - runQuantBacktest runs over a SYNTHETIC generated price series, labelled
+ *   dataSource:"synthetic" in every result. Its metrics are genuinely and
+ *   deterministically computed from that series; a metric that cannot be
+ *   computed is null, never default-filled or randomised.
  */
 
 import type {
@@ -62,6 +72,7 @@ export class ETradeSandboxService {
         const stderr = decoder.decode(output.stderr).slice(-MAX_OUTPUT_CHARS);
 
         return {
+          executed: true,
           exitCode: output.exitCode,
           stdout,
           stderr,
@@ -69,6 +80,7 @@ export class ETradeSandboxService {
         };
       } catch (err: any) {
         return {
+          executed: true,
           exitCode: 1,
           stdout: "",
           stderr: err.message || "Container execution failed",
@@ -78,19 +90,40 @@ export class ETradeSandboxService {
       }
     }
 
-    // 2. Fast lightweight in-process JavaScript/eval execution runner when container binding is not present
-    return this.runEmulatedSandbox(cmd, startTime);
+    // 2. No container backend is bound: the command is NOT executed.
+    // Issue #121 (audit F6): this path previously emulated a shell and
+    // returned exitCode 0 with a clean-execution message for commands that
+    // never ran. There is no honest success shape for a non-execution,
+    // so the result states plainly that nothing ran.
+    return {
+      executed: false,
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      durationMs: Date.now() - startTime,
+      error:
+        "Command NOT executed: no container sandbox backend is bound in this environment, so there is nothing to run the command in. Shell execution is not emulated and no output was produced.",
+    };
   }
 
   /**
-   * Run quantitative strategy backtest on simulated or historical market bars
+   * Run the strategy calculation over a SYNTHETIC generated price series.
+   *
+   * Issue #121 (audit F7): this is a calculation demonstration, not a
+   * backtest of the real security — the series is generated in code
+   * (deterministic sin/cos), never historical market data. Every metric
+   * below is genuinely computed from that series and the simulated trades
+   * (Sharpe from the equity curve's per-bar returns, max drawdown from the
+   * equity curve's peak-to-trough decline). Nothing is randomised and no
+   * metric is default-filled: a metric that cannot be computed from the
+   * run (e.g. win rate with no closed trades) is returned as null.
    */
   async runQuantBacktest(request: QuantBacktestRequest): Promise<QuantBacktestResult> {
     const sym = (request.symbol || "NVDA").toUpperCase();
     const strat = request.strategy || "sma_crossover";
     const numBars = request.startBars || 100;
 
-    // Generate deterministic price series
+    // Generate the deterministic synthetic price series (demo data only).
     const bars: number[] = [];
     let price = sym === "NVDA" ? 120 : sym === "AAPL" ? 220 : 100;
     for (let i = 0; i < numBars; i++) {
@@ -99,99 +132,126 @@ export class ETradeSandboxService {
       bars.push(parseFloat(price.toFixed(2)));
     }
 
-    let trades = 0;
-    let wins = 0;
-    let totalProfit = 0;
-    let totalLoss = 0;
+    // One-share long-only simulation with a full trade ledger and an
+    // equity curve, so every metric derives from the simulated run.
+    const capital = bars.length > 0 ? bars[0] : 0;
+    let cash = capital;
     let position = 0;
     let entryPrice = 0;
+    const tradePnls: number[] = [];
+    const equityCurve: number[] = [];
     const logs: string[] = [];
 
-    // Simple quantitative backtesting logic
-    if (strat === "sma_crossover") {
-      const fastPeriod = request.params?.fast || 5;
-      const slowPeriod = request.params?.slow || 20;
+    const openPosition = (atPrice: number, barIdx: number, why: string) => {
+      position = 1;
+      entryPrice = atPrice;
+      cash -= atPrice;
+      logs.push(`Bar ${barIdx}: BUY ${sym} at $${atPrice.toFixed(2)}${why}`);
+    };
+    const closePosition = (exitPrice: number, barIdx: number, why: string) => {
+      const pnl = exitPrice - entryPrice;
+      tradePnls.push(pnl);
+      cash += exitPrice;
+      position = 0;
+      logs.push(`Bar ${barIdx}: SELL ${sym} at $${exitPrice.toFixed(2)} PnL: $${pnl.toFixed(2)}${why}`);
+    };
 
-      for (let i = slowPeriod; i < bars.length; i++) {
-        const fastSma = bars.slice(i - fastPeriod, i).reduce((a, b) => a + b, 0) / fastPeriod;
-        const slowSma = bars.slice(i - slowPeriod, i).reduce((a, b) => a + b, 0) / slowPeriod;
+    const fastPeriod = request.params?.fast || 5;
+    const slowPeriod = request.params?.slow || 20;
 
-        if (fastSma > slowSma && position === 0) {
-          position = 1;
-          entryPrice = bars[i];
-          trades++;
-          logs.push(`Bar ${i}: BUY ${sym} at $${entryPrice.toFixed(2)} (Fast SMA ${fastSma.toFixed(2)} > Slow ${slowSma.toFixed(2)})`);
-        } else if (fastSma < slowSma && position === 1) {
-          position = 0;
-          const exitPrice = bars[i];
-          const pnl = exitPrice - entryPrice;
-          if (pnl > 0) {
-            wins++;
-            totalProfit += pnl;
-          } else {
-            totalLoss += Math.abs(pnl);
+    for (let i = 0; i < bars.length; i++) {
+      if (strat === "sma_crossover") {
+        if (i >= slowPeriod) {
+          const fastSma = bars.slice(i - fastPeriod, i).reduce((a, b) => a + b, 0) / fastPeriod;
+          const slowSma = bars.slice(i - slowPeriod, i).reduce((a, b) => a + b, 0) / slowPeriod;
+
+          if (fastSma > slowSma && position === 0) {
+            openPosition(bars[i], i, ` (Fast SMA ${fastSma.toFixed(2)} > Slow ${slowSma.toFixed(2)})`);
+          } else if (fastSma < slowSma && position === 1) {
+            closePosition(bars[i], i, ` (Fast SMA ${fastSma.toFixed(2)} < Slow ${slowSma.toFixed(2)})`);
           }
-          logs.push(`Bar ${i}: SELL ${sym} at $${exitPrice.toFixed(2)} PnL: $${pnl.toFixed(2)}`);
+        }
+      } else {
+        // Simplified mean-reversion rule; rsi_reversal, mean_reversion and
+        // breakout all share it in this demonstration (disclosed in the
+        // result note and tool description). Buy a >1.5% dip below the
+        // prior bar; exit on a +3% rise from entry.
+        if (i >= 14) {
+          const current = bars[i];
+          const prev = bars[i - 1];
+          if (current < prev * 0.985 && position === 0) {
+            openPosition(current, i, " (dip >1.5% below prior bar)");
+          } else if (current > entryPrice * 1.03 && position === 1) {
+            closePosition(current, i, " (+3% from entry)");
+          }
         }
       }
-    } else {
-      // Mean reversion / RSI simulation
-      for (let i = 14; i < bars.length; i++) {
-        const current = bars[i];
-        const prev = bars[i - 1];
-        if (current < prev * 0.985 && position === 0) {
-          position = 1;
-          entryPrice = current;
-          trades++;
-        } else if (current > entryPrice * 1.03 && position === 1) {
-          position = 0;
-          const pnl = current - entryPrice;
-          wins++;
-          totalProfit += pnl;
-        }
-      }
+      equityCurve.push(cash + (position === 1 ? bars[i] : 0));
     }
 
-    const winRate = trades > 0 ? parseFloat(((wins / trades) * 100).toFixed(1)) : 50.0;
-    const profitFactor = totalLoss > 0 ? parseFloat((totalProfit / totalLoss).toFixed(2)) : 2.5;
-    const sharpeRatio = parseFloat((1.2 + (winRate / 100) * 0.8).toFixed(2));
-    const maxDrawdownPct = parseFloat((4.5 + Math.random() * 2).toFixed(1));
-    const netReturnPct = parseFloat(((totalProfit - totalLoss) * 1.5).toFixed(1));
+    // An open position at the end of the series is closed at the final bar
+    // so its real gain/loss is part of the ledger — never silently dropped.
+    if (position === 1 && bars.length > 0) {
+      closePosition(bars[bars.length - 1], bars.length - 1, " (end of series — closed at final bar)");
+    }
+
+    const round = (v: number, dp: number) => parseFloat(v.toFixed(dp));
+
+    const totalTrades = tradePnls.length;
+    const wins = tradePnls.filter((p) => p > 0).length;
+    const grossProfit = tradePnls.filter((p) => p > 0).reduce((a, b) => a + b, 0);
+    const grossLoss = Math.abs(tradePnls.filter((p) => p < 0).reduce((a, b) => a + b, 0));
+
+    const winRate = totalTrades > 0 ? round((wins / totalTrades) * 100, 1) : null;
+    const profitFactor = grossLoss > 0 ? round(grossProfit / grossLoss, 2) : null;
+
+    // Per-bar returns of the equity curve → annualised Sharpe (rf = 0).
+    const returns: number[] = [];
+    for (let i = 1; i < equityCurve.length; i++) {
+      if (equityCurve[i - 1] > 0) returns.push(equityCurve[i] / equityCurve[i - 1] - 1);
+    }
+    let sharpeRatio: number | null = null;
+    if (returns.length >= 2) {
+      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+      const variance = returns.reduce((a, r) => a + (r - mean) ** 2, 0) / (returns.length - 1);
+      const std = Math.sqrt(variance);
+      if (std > 0) sharpeRatio = round((mean / std) * Math.sqrt(252), 2);
+    }
+
+    let maxDrawdownPct: number | null = null;
+    if (equityCurve.length >= 2) {
+      let peak = equityCurve[0];
+      let maxDd = 0;
+      for (const e of equityCurve) {
+        peak = Math.max(peak, e);
+        if (peak > 0) maxDd = Math.max(maxDd, ((peak - e) / peak) * 100);
+      }
+      maxDrawdownPct = round(maxDd, 1);
+    }
+
+    const netReturnPct =
+      capital > 0 && equityCurve.length > 0
+        ? round((equityCurve[equityCurve.length - 1] / capital - 1) * 100, 1)
+        : null;
 
     return {
       symbol: sym,
       strategy: strat,
-      totalTrades: trades || 8,
+      dataSource: "synthetic",
+      totalTrades,
       winRate,
       profitFactor,
       sharpeRatio,
       maxDrawdownPct,
-      netReturnPct: netReturnPct || 14.8,
-      codeExecuted: `quant_backtest.py --symbol ${sym} --strategy ${strat}`,
+      netReturnPct,
+      codeExecuted:
+        "none — the metrics were calculated in-process (TypeScript) over a generated series; no code was executed in a sandbox",
       logs: logs.slice(0, 10).join("\n"),
-    };
-  }
-
-  /**
-   * Emulated sandbox execution fallback
-   */
-  private runEmulatedSandbox(cmd: string, startTime: number): SandboxExecutionResult {
-    // If it's a python or bash command
-    if (cmd.includes("python") || cmd.includes("node") || cmd.includes("echo")) {
-      const mockOut = `[Cloudflare Agents Sandbox] Executed command: ${cmd}\nExit Code: 0\nResult: Execution completed cleanly.`;
-      return {
-        exitCode: 0,
-        stdout: mockOut,
-        stderr: "",
-        durationMs: Date.now() - startTime,
-      };
-    }
-
-    return {
-      exitCode: 0,
-      stdout: `[Cloudflare Debian Sandbox] $ ${cmd}\nCommand simulated successfully.`,
-      stderr: "",
-      durationMs: Date.now() - startTime,
+      note:
+        `Synthetic demonstration: the price series is generated in code (deterministic sin/cos), NOT historical market data for ${sym}. ` +
+        "Metrics are genuinely computed from that series and the simulated trades; they demonstrate the calculation only and say nothing about the real security. " +
+        "A metric reported as null could not be computed from this run (e.g. no closed trades). " +
+        "rsi_reversal, mean_reversion and breakout share one simplified mean-reversion rule in this demonstration.",
     };
   }
 }

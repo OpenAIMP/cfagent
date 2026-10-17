@@ -108,7 +108,7 @@ export class DispatchTradingWebhookCommand implements IMcpToolCommand<{
  */
 export class SandboxRunCommand implements IMcpToolCommand<{ command: string; timeoutMs?: number }> {
   readonly name = "run_sandbox_command";
-  readonly description = "Execute shell command in Cloudflare Linux container sandbox for financial computing";
+  readonly description = "Run a shell command in a Cloudflare Linux container sandbox. The command executes ONLY when a container backend is bound; the MCP facade binds none, so calls currently return executed:false with exitCode:null and an error stating the command was NOT run. Execution is never emulated and output is never fabricated — do not present a result with executed:false as command output.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -125,7 +125,7 @@ export class SandboxRunCommand implements IMcpToolCommand<{ command: string; tim
   async execute(input: { command: string; timeoutMs?: number }, context: McpToolContext) {
     const sandbox = new ETradeSandboxService(undefined, context.env);
     const result = await sandbox.runCommand({ command: input.command, timeoutMs: input.timeoutMs });
-    context.audit("sandbox.execute", "sandbox", { command: input.command, exitCode: result.exitCode });
+    context.audit("sandbox.execute", "sandbox", { command: input.command, executed: result.executed, exitCode: result.exitCode });
     return result;
   }
 }
@@ -139,13 +139,13 @@ export class QuantBacktestCommand implements IMcpToolCommand<{
   startBars?: number;
 }> {
   readonly name = "run_quant_backtest";
-  readonly description = "Execute quantitative algorithmic strategy backtest (Sharpe, Drawdown, Win Rate)";
+  readonly description = "Demonstrate a quantitative strategy calculation (Sharpe, Drawdown, Win Rate) over a SYNTHETIC generated price series — this is NOT a backtest over historical market data and says nothing about the real security. Metrics are genuinely and deterministically computed from the generated series (result carries dataSource:\"synthetic\"); a metric that cannot be computed from the run is returned as null, never estimated or randomised.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
-      symbol: { type: "string", description: "Ticker symbol to backtest e.g. NVDA" },
+      symbol: { type: "string", description: "Ticker symbol label for the synthetic series e.g. NVDA (selects the series' starting price only — no market data is fetched)" },
       strategy: { type: "string", enum: ["sma_crossover", "rsi_reversal", "mean_reversion", "breakout"] },
-      startBars: { type: "number", description: "Number of historical bars (default: 100)" },
+      startBars: { type: "number", description: "Number of synthetic bars to generate (default: 100)" },
     },
     required: ["symbol"],
   };
@@ -162,7 +162,7 @@ export class QuantBacktestCommand implements IMcpToolCommand<{
       strategy: input.strategy || "sma_crossover",
       startBars: input.startBars || 100,
     });
-    context.audit("quant.backtest", "sandbox", { symbol: input.symbol, sharpe: result.sharpeRatio });
+    context.audit("quant.backtest", "sandbox", { symbol: input.symbol, dataSource: result.dataSource, sharpe: result.sharpeRatio });
     return result;
   }
 }
