@@ -129,14 +129,17 @@ describe("Autonomous Options Screening & Scheduling Pipeline", () => {
       expect(result.data?.totalScanned).toBe(1);
 
       // The run the scheduled path produced is retrievable from the store,
-      // carrying the scan's mode and provenance.
-      const summaries = await store.list();
+      // carrying the scan's mode and provenance. Issue #103: the save is
+      // stamped with the service's userLogin, so the read-backs name the
+      // owner scope.
+      const summaries = await store.list({ userLogin: "test_trader" });
       expect(summaries).toHaveLength(1);
       expect(summaries[0].id).toBe("scheduled-run-1");
+      expect(summaries[0].userLogin).toBe("test_trader");
       expect(summaries[0].mode).toBe("per_name_best");
       expect(summaries[0].modelVersion).toBeDefined();
 
-      const stored = await store.get("scheduled-run-1");
+      const stored = await store.get("scheduled-run-1", { userLogin: "test_trader" });
       expect(stored).not.toBeNull();
       expect(stored!.mode).toBe(summaries[0].mode);
       expect(stored!.generatedAt).toBe(stored!.result.generatedAt);
