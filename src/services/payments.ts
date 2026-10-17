@@ -21,6 +21,33 @@ import {
 
 export type SupportedGateway = "stripe" | "paypal" | "lemonsqueezy" | "sandbox";
 
+/**
+ * Every gateway the payment service can resolve. "sandbox" is the explicit
+ * test harness: available only when a caller names it directly, never as a
+ * silent substitute for an unrecognized gateway (issue #148).
+ */
+export const SUPPORTED_GATEWAYS: readonly SupportedGateway[] = ["stripe", "paypal", "lemonsqueezy", "sandbox"];
+
+/**
+ * Gateways with a real webhook signature scheme. Webhook verification is
+ * default-deny: any provider outside this list (including "sandbox", which
+ * has no signature scheme) is rejected, never assumed valid (issue #148).
+ */
+export const WEBHOOK_GATEWAYS: readonly SupportedGateway[] = ["stripe", "paypal", "lemonsqueezy"];
+
+/** Normalizes a gateway identifier arriving from untrusted input (query params, JSON bodies, stored rows). */
+export function normalizeGateway(gateway: string): string {
+  return gateway.trim().toLowerCase();
+}
+
+export function isSupportedGateway(gateway: string): gateway is SupportedGateway {
+  return (SUPPORTED_GATEWAYS as readonly string[]).includes(normalizeGateway(gateway));
+}
+
+export function isWebhookGateway(gateway: string): gateway is SupportedGateway {
+  return (WEBHOOK_GATEWAYS as readonly string[]).includes(normalizeGateway(gateway));
+}
+
 export interface CreateCheckoutParams {
   draftId: string;
   amount: number;
@@ -89,7 +116,7 @@ export class PaymentGatewayService {
    * Creates a checkout session or order across Stripe, PayPal, Lemon Squeezy, or Sandbox
    */
   async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
-    const gateway = (params.gateway || "stripe").toLowerCase() as SupportedGateway;
+    const gateway = normalizeGateway(params.gateway || "stripe") as SupportedGateway;
     const authorizerDid = `did:user:github:${params.userLogin}`;
 
     // 1. Generate Verifiable Agent DID Attestation
@@ -117,7 +144,7 @@ export class PaymentGatewayService {
     orderId: string;
     userLogin: string;
   }): Promise<{ success: boolean; captureId?: string; message: string }> {
-    const gateway = params.gateway.toLowerCase() as SupportedGateway;
+    const gateway = normalizeGateway(params.gateway) as SupportedGateway;
     const authorizerDid = `did:user:github:${params.userLogin}`;
     const didAttestation = await createDidAttestation({
       draftId: params.orderId,
@@ -167,14 +194,18 @@ export class PaymentGatewayService {
   }
 
   /**
-   * Cryptographically verifies incoming webhook signatures from Stripe, PayPal, or Lemon Squeezy
+   * Cryptographically verifies incoming webhook signatures from Stripe, PayPal, or Lemon Squeezy.
+   * Default-deny: any other provider value is rejected (`isValid: false`) — verification
+   * never falls through to a permissive default (issue #148).
    */
   async verifyWebhookSignature(
     gateway: SupportedGateway,
     rawBody: string,
     headers: Headers
   ): Promise<{ isValid: boolean; reason?: string }> {
-    if (gateway === "stripe") {
+    const normalized = normalizeGateway(gateway || "");
+
+    if (normalized === "stripe") {
       const sig = headers.get("stripe-signature") || "";
       const secret = this.env.STRIPE_WEBHOOK_SECRET;
       if (!secret) return { isValid: false, reason: "Missing STRIPE_WEBHOOK_SECRET in environment" };
@@ -183,7 +214,7 @@ export class PaymentGatewayService {
       return { isValid: valid, reason: valid ? undefined : "Stripe signature mismatch" };
     }
 
-    if (gateway === "lemonsqueezy") {
+    if (normalized === "lemonsqueezy") {
       const sig = headers.get("x-signature") || "";
       const secret = this.env.LEMONSQUEEZY_WEBHOOK_SECRET;
       if (!secret) return { isValid: false, reason: "Missing LEMONSQUEEZY_WEBHOOK_SECRET in environment" };
@@ -192,12 +223,20 @@ export class PaymentGatewayService {
       return { isValid: valid, reason: valid ? undefined : "Lemon Squeezy signature mismatch" };
     }
 
-    if (gateway === "paypal") {
+    if (normalized === "paypal") {
       const paypalStrategy = PaymentStrategyFactory.getStrategy("paypal") as PayPalPaymentStrategy;
       const valid = await paypalStrategy.verifyWebhookSignature(this.env, headers, rawBody);
       return { isValid: valid, reason: valid ? undefined : "PayPal verification rejected" };
     }
 
-    return { isValid: true };
+    // Default-deny (issue #148): an unrecognized provider — including the
+    // sandbox harness, which has no webhook signature scheme — must never
+    // be treated as verified. This previously fell through to
+    // `{ isValid: true }`, so a forged webhook carrying a nonsense
+    // `provider` (and a draftId) settled a real transaction downstream.
+    return {
+      isValid: false,
+      reason: `Unsupported webhook provider: "${gateway}". Supported providers: ${WEBHOOK_GATEWAYS.join(", ")}.`,
+    };
   }
 }
