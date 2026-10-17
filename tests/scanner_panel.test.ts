@@ -6,6 +6,9 @@
  * roll-up cards (#26) + the cell → HITL preview handoff, with the
  * board/rollup fixtures typed against the real server types so a
  * backend shape change breaks these tests on purpose.
+ * Slice 3 additions: the trust layer — target-source chips on every
+ * target, the labelled "Data as of" header + scan model version,
+ * composite-score labelling, and borderline bucket chips.
  *
  * Harness follows the established panel tests: the REAL apiFetch is
  * driven against a stubbed global fetch, and — per the #71 lesson —
@@ -32,11 +35,14 @@ import {
   matrixStrategyTypes,
   topRejectionReason,
   matrixCellTradeContext,
+  TargetSourceChip,
+  TARGET_SOURCE_LABELS,
   type ProfileFormState,
 } from "../src/client/ScannerPanel";
 import type {
   ScanMatrixCellBest,
   ScanMatrixRow,
+  ScanTargetSource,
   ScanTypeRollup,
 } from "../src/trading/options/opportunityScanner";
 import type { StrategyLeg } from "../src/trading/options/strategyEngine";
@@ -958,7 +964,8 @@ describe("slice 2 — fit matrix board (issue #22 surface)", () => {
     expect(text).toContain("SKIPPED");
     expect(text).toContain("fit"); // AAPL gate badge
     expect(text).toContain("no_fit"); // MSFT gate badge
-    expect(text).toContain("$262.50 (thesis) · +0.60 EM"); // target with source + EM units (fmtTarget format)
+    expect(text).toContain("$262.50 · +0.60 EM"); // target price + EM units (fmtTarget format)
+    expect(text).toContain("thesis-derived target"); // the source is a chip since slice 3, not a parenthetical
     expect(text).toContain("no screen-passing pick"); // MSFT gate reasons
     expect(text).toContain("Skipped — no chain data"); // skipped row carries its reason, not cells
   });
@@ -1073,5 +1080,131 @@ describe("slice 2 — board appears in a full panel run", () => {
     expect(container.textContent).toContain("1 of 2 symbols passed the screen");
     expect(container.querySelector("#scanner-matrix-board")).not.toBeNull();
     expect(container.textContent).toContain("Skipped — no chain data");
+  });
+});
+
+// Slice 3 fixtures — typed matrix rows carrying every target source ---------
+
+const trustRows: ScanMatrixRow[] = [
+  { symbol: "STATEDCO", verdict: "pass", targetPrice: 300, targetSource: "stated", targetEmUnits: 1.2, gateBucket: "fit", gateReasons: [], cells: [] },
+  { symbol: "PCTCO", verdict: "pass", targetPrice: 110, targetSource: "percent", targetEmUnits: 0.4, gateBucket: "fit", gateReasons: [], cells: [] },
+  { symbol: "THESISCO", verdict: "pass", targetPrice: 262.5, targetSource: "thesis", targetEmUnits: 0.6, gateBucket: "fit", gateReasons: [], cells: [] },
+  { symbol: "EMCO", verdict: "pass", targetPrice: 275, targetSource: "em", targetEmUnits: 1.0, gateBucket: "borderline", gateReasons: [], cells: [] },
+  { symbol: "ZZZ", verdict: "skipped", skipReason: "no chain data", targetPrice: null, targetSource: null, targetEmUnits: null, gateBucket: null, gateReasons: [], cells: [] },
+];
+
+const trustEnvelope = {
+  ...perNameEnvelope,
+  matrix: trustRows,
+  typeRollup: [],
+} as any;
+
+// Slice 3 trust layer -----------------------------------------------------------
+
+describe("slice 3 — TargetSourceChip (target provenance, issues #19/#23/#25)", () => {
+  it("renders the plain-language label for each of the four sources, as a chip element", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const render = (source: ScanTargetSource) =>
+      renderToString(React.createElement(TargetSourceChip, { source })).replace(/<!-- -->/g, "");
+    expect(render("stated")).toContain("stated target");
+    expect(render("percent")).toContain("stated % target");
+    expect(render("thesis")).toContain("thesis-derived target");
+    expect(render("em")).toContain("expected-move target");
+    expect(render("stated")).toContain("scp-chip-target"); // a chip, not bare text
+    expect(TARGET_SOURCE_LABELS).toEqual({
+      stated: "stated target",
+      percent: "stated % target",
+      thesis: "thesis-derived target",
+      em: "expected-move target",
+    });
+  });
+
+  it("renders no chip when the source is null or absent — provenance is never guessed", async () => {
+    const { renderToString } = await import("react-dom/server");
+    expect(renderToString(React.createElement(TargetSourceChip, { source: null }))).toBe("");
+    expect(renderToString(React.createElement(TargetSourceChip, { source: undefined }))).toBe("");
+  });
+
+  it("every board row with a target carries its source chip; the skipped row carries neither target nor chip", async () => {
+    await renderResults(trustEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const board = container.querySelector("#scanner-matrix-board")!;
+    const rows = [...board.querySelectorAll("tbody tr")];
+    const bySymbol = new Map(rows.map((tr) => [tr.querySelector("strong")?.textContent, tr]));
+    expect(bySymbol.get("STATEDCO")!.querySelector(".scp-chip-target")?.textContent).toBe("stated target");
+    expect(bySymbol.get("PCTCO")!.querySelector(".scp-chip-target")?.textContent).toBe("stated % target");
+    expect(bySymbol.get("THESISCO")!.querySelector(".scp-chip-target")?.textContent).toBe("thesis-derived target");
+    expect(bySymbol.get("EMCO")!.querySelector(".scp-chip-target")?.textContent).toBe("expected-move target");
+    const skipped = bySymbol.get("ZZZ")!;
+    expect(skipped.querySelector(".scp-chip-target")).toBeNull();
+    expect(skipped.textContent).not.toContain("Target");
+  });
+
+  it("the per-name results table renders the chip next to the target price", async () => {
+    await renderResults(perNameEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const chip = container.querySelector(".scp-results .scp-chip-target");
+    expect(chip?.textContent).toBe("thesis-derived target");
+  });
+
+  it("the fits table renders the chip next to the target price", async () => {
+    await renderResults(fitEnvelope as OpportunityScanResponse, { mode: "strategy_fit", profileLabel: null });
+    const chip = container.querySelector(".scp-results .scp-chip-target");
+    expect(chip?.textContent).toBe("thesis-derived target");
+  });
+});
+
+describe("slice 3 — data as-of + scan model version (issue #27 provenance)", () => {
+  it("labels the header timestamp 'Data as of' and shows the scan model version the result carries", async () => {
+    await renderResults(perNameEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const head = container.querySelector(".scp-results-head")!;
+    const expectedTime = new Date(perNameEnvelope.generatedAt).toLocaleString();
+    expect(head.textContent).toContain(`Data as of ${expectedTime}`);
+    expect(head.textContent).toContain("scan model v1.1.2");
+    expect(head.textContent).not.toContain("generated"); // the bare pre-slice-3 phrasing is gone
+  });
+
+  it("omits the model-version element when the payload carries none, keeping the as-of label", async () => {
+    const noVersion = { ...perNameEnvelope, modelVersion: undefined } as any;
+    await renderResults(noVersion as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const head = container.querySelector(".scp-results-head")!;
+    expect(head.textContent).not.toContain("scan model v");
+    expect(head.textContent).toContain("Data as of");
+  });
+});
+
+describe("slice 3 — normalized-score labelling (issue #25)", () => {
+  it("the per-name table heads the column 'Composite score' and the legend states cross-name comparability", async () => {
+    await renderResults(perNameEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const headers = [...container.querySelectorAll(".scp-results table th")].map((th) => th.textContent);
+    expect(headers).toContain("Composite score");
+    expect(headers).not.toContain("Score");
+    expect(container.textContent).toContain("Composite scores are normalized 0–100 and comparable across names");
+    expect(container.textContent).toContain("expected-move (EM) units where the target is EM-based");
+  });
+
+  it("the fits table uses the same 'Composite score' header", async () => {
+    await renderResults(fitEnvelope as OpportunityScanResponse, { mode: "strategy_fit", profileLabel: null });
+    const headers = [...container.querySelectorAll(".scp-results table th")].map((th) => th.textContent);
+    expect(headers).toContain("Composite score");
+    expect(headers).not.toContain("Score");
+  });
+
+  it("roll-up cards label the best pick 'composite' and matrix cells carry a composite caption", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const condor = [...container.querySelectorAll(".scp-rollup-card")].find((c) => c.textContent?.includes("iron_condor"))!;
+    expect(condor.textContent).toContain("composite 66.4");
+    expect(condor.textContent).not.toContain("· score");
+    const caption = container.querySelector("#scanner-matrix-board .scp-cell-caption");
+    expect(caption?.textContent).toBe("composite");
+  });
+});
+
+describe("slice 3 — borderline bucket chips", () => {
+  it("fit mode renders each borderline symbol as a borderline-bucket chip under the same prefix", async () => {
+    await renderResults(fitEnvelope as OpportunityScanResponse, { mode: "strategy_fit", profileLabel: null });
+    const notes = [...container.querySelectorAll(".scp-borderline")];
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toContain("Borderline (evaluated, below the gate): NVDA");
+    const chips = [...notes[0].querySelectorAll(".scp-badge-borderline")].map((c) => c.textContent);
+    expect(chips).toEqual(["NVDA"]);
   });
 });

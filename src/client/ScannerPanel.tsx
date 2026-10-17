@@ -29,9 +29,16 @@
  *    hub's existing HITL preview (onPreviewTrade) — the panel itself
  *    never calls an order endpoint.
  *
+ *  - Slice 3 (trust layer): provenance on every row. The target's
+ *    source rides as a chip (stated / stated % / thesis-derived /
+ *    expected-move — #19, #23, #25), the results header labels its
+ *    timestamp "Data as of" and carries the scan model version the
+ *    server stamped on the result (#27), and every score is labelled
+ *    the cross-name comparable composite it is (#25).
+ *
  * All HTTP goes through scannerApi → apiFetch (the 202 async-job
- * polling convention, issue #71). Later #84 slices add the full
- * trust layer and scan history (#27).
+ * polling convention, issue #71). Later #84 slices add scan
+ * history (#27).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -53,6 +60,7 @@ import type {
   ScanMatrixCell,
   ScanMatrixCellBest,
   ScanMatrixRow,
+  ScanTargetSource,
   ScanTypeRollup,
 } from "../trading/options/opportunityScanner";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
@@ -152,12 +160,43 @@ function fmtPct(fraction: number | null | undefined): string {
   return `${(fraction * 100).toFixed(1)}%`;
 }
 
-function fmtTarget(price: number | null | undefined, source: string | null | undefined, emUnits: number | null | undefined): string {
+/** Target price + EM-units suffix as text. The target's provenance
+ *  is NOT part of this string since slice 3 — it renders as a chip
+ *  (TargetSourceChip) next to the target. */
+function fmtTarget(price: number | null | undefined, emUnits: number | null | undefined): string {
   if (price === null || price === undefined || !Number.isFinite(price)) return "—";
   const em = emUnits !== null && emUnits !== undefined && Number.isFinite(emUnits)
     ? ` · ${emUnits >= 0 ? "+" : ""}${emUnits.toFixed(2)} EM`
     : "";
-  return `${fmtMoney(price)}${source ? ` (${source})` : ""}${em}`;
+  return `${fmtMoney(price)}${em}`;
+}
+
+// Slice 3 view-model helpers (exported for tests) -------------------------
+
+/** Chip copy for a target's provenance (issues #19, #23, #25). The
+ *  wording follows resolveScanTarget's own semantics in
+ *  opportunityScanner.ts: "stated" = a target stated outright (the
+ *  per-name absolute override, or the shared statedTarget scoped to
+ *  its own symbol); "percent" = a per-name override stated as a
+ *  percent of spot; "em" = a per-name override stated in
+ *  expected-move units; "thesis" = derived from the thesis
+ *  (expected-move-based when the symbol's chain yields an estimate,
+ *  the legacy spot factor when not). */
+export const TARGET_SOURCE_LABELS: Record<ScanTargetSource, string> = {
+  stated: "stated target",
+  percent: "stated % target",
+  thesis: "thesis-derived target",
+  em: "expected-move target",
+};
+
+/** The target-provenance chip rendered next to every displayed
+ *  target. A null or unknown source renders NO chip — provenance is
+ *  never guessed. */
+export function TargetSourceChip({ source }: { source: ScanTargetSource | null | undefined }) {
+  if (!source) return null;
+  const label = TARGET_SOURCE_LABELS[source];
+  if (!label) return null;
+  return <span className="scp-badge scp-chip-target">{label}</span>;
 }
 
 // Slice 2 view-model helpers (exported for tests) -------------------------
@@ -267,7 +306,7 @@ export function TypeRollupCards({ rollup }: { rollup: ScanTypeRollup[] }) {
             </div>
             {entry.bestOverall ? (
               <div className="scp-rollup-best">
-                Best: <strong>{entry.bestOverall.symbol}</strong> — {entry.bestOverall.label} · score{" "}
+                Best: <strong>{entry.bestOverall.symbol}</strong> — {entry.bestOverall.label} · composite{" "}
                 {entry.bestOverall.compositeScore.toFixed(1)} · POP {fmtPct(entry.bestOverall.probabilityOfProfit)}
               </div>
             ) : (
@@ -330,7 +369,10 @@ export function MatrixBoard({
                     <> <span className={`scp-badge scp-badge-${row.gateBucket}`}>{row.gateBucket}</span></>
                   )}
                   {row.verdict !== "skipped" && (
-                    <div className="scp-row-meta">Target {fmtTarget(row.targetPrice, row.targetSource, row.targetEmUnits)}</div>
+                    <div className="scp-row-meta">
+                      Target {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </div>
                   )}
                   {row.gateReasons && row.gateReasons.length > 0 && (
                     <div className="scp-reasons">{row.gateReasons.join("; ")}</div>
@@ -360,6 +402,7 @@ export function MatrixBoard({
                     const content = (
                       <>
                         <div className="scp-cell-score">{cell.best.compositeScore.toFixed(1)}</div>
+                        <div className="scp-cell-caption">composite</div>
                         <div>{cell.passedCount}/{cell.evaluatedCount} passed</div>
                         <div className="scp-cell-label">{cell.best.label}</div>
                       </>
@@ -410,7 +453,8 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
         {!result.profileRef && runContext.profileLabel && (
           <span className="scp-badge">Profile: {runContext.profileLabel}</span>
         )}
-        {generatedAt && <span className="scp-asof">generated {new Date(generatedAt).toLocaleString()}</span>}
+        {generatedAt && <span className="scp-asof">Data as of {new Date(generatedAt).toLocaleString()}</span>}
+        {result.modelVersion && <span className="scp-asof">scan model v{result.modelVersion}</span>}
       </div>
       <div className="scp-counts">
         {scanned} scanned · {evaluated} evaluated · {skipped} skipped
@@ -422,6 +466,10 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
         )}
         {result.persisted && result.scanRunId && <> · saved as scan run {result.scanRunId}</>}
       </div>
+      <div className="scp-legend">
+        Composite scores are normalized 0–100 and comparable across names; targets are
+        volatility-normalized — shown in expected-move (EM) units where the target is EM-based.
+      </div>
 
       <TypeRollupCards rollup={typeRollup} />
 
@@ -429,7 +477,7 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
         opportunities.length > 0 ? (
           <table className="scp-table">
             <thead>
-              <tr><th>Symbol</th><th>Strategy</th><th>Score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
+              <tr><th>Symbol</th><th>Strategy</th><th>Composite score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
             </thead>
             <tbody>
               {opportunities.map((row: OpportunityRow, idx: number) => {
@@ -441,7 +489,10 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
                     <td>{candidate ? candidate.label : row.pick?.status === "no_trade" ? "No qualifying trade" : "—"}</td>
                     <td>{typeof score === "number" && Number.isFinite(score) ? score.toFixed(1) : "—"}</td>
                     <td>{fmtPct(candidate?.modelImpliedProbabilityOfProfit)}</td>
-                    <td>{fmtTarget(row.targetPrice, row.targetSource, row.targetEmUnits)}</td>
+                    <td>
+                      {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </td>
                     <td>{fmtEntry(candidate?.netDebit)}</td>
                     <td>{fmtMoney(candidate?.maxLoss)}</td>
                     <td>
@@ -466,7 +517,7 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
         ) : fits.length > 0 ? (
           <table className="scp-table">
             <thead>
-              <tr><th>Symbol</th><th>Best fit strategy</th><th>Score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
+              <tr><th>Symbol</th><th>Best fit strategy</th><th>Composite score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
             </thead>
             <tbody>
               {fits.map((row: ScanMatrixRow, idx: number) => {
@@ -477,7 +528,10 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
                     <td>{best ? best.label : "—"}</td>
                     <td>{best ? best.compositeScore.toFixed(1) : "—"}</td>
                     <td>{fmtPct(best?.probabilityOfProfit)}</td>
-                    <td>{fmtTarget(row.targetPrice, row.targetSource, row.targetEmUnits)}</td>
+                    <td>
+                      {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </td>
                     <td>{fmtEntry(best?.netDebit)}</td>
                     <td>{fmtMoney(best?.maxLoss)}</td>
                     <td>
@@ -497,7 +551,12 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
       )}
 
       {mode === "strategy_fit" && borderline.length > 0 && (
-        <div className="scp-note">Borderline (evaluated, below the gate): {borderline.map((r) => r.symbol).join(", ")}</div>
+        <div className="scp-note scp-borderline">
+          Borderline (evaluated, below the gate):{" "}
+          {borderline.map((r, idx) => (
+            <span key={`${r.symbol}-${idx}`} className="scp-badge scp-badge-borderline">{r.symbol}</span>
+          ))}
+        </div>
       )}
 
       <MatrixBoard matrix={matrix} thesis={runContext.thesis} onPreviewTrade={onPreviewTrade} />
