@@ -316,7 +316,16 @@ export class ScheduledTasksService {
   }
 
   /**
-   * Dispatches a scheduled user reminder and logs it to audit and messages
+   * Dispatches a scheduled user reminder: records it in the user's chat
+   * history (the delivery channel) and audits the outcome.
+   *
+   * Issue #123 (F19): the result reflects what actually happened per
+   * channel. The chat-message insert IS the delivery — if it fails (or
+   * no message store is available), the dispatch FAILED: the failure is
+   * audited as `reminder.dispatch_failed` (the #112 failure contract)
+   * and returned as `{ success: false, error }`, never swallowed into a
+   * success claim. `reminder.dispatched` is audited only when the
+   * reminder was actually recorded.
    */
   async dispatchReminder(
     reminderId: string,
@@ -325,16 +334,13 @@ export class ScheduledTasksService {
     reminderId: string;
     message: string;
     dispatchedAt: string;
+    channels: { audit: boolean; chatMessage: boolean };
+    messageError?: string;
   }>> {
     const timestamp = new Date().toISOString();
 
-    this.audit("reminder.dispatched", {
-      reminderId,
-      message,
-      userLogin: this.userLogin,
-      dispatchedAt: timestamp,
-    });
-
+    let chatMessageRecorded = false;
+    let messageError: string | undefined;
     if (this.orm?.messages) {
       try {
         this.orm.messages.create({
@@ -345,10 +351,48 @@ export class ScheduledTasksService {
           agent: "orchestrator",
           createdAt: timestamp,
         });
-      } catch {
-        // Non-critical message record error
+        chatMessageRecorded = true;
+      } catch (err: any) {
+        messageError = err?.message || "Failed to record reminder message";
       }
+    } else {
+      messageError = "No message store available to record the reminder";
     }
+
+    // The audit channel claim reflects whether an audit store is actually
+    // attached (this.audit no-ops without one, as everywhere in this service).
+    const auditAvailable = Boolean(this.orm?.events);
+
+    if (!chatMessageRecorded) {
+      this.audit("reminder.dispatch_failed", {
+        reminderId,
+        message,
+        userLogin: this.userLogin,
+        error: messageError,
+        attemptedAt: timestamp,
+      });
+      return {
+        success: false,
+        taskType: "reminder",
+        error: `Reminder could not be delivered to chat history: ${messageError}`,
+        data: {
+          reminderId,
+          message,
+          dispatchedAt: timestamp,
+          channels: { audit: auditAvailable, chatMessage: false },
+          messageError,
+        },
+        timestamp,
+      };
+    }
+
+    this.audit("reminder.dispatched", {
+      reminderId,
+      message,
+      userLogin: this.userLogin,
+      dispatchedAt: timestamp,
+      channels: { audit: auditAvailable, chatMessage: true },
+    });
 
     return {
       success: true,
@@ -357,6 +401,7 @@ export class ScheduledTasksService {
         reminderId,
         message,
         dispatchedAt: timestamp,
+        channels: { audit: auditAvailable, chatMessage: true },
       },
       timestamp,
     };
@@ -451,6 +496,11 @@ export class ScheduledTasksService {
             targetWebhookUrl
           );
           notifications.webhook = whResult.success;
+          if (!whResult.success) {
+            // e.g. no OUTBOUND_WEBHOOK_SECRET configured (issue #123/F20):
+            // the flag above already reports false; log the reason too.
+            console.warn("[ScheduledTasksService] Webhook notification not sent:", whResult.error || `HTTP ${whResult.status}`);
+          }
         } catch (webhookErr) {
           console.warn("[ScheduledTasksService] Webhook notification error:", webhookErr);
           notifications.webhook = false;
