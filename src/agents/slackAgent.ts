@@ -121,6 +121,9 @@ export class SlackAgent extends AIChatAgent<Env> {
             totalValue: trade.totalValue,
             environment: this.env.ETRADE_ENVIRONMENT || "sandbox",
             timestamp: trade.updatedAt || trade.createdAt,
+            // Issue #120: the receipt may claim HITL verification only when
+            // an approval was actually recorded for this trade.
+            humanApproved: Boolean((trade as any).authorizerDid),
           };
 
           const snapRes = await this.dispatchTransactionSnap(snapData, {
@@ -130,7 +133,7 @@ export class SlackAgent extends AIChatAgent<Env> {
 
           return Response.json({
             response_type: "in_channel",
-            text: `📸 Transaction snapshot generated for ${trade.symbol} (${trade.id}): ${snapRes.success ? "Posted to Slack" : snapRes.error}`,
+            text: `📸 Transaction snapshot generated for ${trade.symbol} (${trade.id}): ${snapRes.success ? "Posted to Slack" : `Not delivered — ${snapRes.error}`}`,
           });
         }
       }
@@ -145,7 +148,7 @@ export class SlackAgent extends AIChatAgent<Env> {
 
       return Response.json({
         response_type: "in_channel",
-        text: `📸 Browser Agent snapshot captured for ${target}: ${snapRes.success ? "Delivered to Slack" : snapRes.error}`,
+        text: `📸 Browser Agent snapshot for ${target}: ${snapRes.success ? "Delivered to Slack" : `Not delivered — ${snapRes.error}`}`,
       });
     }
 
@@ -337,6 +340,7 @@ export class SlackAgent extends AIChatAgent<Env> {
           totalValue: trade.totalValue,
           environment: this.env.ETRADE_ENVIRONMENT || "sandbox",
           timestamp: trade.updatedAt || trade.createdAt,
+          humanApproved: Boolean((trade as any).authorizerDid),
         };
         const snapRes = await this.dispatchTransactionSnap(snapData, {
           channel: channelId,
@@ -345,7 +349,7 @@ export class SlackAgent extends AIChatAgent<Env> {
 
         return Response.json({
           response_type: "ephemeral",
-          text: `📸 Transaction snapshot generated: ${snapRes.success ? "Posted to Slack!" : snapRes.error}`,
+          text: `📸 Transaction snapshot generated: ${snapRes.success ? "Posted to Slack!" : `Not delivered — ${snapRes.error}`}`,
         });
       }
 
@@ -374,6 +378,9 @@ export class SlackAgent extends AIChatAgent<Env> {
             totalValue: trade.totalValue,
             environment: this.env.ETRADE_ENVIRONMENT || "sandbox",
             timestamp: new Date().toISOString(),
+            // This dispatch happens only after the human's approve click in
+            // Slack was processed successfully — a recorded HITL approval.
+            humanApproved: true,
           };
 
           // Fire and log snap delivery
