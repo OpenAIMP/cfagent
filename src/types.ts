@@ -728,9 +728,29 @@ export interface ETradeBrokerStatus {
   capabilities: string[];
 }
 
+/**
+ * Data provenance for every FOSS market-data object (issue #117, audit #115
+ * findings F10/F11). The FOSS providers fall back to non-live data when a
+ * live fetch fails; that fallback is now always labelled, never silent:
+ * - "live": actually fetched from the named provider in this call.
+ * - "static": served from the bundled FOSS_MARKET_UNIVERSE table.
+ * - "generated": deterministically invented (hash-generated profile for an
+ *   unlisted ticker, the synthetic bars generator, formula analyst targets).
+ * Mirrors the betaService/correlationService labelling standard: every
+ * resolution carries its source; values are labelled, never silently
+ * invented. A non-live object may keep a `timestamp` for shape compatibility,
+ * but it is the object's production time — `provenance` (and `note`, when
+ * present) states what the data actually is.
+ */
+export type FossDataProvenance = "live" | "static" | "generated";
+
 export interface FossQuote {
   symbol: string;
   provider: "yfinance" | "alpaca" | "hybrid";
+  /** Truth about where this quote's values came from in this call (#117). */
+  provenance: FossDataProvenance;
+  /** Human-readable origin note; set whenever provenance is not "live". */
+  note?: string;
   companyName?: string;
   name?: string;
   price: number;
@@ -760,6 +780,8 @@ export interface FossQuote {
 }
 
 export interface FossHistoricalBar {
+  /** "live" = fetched bars; "generated" = synthetic series from the FOSS profile (#117). */
+  provenance: FossDataProvenance;
   timestamp: string;
   open: number;
   high: number;
@@ -771,6 +793,10 @@ export interface FossHistoricalBar {
 }
 
 export interface FossCompanyFundamentals {
+  /** Truth about where these fundamentals came from in this call (#117). */
+  provenance: FossDataProvenance;
+  /** Human-readable origin note; set whenever provenance is not "live". */
+  note?: string;
   symbol: string;
   companyName: string;
   sector: string;
@@ -802,6 +828,10 @@ export interface FossCompanyFundamentals {
 }
 
 export interface AlpacaMarketSnapshot {
+  /** "live" = fetched from Alpaca in this call; otherwise the FOSS profile (#117). */
+  provenance: FossDataProvenance;
+  /** Human-readable origin note; set whenever provenance is not "live". */
+  note?: string;
   symbol: string;
   assetClass: "us_equity" | "crypto";
   latestTrade: {
@@ -825,6 +855,8 @@ export interface AlpacaMarketSnapshot {
 export interface FossResearchReport {
   symbol: string;
   provider: "yfinance" | "alpaca" | "hybrid";
+  /** Weakest provenance among quote, fundamentals, and bars (#117). */
+  provenance: FossDataProvenance;
   quote: FossQuote;
   fundamentals: FossCompanyFundamentals;
   bars: FossHistoricalBar[];
@@ -834,6 +866,12 @@ export interface FossResearchReport {
     trend50vs200SMA: string;
     support: number;
     resistance: number;
+    /**
+     * Always true for this engine: support/resistance are price×0.94/×1.06
+     * formulas and the MACD/trend labels come from a single price-vs-midpoint
+     * comparison — heuristic estimates, not measured technicals (#117).
+     */
+    heuristic: boolean;
   };
   aiAnalysis: string;
   analystRating: string;
@@ -841,6 +879,8 @@ export interface FossResearchReport {
     did: string;
     signature: string;
     timestamp: string;
+    /** Provenance of the attested inputs; bound into the signed payload (#117). */
+    provenance: FossDataProvenance;
   };
 }
 
