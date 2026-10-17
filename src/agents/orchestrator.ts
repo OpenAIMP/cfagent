@@ -466,13 +466,28 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const res = await service.dispatchReminder(payload.reminderId, payload.message);
     if (typeof (this as any).broadcast === "function") {
       try {
+        // Issue #123 (F19): the broadcast mirrors the dispatch result —
+        // a reminder whose chat-history delivery failed is broadcast in
+        // the same message family with success: false + the error (the
+        // #112 failure-surfacing pattern), never as a fired reminder.
         (this as any).broadcast(
-          JSON.stringify({
-            type: "scheduled_reminder",
-            reminderId: payload.reminderId,
-            message: payload.message,
-            timestamp: res.timestamp,
-          })
+          JSON.stringify(
+            res.success
+              ? {
+                  type: "scheduled_reminder",
+                  reminderId: payload.reminderId,
+                  message: payload.message,
+                  timestamp: res.timestamp,
+                }
+              : {
+                  type: "scheduled_reminder",
+                  reminderId: payload.reminderId,
+                  message: payload.message,
+                  success: false,
+                  error: res.error,
+                  timestamp: res.timestamp,
+                }
+          )
         );
       } catch {
         // Non-critical broadcast error
