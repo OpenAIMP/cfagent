@@ -2,6 +2,10 @@
 /**
  * Issue #84 slice 1: Opportunity Scanner panel (mode switch #23 +
  * strategy profiles #28) and its API client.
+ * Slice 2 additions: the fit matrix board (#22) + per-type screen
+ * roll-up cards (#26) + the cell → HITL preview handoff, with the
+ * board/rollup fixtures typed against the real server types so a
+ * backend shape change breaks these tests on purpose.
  *
  * Harness follows the established panel tests: the REAL apiFetch is
  * driven against a stubbed global fetch, and — per the #71 lesson —
@@ -25,8 +29,18 @@ import {
   emptyProfileForm,
   bestFitCell,
   noFitMessage,
+  matrixStrategyTypes,
+  topRejectionReason,
+  matrixCellTradeContext,
   type ProfileFormState,
 } from "../src/client/ScannerPanel";
+import type {
+  ScanMatrixCellBest,
+  ScanMatrixRow,
+  ScanTypeRollup,
+} from "../src/trading/options/opportunityScanner";
+import type { StrategyLeg } from "../src/trading/options/strategyEngine";
+import type { TradeOrderContext } from "../src/client/trading/tradeOrderContext";
 import {
   runOpportunityScan,
   listProfiles,
@@ -694,5 +708,370 @@ describe("ScanResultsView (pure render)", () => {
       }),
     ).replace(/<!-- -->/g, "");
     expect(html).toContain("No names fit under the current gate — 0 evaluated, 0 borderline, 0 skipped.");
+  });
+});
+
+// Slice 2 fixtures — typed against the REAL server types ---------------------
+
+function makeLeg(partial: Partial<StrategyLeg>): StrategyLeg {
+  return {
+    symbol: "AAPL261120P00230000",
+    optionType: "PUT",
+    side: "SELL",
+    quantity: 1,
+    strike: 230,
+    expirationDate: "2026-11-20",
+    entryPrice: 1.85,
+    bid: 1.8,
+    ask: 1.9,
+    impliedVolatility: 0.28,
+    delta: -0.22,
+    gamma: 0.01,
+    theta: -0.03,
+    vega: 0.12,
+    openInterest: 1200,
+    volume: 340,
+    spreadPct: 0.05,
+    quoteTimestamp: "2026-10-16T14:00:00.000Z",
+    quoteFreshness: "FRESH",
+    multiplier: 100,
+    ...partial,
+  };
+}
+
+const condorLegs: StrategyLeg[] = [
+  makeLeg({ symbol: "AAPL261120P00230000", side: "SELL", optionType: "PUT", strike: 230, entryPrice: 1.85 }),
+  makeLeg({ symbol: "AAPL261120P00225000", side: "BUY", optionType: "PUT", strike: 225, entryPrice: 1.2 }),
+  makeLeg({ symbol: "AAPL261120C00270000", side: "SELL", optionType: "CALL", strike: 270, entryPrice: 1.6 }),
+  makeLeg({ symbol: "AAPL261120C00275000", side: "BUY", optionType: "CALL", strike: 275, entryPrice: 1.05 }),
+];
+
+const condorBest: ScanMatrixCellBest = {
+  candidateId: "aapl-ic-1",
+  label: "Iron Condor",
+  compositeScore: 66.4,
+  score: 61.2,
+  expirationDate: "2026-11-20",
+  legs: condorLegs,
+  netDebit: -2.1,
+  maxLoss: 290,
+  maxProfit: 210,
+  maxProfitUnbounded: false,
+  targetRewardRisk: 0.72,
+  probabilityOfProfit: 0.61,
+};
+
+const boardRows: ScanMatrixRow[] = [
+  {
+    symbol: "AAPL",
+    verdict: "pass",
+    targetPrice: 262.5,
+    targetSource: "thesis",
+    targetEmUnits: 0.6,
+    gateBucket: "fit",
+    gateReasons: [],
+    cells: [
+      {
+        strategyType: "iron_condor", best: condorBest,
+        evaluatedCount: 5, passedCount: 2, rejectedCount: 3,
+        rejectionReasons: { "spread too wide": 3 },
+      },
+      {
+        strategyType: "call_debit_spread", best: null,
+        evaluatedCount: 6, passedCount: 0, rejectedCount: 6,
+        rejectionReasons: { "max loss exceeds limit": 4, "spread too wide": 2 },
+      },
+    ],
+  },
+  {
+    symbol: "MSFT",
+    verdict: "no_pass",
+    targetPrice: 420,
+    targetSource: "thesis",
+    targetEmUnits: 0.55,
+    gateBucket: "no_fit",
+    gateReasons: ["no screen-passing pick"],
+    cells: [
+      {
+        strategyType: "iron_condor", best: null,
+        evaluatedCount: 4, passedCount: 0, rejectedCount: 4,
+        rejectionReasons: { "iv rank too low": 4 },
+      },
+      {
+        strategyType: "put_credit_spread", best: null,
+        evaluatedCount: 3, passedCount: 0, rejectedCount: 3,
+        rejectionReasons: { "reward/risk below minimum": 2, "iv rank too low": 1 },
+      },
+    ],
+  },
+  {
+    symbol: "ZZZ",
+    verdict: "skipped",
+    skipReason: "no chain data",
+    targetPrice: null,
+    targetSource: null,
+    targetEmUnits: null,
+    gateBucket: null,
+    gateReasons: [],
+    cells: [],
+  },
+];
+
+const boardRollup: ScanTypeRollup[] = [
+  {
+    strategyType: "iron_condor",
+    symbolsEvaluated: 2,
+    symbolsPassed: 1,
+    evaluatedCount: 9,
+    passedCount: 2,
+    rejectedCount: 7,
+    rejectionReasons: { "spread too wide": 3, "iv rank too low": 4 },
+    bestOverall: { symbol: "AAPL", ...condorBest },
+  },
+  {
+    strategyType: "call_debit_spread",
+    symbolsEvaluated: 1,
+    symbolsPassed: 0,
+    evaluatedCount: 6,
+    passedCount: 0,
+    rejectedCount: 6,
+    rejectionReasons: { "max loss exceeds limit": 4, "spread too wide": 2 },
+    bestOverall: null,
+  },
+  {
+    strategyType: "put_credit_spread",
+    symbolsEvaluated: 1,
+    symbolsPassed: 0,
+    evaluatedCount: 3,
+    passedCount: 0,
+    rejectedCount: 3,
+    rejectionReasons: { "reward/risk below minimum": 2, "iv rank too low": 1 },
+    bestOverall: null,
+  },
+];
+
+const boardEnvelope = {
+  ...perNameEnvelope,
+  matrix: boardRows,
+  typeRollup: boardRollup,
+} as any;
+
+async function renderResults(
+  result: OpportunityScanResponse,
+  runContext: { mode: "per_name_best" | "strategy_fit"; profileLabel: string | null; thesis?: "bullish" | "bearish" },
+  onPreviewTrade?: (ctx: TradeOrderContext) => void,
+) {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => {
+    root.render(React.createElement(ScanResultsView, { result, runContext, onPreviewTrade }));
+  });
+  await flush(30);
+}
+
+// Slice 2 pure helpers ---------------------------------------------------------
+
+describe("slice 2 helpers — matrixStrategyTypes / topRejectionReason", () => {
+  it("column order is the union of types in first-appearance order across rows", () => {
+    expect(matrixStrategyTypes(boardRows)).toEqual(["iron_condor", "call_debit_spread", "put_credit_spread"]);
+    expect(matrixStrategyTypes([])).toEqual([]);
+  });
+
+  it("topRejectionReason picks the highest count and is null when nothing was rejected", () => {
+    expect(topRejectionReason({ "spread too wide": 2, "max loss exceeds limit": 4 }))
+      .toEqual({ reason: "max loss exceeds limit", count: 4 });
+    expect(topRejectionReason({})).toBeNull();
+    expect(topRejectionReason(undefined)).toBeNull();
+  });
+});
+
+describe("slice 2 helper — matrixCellTradeContext (research-panel mapping, replicated)", () => {
+  const row = boardRows[0];
+  const cell = boardRows[0].cells[0];
+
+  it("maps the cell best to the same context shape toTradeContext produces", () => {
+    const ctx = matrixCellTradeContext(row, cell, "bullish");
+    expect(ctx.symbol).toBe("AAPL");
+    expect(ctx.assetClass).toBe("options");
+    expect(ctx.action).toBe("BUY");
+    expect(ctx.quantity).toBe(1);
+    expect(ctx.strategyNetDebit).toBe(-2.1);
+    expect(ctx.underlyingPrice).toBeUndefined();
+    expect(ctx.label).toBe("Iron Condor (2026-11-20), max loss $290");
+    expect(ctx.legs).toEqual([
+      "SELL 1 AAPL261120P00230000 @ $1.85",
+      "BUY 1 AAPL261120P00225000 @ $1.20",
+      "SELL 1 AAPL261120C00270000 @ $1.60",
+      "BUY 1 AAPL261120C00275000 @ $1.05",
+    ]);
+    expect(ctx.optionLegs).toHaveLength(4);
+    expect(ctx.optionLegs?.[0]).toEqual({
+      securityType: "OPTN", side: "SELL", quantity: 1,
+      optionType: "PUT", strike: 230, expirationDate: "2026-11-20",
+    });
+  });
+
+  it("a bearish run thesis flips the action to SELL_SHORT, exactly like the research panel", () => {
+    expect(matrixCellTradeContext(row, cell, "bearish").action).toBe("SELL_SHORT");
+    expect(matrixCellTradeContext(row, cell, undefined).action).toBe("BUY");
+  });
+
+  it("a stock leg maps to an EQ leg and an equity asset class", () => {
+    const stockCell = {
+      strategyType: "long_stock",
+      best: {
+        ...condorBest,
+        label: "Long Stock",
+        legs: [makeLeg({ symbol: "AAPL", optionType: "STOCK", side: "BUY", strike: 0, entryPrice: 250 })],
+      },
+      evaluatedCount: 1, passedCount: 1, rejectedCount: 0, rejectionReasons: {},
+    };
+    const ctx = matrixCellTradeContext(row, stockCell, "bullish");
+    expect(ctx.assetClass).toBe("equity");
+    expect(ctx.optionLegs?.[0].securityType).toBe("EQ");
+    expect(ctx.optionLegs?.[0].optionType).toBeUndefined();
+    expect(ctx.optionLegs?.[0].strike).toBeUndefined();
+  });
+});
+
+// Slice 2 board + roll-up rendering ---------------------------------------------
+
+describe("slice 2 — fit matrix board (issue #22 surface)", () => {
+  it("renders rows, verdict chips, the gate badge, targets, and the screen-pass legend", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const board = container.querySelector("#scanner-matrix-board");
+    expect(board).not.toBeNull();
+    expect(board!.textContent).toContain("Fit matrix");
+    expect(board!.textContent).toContain("Pass = screen pass only");
+    expect(board!.textContent).toContain("Qualification is the fit gate's job");
+
+    const headers = [...board!.querySelectorAll("thead th")].map((th) => th.textContent);
+    expect(headers).toEqual(["Symbol", "iron_condor", "call_debit_spread", "put_credit_spread"]);
+
+    const text = board!.textContent ?? "";
+    expect(text).toContain("AAPL");
+    expect(text).toContain("MSFT");
+    expect(text).toContain("ZZZ");
+    expect(text).toContain("PASS");
+    expect(text).toContain("NO PASS");
+    expect(text).toContain("SKIPPED");
+    expect(text).toContain("fit"); // AAPL gate badge
+    expect(text).toContain("no_fit"); // MSFT gate badge
+    expect(text).toContain("$262.50 (thesis) · +0.60 EM"); // target with source + EM units (fmtTarget format)
+    expect(text).toContain("no screen-passing pick"); // MSFT gate reasons
+    expect(text).toContain("Skipped — no chain data"); // skipped row carries its reason, not cells
+  });
+
+  it("cells show counts + best score, the top rejection reason, and an em dash for absent types", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const board = container.querySelector("#scanner-matrix-board")!;
+    const rows = [...board.querySelectorAll("tbody tr")];
+    const aaplCells = [...rows[0].querySelectorAll("td")];
+    // [symbol, iron_condor, call_debit_spread, put_credit_spread]
+    expect(aaplCells[1].textContent).toContain("66.4");
+    expect(aaplCells[1].textContent).toContain("2/5 passed");
+    expect(aaplCells[1].textContent).toContain("Iron Condor");
+    expect(aaplCells[2].textContent).toContain("0/6 passed · 6 rejected");
+    expect(aaplCells[2].textContent).toContain("max loss exceeds limit");
+    expect(aaplCells[2].querySelector(".scp-cell-reason")?.getAttribute("title")).toBe("max loss exceeds limit");
+    expect(aaplCells[3].textContent?.trim()).toBe("—"); // AAPL has no put_credit_spread cell
+
+    const msftCells = [...rows[1].querySelectorAll("td")];
+    expect(msftCells[1].textContent).toContain("0/4 passed · 4 rejected");
+    expect(msftCells[1].textContent).toContain("iv rank too low");
+    expect(msftCells[3].textContent).toContain("reward/risk below minimum");
+  });
+
+  it("renders nothing when the scan carried no matrix", async () => {
+    await renderResults(perNameEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    expect(container.querySelector("#scanner-matrix-board")).toBeNull();
+  });
+});
+
+describe("slice 2 — strategy-type roll-up cards (issue #26 surface)", () => {
+  it("renders per-type screen counts and the cross-universe best pick, labelled as the risk screen", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const text = container.textContent ?? "";
+    expect(text).toContain("By strategy type");
+    expect(text).toContain("Risk-screen roll-up");
+    expect(text).toContain("not a fit-gate qualification");
+
+    const cards = [...container.querySelectorAll(".scp-rollup-card")];
+    expect(cards).toHaveLength(3);
+    const condor = cards.find((c) => c.textContent?.includes("iron_condor"))!;
+    expect(condor.textContent).toContain("1 of 2 symbols passed the screen");
+    expect(condor.textContent).toContain("2 passed · 7 rejected of 9 candidates");
+    expect(condor.textContent).toContain("AAPL");
+    expect(condor.textContent).toContain("Iron Condor");
+    expect(condor.textContent).toContain("66.4");
+    expect(condor.textContent).toContain("61.0%"); // POP of the best pick
+    const debit = cards.find((c) => c.textContent?.includes("call_debit_spread"))!;
+    expect(debit.textContent).toContain("0 of 1 symbols passed the screen");
+    expect(debit.textContent).toContain("No passing candidate");
+  });
+
+  it("never presents screen passes as accepted trades", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/\baccepted\b/i);
+    expect(text).not.toMatch(/qualified trade/i);
+  });
+
+  it("renders nothing when the roll-up is empty", async () => {
+    await renderResults(perNameEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    expect(container.querySelector(".scp-rollup")).toBeNull();
+    expect(container.textContent).not.toContain("By strategy type");
+  });
+});
+
+// Slice 2 handoff -----------------------------------------------------------------
+
+describe("slice 2 — cell → HITL preview handoff", () => {
+  it("clicking a best cell calls onPreviewTrade once with the cell's context; no-best cells are not buttons", async () => {
+    const spy = vi.fn();
+    await renderResults(
+      boardEnvelope as OpportunityScanResponse,
+      { mode: "per_name_best", profileLabel: null, thesis: "bullish" },
+      spy,
+    );
+    const board = container.querySelector("#scanner-matrix-board")!;
+    const buttons = [...board.querySelectorAll("button")];
+    expect(buttons).toHaveLength(1); // exactly one cell in the fixture has a best
+    expect(buttons[0].textContent).toContain("66.4");
+
+    await click(buttons[0]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const ctx = spy.mock.calls[0][0] as TradeOrderContext;
+    expect(ctx.symbol).toBe("AAPL");
+    expect(ctx.strategyNetDebit).toBe(-2.1);
+    expect(ctx.quantity).toBe(1);
+    expect(ctx.action).toBe("BUY");
+    expect(ctx.legs).toHaveLength(4);
+    expect(ctx.legs[0]).toBe("SELL 1 AAPL261120P00230000 @ $1.85");
+    expect(ctx.optionLegs?.[2]).toEqual({
+      securityType: "OPTN", side: "SELL", quantity: 1,
+      optionType: "CALL", strike: 270, expirationDate: "2026-11-20",
+    });
+  });
+
+  it("without onPreviewTrade the board renders no buttons but still shows the best score", async () => {
+    await renderResults(boardEnvelope as OpportunityScanResponse, { mode: "per_name_best", profileLabel: null });
+    const board = container.querySelector("#scanner-matrix-board")!;
+    expect(board.querySelectorAll("button")).toHaveLength(0);
+    expect(board.textContent).toContain("66.4");
+  });
+});
+
+describe("slice 2 — board appears in a full panel run", () => {
+  it("a scan whose payload carries matrix + rollup renders the roll-up cards and the board", async () => {
+    installFetch(freshState({ unifiedEnvelope: boardEnvelope }));
+    await renderPanel();
+    await submitForm(container.querySelector("form.scp-form")!);
+    await waitForText("Fit matrix");
+    expect(container.textContent).toContain("By strategy type");
+    expect(container.textContent).toContain("1 of 2 symbols passed the screen");
+    expect(container.querySelector("#scanner-matrix-board")).not.toBeNull();
+    expect(container.textContent).toContain("Skipped — no chain data");
   });
 });

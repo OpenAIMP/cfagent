@@ -20,9 +20,18 @@
  * (never an empty table); every array the payload may omit is treated
  * as empty (scannerApi coerces, this panel also guards).
  *
+ *  - Slice 2 (matrix board #22 + type roll-up #26): the full
+ *    names × strategy-types fit matrix renders as a board under the
+ *    headline results, with the per-type screen roll-up as cards
+ *    above it. A matrix "pass" is a SCREEN pass only (the scanner's
+ *    risk screen) — qualification stays the fit gate's job, and the
+ *    copy says so. A cell with a passing candidate hands off to the
+ *    hub's existing HITL preview (onPreviewTrade) — the panel itself
+ *    never calls an order endpoint.
+ *
  * All HTTP goes through scannerApi → apiFetch (the 202 async-job
- * polling convention, issue #71). Later #84 slices add the matrix
- * board (#22/#26), the full trust layer, and scan history (#27).
+ * polling convention, issue #71). Later #84 slices add the full
+ * trust layer and scan history (#27).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -39,7 +48,14 @@ import {
   type StrategyProfile,
   type StrategyProfileSpec,
 } from "./scannerApi";
-import type { OpportunityRow, ScanMatrixRow } from "../trading/options/opportunityScanner";
+import type {
+  OpportunityRow,
+  ScanMatrixCell,
+  ScanMatrixCellBest,
+  ScanMatrixRow,
+  ScanTypeRollup,
+} from "../trading/options/opportunityScanner";
+import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import type { ExpectedIvDirection, OptionThesis } from "../trading/options/strategyEngine";
 import type { UnifiedOptionsRequest } from "../trading/options/unifiedOptionsService";
 
@@ -144,14 +160,236 @@ function fmtTarget(price: number | null | undefined, source: string | null | und
   return `${fmtMoney(price)}${source ? ` (${source})` : ""}${em}`;
 }
 
+// Slice 2 view-model helpers (exported for tests) -------------------------
+
+/**
+ * Board column order: the union of strategy types across all rows,
+ * in first-appearance order (rows in matrix order, cells in cell
+ * order). Derived from the matrix alone, so the board renders even
+ * when a payload carries no roll-up.
+ */
+export function matrixStrategyTypes(rows: ScanMatrixRow[]): string[] {
+  const seen: string[] = [];
+  for (const row of rows) {
+    for (const cell of row.cells ?? []) {
+      if (!seen.includes(cell.strategyType)) seen.push(cell.strategyType);
+    }
+  }
+  return seen;
+}
+
+/** A cell's most frequent rejection reason (ties keep the histogram's
+ *  own order); null when nothing was rejected with a recorded reason. */
+export function topRejectionReason(
+  rejectionReasons: Record<string, number> | undefined,
+): { reason: string; count: number } | null {
+  let top: { reason: string; count: number } | null = null;
+  for (const [reason, count] of Object.entries(rejectionReasons ?? {})) {
+    if (!top || count > top.count) top = { reason, count };
+  }
+  return top;
+}
+
+/**
+ * Build the HITL-preview handoff for a matrix cell's best candidate.
+ * Faithful replication of OptionsResearchPanel's module-local
+ * toTradeContext (same field mapping, same label format, quantity 1)
+ * for the flattened ScanMatrixCellBest shape: the symbol comes from
+ * the matrix row (the cell best carries none) and the action follows
+ * the run's thesis exactly as the research panel derives it. The cell
+ * best carries no spot price, so underlyingPrice is omitted — the
+ * research panel's value comes from its own screened chain, not from
+ * the candidate, and inventing one here would misstate the preview.
+ */
+export function matrixCellTradeContext(
+  row: ScanMatrixRow,
+  cell: ScanMatrixCell,
+  thesis?: OptionThesis,
+): TradeOrderContext {
+  const best = cell.best as ScanMatrixCellBest;
+  const optionLegs = best.legs.map((leg) => ({
+    securityType: leg.optionType === "STOCK" ? "EQ" as const : "OPTN" as const,
+    side: leg.side,
+    quantity: leg.quantity,
+    optionType: leg.optionType === "STOCK" ? undefined : leg.optionType,
+    strike: leg.optionType === "STOCK" ? undefined : leg.strike,
+    expirationDate: leg.optionType === "STOCK" ? undefined : leg.expirationDate,
+  }));
+  return {
+    assetClass: optionLegs.some((leg) => leg.securityType === "OPTN") ? "options" : "equity",
+    symbol: row.symbol,
+    action: thesis === "bearish" ? "SELL_SHORT" : "BUY",
+    quantity: 1,
+    label: `${best.label} (${best.expirationDate}), max loss $${best.maxLoss}`,
+    legs: best.legs.map((leg) => `${leg.side} ${leg.quantity} ${leg.symbol} @ $${leg.entryPrice.toFixed(2)}`),
+    optionLegs,
+    strategyNetDebit: best.netDebit,
+  };
+}
+
 // Results (presentational — exported for render tests) --------------------
 
 export interface ScanRunContext {
   mode: ScanMode;
   profileLabel: string | null;
+  /** The thesis the run was submitted with (snapshotted like the
+   *  mode): the matrix-cell trade handoff derives its action from it,
+   *  the same way the research panel derives it from its thesis. */
+  thesis?: OptionThesis;
 }
 
-export function ScanResultsView({ result, runContext }: { result: OpportunityScanResponse; runContext: ScanRunContext }) {
+/**
+ * Per-strategy-type roll-up cards (issue #26 surface). "Passed" on
+ * this surface is the scanner's RISK SCREEN pass, counted from the
+ * matrix cells — the backend keeps it distinct from the single-name
+ * ledger's acceptance-rule passes and from fit-gate qualification,
+ * and the copy here keeps that distinction in front of the user.
+ * Renders nothing when the scan carried no roll-up.
+ */
+export function TypeRollupCards({ rollup }: { rollup: ScanTypeRollup[] }) {
+  if (!rollup || rollup.length === 0) return null;
+  return (
+    <div className="scp-rollup-wrap">
+      <div className="scp-subhead">By strategy type</div>
+      <div className="scp-legend">
+        Risk-screen roll-up: counts are candidates that passed the scanner's risk screen.
+        A screen pass is not an acceptance-rule pass and not a fit-gate qualification.
+      </div>
+      <div className="scp-rollup">
+        {rollup.map((entry) => (
+          <div className="scp-rollup-card" key={entry.strategyType}>
+            <div className="scp-rollup-type">{entry.strategyType}</div>
+            <div className="scp-rollup-line">
+              {entry.symbolsPassed} of {entry.symbolsEvaluated} symbols passed the screen
+            </div>
+            <div className="scp-rollup-meta">
+              {entry.passedCount} passed · {entry.rejectedCount} rejected of {entry.evaluatedCount} candidates
+            </div>
+            {entry.bestOverall ? (
+              <div className="scp-rollup-best">
+                Best: <strong>{entry.bestOverall.symbol}</strong> — {entry.bestOverall.label} · score{" "}
+                {entry.bestOverall.compositeScore.toFixed(1)} · POP {fmtPct(entry.bestOverall.probabilityOfProfit)}
+              </div>
+            ) : (
+              <div className="scp-rollup-best scp-muted">No passing candidate</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const VERDICT_LABELS: Record<ScanMatrixRow["verdict"], string> = {
+  pass: "PASS",
+  no_pass: "NO PASS",
+  skipped: "SKIPPED",
+};
+
+/**
+ * The names × strategy-types fit matrix as a board (issue #22
+ * surface). Verdicts are screen verdicts only — the row's fit-gate
+ * badge rides next to the verdict chip so the two layers are never
+ * conflated. A cell whose type produced a passing candidate is a
+ * button into the hub's existing HITL preview when the panel was
+ * given onPreviewTrade; the panel itself places no orders.
+ */
+export function MatrixBoard({
+  matrix,
+  thesis,
+  onPreviewTrade,
+}: {
+  matrix: ScanMatrixRow[];
+  thesis?: OptionThesis;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
+}) {
+  if (!matrix || matrix.length === 0) return null;
+  const types = matrixStrategyTypes(matrix);
+  return (
+    <div className="scp-matrix" id="scanner-matrix-board">
+      <div className="scp-subhead">Fit matrix</div>
+      <div className="scp-legend">
+        Pass = screen pass only: at least one candidate passed the scanner's risk screen in that
+        type. Qualification is the fit gate's job — see the fit / borderline / no fit badge on each row.
+      </div>
+      <div className="scp-matrix-scroll">
+        <table className="scp-table scp-matrix-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              {types.map((t) => <th key={t}>{t}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.map((row, idx) => (
+              <tr key={`${row.symbol}-${idx}`}>
+                <td className="scp-matrix-symbol">
+                  <strong>{row.symbol}</strong>{" "}
+                  <span className={`scp-badge scp-badge-verdict-${row.verdict}`}>{VERDICT_LABELS[row.verdict]}</span>
+                  {row.gateBucket && (
+                    <> <span className={`scp-badge scp-badge-${row.gateBucket}`}>{row.gateBucket}</span></>
+                  )}
+                  {row.verdict !== "skipped" && (
+                    <div className="scp-row-meta">Target {fmtTarget(row.targetPrice, row.targetSource, row.targetEmUnits)}</div>
+                  )}
+                  {row.gateReasons && row.gateReasons.length > 0 && (
+                    <div className="scp-reasons">{row.gateReasons.join("; ")}</div>
+                  )}
+                </td>
+                {row.verdict === "skipped" ? (
+                  <td className="scp-skip-reason" colSpan={Math.max(types.length, 1)}>
+                    Skipped — {row.skipReason ?? "not evaluated"}
+                  </td>
+                ) : (
+                  types.map((type) => {
+                    const cell = (row.cells ?? []).find((c) => c.strategyType === type);
+                    if (!cell) return <td key={type} className="scp-cell-empty">—</td>;
+                    if (!cell.best) {
+                      const top = topRejectionReason(cell.rejectionReasons);
+                      return (
+                        <td key={type} className="scp-cell">
+                          <div>{cell.passedCount}/{cell.evaluatedCount} passed · {cell.rejectedCount} rejected</div>
+                          {top && (
+                            <div className="scp-cell-reason" title={top.reason}>
+                              top rejection: {top.reason} ×{top.count}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    }
+                    const content = (
+                      <>
+                        <div className="scp-cell-score">{cell.best.compositeScore.toFixed(1)}</div>
+                        <div>{cell.passedCount}/{cell.evaluatedCount} passed</div>
+                        <div className="scp-cell-label">{cell.best.label}</div>
+                      </>
+                    );
+                    return (
+                      <td key={type} className="scp-cell">
+                        {onPreviewTrade ? (
+                          <button
+                            type="button"
+                            className="scp-cell-btn"
+                            title={`Preview ${cell.best.label} for ${row.symbol}`}
+                            onClick={() => onPreviewTrade(matrixCellTradeContext(row, cell, thesis))}
+                          >
+                            {content}
+                          </button>
+                        ) : content}
+                      </td>
+                    );
+                  })
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function ScanResultsView({ result, runContext, onPreviewTrade }: { result: OpportunityScanResponse; runContext: ScanRunContext; onPreviewTrade?: (ctx: TradeOrderContext) => void }) {
   const mode = runContext.mode;
   const { gate, evaluated, scanned, skipped } = scanCounts(result);
   const generatedAt = result.generatedAt || result.meta?.generatedAt;
@@ -159,6 +397,8 @@ export function ScanResultsView({ result, runContext }: { result: OpportunitySca
   const fits = result.fits ?? [];
   const assumptions = result.assumptions ?? [];
   const borderline = result.borderline ?? [];
+  const matrix = result.matrix ?? [];
+  const typeRollup = result.typeRollup ?? [];
 
   return (
     <div className="scp-results">
@@ -182,6 +422,8 @@ export function ScanResultsView({ result, runContext }: { result: OpportunitySca
         )}
         {result.persisted && result.scanRunId && <> · saved as scan run {result.scanRunId}</>}
       </div>
+
+      <TypeRollupCards rollup={typeRollup} />
 
       {mode === "per_name_best" && (
         opportunities.length > 0 ? (
@@ -257,6 +499,8 @@ export function ScanResultsView({ result, runContext }: { result: OpportunitySca
       {mode === "strategy_fit" && borderline.length > 0 && (
         <div className="scp-note">Borderline (evaluated, below the gate): {borderline.map((r) => r.symbol).join(", ")}</div>
       )}
+
+      <MatrixBoard matrix={matrix} thesis={runContext.thesis} onPreviewTrade={onPreviewTrade} />
 
       {assumptions.length > 0 && (
         <div className="scp-assumptions">
@@ -412,9 +656,13 @@ export function profileSummary(profile: StrategyProfile): string {
 export interface ScannerPanelProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
+  /** HITL preview handoff (the hub's existing order-ticket handler):
+   *  matrix cells with a passing candidate offer a preview through
+   *  it. Absent → cells render non-interactive. */
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
 }
 
-export function ScannerPanel({ activeEnv, userLogin }: ScannerPanelProps) {
+export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPanelProps) {
   // Scan form state
   const [mode, setMode] = useState<ScanMode>("per_name_best");
   const [symbolsText, setSymbolsText] = useState("AAPL, MSFT, NVDA, AMZN, GOOGL");
@@ -464,6 +712,7 @@ export function ScannerPanel({ activeEnv, userLogin }: ScannerPanelProps) {
     const context: ScanRunContext = {
       mode,
       profileLabel: chosen ? `${chosen.name} v${chosen.version}` : null,
+      thesis,
     };
     setScanning(true);
     setScanError("");
@@ -626,7 +875,7 @@ export function ScannerPanel({ activeEnv, userLogin }: ScannerPanelProps) {
       </div>
 
       {scanError && <div className="scp-error" role="alert">{scanError}</div>}
-      {result && runContext && <ScanResultsView result={result} runContext={runContext} />}
+      {result && runContext && <ScanResultsView result={result} runContext={runContext} onPreviewTrade={onPreviewTrade} />}
 
       {/* Strategy profiles manager (surface 4) */}
       <div className="scp-subhead">
