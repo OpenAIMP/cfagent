@@ -18,6 +18,37 @@ import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import { getETradeAuthStatus } from "../../security/etradeOAuth";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
 
+/**
+ * Quote provenance (issue #118, audit F12/F13).
+ *
+ * A quote may only be stamped "REALTIME" when it was fetched from the live
+ * E*TRADE REST API in this call. Every static fallback — the curated stock
+ * universe table or a cached screener-universe entry — must say so in its
+ * quoteStatus/source instead of impersonating the live feed.
+ */
+export const STATIC_FALLBACK_QUOTE_STATUS = "STATIC_FALLBACK";
+export const STATIC_CURATED_QUOTE_SOURCE = "Static curated stock universe table (not live market data)";
+export const CACHED_UNIVERSE_QUOTE_SOURCE = "E*TRADE Market Universe (cached screener universe — not a live quote)";
+
+/** True only when the quote was fetched live from the broker in this call. */
+export function isLiveQuoteStatus(quoteStatus?: string): boolean {
+  return quoteStatus === "REALTIME";
+}
+
+/**
+ * True when a quote carries no live price at all (static table fallback or
+ * unavailable), so anything priced from it must be flagged, never presented
+ * as priced from live market data.
+ */
+export function isNonLivePricingQuoteStatus(quoteStatus?: string): boolean {
+  return quoteStatus === STATIC_FALLBACK_QUOTE_STATUS || quoteStatus === "AUTH_REQUIRED";
+}
+
+/** Disclosure appended to order previews priced from a non-live quote. */
+export function nonLivePricingNotice(quoteStatus?: string): string {
+  return `⚠ PRICED FROM A NON-LIVE QUOTE (${quoteStatus}): live E*TRADE quote unavailable — the estimated price uses static fallback data, not live market data. Verify the price before authorizing.`;
+}
+
 export class ETradeTradingPlatform implements ITradingPlatform {
   readonly platformId = "etrade" as const;
   readonly name = "E*TRADE by Morgan Stanley Brokerage";
@@ -110,20 +141,37 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       // Ignore
     }
 
-    // 2. Pure E*TRADE market universe feed (No third-party yfinance dependency)
+    // 2. Cached screener-universe entry. This is NOT a fresh live fetch, so in
+    // the live environment it must keep the entry's own provenance (or be
+    // stamped STATIC_FALLBACK) — never upgraded to REALTIME / "Live Market
+    // Feed" (issue #118, audit F12).
     const found = this.screener.getUniverse().find((s) => s.symbol === cleanSym);
     if (found) {
       const envConfig = this.getEnvConfig();
+      if (!envConfig.isLive) {
+        return {
+          ...found,
+          price: found.lastPrice,
+          high52: found.week52High,
+          low52: found.week52Low,
+          quoteStatus: "SIMULATED_LEVEL1",
+          source: "E*TRADE Market Universe Feed",
+        };
+      }
       return {
         ...found,
         price: found.lastPrice,
         high52: found.week52High,
         low52: found.week52Low,
-        quoteStatus: envConfig.isLive ? "REALTIME" : "SIMULATED_LEVEL1",
-        source: envConfig.isLive ? "E*TRADE Live Market Feed" : "E*TRADE Market Universe Feed",
+        quoteStatus: found.quoteStatus ?? STATIC_FALLBACK_QUOTE_STATUS,
+        source: found.source ?? CACHED_UNIVERSE_QUOTE_SOURCE,
       };
     }
 
+    // 3. Static curated-universe table price. Only the table's own price is
+    // real data; bid/ask/volume/52-week range are NOT invented (zeroed), and
+    // in the live environment the quote is stamped STATIC_FALLBACK with a
+    // source naming the static table (issue #118, audit F12).
     const curated = getCuratedStockBySymbol(cleanSym);
     if (curated) {
       const envConfig = this.getEnvConfig();
@@ -135,17 +183,17 @@ export class ETradeTradingPlatform implements ITradingPlatform {
         price,
         change: 0,
         changePercent: 0,
-        bid: Number((price - 0.05).toFixed(2)),
-        ask: Number((price + 0.05).toFixed(2)),
-        volume: 1000000,
+        bid: 0,
+        ask: 0,
+        volume: 0,
         open: price,
         high: price,
         low: price,
-        week52High: Number((price * 1.25).toFixed(2)),
-        week52Low: Number((price * 0.75).toFixed(2)),
+        week52High: 0,
+        week52Low: 0,
         marketCap: curated.marketCap,
-        quoteStatus: envConfig.isLive ? "REALTIME" : "SIMULATED_LEVEL1",
-        source: envConfig.isLive ? "E*TRADE Live Market Feed" : "E*TRADE Market Universe Feed",
+        quoteStatus: envConfig.isLive ? STATIC_FALLBACK_QUOTE_STATUS : "SIMULATED_LEVEL1",
+        source: envConfig.isLive ? STATIC_CURATED_QUOTE_SOURCE : "E*TRADE Market Universe Feed",
         timestamp: new Date().toISOString(),
       };
     }
@@ -322,9 +370,13 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       authorizerDid: userDid,
     });
 
+    // Issue #118: an equity preview priced from a static fallback (or
+    // unavailable) quote must disclose that in the message itself — it must
+    // never read as priced from live market data.
+    const pricingQuoteStatus = quote?.quoteStatus;
     const previewMessage = optionLegs.length
       ? `E*TRADE ${brokerOrderType} Preview: ${params.quantity} strategy unit(s) of ${symbol} @ ${params.limitPrice ? `$${params.limitPrice.toFixed(2)} net` : "market"}. Estimated total: $${estimatedTotal.toLocaleString()} USD. No order has been placed; human approval is required.`
-      : `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote!.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.`;
+      : `E*TRADE Order Preview: ${action} ${params.quantity} ${symbol} @ ${orderType === "MARKET" ? "MKT (~$" + quote!.lastPrice.toFixed(2) + ")" : "$" + executionPrice.toFixed(2)}. Estimated Total: $${estimatedTotal.toLocaleString()} USD. NO SHARES HAVE BEEN BOUGHT. Awaiting explicit Human-in-the-Loop authorization.${isNonLivePricingQuoteStatus(pricingQuoteStatus) ? ` ${nonLivePricingNotice(pricingQuoteStatus)}` : ""}`;
     const storedPreviewNotes = optionLegs.length
       ? JSON.stringify({ kind: "strategy-order-v1", assetClass, brokerOrderType, optionLegs, strategyNetDebit: params.strategyNetDebit, note: brokerNotice })
       : brokerNotice;
@@ -346,6 +398,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       term: "GOOD_FOR_DAY",
       estimatedCommission,
       estimatedTotal,
+      pricingQuoteStatus,
       status: "previewed",
       proposerDid: didProof.proposerDid,
       authorizerDid: userDid,
