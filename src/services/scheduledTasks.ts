@@ -9,7 +9,7 @@
  */
 
 import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
-import type { DatabaseORM } from "../orm";
+import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { DynamicMarketScreener } from "../trading/screener";
 import {
@@ -18,6 +18,12 @@ import {
   type OptionStrategyType,
 } from "../trading/options";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
+import { ETradeService } from "./etrade";
+import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { OptionsDataAgent } from "../trading/options/optionsDataAgent";
+import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading/options/ivCollector";
+import type { IvHistoryStore } from "../trading/options/ivHistoryStore";
+import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "./tradingWebhooks";
@@ -40,7 +46,8 @@ export class ScheduledTasksService {
     private env: Env,
     private orm?: DatabaseORM,
     private userLogin: string = "default_trader",
-    private scanRunStore?: ScanRunStore
+    private scanRunStore?: ScanRunStore,
+    private ivHistoryStore?: IvHistoryStore
   ) {}
 
   /**
@@ -457,6 +464,125 @@ export class ScheduledTasksService {
         error: err.message || "Scheduled options analysis failed",
         timestamp,
       };
+    }
+  }
+
+  /**
+   * Daily ATM IV collection (issue #15): one IV-history record per
+   * tracked name (curated universe ∪ all watchlist symbols), derived
+   * from the live chain through the scanner's own data path
+   * (OptionsDataAgent over the DynamicOptionsScreener — broker chains
+   * only). Idempotent per (symbol, day): rerunning the task the same
+   * day records nothing twice. A name whose chain fails gets NO
+   * record and is named in the report's failed outcomes — history is
+   * never fabricated to fill a gap. Runs under this service's
+   * userLogin identity, like its sibling tasks.
+   *
+   * `options.symbols`, when given, replaces the tracked set (on-demand
+   * / diagnostic runs); the daily schedule passes nothing.
+   */
+  async collectDailyIvHistory(
+    options: { symbols?: string[]; environment?: string } = {}
+  ): Promise<ScheduledTaskResult<IvCollectionReport & { trackedCount: number }>> {
+    const timestamp = new Date().toISOString();
+
+    if (!this.ivHistoryStore) {
+      return {
+        success: false,
+        taskType: "options.iv_collection",
+        error: "IV history store not configured for this service instance",
+        timestamp,
+      };
+    }
+
+    try {
+      // The same E*TRADE client construction the unified options
+      // service uses, so collection reads chains under the same
+      // identity/environment as every other options path.
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        this.userLogin,
+        options.environment
+      );
+      const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+
+      const fetchChain = async (symbol: string) => {
+        const snapshot = await dataAgent.loadSnapshot({ symbol });
+        const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+          .filter((e) => e.symbol === symbol)
+          .map((e) => e.reason);
+        const error =
+          snapshot.validationError ??
+          (fetchReasons.length ? fetchReasons.join("; ") : undefined);
+        return { contracts: snapshot.contracts, ...(error ? { error } : {}) };
+      };
+
+      const curatedSymbols = options.symbols ?? getCuratedStockUniverse().map((s) => s.symbol);
+      const watchlistSymbols = options.symbols ? [] : this.flattenWatchlistSymbols();
+
+      const report = await collectIvHistory({
+        store: this.ivHistoryStore,
+        fetchChain,
+        curatedSymbols,
+        watchlistSymbols,
+      });
+
+      this.audit("options.iv_collection_completed", {
+        date: report.date,
+        tracked: report.outcomes.length,
+        recorded: report.recorded,
+        alreadyRecorded: report.alreadyRecorded,
+        failed: report.failed,
+        failedSymbols: report.outcomes.filter((o) => o.status === "failed").map((o) => o.symbol),
+      });
+
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ` +
+              `${report.alreadyRecorded} already recorded, ${report.failed} failed ` +
+              `across ${report.outcomes.length} tracked names.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+
+      return {
+        success: true,
+        taskType: "options.iv_collection",
+        data: { ...report, trackedCount: report.outcomes.length },
+        timestamp,
+      };
+    } catch (err: any) {
+      this.audit("options.iv_collection_failed", {
+        error: err.message,
+      });
+
+      return {
+        success: false,
+        taskType: "options.iv_collection",
+        error: err.message || "Daily IV collection failed",
+        timestamp,
+      };
+    }
+  }
+
+  /** All symbols across all stored watchlists (symbolsJson arrays);
+   *  a watchlist read failure degrades to the curated universe only. */
+  private flattenWatchlistSymbols(): string[] {
+    if (!this.orm?.watchlists) return [];
+    try {
+      return flattenWatchlistSymbols(this.orm.watchlists.findMany({}));
+    } catch {
+      return [];
     }
   }
 }
