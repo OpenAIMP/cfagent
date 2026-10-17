@@ -21,8 +21,6 @@ import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
 import {
-  RAW_INSIDER_FLOW_ITEMS,
-  RAW_CONGRESS_FLOW_ITEMS,
   filterLiveFlowItems,
   filterNewsFlowItems,
   filterInsiderFlowItems,
