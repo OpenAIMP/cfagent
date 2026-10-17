@@ -1,5 +1,7 @@
 {
   "demo": { "calibratedChains": false },
+  "news": { "sentiment": true },
+  "_newsComment": "Issue #132: when news.sentiment is true, fetchRealMarketNews runs one batched Workers AI classification per 60s cache fill and stamps items sentimentMethod 'llm' (+ model id). Set false (or CFAGENT_NEWS_SENTIMENT=0) to disable: headlines still ship, stamped 'unavailable'. LLM failures degrade the same way - never to a fabricated assessment.",
   "_demoComment": "Dev/demo only: when calibratedChains is true AND a request explicitly asks for dataMode calibrated-demo, generated chains may be served (stamped as demo data) via the Demo tab. Production must keep this false - live paths never fall back to generated chains.",
   "environment": "PROD",
   "_comment": "Change 'environment' to 'TEST' or 'PROD' to switch the active GitHub environment. GitHub Actions will pull ET_API_KEY, ET_API_SECRET, and ET_BASE_URL from the matching environment's secrets.",
@@ -153,7 +155,8 @@
           "optionsComparison": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
           "orchestrator": "@cf/zai-org/glm-4.7-flash",
           "marketResearch": "@cf/zai-org/glm-4.7-flash",
-          "searchAgent": "@cf/zai-org/glm-4.7-flash"
+          "searchAgent": "@cf/zai-org/glm-4.7-flash",
+          "newsSentiment": "@cf/zai-org/glm-4.7-flash"
         },
         "temperatureDefaults": {
           "deterministic": 0.0,
