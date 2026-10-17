@@ -1765,7 +1765,7 @@ export function ETradeTradingHub({
             switch (#23) + saved strategy profiles (#28), behind its
             own error boundary per the #71 containment rule. */}
         <ErrorBoundary label="Opportunity Scanner panel">
-          <ScannerPanel activeEnv={activeEnv} userLogin={user?.login} />
+          <ScannerPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleTradeOrder} />
         </ErrorBoundary>
       </OptionsResearchPanelHost>
 
