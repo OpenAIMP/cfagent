@@ -23,6 +23,7 @@ import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
 import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
+import { classifyNewsSentiment } from "./newsSentiment";
 
 /**
  * Issue #119 (audit F17): this service has NO trade-tape source. Every flow
@@ -2235,8 +2236,16 @@ let realNewsCache: { items: NewsFlowItem[]; expiresAt: number; queryKey: string 
 
 /**
  * Fetches genuine real-time market news from live market news feeds.
+ *
+ * Issue #132: on each cache fill (never on a cache hit) the fresh batch is
+ * passed through ONE batched LLM sentiment classification
+ * (classifyNewsSentiment). Items start as sentiment "neutral" with
+ * sentimentMethod "unavailable"; only labels the model actually returned
+ * upgrade an item to method "llm". Without an env/AI binding — or on any
+ * model failure — headlines ship unassessed rather than dressed in a
+ * default "neutral" judgement.
  */
-export async function fetchRealMarketNews(tickers?: string[]): Promise<NewsFlowItem[]> {
+export async function fetchRealMarketNews(tickers?: string[], env?: Env): Promise<NewsFlowItem[]> {
   const query = tickers && tickers.length > 0 ? tickers.join(" ") : "market";
   const now = Date.now();
   if (realNewsCache && realNewsCache.queryKey === query && realNewsCache.expiresAt > now) {
@@ -2270,9 +2279,15 @@ export async function fetchRealMarketNews(tickers?: string[]): Promise<NewsFlowI
         symbols: symbols.length > 0 ? symbols : ["SPY"],
         source: item.publisher || "Financial News",
         sentiment: "neutral",
+        sentimentMethod: "unavailable",
         url: item.link,
       };
     });
+
+    // Issue #132: classify once per cache fill; classified items are what
+    // the cache stores, so TTL hits never re-call the model. Best-effort —
+    // classifyNewsSentiment never throws and leaves failures "unavailable".
+    await classifyNewsSentiment(env, items);
 
     realNewsCache = { items, expiresAt: now + 60000, queryKey: query };
     return items;

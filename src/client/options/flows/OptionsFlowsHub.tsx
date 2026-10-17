@@ -22,6 +22,7 @@ import {
   FLOW_PROVENANCE_LABELS,
   FLOW_PROVENANCE_NOTICE,
 } from "../../../trading/options/flows/flowService";
+import { newsSentimentPresentation } from "./newsSentimentDisplay";
 import { FlowFiltersSidebar } from "./FlowFiltersSidebar";
 import { FlowSummaryDualBars } from "./FlowSummaryDualBars";
 import { FlowTradeDetailModal } from "./FlowTradeDetailModal";
@@ -430,7 +431,7 @@ export function OptionsFlowsHub({
             tooltip: {
               eyebrow: "CATALYST FEED",
               title: "Real-Time News Flow",
-              description: "Real-time breaking market news tied directly to options volatility and unusual volume catalysts.",
+              description: "Real-time breaking market news tied directly to options volatility and unusual volume catalysts. Sentiment badges are LLM model assessments of the headline text (marked · AI, model named on hover) — not measured market signals; headlines the model did not assess show 'Not assessed'.",
             },
           },
           {
@@ -707,10 +708,17 @@ export function OptionsFlowsHub({
                   <tr>
                     <th>Time</th>
                     <th>Headline</th>
+                    <th>Sentiment</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredNewsItems.map((item) => (
+                  {filteredNewsItems.map((item) => {
+                    // Issue #132: sentiment is an LLM model assessment with
+                    // provenance — assessed items show the label + "· AI";
+                    // unassessed items show "Not assessed", never a
+                    // default "neutral" dressed up as a judgement.
+                    const sentimentUi = newsSentimentPresentation(item);
+                    return (
                     <tr
                       key={item.id}
                       style={item.url ? { cursor: "pointer" } : undefined}
@@ -728,8 +736,14 @@ export function OptionsFlowsHub({
                           </span>
                         )}
                       </td>
+                      <td>
+                        <span className={sentimentUi.className} title={sentimentUi.title}>
+                          {sentimentUi.label}
+                        </span>
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )

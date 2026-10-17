@@ -100,6 +100,15 @@ export interface EvaluatedFlowSentiment {
   reasoning: string;
 }
 
+/**
+ * Issue #132: how a news item's `sentiment` was produced. "llm" means the
+ * label came from the batched Workers AI classification pass at fetch time;
+ * "unavailable" means no assessment exists (gate disabled, no AI binding,
+ * quota/parse failure) and `sentiment` is the neutral default — surfaces
+ * must render it as "not assessed", never as a neutral judgement.
+ */
+export type NewsSentimentMethod = "llm" | "unavailable";
+
 export interface NewsFlowItem {
   id: string;
   time: string;
@@ -108,6 +117,10 @@ export interface NewsFlowItem {
   symbols: string[];
   source: string;
   sentiment: FlowSentiment;
+  /** Issue #132: provenance of `sentiment` — see NewsSentimentMethod. */
+  sentimentMethod: NewsSentimentMethod;
+  /** Issue #132: model id that produced the label, when method is "llm". */
+  sentimentModel?: string;
   url?: string;
   isLocked?: boolean;
 }

@@ -131,6 +131,7 @@ export interface AiConfig {
     nlqValidation?: string;
     optionsIdeas?: string;
     optionsComparison?: string;
+    newsSentiment?: string;
     orchestrator?: string;
     marketResearch?: string;
     searchAgent?: string;
@@ -338,6 +339,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       nlqValidation: "@cf/zai-org/glm-4.7-flash",
       optionsIdeas: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       optionsComparison: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      newsSentiment: "@cf/zai-org/glm-4.7-flash",
       orchestrator: "@cf/zai-org/glm-4.7-flash",
       marketResearch: "@cf/zai-org/glm-4.7-flash",
       searchAgent: "@cf/zai-org/glm-4.7-flash",
