@@ -221,7 +221,21 @@ export class ETradeWebhookService {
       return { success: false, url: "", error: "No outbound webhook URL configured." };
     }
 
-    const signingSecret = secret || this.env?.OUTBOUND_WEBHOOK_SECRET || "default_trading_secret";
+    // Issue #123 (F20): outbound webhooks are advertised as HMAC-signed, so
+    // they are dispatched ONLY when a real signing secret is configured
+    // (per-call secret or OUTBOUND_WEBHOOK_SECRET). There is deliberately
+    // no default/fallback secret: signing with a published constant would
+    // give subscribers a signature anyone can forge while the UI claims
+    // "HMAC authenticated". No secret → nothing is sent, honest failure.
+    const signingSecret = secret || this.env?.OUTBOUND_WEBHOOK_SECRET;
+    if (!signingSecret) {
+      return {
+        success: false,
+        url,
+        error:
+          "No outbound webhook signing secret configured (set OUTBOUND_WEBHOOK_SECRET); webhook not sent. Outbound webhooks are only dispatched when they can be HMAC-signed with a configured secret.",
+      };
+    }
     const timestamp = new Date().toISOString();
     const payload = JSON.stringify({
       event: eventType,
