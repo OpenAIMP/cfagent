@@ -396,3 +396,51 @@
 .scp-borderline .scp-badge + .scp-badge {
   margin-left: 0.3rem;
 }
+/* Slice 5: scan history (#27) — saved-run banner, diff view,
+   compare picks. */
+.scp-historical {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  background: rgba(88, 166, 255, 0.08);
+  color: #c6cdd6;
+}
+.scp-diff {
+  margin-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0.8rem;
+}
+.scp-diff-line {
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  color: #c6cdd6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.scp-diff-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.scp-diff-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.scp-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: #9aa4b2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scp-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
