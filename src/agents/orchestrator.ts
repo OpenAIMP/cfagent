@@ -1487,8 +1487,8 @@ Platform Workflows & UI Navigation Map:
    - Screens 8,000+ US equities with 14-period RSI & MACD. Fallback hierarchy: Nasdaq API -> Yahoo FOSS -> curatedStockUniverse.json.
 2. Workflow 2: Options Strategy Discovery & Greeks (Tab: 'trading' | API: /api/etrade/options/strategy)
    - Evaluates the catalog of options strategies using Black-Scholes Greeks, IV rank, EV scoring, and strict user constraints (e.g. Max Loss <= $30, Max Profit > $0).
-3. Workflow 3: Real-Time Options Flow & Institutional Activity Tracker (Tab: 'options-flows' | API: /api/options/flows)
-   - Real-time unusual options volume, sweeps ($100k+ aggressive orders), blocks, and sentiment. Queries Stock Screener first for active underlyings.
+3. Workflow 3: Options Flow Estimates & Institutional Activity Tracker (Tab: 'options-flows' | API: /api/options/flows)
+   - Modelled unusual options volume, sweeps ($100k+ aggressive-at-ask estimates), blocks, and sentiment derived from option-chain snapshots — not a live trade tape (no options print feed exists). Queries Stock Screener first for active underlyings.
 4. Workflow 4: Visual Multi-Leg Strategy Builder & Payoff Visualizer (Tab: 'trading' | API: /api/options/builder/payoff)
    - Construct custom 1-4 leg positions with interactive payoff curves, breakevens, and net Greeks.
 5. Workflow 5: Portfolio Positions & Account Sync (Tab: 'trading' | API: /api/etrade/positions)
