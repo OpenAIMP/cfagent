@@ -21,7 +21,6 @@ import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
 import {
-  RAW_NEWS_FLOW_ITEMS,
   RAW_INSIDER_FLOW_ITEMS,
   RAW_CONGRESS_FLOW_ITEMS,
   filterLiveFlowItems,
@@ -32,6 +31,7 @@ import {
   DEFAULT_SAVED_PRESETS,
   getDynamicLiveFlowItems,
   getDynamicFlowSummary,
+  summarizeFlowProvenance,
   fetchRealMarketNews,
   fetchRealSecInsiderFilings,
   fetchRealCongressDisclosures,
@@ -767,6 +767,14 @@ export default {
           count: flows.length,
           total: flows.length,
           flows,
+          // Issue #119: there is no trade tape — disclose the modelled
+          // basis of every item at the envelope level too.
+          provenance: summarizeFlowProvenance(flows),
+          ...(sub === "historical"
+            ? {
+                note: "No historical options trade tape is available in this product; this returns the current modelled flow estimates, not archived prints.",
+              }
+            : {}),
           isDynamic: true,
           updatedAt: new Date().toISOString(),
         });
