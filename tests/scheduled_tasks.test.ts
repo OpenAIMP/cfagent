@@ -380,30 +380,38 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       expect(plan.scheduleData?.intervalSeconds).toBe(300);
     });
 
-    it("executes scheduling plan in executeNLQQuery and records audit event", async () => {
-      // 1. Create reminder plan execution
+    it("sync executeNLQQuery refuses scheduling actions honestly (issue #109)", async () => {
+      // The sync executor cannot call the async Agent scheduling API.
+      // Before issue #109 it invented a `sched_<type>_<ts>` id, wrote a
+      // schedule.created audit event against a nonexistent mas_schedules
+      // table, and reported success for schedules that did not exist.
+      // It now refuses honestly; real scheduling runs through
+      // executeNLQQueryAsync with an injected NLQSchedulingPort
+      // (covered in tests/nlq_scheduling.test.ts).
       const createPlan = await planNLQ(env, "remind me to check AAPL in 10 minutes");
       const createResult = executeNLQQuery(orm, sessionId, createPlan, env);
 
       expect(createResult.domain).toBe("scheduling");
-      expect(createResult.count).toBe(1);
-      expect(createResult.summary).toContain("Task scheduled successfully");
+      expect(createResult.status).toBe("error");
+      expect(createResult.count).toBe(0);
+      expect(createResult.summary).not.toContain("Task scheduled successfully");
+      expect(createResult.summary).toContain("executeNLQQueryAsync");
 
-      // 2. List schedules plan execution
       const listPlan = await planNLQ(env, "list all scheduled tasks");
       const listResult = executeNLQQuery(orm, sessionId, listPlan, env);
 
-      expect(listResult.domain).toBe("scheduling");
-      expect(listResult.count).toBeGreaterThanOrEqual(2); // baseline cron + interval
-      expect(listResult.rows.some((r: any) => r.callback === "autoRenewETradeTokens")).toBe(true);
-      expect(listResult.rows.some((r: any) => r.callback === "autonomousMarketScreen")).toBe(true);
+      expect(listResult.status).toBe("error");
+      expect(listResult.rows).toEqual([]);
 
-      // 3. Cancel schedule plan execution
       const cancelPlan = await planNLQ(env, "cancel schedule sched_delayed_test");
       const cancelResult = executeNLQQuery(orm, sessionId, cancelPlan, env);
 
-      expect(cancelResult.domain).toBe("scheduling");
-      expect(cancelResult.summary).toContain("sched_delayed_test");
+      expect(cancelResult.status).toBe("error");
+      expect(cancelResult.summary).not.toContain("cancelled successfully");
+
+      // No phantom audit writes from the sync path.
+      expect(orm.events.findMany({ where: { type: "schedule.created" } }).length).toBe(0);
+      expect(orm.events.findMany({ where: { type: "schedule.cancelled" } }).length).toBe(0);
     });
   });
 });
