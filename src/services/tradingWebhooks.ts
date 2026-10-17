@@ -32,7 +32,9 @@ export class ETradeWebhookService {
   ) {}
 
   /**
-   * Verify HMAC-SHA256 webhook signature using Web Crypto API
+   * Verify HMAC-SHA256 webhook signature using Web Crypto API.
+   * Fails closed: with no secret configured this returns false
+   * (issue #140) — it never reports an unverifiable caller as verified.
    */
   async verifySignature(rawBody: string, signature: string | null, secret?: string): Promise<boolean> {
     return verifyHmacSha256Signature(rawBody, signature, secret);
@@ -59,6 +61,18 @@ export class ETradeWebhookService {
         : (headers["X-TradingView-Signature"] || headers["x-signature-256"] || headers["x-hub-signature-256"]);
 
     const secret = this.env?.TRADINGVIEW_WEBHOOK_SECRET;
+    if (!secret) {
+      // Issue #140: unconfigured is a configuration error (503), not a
+      // bad signature — and never a pass. The verifier below also fails
+      // closed on a missing secret; this branch exists so operators see
+      // the real reason instead of a misleading "invalid signature".
+      return {
+        success: false,
+        statusCode: 503,
+        eventId: `tv_err_${Date.now()}`,
+        message: "TRADINGVIEW_WEBHOOK_SECRET is not configured; TradingView alert rejected.",
+      };
+    }
     const isValid = await this.verifySignature(rawBody, signature, secret);
 
     if (!isValid) {
@@ -145,6 +159,17 @@ export class ETradeWebhookService {
         : (headers["X-ETrade-Signature"] || headers["x-etrade-signature"]);
 
     const secret = this.env?.ETRADE_WEBHOOK_SECRET;
+    if (!secret) {
+      // Issue #140: same fail-closed configuration error as the
+      // TradingView processor — an unconfigured secret must never let
+      // a caller mutate stored order state as a "verified" broker event.
+      return {
+        success: false,
+        statusCode: 503,
+        eventId: `et_err_${Date.now()}`,
+        message: "ETRADE_WEBHOOK_SECRET is not configured; broker notification rejected.",
+      };
+    }
     const isValid = await this.verifySignature(rawBody, signature, secret);
 
     if (!isValid) {
