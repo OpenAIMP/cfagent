@@ -558,7 +558,7 @@ export function ScheduledOptionsManager({
             <span>⏰</span> Autonomous Options Screening &amp; Schedulers
           </h3>
           <p>
-            Cloudflare Agents Durable Timers (<code>schedule</code> / <code>scheduleEvery</code>) execute continuously inside the <strong>OrchestratorAgent</strong> Durable Object. Screening runs 24/7 independently of whether your browser tab is open, continuously scanning Greeks and multi-leg spreads and pushing alerts to Slack, Email, Webhook, and live WebSocket broadcasts.
+            Cloudflare Agents Durable Timers (<code>schedule</code> / <code>scheduleEvery</code>) run inside the <strong>OrchestratorAgent</strong> Durable Object — each registered job fires on its own schedule, independently of whether your browser tab is open. When a scheduled analysis or screen completes, its results are broadcast to connected app clients, and notifications are sent only to the channels configured on that job (Slack, email, webhook) — a channel the job doesn&apos;t configure receives nothing.
           </p>
         </div>
 
@@ -623,7 +623,6 @@ export function ScheduledOptionsManager({
               <span className={`dispatch-pill ${liveResult.notifications?.webhook ? "success" : liveResult.notifications?.webhook === false ? "failed" : "skipped"}`}>
                 Webhook: {liveResult.notifications?.webhook ? "✓ Dispatched" : liveResult.notifications?.webhook === false ? "✕ Error" : "–"}
               </span>
-              <span className="dispatch-pill success">Broadcast: ✓ Active</span>
             </div>
           </div>
 
@@ -765,12 +764,14 @@ export function ScheduledOptionsManager({
                       )}
 
                       <div className="payload-row">
-                        <span className="payload-label">Omnichannel:</span>
+                        <span className="payload-label">Notifications:</span>
                         <div className="channel-indicators">
                           {payload.pushToSlack && <span className="chan-badge slack" title="Slack Alerts">Slack</span>}
                           {payload.emailTo && <span className="chan-badge email" title="Email Briefs">Email</span>}
                           {payload.webhookUrl && <span className="chan-badge webhook" title="Signed Webhook">Webhook</span>}
-                          <span className="chan-badge" style={{ background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }}>Broadcast</span>
+                          {!payload.pushToSlack && !payload.emailTo && !payload.webhookUrl && (
+                            <span className="payload-value">None configured — results surface in this app only</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1293,7 +1294,7 @@ export function ScheduledOptionsManager({
                           <strong>Outbound Signed Webhook</strong>
                         </div>
                         <span className="channel-check-desc">
-                          HMAC SHA-256 authenticated JSON payload for institutional trade engines
+                          HMAC SHA-256 signed JSON payload. Dispatched only when OUTBOUND_WEBHOOK_SECRET is configured on the server — without a signing secret, the webhook is not sent.
                         </span>
                         {Boolean(webhookUrl) && (
                           <input
@@ -1307,14 +1308,14 @@ export function ScheduledOptionsManager({
                         )}
                       </label>
 
-                      {/* Broadcast */}
+                      {/* Broadcast — platform behaviour, not a per-job channel:
+                          rendered as a note, not a selectable channel (issue #123/F15). */}
                       <div className="channel-check-card" style={{ opacity: 0.9 }}>
                         <div className="channel-check-top">
-                          <input type="checkbox" checked disabled />
                           <strong>WebSocket UI Broadcast</strong>
                         </div>
                         <span className="channel-check-desc">
-                          Live real-time pop-up notification pushed to all connected client tabs
+                          Not a channel you configure: when a scheduled run completes, its results are always broadcast to connected app clients.
                         </span>
                       </div>
                     </div>

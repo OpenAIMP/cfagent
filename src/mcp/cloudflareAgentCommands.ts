@@ -79,7 +79,7 @@ export class DispatchTradingWebhookCommand implements IMcpToolCommand<{
   targetUrl?: string;
 }> {
   readonly name = "dispatch_trading_webhook";
-  readonly description = "Dispatch HMAC-SHA256 signed trading webhook event to subscriber URL";
+  readonly description = "Dispatch HMAC-SHA256 signed trading webhook event to subscriber URL. Requires OUTBOUND_WEBHOOK_SECRET to be configured on the server: without a signing secret the webhook is NOT sent and the result is success:false — outbound webhooks are never signed with a default or fallback secret.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
