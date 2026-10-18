@@ -33,6 +33,7 @@ import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { toOpportunityStock } from "../trading/screenerPipeline";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import {
   OptionsAgentPipeline,
@@ -272,17 +273,11 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           success: res.success,
           totalScanned: res.data?.totalScanned ?? 0,
           matchedCount: res.data?.matchedCount ?? 0,
-          opportunities: (res.data?.opportunities || []).map((s: any) => ({
-            symbol: s.symbol,
-            companyName: s.companyName || s.symbol,
-            signal: s.signal || "unknown",
-            momentumScore: s.momentumScore || 0,
-            lastPrice: s.lastPrice || 0,
-            changePercent: s.changePercent || 0,
-          })),
+          // Issue #259: opportunities arrive pre-shaped from the shared
+          // pipeline; re-shape defensively via the single mapping.
+          opportunities: (res.data?.opportunities || []).map(toOpportunityStock),
           // Issue #253: full scanned set so the panel can render the
-          // per-symbol data table. Already mapped to a serializable
-          // subset by autonomousMarketScreen.
+          // per-symbol data table. Already shaped by the shared pipeline.
           allStocks: res.data?.allStocks || [],
           error: res.success ? undefined : res.error,
         };

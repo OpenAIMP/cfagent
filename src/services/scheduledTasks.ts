@@ -12,7 +12,14 @@ import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from ".
 import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { DynamicMarketScreener } from "../trading/screener";
-import { fetchTechnologySymbols, fetchLiveQuotes } from "../trading/liveScreener";
+import {
+  acquireUniverse,
+  screenUniverse,
+  selectStandouts,
+  buildAllStocks,
+  toOpportunityStock,
+  type ScannedStock,
+} from "../trading/screenerPipeline";
 import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
@@ -200,45 +207,37 @@ export class ScheduledTasksService {
     totalScanned: number;
     matchedCount: number;
     opportunities: ScreenedStockItem[];
-    allStocks: Array<{
-      symbol: string;
-      companyName: string;
-      signal: string;
-      momentumScore: number;
-      lastPrice: number;
-      changePercent: number;
-      rsi14: number | null;
-      source: string;
-    }>;
+    allStocks: ScannedStock[];
     sector?: string;
   }>> {
     const timestamp = new Date().toISOString();
     const screener = new DynamicMarketScreener();
 
     try {
-      // Issue #224: E*TRADE primary, Nasdaq secondary, both with retries.
+      // Issue #259: universe acquisition + screening via the shared
+      // pipeline. E*TRADE primary, Nasdaq secondary, both with retries (#224).
       const etrade = new ETradeService(
         this.orm || new DatabaseORM({ exec: () => [] }),
         this.env,
         this.userLogin,
       );
-      const techSymbols = await fetchTechnologySymbols();
-      const liveQuotes = await fetchLiveQuotes(
-        techSymbols,
-        { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
-        50
-      );
+      const acquired = await acquireUniverse({
+        mode: "live-quotes",
+        maxSymbols: 50,
+        liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
+      });
+      const liveQuotes = acquired.quotes;
       if (liveQuotes.length === 0) {
         throw new Error("No live quotes available from E*TRADE or Nasdaq");
       }
-      const screenResult = screener.screenWithQuotes(liveQuotes, {
+      const screenResult = screenUniverse(screener, acquired, {
         sector: options.sector,
-      }, false);
+      });
 
-      const max = options.maxItems || 5;
-      const standoutOpportunities = screenResult.stocks
-        .filter(s => s.signal === "OVERSOLD_BOUNCE" || s.signal === "BULLISH_MOMENTUM" || s.momentumScore >= 60)
-        .slice(0, max);
+      const standoutOpportunities = selectStandouts(
+        screenResult.stocks,
+        options.maxItems || 5
+      );
 
       // Audit every run (not just ones with hits) so "Recent autonomous
       // actions" shows the full history, including quiet runs.
@@ -265,36 +264,11 @@ export class ScheduledTasksService {
         sector: options.sector || "ALL",
         totalScanned: screenResult.totalScanned,
         matchedCount: screenResult.matchedCount,
-        opportunities: standoutOpportunities.map(s => ({
-          symbol: s.symbol,
-          companyName: s.companyName || s.symbol,
-          signal: s.signal || "unknown",
-          momentumScore: s.momentumScore || 0,
-          lastPrice: s.lastPrice || 0,
-          changePercent: s.changePercent || 0,
-        })),
+        opportunities: standoutOpportunities.map(toOpportunityStock),
       });
 
-      // Issue #253: keep the full scanned set (not just standouts) so the
-      // panel can render the per-symbol data table like the manual screen.
-      // Built from liveQuotes (all fetched symbols), enriched with screened
-      // fields where the symbol survived the sector filter.
-      const screenedBySymbol = new Map(
-        screenResult.stocks.map((s) => [s.symbol, s])
-      );
-      const allStocks = liveQuotes.map((q) => {
-        const s = screenedBySymbol.get(q.symbol);
-        return {
-          symbol: q.symbol,
-          companyName: q.companyName || q.symbol,
-          signal: s?.signal || "unknown",
-          momentumScore: s?.momentumScore ?? 0,
-          lastPrice: q.lastPrice || 0,
-          changePercent: q.changePercent || 0,
-          rsi14: s?.rsi14 ?? null,
-          source: q.source || "unknown",
-        };
-      });
+      // Issue #253/#259: full scanned set via the shared pipeline.
+      const allStocks = buildAllStocks(liveQuotes, screenResult.stocks);
 
       return {
         success: true,
