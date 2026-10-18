@@ -61,7 +61,7 @@ import {
   isSupportedGateway,
   type SupportedGateway,
 } from "../src/services/payments";
-import { PaymentStrategyFactory } from "../src/patterns/paymentStrategies";
+import { PaymentStrategyFactory, PayPalPaymentStrategy } from "../src/patterns/paymentStrategies";
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import { computeHmacSha256Hex } from "../src/services/cryptoUtils";
 import { MockSqlStorage } from "./mock-sql";
@@ -85,6 +85,11 @@ const makeEnv = (overrides: Record<string, unknown> = {}): Env =>
     LEMONSQUEEZY_WEBHOOK_SECRET: LS_WH_SECRET,
     PAYPAL_CLIENT_ID: "paypal-client-id-148",
     PAYPAL_CLIENT_SECRET: "paypal-client-secret-148",
+    // Issue #157: PAYPAL_WEBHOOK_ID is mandatory configuration for the
+    // remote-verification path — this fixture models a correctly configured
+    // deployment (client credentials alone no longer suffice; the strategy
+    // previously substituted the client id for the missing webhook id).
+    PAYPAL_WEBHOOK_ID: "paypal-webhook-id-148",
     ...overrides,
   }) as Env;
 
@@ -216,6 +221,117 @@ describe("PaymentGatewayService.verifyWebhookSignature — PayPal via its verifi
     );
     const result = await service.verifyWebhookSignature("paypal", BODY, paypalHeaders());
     expect(result.isValid).toBe(false);
+  });
+});
+
+describe("PayPal webhook id — explicit configuration only (#157)", () => {
+  // Issue #157 (filed from #148): PayPalPaymentStrategy.verifyWebhookSignature
+  // sent `webhook_id: webhookId || env.PAYPAL_CLIENT_ID` to PayPal's
+  // verify-webhook-signature API. A client id is not a webhook id, so any
+  // deployment without an explicitly passed webhook id had legitimate
+  // webhooks rejected by PayPal. The webhook id now comes only from the
+  // explicit argument or PAYPAL_WEBHOOK_ID (declared in .dev.vars.example);
+  // with neither configured, verification fails closed with a configuration
+  // reason and NO remote call is made. Fail-closed behaviour is unchanged.
+  let verdict = "SUCCESS";
+  let fetchCalls: { url: string; body?: any }[] = [];
+
+  beforeEach(() => {
+    verdict = "SUCCESS";
+    fetchCalls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: any, init?: any) => {
+        const url = String(input);
+        const entry: { url: string; body?: any } = { url };
+        if (typeof init?.body === "string" && init.body.startsWith("{")) {
+          entry.body = JSON.parse(init.body);
+        }
+        fetchCalls.push(entry);
+        if (url.includes("/v1/oauth2/token")) {
+          return { ok: true, status: 200, json: async () => ({ access_token: "tok-157" }) } as any;
+        }
+        if (url.includes("/v1/notifications/verify-webhook-signature")) {
+          return { ok: true, status: 200, json: async () => ({ verification_status: verdict }) } as any;
+        }
+        throw new Error(`Unexpected fetch in test: ${url}`);
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const paypalHeaders = () =>
+    new Headers({
+      "paypal-auth-algo": "SHA256withRSA",
+      "paypal-cert-url": "https://api.paypal.com/certs/test.pem",
+      "paypal-transmission-id": "tx-157",
+      "paypal-transmission-sig": "sig-157",
+      "paypal-transmission-time": new Date().toISOString(),
+    });
+
+  const verifyCalls = () =>
+    fetchCalls.filter((c) => c.url.includes("/v1/notifications/verify-webhook-signature"));
+
+  it("service: the env-configured webhook id is sent to PayPal (never the client id)", async () => {
+    const service = new PaymentGatewayService(makeEnv());
+    const result = await service.verifyWebhookSignature("paypal", BODY, paypalHeaders());
+    expect(result.isValid).toBe(true);
+    expect(verifyCalls()).toHaveLength(1);
+    expect(verifyCalls()[0].body.webhook_id).toBe("paypal-webhook-id-148");
+    expect(verifyCalls()[0].body.webhook_id).not.toBe("paypal-client-id-148");
+  });
+
+  it("service: no webhook id configured fails closed with a configuration reason and no remote call", async () => {
+    const service = new PaymentGatewayService(makeEnv({ PAYPAL_WEBHOOK_ID: undefined }));
+    const result = await service.verifyWebhookSignature("paypal", BODY, paypalHeaders());
+    expect(result.isValid).toBe(false);
+    expect(result.reason).toContain("webhook id is not configured");
+    expect(result.reason).toContain("PAYPAL_WEBHOOK_ID");
+    expect(verifyCalls()).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  it("strategy: an explicitly passed webhook id wins over the env value", async () => {
+    const strategy = new PayPalPaymentStrategy();
+    const valid = await strategy.verifyWebhookSignature(makeEnv(), paypalHeaders(), BODY, "wh-explicit-param");
+    expect(valid).toBe(true);
+    expect(verifyCalls()).toHaveLength(1);
+    expect(verifyCalls()[0].body.webhook_id).toBe("wh-explicit-param");
+  });
+
+  it("strategy: the env webhook id is used when no argument is passed", async () => {
+    const strategy = new PayPalPaymentStrategy();
+    const valid = await strategy.verifyWebhookSignature(makeEnv(), paypalHeaders(), BODY);
+    expect(valid).toBe(true);
+    expect(verifyCalls()).toHaveLength(1);
+    expect(verifyCalls()[0].body.webhook_id).toBe("paypal-webhook-id-148");
+  });
+
+  it("strategy: a FAILURE verdict with a configured webhook id is still rejected", async () => {
+    verdict = "FAILURE";
+    const strategy = new PayPalPaymentStrategy();
+    const valid = await strategy.verifyWebhookSignature(makeEnv(), paypalHeaders(), BODY);
+    expect(valid).toBe(false);
+  });
+
+  it("strategy: no webhook id anywhere returns false with zero network calls", async () => {
+    const strategy = new PayPalPaymentStrategy();
+    const valid = await strategy.verifyWebhookSignature(
+      makeEnv({ PAYPAL_WEBHOOK_ID: undefined }),
+      paypalHeaders(),
+      BODY
+    );
+    expect(valid).toBe(false);
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  it("source pins: the client id is never substituted as the webhook id", () => {
+    expect(src("patterns/paymentStrategies.ts")).not.toContain("|| env.PAYPAL_CLIENT_ID");
+    expect(src("patterns/paymentStrategies.ts")).toContain("env.PAYPAL_WEBHOOK_ID");
+    expect(src("services/payments.ts")).toContain("PAYPAL_WEBHOOK_ID");
   });
 });
 
