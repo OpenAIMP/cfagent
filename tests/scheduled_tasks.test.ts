@@ -103,6 +103,15 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       expect(res.data?.totalScanned).toBeGreaterThan(0);
       expect(Array.isArray(res.data?.opportunities)).toBe(true);
 
+      // Issue #253: full scanned set is retained, not just standouts.
+      expect(Array.isArray(res.data?.allStocks)).toBe(true);
+      expect(res.data?.allStocks.length).toBe(res.data?.totalScanned);
+      for (const s of res.data?.allStocks || []) {
+        expect(s.symbol).toBeTruthy();
+        expect(typeof s.lastPrice).toBe("number");
+        expect(typeof s.momentumScore).toBe("number");
+      }
+
       // Verify audit event in mas_events if opportunities detected
       const events = orm.events.findMany({ where: { type: "screener.opportunities_detected" } });
       if (res.data?.opportunities && res.data.opportunities.length > 0) {

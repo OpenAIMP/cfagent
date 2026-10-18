@@ -280,6 +280,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
             lastPrice: s.lastPrice || 0,
             changePercent: s.changePercent || 0,
           })),
+          // Issue #253: full scanned set so the panel can render the
+          // per-symbol data table. Already mapped to a serializable
+          // subset by autonomousMarketScreen.
+          allStocks: res.data?.allStocks || [],
           error: res.success ? undefined : res.error,
         };
         await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
