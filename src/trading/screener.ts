@@ -9,7 +9,8 @@
 
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
-import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
+import { type NasdaqStockListing } from "../services/nasdaqListings";
+import { acquireUniverse } from "./screenerPipeline";
 
 import {
   CURATED_STOCK_UNIVERSE,
@@ -71,6 +72,11 @@ export class DynamicMarketScreener implements IMarketScreener {
 
   static setTestListingsFixture(fixture: NasdaqStockListing[] | null): void {
     DynamicMarketScreener.testListingsFixture = fixture;
+  }
+
+  /** Public read access for the shared screener pipeline (#259). */
+  static getTestListingsFixture(): NasdaqStockListing[] | null {
+    return DynamicMarketScreener.testListingsFixture;
   }
 
   getDefaultUniverse(): ScreenedStockItem[] {
@@ -514,6 +520,8 @@ export class DynamicMarketScreener implements IMarketScreener {
   }
 
   async screenLive(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+    // Unsupported-filter guard (manual-path-specific: the listing feed
+    // cannot provide technical data). Behavior preserved.
     const unsupported: string[] = [];
     const hasTechnicalIndicators =
       filter.minRsi !== undefined ||
@@ -535,84 +543,39 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.minVolume !== undefined) unsupported.push("volume");
     if (filter.maxPeRatio !== undefined) unsupported.push("P/E");
 
-    const sourceCounts: Record<string, number> = {};
-    let listings: NasdaqStockListing[];
-    try {
-      listings = DynamicMarketScreener.testListingsFixture ?? await fetchAllUsStockListings();
-      if (!DynamicMarketScreener.testListingsFixture && (!listings || listings.length === 0)) {
-        listings = getCuratedStockListings();
-      }
-    } catch (error) {
-      if (DynamicMarketScreener.testListingsFixture !== null && DynamicMarketScreener.testListingsFixture !== undefined) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          ...this.screenWithQuotes([], filter, false),
-          discovery: {
-            mode: "all_us_listings",
-            candidateCount: 0,
-            listingCount: 0,
-            sourceCounts,
-            message: `Dynamic all-exchange listing request failed: ${message}`,
-            error: message,
-          },
-        };
-      }
-      listings = getCuratedStockListings();
-    }
+    // Issue #259: universe acquisition via the shared pipeline.
+    const acquired = await acquireUniverse({
+      mode: "all-listings",
+      exchange: filter.exchange,
+    });
 
-    for (const listing of listings) sourceCounts[listing.exchange] = (sourceCounts[listing.exchange] || 0) + 1;
-    sourceCounts.uniqueListings = listings.length;
-    let selectedListings = filter.exchange && filter.exchange !== "ALL"
-      ? listings.filter((listing) => listing.exchange.toUpperCase() === filter.exchange)
-      : listings;
-    if (selectedListings.length === 0 && !DynamicMarketScreener.testListingsFixture) {
-      selectedListings = listings;
-    }
-    sourceCounts.selectedListings = selectedListings.length;
-    if (selectedListings.length === 0) {
-      const message = listings.length === 0
-        ? "Dynamic all-exchange listing request returned no rows from Nasdaq, NYSE, or AMEX."
-        : `No dynamic listings were returned for ${filter.exchange}; ${listings.length.toLocaleString()} rows were loaded across all exchanges.`;
+    // Narrow the pipeline's discovery to this trigger's literal type.
+    const toDiscovery = (message?: string) => ({
+      mode: "all_us_listings" as const,
+      candidateCount: acquired.discovery.candidateCount,
+      listingCount: acquired.discovery.listingCount,
+      sourceCounts: acquired.discovery.sourceCounts ?? {},
+      message: message ?? acquired.discovery.message,
+      ...(acquired.discovery.error ? { error: acquired.discovery.error } : {}),
+    });
+
+    // Fixture fetch failure → error result (original behavior).
+    if (acquired.error) {
       return {
         ...this.screenWithQuotes([], filter, false),
-        discovery: {
-          mode: "all_us_listings",
-          candidateCount: 0,
-          listingCount: 0,
-          sourceCounts,
-          message,
-        },
+        discovery: toDiscovery(),
       };
     }
-    const isCuratedUniverse = !DynamicMarketScreener.testListingsFixture && listings.length === getCuratedStockUniverse().length;
-    const quotes: ETradeQuote[] = selectedListings.map((listing) => {
-      const curated = getCuratedStockBySymbol(listing.symbol);
-      const sector = curated?.sector || inferSectorFromCompanyName(listing.companyName) || "Equities";
+
+    const quotes = acquired.quotes;
+
+    // Empty universe → empty result with message (original behavior).
+    if (quotes.length === 0) {
       return {
-        symbol: listing.symbol,
-        companyName: listing.companyName,
-        listingExchange: listing.exchange.toUpperCase(),
-        lastPrice: listing.lastPrice,
-        price: listing.lastPrice,
-        change: listing.change,
-        changePercent: listing.changePercent,
-        bid: 0,
-        ask: 0,
-        volume: 0,
-        open: 0,
-        high: 0,
-        low: 0,
-        marketCap: listing.marketCap,
-        week52High: 0,
-        week52Low: 0,
-        sector,
-        quoteStatus: "AS_OF_UNKNOWN",
-        source: isCuratedUniverse
-          ? "Curated externalized stock universe (Nasdaq, NYSE, AMEX)"
-          : "Nasdaq all-exchange stock listings (source quote time unavailable)",
-        timestamp: "",
+        ...this.screenWithQuotes([], filter, false),
+        discovery: toDiscovery(),
       };
-    });
+    }
 
     if (unsupported.length > 0) {
       const message = `The dynamic listing feed does not provide ${unsupported.join(", ")} data. Those criteria were not applied; use only price, daily change, market cap, and ticker/company search.`;
@@ -634,29 +597,14 @@ export class DynamicMarketScreener implements IMarketScreener {
           rejections: quotes.map((quote) => ({ symbol: quote.symbol, reason: message })),
         },
         validationError: message,
-        discovery: {
-          mode: "all_us_listings",
-          candidateCount: selectedListings.length,
-          listingCount: quotes.length,
-          sourceCounts,
-          message,
-        },
+        discovery: toDiscovery(message),
       };
     }
 
     const result = this.screenWithQuotes(quotes, filter, false);
-    const message = isCuratedUniverse
-      ? `Loaded ${listings.length.toLocaleString()} curated listings from externalized universe across Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters.`
-      : `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
     return {
       ...result,
-      discovery: {
-        mode: "all_us_listings",
-        candidateCount: selectedListings.length,
-        listingCount: quotes.length,
-        sourceCounts,
-        message,
-      },
+      discovery: toDiscovery(),
     };
   }
 
