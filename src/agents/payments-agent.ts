@@ -10,7 +10,7 @@
  * payExternalEndpoint() handles outbound payments using viem.
  */
 
-import { callable } from "agents";
+import { Agent } from "agents";
 
 export interface PaymentRecord {
   id: string;
@@ -26,7 +26,7 @@ interface PaymentsAgentState {
   payments: PaymentRecord[];
 }
 
-export class PaymentsAgent extends callable<PaymentsAgentState>() {
+export class PaymentsAgent extends Agent<Env> {
   initialState: PaymentsAgentState = { payments: [] };
 
   private todayKey(): string {
