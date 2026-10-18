@@ -237,8 +237,21 @@ export class PaymentGatewayService {
     }
 
     if (normalized === "paypal") {
+      // Issue #157: PayPal's verify-webhook-signature API requires the id
+      // of the webhook registered for this app (PAYPAL_WEBHOOK_ID, declared
+      // in .dev.vars.example) — it cannot be derived from the client
+      // credentials, and the strategy previously substituted the client id,
+      // which made PayPal reject legitimate webhooks. Fail closed with an
+      // explicit configuration reason when it is not set.
+      const webhookId = this.env.PAYPAL_WEBHOOK_ID;
+      if (!webhookId) {
+        return {
+          isValid: false,
+          reason: "PayPal webhook id is not configured: PAYPAL_WEBHOOK_ID is missing from the environment",
+        };
+      }
       const paypalStrategy = PaymentStrategyFactory.getStrategy("paypal") as PayPalPaymentStrategy;
-      const valid = await paypalStrategy.verifyWebhookSignature(this.env, headers, rawBody);
+      const valid = await paypalStrategy.verifyWebhookSignature(this.env, headers, rawBody, webhookId);
       return { isValid: valid, reason: valid ? undefined : "PayPal verification rejected" };
     }
 
