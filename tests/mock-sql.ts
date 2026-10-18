@@ -175,11 +175,14 @@ export class MockSqlStorage implements SqlStorage {
       return [{ count: filtered.length }];
     }
 
-    // SELECT * FROM table
-    const selectMatch = q.match(/SELECT\s+\*\s+FROM\s+(\w+)(.*?)$/i);
+    // SELECT <cols> FROM table (supports "*" or an explicit column list;
+    // issue #255 extended this from *-only so retention-style queries like
+    // SELECT id FROM ... WHERE created_at < ? behave like real SQLite)
+    const selectMatch = q.match(/SELECT\s+(\*|[\w\s,]+)\s+FROM\s+(\w+)(.*?)$/i);
     if (selectMatch) {
-      const tbl = selectMatch[1];
-      const rest = selectMatch[2] || "";
+      const colSpec = selectMatch[1].trim();
+      const tbl = selectMatch[2];
+      const rest = selectMatch[3] || "";
       let rows = [...(this.tables.get(tbl) || [])];
 
       // WHERE clause
@@ -218,6 +221,10 @@ export class MockSqlStorage implements SqlStorage {
         rows = rows.slice(offset, offset + limit);
       }
 
+      if (colSpec !== "*") {
+        const wanted = colSpec.split(",").map((c) => c.trim()).filter(Boolean);
+        rows = rows.map((r) => Object.fromEntries(wanted.map((c) => [c, r[c]])));
+      }
       return rows;
     }
 
@@ -330,6 +337,32 @@ export class MockSqlStorage implements SqlStorage {
         const pattern = String(args[argIdx++] || "").toLowerCase().replace(/%/g, "");
         const cell = String(row[col] || "").toLowerCase();
         if (!cell.includes(pattern)) return false;
+        continue;
+      }
+
+      // Issue #255: comparison operators behave like real SQLite so
+      // retention-style range predicates (e.g. created_at < ?) are testable.
+      // ISO-8601 timestamps compare lexicographically, matching TEXT semantics.
+      const cmpMatch = cond.match(/(\w+)\s*(<=|>=|<|>)\s*\?/);
+      if (cmpMatch) {
+        const col = cmpMatch[1];
+        const op = cmpMatch[2];
+        const val = args[argIdx++];
+        const cell = row[col];
+        // Numeric when both sides are numbers; otherwise codepoint order,
+        // matching SQLite BINARY collation for TEXT (ISO-8601 timestamps).
+        let cmp: number;
+        if (typeof cell === "number" && typeof val === "number") {
+          cmp = cell - val;
+        } else {
+          const a = String(cell ?? "");
+          const b = String(val ?? "");
+          cmp = a < b ? -1 : a > b ? 1 : 0;
+        }
+        if (op === "<" && !(cmp < 0)) return false;
+        if (op === ">" && !(cmp > 0)) return false;
+        if (op === "<=" && !(cmp <= 0)) return false;
+        if (op === ">=" && !(cmp >= 0)) return false;
         continue;
       }
     }

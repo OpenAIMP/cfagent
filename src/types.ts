@@ -99,6 +99,9 @@ export interface Env {
   // whose domain is listed are accepted. When unset, only format validation
   // applies (a warning is logged on first use). Issue #143 P0.
   EMAIL_TO_ALLOWED_DOMAINS?: string;
+  // Nightly mas_messages retention window in days (issue #255, part of
+  // #143). Default 90. A value <= 0 disables the retention pass entirely.
+  MAS_MESSAGES_RETENTION_DAYS?: string;
   // Cloudflare Vectorize & AI Search
   VECTORIZE?: any;
   // Optional / backward-compatible bindings

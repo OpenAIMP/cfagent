@@ -1183,6 +1183,18 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(renewPromise);
       else await renewPromise;
+      // Issue #255 — nightly mas_messages retention pass (0 4 * * * cron in
+      // wrangler.jsonc). Enforces the retention window and records one
+      // mas_events row per run.
+    } else if (event?.cron === "0 4 * * *") {
+      const retentionPromise = agent.fetch(
+        new Request("https://agent.internal/schedules/trigger-retention", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(retentionPromise);
+      else await retentionPromise;
     } else {
       const optionsPromise = agent.fetch(
         new Request("https://agent.internal/schedules/trigger-options-analysis", {
