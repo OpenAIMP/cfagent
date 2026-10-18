@@ -57,7 +57,13 @@ export class ScheduledAgent extends Agent<Env> {
 
       try {
         const paymentsId = env.PAYMENTS_AGENT.idFromName("default");
-        const payments = env.PAYMENTS_AGENT.get(paymentsId);
+        const payments = env.PAYMENTS_AGENT.get(paymentsId) as unknown as {
+          budgetCheck(req: {
+            operation: string;
+            amountCents: number;
+            agentId?: string;
+          }): Promise<{ allowed: boolean; reason?: string }>;
+        };
         const budgetOk = await payments.budgetCheck({
           operation: goal.operation,
           amountCents: goal.budgetCents,
