@@ -113,3 +113,13 @@ ai-search-agent/
 ├── vite.config.ts          # Vite configuration
 └── package.json            # Scripts & dependencies
 ```
+
+## Releases
+
+This project keeps a [CHANGELOG.md](./CHANGELOG.md) in Keep a Changelog format.
+
+- Every change lands under `## [Unreleased]` as it merges.
+- A release is a PR that moves those entries into a versioned
+  `## [X.Y.Z] - YYYY-MM-DD` section; the tag `vX.Y.Z` is placed on the
+  release PR's merge commit afterward. See the CHANGELOG header for the
+  full tagging convention.
