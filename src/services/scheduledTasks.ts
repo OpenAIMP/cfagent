@@ -12,6 +12,8 @@ import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from ".
 import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { DynamicMarketScreener } from "../trading/screener";
+import { fetchTechnologySymbols, fetchLiveQuotes } from "../trading/liveScreener";
+import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
   type OptionThesis,
@@ -205,9 +207,24 @@ export class ScheduledTasksService {
     const screener = new DynamicMarketScreener();
 
     try {
-      const screenResult = await screener.screenStocks({
+      // Issue #224: E*TRADE primary, Nasdaq secondary, both with retries.
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        this.userLogin,
+      );
+      const techSymbols = await fetchTechnologySymbols();
+      const liveQuotes = await fetchLiveQuotes(
+        techSymbols,
+        { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
+        50
+      );
+      if (liveQuotes.length === 0) {
+        throw new Error("No live quotes available from E*TRADE or Nasdaq");
+      }
+      const screenResult = screener.screenWithQuotes(liveQuotes, {
         sector: options.sector,
-      });
+      }, false);
 
       const max = options.maxItems || 5;
       const standoutOpportunities = screenResult.stocks
