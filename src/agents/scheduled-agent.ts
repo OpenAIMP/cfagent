@@ -63,9 +63,9 @@ export class ScheduledAgent extends callable<ScheduledAgentState>() {
         }
 
         // Create Orchestrator job for this goal
-        const orchId = env.ORCHESTRATOR_AGENT.idFromName("default");
-        const orchestrator = env.ORCHESTRATOR_AGENT.get(orchId);
-        await orchestrator.createJob({
+        // (orchestrator is a plain module, not a DO — call directly)
+        const { createJob } = await import("../orchestrate");
+        await createJob(env, {
           goalId: goal.id,
           goalName: goal.name,
           operation: goal.operation,
