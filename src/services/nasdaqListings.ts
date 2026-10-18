@@ -60,6 +60,7 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
     while (offset < totalRecords) {
       const url = new URL(baseUrl);
       url.searchParams.set("tableonly", "true");
+      url.searchParams.set("download", "true");
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(offset));
       url.searchParams.set("exchange", exchange);

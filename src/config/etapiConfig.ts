@@ -430,7 +430,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     nasdaqListings: {
       url: "https://api.nasdaq.com/api/screener/stocks",
       pageSize: 5000,
-      timeoutMs: 2500,
+      timeoutMs: 20000,
       exchanges: ["nasdaq", "nyse", "amex"],
     },
     yahooFinance: {

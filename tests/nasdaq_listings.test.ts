@@ -43,4 +43,18 @@ describe("dynamic all-exchange stock listings", () => {
     const listings = await fetchAllUsStockListings(fetcher as typeof fetch);
     expect(listings).toEqual([]);
   });
+
+  it("requests the screener with download=true on every exchange fetch", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      data: { totalrecords: 0, table: { rows: [] } },
+    }), { status: 200 }));
+
+    await fetchAllUsStockListings(fetcher as typeof fetch);
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    for (const call of fetcher.mock.calls) {
+      const url = new URL(String(call[0]));
+      expect(url.searchParams.get("download")).toBe("true");
+    }
+  });
 });
