@@ -8,9 +8,13 @@
  * errors).
  *
  * Configuration (env vars):
- * - SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL: enables Slack publishing
- * - SCREENER_EMAIL_TO: enables email publishing
- * - OUTBOUND_WEBHOOK_URL: enables webhook publishing
+ * - CFPAY_A2A_TOKEN: use cfpay's agents via A2A (tried first)
+ * - SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL: local Slack fallback
+ * - SCREENER_EMAIL_TO: enables email publishing (local fallback)
+ * - OUTBOUND_WEBHOOK_URL: enables webhook publishing (local only;
+ *   cfpay has no outbound webhook dispatch via A2A)
+ *
+ * Issue #215: cfpay via A2A is tried first; local services are the fallback.
  */
 
 import {
@@ -23,6 +27,11 @@ import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
+import {
+  getCfpayConfig,
+  cfpayPostToSlack,
+  cfpaySendEmail,
+} from "../services/cfpayA2A";
 
 export interface ScreenerPublisherDeps {
   env: Env;
@@ -92,8 +101,17 @@ async function publishCompleted(
   const { text, html } = formatOpportunities(event);
   const plainText = text.replace(/\*/g, "");
 
-  // 1. Slack
-  if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
+  // 1. Slack — try cfpay via A2A first, fall back to local.
+  const cfpay = getCfpayConfig(deps.env as Record<string, unknown>);
+  let slackOk = false;
+  if (cfpay) {
+    const r = await cfpayPostToSlack(cfpay, plainText);
+    slackOk = r.ok;
+    if (!r.ok) {
+      console.warn("[ScreenerPublishers] cfpay Slack failed, falling back to local:", r.error);
+    }
+  }
+  if (!slackOk && (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL)) {
     try {
       const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
       await slack.postSlackMessage({
@@ -110,19 +128,34 @@ async function publishCompleted(
     }
   }
 
-  // 2. Email
+  // 2. Email — try cfpay via A2A first, fall back to local.
   const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
   if (emailTo) {
-    try {
-      const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
-      await email.sendOutboundEmail(
+    let emailOk = false;
+    if (cfpay) {
+      const r = await cfpaySendEmail(
+        cfpay,
         emailTo,
         `📊 Market Screen [${event.sector}] — ${event.opportunities.length} opportunities`,
-        html,
         plainText
       );
-    } catch (err) {
-      console.warn("[ScreenerPublishers] Email publish failed:", err instanceof Error ? err.message : String(err));
+      emailOk = r.ok;
+      if (!r.ok) {
+        console.warn("[ScreenerPublishers] cfpay Email failed, falling back to local:", r.error);
+      }
+    }
+    if (!emailOk) {
+      try {
+        const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+        await email.sendOutboundEmail(
+          emailTo,
+          `📊 Market Screen [${event.sector}] — ${event.opportunities.length} opportunities`,
+          html,
+          plainText
+        );
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Email publish failed:", err instanceof Error ? err.message : String(err));
+      }
     }
   }
 
