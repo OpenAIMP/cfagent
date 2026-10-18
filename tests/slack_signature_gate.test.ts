@@ -55,7 +55,10 @@ vi.mock("@cloudflare/ai-chat", () => {
   };
 });
 vi.mock("agents", () => {
-  return { routeAgentRequest: async () => null };
+  // Issue #199: src/server.ts re-exports PaymentsAgent/ScheduledAgent,
+  // which `extend Agent` when the module loads — the stub must be an
+  // extendable class, otherwise `extends undefined` throws at import time.
+  return { routeAgentRequest: async () => null, Agent: class MockAgent {} };
 });
 vi.mock("agents/mcp", () => {
   return { McpAgent: class MockMcpAgent {} };
