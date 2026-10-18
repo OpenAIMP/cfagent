@@ -11,6 +11,12 @@
  *
  * Deterministic: no LLM, no heuristics — pure rule evaluation.
  * Used by PaymentsAgent before any payment.process call.
+ *
+ * Issue #161: check() is PURE — it validates without recording. The caller
+ * must invoke record() after a successful check (and after payment
+ * verification) to persist the spend. State is serializable so the owning
+ * Durable Object can persist it across restarts; an in-memory-only guard
+ * would lose daily spend and idempotency keys on eviction.
  */
 
 export interface BudgetConfig {
@@ -37,6 +43,14 @@ export interface BudgetVerdict {
   reason?: string;
 }
 
+/** Serializable guard state for Durable Object storage. */
+export interface BudgetGuardState {
+  /** [agentId, date YYYY-MM-DD, spent cents] — only the current day is kept */
+  dailySpend: Array<[string, string, number]>;
+  /** Seen idempotency keys, oldest-first, capped */
+  seenKeys: string[];
+}
+
 export const DEFAULT_BUDGET: BudgetConfig = {
   dailyCapCents: 5000, // $50/day default
   perCallCapCents: 1000, // $10/call default
@@ -44,11 +58,14 @@ export const DEFAULT_BUDGET: BudgetConfig = {
   agentCaps: {},
 };
 
+/** Max idempotency keys retained — bounds storage growth. */
+const MAX_SEEN_KEYS = 2000;
+
 export class BudgetGuard {
   private config: BudgetConfig;
   /** agentId -> date (YYYY-MM-DD) -> spent cents */
   private dailySpend: Map<string, Map<string, number>> = new Map();
-  /** Seen idempotency keys */
+  /** Seen idempotency keys (insertion-ordered) */
   private seenKeys: Set<string> = new Set();
 
   constructor(config: Partial<BudgetConfig> = {}) {
@@ -69,7 +86,7 @@ export class BudgetGuard {
 
   /**
    * Validate a payment request against all budget rules.
-   * On success the spend is recorded; on failure nothing changes.
+   * PURE: on success nothing is recorded — call record() to persist the spend.
    */
   check(req: PaymentRequest): BudgetVerdict {
     // 1. Idempotency — reject replays
@@ -102,14 +119,30 @@ export class BudgetGuard {
       };
     }
 
-    // All checks pass — record the spend
+    return { allowed: true };
+  }
+
+  /**
+   * Record a validated spend. Call only after check() returned allowed AND
+   * payment verification succeeded — never for a mere pre-flight check.
+   */
+  record(req: PaymentRequest): void {
     this.seenKeys.add(req.idempotencyKey);
+    // Bound growth: drop oldest keys first (Sets preserve insertion order).
+    if (this.seenKeys.size > MAX_SEEN_KEYS) {
+      const excess = this.seenKeys.size - MAX_SEEN_KEYS;
+      const it = this.seenKeys.values();
+      for (let i = 0; i < excess; i++) {
+        const oldest = it.next().value;
+        if (oldest !== undefined) this.seenKeys.delete(oldest);
+      }
+    }
+    const today = this.todayKey();
     if (!this.dailySpend.has(req.agentId)) {
       this.dailySpend.set(req.agentId, new Map());
     }
-    this.dailySpend.get(req.agentId)!.set(today, agentSpend + req.amountCents);
-
-    return { allowed: true };
+    const byDate = this.dailySpend.get(req.agentId)!;
+    byDate.set(today, (byDate.get(today) ?? 0) + req.amountCents);
   }
 
   /** Current spend for an agent today, in cents. */
@@ -120,5 +153,44 @@ export class BudgetGuard {
   /** Update the budget configuration. */
   updateConfig(config: Partial<BudgetConfig>): void {
     this.config = { ...this.config, ...config };
+  }
+
+  /**
+   * Serialize state for Durable Object storage. Only today's spend is kept
+   * (older dates can never affect a future check); keys are capped.
+   */
+  serialize(): BudgetGuardState {
+    const today = this.todayKey();
+    const dailySpend: Array<[string, string, number]> = [];
+    for (const [agentId, byDate] of this.dailySpend) {
+      const cents = byDate.get(today) ?? 0;
+      if (cents > 0) dailySpend.push([agentId, today, cents]);
+    }
+    return {
+      dailySpend,
+      seenKeys: [...this.seenKeys].slice(-MAX_SEEN_KEYS),
+    };
+  }
+
+  /** Restore a guard from serialized state. */
+  static restore(config: Partial<BudgetConfig>, state: BudgetGuardState | null | undefined): BudgetGuard {
+    const guard = new BudgetGuard(config);
+    if (!state) return guard;
+    const today = guard.todayKey();
+    for (const [agentId, date, cents] of state.dailySpend ?? []) {
+      if (date !== today || typeof cents !== "number" || cents <= 0) continue;
+      if (!guard.dailySpend.has(agentId)) guard.dailySpend.set(agentId, new Map());
+      guard.dailySpend.get(agentId)!.set(date, cents);
+    }
+    for (const key of state.seenKeys ?? []) {
+      if (typeof key === "string" && key.length > 0) guard.seenKeys.add(key);
+    }
+    // Enforce the cap on restore as well.
+    while (guard.seenKeys.size > MAX_SEEN_KEYS) {
+      const oldest = guard.seenKeys.values().next().value;
+      if (oldest === undefined) break;
+      guard.seenKeys.delete(oldest);
+    }
+    return guard;
   }
 }
