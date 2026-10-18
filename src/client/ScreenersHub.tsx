@@ -19,6 +19,7 @@ interface ScreenersHubProps {
 type ScreenRow = Record<string, unknown>;
 
 // Issue #212: a persisted autonomous screener run.
+// Issue #253: allStocks carries the full scanned set (not just standouts).
 interface ScreenRun {
   timestamp: string;
   sector: string;
@@ -32,6 +33,16 @@ interface ScreenRun {
     momentumScore: number;
     lastPrice: number;
     changePercent: number;
+  }>;
+  allStocks?: Array<{
+    symbol: string;
+    companyName: string;
+    signal: string;
+    momentumScore: number;
+    lastPrice: number;
+    changePercent: number;
+    rsi14: number | null;
+    source: string;
   }>;
   error?: string;
 }
@@ -331,6 +342,46 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                       <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
                         No standout opportunities in the latest run.
                       </div>
+                    )}
+                    {/* Issue #253: full scanned data, like the manual screen. */}
+                    {(latest.allStocks?.length ?? 0) > 0 && (
+                      <details style={{ marginTop: "0.75rem" }}>
+                        <summary style={{ fontSize: "0.85rem", cursor: "pointer", color: "var(--color-accent)" }}>
+                          All {latest.allStocks!.length} scanned symbols
+                        </summary>
+                        <div className="options-table-scroll" style={{ marginTop: "0.5rem" }}>
+                          <table className="options-comparison-table">
+                            <thead>
+                              <tr>
+                                <th>Symbol</th>
+                                <th>Company</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Signal</th>
+                                <th>Momentum</th>
+                                <th>RSI(14)</th>
+                                <th>Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {latest.allStocks!.map((s) => (
+                                <tr key={s.symbol}>
+                                  <td><strong>{s.symbol}</strong></td>
+                                  <td>{s.companyName}</td>
+                                  <td>${s.lastPrice.toFixed(2)}</td>
+                                  <td style={{ color: s.changePercent >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)" }}>
+                                    {s.changePercent >= 0 ? "+" : ""}{s.changePercent.toFixed(2)}%
+                                  </td>
+                                  <td>{s.signal}</td>
+                                  <td>{s.momentumScore.toFixed(0)}</td>
+                                  <td>{s.rsi14 == null ? "—" : s.rsi14.toFixed(1)}</td>
+                                  <td style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)" }}>{s.source}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
                     )}
                     {autoRuns.length > 1 && (
                       <div style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)", marginTop: "0.5rem" }}>

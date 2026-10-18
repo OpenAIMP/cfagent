@@ -200,6 +200,16 @@ export class ScheduledTasksService {
     totalScanned: number;
     matchedCount: number;
     opportunities: ScreenedStockItem[];
+    allStocks: Array<{
+      symbol: string;
+      companyName: string;
+      signal: string;
+      momentumScore: number;
+      lastPrice: number;
+      changePercent: number;
+      rsi14: number | null;
+      source: string;
+    }>;
     sector?: string;
   }>> {
     const timestamp = new Date().toISOString();
@@ -265,6 +275,27 @@ export class ScheduledTasksService {
         })),
       });
 
+      // Issue #253: keep the full scanned set (not just standouts) so the
+      // panel can render the per-symbol data table like the manual screen.
+      // Built from liveQuotes (all fetched symbols), enriched with screened
+      // fields where the symbol survived the sector filter.
+      const screenedBySymbol = new Map(
+        screenResult.stocks.map((s) => [s.symbol, s])
+      );
+      const allStocks = liveQuotes.map((q) => {
+        const s = screenedBySymbol.get(q.symbol);
+        return {
+          symbol: q.symbol,
+          companyName: q.companyName || q.symbol,
+          signal: s?.signal || "unknown",
+          momentumScore: s?.momentumScore ?? 0,
+          lastPrice: q.lastPrice || 0,
+          changePercent: q.changePercent || 0,
+          rsi14: s?.rsi14 ?? null,
+          source: q.source || "unknown",
+        };
+      });
+
       return {
         success: true,
         taskType: "market_screen",
@@ -272,6 +303,7 @@ export class ScheduledTasksService {
           totalScanned: screenResult.totalScanned,
           matchedCount: screenResult.matchedCount,
           opportunities: standoutOpportunities,
+          allStocks,
           sector: options.sector,
         },
         timestamp,
