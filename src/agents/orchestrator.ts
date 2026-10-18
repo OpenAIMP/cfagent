@@ -5292,8 +5292,10 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
-    // Issue #212: latest autonomous screener runs (GET /api/screener/latest)
-    if (path.endsWith("/api/screener/latest") && request.method === "GET") {
+    // Issue #212: latest autonomous screener runs (GET /api/screener/latest).
+    // Note: server.ts strips the /api prefix before forwarding, so the DO
+    // sees /screener/latest.
+    if (path.endsWith("/screener/latest") && request.method === "GET") {
       try {
         const runs = ((await this.ctx.storage.get("screener:last_runs")) as any[]) || [];
         return Response.json({
