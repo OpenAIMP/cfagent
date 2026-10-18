@@ -207,23 +207,40 @@ export class ScheduledTasksService {
 
     try {
       // Issue #224: E*TRADE primary, Nasdaq secondary, both with retries.
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        this.userLogin,
-      );
-      const techSymbols = await fetchTechnologySymbols();
-      const liveQuotes = await fetchLiveQuotes(
-        techSymbols,
-        { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
-        50
-      );
-      if (liveQuotes.length === 0) {
-        throw new Error("No live quotes available from E*TRADE or Nasdaq");
+      // If live sources are unreachable (Nasdaq/E*TRADE outage, sandbox
+      // without network), fall back to the curated universe via
+      // screenStocks — the long-standing seam the #112 failure-semantics
+      // tests pin — so the scheduled screen degrades gracefully instead
+      // of failing every cycle. Fixes #233, #234.
+      let screenResult;
+      let quoteSource = "live";
+      try {
+        const etrade = new ETradeService(
+          this.orm || new DatabaseORM({ exec: () => [] }),
+          this.env,
+          this.userLogin,
+        );
+        const techSymbols = await fetchTechnologySymbols();
+        const liveQuotes = await fetchLiveQuotes(
+          techSymbols,
+          { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
+          50
+        );
+        if (liveQuotes.length === 0) {
+          throw new Error("No live quotes available from E*TRADE or Nasdaq");
+        }
+        screenResult = screener.screenWithQuotes(liveQuotes, {
+          sector: options.sector,
+        }, false);
+      } catch (liveErr) {
+        // Live path failed: degrade to the curated universe. A throw here
+        // (e.g. the mocked screenStocks in tests) still propagates to the
+        // outer catch, preserving the #112 failure semantics.
+        quoteSource = "curated_fallback";
+        screenResult = await screener.screenStocks({
+          sector: options.sector,
+        });
       }
-      const screenResult = screener.screenWithQuotes(liveQuotes, {
-        sector: options.sector,
-      }, false);
 
       const max = options.maxItems || 5;
       const standoutOpportunities = screenResult.stocks
@@ -238,6 +255,7 @@ export class ScheduledTasksService {
         matchedCount: screenResult.matchedCount,
         opportunityCount: standoutOpportunities.length,
         symbols: standoutOpportunities.map(s => s.symbol),
+        quoteSource,
       });
       if (standoutOpportunities.length > 0) {
         this.audit("screener.opportunities_detected", {
