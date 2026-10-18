@@ -586,6 +586,9 @@ export default {
 
     // --- Cloudflare Browser Agent: Webhook Snapshot API ---
     if ((path === "/api/browser/snapshot" || path === "/browser/snapshot") && request.method === "POST") {
+      // Issue #181: snapshots dispatch Slack posts — require a valid app session.
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
       try {
         const body = (await request.json()) as any;
         const targetUrl = body.url || "https://etrade.com";
@@ -603,6 +606,9 @@ export default {
 
     // --- Cloudflare Browser Agent: Transaction Snap to Slack via Webhook API ---
     if ((path === "/api/browser/transaction-snap" || path === "/browser/transaction-snap" || path === "/api/browser/snap/transaction") && request.method === "POST") {
+      // Issue #181: see above — require a valid app session.
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
       try {
         const body = (await request.json().catch(() => ({}))) as any;
         const tx: TransactionSnapData = body.transaction || body;
