@@ -442,9 +442,19 @@ export default {
     }
 
     // --- Omnichannel Trading Agent: Inbound Email Webhook & Simulator ---
+    // Issue #154: a session is REQUIRED for the omnichannel test/simulator
+    // routes (this one and the Slack/voice siblings below). They forward
+    // into the caller's agent, whose handlers process trade commands
+    // (inbound-email APPROVE, Slack events, voice turns) — previously a
+    // null session silently proceeded under a shared hard-coded fallback
+    // identity, so an UNAUTHENTICATED caller could drive them. The
+    // fallback identities are removed (the #149 pattern); the in-app
+    // callers (ETradeTradingHub, ResearchReportActions) are signed in
+    // and unaffected.
     if (path === "/api/trading/email/inbound" && request.method === "POST") {
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "omnichannel_email_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/trading/email/inbound", "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
@@ -455,7 +465,8 @@ export default {
     // --- Omnichannel Trading Agent: Slack Test Simulator ---
     if (path === "/api/trading/slack/test" && request.method === "POST") {
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "omnichannel_slack_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/trading/slack/event", "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
@@ -466,7 +477,8 @@ export default {
     // --- Omnichannel Trading Agent: Voice Trading Turn Simulator & API ---
     if ((path === "/api/trading/voice/turn" || path === "/api/trading/voice/test") && request.method === "POST") {
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "omnichannel_voice_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/trading/voice/turn", "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
@@ -477,7 +489,8 @@ export default {
     // --- Omnichannel Trading Agent: Voice Welcome Greeting ---
     if (path === "/api/trading/voice/greeting" && request.method === "GET") {
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "omnichannel_voice_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/trading/voice/greeting", "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
@@ -487,8 +500,15 @@ export default {
 
     // --- Omnichannel Options Intelligence: Forwarder for Options Endpoints (Catalog, Strategies, Screen, Unified, Config) ---
     if ((path.startsWith("/api/trading/options/") || path.startsWith("/trading/options/")) && (request.method === "POST" || request.method === "GET")) {
+      // Issue #154: session required, identity is the SESSION login only.
+      // Previously a null session fell back to the caller-supplied
+      // x-user-login header (or a shared "default_trader"), letting an
+      // unauthenticated caller select ANY user's agent instance. This
+      // matches the session-required catch-all /api/ forwarder below;
+      // in-app callers send their session cookie and are unaffected.
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || request.headers.get("x-user-login") || "default_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const subPath = path.replace(/^\/api/, "");
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
@@ -499,8 +519,13 @@ export default {
 
     // --- Cloudflare Agents Task Scheduling Management APIs ---
     if (path.startsWith("/api/schedules") || path === "/api/schedules") {
+      // Issue #154: session required, identity is the SESSION login only
+      // (schedules are per-user state: create/cancel/trigger). Previously
+      // a null session fell back to the caller-supplied x-user-login
+      // header or a shared "default_trader" identity.
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || request.headers.get("x-user-login") || "default_trader";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const subPath = path.replace(/^\/api/, "");
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
@@ -511,12 +536,18 @@ export default {
 
     // --- Omnichannel Trading Agent: Voice WebSocket Session ---
     if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
+      // Issue #154: the voice-trading session requires an app session,
+      // checked BEFORE the WebSocket is accepted. Previously a null
+      // session proceeded under a shared "voice_trader" identity, so an
+      // unauthenticated caller could open a voice trading session.
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+
       const pair = new WebSocketPair();
       const [clientWs, serverWs] = Object.values(pair);
       serverWs.accept();
 
-      const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || "voice_trader";
+      const userLogin = session.githubLogin;
 
       handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
 
