@@ -63,6 +63,10 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(offset));
       url.searchParams.set("exchange", exchange);
+      // Required: without download=true the API returns rCode 400 {"data":null}
+      // ("The value 'limit=...' is not valid"). With it, the full table dumps
+      // (limit is ignored) — the pagination loop below handles that.
+      url.searchParams.set("download", "true");
 
       let response: Response;
       try {
