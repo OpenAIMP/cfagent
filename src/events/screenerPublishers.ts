@@ -103,9 +103,10 @@ async function publishCompleted(
 
   // 1. Slack — try cfpay via A2A first, fall back to local.
   const cfpay = getCfpayConfig(deps.env);
+  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
   let slackOk = false;
   if (cfpay) {
-    const r = await cfpayPostToSlack(cfpay, plainText);
+    const r = await cfpayPostToSlack(cfpay, plainText, slackChannel);
     slackOk = r.ok;
     if (!r.ok) {
       console.warn("[ScreenerPublishers] cfpay Slack failed, falling back to local:", r.error);
