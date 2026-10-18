@@ -190,6 +190,7 @@ export function ScheduledOptionsManager({
   // Form State
   const [jobType, setJobType] = useState<CreatableJob>("optionsAnalysis");
   const [targetSymbols, setTargetSymbols] = useState("NVDA, AAPL, SPY, MSFT");
+  const [targetUniverse, setTargetUniverse] = useState("");
   const [scheduleType, setScheduleType] = useState<ScheduleMode>("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [cronExpression, setCronExpression] = useState(() =>
@@ -340,7 +341,7 @@ export function ScheduledOptionsManager({
         .filter(Boolean);
       callback = JOB_CALLBACKS.optionsAnalysis;
       payload = {
-        symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY"],
+        ...(targetUniverse ? { universe: targetUniverse } : { symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY"] }),
         thesis,
         riskProfile,
         pushToSlack,
@@ -494,7 +495,7 @@ export function ScheduledOptionsManager({
       .filter(Boolean);
 
     const payload = {
-      symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY", "MSFT"],
+      ...(targetUniverse ? { universe: targetUniverse } : { symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY", "MSFT"] }),
       thesis,
       riskProfile,
       pushToSlack,
@@ -1057,33 +1058,55 @@ export function ScheduledOptionsManager({
                 </div>
               )}
 
-              {/* Target Symbols Input & Quick Presets (options analysis only) */}
+              {/* Target Universe or Symbols (options analysis only) */}
               {(editingScheduleId || jobType === "optionsAnalysis") && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
-                    Target Equity Symbols
-                    <span className="hint">Comma-separated tickers</span>
+                    Target Universe
+                    <span className="hint">Screens all symbols in the universe</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     className="sched-input"
-                    value={targetSymbols}
-                    onChange={(e) => setTargetSymbols(e.target.value)}
-                    placeholder="e.g. NVDA, AAPL, SPY, MSFT"
-                    required
-                  />
-                  <div className="preset-chips-row">
-                    {SYMBOL_PRESETS.map((p) => (
-                      <button
-                        key={p.label}
-                        type="button"
-                        className="preset-chip"
-                        onClick={() => setTargetSymbols(p.symbols)}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
+                    value={targetUniverse}
+                    onChange={(e) => setTargetUniverse(e.target.value)}
+                  >
+                    <option value="">Custom symbols (below)</option>
+                    <option value="TECH">Technology (keyword discovery)</option>
+                    <option value="NASDAQ100">Nasdaq-100</option>
+                    <option value="SP100">S&P 100</option>
+                    <option value="SP500">S&P 500</option>
+                    <option value="RUSSELL2000">Russell 2000</option>
+                    <option value="ETF">ETFs</option>
+                    <option value="LEV_ETF">Leveraged ETFs</option>
+                  </select>
+                  {!targetUniverse && (
+                    <>
+                      <label className="sched-form-label" style={{ marginTop: "0.5rem" }}>
+                        Target Equity Symbols
+                        <span className="hint">Comma-separated tickers</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="sched-input"
+                        value={targetSymbols}
+                        onChange={(e) => setTargetSymbols(e.target.value)}
+                        placeholder="e.g. NVDA, AAPL, SPY, MSFT"
+                        required
+                      />
+                      <div className="preset-chips-row">
+                        {SYMBOL_PRESETS.map((p) => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            className="preset-chip"
+                            onClick={() => setTargetSymbols(p.symbols)}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

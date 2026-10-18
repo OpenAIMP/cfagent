@@ -36,6 +36,8 @@ import { registerScreenerPublishers } from "../events/screenerPublishers";
 
 export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
+  /** Universe to scan (resolves to symbols via listings; overrides symbols). */
+  universe?: string;
   thesis?: OptionThesis;
   targetDate?: string;
   allowedStrategies?: OptionStrategyType[];
@@ -505,7 +507,20 @@ export class ScheduledTasksService {
     opportunities?: any[];
   }>> {
     const timestamp = new Date().toISOString();
-    const symbols = options.symbols && options.symbols.length > 0 ? options.symbols : ["AAPL", "NVDA", "SPY", "MSFT"];
+    // Resolve universe to symbols if specified; otherwise use explicit
+    // symbols or the default watchlist.
+    let symbols: string[];
+    if (options.universe) {
+      const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
+      const { resolveUniverse, UNIVERSES } = await import("../trading/universes");
+      const listings = await fetchAllUsStockListings();
+      const universeDef = UNIVERSES[options.universe as keyof typeof UNIVERSES];
+      const resolved = resolveUniverse(options.universe as any, listings);
+      const maxSymbols = universeDef?.defaultMaxSymbols ?? 50;
+      symbols = resolved.slice(0, maxSymbols).map((l) => l.symbol);
+    } else {
+      symbols = options.symbols && options.symbols.length > 0 ? options.symbols : ["AAPL", "NVDA", "SPY", "MSFT"];
+    }
     const targetThesis = options.thesis || "bullish";
 
     try {
