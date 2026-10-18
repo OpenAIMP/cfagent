@@ -27,6 +27,7 @@ import {
   type LiveScreenerDeps,
 } from "./liveScreener";
 import { computeScreeningIndicators } from "./screeningIndicators";
+import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 import type { YahooTechnicals } from "./yahooHistory";
 import {
   computeFactorGrades,
@@ -121,6 +122,8 @@ export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only";
 
 export interface AcquireUniverseOptions {
   mode: UniverseMode;
+  /** Tunables (defaults to DEFAULT_SCREENER_CONFIG). */
+  config?: ScreenerConfig;
   /** all-listings: exchange scope filter ("ALL" or exchange code). */
   exchange?: string;
   /** live-quotes / etrade-only: pre-filtered listings (default: tech-keyword filter). */
@@ -160,10 +163,11 @@ export async function acquireUniverse(
     }
     const symbols =
       opts.symbols ?? (await fetchTechnologySymbols());
+    const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
     const quotes = await fetchLiveQuotes(
       symbols,
       opts.liveDeps,
-      opts.maxSymbols ?? 50
+      opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols
     );
     return {
       quotes,
@@ -184,11 +188,12 @@ export async function acquireUniverse(
     if (!opts.liveDeps) {
       throw new Error("etrade-only mode requires liveDeps.fetchETradeQuote");
     }
+    const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
     const symbols = opts.symbols ?? (await fetchTechnologySymbols());
-    const limited = symbols.slice(0, opts.maxSymbols ?? 50);
+    const limited = symbols.slice(0, opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols);
     const quotes: ETradeQuote[] = [];
     const failed: string[] = [];
-    const CONCURRENCY = 10;
+    const CONCURRENCY = cfg.acquisition.quoteConcurrency;
     for (let i = 0; i < limited.length; i += CONCURRENCY) {
       const batch = limited.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(

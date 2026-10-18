@@ -416,6 +416,16 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     icon: NavIcons.Bot,
     description: "Auto options-screening engine, ranking, thesis configuration & comparison workflows",
   },
+  {
+    id: "scanner",
+    label: "Strategy/Symbol Scanner",
+    shortLabel: "Scanner",
+    category: "Execution",
+    badge: "AI",
+    badgeType: "ai",
+    icon: NavIcons.Scanner,
+    description: "Best strategy for a name, or names that fit your strategy — across the full strategy catalog",
+  },
 
   // Intelligence (Market Scans, AI Copilot, Voice & Alerts)
   {
@@ -427,16 +437,6 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     badgeType: "pro",
     icon: NavIcons.Screeners,
     description: "Screen equities, options, crypto, futures, and indices across connected market data providers",
-  },
-  {
-    id: "scanner",
-    label: "Equity Universe Scan",
-    shortLabel: "Universe",
-    category: "Intelligence",
-    badge: "Ticks",
-    badgeType: "live",
-    icon: NavIcons.Scanner,
-    description: "Scan NYSE, NASDAQ, and AMEX listings by price, market cap, and inspect Level 1 quotes",
   },
   {
     id: "research",

@@ -11,6 +11,7 @@
  */
 
 import type { NasdaqStockListing } from "../services/nasdaqListings";
+import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 
 export type UniverseId =
   | "TECH"
@@ -44,64 +45,69 @@ export const LEVERAGED_ETF_SYMBOLS = [
   "UVXY", "SVXY", "QLD", "QID", "DDM",
 ];
 
-export const UNIVERSES: Record<UniverseId, UniverseDef> = {
+function buildUniverses(): Record<UniverseId, UniverseDef> {
+  const d = DEFAULT_SCREENER_CONFIG.universes.defaultMaxSymbols;
+  return {
   TECH: {
     id: "TECH",
     name: "Technology",
     description: "Tech-keyword discovery (current default)",
-    defaultMaxSymbols: 50,
+    defaultMaxSymbols: d.TECH,
     shardable: false,
   },
   NASDAQ100: {
     id: "NASDAQ100",
     name: "Nasdaq-100",
     description: "Top 100 Nasdaq listings by market cap",
-    defaultMaxSymbols: 100,
+    defaultMaxSymbols: d.NASDAQ100,
     shardable: true,
   },
   SP100: {
     id: "SP100",
     name: "S&P 100",
     description: "Top 100 US listings by market cap (mega-cap)",
-    defaultMaxSymbols: 100,
+    defaultMaxSymbols: d.SP100,
     shardable: true,
   },
   SP500: {
     id: "SP500",
     name: "S&P 500",
     description: "Top 500 US listings by market cap",
-    defaultMaxSymbols: 500,
+    defaultMaxSymbols: d.SP500,
     shardable: true,
   },
   RUSSELL2000: {
     id: "RUSSELL2000",
     name: "Russell 2000",
     description: "US small-caps: market-cap ranks 1001–3000",
-    defaultMaxSymbols: 200,
+    defaultMaxSymbols: d.RUSSELL2000,
     shardable: true,
   },
   ETF: {
     id: "ETF",
     name: "ETFs",
     description: "Exchange-traded funds",
-    defaultMaxSymbols: 100,
+    defaultMaxSymbols: d.ETF,
     shardable: true,
   },
   LEV_ETF: {
     id: "LEV_ETF",
     name: "Leveraged ETFs",
     description: "2x/3x leveraged index, sector, and vol products",
-    defaultMaxSymbols: 29,
+    defaultMaxSymbols: d.LEV_ETF,
     shardable: true,
   },
   ALL: {
     id: "ALL",
     name: "All universes",
     description: "Auto-sharded into parallel per-universe runs",
-    defaultMaxSymbols: 0,
+    defaultMaxSymbols: d.ALL,
     shardable: false,
   },
-};
+  };
+}
+
+export const UNIVERSES: Record<UniverseId, UniverseDef> = buildUniverses();
 
 export function shardableUniverses(): UniverseId[] {
   return (Object.keys(UNIVERSES) as UniverseId[]).filter(
@@ -130,8 +136,10 @@ function isEtfListing(l: NasdaqStockListing): boolean {
  */
 export function resolveUniverse(
   id: UniverseId,
-  allListings: NasdaqStockListing[]
+  allListings: NasdaqStockListing[],
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): NasdaqStockListing[] {
+  const u = config.universes;
   const sorted = [...allListings].sort(byMarketCapDesc);
   switch (id) {
     case "TECH": {
@@ -147,13 +155,13 @@ export function resolveUniverse(
     case "NASDAQ100":
       return sorted
         .filter((l) => String(l.exchange || "").toUpperCase() === "NASDAQ")
-        .slice(0, 100);
+        .slice(0, u.nasdaq100Size);
     case "SP100":
-      return sorted.slice(0, 100);
+      return sorted.slice(0, u.sp100Size);
     case "SP500":
-      return sorted.slice(0, 500);
+      return sorted.slice(0, u.sp500Size);
     case "RUSSELL2000":
-      return sorted.slice(1000, 3000);
+      return sorted.slice(u.russell2000Start, u.russell2000End);
     case "ETF":
       return allListings.filter(isEtfListing);
     case "LEV_ETF": {

@@ -4212,7 +4212,20 @@ Agentic Best Practices & Workflow Rules:
         const store = new SqlIvHistoryStore(sql);
         const symbolParam = url.searchParams.get("symbol");
         if (symbolParam) {
-          return Response.json(await getIvHistoryEntry(store, symbolParam));
+          const entry = await getIvHistoryEntry(store, symbolParam);
+          // ?series=true includes the full time series for charting.
+          if (url.searchParams.get("series") === "true") {
+            const series = await store.listSeries(symbolParam.toUpperCase(), { limit: 365 });
+            return Response.json({
+              ...entry,
+              series: series.reverse().map((r) => ({
+                date: r.date,
+                atmIv: r.atmIv,
+                spot: r.spot,
+              })),
+            });
+          }
+          return Response.json(entry);
         }
         let watchlistSymbols: string[] = [];
         try {

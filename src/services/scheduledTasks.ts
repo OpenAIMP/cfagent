@@ -237,6 +237,7 @@ export class ScheduledTasksService {
       // actions" shows the full history, including quiet runs.
       this.audit("screener.run_completed", {
         sector: options.sector || "ALL",
+        universe: result.universe,
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunityCount: result.opportunities.length,
@@ -245,6 +246,7 @@ export class ScheduledTasksService {
       if (result.opportunities.length > 0) {
         this.audit("screener.opportunities_detected", {
           sector: options.sector || "ALL",
+          universe: result.universe,
           count: result.opportunities.length,
           symbols: result.opportunities.map(s => s.symbol),
         });

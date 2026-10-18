@@ -11,6 +11,8 @@
  *     daily closes. They are reported as unavailable, not faked.
  */
 
+import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
+
 export type Sentiment =
   | "very_bullish"
   | "bullish"
@@ -57,29 +59,39 @@ export interface QuoteSnapshot {
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
-export function classifySentiment(changePercent: number): Sentiment {
-  if (changePercent >= 3) return "very_bullish";
-  if (changePercent >= 0.5) return "bullish";
-  if (changePercent <= -3) return "very_bearish";
-  if (changePercent <= -0.5) return "bearish";
+export function classifySentiment(
+  changePercent: number,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): Sentiment {
+  const c = config.indicators;
+  if (changePercent >= c.sentimentStrongPct) return "very_bullish";
+  if (changePercent >= c.sentimentMildPct) return "bullish";
+  if (changePercent <= -c.sentimentStrongPct) return "very_bearish";
+  if (changePercent <= -c.sentimentMildPct) return "bearish";
   return "neutral";
 }
 
-export function classifyRangeZone(rangePosition: number | null): RangeZone {
+export function classifyRangeZone(
+  rangePosition: number | null,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): RangeZone {
+  const c = config.indicators;
   if (rangePosition == null) return "neutral";
-  if (rangePosition >= 0.9) return "overbought";
-  if (rangePosition <= 0.1) return "oversold";
+  if (rangePosition >= c.rangeOverbought) return "overbought";
+  if (rangePosition <= c.rangeOversold) return "oversold";
   return "neutral";
 }
 
 export function classifyValueZone(
   peRatio: number | undefined,
-  rangePosition: number | null
+  rangePosition: number | null,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): ValueZone {
+  const c = config.indicators;
   // P/E-led when available; 52-week position as the secondary read.
   if (peRatio !== undefined && Number.isFinite(peRatio) && peRatio > 0) {
-    if (peRatio < 15) return "undervalued";
-    if (peRatio > 30) return "overvalued";
+    if (peRatio < c.valueUndervaluedPe) return "undervalued";
+    if (peRatio > c.valueOvervaluedPe) return "overvalued";
   }
   if (rangePosition != null) {
     if (rangePosition <= 0.15) return "undervalued";
@@ -88,7 +100,10 @@ export function classifyValueZone(
   return "fair";
 }
 
-export function computeScreeningIndicators(q: QuoteSnapshot): ScreeningIndicators {
+export function computeScreeningIndicators(
+  q: QuoteSnapshot,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): ScreeningIndicators {
   const intradayPosition =
     q.high > q.low
       ? clamp01((q.lastPrice - q.low) / (q.high - q.low))
@@ -98,10 +113,10 @@ export function computeScreeningIndicators(q: QuoteSnapshot): ScreeningIndicator
       ? clamp01((q.lastPrice - q.week52Low) / (q.week52High - q.week52Low))
       : null;
 
-  const sentiment = classifySentiment(q.changePercent);
-  const directional = Math.abs(q.changePercent) >= 2;
-  const rangeZone = classifyRangeZone(rangePosition);
-  const valueZone = classifyValueZone(q.peRatio, rangePosition);
+  const sentiment = classifySentiment(q.changePercent, config);
+  const directional = Math.abs(q.changePercent) >= config.indicators.directionalPct;
+  const rangeZone = classifyRangeZone(rangePosition, config);
+  const valueZone = classifyValueZone(q.peRatio, rangePosition, config);
 
   // Composite 0-100: day momentum (40) + intraday strength (20) +
   // 52w position (20) + value (20). Heuristic, labeled as such.

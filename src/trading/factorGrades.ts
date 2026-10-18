@@ -23,6 +23,8 @@ export type Grade =
   | "D+" | "D" | "D-"
   | "F";
 
+import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
+
 export type QuantRating =
   | "Strong Buy"
   | "Buy"
@@ -64,27 +66,24 @@ export interface GradeableStock {
 }
 
 /** Percentile (0-100) → SA-style letter grade. */
-export function percentileToGrade(pct: number): Grade {
-  if (pct >= 95) return "A+";
-  if (pct >= 87) return "A";
-  if (pct >= 80) return "A-";
-  if (pct >= 70) return "B+";
-  if (pct >= 60) return "B";
-  if (pct >= 50) return "B-";
-  if (pct >= 40) return "C+";
-  if (pct >= 30) return "C";
-  if (pct >= 20) return "C-";
-  if (pct >= 12) return "D+";
-  if (pct >= 5) return "D";
+export function percentileToGrade(
+  pct: number,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): Grade {
+  for (const b of config.grades.gradeBoundaries) {
+    if (pct >= b.min) return b.grade as Grade;
+  }
   return "F";
 }
 
 /** Composite percentile → quant rating. */
-export function compositeToQuantRating(pct: number): QuantRating {
-  if (pct >= 80) return "Strong Buy";
-  if (pct >= 60) return "Buy";
-  if (pct >= 40) return "Hold";
-  if (pct >= 20) return "Sell";
+export function compositeToQuantRating(
+  pct: number,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): QuantRating {
+  for (const b of config.grades.quantBoundaries) {
+    if (pct >= b.min) return b.rating as QuantRating;
+  }
   return "Strong Sell";
 }
 
@@ -92,9 +91,13 @@ export function compositeToQuantRating(pct: number): QuantRating {
  * Percentile rank of `value` within `peers` (0-100). Higher raw = higher
  * percentile. Returns null when fewer than 3 peers have data.
  */
-function percentileRank(value: number, peers: number[]): number | null {
+function percentileRank(
+  value: number,
+  peers: number[],
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): number | null {
   const valid = peers.filter((p) => Number.isFinite(p));
-  if (valid.length < 3 || !Number.isFinite(value)) return null;
+  if (valid.length < config.grades.minPeers || !Number.isFinite(value)) return null;
   const sorted = [...valid].sort((a, b) => a - b);
   const below = sorted.filter((p) => p < value).length;
   const equal = sorted.filter((p) => p === value).length;
@@ -102,17 +105,21 @@ function percentileRank(value: number, peers: number[]): number | null {
 }
 
 /** Raw value signal: lower P/E and closer to 52w low = cheaper. */
-function rawValueSignal(s: GradeableStock): number | null {
+function rawValueSignal(
+  s: GradeableStock,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): number | null {
+  const g = config.grades;
   const parts: number[] = [];
   const weights: number[] = [];
   if (s.peRatio != null && s.peRatio > 0 && Number.isFinite(s.peRatio)) {
-    // Invert: low P/E → high signal. Cap at P/E 60 to bound outliers.
-    parts.push(Math.max(0, 1 - Math.min(s.peRatio, 60) / 60));
-    weights.push(0.6);
+    // Invert: low P/E → high signal. Cap to bound outliers.
+    parts.push(Math.max(0, 1 - Math.min(s.peRatio, g.valuePeCap) / g.valuePeCap));
+    weights.push(g.valuePeWeight);
   }
   if (s.rangePosition != null) {
     parts.push(1 - s.rangePosition);
-    weights.push(0.4);
+    weights.push(g.valueRangeWeight);
   }
   if (parts.length === 0) return null;
   const total = weights.reduce((a, b) => a + b, 0);
@@ -145,7 +152,8 @@ const EMPTY_GRADES: FactorGrades = {
  * Returns a map symbol → FactorGrades.
  */
 export function computeFactorGrades(
-  stocks: GradeableStock[]
+  stocks: GradeableStock[],
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): Map<string, FactorGrades> {
   const out = new Map<string, FactorGrades>();
   if (stocks.length === 0) return out;
@@ -153,7 +161,7 @@ export function computeFactorGrades(
   const valueRaws = new Map<string, number | null>();
   const momentumRaws = new Map<string, number>();
   for (const s of stocks) {
-    valueRaws.set(s.symbol, rawValueSignal(s));
+    valueRaws.set(s.symbol, rawValueSignal(s, config));
     momentumRaws.set(s.symbol, rawMomentumSignal(s));
   }
   const valuePeerPool = [...valueRaws.values()].filter(
@@ -164,10 +172,11 @@ export function computeFactorGrades(
   for (const s of stocks) {
     const valueRaw = valueRaws.get(s.symbol);
     const valueScore =
-      valueRaw != null ? percentileRank(valueRaw, valuePeerPool) : null;
+      valueRaw != null ? percentileRank(valueRaw, valuePeerPool, config) : null;
     const momentumScore = percentileRank(
       momentumRaws.get(s.symbol)!,
-      momentumPeerPool
+      momentumPeerPool,
+      config
     );
 
     const gradedFactors: string[] = [];
@@ -184,13 +193,13 @@ export function computeFactorGrades(
       compositeScore = Math.round(
         scores.reduce((a, b) => a + b, 0) / scores.length
       );
-      quantRating = compositeToQuantRating(compositeScore);
+      quantRating = compositeToQuantRating(compositeScore, config);
     }
 
     out.set(s.symbol, {
-      value: valueScore != null ? percentileToGrade(valueScore) : null,
+      value: valueScore != null ? percentileToGrade(valueScore, config) : null,
       momentum:
-        momentumScore != null ? percentileToGrade(momentumScore) : null,
+        momentumScore != null ? percentileToGrade(momentumScore, config) : null,
       growth: null,
       profitability: null,
       revisions: null,

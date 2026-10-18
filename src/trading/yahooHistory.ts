@@ -11,6 +11,7 @@
  */
 
 import { computeRsi14, computeMacd } from "../services/fossResearch";
+import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 
 export interface YahooDailyBar {
   date: string;
@@ -45,18 +46,20 @@ const UA =
  * the caller treats missing history as "indicator unavailable", never as zero.
  */
 export async function fetchYahooDailyHistory(
-  symbol: string
+  symbol: string,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): Promise<YahooDailyBar[] | null> {
   const clean = symbol.toUpperCase().trim();
+  const range = config.yahoo.historyRange;
   const urls = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=3mo`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=3mo`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
   ];
   for (const url of urls) {
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(config.yahoo.requestTimeoutMs),
       });
       if (!res.ok) continue;
       const data = (await res.json().catch(() => ({}))) as any;
@@ -86,14 +89,14 @@ export async function fetchYahooDailyHistory(
   return null;
 }
 
-/** Gap classification thresholds (percent). */
-export const GAP_UP_THRESHOLD = 1;
-export const GAP_DOWN_THRESHOLD = -1;
-
-export function classifyGap(gapPercent: number | null): "up" | "down" | "flat" | null {
+/** Gap classification (percent thresholds from config). */
+export function classifyGap(
+  gapPercent: number | null,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+): "up" | "down" | "flat" | null {
   if (gapPercent == null || !Number.isFinite(gapPercent)) return null;
-  if (gapPercent >= GAP_UP_THRESHOLD) return "up";
-  if (gapPercent <= GAP_DOWN_THRESHOLD) return "down";
+  if (gapPercent >= config.yahoo.gapUpPct) return "up";
+  if (gapPercent <= config.yahoo.gapDownPct) return "down";
   return "flat";
 }
 
@@ -103,7 +106,8 @@ export function classifyGap(gapPercent: number | null): "up" | "down" | "flat" |
  */
 export function computeTechnicals(
   symbol: string,
-  bars: YahooDailyBar[] | null
+  bars: YahooDailyBar[] | null,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): YahooTechnicals {
   const base: YahooTechnicals = {
     symbol,
@@ -127,13 +131,13 @@ export function computeTechnicals(
   if (prev.close > 0) {
     const gap = ((last.open - prev.close) / prev.close) * 100;
     base.gapPercent = Number(gap.toFixed(2));
-    base.gapDirection = classifyGap(base.gapPercent);
+    base.gapDirection = classifyGap(base.gapPercent, config);
   }
 
-  if (closes.length >= 15) {
+  if (closes.length >= config.yahoo.rsiMinBars) {
     base.rsi14 = computeRsi14(closes);
   }
-  if (closes.length >= 27) {
+  if (closes.length >= config.yahoo.macdMinBars) {
     const macd = computeMacd(closes);
     base.macdLine = Number(macd.macdLine.toFixed(3));
     base.macdSignalLine = Number(macd.signalLine.toFixed(3));
@@ -149,15 +153,17 @@ export function computeTechnicals(
  */
 export async function fetchTechnicalsBatch(
   symbols: string[],
-  concurrency = 8
+  concurrency?: number,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): Promise<Map<string, YahooTechnicals>> {
   const out = new Map<string, YahooTechnicals>();
-  for (let i = 0; i < symbols.length; i += concurrency) {
-    const batch = symbols.slice(i, i + concurrency);
+  const conc = concurrency ?? config.yahoo.fetchConcurrency;
+  for (let i = 0; i < symbols.length; i += conc) {
+    const batch = symbols.slice(i, i + conc);
     const results = await Promise.all(
       batch.map(async (sym) => {
-        const bars = await fetchYahooDailyHistory(sym);
-        return computeTechnicals(sym, bars);
+        const bars = await fetchYahooDailyHistory(sym, config);
+        return computeTechnicals(sym, bars, config);
       })
     );
     for (const t of results) out.set(t.symbol, t);
