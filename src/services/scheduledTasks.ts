@@ -27,6 +27,8 @@ import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "./tradingWebhooks";
+import { ScreenerEventBus } from "../events/screenerEvents";
+import { registerScreenerPublishers } from "../events/screenerPublishers";
 
 export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
@@ -85,6 +87,32 @@ export class ScheduledTasksService {
       });
     } catch {
       // Non-critical audit insertion error
+    }
+  }
+
+  /**
+   * Issue #210: publish a screener event to the bus, registering the
+   * Slack/email/webhook subscribers on first use. Never throws.
+   */
+  private screenerBus?: ScreenerEventBus;
+  private async publishScreenerEvent(
+    event: import("../events/screenerEvents").ScreenerEvent
+  ): Promise<void> {
+    try {
+      if (!this.screenerBus) {
+        this.screenerBus = new ScreenerEventBus();
+        registerScreenerPublishers(this.screenerBus, {
+          env: this.env,
+          orm: this.orm,
+          userLogin: this.userLogin,
+        });
+      }
+      await this.screenerBus.publish(event);
+    } catch (err) {
+      console.warn(
+        "[ScheduledTasksService] screener event publish failed:",
+        err instanceof Error ? err.message : String(err)
+      );
     }
   }
 
@@ -194,6 +222,24 @@ export class ScheduledTasksService {
         });
       }
 
+      // Issue #210: publish to the event bus so Slack/email/webhook
+      // subscribers can harvest the results.
+      await this.publishScreenerEvent({
+        type: "screener.completed",
+        timestamp,
+        sector: options.sector || "ALL",
+        totalScanned: screenResult.totalScanned,
+        matchedCount: screenResult.matchedCount,
+        opportunities: standoutOpportunities.map(s => ({
+          symbol: s.symbol,
+          companyName: s.companyName || s.symbol,
+          signal: s.signal || "unknown",
+          momentumScore: s.momentumScore || 0,
+          lastPrice: s.lastPrice || 0,
+          changePercent: s.changePercent || 0,
+        })),
+      });
+
       return {
         success: true,
         taskType: "market_screen",
@@ -228,6 +274,14 @@ export class ScheduledTasksService {
           // Non-critical message record error
         }
       }
+
+      // Issue #210: publish the failure so subscribers can notify.
+      await this.publishScreenerEvent({
+        type: "screener.failed",
+        timestamp,
+        sector: options.sector || "ALL",
+        error: err.message || "Market screener execution error",
+      });
 
       return {
         success: false,
