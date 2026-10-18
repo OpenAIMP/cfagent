@@ -361,6 +361,33 @@ export default {
       return Response.json({ ok: true, investigation });
     }
 
+    // Issue #164 — VectorMemory browser: semantic search over past outcomes.
+    // Also serves as the live-accumulation check: non-empty results prove
+    // vectors are landing in the index.
+    if (path === "/api/memory/search" && request.method === "POST") {
+      const body = (await request.json().catch(() => null)) as {
+        query?: unknown;
+        topK?: unknown;
+        operationFilter?: unknown;
+      } | null;
+      const query = typeof body?.query === "string" ? body.query.slice(0, 1000) : "";
+      const topK = typeof body?.topK === "number" ? body.topK : 10;
+      const operationFilter =
+        typeof body?.operationFilter === "string" && body.operationFilter
+          ? body.operationFilter.slice(0, 120)
+          : undefined;
+      if (!query) {
+        return Response.json({ error: "query is required." }, { status: 400 });
+      }
+      if (!env.AI || !env.VECTOR_MEMORY) {
+        return Response.json({ error: "Vector memory is not configured." }, { status: 503 });
+      }
+      const { VectorMemory } = await import("./memory/vector-memory");
+      const vm = new VectorMemory(env.AI, env.VECTOR_MEMORY, undefined);
+      const chunks = await vm.recallForPlan(query, operationFilter, topK);
+      return Response.json({ ok: true, chunks });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
