@@ -78,8 +78,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       try {
         const res = await fetch("/api/screener/latest");
         if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && Array.isArray(data.runs)) setAutoRuns(data.runs);
+        const data = (await res.json()) as { runs?: unknown };
+        if (!cancelled && Array.isArray(data.runs)) setAutoRuns(data.runs as ScreenRun[]);
       } catch {
         // Non-critical: panel stays empty.
       } finally {
