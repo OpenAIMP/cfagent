@@ -1414,7 +1414,50 @@ export function formatTradingQuoteBidAsk(q: ETradeQuote): string {
   return q.bid > 0 || q.ask > 0 ? `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}` : "N/A (no live bid/ask)";
 }
 
-export function executeNLQQuery(
+/**
+ * Issue #257 (Assessment P1, part of #143): one structured mas_events row per
+ * NLQ execution, at the single seam shared by the sync and async executors.
+ * Best-effort and never fatal to execution. Redaction discipline: the payload
+ * carries only domain/action/count/duration/source — never the raw query text.
+ */
+function auditNlqExecution(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  result: NLQQueryResult | null,
+  durationMs: number,
+  error?: unknown
+): void {
+  if (!orm?.events) return;
+  try {
+    const payload: Record<string, unknown> = {
+      domain: plan.domain,
+      status: result?.status ?? "ok",
+      count: typeof result?.count === "number" ? result.count : 0,
+      durationMs: Math.max(0, Math.round(durationMs)),
+    };
+    if (typeof result?.targetTable === "string") payload.targetTable = result.targetTable;
+    if (typeof plan.planSource === "string") payload.planSource = plan.planSource;
+    if (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      payload.error = message.slice(0, 200);
+    }
+    orm.events.create({
+      id: crypto.randomUUID(),
+      sessionId,
+      type: error ? "nlq.error" : "nlq.executed",
+      agent: "nlq",
+      payload,
+      createdAt: new Date().toISOString(),
+    });
+  } catch {
+    // Audit is best-effort; never fail the execution for a logging write.
+  }
+}
+
+/** Issue #257: the original synchronous executor (renamed); the exported
+ *  executeNLQQuery below wraps it with the mas_events audit write. */
+function executeNLQQueryCore(
   orm: DatabaseORM,
   sessionId: string,
   plan: NLQPlan,
@@ -2321,6 +2364,29 @@ export function executeNLQQuery(
 }
 
 /**
+ * Issue #257 (Assessment P1, part of #143): the exported NLQ execution entry.
+ * Same contract as the original executor; records one mas_events audit row
+ * per execution (success or failure) via auditNlqExecution above.
+ */
+export function executeNLQQuery(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userDid?: string
+): NLQQueryResult {
+  const startedAt = Date.now();
+  try {
+    const result = executeNLQQueryCore(orm, sessionId, plan, env, userDid);
+    auditNlqExecution(orm, sessionId, plan, result, Date.now() - startedAt);
+    return result;
+  } catch (err) {
+    auditNlqExecution(orm, sessionId, plan, null, Date.now() - startedAt, err);
+    throw err;
+  }
+}
+
+/**
  * Asynchronous NLQ execution pipeline for real-time live quoting and market screening
  */
 /** Human-readable description for a real SDK schedule, used by the
@@ -2550,7 +2616,9 @@ async function executeSchedulingAction(
   };
 }
 
-export async function executeNLQQueryAsync(
+/** Issue #257: the original asynchronous executor (renamed); the exported
+ *  executeNLQQueryAsync below wraps it with the mas_events audit write. */
+async function executeNLQQueryAsyncCore(
   orm: DatabaseORM,
   sessionId: string,
   plan: NLQPlan,
@@ -3135,7 +3203,33 @@ export async function executeNLQQueryAsync(
     );
   }
 
-  return executeNLQQuery(orm, sessionId, plan, env, effectiveUserDid);
+  return executeNLQQueryCore(orm, sessionId, plan, env, effectiveUserDid);
+}
+
+/**
+ * Issue #257 (Assessment P1, part of #143): the exported asynchronous NLQ
+ * execution entry. Same contract as the original; records one mas_events
+ * audit row per execution. The fall-through inside the core calls
+ * executeNLQQueryCore directly, so an execution is audited exactly once.
+ */
+export async function executeNLQQueryAsync(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userLogin?: string,
+  userDid?: string,
+  deps?: NLQExecutionDeps
+): Promise<NLQQueryResult> {
+  const startedAt = Date.now();
+  try {
+    const result = await executeNLQQueryAsyncCore(orm, sessionId, plan, env, userLogin, userDid, deps);
+    auditNlqExecution(orm, sessionId, plan, result, Date.now() - startedAt);
+    return result;
+  } catch (err) {
+    auditNlqExecution(orm, sessionId, plan, null, Date.now() - startedAt, err);
+    throw err;
+  }
 }
 
 export async function executeNaturalLanguageQuery(

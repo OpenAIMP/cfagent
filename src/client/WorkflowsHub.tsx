@@ -861,7 +861,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     overview: "Records immutable audit events for every system action: routing decisions, judge evaluations, payment lifecycle transitions, order previews, and executions. Publishes events to the SQLite event store and streams telemetry to external observability collectors.",
     apiEndpoint: "GET /api/audit · POST /api/audit/event",
     targetTab: "audit",
-    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: 90d",
+    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: mas_messages pruned nightly (window default 90d via MAS_MESSAGES_RETENTION_DAYS); mas_events ledger append-only until R2 archival",
     governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {

@@ -30,7 +30,19 @@
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
     { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
   ],
-  "observability": { "enabled": true },
+  // Issue #257 (Assessment P1): explicit Workers Logs pipeline. `enabled` is the
+  // shorthand for logs.enabled; `invocation_logs` captures one log per
+  // invocation (request/response metadata + console output) visible under
+  // Observability > Logs. head_sampling_rate 1 = 100% sampled. No external
+  // destinations configured (no OpenTelemetry destination exists in the
+  // dashboard) — see docs/OBSERVABILITY.md.
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "invocation_logs": true,
+      "head_sampling_rate": 1
+    }
+  },
   "triggers": {
     "crons": [
       "0 13 * * 1-5",
