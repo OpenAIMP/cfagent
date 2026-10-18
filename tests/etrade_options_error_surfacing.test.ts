@@ -157,11 +157,54 @@ const CHAIN_OK = JSON.stringify({
   },
 });
 
+// `resolveEnvironmentConfig()` (src/config/environment.ts) resolves E*TRADE
+// consumer credentials from `process.env` as a documented fallback (Node /
+// local .dev.vars), after the Worker Env bindings. The CI job exports the
+// real ET_API_KEY / ET_API_SECRET into `process.env`, so a bare Env alone
+// does NOT yield a credential-free client there — the missing-credentials
+// preflight never fires and the "bare env" tests below fail against the
+// live sandbox. Strip every variable the resolver consults for the duration
+// of this file and restore the originals afterwards. Every other test in
+// this file passes explicit credentials via Env (which take priority over
+// `process.env`), so they are unaffected.
+const CREDENTIAL_ENV_VARS = [
+  "ET_API_KEY",
+  "ET_API_SECRET",
+  "ETRADE_API_KEY",
+  "ETRADE_API_SECRET",
+  "ETRADE_CONSUMER_KEY",
+  "ETRADE_CONSUMER_SECRET",
+  "ET_SANDBOX_API_KEY",
+  "ET_SANDBOX_API_SECRET",
+  "ETRADE_SANDBOX_CONSUMER_KEY",
+  "ETRADE_SANDBOX_CONSUMER_SECRET",
+  "SANDBOX_ET_API_KEY",
+  "SANDBOX_ET_API_SECRET",
+  "ET_PROD_API_KEY",
+  "ET_PROD_API_SECRET",
+  "ETRADE_PROD_CONSUMER_KEY",
+  "ETRADE_PROD_CONSUMER_SECRET",
+  "PROD_ET_API_KEY",
+  "PROD_ET_API_SECRET",
+];
+let savedCredentialEnv: Record<string, string | undefined> = {};
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  savedCredentialEnv = {};
+  for (const key of CREDENTIAL_ENV_VARS) {
+    savedCredentialEnv[key] = process.env[key];
+    delete process.env[key];
+  }
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  for (const key of CREDENTIAL_ENV_VARS) {
+    const saved = savedCredentialEnv[key];
+    if (saved === undefined) delete process.env[key];
+    else process.env[key] = saved;
+  }
+  savedCredentialEnv = {};
 });
 
 // ---------------------------------------------------------------------------
