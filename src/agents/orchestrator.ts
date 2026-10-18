@@ -216,12 +216,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         { idempotent: true }
       );
 
-      // 2. Autonomous market screening interval (runs every 300 seconds / 5 min)
-      await this.scheduleEvery(
-        300,
-        "autonomousMarketScreen",
-        { sector: "Technology", maxItems: 5 }
+      // 2. Autonomous market screening — hourly per-universe runs
+      // (issue #270). Each universe gets its own schedule + PDF report.
+      // Staggered by 10 minutes to spread E*TRADE load.
+      const { shardableUniverses: _shardable, UNIVERSES: _U } = await import(
+        "../trading/universes"
       );
+      let staggerMin = 5;
+      for (const universe of _shardable()) {
+        await this.schedule(
+          `${staggerMin} * * * *`,
+          "autonomousMarketScreen",
+          { universe, maxItems: 5 },
+          { idempotent: true }
+        );
+        staggerMin = (staggerMin + 10) % 60;
+      }
 
       // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
       // after the US close in both EST and EDT, so the day's record
@@ -264,7 +274,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Runs periodic market screening
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
-  async autonomousMarketScreen(payload?: { sector?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
+  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
     try {
       await this.waitUntilStable({ timeout: 30_000 });
     } catch {
@@ -3266,10 +3276,41 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("minRsi")) filters.minRsi = Number(url.searchParams.get("minRsi"));
           if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
+          if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
         }
-        const result = await this.getScreenerAgent().runScreen({
+        // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
+        const universe = (filters.universe as string) || "TECH";
+        const agent = this.getScreenerAgent();
+        if (universe === "ALL") {
+          const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
+          const failed = shards.filter((r) => !r.success);
+          if (failed.length === shards.length) {
+            return Response.json({ error: failed[0]?.error || "E*TRADE unavailable" }, { status: 502 });
+          }
+          this.audit("etrade.screened", "trading", {
+            filterSummary: `ALL (sharded: ${shards.length} universes)`,
+            count: shards.reduce((n, r) => n + r.allStocks.length, 0),
+            success: true,
+          });
+          return Response.json({
+            sharded: true,
+            universes: shards.map((r) => ({
+              universe: r.universe,
+              totalScanned: r.totalScanned,
+              matchedCount: r.matchedCount,
+              opportunities: r.opportunities,
+              stocks: r.allStocks,
+              discoveryMessage: r.discoveryMessage,
+              scannedAt: r.timestamp,
+              success: r.success,
+              error: r.error,
+            })),
+          });
+        }
+        const result = await agent.runScreen({
           trigger: "manual",
           filters,
+          universe: universe as any,
           userLogin,
         });
         this.audit("etrade.screened", "trading", {
@@ -3281,6 +3322,7 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
         }
         return Response.json({
+          universe: result.universe,
           totalScanned: result.totalScanned,
           matchedCount: result.matchedCount,
           opportunities: result.opportunities,

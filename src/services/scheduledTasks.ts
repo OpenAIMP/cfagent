@@ -207,6 +207,7 @@ export class ScheduledTasksService {
    */
   async autonomousMarketScreen(options: {
     sector?: string;
+    universe?: string;
     maxItems?: number;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
@@ -214,14 +215,16 @@ export class ScheduledTasksService {
     opportunities: OpportunityStock[];
     allStocks: ScannedStock[];
     sector?: string;
+    universe?: string;
   }>> {
     const timestamp = new Date().toISOString();
 
     try {
-      // Issue #261: delegate screening to ScreenerAgent (E*TRADE-only).
+      // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       const result = await this.getScreenerAgent().runScreen({
         trigger: "scheduled",
         sector: options.sector || "Technology",
+        universe: (options.universe as any) || "TECH",
         maxItems: options.maxItems,
         userLogin: this.userLogin,
       });

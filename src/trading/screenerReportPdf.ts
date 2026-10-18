@@ -84,7 +84,8 @@ export async function generateScreenerPdf(
   const triggerLabel = result.trigger === "manual" ? "Manual Screen" : "Autonomous Screen";
 
   // Header
-  text(ctx, "Stock Screener Report", { size: 18, bold: true });
+  const universeLabel = (result.universe || "TECH").replace(/_/g, " ");
+  text(ctx, `Stock Screener Report — ${universeLabel}`, { size: 18, bold: true });
   text(ctx, `${triggerLabel}  •  ${result.sector} sector`, { size: 11, color: [0.4, 0.4, 0.4] });
   text(ctx, new Date(result.timestamp).toLocaleString(), { size: 10, color: [0.4, 0.4, 0.4] });
   rule(ctx);
@@ -185,5 +186,6 @@ export async function generateScreenerPdf(
 
 export function screenerPdfFileName(result: ScreenerRunResult): string {
   const d = new Date(result.timestamp).toISOString().slice(0, 10);
-  return `screener-${result.trigger}-${d}.pdf`;
+  const u = (result.universe || "TECH").toLowerCase().replace(/_/g, "-");
+  return `screener-${result.trigger}-${u}-${d}.pdf`;
 }

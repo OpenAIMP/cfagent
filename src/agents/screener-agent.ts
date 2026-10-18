@@ -30,6 +30,12 @@ import {
   type OpportunityStock,
 } from "../trading/screenerPipeline";
 import { fetchTechnicalsBatch } from "../trading/yahooHistory";
+import {
+  UNIVERSES,
+  shardableUniverses,
+  resolveUniverse,
+  type UniverseId,
+} from "../trading/universes";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import type { StockScreenerFilter } from "../types";
 
@@ -40,11 +46,13 @@ export interface ScreenerRunRequest {
   filters?: StockScreenerFilter;
   /** Scheduled: sector label (default "Technology"). */
   sector?: string;
+  /** Universe to screen (default "TECH"). "ALL" auto-shards (see runSharded). */
+  universe?: UniverseId;
   /** Scheduled: max standout opportunities (default 5). */
   maxItems?: number;
-  /** Optional explicit symbol universe (default: tech-keyword discovery). */
+  /** Optional explicit symbol universe (overrides universe selector). */
   symbols?: NasdaqStockListing[];
-  /** Cap on symbols quoted via E*TRADE (default 50). */
+  /** Cap on symbols quoted via E*TRADE (default: universe default). */
   maxSymbols?: number;
   /** User login for E*TRADE auth scoping. */
   userLogin?: string;
@@ -53,6 +61,8 @@ export interface ScreenerRunRequest {
 export interface ScreenerRunResult {
   timestamp: string;
   trigger: "manual" | "scheduled";
+  /** Universe screened (issue #270). */
+  universe: UniverseId;
   sector: string;
   success: boolean;
   totalScanned: number;
@@ -98,6 +108,7 @@ export class ScreenerAgent extends Agent<Env> {
     const sector = req.sector || req.filters?.sector || "Technology";
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
+    const universe: UniverseId = req.universe ?? "TECH";
 
     try {
       const etrade = new ETradeService(
@@ -106,12 +117,23 @@ export class ScreenerAgent extends Agent<Env> {
         userLogin
       );
 
+      // Issue #270: resolve the universe to symbols (listings directory
+      // = symbol membership only, not market data). E*TRADE-only quotes.
+      const universeDef = UNIVERSES[universe];
+      let symbols = req.symbols;
+      if (!symbols && universe !== "ALL") {
+        const { fetchAllUsStockListings } = await import(
+          "../services/nasdaqListings"
+        );
+        const listings = await fetchAllUsStockListings();
+        symbols = resolveUniverse(universe, listings);
+      }
       // E*TRADE-only acquisition (#261). Symbols come from the listings
       // directory (not market data); quotes come from E*TRADE or nothing.
       const acquired = await acquireUniverse({
         mode: "etrade-only",
-        symbols: req.symbols,
-        maxSymbols: req.maxSymbols ?? 50,
+        symbols,
+        maxSymbols: req.maxSymbols ?? universeDef.defaultMaxSymbols,
         liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
       });
 
@@ -148,6 +170,7 @@ export class ScreenerAgent extends Agent<Env> {
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        universe,
         sector,
         success: true,
         totalScanned: screenResult.totalScanned,
@@ -165,6 +188,7 @@ export class ScreenerAgent extends Agent<Env> {
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        universe,
         sector,
         success: false,
         totalScanned: 0,
@@ -187,6 +211,21 @@ export class ScreenerAgent extends Agent<Env> {
   /** Recent run history, newest first (capped). */
   async getHistory(): Promise<ScreenerRunResult[]> {
     return (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
+  }
+
+  /**
+   * Sharded run (issue #270): "ALL" fans out into parallel per-universe
+   * screens. Each shard runs the full pipeline (E*TRADE + Yahoo + grades +
+   * PDF) and persists under its own universe key. Returns one result per
+   * universe, in shardableUniverses() order.
+   */
+  async runSharded(
+    req: Omit<ScreenerRunRequest, "universe" | "symbols">
+  ): Promise<ScreenerRunResult[]> {
+    const shards = shardableUniverses();
+    return Promise.all(
+      shards.map((universe) => this.runScreen({ ...req, universe }))
+    );
   }
 
   /**
