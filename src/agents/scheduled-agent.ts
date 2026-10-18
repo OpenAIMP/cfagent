@@ -11,26 +11,27 @@ import {
 //
 // Wired to Cloudflare Cron Triggers (wrangler.jsonc triggers.crons).
 // On each tick it:
-//   1. Pulls enabled goals from its own state
+//   1. Pulls enabled goals from DO storage
 //   2. Checks each goal's cron schedule (isDue)
 //   3. Budget-checks via PaymentsAgent before creating work
 //   4. Creates an Orchestrator job for due goals within budget
 //
 // The agent never spends directly — all budget decisions go through
 // PaymentsAgent, and all work goes through the orchestrator module.
-//
-// NOTE: Full Agent SDK scheduling (this.schedule()/this.scheduleEvery())
-// and A2A/agent-as-a-tool are tracked separately — see issue for
-// Think workflows port. This version prioritizes deployment stability.
-
-interface ScheduledAgentState {
-  goals: ScheduledGoal[];
-}
 
 export class ScheduledAgent extends Agent<Env> {
-  initialState: ScheduledAgentState = {
-    goals: DEFAULT_SCHEDULES,
-  };
+  private async getGoals(): Promise<ScheduledGoal[]> {
+    const stored = await this.ctx.storage.get<ScheduledGoal[]>("goals");
+    if (!stored) {
+      await this.ctx.storage.put("goals", DEFAULT_SCHEDULES);
+      return DEFAULT_SCHEDULES;
+    }
+    return stored;
+  }
+
+  private async saveGoals(goals: ScheduledGoal[]): Promise<void> {
+    await this.ctx.storage.put("goals", goals);
+  }
 
   /**
    * Cron entrypoint, invoked by the Workers runtime on each
@@ -46,14 +47,15 @@ export class ScheduledAgent extends Agent<Env> {
       errors: [],
     };
 
-    for (const goal of this.state.goals) {
+    const goals = await this.getGoals();
+
+    for (const goal of goals) {
       if (!goal.enabled) continue;
       tick.goalsEvaluated++;
 
       if (!isDue(goal.cron, goal.lastRun, now)) continue;
 
       try {
-        // Budget check via PaymentsAgent — never spend without approval
         const paymentsId = env.PAYMENTS_AGENT.idFromName("default");
         const payments = env.PAYMENTS_AGENT.get(paymentsId);
         const budgetOk = await payments.budgetCheck({
@@ -66,7 +68,6 @@ export class ScheduledAgent extends Agent<Env> {
           continue;
         }
 
-        // Create Orchestrator job (orchestrator is a plain module, not a DO)
         const { createJob } = await import("../orchestrate");
         await createJob(env, {
           goalId: goal.id,
@@ -85,27 +86,29 @@ export class ScheduledAgent extends Agent<Env> {
       }
     }
 
-    this.setState({ goals: this.state.goals });
+    await this.saveGoals(goals);
     return tick;
   }
 
   /** List all scheduled goals. */
   async listGoals(): Promise<ScheduledGoal[]> {
-    return this.state.goals;
+    return this.getGoals();
   }
 
   /** Enable or disable a goal by ID. */
   async setGoalEnabled(id: string, enabled: boolean): Promise<boolean> {
-    const goal = this.state.goals.find((g) => g.id === id);
+    const goals = await this.getGoals();
+    const goal = goals.find((g: ScheduledGoal) => g.id === id);
     if (!goal) return false;
     goal.enabled = enabled;
-    this.setState({ goals: this.state.goals });
+    await this.saveGoals(goals);
     return true;
   }
 
   /** Manually trigger evaluation of a single goal. */
   async triggerGoal(id: string, env: Env): Promise<ScheduleTick> {
-    const goal = this.state.goals.find((g) => g.id === id);
+    const goals = await this.getGoals();
+    const goal = goals.find((g: ScheduledGoal) => g.id === id);
     if (!goal) {
       return {
         timestamp: new Date().toISOString(),
@@ -115,13 +118,13 @@ export class ScheduledAgent extends Agent<Env> {
         errors: [`Goal not found: ${id}`],
       };
     }
-    // Temporarily mark as due and run onCron logic for this goal
     const origLastRun = goal.lastRun;
     goal.lastRun = undefined;
+    await this.saveGoals(goals);
     const tick = await this.onCron(env);
     if (tick.jobsCreated === 0 && tick.errors.length === 0) {
       goal.lastRun = origLastRun;
-      this.setState({ goals: this.state.goals });
+      await this.saveGoals(goals);
     }
     return tick;
   }
