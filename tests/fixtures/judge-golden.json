@@ -1,0 +1,775 @@
+{
+  "_comment": "Issue #258: golden set for the judge's DETERMINISTIC routing layer (src/judge-routing.ts). Labels encode the layer's FIRST-MATCH contract as audited at main 434d0c5 — i.e. the expected output of deterministicRoute(), not an aspirational routing. Queries that fall through every fast-path rule (LLM-routed at runtime) are intentionally absent: they are non-deterministic and cannot be golden-labeled. Entries marked 'order-anchor' exercise the first-match ordering between two plausible intents.",
+  "entries": [
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-001",
+      "text": "how do i create a watchlist"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-002",
+      "notes": "order-anchor: 'screener' alone would route trading, but the how-to prefix wins (rule 7 before rule 9)",
+      "text": "how to use the screener"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-003",
+      "text": "what are the platform capabilities"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-004",
+      "text": "explain how decisioning works"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-005",
+      "text": "where can i find the api docs"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-006",
+      "text": "lookup the pricing faq"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-007",
+      "text": "what is pickbesttrades"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-008",
+      "text": "show me the playbook for earnings season"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-009",
+      "text": "how does the trade approval workflow work"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-010",
+      "text": "what can the knowledge base answer"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-011",
+      "notes": "order-anchor: 'soc2' is a tasks keyword, but the search rule fires first",
+      "text": "search the docs for soc2"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-012",
+      "notes": "order-anchor: 'etrade' is a trading keyword, but the how-to prefix wins",
+      "text": "how to use etrade_get_quote"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-013",
+      "text": "where are the workflow docs"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-014",
+      "text": "find my saved reports"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "search",
+      "expectedNeedsConfirmation": false,
+      "id": "search-015",
+      "notes": "order-anchor: 'soc2' alone routes tasks; 'what are' wins",
+      "text": "what are the soc2 controls"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-001",
+      "text": "yfinance snapshot for AAPL"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-002",
+      "text": "compare NVDA and AMD fundamentals"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-003",
+      "text": "show peer valuations for the mag 7"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-004",
+      "text": "get the p/e ratio for TSLA"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-005",
+      "text": "analyst price targets for MSFT"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-006",
+      "text": "pull historical bars for SPY from alpaca"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-007",
+      "text": "is the peg ratio attractive here"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-008",
+      "text": "foss data on price to book"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-009",
+      "text": "check beta and ohlcv for QQQ"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-010",
+      "text": "yahoo finance quote for AAPL"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-011",
+      "notes": "order-anchor: 'stocks' is a trading keyword, but the research rule fires first",
+      "text": "valuation multiples for dividend stocks"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-012",
+      "text": "research spy price action"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-013",
+      "text": "compare expense ratios of VTI and VOO"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-014",
+      "text": "peers of AAPL in big tech"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "research",
+      "expectedNeedsConfirmation": false,
+      "id": "research-015",
+      "text": "does alpaca have real-time quotes"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-001",
+      "text": "scan stocks with rsi above 70"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-002",
+      "text": "buy 100 shares of NVDA at market"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-003",
+      "text": "sell 25 AAPL"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-004",
+      "text": "show my etrade positions"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-005",
+      "text": "screen for macd crossovers"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-006",
+      "text": "get quote for ticker MSFT"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-007",
+      "text": "my portfolio performance this month"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-008",
+      "text": "list my brokerage accounts"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-009",
+      "text": "run a market scan for momentum"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-010",
+      "text": "top gainers on the screener"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-011",
+      "text": "equity exposure by sector"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-012",
+      "text": "shares outstanding for AAPL"
+    },
+    {
+      "expectedConfidence": 0.99,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": false,
+      "id": "trading-013",
+      "notes": "draft-ID fast path (highest confidence, no confirmation)",
+      "text": "Execute ord_11223344"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": false,
+      "id": "trading-014",
+      "notes": "multi-turn confirmation of a pending trade draft",
+      "recentMessages": [
+        {
+          "content": "Order preview ord_11223344: buy 10 AAPL at market. Reply to confirm.",
+          "role": "assistant"
+        }
+      ],
+      "text": "execute it"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "trading",
+      "expectedNeedsConfirmation": true,
+      "id": "trading-015",
+      "text": "draft an order to buy 10 TSLA"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-001",
+      "text": "refund invoice INV-2041"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-002",
+      "text": "charge my card 29 dollars"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-003",
+      "text": "transfer $500 to checking"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-004",
+      "text": "pay the electric bill"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-005",
+      "text": "billing dispute on my last payout"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-006",
+      "text": "send a payment of 100 usd"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-007",
+      "text": "invoice me for the subscription"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-008",
+      "notes": "'how much' is not a how-to search pattern, so the payments rule fires",
+      "text": "how much was my last charge"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-009",
+      "text": "check my billing balance"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-010",
+      "text": "payout status for october"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-011",
+      "text": "usd transfer limits"
+    },
+    {
+      "expectedConfidence": 0.99,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": false,
+      "id": "payments-012",
+      "notes": "draft-ID fast path",
+      "text": "Approve pay_a1b2c3d4"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": false,
+      "id": "payments-013",
+      "notes": "multi-turn confirmation of a pending payment draft",
+      "recentMessages": [
+        {
+          "content": "I've drafted payment pay_a1b2c3d4 for $250, awaiting_confirmation. Reply to confirm.",
+          "role": "assistant"
+        }
+      ],
+      "text": "yes, approve it"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-014",
+      "text": "pay my invoice by friday"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "payments",
+      "expectedNeedsConfirmation": true,
+      "id": "payments-015",
+      "notes": "known quirk: 'dollar' in an investing phrase routes to payments; anchored as the current contract",
+      "text": "dollar cost averaging into SPY"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-001",
+      "text": "remind me to call mom at 6"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-002",
+      "text": "todo: renew license"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-003",
+      "text": "set a deadline for the draft"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-004",
+      "text": "assign this ticket to sam"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-005",
+      "text": "high priority items for today"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-006",
+      "text": "soc2 evidence collection"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-007",
+      "text": "which of my tasks are due"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-008",
+      "text": "schedule dentist appointment"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-009",
+      "text": "create a reminder for standup"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-010",
+      "notes": "order-anchor: 'buy milk' has no quantity, so the trading buy rule does not fire",
+      "text": "add buy milk to my todo list"
+    },
+    {
+      "expectedConfidence": 0.99,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": false,
+      "id": "tasks-011",
+      "notes": "draft-ID fast path (note: 'what is' search pattern loses to the earlier draft-ID rule)",
+      "text": "what is the status of task_9f8e7d6c"
+    },
+    {
+      "expectedConfidence": 0.98,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": false,
+      "id": "tasks-012",
+      "notes": "multi-turn confirmation of a pending task proposal",
+      "recentMessages": [
+        {
+          "content": "Task proposal task_9f8e7d6c: 'File Q3 taxes' is ready for review.",
+          "role": "assistant"
+        }
+      ],
+      "text": "go ahead and create it"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-013",
+      "text": "remind me about the deadline friday"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-014",
+      "text": "soc2 audit checklist"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "tasks",
+      "expectedNeedsConfirmation": true,
+      "id": "tasks-015",
+      "text": "cancel the reminder"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-001",
+      "text": "remember my risk tolerance is moderate"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-002",
+      "text": "save this analysis for later"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-003",
+      "text": "store my trading notes"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-004",
+      "text": "recall my preferred watchlist"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-005",
+      "notes": "order-anchor: 'forgot' wins before the trading 'screener' keyword is reached",
+      "text": "i forgot my saved screeners"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-006",
+      "text": "memory: i like dividend aristocrats"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-007",
+      "text": "do you remember my risk preference"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-008",
+      "text": "prefer aggressive growth"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-009",
+      "text": "save my notes from today"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-010",
+      "notes": "order-anchor: plural 'tickers' does not match the trading ticker rule",
+      "text": "store these tickers for tomorrow"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-011",
+      "text": "remember that i prefer limit orders"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-012",
+      "text": "save my notification settings"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-013",
+      "text": "store my tax documents"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-014",
+      "text": "recall the plan we discussed"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "memory",
+      "expectedNeedsConfirmation": false,
+      "id": "memory-015",
+      "text": "my preference is email alerts"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-001",
+      "text": "hi"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-002",
+      "text": "hello"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-003",
+      "text": "hey"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-004",
+      "text": "greetings"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-005",
+      "text": "help"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-006",
+      "text": "who are you"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-007",
+      "text": "openaimp"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-008",
+      "text": "test"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-009",
+      "text": "hello, can you hear me"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-010",
+      "text": "help me get started"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-011",
+      "text": "hey there"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-012",
+      "text": "hi, good morning"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-013",
+      "text": "greetings, friend"
+    },
+    {
+      "expectedConfidence": 0.95,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-014",
+      "text": "hey openaimp"
+    },
+    {
+      "expectedConfidence": 1.0,
+      "expectedIntent": "general",
+      "expectedNeedsConfirmation": false,
+      "id": "general-015",
+      "notes": "empty prompt fast path (confidence 1.0)",
+      "text": ""
+    }
+  ]
+}
