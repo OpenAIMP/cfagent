@@ -1,5 +1,6 @@
 import { generateText } from "ai";
 import { getWorkersAIModel } from "./model";
+import { runWithRouting } from "../models/router";
 import type { AgentName, Env, RouteDecision, QualityDecision } from "../types";
 
 export { type RouteDecision, type QualityDecision };
@@ -13,10 +14,14 @@ const ROUTE_SCHEMA = `Return JSON only with this structure:
 }`;
 
 export class LLMJudge {
-  private model;
+  constructor(private env: Env) {}
 
-  constructor(private env: Env) {
-    this.model = getWorkersAIModel(env);
+  /**
+   * Issue #163: model calls route through the model router — cheap →
+   * primary → fallback on retryable errors (429/quota/overload).
+   */
+  private routedModel(modelName: string) {
+    return getWorkersAIModel(this.env, modelName);
   }
 
   async route(
@@ -89,13 +94,16 @@ export class LLMJudge {
     }
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2500);
+      // Issue #163: intent classification retries on cheaper/fallback models
+      // when the primary is quota- or overload-limited.
+      const { result: routedText } = await runWithRouting("plan", async (modelName) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2500);
 
-      const { text: output } = await generateText({
-        model: this.model,
-        temperature: 0,
-        system: `You are a strict, conservative intent classifier for an autonomous multi-agent assistant.
+        const { text: output } = await generateText({
+          model: this.routedModel(modelName),
+          temperature: 0,
+          system: `You are a strict, conservative intent classifier for an autonomous multi-agent assistant.
 Available agents:
 - 'search': knowledge-base queries, documented facts, company policies, architectural information.
 - 'payments': charges, refunds, invoices, billing, and subscription operations. Always requires confirmation.
@@ -108,9 +116,11 @@ Available agents:
 ${ROUTE_SCHEMA}`,
         prompt: text.slice(0, 2000),
         abortSignal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
+        }).finally(() => clearTimeout(timeout));
+        return output;
+      });
 
-      const parsed = this.parseJson(output);
+      const parsed = this.parseJson(routedText);
       const validAgents: AgentName[] = ["search", "payments", "tasks", "memory", "general", "trading", "research"];
       const agent: AgentName = validAgents.includes(parsed.agent as AgentName)
         ? (parsed.agent as AgentName)
@@ -136,10 +146,12 @@ ${ROUTE_SCHEMA}`,
 
   async evaluate(input: { question: string; answer: string; agent: AgentName }): Promise<QualityDecision> {
     try {
-      const { text: output } = await generateText({
-        model: this.model,
-        temperature: 0,
-        system: `You are a critical quality judge evaluating an AI agent's answer.
+      // Issue #163: quality evaluation falls back across the judge model chain.
+      const { result: output } = await runWithRouting("judge", async (modelName) => {
+        const { text } = await generateText({
+          model: this.routedModel(modelName),
+          temperature: 0,
+          system: `You are a critical quality judge evaluating an AI agent's answer.
 Rules:
 - Never assume external facts without evidence.
 - Penalize hallucinated citations, unconfirmed financial executions, or refusing valid questions.
@@ -147,6 +159,8 @@ Rules:
 Return JSON only:
 {"score": 0-100, "grounded": boolean, "safe": boolean, "issues": ["issue 1", "issue 2"]}`,
         prompt: JSON.stringify(input).slice(0, 8000),
+        });
+        return text;
       });
 
       const parsed = this.parseJson(output);
