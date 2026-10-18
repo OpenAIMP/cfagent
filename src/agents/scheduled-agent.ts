@@ -9,26 +9,34 @@ import {
 
 // ScheduledAgent: full think-agent with autonomous scheduling.
 //
-// A complete Agent (not just callable) with:
-//   1. SDK SCHEDULING — uses this.schedule()/this.scheduleEvery() from the
-//      Agents SDK (DO alarms, persisted to SQLite, survives restarts).
-//      Goals are registered as cron schedules in onStart().
-//   2. A2A — exposes an agent card at /.well-known/agent.json and handles
-//      JSON-RPC dispatch for cross-agent invocation.
-//   3. AGENT-AS-A-TOOL — other agents can call listGoals, setGoalEnabled,
-//      triggerGoal, and getSchedules as tools.
+// Extends Agent (not callable) to enable:
+//   1. SDK SCHEDULING — this.schedule()/this.scheduleEvery() (DO alarms,
+//      persisted to SQLite, survives restarts). See:
+//      https://developers.cloudflare.com/agents/runtime/execution/schedule-tasks/
+//   2. A2A — agent card + JSON-RPC dispatch for cross-agent invocation.
+//   3. AGENT-AS-A-TOOL — listGoals, setGoalEnabled, triggerGoal, getSchedules
+//      are invocable by other agents.
 //
-// Budget discipline: the agent never spends directly. Every goal evaluation
+// Budget discipline: never spends directly. Every goal evaluation
 // budget-checks via PaymentsAgent before creating Orchestrator work.
 
 interface ScheduledAgentState {
   goals: ScheduledGoal[];
 }
 
-export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
+export class ScheduledAgent extends Agent<Env> {
+  // Agent state holds the goal list
   initialState: ScheduledAgentState = {
     goals: DEFAULT_SCHEDULES,
   };
+
+  private get goals(): ScheduledGoal[] {
+    return (this.state as ScheduledAgentState).goals ?? DEFAULT_SCHEDULES;
+  }
+
+  private setGoals(goals: ScheduledGoal[]): void {
+    this.setState({ goals } as ScheduledAgentState);
+  }
 
   /**
    * Runs on every DO wake. Registers each enabled goal as an SDK cron
@@ -36,10 +44,12 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
    * existing schedule instead of duplicating).
    */
   async onStart(): Promise<void> {
-    for (const goal of this.state.goals) {
+    const agent = this as unknown as {
+      schedule: (cron: string, callback: string, payload: unknown) => Promise<unknown>;
+    };
+    for (const goal of this.goals) {
       if (!goal.enabled) continue;
-      // Each goal gets its own cron schedule invoking evaluateGoal
-      await this.schedule(goal.cron, "evaluateGoal", { goalId: goal.id });
+      await agent.schedule(goal.cron, "evaluateGoal", { goalId: goal.id });
     }
   }
 
@@ -57,14 +67,14 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
       errors: [],
     };
 
-    const goal = this.state.goals.find((g) => g.id === payload.goalId);
+    const goals = this.goals;
+    const goal = goals.find((g) => g.id === payload.goalId);
     if (!goal || !goal.enabled) {
       tick.jobsSkipped++;
       return tick;
     }
 
     try {
-      // Budget check via PaymentsAgent — never spend without approval
       const paymentsId = this.env.PAYMENTS_AGENT.idFromName("default");
       const payments = this.env.PAYMENTS_AGENT.get(paymentsId);
       const budgetOk = await payments.budgetCheck({
@@ -77,7 +87,6 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
         return tick;
       }
 
-      // Create Orchestrator job (orchestrator is a plain module)
       const { createJob } = await import("../orchestrate");
       await createJob(this.env, {
         goalId: goal.id,
@@ -87,7 +96,7 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
       });
 
       goal.lastRun = now.toISOString();
-      this.setState({ goals: this.state.goals });
+      this.setGoals(goals);
       tick.jobsCreated++;
     } catch (err) {
       tick.errors.push(
@@ -113,7 +122,7 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
       errors: [],
     };
 
-    for (const goal of this.state.goals) {
+    for (const goal of this.goals) {
       if (!goal.enabled) continue;
       tick.goalsEvaluated++;
       if (!isDue(goal.cron, goal.lastRun, now)) continue;
@@ -125,48 +134,34 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
     return tick;
   }
 
-  // ── Agent-as-a-tool: methods other agents can invoke ──
+  // ── Agent-as-a-tool ──
 
-  /** List all scheduled goals with their cron, status, and last run. */
   async listGoals(): Promise<ScheduledGoal[]> {
-    return this.state.goals;
+    return this.goals;
   }
 
-  /** Enable or disable a goal. Re-registers SDK schedules on enable. */
   async setGoalEnabled(id: string, enabled: boolean): Promise<boolean> {
-    const goal = this.state.goals.find((g) => g.id === id);
+    const goals = this.goals;
+    const goal = goals.find((g) => g.id === id);
     if (!goal) return false;
     goal.enabled = enabled;
-    this.setState({ goals: this.state.goals });
-    if (enabled) {
-      await this.schedule(goal.cron, "evaluateGoal", { goalId: goal.id });
-    }
+    this.setGoals(goals);
     return true;
   }
 
-  /** Manually trigger a goal evaluation outside its schedule. */
   async triggerGoal(id: string): Promise<ScheduleTick> {
     return this.evaluateGoal({ goalId: id });
   }
 
-  /** List all SDK-registered schedules (cron, delayed, interval). */
-  async getSchedules() {
-    return this.listSchedules();
+  async getSchedules(): Promise<unknown> {
+    const agent = this as unknown as {
+      listSchedules: () => Promise<unknown>;
+    };
+    return agent.listSchedules();
   }
 
-  /** Schedule a one-off delayed task. */
-  async scheduleOnce(
-    delaySeconds: number,
-    callback: string,
-    payload: Record<string, unknown>
-  ): Promise<string> {
-    const s = await this.schedule(delaySeconds, callback, payload);
-    return s.id;
-  }
+  // ── A2A ──
 
-  // ── A2A: agent card + JSON-RPC ──
-
-  /** Agent card for A2A discovery. */
   static getCard() {
     return {
       name: "ScheduledAgent",
@@ -179,15 +174,11 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
         "setGoalEnabled",
         "triggerGoal",
         "getSchedules",
-        "scheduleOnce",
         "evaluateGoal",
       ],
     };
   }
 
-  /**
-   * Handle A2A JSON-RPC requests. Routes method calls to agent methods.
-   */
   async onA2ARequest(body: {
     method: string;
     params?: Record<string, unknown>;
@@ -197,20 +188,11 @@ export class ScheduledAgent extends Agent<Env, ScheduledAgentState> {
       case "listGoals":
         return this.listGoals();
       case "setGoalEnabled":
-        return this.setGoalEnabled(
-          params.id as string,
-          params.enabled as boolean
-        );
+        return this.setGoalEnabled(params.id as string, params.enabled as boolean);
       case "triggerGoal":
         return this.triggerGoal(params.id as string);
       case "getSchedules":
         return this.getSchedules();
-      case "scheduleOnce":
-        return this.scheduleOnce(
-          params.delaySeconds as number,
-          params.callback as string,
-          (params.payload as Record<string, unknown>) ?? {}
-        );
       default:
         throw new Error(`Unknown A2A method: ${method}`);
     }
