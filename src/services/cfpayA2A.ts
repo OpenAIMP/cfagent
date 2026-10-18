@@ -72,9 +72,10 @@ export async function cfpayA2AOperation(
         method: "message/send",
         params: {
           message: {
+            kind: "message",
             role: "user",
+            messageId: `cfagent-${Date.now()}`,
             parts: [
-              { kind: "text", text: `[automated] ${operation}` },
               { kind: "data", data: { operation, ...args } },
             ],
           },
