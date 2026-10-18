@@ -12,6 +12,7 @@ import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedG
 import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
+import { runStorageRetention } from "../security/storageRetention";
 import { ETradeRestClient } from "../trading/etrade/client";
 import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
@@ -5466,6 +5467,19 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
+      }
+    }
+
+    // Nightly mas_messages retention pass (issue #255, part of #143).
+    // The Worker's scheduled() handler fires this at the 0 4 * * * cron.
+    if (path.endsWith("/schedules/trigger-retention") && request.method === "POST") {
+      try {
+        const result = runStorageRetention(this.getOrm(), {
+          retentionDays: this.env.MAS_MESSAGES_RETENTION_DAYS,
+        });
+        return Response.json({ success: true, ...result });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to run storage retention" }, { status: 500 });
       }
     }
 
