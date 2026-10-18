@@ -29,6 +29,22 @@ describe("dynamic all-exchange stock listings", () => {
     expect(listings[0].marketCap).toBe(25_000_000_000);
   });
 
+  it("sends download=true (required by the Nasdaq screener API)", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      data: { totalrecords: 0, table: { rows: [] } },
+    }), { status: 200 }));
+
+    await fetchAllUsStockListings(fetcher as typeof fetch);
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    for (const call of fetcher.mock.calls) {
+      const url = new URL(String(call[0]));
+      // Without download=true the API returns rCode 400 {"data":null} (#246).
+      expect(url.searchParams.get("download")).toBe("true");
+      expect(url.searchParams.get("tableonly")).toBe("true");
+    }
+  });
+
   it("skips rows without a usable symbol or positive last sale", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       data: {
