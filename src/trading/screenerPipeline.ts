@@ -28,6 +28,12 @@ import {
 } from "./liveScreener";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import {
+  computeFactorGrades,
+  EMPTY_GRADES,
+  type FactorGrades,
+  type GradeableStock,
+} from "./factorGrades";
+import {
   fetchAllUsStockListings,
   type NasdaqStockListing,
 } from "../services/nasdaqListings";
@@ -71,6 +77,11 @@ export interface ScannedStock {
   rsi14: number | null;
   source: string;
   indicators: ScreenedIndicators;
+  /** SA-style factor grades (issue #266). Attached via attachFactorGrades. */
+  factorGrades: FactorGrades;
+  /** Grading inputs (not displayed). */
+  peRatio?: number | null;
+  sector?: string;
 }
 
 /** One standout opportunity, JSON-safe. */
@@ -82,6 +93,7 @@ export interface OpportunityStock {
   lastPrice: number;
   changePercent: number;
   indicators: ScreenedIndicators;
+  factorGrades: FactorGrades;
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +379,7 @@ export function toScannedStock(
     | "peRatio"
     | "volume"
     | "averageVolume"
+    | "sector"
   >,
   screened?: Pick<ScreenedStockItem, "signal" | "momentumScore" | "rsi14"> | null
 ): ScannedStock {
@@ -401,7 +414,33 @@ export function toScannedStock(
       rangePosition: ind.rangePosition,
       summary: ind.summary,
     },
+    // Issue #266: default grades; attachFactorGrades() replaces with the
+    // universe-relative computation.
+    factorGrades: EMPTY_GRADES,
+    peRatio: quote.peRatio ?? null,
+    sector: quote.sector,
   };
+}
+
+/**
+ * Attach SA-style factor grades (issue #266), computed percentile-relative
+ * across the given universe. Returns new objects; input is not mutated.
+ */
+export function attachFactorGrades(stocks: ScannedStock[]): ScannedStock[] {
+  const gradeable: GradeableStock[] = stocks.map((s) => ({
+    symbol: s.symbol,
+    sector: s.sector,
+    peRatio: s.peRatio ?? null,
+    rangePosition: s.indicators.rangePosition,
+    changePercent: s.changePercent,
+    intradayPosition: s.indicators.intradayPosition,
+    screenScore: s.indicators.screenScore,
+  }));
+  const grades = computeFactorGrades(gradeable);
+  return stocks.map((s) => ({
+    ...s,
+    factorGrades: grades.get(s.symbol) ?? EMPTY_GRADES,
+  }));
 }
 
 /** Map one screened stock to the opportunity shape. The ONLY place. */
@@ -421,6 +460,7 @@ export function toOpportunityStock(s: ScreenedStockItem): OpportunityStock {
       peRatio: (s as any).peRatio,
       volume: (s as any).volume ?? 0,
       averageVolume: (s as any).averageVolume,
+      sector: (s as any).sector,
     },
     s
   );
@@ -432,6 +472,7 @@ export function toOpportunityStock(s: ScreenedStockItem): OpportunityStock {
     lastPrice: scanned.lastPrice,
     changePercent: scanned.changePercent,
     indicators: scanned.indicators,
+    factorGrades: scanned.factorGrades,
   };
 }
 

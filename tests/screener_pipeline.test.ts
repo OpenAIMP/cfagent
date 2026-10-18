@@ -82,7 +82,72 @@ describe("screenerPipeline — shared shaping (#259)", () => {
         screenScore: expect.any(Number),
         summary: expect.any(String),
       }),
+      // Issue #266: single-stock mapping carries empty grades; the
+      // universe-relative computation happens in attachFactorGrades.
+      factorGrades: expect.objectContaining({
+        value: null,
+        momentum: null,
+        growth: null,
+        profitability: null,
+        revisions: null,
+        quantRating: null,
+        gradedFactors: [],
+      }),
     });
+  });
+
+  it("attachFactorGrades grades the universe percentile-relative", async () => {
+    const { attachFactorGrades } = await import("../src/trading/screenerPipeline");
+    const stocks = [
+      toScannedStock(
+        {
+          symbol: "CHEAP",
+          companyName: "Cheap Co",
+          lastPrice: 10,
+          changePercent: 5,
+          source: "E*TRADE live",
+          open: 9.5, high: 10.5, low: 9,
+          week52High: 50, week52Low: 9,
+          peRatio: 8, volume: 1000,
+        } as any,
+        null
+      ),
+      toScannedStock(
+        {
+          symbol: "PRICEY",
+          companyName: "Pricey Co",
+          lastPrice: 48,
+          changePercent: -3,
+          source: "E*TRADE live",
+          open: 49, high: 50, low: 47,
+          week52High: 50, week52Low: 9,
+          peRatio: 55, volume: 1000,
+        } as any,
+        null
+      ),
+      toScannedStock(
+        {
+          symbol: "MID",
+          companyName: "Mid Co",
+          lastPrice: 25,
+          changePercent: 0.5,
+          source: "E*TRADE live",
+          open: 24.8, high: 25.5, low: 24.5,
+          week52High: 50, week52Low: 9,
+          peRatio: 22, volume: 1000,
+        } as any,
+        null
+      ),
+    ];
+    const graded = attachFactorGrades(stocks);
+    const cheap = graded.find((s) => s.symbol === "CHEAP")!;
+    const pricey = graded.find((s) => s.symbol === "PRICEY")!;
+    // Cheap (low P/E, near 52w low) outranks pricey on value.
+    expect(cheap.factorGrades.valueScore!).toBeGreaterThan(
+      pricey.factorGrades.valueScore!
+    );
+    expect(cheap.factorGrades.growth).toBeNull();
+    expect(cheap.factorGrades.quantRating).toBeTruthy();
   });
 
   it("selectStandouts keeps only standout signals/scores, capped", () => {
