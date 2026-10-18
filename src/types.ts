@@ -3,6 +3,12 @@ export interface Env {
   AI: Ai;
   SESSIONS: KVNamespace;
   SEARCH_AGENT: DurableObjectNamespace;
+  // PR #3 — x402 PaymentsAgent DO (issue #161)
+  PAYMENTS_AGENT: DurableObjectNamespace;
+  // PR #4 — ScheduledAgent DO (issue #166)
+  SCHEDULED_AGENT: DurableObjectNamespace;
+  // PR #6 — Vectorize binding for VectorMemory (issue #164)
+  VECTOR_MEMORY: VectorizeIndex;
   AI_SEARCH_ENDPOINT: string;
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
