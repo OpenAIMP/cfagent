@@ -219,6 +219,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // 2. Autonomous market screening — hourly per-universe runs
       // (issue #270). Each universe gets its own schedule + PDF report.
       // Staggered by 10 minutes to spread E*TRADE load.
+      // Migration: cancel the legacy 5-min interval Technology screen.
+      // It was replaced by the hourly per-universe crons but never
+      // cancelled, so its "6 scanned" runs kept masking the new ones.
+      try {
+        const schedules = await this.listSchedules();
+        for (const s of schedules) {
+          const isLegacyScreen =
+            s.callback === "autonomousMarketScreen" &&
+            (s.type === "interval" ||
+              JSON.stringify(s.payload ?? {}).includes('"sector":"Technology"'));
+          if (isLegacyScreen) {
+            await this.cancelSchedule(s.id);
+            console.log(`[onStart] Cancelled legacy 5-min screen schedule ${s.id}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[onStart] Legacy schedule cleanup failed:", err instanceof Error ? err.message : String(err));
+      }
       const { shardableUniverses: _shardable, UNIVERSES: _U } = await import(
         "../trading/universes"
       );
