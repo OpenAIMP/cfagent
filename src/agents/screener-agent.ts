@@ -24,10 +24,12 @@ import {
   selectStandouts,
   buildAllStocks,
   attachFactorGrades,
+  attachTechnicals,
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
 } from "../trading/screenerPipeline";
+import { fetchTechnicalsBatch } from "../trading/yahooHistory";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import type { StockScreenerFilter } from "../types";
 
@@ -66,6 +68,7 @@ export interface ScreenerRunResult {
 const LATEST_KEY = "screener:latest";
 const HISTORY_KEY = "screener:history";
 const HISTORY_LIMIT = 20;
+const PDF_KEY = "screener:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -117,21 +120,29 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
       });
 
+      // Issue #269: Yahoo history complement — real RSI/MACD/gaps.
+      // E*TRADE stays the primary quote source; Yahoo fills only the
+      // history-shaped hole. Per-symbol failures → honest nulls.
+      const technicalsBySymbol = await fetchTechnicalsBatch(
+        acquired.quotes.map((q) => q.symbol)
+      );
+
       // Issue #266: SA-style factor grades, computed percentile-relative
       // across the full scanned universe, then joined onto opportunities.
-      const allStocks = attachFactorGrades(
-        buildAllStocks(acquired.quotes, screenResult.stocks)
+      const allStocks = attachTechnicals(
+        attachFactorGrades(buildAllStocks(acquired.quotes, screenResult.stocks)),
+        technicalsBySymbol
       );
-      const gradesBySymbol = new Map(
-        allStocks.map((s) => [s.symbol, s.factorGrades])
-      );
+      const bySymbol = new Map(allStocks.map((s) => [s.symbol, s]));
       const opportunities = selectStandouts(
         screenResult.stocks,
         req.maxItems ?? 5
       ).map((s) => {
         const opp = toOpportunityStock(s);
-        const graded = gradesBySymbol.get(s.symbol);
-        return graded ? { ...opp, factorGrades: graded } : opp;
+        const graded = bySymbol.get(s.symbol);
+        return graded
+          ? { ...opp, factorGrades: graded.factorGrades, technicals: graded.technicals }
+          : opp;
       });
 
       const result: ScreenerRunResult = {
@@ -178,6 +189,19 @@ export class ScreenerAgent extends Agent<Env> {
     return (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
   }
 
+  /**
+   * Latest report PDF (issue #269) — generated at run time, served by
+   * GET /api/screener/report.pdf and attached to Slack/email deliveries.
+   */
+  async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(PDF_KEY);
+    if (!stored) return null;
+    const bin = atob(stored.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, fileName: stored.fileName };
+  }
+
   private async persistRun(result: ScreenerRunResult): Promise<void> {
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
@@ -186,5 +210,23 @@ export class ScreenerAgent extends Agent<Env> {
       HISTORY_KEY,
       [result, ...history].slice(0, HISTORY_LIMIT)
     );
+    // Issue #269: generate + store the report PDF for download/delivery.
+    try {
+      const { generateScreenerPdf, screenerPdfFileName } = await import(
+        "../trading/screenerReportPdf"
+      );
+      const pdfBytes = await generateScreenerPdf(result);
+      let base64 = "";
+      const chunk = 8192;
+      for (let i = 0; i < pdfBytes.length; i += chunk) {
+        base64 += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
+      }
+      await this.ctx.storage.put(PDF_KEY, {
+        base64: btoa(base64),
+        fileName: screenerPdfFileName(result),
+      });
+    } catch (err) {
+      console.warn("[ScreenerAgent] PDF generation failed:", err);
+    }
   }
 }

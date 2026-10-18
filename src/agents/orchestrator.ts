@@ -5324,6 +5324,25 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Issue #269: downloadable PDF report of the latest screener run.
+    if (path.endsWith("/screener/report.pdf") && request.method === "GET") {
+      try {
+        const pdf = await this.getScreenerAgent().getLatestPdf();
+        if (!pdf) {
+          return Response.json({ error: "No screener report available yet" }, { status: 404 });
+        }
+        return new Response(pdf.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
+            "Content-Length": String(pdf.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
+      }
+    }
+
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
         // Issue #108: the typed listSchedules() is called directly. The
