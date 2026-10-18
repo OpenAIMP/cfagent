@@ -33,7 +33,7 @@ import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
-import { toOpportunityStock } from "../trading/screenerPipeline";
+import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
 import {
   OptionsAgentPipeline,
@@ -180,6 +180,15 @@ export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[nu
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
   /**
+   * ScreenerAgent stub (issue #261) — one agent owns all screening.
+   * E*TRADE-only market data; honest failure when unavailable.
+   */
+  private getScreenerAgent(): ScreenerAgent {
+    const id = this.env.SCREENER_AGENT.idFromName("default");
+    return this.env.SCREENER_AGENT.get(id) as unknown as ScreenerAgent;
+  }
+
+  /**
    * Cloudflare Agents Lifecycle: onStart
    * Initializes SQLite tables and registers baseline idempotent cron and interval schedules
    */
@@ -273,9 +282,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           success: res.success,
           totalScanned: res.data?.totalScanned ?? 0,
           matchedCount: res.data?.matchedCount ?? 0,
-          // Issue #259: opportunities arrive pre-shaped from the shared
-          // pipeline; re-shape defensively via the single mapping.
-          opportunities: (res.data?.opportunities || []).map(toOpportunityStock),
+          // Issue #261: opportunities arrive pre-shaped from ScreenerAgent.
+          opportunities: res.data?.opportunities || [],
           // Issue #253: full scanned set so the panel can render the
           // per-symbol data table. Already shaped by the shared pipeline.
           allStocks: res.data?.allStocks || [],
@@ -3244,7 +3252,9 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Market Screener & Scanning
+    // Market Screener & Scanning — delegated to ScreenerAgent (#261).
+    // One agent, E*TRADE-only market data, honest failure when unavailable.
+    // (The Nasdaq-listings screenLive path is kept in the repo, unwired.)
     if (path.endsWith("/etrade/screen") && (request.method === "POST" || request.method === "GET")) {
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
@@ -3256,24 +3266,26 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
         }
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const results = await etrade.screenMarketsAsync(filters);
-        this.audit("etrade.screened", "trading", { filterSummary: results.filterSummary, count: results.stocks.length });
-        // The full-universe ledger lists every listing (thousands of rows); keep only a bounded sample
-        // so the response fits within the async job-result limit.
-        const ledger = results.ledger
-          ? {
-              ...results.ledger,
-              universeSymbols: results.ledger.universeSymbols.slice(0, 200),
-              rejections: results.ledger.rejections.slice(0, 200),
-              truncated: results.ledger.universeSymbols.length > 200 || results.ledger.rejections.length > 200,
-            }
-          : undefined;
+        const result = await this.getScreenerAgent().runScreen({
+          trigger: "manual",
+          filters,
+          userLogin,
+        });
+        this.audit("etrade.screened", "trading", {
+          filterSummary: result.discoveryMessage,
+          count: result.allStocks.length,
+          success: result.success,
+        });
+        if (!result.success) {
+          return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
+        }
         return Response.json({
-          ...results,
-          ledger,
-          stocks: results.stocks.slice(0, 1000),
-          stocksTruncated: results.stocks.length > 1000,
+          totalScanned: result.totalScanned,
+          matchedCount: result.matchedCount,
+          opportunities: result.opportunities,
+          stocks: result.allStocks,
+          discoveryMessage: result.discoveryMessage,
+          scannedAt: result.timestamp,
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
@@ -5291,15 +5303,19 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
-    // Issue #212: latest autonomous screener runs (GET /api/screener/latest).
+    // Issue #212/#261: latest screener runs (GET /api/screener/latest).
+    // Served by ScreenerAgent — one agent owns all screening results.
     // Note: server.ts strips the /api prefix before forwarding, so the DO
     // sees /screener/latest.
     if (path.endsWith("/screener/latest") && request.method === "GET") {
       try {
-        const runs = ((await this.ctx.storage.get("screener:last_runs")) as any[]) || [];
+        const agent = this.getScreenerAgent();
+        const latest = await agent.getLatest();
+        const history = await agent.getHistory();
         return Response.json({
-          count: runs.length,
-          runs,
+          count: history.length,
+          runs: history,
+          latest,
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {

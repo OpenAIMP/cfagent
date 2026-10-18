@@ -7,6 +7,8 @@ export interface Env {
   PAYMENTS_AGENT: DurableObjectNamespace;
   // PR #4 — ScheduledAgent DO (issue #166)
   SCHEDULED_AGENT: DurableObjectNamespace;
+  // Issue #261 — ScreenerAgent DO (one agent, one UI, E*TRADE-only)
+  SCREENER_AGENT: DurableObjectNamespace;
   // PR #6 — Vectorize binding for VectorMemory (issue #164)
   VECTOR_MEMORY: any; // Vectorize binding (type varies by workers-types version)
   AI_SEARCH_ENDPOINT: string;

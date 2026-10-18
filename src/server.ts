@@ -52,6 +52,7 @@ export { SlackAgent } from "./agents/slackAgent";
 // entrypoint, otherwise `wrangler deploy` fails.
 export { PaymentsAgent } from "./agents/payments-agent";
 export { ScheduledAgent } from "./agents/scheduled-agent";
+export { ScreenerAgent } from "./agents/screener-agent";
 
 
 function isAllowedOrigin(request: Request, env: Env): boolean {

@@ -13,12 +13,8 @@ import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { DynamicMarketScreener } from "../trading/screener";
 import {
-  acquireUniverse,
-  screenUniverse,
-  selectStandouts,
-  buildAllStocks,
-  toOpportunityStock,
   type ScannedStock,
+  type OpportunityStock,
 } from "../trading/screenerPipeline";
 import { ETradeService } from "./etrade";
 import {
@@ -78,6 +74,14 @@ export class ScheduledTasksService {
     private scanRunStore?: ScanRunStore,
     private ivHistoryStore?: IvHistoryStore
   ) {}
+
+  /**
+   * ScreenerAgent stub (issue #261) — one agent owns all screening.
+   */
+  private getScreenerAgent(): import("../agents/screener-agent").ScreenerAgent {
+    const id = (this.env as any).SCREENER_AGENT.idFromName("default");
+    return (this.env as any).SCREENER_AGENT.get(id);
+  }
 
   /**
    * Helper to append an audit event into mas_events if ORM is available
@@ -198,7 +202,8 @@ export class ScheduledTasksService {
   }
 
   /**
-   * Runs an autonomous market screen using DynamicMarketScreener and flags standout opportunities
+   * Runs an autonomous market screen via ScreenerAgent (#261).
+   * One agent owns all screening; E*TRADE-only data with honest failure.
    */
   async autonomousMarketScreen(options: {
     sector?: string;
@@ -206,53 +211,39 @@ export class ScheduledTasksService {
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
-    opportunities: ScreenedStockItem[];
+    opportunities: OpportunityStock[];
     allStocks: ScannedStock[];
     sector?: string;
   }>> {
     const timestamp = new Date().toISOString();
-    const screener = new DynamicMarketScreener();
 
     try {
-      // Issue #259: universe acquisition + screening via the shared
-      // pipeline. E*TRADE primary, Nasdaq secondary, both with retries (#224).
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        this.userLogin,
-      );
-      const acquired = await acquireUniverse({
-        mode: "live-quotes",
-        maxSymbols: 50,
-        liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
-      });
-      const liveQuotes = acquired.quotes;
-      if (liveQuotes.length === 0) {
-        throw new Error("No live quotes available from E*TRADE or Nasdaq");
-      }
-      const screenResult = screenUniverse(screener, acquired, {
-        sector: options.sector,
+      // Issue #261: delegate screening to ScreenerAgent (E*TRADE-only).
+      const result = await this.getScreenerAgent().runScreen({
+        trigger: "scheduled",
+        sector: options.sector || "Technology",
+        maxItems: options.maxItems,
+        userLogin: this.userLogin,
       });
 
-      const standoutOpportunities = selectStandouts(
-        screenResult.stocks,
-        options.maxItems || 5
-      );
+      if (!result.success) {
+        throw new Error(result.error || "E*TRADE unavailable");
+      }
 
       // Audit every run (not just ones with hits) so "Recent autonomous
       // actions" shows the full history, including quiet runs.
       this.audit("screener.run_completed", {
         sector: options.sector || "ALL",
-        totalScanned: screenResult.totalScanned,
-        matchedCount: screenResult.matchedCount,
-        opportunityCount: standoutOpportunities.length,
-        symbols: standoutOpportunities.map(s => s.symbol),
+        totalScanned: result.totalScanned,
+        matchedCount: result.matchedCount,
+        opportunityCount: result.opportunities.length,
+        symbols: result.opportunities.map(s => s.symbol),
       });
-      if (standoutOpportunities.length > 0) {
+      if (result.opportunities.length > 0) {
         this.audit("screener.opportunities_detected", {
           sector: options.sector || "ALL",
-          count: standoutOpportunities.length,
-          symbols: standoutOpportunities.map(s => s.symbol),
+          count: result.opportunities.length,
+          symbols: result.opportunities.map(s => s.symbol),
         });
       }
 
@@ -262,22 +253,19 @@ export class ScheduledTasksService {
         type: "screener.completed",
         timestamp,
         sector: options.sector || "ALL",
-        totalScanned: screenResult.totalScanned,
-        matchedCount: screenResult.matchedCount,
-        opportunities: standoutOpportunities.map(toOpportunityStock),
+        totalScanned: result.totalScanned,
+        matchedCount: result.matchedCount,
+        opportunities: result.opportunities,
       });
-
-      // Issue #253/#259: full scanned set via the shared pipeline.
-      const allStocks = buildAllStocks(liveQuotes, screenResult.stocks);
 
       return {
         success: true,
         taskType: "market_screen",
         data: {
-          totalScanned: screenResult.totalScanned,
-          matchedCount: screenResult.matchedCount,
-          opportunities: standoutOpportunities,
-          allStocks,
+          totalScanned: result.totalScanned,
+          matchedCount: result.matchedCount,
+          opportunities: result.opportunities,
+          allStocks: result.allStocks,
           sector: options.sector,
         },
         timestamp,

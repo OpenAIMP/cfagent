@@ -23,8 +23,10 @@ import { DynamicMarketScreener, inferSectorFromCompanyName } from "./screener";
 import {
   fetchTechnologySymbols,
   fetchLiveQuotes,
+  withRetries,
   type LiveScreenerDeps,
 } from "./liveScreener";
+import { computeScreeningIndicators } from "./screeningIndicators";
 import {
   fetchAllUsStockListings,
   type NasdaqStockListing,
@@ -47,6 +49,18 @@ import type {
 // ---------------------------------------------------------------------------
 
 /** One scanned symbol, JSON-safe. Superset of what the panel needs. */
+/** Screening indicators (issue #261) — E*TRADE-honest, methodology-labeled. */
+export interface ScreenedIndicators {
+  sentiment: string;
+  directional: boolean;
+  rangeZone: string;
+  valueZone: string;
+  screenScore: number;
+  intradayPosition: number | null;
+  rangePosition: number | null;
+  summary: string;
+}
+
 export interface ScannedStock {
   symbol: string;
   companyName: string;
@@ -56,6 +70,7 @@ export interface ScannedStock {
   changePercent: number;
   rsi14: number | null;
   source: string;
+  indicators: ScreenedIndicators;
 }
 
 /** One standout opportunity, JSON-safe. */
@@ -66,23 +81,24 @@ export interface OpportunityStock {
   momentumScore: number;
   lastPrice: number;
   changePercent: number;
+  indicators: ScreenedIndicators;
 }
 
 // ---------------------------------------------------------------------------
 // Universe acquisition — the ONLY stage that varies by trigger.
 // ---------------------------------------------------------------------------
 
-export type UniverseMode = "all-listings" | "live-quotes";
+export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only";
 
 export interface AcquireUniverseOptions {
   mode: UniverseMode;
   /** all-listings: exchange scope filter ("ALL" or exchange code). */
   exchange?: string;
-  /** live-quotes: pre-filtered listings (default: tech-keyword filter). */
+  /** live-quotes / etrade-only: pre-filtered listings (default: tech-keyword filter). */
   symbols?: NasdaqStockListing[];
-  /** live-quotes: cap on symbols quoted (default 50). */
+  /** live-quotes / etrade-only: cap on symbols quoted (default 50). */
   maxSymbols?: number;
-  /** live-quotes: E*TRADE fetcher (required for live-quotes mode). */
+  /** live-quotes / etrade-only: E*TRADE fetcher (required for these modes). */
   liveDeps?: LiveScreenerDeps;
 }
 
@@ -127,6 +143,67 @@ export async function acquireUniverse(
         candidateCount: symbols.length,
         listingCount: quotes.length,
         message: `E*TRADE-primary live quotes with Nasdaq fallback; ${quotes.length} of ${symbols.length} symbols quoted.`,
+      },
+    };
+  }
+
+  // Issue #261: etrade-only mode — market data comes from E*TRADE or
+  // nothing. No Nasdaq fallback, no zero-filled substitute rows. If
+  // E*TRADE cannot quote a symbol it is skipped; if it cannot quote
+  // any, the screen fails honestly instead of presenting fake data.
+  if (opts.mode === "etrade-only") {
+    if (!opts.liveDeps) {
+      throw new Error("etrade-only mode requires liveDeps.fetchETradeQuote");
+    }
+    const symbols = opts.symbols ?? (await fetchTechnologySymbols());
+    const limited = symbols.slice(0, opts.maxSymbols ?? 50);
+    const quotes: ETradeQuote[] = [];
+    const failed: string[] = [];
+    const CONCURRENCY = 10;
+    for (let i = 0; i < limited.length; i += CONCURRENCY) {
+      const batch = limited.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (listing) => {
+          const live = await withRetries(
+            () => opts.liveDeps!.fetchETradeQuote(listing.symbol),
+            "E*TRADE",
+            listing.symbol
+          );
+          if (!live || !(live.lastPrice > 0)) {
+            throw new Error(`E*TRADE returned no quote for ${listing.symbol}`);
+          }
+          return {
+            ...live,
+            symbol: listing.symbol,
+            companyName: live.companyName || listing.companyName,
+            source: "E*TRADE live",
+            quoteStatus: "LIVE",
+          } as ETradeQuote;
+        })
+      );
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j];
+        if (r.status === "fulfilled") quotes.push(r.value);
+        else failed.push(batch[j].symbol);
+      }
+    }
+    if (quotes.length === 0) {
+      throw new Error(
+        `E*TRADE unavailable: no live quotes returned for ${limited.length} symbols` +
+          (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
+          ". No fallback data substituted."
+      );
+    }
+    return {
+      quotes,
+      discovery: {
+        mode: "live_quotes",
+        candidateCount: symbols.length,
+        listingCount: quotes.length,
+        message:
+          `E*TRADE-only live quotes; ${quotes.length} of ${limited.length} symbols quoted` +
+          (failed.length > 0 ? ` (${failed.length} failed, no fallback substituted)` : "") +
+          ".",
       },
     };
   }
@@ -277,10 +354,34 @@ export function screenUniverse(
 export function toScannedStock(
   quote: Pick<
     ETradeQuote,
-    "symbol" | "companyName" | "lastPrice" | "changePercent" | "source"
+    | "symbol"
+    | "companyName"
+    | "lastPrice"
+    | "changePercent"
+    | "source"
+    | "open"
+    | "high"
+    | "low"
+    | "week52High"
+    | "week52Low"
+    | "peRatio"
+    | "volume"
+    | "averageVolume"
   >,
   screened?: Pick<ScreenedStockItem, "signal" | "momentumScore" | "rsi14"> | null
 ): ScannedStock {
+  const ind = computeScreeningIndicators({
+    lastPrice: quote.lastPrice || 0,
+    changePercent: quote.changePercent || 0,
+    open: quote.open || 0,
+    high: quote.high || 0,
+    low: quote.low || 0,
+    week52High: quote.week52High || 0,
+    week52Low: quote.week52Low || 0,
+    peRatio: quote.peRatio,
+    volume: quote.volume || 0,
+    averageVolume: quote.averageVolume,
+  });
   return {
     symbol: quote.symbol,
     companyName: quote.companyName || quote.symbol,
@@ -290,18 +391,47 @@ export function toScannedStock(
     changePercent: quote.changePercent || 0,
     rsi14: screened?.rsi14 ?? null,
     source: quote.source || "unknown",
+    indicators: {
+      sentiment: ind.sentiment,
+      directional: ind.directional,
+      rangeZone: ind.rangeZone,
+      valueZone: ind.valueZone,
+      screenScore: ind.screenScore,
+      intradayPosition: ind.intradayPosition,
+      rangePosition: ind.rangePosition,
+      summary: ind.summary,
+    },
   };
 }
 
 /** Map one screened stock to the opportunity shape. The ONLY place. */
 export function toOpportunityStock(s: ScreenedStockItem): OpportunityStock {
+  const scanned = toScannedStock(
+    {
+      symbol: s.symbol,
+      companyName: s.companyName,
+      lastPrice: s.lastPrice,
+      changePercent: s.changePercent,
+      source: (s as any).source,
+      open: (s as any).open ?? 0,
+      high: (s as any).high ?? 0,
+      low: (s as any).low ?? 0,
+      week52High: (s as any).week52High ?? 0,
+      week52Low: (s as any).week52Low ?? 0,
+      peRatio: (s as any).peRatio,
+      volume: (s as any).volume ?? 0,
+      averageVolume: (s as any).averageVolume,
+    },
+    s
+  );
   return {
-    symbol: s.symbol,
-    companyName: s.companyName || s.symbol,
-    signal: s.signal || "unknown",
-    momentumScore: s.momentumScore || 0,
-    lastPrice: s.lastPrice || 0,
-    changePercent: s.changePercent || 0,
+    symbol: scanned.symbol,
+    companyName: scanned.companyName,
+    signal: scanned.signal,
+    momentumScore: scanned.momentumScore,
+    lastPrice: scanned.lastPrice,
+    changePercent: scanned.changePercent,
+    indicators: scanned.indicators,
   };
 }
 
