@@ -192,6 +192,12 @@ export async function acquireUniverse(
     if (lower.includes("auth") || lower.includes("401") || lower.includes("403") || lower.includes("token")) {
       return "auth";
     }
+    if (lower.includes("null-response")) {
+      return "api-empty-response";
+    }
+    if (lower.includes("zero-price")) {
+      return "api-zero-price";
+    }
     if (lower.includes("no quote") || lower.includes("not found") || lower.includes("invalid symbol")) {
       return "symbol-not-quotable";
     }
@@ -228,7 +234,10 @@ export async function acquireUniverse(
             listing.symbol
           );
           if (!live || !(live.lastPrice > 0)) {
-            throw new Error(`E*TRADE returned no quote for ${listing.symbol}`);
+            // Preserve the underlying state for diagnostics: distinguish
+            // null (API returned nothing) from zero-price (empty quote).
+            const detail = !live ? "null-response" : `zero-price(lastPrice=${live.lastPrice})`;
+            throw new Error(`E*TRADE returned no quote for ${listing.symbol} [${detail}]`);
           }
           return {
             ...live,
