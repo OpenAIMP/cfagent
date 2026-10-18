@@ -284,7 +284,7 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
 
     const extApis = getExternalApisConfig();
     expect(extApis.nasdaqListings.pageSize).toBe(5000);
-    expect(extApis.nasdaqListings.timeoutMs).toBe(2500);
+    expect(extApis.nasdaqListings.timeoutMs).toBe(20000); // #246: API takes 3.7s+ per request
     expect(extApis.nasdaqListings.exchanges).toContain("nasdaq");
   });
 

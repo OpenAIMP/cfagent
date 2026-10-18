@@ -5,11 +5,15 @@
 # leaked credentials are caught before they merge.
 #
 # INSTALL (owner, via the GitHub web UI — the assistant's integration cannot
-# write .github/workflows/, 403): create .github/workflows/gitleaks.yml with
-# exactly this content and commit it to main. No new secrets.
+# write .github/workflows/, 403): create/overwrite .github/workflows/gitleaks.yml
+# with exactly this content and commit it to main. No new secrets.
 #
-# PERMISSIONS: contents: read is sufficient for the scan. If you later enable
-# the action's PR-comment summary, add pull-requests: write.
+# v2 FIX (2026-10-18): gitleaks-action@v2 reads process.env.GITHUB_TOKEN on the
+# pull_request path (ScanPullRequest) and hard-fails with "GITHUB_TOKEN is now
+# required to scan pull requests" when it is absent — push runs were green,
+# PR runs failed in ~1s. The env block below is REQUIRED; contents: read
+# permission on the workflow is sufficient (the token is only used to list
+# the PR's commits).
 #
 # FINE-TUNING: if the scan flags false positives, add a .gitleaks.toml
 # allowlist at the repo root (see the gitleaks docs); the action picks it
@@ -45,3 +49,5 @@ jobs:
 
       - name: 🔎 Scan for secrets with Gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
