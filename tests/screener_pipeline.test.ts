@@ -93,6 +93,14 @@ describe("screenerPipeline — shared shaping (#259)", () => {
         quantRating: null,
         gradedFactors: [],
       }),
+      // Issue #269: technicals ride along (empty until attachTechnicals).
+      technicals: expect.objectContaining({
+        rsi14: null,
+        macdLine: null,
+        gapPercent: null,
+        gapDirection: null,
+        historySource: null,
+      }),
     });
   });
 

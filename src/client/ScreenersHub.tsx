@@ -72,6 +72,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [trend, setTrend] = useState("all");
   const [rows, setRows] = useState<ScreenRow[]>([]);
   // Issue #261: manual run result for the unified ScreenerResultsView.
+  const [universe, setUniverse] = useState("TECH");
+  const [shardedResults, setShardedResults] = useState<any[]>([]);
   const [manualResult, setManualResult] = useState<{
     timestamp: string;
     trigger: "manual" | "scheduled";
@@ -156,6 +158,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     setDiscovery(null);
     try {
       const filters = {
+        universe,
         ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "exchange") ? { exchange } : {}),
@@ -209,7 +212,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       if (data.validationError) throw new Error(data.validationError);
 
       // Issue #261: manual results feed the unified ScreenerResultsView.
-      const stockResults = data.stocks || [];
+      // Issue #270: sharded ALL results render per-universe sections.
       const mapRow = (s: any) => ({
         symbol: s.symbol,
         companyName: s.companyName || s.symbol,
@@ -220,7 +223,32 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         rsi14: s.rsi14 ?? null,
         source: s.source || "E*TRADE live",
         indicators: s.indicators,
+        factorGrades: s.factorGrades,
+        technicals: s.technicals,
       });
+      if ((data as any).sharded) {
+        const shards = (data as any).universes || [];
+        setShardedResults(
+          shards.map((u: any) => ({
+            universe: u.universe,
+            timestamp: u.scannedAt || new Date().toISOString(),
+            trigger: "manual" as const,
+            sector: "Technology",
+            success: u.success,
+            totalScanned: u.totalScanned ?? 0,
+            matchedCount: u.matchedCount ?? 0,
+            opportunities: (u.opportunities ?? []).map(mapRow),
+            allStocks: (u.stocks ?? []).map(mapRow),
+            discoveryMessage: u.discoveryMessage,
+          }))
+        );
+        setManualResult(null);
+        setSummary(`${shards.length} universes screened in parallel`);
+        setScannedAt(new Date().toLocaleTimeString());
+        return;
+      }
+      setShardedResults([]);
+      const stockResults = data.stocks || [];
       setManualResult({
         timestamp: data.scannedAt || new Date().toISOString(),
         trigger: "manual",
@@ -455,6 +483,19 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 <label className="options-field"><span>Max price</span><input type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
               </>
             )}
+            <label className="options-field">
+              <span>Universe</span>
+              <select value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
+                <option value="TECH">Technology (discovery)</option>
+                <option value="NASDAQ100">Nasdaq-100</option>
+                <option value="SP100">S&P 100</option>
+                <option value="SP500">S&P 500</option>
+                <option value="RUSSELL2000">Russell 2000</option>
+                <option value="ETF">ETFs</option>
+                <option value="LEV_ETF">Leveraged ETFs</option>
+                <option value="ALL">All (auto-sharded, parallel)</option>
+              </select>
+            </label>
             {providerSupportsFilter(activeProvider, assetClass, "trend") && (
               <label className="options-field">
                 <span>Daily trend</span>
@@ -476,6 +517,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           {error && <div className="options-error" role="alert">{error}</div>}
           {/* Issue #261: manual results use the same ScreenerResultsView as autonomous. */}
           {manualResult && <ScreenerResultsView result={manualResult} />}
+          {shardedResults.length > 0 && shardedResults.map((r) => (
+            <div key={r.universe} style={{ marginTop: "1.5rem" }}>
+              <h3 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>🌐 {r.universe}</h3>
+              <ScreenerResultsView result={r} />
+            </div>
+          ))}
           {!manualResult && summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
           {!manualResult && (rows.length > 0 || summary) && (
             rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (

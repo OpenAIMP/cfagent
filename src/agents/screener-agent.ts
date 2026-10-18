@@ -24,10 +24,18 @@ import {
   selectStandouts,
   buildAllStocks,
   attachFactorGrades,
+  attachTechnicals,
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
 } from "../trading/screenerPipeline";
+import { fetchTechnicalsBatch } from "../trading/yahooHistory";
+import {
+  UNIVERSES,
+  shardableUniverses,
+  resolveUniverse,
+  type UniverseId,
+} from "../trading/universes";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import type { StockScreenerFilter } from "../types";
 
@@ -38,11 +46,13 @@ export interface ScreenerRunRequest {
   filters?: StockScreenerFilter;
   /** Scheduled: sector label (default "Technology"). */
   sector?: string;
+  /** Universe to screen (default "TECH"). "ALL" auto-shards (see runSharded). */
+  universe?: UniverseId;
   /** Scheduled: max standout opportunities (default 5). */
   maxItems?: number;
-  /** Optional explicit symbol universe (default: tech-keyword discovery). */
+  /** Optional explicit symbol universe (overrides universe selector). */
   symbols?: NasdaqStockListing[];
-  /** Cap on symbols quoted via E*TRADE (default 50). */
+  /** Cap on symbols quoted via E*TRADE (default: universe default). */
   maxSymbols?: number;
   /** User login for E*TRADE auth scoping. */
   userLogin?: string;
@@ -51,6 +61,8 @@ export interface ScreenerRunRequest {
 export interface ScreenerRunResult {
   timestamp: string;
   trigger: "manual" | "scheduled";
+  /** Universe screened (issue #270). */
+  universe: UniverseId;
   sector: string;
   success: boolean;
   totalScanned: number;
@@ -66,6 +78,7 @@ export interface ScreenerRunResult {
 const LATEST_KEY = "screener:latest";
 const HISTORY_KEY = "screener:history";
 const HISTORY_LIMIT = 20;
+const PDF_KEY = "screener:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -95,6 +108,7 @@ export class ScreenerAgent extends Agent<Env> {
     const sector = req.sector || req.filters?.sector || "Technology";
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
+    const universe: UniverseId = req.universe ?? "TECH";
 
     try {
       const etrade = new ETradeService(
@@ -103,12 +117,23 @@ export class ScreenerAgent extends Agent<Env> {
         userLogin
       );
 
+      // Issue #270: resolve the universe to symbols (listings directory
+      // = symbol membership only, not market data). E*TRADE-only quotes.
+      const universeDef = UNIVERSES[universe];
+      let symbols = req.symbols;
+      if (!symbols && universe !== "ALL") {
+        const { fetchAllUsStockListings } = await import(
+          "../services/nasdaqListings"
+        );
+        const listings = await fetchAllUsStockListings();
+        symbols = resolveUniverse(universe, listings);
+      }
       // E*TRADE-only acquisition (#261). Symbols come from the listings
       // directory (not market data); quotes come from E*TRADE or nothing.
       const acquired = await acquireUniverse({
         mode: "etrade-only",
-        symbols: req.symbols,
-        maxSymbols: req.maxSymbols ?? 50,
+        symbols,
+        maxSymbols: req.maxSymbols ?? universeDef.defaultMaxSymbols,
         liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
       });
 
@@ -117,26 +142,35 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
       });
 
+      // Issue #269: Yahoo history complement — real RSI/MACD/gaps.
+      // E*TRADE stays the primary quote source; Yahoo fills only the
+      // history-shaped hole. Per-symbol failures → honest nulls.
+      const technicalsBySymbol = await fetchTechnicalsBatch(
+        acquired.quotes.map((q) => q.symbol)
+      );
+
       // Issue #266: SA-style factor grades, computed percentile-relative
       // across the full scanned universe, then joined onto opportunities.
-      const allStocks = attachFactorGrades(
-        buildAllStocks(acquired.quotes, screenResult.stocks)
+      const allStocks = attachTechnicals(
+        attachFactorGrades(buildAllStocks(acquired.quotes, screenResult.stocks)),
+        technicalsBySymbol
       );
-      const gradesBySymbol = new Map(
-        allStocks.map((s) => [s.symbol, s.factorGrades])
-      );
+      const bySymbol = new Map(allStocks.map((s) => [s.symbol, s]));
       const opportunities = selectStandouts(
         screenResult.stocks,
         req.maxItems ?? 5
       ).map((s) => {
         const opp = toOpportunityStock(s);
-        const graded = gradesBySymbol.get(s.symbol);
-        return graded ? { ...opp, factorGrades: graded } : opp;
+        const graded = bySymbol.get(s.symbol);
+        return graded
+          ? { ...opp, factorGrades: graded.factorGrades, technicals: graded.technicals }
+          : opp;
       });
 
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        universe,
         sector,
         success: true,
         totalScanned: screenResult.totalScanned,
@@ -154,6 +188,7 @@ export class ScreenerAgent extends Agent<Env> {
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        universe,
         sector,
         success: false,
         totalScanned: 0,
@@ -178,6 +213,34 @@ export class ScreenerAgent extends Agent<Env> {
     return (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
   }
 
+  /**
+   * Sharded run (issue #270): "ALL" fans out into parallel per-universe
+   * screens. Each shard runs the full pipeline (E*TRADE + Yahoo + grades +
+   * PDF) and persists under its own universe key. Returns one result per
+   * universe, in shardableUniverses() order.
+   */
+  async runSharded(
+    req: Omit<ScreenerRunRequest, "universe" | "symbols">
+  ): Promise<ScreenerRunResult[]> {
+    const shards = shardableUniverses();
+    return Promise.all(
+      shards.map((universe) => this.runScreen({ ...req, universe }))
+    );
+  }
+
+  /**
+   * Latest report PDF (issue #269) — generated at run time, served by
+   * GET /api/screener/report.pdf and attached to Slack/email deliveries.
+   */
+  async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(PDF_KEY);
+    if (!stored) return null;
+    const bin = atob(stored.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, fileName: stored.fileName };
+  }
+
   private async persistRun(result: ScreenerRunResult): Promise<void> {
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
@@ -186,5 +249,23 @@ export class ScreenerAgent extends Agent<Env> {
       HISTORY_KEY,
       [result, ...history].slice(0, HISTORY_LIMIT)
     );
+    // Issue #269: generate + store the report PDF for download/delivery.
+    try {
+      const { generateScreenerPdf, screenerPdfFileName } = await import(
+        "../trading/screenerReportPdf"
+      );
+      const pdfBytes = await generateScreenerPdf(result);
+      let base64 = "";
+      const chunk = 8192;
+      for (let i = 0; i < pdfBytes.length; i += chunk) {
+        base64 += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
+      }
+      await this.ctx.storage.put(PDF_KEY, {
+        base64: btoa(base64),
+        fileName: screenerPdfFileName(result),
+      });
+    } catch (err) {
+      console.warn("[ScreenerAgent] PDF generation failed:", err);
+    }
   }
 }

@@ -2210,7 +2210,7 @@ export function Chat({ user }: { user: User }) {
                     : tab === "screeners"
                     ? "Screeners"
                     : tab === "scanner"
-                    ? "Scanner"
+                    ? "Strategy/Symbol Scanner"
                     : tab === "options"
                     ? "Options"
                     : tab === "voice"

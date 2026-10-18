@@ -28,6 +28,7 @@
     "agents": "latest",
     "ai": "latest",
     "mppx": "^0.13.1",
+    "pdf-lib": "^1.17.1",
     "postal-mime": "^2.7.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

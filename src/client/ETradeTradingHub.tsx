@@ -18,6 +18,7 @@ import { AccountPanels } from "./AccountPanels";
 import { ScannerPanel } from "./ScannerPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub } from "./ScreenersHub";
+import { IvHistoryPanel } from "./IvHistoryPanel";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
@@ -39,6 +40,7 @@ export type TradingSubTab =
   | "autopilot"
   | "scanner"
   | "screeners"
+  | "iv-history"
   | "options"
   | "llm-ideas"
   | "order"
@@ -1223,8 +1225,9 @@ export function ETradeTradingHub({
     if (!cleanPrompt) return;
     const tabLabels: Record<typeof effectiveSubTab, string> = {
       autopilot: "Autopilot Control Center",
-      scanner: "Equity Universe Scan",
+      scanner: "Strategy/Symbol Scanner",
       screeners: "Multi-Asset Screeners",
+      "iv-history": "IV History",
       options: "Auto Options Research",
       "llm-ideas": "LLM Idea Experiment",
       order: "Order Ticket",
@@ -1536,6 +1539,8 @@ export function ETradeTradingHub({
           }}
         />
       )}
+
+      {effectiveSubTab === "iv-history" && <IvHistoryPanel />}
 
       {effectiveSubTab === "screeners" && (
         <ScreenersHub

@@ -216,11 +216,33 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         { idempotent: true }
       );
 
-      // 2. Autonomous market screening interval (runs every 300 seconds / 5 min)
-      await this.scheduleEvery(
-        300,
-        "autonomousMarketScreen",
-        { sector: "Technology", maxItems: 5 }
+      // 2. Autonomous market screening — hourly per-universe runs
+      // (issue #270). Each universe gets its own schedule + PDF report.
+      // Staggered by 10 minutes to spread E*TRADE load.
+      const { shardableUniverses: _shardable, UNIVERSES: _U } = await import(
+        "../trading/universes"
+      );
+      let staggerMin = 5;
+      for (const universe of _shardable()) {
+        await this.schedule(
+          `${staggerMin} * * * *`,
+          "autonomousMarketScreen",
+          { universe, maxItems: 5 },
+          { idempotent: true }
+        );
+        staggerMin = (staggerMin + 10) % 60;
+      }
+
+      // 2b. Strategy/Symbol Scanner as a scheduled job (issue #275).
+      // Runs the full strategy catalog hourly, staggered off the equity
+      // screens. Thesis rotates to cover all directions across the day.
+      const theses = ["bullish", "bearish", "range_bound", "large_move"];
+      const thesisIdx = new Date().getHours() % theses.length;
+      await this.schedule(
+        "35 * * * *",
+        "autonomousOptionsAnalysis",
+        { thesis: theses[thesisIdx], pushToSlack: true },
+        { idempotent: true }
       );
 
       // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
@@ -264,7 +286,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Runs periodic market screening
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
-  async autonomousMarketScreen(payload?: { sector?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
+  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
     try {
       await this.waitUntilStable({ timeout: 30_000 });
     } catch {
@@ -3266,10 +3288,41 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("minRsi")) filters.minRsi = Number(url.searchParams.get("minRsi"));
           if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
           if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
+          if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
         }
-        const result = await this.getScreenerAgent().runScreen({
+        // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
+        const universe = (filters.universe as string) || "TECH";
+        const agent = this.getScreenerAgent();
+        if (universe === "ALL") {
+          const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
+          const failed = shards.filter((r) => !r.success);
+          if (failed.length === shards.length) {
+            return Response.json({ error: failed[0]?.error || "E*TRADE unavailable" }, { status: 502 });
+          }
+          this.audit("etrade.screened", "trading", {
+            filterSummary: `ALL (sharded: ${shards.length} universes)`,
+            count: shards.reduce((n, r) => n + r.allStocks.length, 0),
+            success: true,
+          });
+          return Response.json({
+            sharded: true,
+            universes: shards.map((r) => ({
+              universe: r.universe,
+              totalScanned: r.totalScanned,
+              matchedCount: r.matchedCount,
+              opportunities: r.opportunities,
+              stocks: r.allStocks,
+              discoveryMessage: r.discoveryMessage,
+              scannedAt: r.timestamp,
+              success: r.success,
+              error: r.error,
+            })),
+          });
+        }
+        const result = await agent.runScreen({
           trigger: "manual",
           filters,
+          universe: universe as any,
           userLogin,
         });
         this.audit("etrade.screened", "trading", {
@@ -3281,6 +3334,7 @@ Agentic Best Practices & Workflow Rules:
           return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
         }
         return Response.json({
+          universe: result.universe,
           totalScanned: result.totalScanned,
           matchedCount: result.matchedCount,
           opportunities: result.opportunities,
@@ -4170,7 +4224,20 @@ Agentic Best Practices & Workflow Rules:
         const store = new SqlIvHistoryStore(sql);
         const symbolParam = url.searchParams.get("symbol");
         if (symbolParam) {
-          return Response.json(await getIvHistoryEntry(store, symbolParam));
+          const entry = await getIvHistoryEntry(store, symbolParam);
+          // ?series=true includes the full time series for charting.
+          if (url.searchParams.get("series") === "true") {
+            const series = await store.listSeries(symbolParam.toUpperCase(), { limit: 365 });
+            return Response.json({
+              ...entry,
+              series: series.reverse().map((r) => ({
+                date: r.date,
+                atmIv: r.atmIv,
+                spot: r.spot,
+              })),
+            });
+          }
+          return Response.json(entry);
         }
         let watchlistSymbols: string[] = [];
         try {
@@ -4735,6 +4802,23 @@ Agentic Best Practices & Workflow Rules:
     }
 
     // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)
+    // Issue #275: strategy catalog with direction tags (GET).
+    if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
+      try {
+        const strategies = defaultRegistry.list().map((s) => ({
+          id: s.id,
+          label: s.label,
+          category: s.category,
+          description: s.description,
+          theses: s.theses ?? [],
+          aliases: s.aliases ?? [],
+        }));
+        return Response.json({ count: strategies.length, strategies });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });
+      }
+    }
+
     if ((path.endsWith("/trading/options/strategies") || path.endsWith("/trading/options/best-trade")) && request.method === "POST") {
       const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
         strategyFilter?: StrategyScreenFilter;
@@ -5321,6 +5405,25 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load screener runs", runs: [] }, { status: 500 });
+      }
+    }
+
+    // Issue #269: downloadable PDF report of the latest screener run.
+    if (path.endsWith("/screener/report.pdf") && request.method === "GET") {
+      try {
+        const pdf = await this.getScreenerAgent().getLatestPdf();
+        if (!pdf) {
+          return Response.json({ error: "No screener report available yet" }, { status: 404 });
+        }
+        return new Response(pdf.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
+            "Content-Length": String(pdf.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
       }
     }
 

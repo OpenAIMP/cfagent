@@ -13,6 +13,18 @@
 
 import { useMemo, useState } from "react";
 
+export interface StockTechnicalsData {
+  rsi14: number | null;
+  macdLine: number | null;
+  macdSignalLine: number | null;
+  macdHistogram: number | null;
+  macdSignal: string | null;
+  gapPercent: number | null;
+  gapDirection: "up" | "down" | "flat" | null;
+  historyBars: number;
+  historySource: string | null;
+}
+
 export interface FactorGradesData {
   value: string | null;
   momentum: string | null;
@@ -53,6 +65,7 @@ export interface ScreenerResultData {
     changePercent: number;
     indicators?: ScreenedIndicatorsData;
     factorGrades?: FactorGradesData;
+    technicals?: StockTechnicalsData;
   }>;
   allStocks?: Array<{
     symbol: string;
@@ -65,6 +78,7 @@ export interface ScreenerResultData {
     source: string;
     indicators?: ScreenedIndicatorsData;
     factorGrades?: FactorGradesData;
+    technicals?: StockTechnicalsData;
   }>;
   discoveryMessage?: string;
   error?: string;
@@ -82,7 +96,8 @@ type SortKey =
   | "rsi14"
   | "quantRating"
   | "valueGrade"
-  | "momentumGrade";
+  | "momentumGrade"
+  | "gapPercent";
 
 const SENTIMENT_RANK: Record<string, number> = {
   very_bullish: 5,
@@ -132,6 +147,8 @@ function sortValue(row: { indicators?: ScreenedIndicatorsData } & Record<string,
       return GRADE_RANK[row.factorGrades?.value ?? ""] ?? -1;
     case "momentumGrade":
       return GRADE_RANK[row.factorGrades?.momentum ?? ""] ?? -1;
+    case "gapPercent":
+      return row.technicals?.gapPercent ?? -999;
     default:
       return row[key] ?? 0;
   }
@@ -242,6 +259,24 @@ function quantRatingColor(r: string | null | undefined): string {
   return "var(--color-danger, #e5484d)";
 }
 
+function GapCell({ t }: { t?: StockTechnicalsData }) {
+  if (t?.gapPercent == null) {
+    return <td style={{ color: "var(--theme-text-muted)" }} title="No history — gap unavailable">—</td>;
+  }
+  const arrow = t.gapDirection === "up" ? "▲" : t.gapDirection === "down" ? "▼" : "•";
+  const color =
+    t.gapDirection === "up"
+      ? "var(--color-success, #30a46c)"
+      : t.gapDirection === "down"
+        ? "var(--color-danger, #e5484d)"
+        : "var(--theme-text-muted)";
+  return (
+    <td style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
+      {arrow} {t.gapPercent >= 0 ? "+" : ""}{t.gapPercent.toFixed(2)}%
+    </td>
+  );
+}
+
 function ChangeCell({ value }: { value: number }) {
   return (
     <td
@@ -281,6 +316,22 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
 
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+        <a
+          href="/api/screener/report.pdf"
+          download
+          style={{
+            fontSize: "0.8rem",
+            padding: "0.35rem 0.75rem",
+            borderRadius: "4px",
+            border: "1px solid var(--color-accent)",
+            color: "var(--color-accent)",
+            textDecoration: "none",
+          }}
+        >
+          📄 Download PDF report
+        </a>
+      </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
         <strong>{triggerLabel}</strong> • <strong>{result.sector}</strong> sector •{" "}
         {result.totalScanned.toLocaleString()} scanned • {result.matchedCount} matched •{" "}
@@ -322,6 +373,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                     <SortTh label="Mom" k="momentumGrade" {...opps} title="Momentum factor grade A+…F (relative)" />
                     <SortTh label="Price" k="lastPrice" {...opps} />
                     <SortTh label="Change" k="changePercent" {...opps} />
+                    <SortTh label="Gap" k="gapPercent" {...opps} title="Overnight gap % (open vs prev close, Yahoo)" />
                     <SortTh label="Range" k="rangeZone" {...opps} title="Range-based overbought/oversold (52-week position, not RSI)" />
                     <SortTh label="Value" k="valueZone" {...opps} title="Heuristic value zone (P/E + 52-week position)" />
                   </tr>
@@ -351,6 +403,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                       <td><GradeBadge grade={o.factorGrades?.momentum} /></td>
                       <td>${o.lastPrice.toFixed(2)}</td>
                       <ChangeCell value={o.changePercent} />
+                      <GapCell t={o.technicals} />
                       <td>{o.indicators?.rangeZone ?? "—"}</td>
                       <td>{o.indicators?.valueZone ?? "—"}</td>
                     </tr>
@@ -383,6 +436,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                       <th>Company</th>
                       <SortTh label="Price" k="lastPrice" {...all} />
                       <SortTh label="Change" k="changePercent" {...all} />
+                      <SortTh label="Gap" k="gapPercent" {...all} title="Overnight gap % (Yahoo)" />
                       <SortTh label="Sentiment" k="sentiment" {...all} />
                       <SortTh label="Score" k="screenScore" {...all} />
                       <SortTh label="Quant" k="quantRating" {...all} />
@@ -391,7 +445,8 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                       <SortTh label="Momentum" k="momentumScore" {...all} />
                       <SortTh label="Range" k="rangeZone" {...all} title="Range-based (52-week position), not RSI" />
                       <SortTh label="Value" k="valueZone" {...all} />
-                      <SortTh label="RSI(14)" k="rsi14" {...all} title="Needs price history — unavailable from E*TRADE snapshots" />
+                      <SortTh label="RSI(14)" k="rsi14" {...all} title="Real RSI(14) from Yahoo daily history" />
+                      <th title="MACD(12,26,9) from Yahoo daily history">MACD</th>
                       <th>Source</th>
                     </tr>
                   </thead>
@@ -409,6 +464,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                         <td>{s.companyName}</td>
                         <td>${s.lastPrice.toFixed(2)}</td>
                         <ChangeCell value={s.changePercent} />
+                        <GapCell t={s.technicals} />
                         <td style={{ color: sentimentColor(s.indicators?.sentiment) }}>
                           {sentimentLabel(s.indicators?.sentiment)}
                         </td>
@@ -423,8 +479,16 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                         <td>{s.momentumScore.toFixed(0)}</td>
                         <td>{s.indicators?.rangeZone ?? "—"}</td>
                         <td>{s.indicators?.valueZone ?? "—"}</td>
-                        <td title="RSI(14) needs 14+ daily closes; E*TRADE snapshots carry no history">
+                        <td title={s.technicals?.historySource ? `RSI(14) from ${s.technicals.historySource} (${s.technicals.historyBars} bars)` : "No history — RSI unavailable"}>
                           {s.rsi14 == null ? "—" : s.rsi14.toFixed(1)}
+                        </td>
+                        <td
+                          style={{ fontSize: "0.75rem" }}
+                          title={s.technicals?.macdSignal ?? "No history — MACD unavailable"}
+                        >
+                          {s.technicals?.macdHistogram == null
+                            ? "—"
+                            : `${s.technicals.macdHistogram >= 0 ? "+" : ""}${s.technicals.macdHistogram.toFixed(2)}`}
                         </td>
                         <td style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)" }}>
                           {s.source}

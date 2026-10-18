@@ -913,6 +913,116 @@ export interface ScannerPanelProps {
   onPreviewTrade?: (ctx: TradeOrderContext) => void;
 }
 
+
+// Strategy catalog browser (issue #275) ------------------------------------
+
+interface CatalogStrategy {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+  theses: string[];
+  aliases: string[];
+}
+
+const THESIS_COLORS: Record<string, string> = {
+  bullish: "var(--color-success, #30a46c)",
+  bearish: "var(--color-danger, #e5484d)",
+  range_bound: "var(--color-warning, #d4a017)",
+  large_move: "#8b5cf6",
+};
+
+function StrategyCatalogBrowser() {
+  const [strategies, setStrategies] = useState<CatalogStrategy[]>([]);
+  const [filter, setFilter] = useState<string>("all");
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/trading/options/catalog");
+      if (!res.ok) return;
+      const data = (await res.json()) as { strategies?: CatalogStrategy[] };
+      setStrategies(data.strategies ?? []);
+      setLoaded(true);
+    } catch {
+      // Catalog unavailable — browser stays empty.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && !loaded) load();
+  }, [open, loaded, load]);
+
+  const filtered =
+    filter === "all" ? strategies : strategies.filter((st) => st.theses.includes(filter));
+  const theses = ["all", "bullish", "bearish", "range_bound", "large_move"];
+
+  return (
+    <div style={{ margin: "1rem 0", border: "1px solid var(--theme-border)", borderRadius: 6, padding: "0.75rem" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{ fontWeight: 700, fontSize: "0.9rem", background: "none", border: "none", cursor: "pointer" }}
+      >
+        {open ? "▼" : "▶"} Strategy catalog ({strategies.length || "…" } strategies)
+      </button>
+      {open && (
+        <div style={{ marginTop: "0.75rem" }}>
+          <div style={{ marginBottom: "0.5rem" }}>
+            {theses.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setFilter(t)}
+                style={{
+                  marginRight: "0.4rem",
+                  padding: "0.2rem 0.6rem",
+                  borderRadius: 12,
+                  border: "1px solid var(--theme-border)",
+                  background: filter === t ? "var(--theme-hover)" : "none",
+                  fontWeight: filter === t ? 700 : 400,
+                  fontSize: "0.8rem",
+                  cursor: "pointer",
+                }}
+              >
+                {t === "all" ? "All" : t.replace("_", " ")}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem" }}>
+            {filtered.map((st) => (
+              <div key={st.id} style={{ border: "1px solid var(--theme-border)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
+                <div style={{ fontWeight: 700 }}>{st.label}</div>
+                <div style={{ color: "var(--theme-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
+                <div>
+                  {st.theses.map((th) => (
+                    <span
+                      key={th}
+                      style={{
+                        display: "inline-block",
+                        marginRight: "0.3rem",
+                        padding: "0.1rem 0.45rem",
+                        borderRadius: 10,
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                        color: THESIS_COLORS[th] ?? "var(--theme-text-muted)",
+                        border: `1px solid ${THESIS_COLORS[th] ?? "var(--theme-border)"}`,
+                      }}
+                    >
+                      {th.replace("_", " ")}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPanelProps) {
   // Scan form state
   const [mode, setMode] = useState<ScanMode>("per_name_best");
@@ -1209,6 +1319,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         <h3>📈 Opportunity Scanner</h3>
         <span className="scp-asof">{activeEnv} environment</span>
       </div>
+      <StrategyCatalogBrowser />
 
       <div className="scp-mode-switch" role="group" aria-label="Scan mode">
         {(Object.keys(MODE_LABELS) as ScanMode[]).map((value) => (
