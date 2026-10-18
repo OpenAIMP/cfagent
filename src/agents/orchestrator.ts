@@ -262,6 +262,30 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const runScreen = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousMarketScreen(payload);
+      // Issue #212: persist the run for the "last results" UX endpoint.
+      try {
+        const key = "screener:last_runs";
+        const existing = ((await this.ctx.storage.get(key)) as any[]) || [];
+        const run = {
+          timestamp: res.timestamp,
+          sector: payload?.sector || "ALL",
+          success: res.success,
+          totalScanned: res.data?.totalScanned ?? 0,
+          matchedCount: res.data?.matchedCount ?? 0,
+          opportunities: (res.data?.opportunities || []).map((s: any) => ({
+            symbol: s.symbol,
+            companyName: s.companyName || s.symbol,
+            signal: s.signal || "unknown",
+            momentumScore: s.momentumScore || 0,
+            lastPrice: s.lastPrice || 0,
+            changePercent: s.changePercent || 0,
+          })),
+          error: res.success ? undefined : res.error,
+        };
+        await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
+      } catch {
+        // Non-critical: persistence failure must not break the screen.
+      }
       if (res.success && res.data?.opportunities && res.data.opportunities.length > 0) {
         if (typeof (this as any).broadcast === "function") {
           try {
@@ -5268,6 +5292,20 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
+    // Issue #212: latest autonomous screener runs (GET /api/screener/latest)
+    if (path.endsWith("/api/screener/latest") && request.method === "GET") {
+      try {
+        const runs = ((await this.ctx.storage.get("screener:last_runs")) as any[]) || [];
+        return Response.json({
+          count: runs.length,
+          runs,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load screener runs", runs: [] }, { status: 500 });
+      }
+    }
+
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
         // Issue #108: the typed listSchedules() is called directly. The
