@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { apiFetch as fetch } from "./apiFetch";
 import { executionCardPresentation } from "./executionCard";
 import { confirmationCardPresentation } from "./confirmationCard";
+import { didProofSignatureDisplay } from "./didProofCard";
+import { orderPreviewCardPresentation } from "./orderPreviewCard";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { resolveErrorAspect } from "../aspects/errorCodes";
@@ -582,6 +584,11 @@ function ToolResultView({
     }
 
     // Default: Order Draft / Preview
+    // Issue #151: the pill derives from the draft's ACTUAL status via
+    // orderPreviewCardPresentation — a rejected draft reads REJECTED,
+    // not a stale "Awaiting Approval"; and no placeholder order ID is
+    // presented as a reserved one when the result carries none.
+    const previewPill = orderPreviewCardPresentation(status);
     return (
       <div className="tool-card trading-card order-preview-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
@@ -589,13 +596,13 @@ function ToolResultView({
           <div className="tool-summary">
             <strong>E*TRADE Trade Intent:</strong> {action} {quantity} {symbol} {price ? `@ $${Number(price).toFixed(2)}` : ""}
           </div>
-          <span className={`tool-status-pill ${status === "executed" ? "success" : "warning"}`}>
-            {status === "executed" ? "EXECUTED" : "Awaiting Approval"}
+          <span className={`tool-status-pill ${previewPill.pillClass}`}>
+            {previewPill.pillLabel}
           </span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         <div className="payment-notice">
-          🛡️ <strong>Safety Guarantee:</strong> No trade will be executed without explicit authorization. E*TRADE Order ID <code>{orderId || "ord_preview"}</code> reserved.
+          🛡️ <strong>Safety Guarantee:</strong> No trade will be executed without explicit authorization.{orderId && (<> E*TRADE Order ID <code>{orderId}</code> reserved.</>)}
         </div>
         {orderId && status !== "executed" && status !== "rejected" && (
           <div className="hitl-actions">
@@ -3127,7 +3134,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
                     <div className="proof-field">
                       <label>Cryptographic Proof Signature (SHA-256 HMAC)</label>
-                      <pre className="sig-code">{selectedProofTx.proofSignature || "0x4b78a9c2e1f40d89e5a1b3c7d6e8f2a4"}</pre>
+                      <pre className="sig-code">{didProofSignatureDisplay(selectedProofTx.proofSignature)}</pre>
                     </div>
                     <div className="proof-field">
                       <label>Timestamp</label>
