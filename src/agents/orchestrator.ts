@@ -212,6 +212,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         { sector: "Technology", maxItems: 5 }
       );
 
+      // 2b. Autonomous options analysis interval (runs every 1800 seconds / 30 min).
+      // Heavier than the stock screen (option chains + strategy evaluation), so
+      // it runs less frequently. Issue #223.
+      await this.scheduleEvery(
+        1800,
+        "autonomousOptionsAnalysis",
+        { symbols: ["AAPL", "NVDA", "SPY", "MSFT"], thesis: "bullish" }
+      );
+
       // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
       // after the US close in both EST and EDT, so the day's record
       // reads the closing chain. Weekdays only: the series is one
@@ -348,6 +357,33 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const runAnalysis = async () => {
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousOptionsAnalysis(payload);
+      // Issue #223: persist the run for the "last results" UX endpoint.
+      try {
+        const key = "options:last_runs";
+        const existing = ((await this.ctx.storage.get(key)) as any[]) || [];
+        const run = {
+          timestamp: res.timestamp,
+          success: res.success,
+          symbols: res.data?.symbols || [],
+          withTrades: res.data?.withTrades ?? 0,
+          summary: res.data?.summary || "",
+          opportunities: (res.data?.opportunities || []).slice(0, 10),
+          error: res.success ? undefined : res.error,
+        };
+        await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
+      } catch {
+        // Non-critical: persistence failure must not break the analysis.
+      }
+      // Audit every run so Recent autonomous actions shows the history.
+      try {
+        this.audit?.("options.run_completed", {
+          symbols: res.data?.symbols || [],
+          withTrades: res.data?.withTrades ?? 0,
+          success: res.success,
+        });
+      } catch {
+        // Non-critical.
+      }
       if (res.success && res.data) {
         if (typeof (this as any).broadcast === "function") {
           try {
@@ -5305,6 +5341,21 @@ Agentic Best Practices & Workflow Rules:
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load screener runs", runs: [] }, { status: 500 });
+      }
+    }
+
+    // Issue #223: latest autonomous options runs (GET /api/options/latest).
+    // Note: server.ts strips the /api prefix, so the DO sees /options/latest.
+    if (path.endsWith("/options/latest") && request.method === "GET") {
+      try {
+        const runs = ((await this.ctx.storage.get("options:last_runs")) as any[]) || [];
+        return Response.json({
+          count: runs.length,
+          runs,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load options runs", runs: [] }, { status: 500 });
       }
     }
 
