@@ -233,6 +233,18 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         staggerMin = (staggerMin + 10) % 60;
       }
 
+      // 2b. Strategy/Symbol Scanner as a scheduled job (issue #275).
+      // Runs the full strategy catalog hourly, staggered off the equity
+      // screens. Thesis rotates to cover all directions across the day.
+      const theses = ["bullish", "bearish", "range_bound", "large_move"];
+      const thesisIdx = new Date().getHours() % theses.length;
+      await this.schedule(
+        "35 * * * *",
+        "autonomousOptionsAnalysis",
+        { thesis: theses[thesisIdx], pushToSlack: true },
+        { idempotent: true }
+      );
+
       // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
       // after the US close in both EST and EDT, so the day's record
       // reads the closing chain. Weekdays only: the series is one
@@ -4790,6 +4802,23 @@ Agentic Best Practices & Workflow Rules:
     }
 
     // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)
+    // Issue #275: strategy catalog with direction tags (GET).
+    if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
+      try {
+        const strategies = defaultRegistry.list().map((s) => ({
+          id: s.id,
+          label: s.label,
+          category: s.category,
+          description: s.description,
+          theses: s.theses ?? [],
+          aliases: s.aliases ?? [],
+        }));
+        return Response.json({ count: strategies.length, strategies });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });
+      }
+    }
+
     if ((path.endsWith("/trading/options/strategies") || path.endsWith("/trading/options/best-trade")) && request.method === "POST") {
       const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
         strategyFilter?: StrategyScreenFilter;
