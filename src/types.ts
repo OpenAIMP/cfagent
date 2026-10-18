@@ -94,6 +94,11 @@ export interface Env {
   OUTBOUND_WEBHOOK_URL?: string;
   OUTBOUND_WEBHOOK_SECRET?: string;
   INBOUND_NLQ_WEBHOOK_SECRET?: string;
+  // Optional comma-separated domain allowlist for outbound email recipients
+  // (emailTo) on webhook-triggered email paths. When set, only addresses
+  // whose domain is listed are accepted. When unset, only format validation
+  // applies (a warning is logged on first use). Issue #143 P0.
+  EMAIL_TO_ALLOWED_DOMAINS?: string;
   // Cloudflare Vectorize & AI Search
   VECTORIZE?: any;
   // Optional / backward-compatible bindings
@@ -142,6 +147,21 @@ export interface AuditEvent {
   agent: AgentName | "judge" | "nlq" | "orchestrator";
   payload: Record<string, unknown>;
   createdAt: string;
+}
+
+/**
+ * Durable record of a claimed inbound webhook nonce, used for replay
+ * protection (issue #143 P0). A nonce is provider-derived: a semantic
+ * event identity when the provider supplies one (e.g. E*TRADE
+ * orderId:eventType:timestamp), otherwise a SHA-256 hash over
+ * (provider, signature, raw body). Stored in the `webhook_replay_nonces`
+ * table; entries expire after WEBHOOK_REPLAY_TTL_MS (24h).
+ */
+export interface WebhookReplayNonce {
+  nonce: string;
+  source: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface MessageRecord {

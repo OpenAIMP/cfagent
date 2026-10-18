@@ -425,7 +425,7 @@ export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
   {
     uri: "sqlite://schema/tables",
     name: "SQLite Database Schema & Table Metadata",
-    description: "Complete database introspection of all 9 relational tables with columns, types, and primary keys.",
+    description: "Complete database introspection of all 10 relational tables with columns, types, and primary keys.",
     mimeType: "application/json",
   },
   {

@@ -135,7 +135,7 @@ describe("Natural Language Query (NLQ) Engine", () => {
 
       const result = executeNLQQuery(orm, "test_session", plan);
       expect(result.domain).toBe("tables");
-      expect(result.count).toBe(9);
+      expect(result.count).toBe(10); // 10 after webhook_replay_nonces (#143 P0)
       expect(result.rows.some((r) => r.tableName === "mas_categories")).toBe(true);
       expect(result.rows.some((r) => r.tableName === "mas_trades")).toBe(true);
       expect(result.rows.some((r) => r.tableName === "mas_external_ads")).toBe(true);
