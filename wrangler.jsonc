@@ -36,7 +36,10 @@
       "0 13 * * 1-5",
       "0 3 * * *",
       // PR #4 — ScheduledAgent tick every 30 min
-      "*/30 * * * *"
+      "*/30 * * * *",
+      // Issue #255 — nightly mas_messages retention pass (enforced in the
+      // scheduled() handler; runs against the Orchestrator agent's SQLite)
+      "0 4 * * *"
     ]
   },
   // PR #6 — Vectorize for VectorMemory

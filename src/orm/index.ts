@@ -962,4 +962,13 @@ export class DatabaseORM {
       contractCount,
     });
   }
+
+  /**
+   * Issue #255: raw read escape hatch for comparisons the Repository
+   * helpers can't express (e.g. `created_at < ?` for retention pruning).
+   * All values still travel as bound args — never interpolate into the SQL.
+   */
+  execQuery(query: string, ...args: unknown[]): any[] {
+    return Array.from(this.sql.exec(query, ...args));
+  }
 }
