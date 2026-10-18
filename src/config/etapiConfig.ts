@@ -430,7 +430,10 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     nasdaqListings: {
       url: "https://api.nasdaq.com/api/screener/stocks",
       pageSize: 5000,
-      timeoutMs: 2500,
+      // Measured API latency is 3.7–4.8s+ per request; 2500ms aborted every
+      // attempt (issue #246). 20s gives comfortable headroom for the full
+      // table dump (1–2MB per exchange).
+      timeoutMs: 20000,
       exchanges: ["nasdaq", "nyse", "amex"],
     },
     yahooFinance: {
