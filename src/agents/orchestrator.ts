@@ -3,6 +3,7 @@ import type { Schedule, ScheduleCriteria } from "agents";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
+import { VectorMemory } from "../memory/vector-memory";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
@@ -1449,6 +1450,23 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map(m => `- ${m.key}: "${m.value}"`).join("\n")
       : "";
 
+    // VectorMemory recall (issue #201): past job outcomes relevant to this
+    // request, so the response is grounded in what worked/failed before.
+    // Best-effort: a memory failure must never break the chat turn.
+    let vectorContext = "";
+    const vectorizeBinding = (this.env as any).VECTOR_MEMORY;
+    if (userText && userText.trim().length > 0 && this.env.AI && vectorizeBinding) {
+      try {
+        const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
+        const chunks = await vm.recallForPlan(userText);
+        if (chunks.length > 0) {
+          vectorContext = `\nRelevant past outcomes (vector memory, most similar first):\n${VectorMemory.brief(chunks)}`;
+        }
+      } catch (err) {
+        console.warn("[VectorMemory] recall failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+
     const model = getWorkersAIModel(this.env);
     const maxSteps = Math.max(1, Math.min(10, Number(this.env.MAS_MAX_STEPS || 6)));
 
@@ -1468,7 +1486,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const result = streamText({
         model,
         system: `You are the master orchestrator for Multi-Agent Studio (OpenAIMP), an enterprise financial intelligence and multi-agent execution platform powered by Cloudflare Agents, Durable Objects, and SQLite.
-Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}
+Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}${vectorContext}
 ${optionsResearchContext ? `\n${optionsResearchContext}\n${isAutoOptionsResearchRequest
     ? "If AUTO_OPTIONS_RESEARCH_JOB_SUBMITTED is present, tell the user it was accepted and include its job ID; do not claim analysis results yet. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that queueing failure clearly."
     : ""}` : ""}
@@ -1543,6 +1561,22 @@ Agentic Best Practices & Workflow Rules:
               safe: quality.safe,
               issues: quality.issues,
             });
+            // VectorMemory remember (issue #201): store this turn's outcome
+            // for future recall. Best-effort; never break the turn.
+            try {
+              if (this.env.AI && vectorizeBinding) {
+                const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
+                await vm.remember({
+                  jobId: requestId,
+                  operation: `chat:${route.agent}`,
+                  summary: `Q: ${userText.slice(0, 300)}\nA: ${text.slice(0, 500)}`,
+                  success: quality.safe !== false && quality.grounded !== false,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            } catch (err) {
+              console.warn("[VectorMemory] remember failed:", err instanceof Error ? err.message : String(err));
+            }
           }
         },
         onError: ({ error }: { error: unknown }) => {
