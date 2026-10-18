@@ -8,7 +8,7 @@ export interface Env {
   // PR #4 — ScheduledAgent DO (issue #166)
   SCHEDULED_AGENT: DurableObjectNamespace;
   // PR #6 — Vectorize binding for VectorMemory (issue #164)
-  VECTOR_MEMORY: VectorizeIndex;
+  VECTOR_MEMORY: any; // Vectorize binding (type varies by workers-types version)
   AI_SEARCH_ENDPOINT: string;
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
