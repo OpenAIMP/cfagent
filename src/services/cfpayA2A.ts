@@ -39,9 +39,23 @@ export interface A2AOperationResult {
  * Sends a message with a `data` part: { operation, ...args }.
  * Never throws — returns { ok: false, error } on failure.
  */
+export type CfpayAgentPath =
+  | "/a2a"
+  | "/a2a/payments"
+  | "/a2a/email"
+  | "/a2a/webhooks"
+  | "/a2a/slack"
+  | "/a2a/qa"
+  | "/a2a/chat"
+  | "/a2a/voice"
+  | "/a2a/search"
+  | "/a2a/orchestrator"
+  | "/a2a/scheduled"
+  | "/a2a/autopilot";
+
 export async function cfpayA2AOperation(
   config: CfpayA2AConfig,
-  agentPath: "/a2a/slack" | "/a2a/email",
+  agentPath: CfpayAgentPath,
   operation: string,
   args: Record<string, unknown> = {}
 ): Promise<A2AOperationResult> {
