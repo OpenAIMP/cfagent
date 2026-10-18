@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../src/trading/options/strategies/catalog";
 import { buildStrategyRequest, mapCandidateToDiscovered, sentimentToThesis, type ServerCandidate } from "../src/client/options/serverDiscovery";
 import type { ExpirationOption } from "../src/client/options/strategyDiscoveryEngine";
 
@@ -136,7 +137,7 @@ describe("server discovery mapping (issue #29)", () => {
   });
 
   it("verifies backend defaultRegistry has 74 canonical strategies in sync with catalog endpoint", async () => {
-    const { defaultRegistry, REQUESTED_STRATEGY_NAMES } = await import("../src/trading/options/strategies/catalog");
+    // statically imported above (was dynamic import — caused Vitest SSR temp file race)
     const strategies = defaultRegistry.list();
     expect(strategies.length).toBe(74);
     expect(REQUESTED_STRATEGY_NAMES.length).toBeGreaterThanOrEqual(114);
