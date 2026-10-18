@@ -24,6 +24,59 @@ import { getPlatformCapabilitiesDeskSummary } from "../services/platformKnowledg
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeBrowserService } from "../services/browserAgent";
 
+/**
+ * Assessment P0 (#143): explicit allowlist of tables the NLQ engine is
+ * permitted to read through the `table_data` domain. Derived from the
+ * tables the product's own planner legitimately targets:
+ *  - fast-path intents: mas_categories, mas_referrals, mas_external_ads,
+ *    mas_ads, mas_transactions, mas_events, mas_memory
+ *  - LLM planner intents (report/dashboard/market data): mas_trades,
+ *    mas_watchlists, mas_messages, etrade_portfolio_live, options_flows,
+ *    mas_agentic_wallet, etrade_options_screener, etrade_market_screener,
+ *    etrade_market_quotes, cf_agent_schedules, yfinance_fundamentals,
+ *    foss_stock_comparison, foss_research_report, foss_quote,
+ *    etrade_premium_research, etrade_premium_options, alpaca_snapshot,
+ *    platform_capabilities
+ *
+ * Any table not on this list — including SQLite system tables
+ * (sqlite_master, sqlite_sequence, …) — is refused at the execution seam.
+ * Comparison is case-insensitive because SQLite resolves table names
+ * case-insensitively.
+ */
+export const NLQ_TABLE_ALLOWLIST: ReadonlySet<string> = new Set([
+  "mas_categories",
+  "mas_referrals",
+  "mas_external_ads",
+  "mas_ads",
+  "mas_transactions",
+  "mas_events",
+  "mas_memory",
+  "mas_trades",
+  "mas_watchlists",
+  "mas_messages",
+  "etrade_portfolio_live",
+  "options_flows",
+  "mas_agentic_wallet",
+  "etrade_options_screener",
+  "etrade_market_screener",
+  "etrade_market_quotes",
+  "cf_agent_schedules",
+  "yfinance_fundamentals",
+  "foss_stock_comparison",
+  "foss_research_report",
+  "foss_quote",
+  "etrade_premium_research",
+  "etrade_premium_options",
+  "alpaca_snapshot",
+  "platform_capabilities",
+]);
+
+/** Returns true iff the NLQ engine may read `tableName` via table_data. */
+export function isNlqTableAllowed(tableName: string | undefined | null): boolean {
+  if (!tableName) return false;
+  return NLQ_TABLE_ALLOWLIST.has(tableName.toLowerCase());
+}
+
 export const nlqPlanSchema = z.object({
   domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
@@ -1537,6 +1590,22 @@ export function executeNLQQuery(
   // 3. Query Specific Table Data via ORM
   if (plan.domain === "table_data") {
     const table = plan.targetTable || "mas_categories";
+    // Assessment P0 (#143): a prompt-injected planner could previously name
+    // any table here (e.g. sqlite_master) because targetTable was a free
+    // string. Refuse anything off the explicit allowlist — clean refusal,
+    // never partial data.
+    if (!isNlqTableAllowed(table)) {
+      return {
+        plan,
+        domain: "table_data",
+        targetTable: table,
+        count: 0,
+        status: "error",
+        summary: `Refused: table "${table}" is not readable through natural language queries. Nothing was read.`,
+        rows: [],
+        executedAt,
+      };
+    }
     const data = orm.getTableData(table, { search: plan.terms, limit: plan.limit });
     return {
       plan,
