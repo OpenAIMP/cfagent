@@ -19,9 +19,10 @@ export interface CfpayA2AConfig {
   token: string;
 }
 
-export function getCfpayConfig(env: Record<string, unknown>): CfpayA2AConfig | null {
-  const baseUrl = (env.CFPAY_URL as string) || "https://pay.openaimp.com";
-  const token = env.CFPAY_A2A_TOKEN as string;
+export function getCfpayConfig(env: unknown): CfpayA2AConfig | null {
+  const e = env as Record<string, unknown>;
+  const baseUrl = (e.CFPAY_URL as string) || "https://pay.openaimp.com";
+  const token = e.CFPAY_A2A_TOKEN as string;
   if (!token) return null;
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };
 }
