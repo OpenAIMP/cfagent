@@ -48,8 +48,14 @@ export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
   autonomousMarketScreen: {
     label: "Autonomous Market Screen (System)",
     description:
-      "Continuously screens the market (Technology sector) for notable setups and broadcasts alerts when it finds opportunities.",
+      "Hourly E*TRADE stock screen of one market universe (Nasdaq-100, S&P 100/500, Russell 2000, ETFs). Scores each name on sentiment, momentum, value and factor grades; publishes standouts + PDF report to Slack.",
     triggerRoute: "/api/schedules/trigger-screen",
+  },
+  autonomousOptionsAnalysis: {
+    label: "Strategy/Symbol Scanner — Scheduled (System)",
+    description:
+      "Hourly options strategy scan across the full strategy catalog. For each tracked symbol it prices every strategy against live E*TRADE option chains and reports the best structures per direction thesis (bullish/bearish/range-bound/large-move).",
+    triggerRoute: "/api/schedules/trigger-options-analysis",
   },
   collectIvHistory: {
     label: "IV History Collection (System)",
