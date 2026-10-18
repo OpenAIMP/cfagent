@@ -188,3 +188,44 @@ export function supervisorPrompt(
     '"revise": plan needs adjustment; provide newSteps (validated like the original plan).',
   ].join("\n");
 }
+
+/**
+ * Create an orchestrator job for a scheduled goal.
+ * Called by ScheduledAgent.onCron() — validates the goal's operation
+ * against the catalog and returns a job descriptor.
+ * Full plan execution happens via the worker's orchestration endpoint.
+ */
+export interface OrchestratorJob {
+  jobId: string;
+  goalId: string;
+  goalName: string;
+  operation: string;
+  budgetCents: number;
+  createdAt: string;
+  status: "pending";
+}
+
+export async function createJob(
+  env: unknown,
+  req: {
+    goalId: string;
+    goalName: string;
+    operation: string;
+    budgetCents: number;
+  }
+): Promise<OrchestratorJob> {
+  // Validate the operation exists in the catalog
+  const entry = OPERATION_CATALOG.find((e) => e.operation === req.operation);
+  if (!entry) {
+    throw new Error(`Unknown operation: ${req.operation}`);
+  }
+  return {
+    jobId: `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    goalId: req.goalId,
+    goalName: req.goalName,
+    operation: req.operation,
+    budgetCents: req.budgetCents,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+  };
+}
