@@ -344,7 +344,7 @@ describe("ScheduledOptionsManager — system schedules", () => {
 
     // The registry itself: exactly the three baseline callbacks.
     expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(
-      ["autoRenewETradeTokens", "autonomousMarketScreen", "collectIvHistory"].sort()
+      ["autoRenewETradeTokens", "autonomousMarketScreen", "autonomousOptionsAnalysis", "collectIvHistory"].sort()
     );
   });
 
@@ -357,6 +357,7 @@ describe("ScheduledOptionsManager — system schedules", () => {
       "IV History Collection (System)",
       "E*TRADE Token Renewal (System)",
       "Autonomous Market Screen (System)",
+      "Strategy/Symbol Scanner — Scheduled (System)",
     ]) {
       const card = cardByTitle(title);
       const editBtn = [...card.querySelectorAll("button")].find((b) =>
@@ -364,11 +365,6 @@ describe("ScheduledOptionsManager — system schedules", () => {
       );
       expect(editBtn, `${title} must not offer Edit`).toBeUndefined();
     }
-
-    const analysisCard = cardByTitle("Autonomous Options Intelligence");
-    expect(
-      [...analysisCard.querySelectorAll("button")].some((b) => b.textContent?.includes("Edit"))
-    ).toBe(true);
   });
 
   it("guards a system cancel behind an inline confirm naming the consequence, and only then calls the cancel route", async () => {
@@ -399,7 +395,7 @@ describe("ScheduledOptionsManager — system schedules", () => {
     );
     await renderManager();
     await waitForText("IV History Collection (System)");
-    expect(container.textContent).toContain("Autonomous Options Intelligence");
+    expect(container.textContent).toContain("Strategy/Symbol Scanner — Scheduled (System)");
     expect(container.textContent).toContain("2 Active");
   });
 });
@@ -457,9 +453,9 @@ describe("ScheduledOptionsManager — per-card triggers", () => {
   it("Trigger Now on a user analysis card still runs options analysis with that card's payload", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Autonomous Options Intelligence");
+    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
 
-    await click(buttonByText(cardByTitle("Autonomous Options Intelligence"), "Trigger Now"));
+    await click(buttonByText(cardByTitle("Strategy/Symbol Scanner — Scheduled (System)"), "Trigger Now"));
 
     const analysisCalls = callsTo(calls, "/api/schedules/trigger-options-analysis", "POST");
     expect(analysisCalls).toHaveLength(1);
@@ -511,7 +507,7 @@ describe("ScheduledOptionsManager — create form", () => {
   it("posts a delayed create body with delayInSeconds and no cron/interval fields", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Autonomous Options Intelligence");
+    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "Delayed (Once, After a Delay)");
@@ -537,7 +533,7 @@ describe("ScheduledOptionsManager — create form", () => {
   it("posts a one-shot create body with an ISO date", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Autonomous Options Intelligence");
+    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "One-Shot (Specific Date & Time)");
@@ -563,7 +559,7 @@ describe("ScheduledOptionsManager — create form", () => {
   it("keeps the #107 cron presets: ET intents converted to UTC at pick time, with the DST disclosure", async () => {
     installFetch(freshState());
     await renderManager();
-    await waitForText("Autonomous Options Intelligence");
+    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "Cron Expression (Specific Time/Days)");
