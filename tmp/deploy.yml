@@ -1,0 +1,270 @@
+name: Deploy AI Search Agent
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target GitHub Environment (overrides environment.config.json)"
+        required: false
+        default: "CONFIG"
+        type: choice
+        options:
+          - "CONFIG"
+          - "PROD"
+          - "TEST"
+
+jobs:
+  # ── Step 1: read environment.config.json or input to determine target environment ──
+  load-environment:
+    name: Load Active Environment
+    runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ steps.read-env.outputs.target_env }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Active Environment from Config or Input
+        id: read-env
+        run: |
+          INPUT_ENV="${{ github.event.inputs.target_env }}"
+          if [ -n "$INPUT_ENV" ] && [ "$INPUT_ENV" != "CONFIG" ]; then
+            TARGET_ENV="$INPUT_ENV"
+          else
+            TARGET_ENV=$(jq -r '.environment' environment.config.json)
+          fi
+          echo "Active target environment: $TARGET_ENV"
+          echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
+
+  # ── Step 2: build & deploy using secrets from the GitHub Environment ──
+  deploy:
+    runs-on: ubuntu-latest
+    name: Build & Deploy [${{ needs.load-environment.outputs.target_env }}]
+    needs: load-environment
+    environment: ${{ needs.load-environment.outputs.target_env }}
+    permissions:
+      contents: read
+
+    env:
+      APP_ENV: ${{ needs.load-environment.outputs.target_env }}
+      ET_API_KEY: ${{ secrets.ET_API_KEY }}
+      ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
+      ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run typecheck
+
+      - name: Run unit & integration test suites
+        run: npm run test:ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Get or create KV namespace
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          KV_ID=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            | jq -r '.result[] | select(.title=="AGENT_SESSIONS") | .id' 2>/dev/null || echo "")
+
+          if [ -z "$KV_ID" ] || [ "$KV_ID" = "null" ]; then
+            echo "Creating AGENT_SESSIONS namespace via API..."
+            CREATE_RESP=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"title":"AGENT_SESSIONS"}')
+            echo "Create response: $CREATE_RESP"
+            KV_ID=$(echo "$CREATE_RESP" | jq -r '.result.id' 2>/dev/null || echo "")
+          fi
+
+          if [ -z "$KV_ID" ] || [ "$KV_ID" = "null" ]; then
+            echo "Failed to get or create KV namespace"
+            exit 1
+          fi
+
+          echo "KV namespace ID: $KV_ID"
+          echo "KV_ID=$KV_ID" >> $GITHUB_ENV
+
+      - name: Update wrangler.jsonc with KV ID
+        run: sed -i "s/<YOUR_KV_NAMESPACE_ID>/$KV_ID/g" wrangler.jsonc
+
+      - name: Ensure Vectorize index for VectorMemory (PR #6)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if ! npx wrangler vectorize get vector-memory 2>/dev/null; then
+            echo "Creating vector-memory index..."
+            npx wrangler vectorize create vector-memory --dimensions 768 --metric cosine
+          else
+            echo "vector-memory index already exists"
+          fi
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Set core secrets on Cloudflare Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          S_GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          S_GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          S_GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          S_GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          S_APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          S_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          S_DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY_IS_A2A_TOKEN }}
+        run: |
+          GH_ID="$S_GH_CLIENT_ID"
+          if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
+
+          GH_SEC="$S_GH_CLIENT_SECRET"
+          if [ -z "$GH_SEC" ]; then GH_SEC="$S_GITHUB_CLIENT_SECRET"; fi
+
+          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | npx wrangler secret put GITHUB_CLIENT_ID; fi
+          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
+          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | npx wrangler secret put APP_BASE_URL; fi
+          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | npx wrangler secret put SESSION_SECRET; fi
+          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | npx wrangler secret put DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
+
+      - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          ACTIVE_ENV_NAME: ${{ needs.load-environment.outputs.target_env }}
+          S_ET_API_KEY: ${{ secrets.ET_API_KEY }}
+          S_ETRADE_API_KEY: ${{ secrets.ETRADE_API_KEY }}
+          S_ET_PROD_API_KEY: ${{ secrets.ET_PROD_API_KEY }}
+          S_PROD_ET_API_KEY: ${{ secrets.PROD_ET_API_KEY }}
+          S_ETRADE_CONSUMER_KEY: ${{ secrets.ETRADE_CONSUMER_KEY }}
+          S_ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
+          S_ETRADE_API_SECRET: ${{ secrets.ETRADE_API_SECRET }}
+          S_ET_PROD_API_SECRET: ${{ secrets.ET_PROD_API_SECRET }}
+          S_PROD_ET_API_SECRET: ${{ secrets.PROD_ET_API_SECRET }}
+          S_ETRADE_CONSUMER_SECRET: ${{ secrets.ETRADE_CONSUMER_SECRET }}
+          S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
+          S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
+        run: |
+          TARGET_KEY="$S_ET_API_KEY"
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ET_PROD_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_PROD_ET_API_KEY"; fi
+          if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_CONSUMER_KEY"; fi
+
+          TARGET_SEC="$S_ET_API_SECRET"
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ETRADE_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ET_PROD_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_PROD_ET_API_SECRET"; fi
+          if [ -z "$TARGET_SEC" ]; then TARGET_SEC="$S_ETRADE_CONSUMER_SECRET"; fi
+
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+            DEFAULT_BASE="https://api.etrade.com/v1"
+          else
+            DEFAULT_BASE="https://apisb.etrade.com/v1"
+          fi
+
+          TARGET_URL="$S_ET_BASE_URL"
+          if [ -z "$TARGET_URL" ]; then TARGET_URL="$S_ETRADE_BASE_URL"; fi
+          if [ -z "$TARGET_URL" ]; then TARGET_URL="$DEFAULT_BASE"; fi
+
+          echo "Target Environment: $ACTIVE_ENV_NAME"
+          echo "Target Base URL: $TARGET_URL"
+          echo "Key length: ${#TARGET_KEY}"
+          echo "Secret length: ${#TARGET_SEC}"
+
+          if [ -n "$TARGET_KEY" ]; then
+            printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_API_KEY
+            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_PROD_API_KEY
+            else
+              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_SANDBOX_API_KEY
+            fi
+          fi
+
+          if [ -n "$TARGET_SEC" ]; then
+            printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_API_SECRET
+            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_PROD_API_SECRET
+            else
+              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_SANDBOX_API_SECRET
+            fi
+          fi
+
+          if [ -n "$TARGET_URL" ]; then
+            printf "%s" "$TARGET_URL" | npx wrangler secret put ET_BASE_URL
+          fi
+
+          printf "%s" "$ACTIVE_ENV_NAME" | npx wrangler secret put APP_ENV
+
+      - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_ENVIRONMENT: ${{ secrets.PAYPAL_ENVIRONMENT }}
+          LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
+          LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
+          LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
+          MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
+        run: |
+          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
+          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
+          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
+          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
+          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
+          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
+          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
+          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
+          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
+
+  # ── Step 3: post-deploy QA smoke test (ported from cfpay) ──
+  qa-smoke:
+    runs-on: ubuntu-latest
+    name: Post-deploy QA
+    needs: deploy
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: qa-smoke
+      cancel-in-progress: false
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run QA checks against production
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_URL: https://agent.openaimp.com
+        run: node scripts/qa-smoke.mjs
