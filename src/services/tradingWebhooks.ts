@@ -22,7 +22,7 @@ import { DatabaseORM } from "../orm";
 import { AGENT_DIDS, createDidAttestation } from "../agents/did";
 import { ETradeService } from "./etrade";
 
-import { verifyHmacSha256Signature } from "../security/webhookSecurity";
+import { verifyHmacSha256Signature, assertSafeOutboundWebhookUrl } from "../security/webhookSecurity";
 
 export class ETradeWebhookService {
   constructor(
@@ -244,6 +244,16 @@ export class ETradeWebhookService {
     const url = targetUrl || this.env?.OUTBOUND_WEBHOOK_URL;
     if (!url) {
       return { success: false, url: "", error: "No outbound webhook URL configured." };
+    }
+
+    // Issue #240: SSRF guard — never dispatch to localhost, private,
+    // loopback, or link-local targets (caller-supplied `targetUrl` on the
+    // dispatch_trading_webhook MCP tool is untrusted input). The URL is
+    // deliberately not echoed: it may carry secrets.
+    try {
+      assertSafeOutboundWebhookUrl(url);
+    } catch (err: any) {
+      return { success: false, url: "", error: err?.message || "Webhook target not allowed." };
     }
 
     // Issue #123 (F20): outbound webhooks are advertised as HMAC-signed, so
