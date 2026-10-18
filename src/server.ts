@@ -388,6 +388,60 @@ export default {
       return Response.json({ ok: true, chunks });
     }
 
+    // Issue #159 — ScheduledAgent dashboard API.
+    if (path.startsWith("/api/schedule/")) {
+      const schedId = (env as any).SCHEDULED_AGENT.idFromName("default");
+      const sched = (env as any).SCHEDULED_AGENT.get(schedId) as unknown as {
+        listGoals(): Promise<unknown[]>;
+        getTickHistory(limit?: number): Promise<unknown[]>;
+        addGoal(goal: Record<string, unknown>): Promise<unknown>;
+        removeGoal(id: string): Promise<boolean>;
+        setGoalEnabled(id: string, enabled: boolean): Promise<boolean>;
+        triggerGoal(id: string, env: unknown): Promise<unknown>;
+      };
+
+      if (path === "/api/schedule/goals" && request.method === "GET") {
+        return Response.json({ ok: true, goals: await sched.listGoals() });
+      }
+      if (path === "/api/schedule/goals" && request.method === "POST") {
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body) return Response.json({ error: "JSON body required." }, { status: 400 });
+        try {
+          const goal = await sched.addGoal(body);
+          return Response.json({ ok: true, goal });
+        } catch (err) {
+          return Response.json(
+            { error: err instanceof Error ? err.message : "Could not add goal." },
+            { status: 400 }
+          );
+        }
+      }
+      if (path === "/api/schedule/ticks" && request.method === "GET") {
+        const limit = Number(new URL(request.url).searchParams.get("limit") || 20);
+        return Response.json({ ok: true, ticks: await sched.getTickHistory(limit) });
+      }
+      const goalMatch = path.match(/^\/api\/schedule\/goals\/([^/]+)\/(enabled|trigger)$/);
+      if (goalMatch && request.method === "POST") {
+        const [, id, action] = goalMatch;
+        if (action === "enabled") {
+          const body = (await request.json().catch(() => null)) as { enabled?: unknown } | null;
+          const enabled = body?.enabled === true;
+          const updated = await sched.setGoalEnabled(id, enabled);
+          if (!updated) return Response.json({ error: "Goal not found." }, { status: 404 });
+          return Response.json({ ok: true });
+        }
+        const tick = await sched.triggerGoal(id, env);
+        return Response.json({ ok: true, tick });
+      }
+      const deleteMatch = path.match(/^\/api\/schedule\/goals\/([^/]+)$/);
+      if (deleteMatch && request.method === "DELETE") {
+        const removed = await sched.removeGoal(deleteMatch[1]);
+        if (!removed) return Response.json({ error: "Goal not found." }, { status: 404 });
+        return Response.json({ ok: true });
+      }
+      return Response.json({ error: "Unknown schedule endpoint." }, { status: 404 });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
