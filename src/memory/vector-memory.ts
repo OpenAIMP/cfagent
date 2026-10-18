@@ -60,10 +60,10 @@ export class VectorMemory {
    * Recall relevant past outcomes for a goal.
    * Returns up to 8 chunks for injection into the planner prompt.
    */
-  async recallForPlan(goal: string, operationFilter?: string): Promise<RecalledChunk[]> {
+  async recallForPlan(goal: string, operationFilter?: string, topK: number = RECALL_TOP_K): Promise<RecalledChunk[]> {
     const values = await embed(this.ai, goal);
     const results = await this.vectorize.query(values, {
-      topK: RECALL_TOP_K,
+      topK: Math.max(1, Math.min(50, Math.floor(topK) || RECALL_TOP_K)),
       filter: operationFilter ? { operation: { $eq: operationFilter } } : undefined,
       returnMetadata: true,
     });
