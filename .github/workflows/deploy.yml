@@ -44,7 +44,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Build & Deploy [${{ needs.load-environment.outputs.target_env }}]
     needs: load-environment
-    # Links this job to the GitHub Environment (TEST or PROD), pulling its secrets
     environment: ${{ needs.load-environment.outputs.target_env }}
     permissions:
       contents: read
@@ -239,3 +238,31 @@ jobs:
           if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
           if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
           if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
+
+  # ── Step 3: post-deploy QA smoke test (ported from cfpay) ──
+  qa-smoke:
+    runs-on: ubuntu-latest
+    name: Post-deploy QA
+    needs: deploy
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: qa-smoke
+      cancel-in-progress: false
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run QA checks against production
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_URL: https://agent.openaimp.com
+        run: node scripts/qa-smoke.mjs
