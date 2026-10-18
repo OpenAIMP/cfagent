@@ -154,13 +154,74 @@ async function fileSelfHealIssues() {
         body: JSON.stringify({ title, body, labels: ["QA self-heal"] }),
       });
       if (createRes.ok) {
-        console.log(`  [ISSUE] filed for: ${f.name}`);
+        const created = await createRes.json().catch(() => ({}));
+        console.log(`  [ISSUE] filed for: ${f.name} (#${created.number || "?"})`);
+        // Issue #162: trigger the supervised-fix investigation and post the
+        // AI diagnosis as an issue comment for human review.
+        if (created.number) {
+          await postInvestigationComment(token, created.number, f);
+        }
       } else {
         console.log(`  [WARN] failed to file issue for ${f.name}: ${createRes.status}`);
       }
     } catch (err) {
       console.log(`  [WARN] issue filing error for ${f.name}: ${err.message}`);
     }
+  }
+}
+
+// Issue #162: ask the worker to investigate the failure, then post the
+// AI diagnosis as an issue comment so a human can supervise the fix.
+async function postInvestigationComment(token, issueNumber, failure) {
+  try {
+    const invRes = await fetch(`${BASE_URL}/api/qa/investigate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operation: failure.name,
+        errorClass: failure.errorClass || "check_failed",
+        detail: failure.detail || "(no detail captured)",
+        runLink: process.env.GITHUB_SERVER_URL
+          ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+          : undefined,
+      }),
+    });
+    if (!invRes.ok) {
+      console.log(`  [WARN] investigation endpoint returned ${invRes.status}`);
+      return;
+    }
+    const { investigation } = await invRes.json();
+    if (!investigation) return;
+    const comment = [
+      `## 🔍 Automated investigation (model: ${investigation.model})`,
+      ``,
+      `**Diagnosis:** ${investigation.diagnosis}`,
+      ``,
+      `**Likely cause:** ${investigation.likelyCause}`,
+      ``,
+      `**Proposed fix:** ${investigation.proposedFix}`,
+      ``,
+      `*Confidence: ${Math.round((investigation.confidence || 0) * 100)}% — a human should verify before opening a fix PR.*`,
+    ].join("\n");
+    const commentRes = await fetch(
+      `https://api.github.com/repos/OpenAIMP/cfagent/issues/${issueNumber}/comments`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body: comment }),
+      }
+    );
+    console.log(
+      commentRes.ok
+        ? `  [INVESTIGATE] diagnosis posted on #${issueNumber}`
+        : `  [WARN] failed to post diagnosis: ${commentRes.status}`
+    );
+  } catch (err) {
+    console.log(`  [WARN] investigation error for ${failure.name}: ${err.message}`);
   }
 }
 

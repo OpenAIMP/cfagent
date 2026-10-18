@@ -46,6 +46,12 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     operations: ["nlq.execute"],
     blurb: "Execute a natural-language query against the data layer.",
   },
+  {
+    agent: "qa",
+    binding: "SEARCH_AGENT",
+    operations: ["qa.supervised_fix"],
+    blurb: "Investigate a QA failure and propose a supervised fix (issue #162).",
+  },
 ];
 
 export function catalogAgent(agent: string): CatalogEntry | undefined {
