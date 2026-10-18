@@ -25,6 +25,7 @@ import {
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
+import type { ScreenerAgent } from "../agents/screener-agent";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import {
@@ -37,6 +38,136 @@ export interface ScreenerPublisherDeps {
   env: Env;
   orm?: DatabaseORM;
   userLogin: string;
+}
+
+interface ScreenerPdf {
+  bytes: Uint8Array;
+  fileName: string;
+}
+
+/** Fetch the latest report PDF from ScreenerAgent (issue #269). */
+async function fetchScreenerPdf(deps: ScreenerPublisherDeps): Promise<ScreenerPdf | null> {
+  try {
+    const ns = (deps.env as any).SCREENER_AGENT;
+    if (!ns) return null;
+    const agent = ns.get(ns.idFromName("default")) as unknown as ScreenerAgent;
+    return await agent.getLatestPdf();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upload the PDF to Slack via files.getUploadURLExternal (issue #269).
+ * Falls back to posting the download link when no bot token is configured.
+ */
+async function deliverPdfToSlack(
+  deps: ScreenerPublisherDeps,
+  pdf: ScreenerPdf,
+  event: ScreenerCompletedEvent,
+  plainText: string
+): Promise<void> {
+  const botToken = deps.env.SLACK_BOT_TOKEN;
+  const channel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf`;
+
+  if (!botToken) {
+    // No bot token: link the downloadable report in the channel message.
+    if (channel) {
+      try {
+        const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+        await slack.postSlackMessage({
+          text: `📄 Screener report PDF: ${reportUrl}`,
+          channel,
+        } as any);
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Slack PDF link failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+    return;
+  }
+
+  try {
+    // Step 1: get upload URL.
+    const getUrl = await fetch("https://slack.com/api/files.getUploadURLExternal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        filename: pdf.fileName,
+        length: String(pdf.bytes.length),
+      }),
+    });
+    const urlData = (await getUrl.json()) as any;
+    if (!urlData.ok) throw new Error(urlData.error || "getUploadURLExternal failed");
+
+    // Step 2: upload bytes.
+    const put = await fetch(urlData.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdf.bytes as unknown as BodyInit,
+    });
+    if (!put.ok) throw new Error(`upload PUT failed: ${put.status}`);
+
+    // Step 3: complete.
+    const complete = await fetch("https://slack.com/api/files.completeUploadExternal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        files: [{ id: urlData.file_id, title: `Screener report — ${event.sector} ${event.timestamp.slice(0, 10)}` }],
+        channel_id: channel,
+        initial_comment: `📄 Screener report PDF — ${event.opportunities.length} opportunities`,
+      }),
+    });
+    const doneData = (await complete.json()) as any;
+    if (!doneData.ok) throw new Error(doneData.error || "completeUploadExternal failed");
+  } catch (err) {
+    console.warn("[ScreenerPublishers] Slack PDF upload failed:", err instanceof Error ? err.message : String(err));
+    // Fallback: link.
+    try {
+      const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+      await slack.postSlackMessage({
+        text: `${plainText}\n\n📄 Report PDF: ${reportUrl}`,
+        channel,
+      } as any);
+    } catch {
+      // Already warned above; don't cascade.
+    }
+  }
+}
+
+/** Attach the PDF to the screener email (issue #269). */
+async function deliverPdfToEmail(
+  deps: ScreenerPublisherDeps,
+  pdf: ScreenerPdf,
+  event: ScreenerCompletedEvent,
+  html: string,
+  plainText: string
+): Promise<void> {
+  const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
+  if (!emailTo) return;
+  try {
+    let base64 = "";
+    const chunk = 8192;
+    for (let i = 0; i < pdf.bytes.length; i += chunk) {
+      base64 += String.fromCharCode(...pdf.bytes.subarray(i, i + chunk));
+    }
+    const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+    await email.sendOutboundEmail(
+      emailTo,
+      `📊 Market Screen [${event.sector}] — ${event.opportunities.length} opportunities (PDF attached)`,
+      `${html}<p>Full report attached as PDF.</p>`,
+      `${plainText}\n\nFull report attached as PDF.`,
+      { fileName: pdf.fileName, contentType: "application/pdf", contentBase64: btoa(base64) }
+    );
+  } catch (err) {
+    console.warn("[ScreenerPublishers] Email PDF delivery failed:", err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
@@ -158,6 +289,18 @@ async function publishCompleted(
         console.warn("[ScreenerPublishers] Email publish failed:", err instanceof Error ? err.message : String(err));
       }
     }
+  }
+
+  // Issue #269: PDF report — Slack file upload + email attachment.
+  // The PDF is generated + stored by ScreenerAgent at run time.
+  try {
+    const pdf = await fetchScreenerPdf(deps);
+    if (pdf) {
+      await deliverPdfToSlack(deps, pdf, event, plainText);
+      await deliverPdfToEmail(deps, pdf, event, html, plainText);
+    }
+  } catch (err) {
+    console.warn("[ScreenerPublishers] PDF delivery failed:", err instanceof Error ? err.message : String(err));
   }
 
   // 3. Webhook

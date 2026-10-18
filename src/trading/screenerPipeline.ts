@@ -27,6 +27,7 @@ import {
   type LiveScreenerDeps,
 } from "./liveScreener";
 import { computeScreeningIndicators } from "./screeningIndicators";
+import type { YahooTechnicals } from "./yahooHistory";
 import {
   computeFactorGrades,
   EMPTY_GRADES,
@@ -67,6 +68,19 @@ export interface ScreenedIndicators {
   summary: string;
 }
 
+/** Yahoo-complement technicals (issue #269) — real RSI/MACD/gaps from history. */
+export interface StockTechnicals {
+  rsi14: number | null;
+  macdLine: number | null;
+  macdSignalLine: number | null;
+  macdHistogram: number | null;
+  macdSignal: string | null;
+  gapPercent: number | null;
+  gapDirection: "up" | "down" | "flat" | null;
+  historyBars: number;
+  historySource: string | null;
+}
+
 export interface ScannedStock {
   symbol: string;
   companyName: string;
@@ -79,6 +93,8 @@ export interface ScannedStock {
   indicators: ScreenedIndicators;
   /** SA-style factor grades (issue #266). Attached via attachFactorGrades. */
   factorGrades: FactorGrades;
+  /** Yahoo technicals (issue #269). Attached via attachTechnicals. */
+  technicals: StockTechnicals;
   /** Grading inputs (not displayed). */
   peRatio?: number | null;
   sector?: string;
@@ -94,6 +110,7 @@ export interface OpportunityStock {
   changePercent: number;
   indicators: ScreenedIndicators;
   factorGrades: FactorGrades;
+  technicals: StockTechnicals;
 }
 
 // ---------------------------------------------------------------------------
@@ -417,9 +434,54 @@ export function toScannedStock(
     // Issue #266: default grades; attachFactorGrades() replaces with the
     // universe-relative computation.
     factorGrades: EMPTY_GRADES,
+    // Issue #269: default technicals; attachTechnicals() fills from Yahoo.
+    technicals: EMPTY_TECHNICALS,
     peRatio: quote.peRatio ?? null,
     sector: quote.sector,
   };
+}
+
+/** Empty technicals — Yahoo history unavailable or not yet fetched. */
+export const EMPTY_TECHNICALS: StockTechnicals = {
+  rsi14: null,
+  macdLine: null,
+  macdSignalLine: null,
+  macdHistogram: null,
+  macdSignal: null,
+  gapPercent: null,
+  gapDirection: null,
+  historyBars: 0,
+  historySource: null,
+};
+
+/**
+ * Attach Yahoo technicals (issue #269). Returns new objects; input unmutated.
+ * Symbols missing from the map keep EMPTY_TECHNICALS (honest, not zeroed).
+ */
+export function attachTechnicals(
+  stocks: ScannedStock[],
+  technicalsBySymbol: Map<string, YahooTechnicals>
+): ScannedStock[] {
+  return stocks.map((s) => {
+    const t = technicalsBySymbol.get(s.symbol);
+    if (!t) return s;
+    return {
+      ...s,
+      // Real RSI from Yahoo history supersedes the (usually null) snapshot RSI.
+      rsi14: t.rsi14 ?? s.rsi14,
+      technicals: {
+        rsi14: t.rsi14,
+        macdLine: t.macdLine,
+        macdSignalLine: t.macdSignalLine,
+        macdHistogram: t.macdHistogram,
+        macdSignal: t.macdSignal,
+        gapPercent: t.gapPercent,
+        gapDirection: t.gapDirection,
+        historyBars: t.barsUsed,
+        historySource: t.source,
+      },
+    };
+  });
 }
 
 /**
@@ -473,6 +535,7 @@ export function toOpportunityStock(s: ScreenedStockItem): OpportunityStock {
     changePercent: scanned.changePercent,
     indicators: scanned.indicators,
     factorGrades: scanned.factorGrades,
+    technicals: scanned.technicals,
   };
 }
 

@@ -220,6 +220,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         rsi14: s.rsi14 ?? null,
         source: s.source || "E*TRADE live",
         indicators: s.indicators,
+        factorGrades: s.factorGrades,
+        technicals: s.technicals,
       });
       setManualResult({
         timestamp: data.scannedAt || new Date().toISOString(),
