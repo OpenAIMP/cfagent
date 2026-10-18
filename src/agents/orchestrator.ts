@@ -1771,7 +1771,7 @@ Agentic Best Practices & Workflow Rules:
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
-    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat-activity)(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat-activity|screener\/report\.pdf)(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
     if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
       return this.enqueueHttpRequest(request, url);
