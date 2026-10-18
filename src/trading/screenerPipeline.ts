@@ -182,6 +182,25 @@ export async function acquireUniverse(
 
   // Issue #261: etrade-only mode — market data comes from E*TRADE or
   // nothing. No Nasdaq fallback, no zero-filled substitute rows. If
+  // Categorize an E*TRADE quote failure for diagnostics.
+  function categorizeQuoteFailure(reason: unknown): string {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const lower = msg.toLowerCase();
+    if (lower.includes("rate") || lower.includes("429") || lower.includes("throttl")) {
+      return "rate-limited";
+    }
+    if (lower.includes("auth") || lower.includes("401") || lower.includes("403") || lower.includes("token")) {
+      return "auth";
+    }
+    if (lower.includes("no quote") || lower.includes("not found") || lower.includes("invalid symbol")) {
+      return "symbol-not-quotable";
+    }
+    if (lower.includes("timeout") || lower.includes("econnreset") || lower.includes("network")) {
+      return "network";
+    }
+    return "other";
+  }
+
   // E*TRADE cannot quote a symbol it is skipped; if it cannot quote
   // any, the screen fails honestly instead of presenting fake data.
   if (opts.mode === "etrade-only") {
@@ -193,7 +212,12 @@ export async function acquireUniverse(
     const limited = symbols.slice(0, opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols);
     const quotes: ETradeQuote[] = [];
     const failed: string[] = [];
-    const CONCURRENCY = cfg.acquisition.quoteConcurrency;
+    // Categorized failure reasons for diagnostics (issue: stuck-at-6).
+    const failureReasons: Record<string, number> = {};
+    const failureSamples: string[] = [];
+    // Lower concurrency + pacing: E*TRADE rate-limits rapid quote bursts.
+    const CONCURRENCY = Math.min(cfg.acquisition.quoteConcurrency, 5);
+    const BATCH_PAUSE_MS = 500;
     for (let i = 0; i < limited.length; i += CONCURRENCY) {
       const batch = limited.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(
@@ -217,9 +241,28 @@ export async function acquireUniverse(
       );
       for (let j = 0; j < results.length; j++) {
         const r = results[j];
-        if (r.status === "fulfilled") quotes.push(r.value);
-        else failed.push(batch[j].symbol);
+        if (r.status === "fulfilled") {
+          quotes.push(r.value);
+        } else {
+          const symbol = batch[j].symbol;
+          failed.push(symbol);
+          const reason = categorizeQuoteFailure(r.reason);
+          failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+          if (failureSamples.length < 3) {
+            failureSamples.push(`${symbol}: ${reason}`);
+          }
+        }
       }
+      // Pace batches to stay under E*TRADE rate limits.
+      if (i + CONCURRENCY < limited.length) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+      }
+    }
+    if (failed.length > 0) {
+      console.warn(
+        `[screenerPipeline] E*TRADE quote failures: ${failed.length}/${limited.length}. ` +
+          `Reasons: ${JSON.stringify(failureReasons)}. Samples: ${failureSamples.join("; ")}`
+      );
     }
     if (quotes.length === 0) {
       throw new Error(
