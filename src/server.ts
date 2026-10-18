@@ -986,7 +986,9 @@ export default {
     // create Orchestrator jobs (issue #166).
     if (event?.cron === "*/30 * * * *") {
       const schedId = env.SCHEDULED_AGENT.idFromName("default");
-      const schedAgent = env.SCHEDULED_AGENT.get(schedId);
+      const schedAgent = env.SCHEDULED_AGENT.get(schedId) as unknown as {
+        onCron(env: unknown): Promise<unknown>;
+      };
       const tickPromise = schedAgent.onCron(env);
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
