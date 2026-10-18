@@ -1,0 +1,209 @@
+{
+  "_comment": "Issue #258: golden set for the NLQ deterministic planner (planWithRules in src/agents/nlq.ts). Labels encode the rule engine's actual contract as audited at main 434d0c5 — regression anchors, not aspirational plans. Each entry asserts (domain, operation, action/targetTable).",
+  "entries": [
+    {
+      "expectedAction": "list",
+      "expectedDomain": "scheduling",
+      "expectedOperation": "list",
+      "id": "nlq-001",
+      "question": "list active schedules",
+      "notes": "phrasing-sensitive: 'list my active schedules' (with 'my') falls through to conversation — the rule requires the literal sequence"
+    },
+    {
+      "expectedAction": "cancel",
+      "expectedDomain": "scheduling",
+      "expectedOperation": "update",
+      "id": "nlq-002",
+      "question": "cancel schedule abc123"
+    },
+    {
+      "expectedAction": "create",
+      "expectedDomain": "scheduling",
+      "expectedOperation": "create",
+      "id": "nlq-003",
+      "question": "remind me to check the market in 30 minutes"
+    },
+    {
+      "expectedAction": "create",
+      "expectedDomain": "scheduling",
+      "expectedOperation": "create",
+      "id": "nlq-004",
+      "question": "run market screen every 15 minutes"
+    },
+    {
+      "expectedAction": "wallet_status",
+      "expectedDomain": "agentic_payments",
+      "expectedOperation": "list",
+      "id": "nlq-005",
+      "question": "check my agent wallet status"
+    },
+    {
+      "expectedAction": "set_limit",
+      "expectedDomain": "agentic_payments",
+      "expectedOperation": "update",
+      "id": "nlq-006",
+      "question": "set the agent limit to 5"
+    },
+    {
+      "expectedAction": "create",
+      "expectedDomain": "category_mutation",
+      "expectedOperation": "create",
+      "id": "nlq-007",
+      "question": "add category Travel"
+    },
+    {
+      "expectedAction": "watchlist_save",
+      "expectedDomain": "trading",
+      "expectedOperation": "create",
+      "id": "nlq-008",
+      "question": "save AAPL TSLA NVDA as a watchlist named tech"
+    },
+    {
+      "expectedAction": "watchlist_list",
+      "expectedDomain": "trading",
+      "expectedOperation": "list",
+      "id": "nlq-009",
+      "question": "list my watchlists"
+    },
+    {
+      "expectedAction": "options_flow",
+      "expectedDomain": "trading",
+      "expectedOperation": "search",
+      "id": "nlq-010",
+      "question": "unusual options flow for NVDA"
+    },
+    {
+      "expectedAction": "options_screen",
+      "expectedDomain": "trading",
+      "expectedOperation": "search",
+      "id": "nlq-011",
+      "question": "screen call options with delta over 0.4"
+    },
+    {
+      "expectedAction": "screen",
+      "expectedDomain": "trading",
+      "expectedOperation": "search",
+      "id": "nlq-012",
+      "question": "screen stocks with rsi below 30"
+    },
+    {
+      "expectedAction": "capabilities",
+      "expectedDomain": "trading",
+      "expectedOperation": "list",
+      "id": "nlq-013",
+      "question": "what can you do"
+    },
+    {
+      "expectedAction": null,
+      "expectedDomain": "tables",
+      "expectedOperation": "list",
+      "id": "nlq-014",
+      "question": "show me the database tables"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_categories",
+      "id": "nlq-015",
+      "question": "show me my categories"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_referrals",
+      "id": "nlq-016",
+      "question": "list my referrals"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_external_ads",
+      "id": "nlq-017",
+      "question": "show external ads"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_transactions",
+      "id": "nlq-018",
+      "question": "show my transactions"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_events",
+      "id": "nlq-019",
+      "question": "show audit events"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_memory",
+      "id": "nlq-020",
+      "question": "what did i save in memory"
+    },
+    {
+      "expectedAction": "quote",
+      "expectedDomain": "research",
+      "expectedOperation": "search",
+      "id": "nlq-021",
+      "question": "yfinance quote for AAPL"
+    },
+    {
+      "expectedAction": "compare",
+      "expectedDomain": "research",
+      "expectedOperation": "search",
+      "id": "nlq-022",
+      "question": "compare NVDA and AMD"
+    },
+    {
+      "expectedAction": "fundamentals",
+      "expectedDomain": "research",
+      "expectedOperation": "search",
+      "id": "nlq-023",
+      "question": "AAPL fundamentals"
+    },
+    {
+      "expectedAction": "report",
+      "expectedDomain": "research",
+      "expectedOperation": "search",
+      "id": "nlq-024",
+      "question": "research report on TSLA"
+    },
+    {
+      "expectedAction": null,
+      "expectedDomain": "conversation",
+      "expectedOperation": "list",
+      "id": "nlq-025",
+      "question": "what did i ask about yesterday"
+    },
+    {
+      "expectedAction": null,
+      "expectedDomain": "conversation",
+      "expectedOperation": "count",
+      "id": "nlq-026",
+      "question": "how many questions did i ask"
+    },
+    {
+      "expectedAction": "quote",
+      "expectedDomain": "trading",
+      "expectedOperation": "list",
+      "id": "nlq-027",
+      "question": "get an etrade quote for MSFT"
+    },
+    {
+      "expectedAction": "screen",
+      "expectedDomain": "trading",
+      "expectedOperation": "search",
+      "id": "nlq-028",
+      "question": "screen for top market movers"
+    },
+    {
+      "expectedDomain": "table_data",
+      "expectedOperation": "list",
+      "expectedTargetTable": "mas_ads",
+      "id": "nlq-029",
+      "question": "show my marketplace ads"
+    }
+  ]
+}
