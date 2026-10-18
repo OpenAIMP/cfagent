@@ -37,6 +37,7 @@ import {
   type UniverseId,
 } from "../trading/universes";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
+import { DEFAULT_SCREENER_CONFIG } from "../trading/screenerConfig";
 import type { StockScreenerFilter } from "../types";
 
 export interface ScreenerRunRequest {
@@ -77,7 +78,7 @@ export interface ScreenerRunResult {
 
 const LATEST_KEY = "screener:latest";
 const HISTORY_KEY = "screener:history";
-const HISTORY_LIMIT = 20;
+// History limit from config (issue #273).
 const PDF_KEY = "screener:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
@@ -105,7 +106,8 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
-    const sector = req.sector || req.filters?.sector || "Technology";
+    const cfg = DEFAULT_SCREENER_CONFIG;
+    const sector = req.sector || req.filters?.sector || cfg.acquisition.defaultSector;
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
     const universe: UniverseId = req.universe ?? "TECH";
@@ -158,7 +160,7 @@ export class ScreenerAgent extends Agent<Env> {
       const bySymbol = new Map(allStocks.map((s) => [s.symbol, s]));
       const opportunities = selectStandouts(
         screenResult.stocks,
-        req.maxItems ?? 5
+        req.maxItems ?? cfg.acquisition.defaultMaxItems
       ).map((s) => {
         const opp = toOpportunityStock(s);
         const graded = bySymbol.get(s.symbol);
@@ -247,7 +249,7 @@ export class ScreenerAgent extends Agent<Env> {
       (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
     await this.ctx.storage.put(
       HISTORY_KEY,
-      [result, ...history].slice(0, HISTORY_LIMIT)
+      [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
     );
     // Issue #269: generate + store the report PDF for download/delivery.
     try {
