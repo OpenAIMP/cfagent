@@ -7,7 +7,7 @@ import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQ
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
-import { PaymentGatewayService, normalizeGateway, isWebhookGateway, type SupportedGateway } from "../services/payments";
+import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedGateway, SUPPORTED_GATEWAYS, type SupportedGateway } from "../services/payments";
 import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
@@ -2626,7 +2626,7 @@ Agentic Best Practices & Workflow Rules:
           currency?: string;
           customer?: string;
           action?: "charge" | "refund" | "invoice";
-          gateway?: SupportedGateway;
+          gateway?: string;
           description?: string;
         };
 
@@ -2634,7 +2634,22 @@ Agentic Best Practices & Workflow Rules:
         const currency = (body.currency || "USD").toUpperCase();
         const customer = (body.customer || "Enterprise Client").trim();
         const action = body.action || "charge";
-        const gateway = (body.gateway || "stripe") as SupportedGateway;
+        // Validate the gateway where caller input enters (issue #156): an
+        // unsupported value is rejected with a 400 BEFORE any checkout is
+        // attempted and BEFORE any transaction row is written. Normalization
+        // matches the webhook verifier (#148), so " Stripe " stores "stripe".
+        const gatewayInput =
+          body.gateway == null || (typeof body.gateway === "string" && body.gateway.trim() === "")
+            ? "stripe"
+            : String(body.gateway);
+        if (!isSupportedGateway(gatewayInput)) {
+          return Response.json({
+            success: false,
+            error: `Unsupported payment gateway: "${gatewayInput}". Supported gateways: ${SUPPORTED_GATEWAYS.join(", ")}.`,
+            code: "UNSUPPORTED_GATEWAY",
+          }, { status: 400 });
+        }
+        const gateway = normalizeGateway(gatewayInput) as SupportedGateway;
         const description = (body.description || `AI Compute Tokens for ${customer}`).trim();
 
         const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;

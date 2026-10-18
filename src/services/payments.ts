@@ -117,6 +117,19 @@ export class PaymentGatewayService {
    */
   async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
     const gateway = normalizeGateway(params.gateway || "stripe") as SupportedGateway;
+
+    // Validate at the service seam (issue #156): every caller of this method
+    // (create/confirm routes, facade, MCP commands) gets the same explicit
+    // rejection for an unsupported gateway, and no DID attestation is minted
+    // for a gateway that can never resolve. An unknown gateway is never
+    // silently substituted (the strategy factory throws the same error as a
+    // backstop, #148).
+    if (!isSupportedGateway(gateway)) {
+      throw new Error(
+        `Unsupported payment gateway: ${gateway}. Supported gateways: ${SUPPORTED_GATEWAYS.join(", ")}.`
+      );
+    }
+
     const authorizerDid = `did:user:github:${params.userLogin}`;
 
     // 1. Generate Verifiable Agent DID Attestation
