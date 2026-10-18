@@ -100,7 +100,6 @@ export interface Env {
   ETRADE_KV?: KVNamespace;
   BROWSER_AGENT?: DurableObjectNamespace;
   SLACK_AGENT?: DurableObjectNamespace;
-  PAYMENTS_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
   RESEARCH_AGENT?: DurableObjectNamespace;
