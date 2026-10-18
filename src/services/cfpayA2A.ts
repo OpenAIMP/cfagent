@@ -19,9 +19,11 @@ export interface CfpayA2AConfig {
   token: string;
 }
 
-export function getCfpayConfig(env: Record<string, unknown>): CfpayA2AConfig | null {
-  const baseUrl = (env.CFPAY_URL as string) || "https://pay.openaimp.com";
-  const token = env.CFPAY_A2A_TOKEN as string;
+export function getCfpayConfig(env: unknown): CfpayA2AConfig | null {
+  const e = env as Record<string, unknown>;
+  const baseUrl = (e.CFPAY_URL as string) || "https://pay.openaimp.com";
+  // DASHBOARD_API_KEY_IS_A2A_TOKEN is the A2A bearer token (falls back to CFPAY_A2A_TOKEN).
+  const token = (e.DASHBOARD_API_KEY_IS_A2A_TOKEN as string) || (e.CFPAY_A2A_TOKEN as string);
   if (!token) return null;
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };
 }
