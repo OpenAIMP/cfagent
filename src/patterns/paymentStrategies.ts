@@ -667,6 +667,16 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
    * Verifies PayPal Webhook Signature against PayPal API
    */
   async verifyWebhookSignature(env: Env, headers: Headers, rawBody: string, webhookId?: string): Promise<boolean> {
+    // Issue #157: the webhook id must come from explicit configuration —
+    // the `webhookId` argument or the dedicated PAYPAL_WEBHOOK_ID env var
+    // (declared in .dev.vars.example). The client id is NOT a webhook id:
+    // substituting it made PayPal's verification API reject legitimate
+    // webhooks. With no webhook id configured, fail closed BEFORE any
+    // remote call rather than sending a substituted identifier.
+    const resolvedWebhookId = webhookId || env.PAYPAL_WEBHOOK_ID;
+    if (!resolvedWebhookId) {
+      return false;
+    }
     try {
       const token = await this.getAccessToken(env);
       const base = env.PAYPAL_ENVIRONMENT === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
@@ -683,7 +693,7 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
           transmission_id: headers.get("paypal-transmission-id"),
           transmission_sig: headers.get("paypal-transmission-sig"),
           transmission_time: headers.get("paypal-transmission-time"),
-          webhook_id: webhookId || env.PAYPAL_CLIENT_ID,
+          webhook_id: resolvedWebhookId,
           webhook_event: JSON.parse(rawBody),
         }),
       });
