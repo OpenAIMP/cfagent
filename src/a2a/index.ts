@@ -2,10 +2,10 @@
  * PR #2 — A2A routing (main entry).
  * Re-exports agent cards and the handleA2A dispatcher.
  */
-export * from "./a2a/agent-cards";
+export * from "./agent-cards";
 
-import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./a2a/agent-cards";
-import { catalogAgent } from "./orchestrate";
+import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./agent-cards";
+import { catalogAgent } from "../orchestrate";
 
 /**
  * Route an incoming A2A request to the right DO stub.
