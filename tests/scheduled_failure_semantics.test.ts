@@ -18,27 +18,20 @@ vi.mock("@cloudflare/ai-chat", () => {
   };
 });
 
-// Issue #224 rewired autonomousMarketScreen to the liveScreener module
-// (fetchTechnologySymbols / fetchLiveQuotes, E*TRADE primary with Nasdaq
-// fallback) instead of DynamicMarketScreener.screenStocks. Mock that seam —
-// mocking screenStocks no longer injects anything into the screen path.
-vi.mock("../src/trading/liveScreener", () => ({
-  fetchTechnologySymbols: vi.fn(),
-  fetchLiveQuotes: vi.fn(),
-}));
+// Issue #261: autonomousMarketScreen delegates to ScreenerAgent.
+// Mock the agent seam — the liveScreener functions are no longer called
+// by the service directly.
+const mockRunScreen = vi.fn();
 
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
-import { fetchTechnologySymbols, fetchLiveQuotes } from "../src/trading/liveScreener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { UnifiedOptionsService } from "../src/trading/options/unifiedOptionsService";
 import { ScheduledTasksService } from "../src/services/scheduledTasks";
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import type { Env } from "../src/types";
 
-const mockFetchTechnologySymbols = vi.mocked(fetchTechnologySymbols);
-const mockFetchLiveQuotes = vi.mocked(fetchLiveQuotes);
 
 /**
  * Issue #112 — failure semantics for scheduled options jobs.
@@ -80,6 +73,11 @@ describe("Scheduled job failure semantics (#112)", () => {
       ETRADE_KV: {} as any,
       SESSIONS: {} as any,
       SEARCH_AGENT: {} as any,
+      // Issue #261: ScreenerAgent mock — service delegates screening to it.
+      SCREENER_AGENT: {
+        idFromName: () => "mock-screener",
+        get: () => ({ runScreen: mockRunScreen }),
+      } as any,
     } as Env;
   });
 
@@ -99,7 +97,7 @@ describe("Scheduled job failure semantics (#112)", () => {
   describe("ScheduledTasksService failure paths", () => {
     it("audits a market screen failure and records a failure session message", async () => {
       const orm = makeOrm(new MockSqlStorage());
-      mockFetchTechnologySymbols.mockRejectedValue(new Error("universe fetch exploded"));
+      mockRunScreen.mockRejectedValue(new Error("universe fetch exploded"));
 
       const service = new ScheduledTasksService(env, orm, sessionId);
       const res = await service.autonomousMarketScreen({ sector: "Technology", maxItems: 3 });
@@ -236,7 +234,7 @@ describe("Scheduled job failure semantics (#112)", () => {
     it("broadcasts a market screen failure as well as auditing + messaging it", async () => {
       const sql = new MockSqlStorage();
       const agent = makeAgent(sql);
-      mockFetchTechnologySymbols.mockRejectedValue(new Error("screener universe unavailable"));
+      mockRunScreen.mockRejectedValue(new Error("screener universe unavailable"));
 
       await agent.autonomousMarketScreen({ sector: "Technology", maxItems: 5 });
 
@@ -257,22 +255,57 @@ describe("Scheduled job failure semantics (#112)", () => {
     it("still broadcasts a market screen success with standouts, with the unchanged shape", async () => {
       const sql = new MockSqlStorage();
       const agent = makeAgent(sql);
-      mockFetchTechnologySymbols.mockResolvedValue([
-        { symbol: "ACME", companyName: "ACME Technology" },
-        { symbol: "XYZ", companyName: "XYZ Data Systems" },
-      ] as any);
-      mockFetchLiveQuotes.mockResolvedValue([
-        { symbol: "ACME", companyName: "ACME Technology", lastPrice: 100, changePercent: 2.5 },
-        { symbol: "XYZ", companyName: "XYZ Data Systems", lastPrice: 50, changePercent: 0.1 },
-      ] as any);
-      vi.spyOn(DynamicMarketScreener.prototype, "screenWithQuotes").mockReturnValue({
+      mockRunScreen.mockResolvedValue({
+        timestamp: new Date().toISOString(),
+        trigger: "scheduled",
+        sector: "Technology",
+        success: true,
         totalScanned: 12,
         matchedCount: 2,
-        stocks: [
-          { symbol: "ACME", signal: "BULLISH_MOMENTUM", momentumScore: 88 },
-          { symbol: "XYZ", signal: "NEUTRAL", momentumScore: 10 },
+        opportunities: [
+          {
+            symbol: "ACME",
+            companyName: "ACME Technology",
+            signal: "BULLISH_MOMENTUM",
+            momentumScore: 88,
+            lastPrice: 100,
+            changePercent: 2.5,
+            indicators: {
+              sentiment: "bullish",
+              directional: true,
+              rangeZone: "neutral",
+              valueZone: "fair",
+              screenScore: 80,
+              intradayPosition: 0.8,
+              rangePosition: 0.6,
+              summary: "bullish · directional",
+            },
+          },
         ],
-      } as any);
+        allStocks: [
+          {
+            symbol: "ACME",
+            companyName: "ACME Technology",
+            signal: "BULLISH_MOMENTUM",
+            momentumScore: 88,
+            lastPrice: 100,
+            changePercent: 2.5,
+            rsi14: null,
+            source: "E*TRADE live",
+            indicators: {
+              sentiment: "bullish",
+              directional: true,
+              rangeZone: "neutral",
+              valueZone: "fair",
+              screenScore: 80,
+              intradayPosition: 0.8,
+              rangePosition: 0.6,
+              summary: "bullish · directional",
+            },
+          },
+        ],
+        discoveryMessage: "E*TRADE-only (mock)",
+      });
 
       await agent.autonomousMarketScreen({ sector: "Technology", maxItems: 5 });
 
