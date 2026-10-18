@@ -1,0 +1,188 @@
+/* Agentic Wallet panel (issue #139) — awp- prefixed, self-contained. */
+.awp-panel {
+  margin: 1.25rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.awp-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.awp-header h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.awp-refresh {
+  margin-left: auto;
+  padding: 0.3rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.awp-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* The simulated badge lives INSIDE the balance card, next to the number —
+   it is part of the figure's presentation, not a footnote (issue #139). */
+.awp-sim-badge {
+  display: inline-block;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid #d97706;
+  background: rgba(217, 119, 6, 0.16);
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.awp-balance-card {
+  margin-top: 0.9rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.awp-balance-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.awp-balance-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa4b2;
+}
+.awp-balance-amount {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.awp-disclosure {
+  margin: 0.5rem 0 0;
+  font-size: 0.83rem;
+  color: #fbbf24;
+}
+.awp-source-line {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: #9aa4b2;
+}
+.awp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+.awp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.awp-card span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa4b2;
+}
+.awp-card strong {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+.awp-meta {
+  margin-top: 0.8rem;
+  font-size: 0.8rem;
+  color: #9aa4b2;
+  overflow-wrap: anywhere;
+}
+.awp-meta code {
+  color: inherit;
+}
+.awp-error {
+  margin-top: 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #e5484d;
+  border-radius: 10px;
+  background: rgba(229, 72, 77, 0.08);
+  font-size: 0.88rem;
+}
+.awp-loading,
+.awp-empty {
+  margin-top: 0.9rem;
+  font-size: 0.88rem;
+  color: #9aa4b2;
+}
+.awp-ledger {
+  margin-top: 1.1rem;
+}
+.awp-ledger h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+.awp-ledger-sub {
+  margin: 0 0 0.7rem;
+  font-size: 0.8rem;
+  color: #9aa4b2;
+}
+.awp-ledger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.awp-entry {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.awp-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.awp-entry-amount {
+  font-weight: 700;
+}
+.awp-entry-direction {
+  font-size: 0.78rem;
+  color: #9aa4b2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.awp-status-chip {
+  display: inline-block;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.awp-status-chip.simulated {
+  border-color: #d97706;
+  background: rgba(217, 119, 6, 0.16);
+  color: #fbbf24;
+}
+.awp-entry-time {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: #9aa4b2;
+}
+.awp-entry-meta {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: #9aa4b2;
+  overflow-wrap: anywhere;
+}

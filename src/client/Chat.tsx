@@ -15,6 +15,7 @@ import { FossResearchHub } from "./FossResearchHub";
 import { TabHoverItem } from "./TabHoverItem";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
+import { AgenticWalletPanel } from "./AgenticWalletPanel";
 import adDisplayConfig from "./ad-display.config.json";
 import {
   AdBannerConfig,
@@ -2912,6 +2913,11 @@ export function Chat({ user }: { user: User }) {
                 </div>
               </div>
             </div>
+
+            {/* Agentic Wallet (x402 / MPP) — issue #139: the wallet's first UI surface */}
+            <ErrorBoundary label="Agentic Wallet panel">
+              <AgenticWalletPanel />
+            </ErrorBoundary>
 
             {/* 2-Column Grid: Create Payment / Intent Form + Transaction Ledger */}
             <div className="referral-columns-grid">
