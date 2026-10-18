@@ -20,7 +20,6 @@ import {
   type OptionStrategyType,
 } from "../trading/options";
 import type { ScanRunStore } from "../trading/options/scanRunStore";
-import { ETradeService } from "./etrade";
 import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { OptionsDataAgent } from "../trading/options/optionsDataAgent";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading/options/ivCollector";
