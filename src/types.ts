@@ -22,6 +22,7 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_WEBHOOK_ID?: string;
   PAYPAL_ENVIRONMENT?: "sandbox" | "live";
   LEMONSQUEEZY_API_KEY?: string;
   LEMONSQUEEZY_STORE_ID?: string;
