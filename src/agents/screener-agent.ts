@@ -23,6 +23,7 @@ import {
   screenUniverse,
   selectStandouts,
   buildAllStocks,
+  attachFactorGrades,
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
@@ -116,11 +117,22 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
       });
 
+      // Issue #266: SA-style factor grades, computed percentile-relative
+      // across the full scanned universe, then joined onto opportunities.
+      const allStocks = attachFactorGrades(
+        buildAllStocks(acquired.quotes, screenResult.stocks)
+      );
+      const gradesBySymbol = new Map(
+        allStocks.map((s) => [s.symbol, s.factorGrades])
+      );
       const opportunities = selectStandouts(
         screenResult.stocks,
         req.maxItems ?? 5
-      ).map(toOpportunityStock);
-      const allStocks = buildAllStocks(acquired.quotes, screenResult.stocks);
+      ).map((s) => {
+        const opp = toOpportunityStock(s);
+        const graded = gradesBySymbol.get(s.symbol);
+        return graded ? { ...opp, factorGrades: graded } : opp;
+      });
 
       const result: ScreenerRunResult = {
         timestamp,

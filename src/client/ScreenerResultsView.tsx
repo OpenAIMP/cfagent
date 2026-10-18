@@ -13,6 +13,19 @@
 
 import { useMemo, useState } from "react";
 
+export interface FactorGradesData {
+  value: string | null;
+  momentum: string | null;
+  growth: null;
+  profitability: null;
+  revisions: null;
+  quantRating: string | null;
+  valueScore: number | null;
+  momentumScore: number | null;
+  compositeScore: number | null;
+  gradedFactors: string[];
+}
+
 export interface ScreenedIndicatorsData {
   sentiment: string;
   directional: boolean;
@@ -39,6 +52,7 @@ export interface ScreenerResultData {
     lastPrice: number;
     changePercent: number;
     indicators?: ScreenedIndicatorsData;
+    factorGrades?: FactorGradesData;
   }>;
   allStocks?: Array<{
     symbol: string;
@@ -50,6 +64,7 @@ export interface ScreenerResultData {
     rsi14: number | null;
     source: string;
     indicators?: ScreenedIndicatorsData;
+    factorGrades?: FactorGradesData;
   }>;
   discoveryMessage?: string;
   error?: string;
@@ -64,7 +79,10 @@ type SortKey =
   | "rangeZone"
   | "valueZone"
   | "momentumScore"
-  | "rsi14";
+  | "rsi14"
+  | "quantRating"
+  | "valueGrade"
+  | "momentumGrade";
 
 const SENTIMENT_RANK: Record<string, number> = {
   very_bullish: 5,
@@ -72,6 +90,17 @@ const SENTIMENT_RANK: Record<string, number> = {
   neutral: 3,
   bearish: 2,
   very_bearish: 1,
+};
+
+const GRADE_RANK: Record<string, number> = {
+  "A+": 12, "A": 11, "A-": 10,
+  "B+": 9, "B": 8, "B-": 7,
+  "C+": 6, "C": 5, "C-": 4,
+  "D+": 3, "D": 2, "D-": 1, "F": 0,
+};
+
+const QUANT_RANK: Record<string, number> = {
+  "Strong Buy": 5, "Buy": 4, "Hold": 3, "Sell": 2, "Strong Sell": 1,
 };
 
 const ZONE_RANK: Record<string, number> = {
@@ -97,6 +126,12 @@ function sortValue(row: { indicators?: ScreenedIndicatorsData } & Record<string,
       return ZONE_RANK[row.indicators?.valueZone ?? "fair"] ?? 2;
     case "rsi14":
       return row.rsi14 ?? -1;
+    case "quantRating":
+      return QUANT_RANK[row.factorGrades?.quantRating ?? ""] ?? -1;
+    case "valueGrade":
+      return GRADE_RANK[row.factorGrades?.value ?? ""] ?? -1;
+    case "momentumGrade":
+      return GRADE_RANK[row.factorGrades?.momentum ?? ""] ?? -1;
     default:
       return row[key] ?? 0;
   }
@@ -151,6 +186,60 @@ function SortTh({
       {sortKey === k && <span style={{ marginLeft: "0.25rem" }}>{sortDir === 1 ? "▲" : "▼"}</span>}
     </th>
   );
+}
+
+function gradeColor(g: string | null | undefined): string {
+  if (!g) return "var(--theme-text-muted)";
+  const top = g[0];
+  if (top === "A") return "var(--color-success, #30a46c)";
+  if (top === "B") return "#8fc76f";
+  if (top === "C") return "var(--color-warning, #d4a017)";
+  return "var(--color-danger, #e5484d)";
+}
+
+function GradeBadge({
+  grade,
+  withheldReason,
+}: {
+  grade: string | null | undefined;
+  withheldReason?: string;
+}) {
+  if (!grade) {
+    return (
+      <span
+        title={withheldReason ?? "Insufficient data — grade withheld, not estimated"}
+        style={{ color: "var(--theme-text-muted)", cursor: "help" }}
+      >
+        —
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        minWidth: "2rem",
+        textAlign: "center",
+        padding: "0.1rem 0.4rem",
+        borderRadius: "4px",
+        fontWeight: 700,
+        fontSize: "0.8rem",
+        color: gradeColor(grade),
+        border: `1px solid ${gradeColor(grade)}`,
+      }}
+    >
+      {grade}
+    </span>
+  );
+}
+
+function quantRatingColor(r: string | null | undefined): string {
+  if (!r) return "var(--theme-text-muted)";
+  if (r === "Strong Buy") return "var(--color-success, #30a46c)";
+  if (r === "Buy") return "#8fc76f";
+  if (r === "Hold") return "var(--color-warning, #d4a017)";
+  if (r === "Sell") return "#e08080";
+  return "var(--color-danger, #e5484d)";
 }
 
 function ChangeCell({ value }: { value: number }) {
@@ -228,6 +317,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                     <th>Company</th>
                     <SortTh label="Sentiment" k="sentiment" {...opps} title="Day-action sentiment: very bearish → very bullish" />
                     <SortTh label="Score" k="screenScore" {...opps} title="Composite 0-100 screening score (heuristic)" />
+                    <SortTh label="Quant" k="quantRating" {...opps} title="Quant rating from graded factors (Strong Buy → Strong Sell)" />
+                    <SortTh label="Val" k="valueGrade" {...opps} title="Value factor grade A+…F (P/E + 52-week position, relative)" />
+                    <SortTh label="Mom" k="momentumGrade" {...opps} title="Momentum factor grade A+…F (relative)" />
                     <SortTh label="Price" k="lastPrice" {...opps} />
                     <SortTh label="Change" k="changePercent" {...opps} />
                     <SortTh label="Range" k="rangeZone" {...opps} title="Range-based overbought/oversold (52-week position, not RSI)" />
@@ -252,6 +344,11 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                       <td>
                         <strong>{o.indicators?.screenScore ?? "—"}</strong>
                       </td>
+                      <td style={{ color: quantRatingColor(o.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {o.factorGrades?.quantRating ?? "—"}
+                      </td>
+                      <td><GradeBadge grade={o.factorGrades?.value} /></td>
+                      <td><GradeBadge grade={o.factorGrades?.momentum} /></td>
                       <td>${o.lastPrice.toFixed(2)}</td>
                       <ChangeCell value={o.changePercent} />
                       <td>{o.indicators?.rangeZone ?? "—"}</td>
@@ -288,6 +385,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                       <SortTh label="Change" k="changePercent" {...all} />
                       <SortTh label="Sentiment" k="sentiment" {...all} />
                       <SortTh label="Score" k="screenScore" {...all} />
+                      <SortTh label="Quant" k="quantRating" {...all} />
+                      <SortTh label="Val" k="valueGrade" {...all} />
+                      <SortTh label="Mom" k="momentumGrade" {...all} />
                       <SortTh label="Momentum" k="momentumScore" {...all} />
                       <SortTh label="Range" k="rangeZone" {...all} title="Range-based (52-week position), not RSI" />
                       <SortTh label="Value" k="valueZone" {...all} />
@@ -315,6 +415,11 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                         <td>
                           <strong>{s.indicators?.screenScore ?? "—"}</strong>
                         </td>
+                        <td style={{ color: quantRatingColor(s.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {s.factorGrades?.quantRating ?? "—"}
+                        </td>
+                        <td><GradeBadge grade={s.factorGrades?.value} /></td>
+                        <td><GradeBadge grade={s.factorGrades?.momentum} /></td>
                         <td>{s.momentumScore.toFixed(0)}</td>
                         <td>{s.indicators?.rangeZone ?? "—"}</td>
                         <td>{s.indicators?.valueZone ?? "—"}</td>
