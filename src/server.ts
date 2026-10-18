@@ -41,6 +41,11 @@ export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
+// Issue #197: wrangler.jsonc binds PAYMENTS_AGENT/SCHEDULED_AGENT as Durable
+// Objects — wrangler requires every bound DO class to be exported from the
+// entrypoint, otherwise `wrangler deploy` fails.
+export { PaymentsAgent } from "./agents/payments-agent";
+export { ScheduledAgent } from "./agents/scheduled-agent";
 
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
