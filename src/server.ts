@@ -331,6 +331,36 @@ export default {
       });
     }
 
+    // Issue #162 — QA self-healing: LLM investigation of a post-deploy failure.
+    // Called by scripts/qa-smoke.mjs after filing the GitHub issue; the
+    // returned diagnosis is posted as an issue comment for human supervision.
+    if (path === "/api/qa/investigate" && request.method === "POST") {
+      const body = (await request.json().catch(() => null)) as {
+        operation?: unknown;
+        errorClass?: unknown;
+        detail?: unknown;
+        runLink?: unknown;
+      } | null;
+      const operation = typeof body?.operation === "string" ? body.operation.slice(0, 200) : "";
+      const errorClass = typeof body?.errorClass === "string" ? body.errorClass.slice(0, 200) : "";
+      const detail = typeof body?.detail === "string" ? body.detail.slice(0, 8000) : "";
+      const runLink = typeof body?.runLink === "string" ? body.runLink.slice(0, 500) : undefined;
+      if (!operation || !errorClass || !detail) {
+        return Response.json(
+          { error: "operation, errorClass, and detail are required." },
+          { status: 400 }
+        );
+      }
+      const { investigateQAFailure } = await import("./qa/investigate");
+      const investigation = await investigateQAFailure(env as any, {
+        operation,
+        errorClass,
+        detail,
+        runLink,
+      });
+      return Response.json({ ok: true, investigation });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
