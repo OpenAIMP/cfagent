@@ -18,6 +18,24 @@ interface ScreenersHubProps {
 
 type ScreenRow = Record<string, unknown>;
 
+// Issue #212: a persisted autonomous screener run.
+interface ScreenRun {
+  timestamp: string;
+  sector: string;
+  success: boolean;
+  totalScanned: number;
+  matchedCount: number;
+  opportunities: Array<{
+    symbol: string;
+    companyName: string;
+    signal: string;
+    momentumScore: number;
+    lastPrice: number;
+    changePercent: number;
+  }>;
+  error?: string;
+}
+
 function numberFilter(value: string): number | undefined {
   return value.trim() === "" ? undefined : Number(value);
 }
@@ -50,6 +68,31 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     message?: string;
   } | null>(null);
   const [scannedAt, setScannedAt] = useState<string>("");
+  // Issue #212: latest autonomous screener runs (from the 5-min schedule).
+  const [autoRuns, setAutoRuns] = useState<ScreenRun[]>([]);
+  const [autoLoading, setAutoLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAuto = async () => {
+      try {
+        const res = await fetch("/api/screener/latest");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.runs)) setAutoRuns(data.runs);
+      } catch {
+        // Non-critical: panel stays empty.
+      } finally {
+        if (!cancelled) setAutoLoading(false);
+      }
+    };
+    void loadAuto();
+    const timer = setInterval(() => void loadAuto(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (providers.length > 0 && !providers.some((provider) => provider.id === providerId)) {
@@ -224,6 +267,82 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
 
       {assetClass === "stocks" ? (
         <>
+          {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
+          <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+              <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+                Runs every 5 min via the scheduled job — latest results below (refreshes automatically).
+              </span>
+            </div>
+            {autoLoading ? (
+              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>Loading latest autonomous run…</div>
+            ) : autoRuns.length === 0 ? (
+              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+                No autonomous runs recorded yet. The next 5-minute tick will populate this panel.
+              </div>
+            ) : (
+              (() => {
+                const latest = autoRuns[0];
+                return (
+                  <div>
+                    <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
+                      <strong>{latest.sector}</strong> sector • {latest.totalScanned.toLocaleString()} scanned •{" "}
+                      {latest.matchedCount} matched •{" "}
+                      <span style={{ color: "var(--theme-text-muted)" }}>
+                        {new Date(latest.timestamp).toLocaleString()}
+                      </span>
+                      {!latest.success && (
+                        <span style={{ color: "var(--color-danger, #e5484d)", marginLeft: "0.5rem" }}>
+                          ⚠️ Failed: {latest.error}
+                        </span>
+                      )}
+                    </div>
+                    {latest.opportunities.length > 0 ? (
+                      <div className="options-table-scroll">
+                        <table className="options-comparison-table">
+                          <thead>
+                            <tr>
+                              <th>Symbol</th>
+                              <th>Company</th>
+                              <th>Signal</th>
+                              <th>Momentum</th>
+                              <th>Price</th>
+                              <th>Change</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {latest.opportunities.map((o) => (
+                              <tr key={o.symbol}>
+                                <td><strong>{o.symbol}</strong></td>
+                                <td>{o.companyName}</td>
+                                <td>{o.signal}</td>
+                                <td>{o.momentumScore.toFixed(0)}</td>
+                                <td>${o.lastPrice.toFixed(2)}</td>
+                                <td style={{ color: o.changePercent >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)" }}>
+                                  {o.changePercent >= 0 ? "+" : ""}{o.changePercent.toFixed(2)}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+                        No standout opportunities in the latest run.
+                      </div>
+                    )}
+                    {autoRuns.length > 1 && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)", marginTop: "0.5rem" }}>
+                        {autoRuns.length - 1} earlier run{autoRuns.length > 2 ? "s" : ""} retained
+                        (latest: {new Date(autoRuns[autoRuns.length - 1].timestamp).toLocaleString()}).
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            )}
+          </div>
           <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
             <label className="options-field">
               <span>Data provider / API</span>
