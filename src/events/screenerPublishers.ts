@@ -102,7 +102,7 @@ async function publishCompleted(
   const plainText = text.replace(/\*/g, "");
 
   // 1. Slack — try cfpay via A2A first, fall back to local.
-  const cfpay = getCfpayConfig(deps.env as Record<string, unknown>);
+  const cfpay = getCfpayConfig(deps.env);
   let slackOk = false;
   if (cfpay) {
     const r = await cfpayPostToSlack(cfpay, plainText);
