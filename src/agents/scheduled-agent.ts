@@ -1,4 +1,4 @@
-import { callable } from "agents";
+import { Agent } from "agents";
 import type { Env } from "../types";
 import {
   DEFAULT_SCHEDULES,
@@ -27,7 +27,7 @@ interface ScheduledAgentState {
   goals: ScheduledGoal[];
 }
 
-export class ScheduledAgent extends callable<ScheduledAgentState>() {
+export class ScheduledAgent extends Agent<Env> {
   initialState: ScheduledAgentState = {
     goals: DEFAULT_SCHEDULES,
   };
