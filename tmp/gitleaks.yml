@@ -1,0 +1,47 @@
+# Secret Scanning (gitleaks) — Assessment P0 item 3, OpenAIMP/cfagent issue #143.
+#
+# WHAT: scans every commit in the repository (full history) for secrets
+# committed by accident. Runs on push to main and on pull requests so
+# leaked credentials are caught before they merge.
+#
+# INSTALL (owner, via the GitHub web UI — the assistant's integration cannot
+# write .github/workflows/, 403): create .github/workflows/gitleaks.yml with
+# exactly this content and commit it to main. No new secrets.
+#
+# PERMISSIONS: contents: read is sufficient for the scan. If you later enable
+# the action's PR-comment summary, add pull-requests: write.
+#
+# FINE-TUNING: if the scan flags false positives, add a .gitleaks.toml
+# allowlist at the repo root (see the gitleaks docs); the action picks it
+# up automatically.
+
+name: Secret Scanning
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔎 Scan for secrets with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
