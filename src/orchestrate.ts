@@ -215,7 +215,7 @@ export async function createJob(
   }
 ): Promise<OrchestratorJob> {
   // Validate the operation exists in the catalog
-  const entry = OPERATION_CATALOG.find((e) => e.operation === req.operation);
+  const entry = OPERATION_CATALOG.find((e) => e.operations.includes(req.operation));
   if (!entry) {
     throw new Error(`Unknown operation: ${req.operation}`);
   }
