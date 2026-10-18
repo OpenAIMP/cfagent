@@ -134,6 +134,7 @@ jobs:
           S_GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
           S_APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           S_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          S_DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY_IS_A2A_TOKEN }}
         run: |
           GH_ID="$S_GH_CLIENT_ID"
           if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
@@ -145,6 +146,7 @@ jobs:
           if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
           if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | npx wrangler secret put APP_BASE_URL; fi
           if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | npx wrangler secret put SESSION_SECRET; fi
+          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | npx wrangler secret put DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
