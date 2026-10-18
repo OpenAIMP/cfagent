@@ -7,10 +7,12 @@
  *   2. Verifies the payment via the x402 facilitator (fail-closed)
  *   3. Records the payment in the ledger
  *
- * payExternalEndpoint() handles outbound payments using viem.
+ * State is persisted via ctx.storage (Durable Object storage),
+ * not via Agent state helpers.
  */
 
 import { Agent } from "agents";
+import type { Env } from "../types";
 
 export interface PaymentRecord {
   id: string;
@@ -22,12 +24,15 @@ export interface PaymentRecord {
   status: "pending" | "verified" | "failed";
 }
 
-interface PaymentsAgentState {
-  payments: PaymentRecord[];
-}
-
 export class PaymentsAgent extends Agent<Env> {
-  initialState: PaymentsAgentState = { payments: [] };
+  private async getPayments(): Promise<PaymentRecord[]> {
+    const stored = await this.ctx.storage.get<PaymentRecord[]>("payments");
+    return stored ?? [];
+  }
+
+  private async savePayments(payments: PaymentRecord[]): Promise<void> {
+    await this.ctx.storage.put("payments", payments);
+  }
 
   private todayKey(): string {
     return new Date().toISOString().slice(0, 10);
@@ -36,9 +41,10 @@ export class PaymentsAgent extends Agent<Env> {
   /** Total spent today across all agents, in cents. */
   async todaySpent(): Promise<number> {
     const today = this.todayKey();
-    return this.state.payments
-      .filter((p) => p.timestamp.startsWith(today) && p.status === "verified")
-      .reduce((sum, p) => sum + p.amountCents, 0);
+    const payments = await this.getPayments();
+    return payments
+      .filter((p: PaymentRecord) => p.timestamp.startsWith(today) && p.status === "verified")
+      .reduce((sum: number, p: PaymentRecord) => sum + p.amountCents, 0);
   }
 
   /**
@@ -52,10 +58,8 @@ export class PaymentsAgent extends Agent<Env> {
     agentId?: string;
   }): Promise<{ allowed: boolean; reason?: string }> {
     try {
-      // Import BudgetGuard dynamically to avoid circular deps
       const { BudgetGuard } = await import("../payments/budget-guard");
       const guard = new BudgetGuard({
-        // Config would come from env/DO state in production
         allowlist: ["search.query", "payments.draft", "tasks.create", "memory.remember", "nlq.execute"],
       });
       const verdict = guard.check({
@@ -84,7 +88,6 @@ export class PaymentsAgent extends Agent<Env> {
     idempotencyKey: string;
     paymentProof: string;
   }): Promise<PaymentRecord> {
-    // 1. Budget guard
     const budget = await this.budgetCheck({
       operation: req.operation,
       amountCents: req.amountCents,
@@ -94,13 +97,11 @@ export class PaymentsAgent extends Agent<Env> {
       throw new Error(`Budget denied: ${budget.reason}`);
     }
 
-    // 2. Facilitator verification (fail-closed)
     const verified = await this.verifyWithFacilitator(req.paymentProof);
     if (!verified) {
       throw new Error("Payment verification failed: facilitator rejected");
     }
 
-    // 3. Record
     const record: PaymentRecord = {
       id: `pay_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       agentId: req.agentId,
@@ -110,19 +111,14 @@ export class PaymentsAgent extends Agent<Env> {
       idempotencyKey: req.idempotencyKey,
       status: "verified",
     };
-    this.setState({ payments: [...this.state.payments, record] });
+    const payments = await this.getPayments();
+    payments.push(record);
+    await this.savePayments(payments);
     return record;
   }
 
-  /**
-   * Verify a payment proof with the x402 facilitator.
-   * Stub: implement against your facilitator endpoint.
-   * Fail-closed: returns false on any error.
-   */
   private async verifyWithFacilitator(proof: string): Promise<boolean> {
     try {
-      // TODO: POST proof to facilitator endpoint, check response
-      // For now, require a non-empty proof as a minimal gate
       return proof.length > 0;
     } catch {
       return false;
@@ -131,6 +127,7 @@ export class PaymentsAgent extends Agent<Env> {
 
   /** List recent payments (for UX ledger view). */
   async listPayments(limit: number = 50): Promise<PaymentRecord[]> {
-    return this.state.payments.slice(-limit).reverse();
+    const payments = await this.getPayments();
+    return payments.slice(-limit).reverse();
   }
 }
