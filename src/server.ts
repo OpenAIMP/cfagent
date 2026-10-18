@@ -17,6 +17,7 @@ import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading/email/agent";
 import { ETradeSlackTradingService } from "./trading/slack/agent";
 import { gateSlackRequest } from "./security/webhookSecurity";
+import { checkRateLimit } from "./security/rateLimiter";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
@@ -76,6 +77,30 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Issue #241: abuse throttling on expensive ingress routes.
+    // `null` = allowed, otherwise a 429 Response to return immediately.
+    const throttle = (
+      route: string,
+      maxRequests: number,
+      windowMs: number
+    ): Response | null => {
+      const client =
+        request.headers.get("x-user-login") ||
+        request.headers.get("cf-connecting-ip") ||
+        "anonymous";
+      const res = checkRateLimit(`${route}:${client}`, maxRequests, windowMs);
+      if (!res.allowed) {
+        return Response.json(
+          { error: "Rate limit exceeded. Slow down and retry." },
+          {
+            status: 429,
+            headers: { "Retry-After": String(Math.max(1, Math.ceil(res.retryAfterMs / 1000))) },
+          }
+        );
+      }
+      return null;
+    };
+
     // PR #2 — A2A routing (issue #160): agent discovery + JSON-RPC dispatch
     if (path.startsWith("/a2a/") || path.startsWith("/.well-known/")) {
       const { handleA2A } = await import("./a2a");
@@ -83,6 +108,10 @@ export default {
     }
 
     if ((path === "/nlq/webhook" || path === "/api/trading/nlq/webhook") && request.method === "POST") {
+      // Issue #241: this route fans out to the NLQ planner + optional email —
+      // throttle per source IP before touching the body.
+      const limited = throttle("nlq_webhook", 30, 60_000);
+      if (limited) return limited;
       if (!env.INBOUND_NLQ_WEBHOOK_SECRET) {
         return Response.json({ error: "INBOUND_NLQ_WEBHOOK_SECRET is not configured." }, { status: 503 });
       }
@@ -365,6 +394,9 @@ export default {
     // Also serves as the live-accumulation check: non-empty results prove
     // vectors are landing in the index.
     if (path === "/api/memory/search" && request.method === "POST") {
+      // Issue #241: vector search is billed per query — throttle per caller.
+      const limited = throttle("memory_search", 60, 60_000);
+      if (limited) return limited;
       const body = (await request.json().catch(() => null)) as {
         query?: unknown;
         topK?: unknown;
