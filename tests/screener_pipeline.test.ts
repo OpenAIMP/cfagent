@@ -66,6 +66,7 @@ describe("screenerPipeline — shared shaping (#259)", () => {
 
   it("toOpportunityStock maps the opportunity shape", () => {
     const o = toOpportunityStock(makeScreened());
+    // Issue #261: opportunities carry screening indicators.
     expect(o).toEqual({
       symbol: "NVDA",
       companyName: "NVIDIA Corporation",
@@ -73,6 +74,14 @@ describe("screenerPipeline — shared shaping (#259)", () => {
       momentumScore: 41,
       lastPrice: 217.23,
       changePercent: -1.84,
+      indicators: expect.objectContaining({
+        sentiment: expect.any(String),
+        directional: expect.any(Boolean),
+        rangeZone: expect.any(String),
+        valueZone: expect.any(String),
+        screenScore: expect.any(Number),
+        summary: expect.any(String),
+      }),
     });
   });
 
