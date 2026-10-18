@@ -8,6 +8,7 @@ import {
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
+import { ScreenerResultsView } from "./ScreenerResultsView";
 import "./optionsResearch.css";
 
 interface ScreenersHubProps {
@@ -20,8 +21,10 @@ type ScreenRow = Record<string, unknown>;
 
 // Issue #212: a persisted autonomous screener run.
 // Issue #253: allStocks carries the full scanned set (not just standouts).
+// Issue #261: trigger identifies the source for the unified UI.
 interface ScreenRun {
   timestamp: string;
+  trigger?: "manual" | "scheduled";
   sector: string;
   success: boolean;
   totalScanned: number;
@@ -68,6 +71,34 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [maxPrice, setMaxPrice] = useState("");
   const [trend, setTrend] = useState("all");
   const [rows, setRows] = useState<ScreenRow[]>([]);
+  // Issue #261: manual run result for the unified ScreenerResultsView.
+  const [manualResult, setManualResult] = useState<{
+    timestamp: string;
+    trigger: "manual" | "scheduled";
+    sector: string;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: Array<{
+      symbol: string;
+      companyName: string;
+      signal: string;
+      momentumScore: number;
+      lastPrice: number;
+      changePercent: number;
+    }>;
+    allStocks: Array<{
+      symbol: string;
+      companyName: string;
+      signal: string;
+      momentumScore: number;
+      lastPrice: number;
+      changePercent: number;
+      rsi14: number | null;
+      source: string;
+    }>;
+    discoveryMessage?: string;
+  } | null>(null);
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -120,6 +151,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     setLoading(true);
     setError("");
     setRows([]);
+    setManualResult(null);
     setSummary("");
     setDiscovery(null);
     try {
@@ -150,7 +182,16 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       const data = (await response.json()) as {
         error?: string;
         stocks?: ScreenedStockItem[];
+        opportunities?: Array<{
+          symbol: string;
+          companyName: string;
+          signal: string;
+          momentumScore: number;
+          lastPrice: number;
+          changePercent: number;
+        }>;
         filterSummary?: string;
+        discoveryMessage?: string;
         validationError?: string;
         totalScanned?: number;
         matchedCount?: number;
@@ -167,7 +208,30 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
       if (data.validationError) throw new Error(data.validationError);
 
+      // Issue #261: manual results feed the unified ScreenerResultsView.
       const stockResults = data.stocks || [];
+      const mapRow = (s: any) => ({
+        symbol: s.symbol,
+        companyName: s.companyName || s.symbol,
+        signal: s.signal || "unknown",
+        momentumScore: s.momentumScore ?? 0,
+        lastPrice: s.lastPrice ?? 0,
+        changePercent: s.changePercent ?? 0,
+        rsi14: s.rsi14 ?? null,
+        source: s.source || "E*TRADE live",
+        indicators: s.indicators,
+      });
+      setManualResult({
+        timestamp: data.scannedAt || new Date().toISOString(),
+        trigger: "manual",
+        sector: "Technology",
+        success: true,
+        totalScanned: data.totalScanned ?? stockResults.length,
+        matchedCount: data.matchedCount ?? stockResults.length,
+        opportunities: (data.opportunities ?? []).map(mapRow),
+        allStocks: stockResults.map(mapRow),
+        discoveryMessage: data.discoveryMessage,
+      });
       setRows(stockResults.map((row) => Object.fromEntries(Object.entries(row))));
       setSummary(data.filterSummary || `${data.totalScanned ?? 0} scanned · ${data.matchedCount ?? stockResults.length} matched`);
       setDiscovery(data.discovery || null);
@@ -293,105 +357,18 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 No autonomous runs recorded yet. The next 5-minute tick will populate this panel.
               </div>
             ) : (
-              (() => {
-                const latest = autoRuns[0];
-                return (
-                  <div>
-                    <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-                      <strong>{latest.sector}</strong> sector • {latest.totalScanned.toLocaleString()} scanned •{" "}
-                      {latest.matchedCount} matched •{" "}
-                      <span style={{ color: "var(--theme-text-muted)" }}>
-                        {new Date(latest.timestamp).toLocaleString()}
-                      </span>
-                      {!latest.success && (
-                        <span style={{ color: "var(--color-danger, #e5484d)", marginLeft: "0.5rem" }}>
-                          ⚠️ Failed: {latest.error}
-                        </span>
-                      )}
-                    </div>
-                    {latest.opportunities.length > 0 ? (
-                      <div className="options-table-scroll">
-                        <table className="options-comparison-table">
-                          <thead>
-                            <tr>
-                              <th>Symbol</th>
-                              <th>Company</th>
-                              <th>Signal</th>
-                              <th>Momentum</th>
-                              <th>Price</th>
-                              <th>Change</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {latest.opportunities.map((o) => (
-                              <tr key={o.symbol}>
-                                <td><strong>{o.symbol}</strong></td>
-                                <td>{o.companyName}</td>
-                                <td>{o.signal}</td>
-                                <td>{o.momentumScore.toFixed(0)}</td>
-                                <td>${o.lastPrice.toFixed(2)}</td>
-                                <td style={{ color: o.changePercent >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)" }}>
-                                  {o.changePercent >= 0 ? "+" : ""}{o.changePercent.toFixed(2)}%
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
-                        No standout opportunities in the latest run.
-                      </div>
-                    )}
-                    {/* Issue #253: full scanned data, like the manual screen. */}
-                    {(latest.allStocks?.length ?? 0) > 0 && (
-                      <details style={{ marginTop: "0.75rem" }}>
-                        <summary style={{ fontSize: "0.85rem", cursor: "pointer", color: "var(--color-accent)" }}>
-                          All {latest.allStocks!.length} scanned symbols
-                        </summary>
-                        <div className="options-table-scroll" style={{ marginTop: "0.5rem" }}>
-                          <table className="options-comparison-table">
-                            <thead>
-                              <tr>
-                                <th>Symbol</th>
-                                <th>Company</th>
-                                <th>Price</th>
-                                <th>Change</th>
-                                <th>Signal</th>
-                                <th>Momentum</th>
-                                <th>RSI(14)</th>
-                                <th>Source</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {latest.allStocks!.map((s) => (
-                                <tr key={s.symbol}>
-                                  <td><strong>{s.symbol}</strong></td>
-                                  <td>{s.companyName}</td>
-                                  <td>${s.lastPrice.toFixed(2)}</td>
-                                  <td style={{ color: s.changePercent >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)" }}>
-                                    {s.changePercent >= 0 ? "+" : ""}{s.changePercent.toFixed(2)}%
-                                  </td>
-                                  <td>{s.signal}</td>
-                                  <td>{s.momentumScore.toFixed(0)}</td>
-                                  <td>{s.rsi14 == null ? "—" : s.rsi14.toFixed(1)}</td>
-                                  <td style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)" }}>{s.source}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </details>
-                    )}
-                    {autoRuns.length > 1 && (
-                      <div style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)", marginTop: "0.5rem" }}>
-                        {autoRuns.length - 1} earlier run{autoRuns.length > 2 ? "s" : ""} retained
-                        (latest: {new Date(autoRuns[autoRuns.length - 1].timestamp).toLocaleString()}).
-                      </div>
-                    )}
+              <>
+                {/* Issue #261: unified results UI — same component as manual. */}
+                <ScreenerResultsView
+                  result={{ ...autoRuns[0], trigger: autoRuns[0].trigger ?? "scheduled" }}
+                />
+                {autoRuns.length > 1 && (
+                  <div style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)", marginTop: "0.5rem" }}>
+                    {autoRuns.length - 1} earlier run{autoRuns.length > 2 ? "s" : ""} retained
+                    (latest: {new Date(autoRuns[autoRuns.length - 1].timestamp).toLocaleString()}).
                   </div>
-                );
-              })()
+                )}
+              </>
             )}
           </div>
           <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
@@ -408,7 +385,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
-                      Official Nasdaq All-Exchange Screener (<code>api.nasdaq.com/api/screener/stocks</code>)
+                      E*TRADE REST API — live quotes only (<code>api.etrade.com</code>)
                     </span>
                     <span style={{
                       padding: "0.15rem 0.55rem",
@@ -423,7 +400,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                     </span>
                   </div>
                   <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>
-                    • <strong>Coverage:</strong> ~8,000 live listings (Nasdaq, NYSE, AMEX) &middot; <strong>Broker:</strong> E*TRADE REST API ({activeEnv}) &middot; <strong>Fallback:</strong> Curated static universe.
+                    • <strong>Coverage:</strong> E*TRADE live quotes ({activeEnv}) &middot; <strong>Policy:</strong> E*TRADE-only — if unavailable, the screen fails honestly. No fallback data substituted.
                   </div>
                 </div>
               ) : (
@@ -497,8 +474,10 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           </form>
 
           {error && <div className="options-error" role="alert">{error}</div>}
-          {summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
-          {(rows.length > 0 || summary) && (
+          {/* Issue #261: manual results use the same ScreenerResultsView as autonomous. */}
+          {manualResult && <ScreenerResultsView result={manualResult} />}
+          {!manualResult && summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
+          {!manualResult && (rows.length > 0 || summary) && (
             rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
               <div className="options-table-scroll">
                 <div style={{

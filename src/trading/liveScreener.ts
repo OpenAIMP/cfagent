@@ -20,7 +20,7 @@ export interface LiveScreenerDeps {
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
-async function withRetries<T>(
+export async function withRetries<T>(
   fn: () => Promise<T>,
   source: string,
   symbol?: string

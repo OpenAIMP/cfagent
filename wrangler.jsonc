@@ -17,14 +17,18 @@
       // PR #3 — x402 PaymentsAgent DO (ledger + budget guards)
       { "name": "PAYMENTS_AGENT", "class_name": "PaymentsAgent" },
       // PR #4 — ScheduledAgent DO (autonomous cron-driven goals)
-      { "name": "SCHEDULED_AGENT", "class_name": "ScheduledAgent" }
+      { "name": "SCHEDULED_AGENT", "class_name": "ScheduledAgent" },
+      // Issue #261 — ScreenerAgent DO (one agent, one UI, E*TRADE-only)
+      { "name": "SCREENER_AGENT", "class_name": "ScreenerAgent" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SearchAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["OptionsScannerMCP"] },
     // PR #3 + PR #4 — new SQLite DO classes
-    { "tag": "v3", "new_sqlite_classes": ["PaymentsAgent", "ScheduledAgent"] }
+    { "tag": "v3", "new_sqlite_classes": ["PaymentsAgent", "ScheduledAgent"] },
+    // Issue #261 — ScreenerAgent
+    { "tag": "v4", "new_sqlite_classes": ["ScreenerAgent"] }
   ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
