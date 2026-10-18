@@ -12,6 +12,8 @@ export interface AgentCard {
   version: string;
   /** A2A endpoint path, e.g. "/a2a/orchestrator" */
   endpoint: string;
+  /** Discovery path for this agent's card */
+  cardPath: string;
   capabilities: string[];
   /** Operations this agent exposes (subset of orchestrate.ts catalog) */
   operations: string[];
@@ -23,6 +25,7 @@ export const AGENT_CARDS: AgentCard[] = [
     description: "Plans and supervises multi-step agent workflows",
     version: "1.0.0",
     endpoint: "/a2a/orchestrator",
+    cardPath: "/a2a/orchestrator/agent-card.json",
     capabilities: ["planning", "supervision", "parallel-execution"],
     operations: ["search.query", "payments.draft", "tasks.create", "memory.remember", "nlq.execute"],
   },
@@ -31,6 +34,7 @@ export const AGENT_CARDS: AgentCard[] = [
     description: "Web and data search agent",
     version: "1.0.0",
     endpoint: "/a2a/search",
+    cardPath: "/a2a/search/agent-card.json",
     capabilities: ["web-search", "opportunity-hunt"],
     operations: ["search.query"],
   },
@@ -39,6 +43,7 @@ export const AGENT_CARDS: AgentCard[] = [
     description: "x402 payment processing with budget guards",
     version: "1.0.0",
     endpoint: "/a2a/payments",
+    cardPath: "/a2a/payments/agent-card.json",
     capabilities: ["payment-draft", "payment-process", "budget-check"],
     operations: ["payments.draft"],
   },
@@ -47,6 +52,7 @@ export const AGENT_CARDS: AgentCard[] = [
     description: "Task tracking and management",
     version: "1.0.0",
     endpoint: "/a2a/tasks",
+    cardPath: "/a2a/tasks/agent-card.json",
     capabilities: ["task-create", "task-list", "task-update"],
     operations: ["tasks.create"],
   },
@@ -55,6 +61,7 @@ export const AGENT_CARDS: AgentCard[] = [
     description: "Long-term vector memory for agent outcomes",
     version: "1.0.0",
     endpoint: "/a2a/memory",
+    cardPath: "/a2a/memory/agent-card.json",
     capabilities: ["remember", "recall"],
     operations: ["memory.remember"],
   },
@@ -64,3 +71,9 @@ export const AGENT_CARDS: AgentCard[] = [
 export function getAgentCard(name: string): AgentCard | undefined {
   return AGENT_CARDS.find((c) => c.name === name);
 }
+
+/** Alias for backwards compat with index.ts */
+export const A2A_CARDS = AGENT_CARDS;
+
+/** Standard A2A discovery paths */
+export const A2A_CARD_PATHS = ["/.well-known/agent-card.json", "/.well-known/agent.json"];
