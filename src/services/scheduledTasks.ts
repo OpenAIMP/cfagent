@@ -214,6 +214,15 @@ export class ScheduledTasksService {
         .filter(s => s.signal === "OVERSOLD_BOUNCE" || s.signal === "BULLISH_MOMENTUM" || s.momentumScore >= 60)
         .slice(0, max);
 
+      // Audit every run (not just ones with hits) so "Recent autonomous
+      // actions" shows the full history, including quiet runs.
+      this.audit("screener.run_completed", {
+        sector: options.sector || "ALL",
+        totalScanned: screenResult.totalScanned,
+        matchedCount: screenResult.matchedCount,
+        opportunityCount: standoutOpportunities.length,
+        symbols: standoutOpportunities.map(s => s.symbol),
+      });
       if (standoutOpportunities.length > 0) {
         this.audit("screener.opportunities_detected", {
           sector: options.sector || "ALL",
