@@ -1,54 +1,124 @@
-name: CI Failure Self-Heal
+name: Workflow Failure Watch
+
+# Watches EVERYTHING in GitHub Actions, not just CI: every 15 minutes it
+# sweeps all workflows' recent runs on the default branch and auto-files a
+# [QA self-heal] issue for any failed/timed-out run. The self-heal-fixer
+# workflow assigns Copilot; the Muse fixer pollers claim the rest.
+#
+# Replaces the old event-driven CI-only watcher (which also had the wrong
+# workflow name "CI" for a while and never fired). A scheduled sweep needs
+# no per-workflow name list, so newly added workflows are covered
+# automatically. This workflow excludes its own runs to avoid self-filing.
 
 on:
-  workflow_run:
-    workflows: ["Continuous Integration & Test Verification"]
-    types: [completed]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
 
 jobs:
-  file-issue:
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+  watch:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       issues: write
     steps:
-      - name: File self-heal issue
+      - name: File issues for failed workflow runs
         uses: actions/github-script@v7
         with:
           script: |
-            const run = context.payload.workflow_run;
-            const sha = run.head_sha.substring(0, 8);
-            const title = `[QA self-heal] CI failure on ${sha}`;
-            
-            // Dedup: check for existing open issue with same title
-            const { data: issues } = await github.rest.issues.listForRepo({
+            const SELF = "Workflow Failure Watch";
+            const WINDOW_MIN = 20; // overlap the 15m cadence so no run is missed
+
+            const { data: repo } = await github.rest.repos.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open',
-              per_page: 100,
             });
-            const existing = issues.find(i => i.title === title);
-            if (existing) {
-              console.log(`Issue already exists: #${existing.number}`);
+            const defaultBranch = repo.default_branch;
+
+            const { data: { workflow_runs: runs } } =
+              await github.rest.actions.listWorkflowRunsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 50,
+                status: "completed",
+              });
+
+            const cutoff = new Date(Date.now() - WINDOW_MIN * 60 * 1000);
+            const failed = runs.filter(
+              (r) =>
+                new Date(r.created_at) > cutoff &&
+                (r.conclusion === "failure" || r.conclusion === "timed_out") &&
+                r.name !== SELF &&
+                r.head_branch === defaultBranch
+            );
+
+            if (failed.length === 0) {
+              console.log("No failed workflow runs in the window.");
               return;
             }
-            
-            const body = `## CI Failure Self-Heal
-            
-            **Workflow:** ${run.name}
-            **Commit:** ${run.head_sha}
-            **Branch:** ${run.head_branch}
-            **Run:** ${run.html_url}
-            **Conclusion:** ${run.conclusion}
-            
-            This issue was auto-filed by the CI Failure Self-Heal workflow.
-            The Muse fixer poller will claim and fix this if Copilot doesn't.`;
-            
-            const { data: issue } = await github.rest.issues.create({
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title,
-              body,
-              labels: ['self-heal', 'ci-failure'],
+              state: "open",
+              labels: "self-heal",
+              per_page: 100,
             });
-            console.log(`Created issue #${issue.number}`);
+
+            for (const run of failed) {
+              const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${run.id}`;
+              const alreadyFiled = openIssues.some((i) => (i.body || "").includes(runUrl));
+              if (alreadyFiled) {
+                console.log(`Already filed for run ${run.id} (${run.name})`);
+                continue;
+              }
+
+              // Collect the failed steps so the fixer doesn't have to dig.
+              let failedSteps = "";
+              try {
+                const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id,
+                  per_page: 30,
+                });
+                const bad = [];
+                for (const job of jobs || []) {
+                  for (const step of job.steps || []) {
+                    if (step.conclusion === "failure") bad.push(`${job.name} :: ${step.name}`);
+                  }
+                }
+                if (bad.length > 0) {
+                  failedSteps = "\n**Failed steps:**\n" + bad.map((s) => `- ${s}`).join("\n") + "\n";
+                }
+              } catch (e) {
+                console.log(`Could not list jobs for run ${run.id}: ${e.message}`);
+              }
+
+              const sha8 = run.head_sha.substring(0, 8);
+              const title = `[QA self-heal] ${run.name} failure on ${sha8}`;
+              const body = [
+                "## Workflow Failure Watch",
+                "",
+                `**Workflow:** ${run.name}`,
+                `**Commit:** ${run.head_sha}`,
+                `**Branch:** ${run.head_branch}`,
+                `**Run:** ${runUrl}`,
+                `**Conclusion:** ${run.conclusion}`,
+                failedSteps,
+                "This issue was auto-filed by the Workflow Failure Watch, which sweeps",
+                "every workflow (CI, Deploy, and any future workflows) — not just CI.",
+                "The Muse fixer poller will claim and fix this if Copilot doesn't.",
+              ].join("\n");
+
+              // NOTE: the `ci-failure` label is kept for all auto-filed workflow
+              // failures so the existing fixer pollers pick them up unchanged.
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["self-heal", "ci-failure"],
+              });
+              console.log(`Created issue #${issue.number} for run ${run.id} (${run.name})`);
+            }
