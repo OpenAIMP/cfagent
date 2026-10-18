@@ -12,6 +12,7 @@ import type {
   MessageRecord,
   MemoryRecord,
   AuditEvent,
+  WebhookReplayNonce,
   RevenueSummary,
   TradeRecord,
   WatchlistRecord,
@@ -181,6 +182,7 @@ export class DatabaseORM {
   public messages: Repository<MessageRecord>;
   public memory: Repository<MemoryRecord>;
   public events: Repository<AuditEvent>;
+  public webhookReplay: Repository<WebhookReplayNonce>;
   public trades: Repository<TradeRecord>;
   public watchlists: Repository<WatchlistRecord>;
   public optionsChainCache: Repository<OptionsChainCacheRecord>;
@@ -284,6 +286,17 @@ export class DatabaseORM {
       agent: "agent",
       payload: "payload",
       createdAt: "created_at",
+    });
+
+    // Issue #143 P0: inbound webhook replay protection. Nonces are
+    // provider-derived event identities (see src/security/webhookReplay.ts);
+    // rows expire WEBHOOK_REPLAY_TTL_MS after creation and are pruned
+    // opportunistically on claim.
+    this.webhookReplay = new Repository<WebhookReplayNonce>(sql, "webhook_replay_nonces", "nonce", {
+      nonce: "nonce",
+      source: "source",
+      createdAt: "created_at",
+      expiresAt: "expires_at",
     });
 
     this.trades = new Repository<TradeRecord>(sql, "mas_trades", "id", {
@@ -453,6 +466,16 @@ export class DatabaseORM {
         agent TEXT NOT NULL,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
+      )
+    `);
+
+    // 8b. Inbound webhook replay-protection nonces (issue #143 P0)
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS webhook_replay_nonces (
+        nonce TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
       )
     `);
 
@@ -706,6 +729,7 @@ export class DatabaseORM {
       mas_messages: "Persistent conversation history and multi-turn prompt transcripts",
       mas_memory: "Session facts and long-term user preferences key-value store",
       mas_events: "Real-time audit log of router decisions, HITL approvals, and agent executions",
+      webhook_replay_nonces: "Inbound webhook replay-protection nonces (provider-derived event identities, 24h TTL)",
       mas_trades: "E*TRADE brokerage trading orders with cryptographic Agent DID attestation",
     };
 

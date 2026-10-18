@@ -18,6 +18,11 @@ import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./tradi
 import { ETradeSlackTradingService } from "./trading/slack/agent";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
+import {
+  deriveNlqNonce,
+  sharedMemoryReplayStore,
+  validateEmailRecipient,
+} from "./security/webhookReplay";
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
@@ -142,6 +147,24 @@ export default {
       if (body.emailTo !== undefined &&
         (typeof body.emailTo !== "string" || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(body.emailTo.trim()))) {
         return Response.json({ error: "emailTo must be a valid email address." }, { status: 400 });
+      }
+      // Issue #143 P0: emailTo domain allowlist. When
+      // EMAIL_TO_ALLOWED_DOMAINS is configured, only listed domains are
+      // accepted; otherwise behavior is unchanged (format check only).
+      if (typeof body.emailTo === "string" && body.emailTo.trim()) {
+        const emailCheck = validateEmailRecipient(body.emailTo, env.EMAIL_TO_ALLOWED_DOMAINS);
+        if (!emailCheck.ok) return Response.json({ error: emailCheck.reason }, { status: 400 });
+      }
+      // Issue #143 P0: replay protection. This edge route has no ORM, so
+      // the nonce claim uses the isolate-scoped fallback store; HMAC +
+      // the 5-minute timestamp window above remain the primary controls.
+      const nlqNonce = await deriveNlqNonce(
+        body.query.trim(),
+        typeof body.emailTo === "string" ? body.emailTo.trim() : undefined,
+        body.timestamp
+      );
+      if (await sharedMemoryReplayStore().claim(nlqNonce, "nlq")) {
+        return Response.json({ error: "Duplicate NLQ webhook event rejected (replay protection)." }, { status: 409 });
       }
       const userLogin = typeof body.userId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(body.userId)
         ? `nlq_webhook_${body.userId}`

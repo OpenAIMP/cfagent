@@ -25,6 +25,7 @@ import { AGENT_DIDS } from "../../agents/did";
 import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import { ETradeBrowserService } from "../../services/browserAgent";
+import { validateEmailRecipient } from "../../security/webhookReplay";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -346,8 +347,12 @@ export class ETradeSlackTradingService {
       const emailRequested = Boolean(emailTo) || /\bemail\b/i.test(rawText);
       let emailStatus = emailRequested ? "not sent (add `email results to you@example.com`)" : "not requested";
       if (deliveryAllowed && emailTo) {
-        if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(emailTo)) {
-          emailStatus = "failed (invalid recipient)";
+        // Issue #143 P0: emailTo domain allowlist (EMAIL_TO_ALLOWED_DOMAINS).
+        // When configured, only listed domains are accepted; when unset,
+        // behavior is unchanged (format check only).
+        const emailCheck = validateEmailRecipient(emailTo, this.env.EMAIL_TO_ALLOWED_DOMAINS);
+        if (!emailCheck.ok) {
+          emailStatus = `failed (${emailCheck.reason})`;
         } else {
           const emailAgent = new ETradeEmailTradingService(this.env, orm, this.sessionId);
           emailStatus = await emailAgent.sendOutboundEmail(

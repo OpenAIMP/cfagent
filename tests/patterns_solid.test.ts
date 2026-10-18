@@ -118,7 +118,7 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
 
       // Agent dogfoods list_database_tables
       const tablesResult = await agentTools["list_database_tables"].execute({});
-      expect(tablesResult.count).toBe(9);
+      expect(tablesResult.count).toBe(10); // webhook_replay_nonces added (#143 P0)
       expect(tablesResult.tables.some((t: any) => t.name === "mas_categories")).toBe(true);
       expect(tablesResult.tables.some((t: any) => t.name === "mas_trades")).toBe(true);
 
@@ -157,7 +157,7 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
 
       // Table command handles schema introspection only
       const tables = await listTablesCmd.execute({}, context);
-      expect(tables.tables.length).toBe(9);
+      expect(tables.tables.length).toBe(10); // webhook_replay_nonces added (#143 P0)
 
       // Revenue command handles financial metrics only
       const revenue = await revenueCmd.execute({}, context);
@@ -311,8 +311,8 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
       expect(adaptedTool.description).toBe(listTablesCmd.description);
 
       const result = await adaptedTool.execute({});
-      expect(result.count).toBe(9);
-      expect(result.tables.length).toBe(9);
+      expect(result.count).toBe(10); // webhook_replay_nonces added (#143 P0)
+      expect(result.tables.length).toBe(10); // webhook_replay_nonces added (#143 P0)
     });
 
     it("Strategy Pattern: Dynamic payment gateway execution across providers and dual protocol support", async () => {

@@ -6,7 +6,9 @@
  * Implements:
  * - Inbound TradingView PineScript alerts with HMAC-SHA256 & passphrase verification
  * - Inbound E*TRADE broker notifications (order filled, cancelled, execution alerts)
- * - Event deduplication using unique event IDs and SQLite audit trail
+ * - Replay protection: provider-derived nonces claimed in a durable SQLite
+ *   nonce cache (issue #143 P0) — replays are rejected with 409. The audit
+ *   trail records processed events but is not the dedupe mechanism.
  * - Outbound HMAC-SHA256 signed trading webhooks to external subscriber systems
  * - Real-time WebSocket event broadcasting to connected trading desks
  */
@@ -23,6 +25,13 @@ import { AGENT_DIDS, createDidAttestation } from "../agents/did";
 import { ETradeService } from "./etrade";
 
 import { verifyHmacSha256Signature, assertSafeOutboundWebhookUrl } from "../security/webhookSecurity";
+import {
+  deriveTradingViewNonce,
+  deriveETradeNonce,
+  OrmReplayStore,
+  sharedMemoryReplayStore,
+  type ReplayStore,
+} from "../security/webhookReplay";
 
 export class ETradeWebhookService {
   constructor(
@@ -38,6 +47,21 @@ export class ETradeWebhookService {
    */
   async verifySignature(rawBody: string, signature: string | null, secret?: string): Promise<boolean> {
     return verifyHmacSha256Signature(rawBody, signature, secret);
+  }
+
+  /**
+   * Replay-protection store for inbound webhooks (issue #143 P0).
+   * Prefers the durable ORM-backed store; without an ORM only the
+   * isolate-scoped memory fallback is available (signature + timestamp
+   * windows remain the primary control in that case).
+   */
+  private replayStore(): ReplayStore {
+    if (this.orm) return new OrmReplayStore(this.orm);
+    console.warn(
+      "[ETradeWebhookService] No ORM configured: inbound webhook replay protection " +
+        "uses an isolate-scoped memory fallback (not durable across isolates)."
+    );
+    return sharedMemoryReplayStore();
   }
 
   /**
@@ -103,6 +127,20 @@ export class ETradeWebhookService {
         statusCode: 403,
         eventId: `tv_err_${Date.now()}`,
         message: "Invalid TradingView passphrase.",
+      };
+    }
+
+    // Issue #143 P0: replay protection. The module docstring previously
+    // claimed "event deduplication using unique event IDs", but the ID was
+    // minted fresh per call, so a replayed (still validly signed) alert
+    // inside the window would be processed — and drafted — twice.
+    const replayNonce = await deriveTradingViewNonce(signature, rawBody);
+    if (await this.replayStore().claim(replayNonce, "tradingview")) {
+      return {
+        success: false,
+        statusCode: 409,
+        eventId: replayNonce,
+        message: "Duplicate TradingView alert rejected: this event was already processed (replay protection).",
       };
     }
 
@@ -190,6 +228,18 @@ export class ETradeWebhookService {
         statusCode: 400,
         eventId: `et_err_${Date.now()}`,
         message: "Malformed JSON payload in E*TRADE webhook.",
+      };
+    }
+
+    // Issue #143 P0: replay protection. A repeated broker notification for
+    // the same order+event+timestamp must not re-mutate stored order state.
+    const replayNonce = await deriveETradeNonce(payload, signature, rawBody);
+    if (await this.replayStore().claim(replayNonce, "etrade")) {
+      return {
+        success: false,
+        statusCode: 409,
+        eventId: replayNonce,
+        message: "Duplicate E*TRADE broker notification rejected (replay protection).",
       };
     }
 
