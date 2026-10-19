@@ -16,7 +16,61 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing pending yet — add entries here as work merges.
+### Added
+
+- **Canonical report store** (#308, #307): every generated report is stored
+  once at generation into `mas_reports` (idempotent on generation id);
+  UX, email, Slack, webhook, and HITL approval all deliver that single
+  stored copy. Research-report dispatch stores first and fails closed if
+  the store fails.
+- **Reports tab + schedule management UI** (#309): browse/search persisted
+  reports and manage schedules from the UX, reading the same store.
+- **AI Search result cache + scheduled-report persistence** (#278):
+  TTL cache over AI Search results (scope-bound keys, hits audited); all
+  scheduled-run reports (market screens, IV collection, retention runs)
+  persist for later retrieval.
+- **Report-dispatch HITL setting** (#277): Settings toggle
+  `reportDispatchHitl` (default off — dispatch stays autonomous); when on,
+  report email/webhook dispatch holds for approve/reject with a 24h
+  pending window.
+- **Advertised `POST /api/chat` route** (#312): the route the UX/docs
+  advertised is implemented, delegating to the platform's canonical chat
+  handler.
+- **Judge + NLQ golden evaluation sets** (#258): 105 labeled judge-routing
+  queries and 29 NLQ questions with accuracy/regression thresholds in CI.
+- **Per-run PDF naming** (#297): screener PDFs are stored per run as
+  `{screener}_{universe}_{schedule}_{timestamp}_{jobId}`.
+
+### Changed
+
+- **Trading boundary** (#290): all trading code is imported solely through
+  `src/trading/index.ts` (enforced by a boundary test); secret namespacing
+  audited — trading secrets are read only inside `src/trading/`, with the
+  `ET_*` convention documented in `docs/COMPLIANCE.md`.
+- **Options scanner defaults** (#296): scans default to the NASDAQ-100
+  universe instead of 4 symbols; scanner delivery tries the cfpay A2A
+  Slack/Email path first with local fallback (#303).
+
+### Security
+
+- **Advertised `POST /api/audit/event` implemented** (#270): strict
+  validation, tenant-scoped writes into `mas_events` via the single
+  `recordAudit()` owner; the advertised surface is real, per the
+  no-fabrication rule.
+- **SECURITY.md + threat model** (#276): security policy, threat model,
+  and disclaimer documents added.
+- **NLQ execution observability** (#257): every NLQ execution writes a
+  timed structured event (no raw query text); wrangler log observability
+  made explicit.
+
+### Fixed
+
+- **Storage lifecycle** (#255): nightly retention pass enforces the
+  advertised 90-day window on `mas_messages` (configurable, batched,
+  audited per run).
+- **Screener data quality** (#294, #295): E*TRADE quote failures fail fast
+  on auth instead of returning zero-price stubs; Yahoo history fetch
+  carries diagnostics so empty technicals are explainable.
 
 ## [0.1.0] - 2026-10-18
 
