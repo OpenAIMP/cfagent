@@ -91,9 +91,11 @@ describe("premium route inventory (extraction #371)", () => {
     const agenticIdx = orchSrc.indexOf("// Cloudflare Agentic Payments (x402 & MPP)");
     expect(agenticIdx).toBeGreaterThan(-1);
     expect(myIdx, "premium delegation must follow the agentic-payments block").toBeGreaterThan(agenticIdx);
-    // Upper bound: the still-inline E*TRADE banner (its extraction slice
-    // swaps this anchor for its delegation call).
-    const etradeIdx = orchSrc.indexOf("// Environment & E*TRADE Trading APIs");
+    // Upper bound: the E*TRADE broker delegation call (the "Environment &
+    // E*TRADE Trading APIs" banner moved into src/agents/routes/etradeBroker.ts
+    // with slice #359-09, so the landmark anchors on the delegation call per
+    // the #405 rule).
+    const etradeIdx = orchSrc.indexOf("handleEtradeBrokerRoutes(request, url, path, sessionId,");
     expect(etradeIdx).toBeGreaterThan(-1);
     expect(myIdx, "premium delegation must precede the E*TRADE block").toBeLessThan(etradeIdx);
     // The E*TRADE block itself stays inline (not part of slice 08).

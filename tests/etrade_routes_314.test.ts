@@ -62,10 +62,10 @@ vi.mock("../src/trading", async (importOriginal) => {
 });
 
 import {
-  handleEnvironmentSwitch,
   handleOptionsStrategyRecommend,
   OrchestratorAgent,
 } from "../src/agents/orchestrator";
+import { handleEnvironmentSwitch } from "../src/agents/routes/etradeBroker";
 import { MockSqlStorage } from "./mock-sql";
 
 /**
@@ -244,8 +244,10 @@ describe("environment switcher — both spellings delegate to one handler (#314)
     expect((await bad.json()).error).toMatch(/TEST or PROD/);
   });
 
-  it("registers both route spellings in routeRequest", () => {
-    const src = readFileSync("src/agents/orchestrator.ts", "utf8");
+  it("registers both route spellings in the extracted broker module", () => {
+    // Slice #359-09 moved the environment block into
+    // src/agents/routes/etradeBroker.ts (with handleEnvironmentSwitch).
+    const src = readFileSync("src/agents/routes/etradeBroker.ts", "utf8");
     expect(src).toContain('path.endsWith("/environment/switch")');
     expect(src).toContain('path.endsWith("/broker/etrade/environment")');
     expect(src).toContain("return handleEnvironmentSwitch(request);");

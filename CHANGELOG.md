@@ -34,6 +34,22 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **E*TRADE broker routes extracted from orchestrator.ts** (#359/#372): the
+  "Environment & E*TRADE Trading APIs" block (the #314 environment switcher
+  with both `/environment/switch` and `/broker/etrade/environment` spellings
+  delegating to the single-owner `handleEnvironmentSwitch`, broker status,
+  diagnostics, accounts, the equity screener, quote, order preview/execute
+  with the autopilot policy envelope, expiration scheduling and pre-trade
+  Slack approval ticket, positions, portfolio-risk aggregate/evaluate/
+  correlation/size, think evaluation, hedge analysis, and orders
+  listing/remote-fetch/cancel) and the account-activity block
+  (transactions, transaction details, alerts inbox/details/delete, product
+  lookup) moved to `src/agents/routes/etradeBroker.ts` as TWO handlers —
+  `handleEtradeBrokerRoutes` and `handleEtradeBrokerActivityRoutes` — each
+  invoked from `routeRequest` at the exact original position (the blocks
+  were non-contiguous). Handlers take dependencies via an explicit context
+  object; the options blocks stay inline for sibling slice #359-11. A
+  characterization test pins route order and behavior.
 - **Payments routes extracted from orchestrator.ts** (#359/#370): the
   Multi-Gateway Payments & DID Management API (GET `/payments/gateways|/status`,
   GET `/payments/dids`, the transactions ledger, POST `/payments/create`,
