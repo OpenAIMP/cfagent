@@ -42,6 +42,14 @@ import { MockSqlStorage } from "./mock-sql";
 describe("POST /api/schedules/create (#111)", () => {
   let scheduleCalls: any[];
   let scheduleEveryCalls: any[];
+  const authenticatedLogin = "screen_test_user";
+  const storedTestTokens = JSON.stringify({
+    accessToken: "test-access-token",
+    accessTokenSecret: "test-access-token-secret",
+    storedAt: new Date().toISOString(),
+    environment: "TEST",
+    userLogin: authenticatedLogin,
+  });
 
   function makeAgent() {
     const sql = new MockSqlStorage();
@@ -51,7 +59,14 @@ describe("POST /api/schedules/create (#111)", () => {
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
-    agent.env = { APP_ENV: "TEST" } as any;
+    agent.env = {
+      APP_ENV: "TEST",
+      KV: {
+        get: async (key: string) => key === `etrade:token:TEST:${authenticatedLogin}` ? storedTestTokens : null,
+        put: async () => undefined,
+        delete: async () => undefined,
+      },
+    } as any;
     agent.schedule = async (when: any, callback: string, payload: any, options: any) => {
       scheduleCalls.push([when, callback, payload, options]);
       return { id: `real-schedule-${scheduleCalls.length}`, callback, payload };
@@ -67,7 +82,7 @@ describe("POST /api/schedules/create (#111)", () => {
     const res = await agent.onRequest(
       new Request("https://agent.test/api/schedules/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-user-login": authenticatedLogin },
         body: JSON.stringify(body),
       })
     );
@@ -142,7 +157,7 @@ describe("POST /api/schedules/create (#111)", () => {
     expect(body.schedule.id).toBe("real-schedule-1");
     expect(JSON.stringify(body)).not.toContain("sched_mock_");
     // Cron keeps the idempotent-by-default option (#111 preserves this).
-    expect(scheduleCalls).toEqual([["15 22 * * 1-5", "collectIvHistory", payload, { idempotent: true }]]);
+    expect(scheduleCalls).toEqual([["15 22 * * 1-5", "collectIvHistory", { userLogin: authenticatedLogin }, { idempotent: true }]]);
   });
 
   it("accepts autonomousOptionsAnalysis on an interval via scheduleEvery", async () => {
@@ -157,7 +172,7 @@ describe("POST /api/schedules/create (#111)", () => {
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.schedule.id).toBe("real-interval-1");
-    expect(scheduleEveryCalls).toEqual([[3600, "autonomousOptionsAnalysis", payload]]);
+    expect(scheduleEveryCalls).toEqual([[3600, "autonomousOptionsAnalysis", { ...payload, userLogin: authenticatedLogin }]]);
     expect(scheduleCalls).toHaveLength(0);
   });
 
@@ -195,7 +210,7 @@ describe("POST /api/schedules/create (#111)", () => {
     });
     expect(screen.status).toBe(200);
     expect(screen.body.success).toBe(true);
-    expect(scheduleEveryCalls).toEqual([[300, "autonomousMarketScreen", { sector: "Technology", maxItems: 5 }]]);
+    expect(scheduleEveryCalls).toEqual([[300, "autonomousMarketScreen", { sector: "Technology", maxItems: 5, userLogin: authenticatedLogin }]]);
   });
 
   it("preserves the cron idempotent opt-out (body.idempotent === false)", async () => {
