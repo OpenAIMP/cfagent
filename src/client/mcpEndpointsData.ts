@@ -33,6 +33,8 @@ export interface RestEndpointMeta {
   authRequired: boolean;
   sampleBody?: Record<string, any>;
   sampleCurl: string;
+  /** Documented response shape (what a 200 response carries). Issue #325. */
+  sampleResponse?: Record<string, any>;
 }
 
 export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
@@ -504,13 +506,25 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     category: "Agents & NLQ",
     method: "POST",
     path: "/api/chat",
-    title: "Multi-Agent Conversation Stream",
-    description: "Interactive multi-turn streaming LLM conversation with dynamic routing across search, payments, tasks, and memory sub-agents.",
+    title: "Multi-Agent Conversation (synchronous reply)",
+    description:
+      "Runs one agentic chat turn on the canonical chat pipeline (LLM judge routing across search, payments, tasks, and memory sub-agents) and returns the completed reply as JSON. True streaming remains available over the agent WebSocket chat; this route is explicit synchronous (streaming: false).",
     authRequired: true,
     sampleBody: { messages: [{ role: "user", content: "What are the latest Cloudflare Workers AI features?" }] },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/chat \\
   -H "Content-Type: application/json" \\
   -d '{"messages":[{"role":"user","content":"Hello AI Assistant"}]}'`,
+    sampleResponse: {
+      reply: "The assistant's completed answer text for this turn.",
+      route: {
+        agent: "routed agent id (e.g. search, trading, research, payments, tasks, memory)",
+        confidence: 0.93,
+        reason: "judge routing rationale",
+        needsConfirmation: false,
+      },
+      model: "Workers AI model id used for the turn",
+      streaming: false,
+    },
   },
   {
     id: "api_nlq",

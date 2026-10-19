@@ -686,6 +686,16 @@ export function McpApiExplorer() {
               <pre className="curl-code"><code>{activeRest.sampleCurl}</code></pre>
             </div>
 
+            {/* Documented Response Shape (issue #325) */}
+            {activeRest.sampleResponse && (
+              <div className="curl-section">
+                <div className="curl-header">
+                  <h5>Sample Response (JSON):</h5>
+                </div>
+                <pre className="curl-code"><code>{JSON.stringify(activeRest.sampleResponse, null, 2)}</code></pre>
+              </div>
+            )}
+
             {/* Live Response */}
             {restError && <div className="runner-alert error">❌ {restError}</div>}
             {restResponse && (

@@ -8,7 +8,13 @@ Each job has a UUID, capability name, status (`queued`, `running`, `completed`, 
 
 - `GET /api/jobs?limit=30` lists recent jobs for this session.
 - `GET /api/jobs/{jobId}` returns status and the terminal result/error.
-- Every other `/api/*` request handled by the Orchestrator is submitted as a durable job and initially returns HTTP `202` with `{ jobId, status, statusUrl }`. The Worker's signed NLQ webhook retains its synchronous callback contract. The paid x402 scanner verifies payment first, then submits its scan to the same Orchestrator job queue; `get_scan_job` and `list_scan_jobs` are its MCP status adapters.
+- Every `/api/*` request NOT in the immediate-sync set (see below) is submitted as a durable job and initially returns HTTP `202` with `{ jobId, status, statusUrl }`. The Worker's signed NLQ webhook retains its synchronous callback contract. The paid x402 scanner verifies payment first, then submits its scan to the same Orchestrator job queue; `get_scan_job` and `list_scan_jobs` are its MCP status adapters.
+
+### Immediate-sync exceptions
+
+The Worker forwarder (`src/server.ts`) never marks these paths `x-async-eligible`, and the Orchestrator refuses to queue them (`isImmediateEndpoint` in `src/agents/orchestrator.ts`): `clear`, `reset`, `memory`, `audit`, `chat`, `chat-activity`, `screener/report.pdf`, `etrade/screen`, `etrade/options/profiles`, `etrade/options/scans`. They execute inline and return their final response synchronously.
+
+In particular, `POST /api/chat` (issue #312/#320) is synchronous by design: it runs one agentic chat turn on the canonical chat pipeline and returns `{ reply, route: { agent, confidence, reason, needsConfirmation }, model, streaming: false }` as the HTTP 200 body — it never returns `202`, and no polling is required. True streaming stays available over the agent WebSocket chat.
 - The browser's `apiFetch` adapter polls the job endpoint and reconstructs the original API response, preserving existing forms and consumers. If polling times out, the job continues and remains available in the Async Tasks panel.
 - MCP tool calls return a queued job ticket. `get_async_job` and `list_async_jobs` are control-plane tools and remain immediate.
 
