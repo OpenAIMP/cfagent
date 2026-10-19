@@ -69,6 +69,8 @@ import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
+// Issue #278: durable scheduled-run reports for the AI Search agent.
+import { toScheduledReportRecord } from "../services/scheduledReports";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -296,7 +298,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // Continue if timeout or unhandled
     }
     const runScreen = async () => {
-      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
+      const orm = this.getOrm();
+      const service = new ScheduledTasksService(this.env, orm, this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousMarketScreen(payload);
       // Issue #212: persist the run for the "last results" UX endpoint.
       try {
@@ -316,6 +319,20 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           error: res.success ? undefined : res.error,
         };
         await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
+        // Issue #278: persist the scheduled run's report durably
+        // (mas_reports) so the AI Search agent can surface it later.
+        orm.reports.create(
+          toScheduledReportRecord({
+            runId: `screener:${res.timestamp}`,
+            title: `Autonomous market screen — ${payload?.sector || "ALL"}`,
+            source: "screener",
+            summary: res.success
+              ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
+              : `Scheduled screen failed: ${res.error ?? "unknown error"}.`,
+            body: run,
+            createdAt: res.timestamp,
+          })
+        );
       } catch {
         // Non-critical: persistence failure must not break the screen.
       }
@@ -3638,7 +3655,9 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
         }
         // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
-        const universe = (filters.universe as string) || "TECH";
+        // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
+        // TECH (fuzzy keyword match with unpredictable symbol count).
+        const universe = (filters.universe as string) || "NASDAQ100";
         const agent = this.getScreenerAgent();
         if (universe === "ALL") {
           const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
