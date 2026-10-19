@@ -94,6 +94,7 @@ import { handleReportsRoutes } from "./routes/reports";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
+import { handleAutopilotRoutes } from "./routes/autopilot";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2587,107 +2588,20 @@ Agentic Best Practices & Workflow Rules:
     });
     if (auditResponse) return auditResponse;
 
-    // ---------------------------------------------------------------------
-    // Autopilot control center (autopilot Phase 1): server-owned run state,
-    // limits, kill switch, and policy verdicts.
-    // ---------------------------------------------------------------------
-    if (path.endsWith("/autopilot") && request.method === "GET") {
-      try {
-        const state = this.getAutopilotState();
-        let recentVerdicts: Array<Record<string, unknown>> = [];
-        try {
-          const sql = this.ensureTables();
-          recentVerdicts = Array.from(
-            sql.exec(
-              "SELECT id, symbol, action, quantity, notional, mode, dry_run, passed, execution_allowed, requires_approval, binding_rule, detail, signature, proposer_did, authorizer_did, created_at FROM mas_policy_verdicts ORDER BY created_at DESC LIMIT 25"
-            )
-          ) as Array<Record<string, unknown>>;
-        } catch {
-          recentVerdicts = [];
-        }
-        return Response.json({ ...state, engine: "riskPolicyEngine", recentVerdicts });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to read autopilot state" }, { status: 500 });
-      }
-    }
-
-    if (path.endsWith("/autopilot/state") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        if (typeof body.running !== "boolean") {
-          return Response.json({ error: "running (boolean) is required" }, { status: 400 });
-        }
-        const next = this.writeAutopilotState({ running: body.running });
-        this.audit("autopilot.state_changed", "trading", {
-          running: next.running,
-          by: request.headers.get("x-user-login") || sessionId || "unknown",
-        });
-        return Response.json(next);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to update autopilot state" }, { status: 500 });
-      }
-    }
-
-    if (path.endsWith("/autopilot/kill-switch") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const active = Boolean(body.active);
-        const reason = active
-          ? String(body.reason || "Emergency stop from the autopilot control center").slice(0, 200)
-          : null;
-        const next = this.writeAutopilotState({ killSwitch: active, killSwitchReason: reason });
-        this.audit("autopilot.kill_switch", "trading", { active, reason });
-        return Response.json(next);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to update kill switch" }, { status: 500 });
-      }
-    }
-
-    if (path.endsWith("/autopilot/limits") && (request.method === "POST" || request.method === "PUT")) {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const limits = normalizeAutopilotLimits(body?.limits ?? body);
-        const next = this.writeAutopilotState({ limits });
-        this.audit("autopilot.limits_updated", "trading", { limits });
-        return Response.json(next);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to update policy limits" }, { status: 500 });
-      }
-    }
-
-    if (path.endsWith("/autopilot/evaluate") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const symbol = String(body.symbol || "").trim().toUpperCase();
-        const quantity = Number(body.quantity) || 0;
-        if (!symbol || quantity <= 0) {
-          return Response.json({ error: "symbol and a positive quantity are required" }, { status: 400 });
-        }
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
-        // This endpoint is declared before the E*TRADE routes resolve the
-        // environment header, so it resolves the same value locally.
-        const envHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
-        const snapshotEnv: "TEST" | "PROD" | undefined = envHeader === "TEST" || envHeader === "PROD" ? envHeader : undefined;
-        const { verdict, attestation } = await this.evaluateAndRecordAutopilotVerdict({
-          userLogin,
-          requestedEnv: snapshotEnv,
-          sessionId,
-          dryRun: body.dryRun !== false,
-          intent: {
-            symbol,
-            action: String(body.action || "BUY").toUpperCase(),
-            quantity,
-            orderType: body.orderType || "MARKET",
-            estimatedPrice: Number.isFinite(limitPrice as number) ? (limitPrice as number) : null,
-            estimatedTotal: Number.isFinite(Number(body.estimatedTotal)) ? Number(body.estimatedTotal) : null,
-          },
-        });
-        return Response.json({ verdict, attestation, requestedBy: String(body.requestedBy || userLogin) });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to evaluate policy" }, { status: 500 });
-      }
-    }
+    // Issue #359-05: autopilot control center routes (GET /autopilot,
+    // POST /autopilot/state, POST /autopilot/kill-switch,
+    // POST|PUT /autopilot/limits, POST /autopilot/evaluate) are handled
+    // by src/agents/routes/autopilot.ts. Invoked at this exact position
+    // in the sequential matching sequence (between the audit handler and
+    // the Persistent Memory endpoint); a non-null return matched.
+    const autopilotResponse = await handleAutopilotRoutes(request, url, path, sessionId, {
+      ensureTables: () => this.ensureTables(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      getAutopilotState: () => this.getAutopilotState(),
+      writeAutopilotState: (patch) => this.writeAutopilotState(patch),
+      evaluateAndRecordAutopilotVerdict: (params) => this.evaluateAndRecordAutopilotVerdict(params),
+    });
+    if (autopilotResponse) return autopilotResponse;
 
     // Persistent Memory facts endpoint
     if (path.endsWith("/memory")) {
