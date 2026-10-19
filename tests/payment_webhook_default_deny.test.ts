@@ -552,8 +552,12 @@ describe("Source pins (#148)", () => {
   });
 
   it("the webhook route guards the provider before settling", () => {
-    const orchestrator = src("agents/orchestrator.ts");
-    const webhookBlock = orchestrator.slice(orchestrator.indexOf('"/payments/webhook"'));
+    // Slice 07 (#370): the /payments/webhook route moved from
+    // src/agents/orchestrator.ts to src/agents/routes/payments.ts — the pin
+    // follows the ownership. The guard-before-settle ordering is unchanged
+    // (byte-identical move).
+    const routes = src("agents/routes/payments.ts");
+    const webhookBlock = routes.slice(routes.indexOf('"/payments/webhook"'));
     expect(webhookBlock).toContain("isWebhookGateway(provider)");
     expect(webhookBlock.indexOf("isWebhookGateway(provider)")).toBeLessThan(
       webhookBlock.indexOf("payment.settled_webhook")

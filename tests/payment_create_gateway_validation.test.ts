@@ -313,10 +313,14 @@ describe("PaymentGatewayService.createCheckout — validation at the service sea
 
 describe("Source pins (#156)", () => {
   it("the create route validates the gateway before the transaction INSERT", () => {
-    const orchestrator = src("agents/orchestrator.ts");
-    const start = orchestrator.indexOf('"/payments/create"');
-    const insertIdx = orchestrator.indexOf("INSERT INTO mas_transactions", start);
-    const block = orchestrator.slice(start, insertIdx);
+    // Slice 07 (#370): the /payments/create route moved from
+    // src/agents/orchestrator.ts to src/agents/routes/payments.ts — the pin
+    // follows the ownership. The validation-before-INSERT ordering is
+    // unchanged (byte-identical move).
+    const routes = src("agents/routes/payments.ts");
+    const start = routes.indexOf('"/payments/create"');
+    const insertIdx = routes.indexOf("INSERT INTO mas_transactions", start);
+    const block = routes.slice(start, insertIdx);
     expect(block).toContain("isSupportedGateway(gatewayInput)");
     expect(block).toContain("UNSUPPORTED_GATEWAY");
   });
