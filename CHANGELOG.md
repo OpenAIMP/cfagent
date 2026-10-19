@@ -40,6 +40,16 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tests/reports_routes_extraction.test.ts` pins the 7-route inventory and
   relative order. orchestrator.ts: 6803 → 6490 lines.
 
+- **MCP + chat + NLQ routes extracted from orchestrator.ts** (#359/#364): the
+  MCP server endpoint (`/mcp`), `POST /api/chat`, and `POST /nlq` now live in
+  `src/agents/routes/mcpChatNlq.ts` as `handleMcpChatNlqRoutes()`. Pure move —
+  same paths, same matching order in `routeRequest` (the three blocks were
+  contiguous, so a single delegation at the region's original position preserves
+  order), same response shapes/statuses/auth. The NLQ webhook spellings were
+  already extracted to `src/server.ts` by #313 and are untouched. Characterization:
+  `tests/mcp_chat_nlq_routes_extraction.test.ts` pins the 3-route inventory,
+  relative order, and the NLQ pipeline argument contract.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.
