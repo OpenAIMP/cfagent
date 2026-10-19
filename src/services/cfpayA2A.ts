@@ -171,3 +171,28 @@ export async function cfpaySendEmail(
     body,
   });
 }
+
+/**
+ * Send email with attachments via cfpay A2A (issue #384).
+ * Mirrors cfpayPostFileToSlack for email delivery.
+ */
+export async function cfpaySendEmailWithAttachments(
+  config: CfpayA2AConfig,
+  args: {
+    to: string;
+    subject: string;
+    body: string;
+    attachments: Array<{
+      filename: string;
+      contentB64: string;
+      contentType?: string;
+    }>;
+  }
+): Promise<A2AOperationResult> {
+  return cfpayA2AOperation(config, "/a2a/email", "email.sendWithAttachments", {
+    to: args.to,
+    subject: args.subject,
+    body: args.body,
+    attachments: args.attachments,
+  });
+}
