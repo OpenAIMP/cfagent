@@ -78,6 +78,114 @@ function isAllowedOrigin(request: Request, env: Env): boolean {
   return false;
 }
 
+/**
+ * Issue #313: single-owner handler for the NLQ inbound webhook.
+ * All three advertised spellings — /nlq/webhook, /api/trading/nlq/webhook,
+ * /api/nlq/webhook — delegate here so the logic (throttle, signature
+ * verification, replay protection, forwarding) exists exactly once and
+ * behaves byte-identically for every spelling.
+ */
+async function handleNlqWebhookRequest(
+  request: Request,
+  env: Env,
+  throttle: (route: string, maxRequests: number, windowMs: number) => Response | null
+): Promise<Response> {
+  // Issue #241: this route fans out to the NLQ planner + optional email —
+  // throttle per source IP before touching the body.
+  const limited = throttle("nlq_webhook", 30, 60_000);
+  if (limited) return limited;
+  if (!env.INBOUND_NLQ_WEBHOOK_SECRET) {
+    return Response.json({ error: "INBOUND_NLQ_WEBHOOK_SECRET is not configured." }, { status: 503 });
+  }
+  const rawBody = await request.text();
+  if (rawBody.length > 128_000) return Response.json({ error: "Webhook payload exceeds 128 KB." }, { status: 413 });
+  const verifier = new ETradeWebhookService(undefined, env, "nlq_webhook");
+  const isValid = await verifier.verifySignature(
+    rawBody,
+    request.headers.get("X-Signature-256"),
+    env.INBOUND_NLQ_WEBHOOK_SECRET,
+  );
+  if (!isValid) return Response.json({ error: "Invalid NLQ webhook signature." }, { status: 401 });
+
+  let body: { query?: unknown; emailTo?: unknown; userId?: unknown; timestamp?: unknown };
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return Response.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
+  if (typeof body.query !== "string" || !body.query.trim()) {
+    return Response.json({ error: "A non-empty query string is required." }, { status: 400 });
+  }
+  if (typeof body.timestamp !== "string" || !Number.isFinite(Date.parse(body.timestamp)) ||
+    Math.abs(Date.now() - Date.parse(body.timestamp)) > 5 * 60 * 1000) {
+    return Response.json({ error: "Webhook timestamp is missing, invalid, or expired." }, { status: 401 });
+  }
+  if (body.query.length > 4_000) return Response.json({ error: "Query must be 4,000 characters or fewer." }, { status: 413 });
+  if (body.emailTo !== undefined &&
+    (typeof body.emailTo !== "string" || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(body.emailTo.trim()))) {
+    return Response.json({ error: "emailTo must be a valid email address." }, { status: 400 });
+  }
+  // Issue #143 P0: emailTo domain allowlist. When
+  // EMAIL_TO_ALLOWED_DOMAINS is configured, only listed domains are
+  // accepted; otherwise behavior is unchanged (format check only).
+  if (typeof body.emailTo === "string" && body.emailTo.trim()) {
+    const emailCheck = validateEmailRecipient(body.emailTo, env.EMAIL_TO_ALLOWED_DOMAINS);
+    if (!emailCheck.ok) return Response.json({ error: emailCheck.reason }, { status: 400 });
+  }
+  // Issue #143 P0: replay protection. This edge route has no ORM, so
+  // the nonce claim uses the isolate-scoped fallback store; HMAC +
+  // the 5-minute timestamp window above remain the primary controls.
+  const nlqNonce = await deriveNlqNonce(
+    body.query.trim(),
+    typeof body.emailTo === "string" ? body.emailTo.trim() : undefined,
+    body.timestamp
+  );
+  if (await sharedMemoryReplayStore().claim(nlqNonce, "nlq")) {
+    return Response.json({ error: "Duplicate NLQ webhook event rejected (replay protection)." }, { status: 409 });
+  }
+  const userLogin = typeof body.userId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(body.userId)
+    ? `nlq_webhook_${body.userId}`
+    : "nlq_webhook";
+  const agentId = env.SEARCH_AGENT.idFromName(userLogin);
+  const target = new URL("/nlq", "https://agent.internal");
+  const forwarded = new Request(target, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-user-login": userLogin,
+      "x-nlq-source": "webhook",
+    },
+    body: JSON.stringify({ query: body.query.trim() }),
+  });
+  const response = await env.SEARCH_AGENT.get(agentId).fetch(forwarded);
+  if (!response.ok) return response;
+  const result = await response.json() as Record<string, unknown>;
+
+  if (typeof body.emailTo === "string" && body.emailTo.trim()) {
+    const plan = result.plan as { operation?: string; domain?: string; tradingData?: { action?: string }; scheduleData?: { action?: string }; agenticPaymentsData?: { action?: string } } | undefined;
+    const action = plan?.tradingData?.action || plan?.scheduleData?.action || plan?.agenticPaymentsData?.action;
+    const emailAllowed = plan?.domain !== "agentic_payments" &&
+      !["preview_order", "execute_order", "watchlist_save", "create", "cancel", "paid_scan", "paid_research"].includes(action || "");
+    if (!emailAllowed) return Response.json({ ...result, emailDelivery: "not sent for an action request" });
+    const recipient = body.emailTo.trim();
+    const emailAgent = new ETradeEmailTradingService(env, undefined, userLogin);
+    const summary = typeof result.summary === "string" ? result.summary : "NLQ request processed.";
+    const rows = Array.isArray(result.rows) ? result.rows : [];
+    const text = `${summary}\n\n${JSON.stringify(rows, null, 2)}`;
+    const safeText = text.replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
+    })[character] || character);
+    const sent = await emailAgent.sendOutboundEmail(
+      recipient,
+      "NLQ webhook response",
+      `<h2>NLQ response</h2><pre>${safeText}</pre>`,
+      text,
+    );
+    if (!sent) return Response.json({ error: "NLQ succeeded, but email delivery failed." }, { status: 502 });
+  }
+  return Response.json(result);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -113,101 +221,9 @@ export default {
       return handleA2A(request, env as any);
     }
 
-    if ((path === "/nlq/webhook" || path === "/api/trading/nlq/webhook") && request.method === "POST") {
-      // Issue #241: this route fans out to the NLQ planner + optional email —
-      // throttle per source IP before touching the body.
-      const limited = throttle("nlq_webhook", 30, 60_000);
-      if (limited) return limited;
-      if (!env.INBOUND_NLQ_WEBHOOK_SECRET) {
-        return Response.json({ error: "INBOUND_NLQ_WEBHOOK_SECRET is not configured." }, { status: 503 });
-      }
-      const rawBody = await request.text();
-      if (rawBody.length > 128_000) return Response.json({ error: "Webhook payload exceeds 128 KB." }, { status: 413 });
-      const verifier = new ETradeWebhookService(undefined, env, "nlq_webhook");
-      const isValid = await verifier.verifySignature(
-        rawBody,
-        request.headers.get("X-Signature-256"),
-        env.INBOUND_NLQ_WEBHOOK_SECRET,
-      );
-      if (!isValid) return Response.json({ error: "Invalid NLQ webhook signature." }, { status: 401 });
-
-      let body: { query?: unknown; emailTo?: unknown; userId?: unknown; timestamp?: unknown };
-      try {
-        body = JSON.parse(rawBody);
-      } catch {
-        return Response.json({ error: "Request body must be valid JSON." }, { status: 400 });
-      }
-      if (typeof body.query !== "string" || !body.query.trim()) {
-        return Response.json({ error: "A non-empty query string is required." }, { status: 400 });
-      }
-      if (typeof body.timestamp !== "string" || !Number.isFinite(Date.parse(body.timestamp)) ||
-        Math.abs(Date.now() - Date.parse(body.timestamp)) > 5 * 60 * 1000) {
-        return Response.json({ error: "Webhook timestamp is missing, invalid, or expired." }, { status: 401 });
-      }
-      if (body.query.length > 4_000) return Response.json({ error: "Query must be 4,000 characters or fewer." }, { status: 413 });
-      if (body.emailTo !== undefined &&
-        (typeof body.emailTo !== "string" || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(body.emailTo.trim()))) {
-        return Response.json({ error: "emailTo must be a valid email address." }, { status: 400 });
-      }
-      // Issue #143 P0: emailTo domain allowlist. When
-      // EMAIL_TO_ALLOWED_DOMAINS is configured, only listed domains are
-      // accepted; otherwise behavior is unchanged (format check only).
-      if (typeof body.emailTo === "string" && body.emailTo.trim()) {
-        const emailCheck = validateEmailRecipient(body.emailTo, env.EMAIL_TO_ALLOWED_DOMAINS);
-        if (!emailCheck.ok) return Response.json({ error: emailCheck.reason }, { status: 400 });
-      }
-      // Issue #143 P0: replay protection. This edge route has no ORM, so
-      // the nonce claim uses the isolate-scoped fallback store; HMAC +
-      // the 5-minute timestamp window above remain the primary controls.
-      const nlqNonce = await deriveNlqNonce(
-        body.query.trim(),
-        typeof body.emailTo === "string" ? body.emailTo.trim() : undefined,
-        body.timestamp
-      );
-      if (await sharedMemoryReplayStore().claim(nlqNonce, "nlq")) {
-        return Response.json({ error: "Duplicate NLQ webhook event rejected (replay protection)." }, { status: 409 });
-      }
-      const userLogin = typeof body.userId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(body.userId)
-        ? `nlq_webhook_${body.userId}`
-        : "nlq_webhook";
-      const agentId = env.SEARCH_AGENT.idFromName(userLogin);
-      const target = new URL("/nlq", "https://agent.internal");
-      const forwarded = new Request(target, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-login": userLogin,
-          "x-nlq-source": "webhook",
-        },
-        body: JSON.stringify({ query: body.query.trim() }),
-      });
-      const response = await env.SEARCH_AGENT.get(agentId).fetch(forwarded);
-      if (!response.ok) return response;
-      const result = await response.json() as Record<string, unknown>;
-
-      if (typeof body.emailTo === "string" && body.emailTo.trim()) {
-        const plan = result.plan as { operation?: string; domain?: string; tradingData?: { action?: string }; scheduleData?: { action?: string }; agenticPaymentsData?: { action?: string } } | undefined;
-        const action = plan?.tradingData?.action || plan?.scheduleData?.action || plan?.agenticPaymentsData?.action;
-        const emailAllowed = plan?.domain !== "agentic_payments" &&
-          !["preview_order", "execute_order", "watchlist_save", "create", "cancel", "paid_scan", "paid_research"].includes(action || "");
-        if (!emailAllowed) return Response.json({ ...result, emailDelivery: "not sent for an action request" });
-        const recipient = body.emailTo.trim();
-        const emailAgent = new ETradeEmailTradingService(env, undefined, userLogin);
-        const summary = typeof result.summary === "string" ? result.summary : "NLQ request processed.";
-        const rows = Array.isArray(result.rows) ? result.rows : [];
-        const text = `${summary}\n\n${JSON.stringify(rows, null, 2)}`;
-        const safeText = text.replace(/[&<>"']/g, (character) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
-        })[character] || character);
-        const sent = await emailAgent.sendOutboundEmail(
-          recipient,
-          "NLQ webhook response",
-          `<h2>NLQ response</h2><pre>${safeText}</pre>`,
-          text,
-        );
-        if (!sent) return Response.json({ error: "NLQ succeeded, but email delivery failed." }, { status: 502 });
-      }
-      return Response.json(result);
+    if ((path === "/nlq/webhook" || path === "/api/trading/nlq/webhook" || path === "/api/nlq/webhook") && request.method === "POST") {
+      // Issue #313: advertised /api spelling — same handler, no forked logic.
+      return handleNlqWebhookRequest(request, env, throttle);
     }
 
     // --- Agents Routing (WebSockets and agent HTTP calls) ---

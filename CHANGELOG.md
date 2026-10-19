@@ -18,11 +18,18 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+<<<<<<< HEAD
 - **Canonical report store** (#308, #307): every generated report is stored
   once at generation into `mas_reports` (idempotent on generation id);
   UX, email, Slack, webhook, and HITL approval all deliver that single
   stored copy. Research-report dispatch stores first and fails closed if
   the store fails.
+- **`POST /api/nlq/webhook`** (#313): the advertised `/api` spelling of the NLQ
+  inbound webhook is now implemented. All three spellings — `/nlq/webhook`,
+  `/api/trading/nlq/webhook`, `/api/nlq/webhook` — delegate to one single-owner
+  handler (`handleNlqWebhookRequest` in `src/server.ts`), so the throttle,
+  HMAC signature verification, replay protection, and NLQ forwarding behave
+  identically for every spelling. Previously the advertised `/api` form 404'd.
 - **Reports tab + schedule management UI** (#309): browse/search persisted
   reports and manage schedules from the UX, reading the same store.
 - **AI Search result cache + scheduled-report persistence** (#278):
@@ -78,6 +85,14 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Screener data quality** (#294, #295): E*TRADE quote failures fail fast
   on auth instead of returning zero-price stubs; Yahoo history fetch
   carries diagnostics so empty technicals are explainable.
+=======
+- **`POST /api/nlq/webhook`** (#313): the advertised `/api` spelling of the NLQ
+  inbound webhook is now implemented. All three spellings — `/nlq/webhook`,
+  `/api/trading/nlq/webhook`, `/api/nlq/webhook` — delegate to one single-owner
+  handler (`handleNlqWebhookRequest` in `src/server.ts`), so the throttle,
+  HMAC signature verification, replay protection, and NLQ forwarding behave
+  identically for every spelling. Previously the advertised `/api` form 404'd.
+>>>>>>> 9bcc20a (feat(api): implement the advertised POST /api/nlq/webhook route (313))
 
 ## [0.1.0] - 2026-10-18
 

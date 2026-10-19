@@ -12,7 +12,9 @@ threats we design against and where each mitigation lives in the code.
   (`src/security/webhookSecurity.ts`, `src/security/webhookReplay.ts`,
   `src/services/tradingWebhooks.ts`).
 - The NLQ webhook edge route: `POST /nlq/webhook`
-  (and alias `/api/trading/nlq/webhook`) in `src/server.ts` — fans out to
+  (and aliases `/api/trading/nlq/webhook`, `/api/nlq/webhook` — all three
+  delegate to the single-owner `handleNlqWebhookRequest`, issue #313) in
+  `src/server.ts` — fans out to
   the NLQ planner and optionally emails the result.
 - The NLQ engine itself (`src/agents/nlq.ts`, SearchAgent) — turns natural
   language into reads against the SQLite/agent data layer.
