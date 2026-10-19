@@ -1053,6 +1053,8 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
   // Issue #391: Strategy catalog for the multi-select (loaded from API)
   const [strategyCatalog, setStrategyCatalog] = useState<CatalogStrategy[]>([]);
+  // Issue #437: Search filter for strategy list
+  const [strategySearch, setStrategySearch] = useState("");
   const [catalogLoaded, setCatalogLoaded] = useState(false);
 
   // Load strategy catalog on mount
@@ -1393,23 +1395,52 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         </div>
         <div className="scp-field scp-field-strategies">
           <label htmlFor="scp-strategies">Strategies <span className="scp-hint">(empty = all)</span></label>
+          <input
+            type="text"
+            placeholder="Search strategies…"
+            value={strategySearch}
+            onChange={(e) => setStrategySearch(e.target.value)}
+            className="scp-strategy-search"
+            aria-label="Search strategies"
+          />
           <div className="scp-strategy-checkboxes" id="scp-strategies">
-            {strategyCatalog.map((s) => (
-              <label key={s.id} className="scp-strategy-check">
-                <input
-                  type="checkbox"
-                  checked={selectedStrategies.includes(s.id)}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedStrategies([...selectedStrategies, s.id]);
-                    } else {
-                      setSelectedStrategies(selectedStrategies.filter((id) => id !== s.id));
-                    }
-                  }}
-                />
-                <span title={s.description}>{s.label || s.id}</span>
-              </label>
-            ))}
+            {(() => {
+              // Issue #437: Filter by thesis and search, group by category
+              const filtered = strategyCatalog.filter((s) => {
+                const thesisMatch = !thesis || s.theses.includes(thesis);
+                const searchMatch = !strategySearch ||
+                  s.label.toLowerCase().includes(strategySearch.toLowerCase()) ||
+                  s.id.toLowerCase().includes(strategySearch.toLowerCase());
+                return thesisMatch && searchMatch;
+              });
+              const grouped = filtered.reduce((acc, s) => {
+                const cat = s.category || "Other";
+                if (!acc[cat]) acc[cat] = [];
+                acc[cat].push(s);
+                return acc;
+              }, {} as Record<string, CatalogStrategy[]>);
+              return Object.entries(grouped).map(([category, strategies]) => (
+                <div key={category} className="scp-strategy-group">
+                  <div className="scp-strategy-group-title">{category}</div>
+                  {strategies.map((s) => (
+                    <label key={s.id} className="scp-strategy-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedStrategies.includes(s.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedStrategies([...selectedStrategies, s.id]);
+                          } else {
+                            setSelectedStrategies(selectedStrategies.filter((id) => id !== s.id));
+                          }
+                        }}
+                      />
+                      <span title={s.description}>{s.label || s.id}</span>
+                    </label>
+                  ))}
+                </div>
+              ));
+            })()}
             {strategyCatalog.length === 0 && (
               <span className="scp-muted">Loading strategies…</span>
             )}
