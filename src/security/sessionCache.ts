@@ -1,0 +1,91 @@
+import type { Env, SessionData } from "../types";
+import { getSession } from "./session";
+
+/**
+ * In-isolate cache in front of `getSession` (issue #329).
+ *
+ * Why this exists: `requireAuth` runs on every `/api/*` request and each call
+ * performed one Workers KV read. KV reads are charged against the free tier
+ * (100,000/day), and `requireAuth` is the first KV call in the request path,
+ * so UI polling alone could exhaust the day's budget — at which point every
+ * authenticated route returns 401 rather than merely losing writes.
+ *
+ * This absorbs the polling traffic without changing the auth model: KV stays
+ * the source of truth, and the staleness bound is the TTL below. That bound
+ * sits inside a window the platform already gives us — KV propagates writes
+ * to other colos in up to ~60s, so a 30s cache adds no meaningfully new gap
+ * between what two regions already see.
+ *
+ * Properties that matter for review:
+ * - Per-isolate and best-effort. A cold or recycled isolate simply misses, so
+ *   the cache can never become a correctness dependency.
+ * - Bounded. Oldest entry is evicted at the cap; entries expire on read.
+ * - Misses are cached too, but for much less time, so a session that does not
+ *   exist cannot be pinned as absent.
+ * - Any path that invalidates a session must call `invalidateSessionCache`.
+ *   Other isolates keep their stale copy until TTL — which is why the TTL is
+ *   short and why sensitive routes are not meant to rely on it.
+ */
+const POSITIVE_TTL_MS = 30_000;
+const NEGATIVE_TTL_MS = 10_000;
+const MAX_ENTRIES = 500;
+
+interface CacheEntry {
+  data: SessionData | null;
+  expiresAt: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+function readEntry(sessionId: string): CacheEntry | undefined {
+  const entry = cache.get(sessionId);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(sessionId);
+    return undefined;
+  }
+  return entry;
+}
+
+function writeEntry(sessionId: string, data: SessionData | null): void {
+  if (cache.size >= MAX_ENTRIES && !cache.has(sessionId)) {
+    // Map preserves insertion order, so the first key is the oldest write.
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(sessionId, {
+    data,
+    expiresAt: Date.now() + (data ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
+  });
+}
+
+/**
+ * Returns the session, serving it from the isolate cache when possible.
+ * Semantically equivalent to `getSession`, so callers can swap it in directly.
+ */
+export async function getSessionCached(
+  env: Env,
+  sessionId: string
+): Promise<SessionData | null> {
+  const cached = readEntry(sessionId);
+  if (cached) return cached.data;
+
+  const session = await getSession(env, sessionId);
+  // A corrupt payload comes back as null from getSession; caching that for the
+  // negative TTL is acceptable because the session is unusable either way.
+  writeEntry(sessionId, session);
+  return session;
+}
+
+/**
+ * Drops a session from this isolate's cache. Call from anything that revokes a
+ * session, otherwise the stale copy survives here until TTL.
+ */
+export function invalidateSessionCache(sessionId: string): void {
+  cache.delete(sessionId);
+}
+
+/** Test seam: the cache is module-level and must be resettable per test. */
+export function __resetSessionCache(): void {
+  cache.clear();
+}
