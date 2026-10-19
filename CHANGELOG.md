@@ -18,6 +18,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.
+
 - **Manual options scans → Slack via A2A** (#358): the `/trading/options/unified`
   endpoint now honors a `pushToSlack` request-body param. After the scan
   completes (action `opportunities`), the summary text goes via
