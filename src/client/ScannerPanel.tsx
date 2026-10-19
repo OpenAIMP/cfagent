@@ -115,7 +115,7 @@ export interface ScanFormInput {
   mode: ScanMode;
   profileId: string;
   fitLimit: number;
-  selectedStrategies: string[];
+  selectedStrategies?: string[];
 }
 
 /** The exact request body a Run click sends. Mode rides on EVERY run
@@ -132,7 +132,7 @@ export function buildScanRequest(input: ScanFormInput): UnifiedOptionsRequest {
     ...(input.profileId ? { profileId: input.profileId } : {}),
     ...(input.mode === "strategy_fit" ? { limit: input.fitLimit } : {}),
     // Issue #391: Pass selected strategies as allowedStrategies filter
-    ...(input.selectedStrategies.length > 0 ? { allowedStrategies: input.selectedStrategies } : {}),
+    ...(input.selectedStrategies && input.selectedStrategies.length > 0 ? { allowedStrategies: input.selectedStrategies } : {}),
   };
 }
 
