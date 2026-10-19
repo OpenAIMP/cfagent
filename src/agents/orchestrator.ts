@@ -5493,6 +5493,29 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Issue #361: Options PDF download endpoint (mirrors stock).
+    if (path.endsWith("/options/report.pdf") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key") || url.searchParams.get("filename");
+        const pdf = key
+          ? await this.getScreenerAgent().getOptionsPdfByKey(key)
+          : await this.getScreenerAgent().getLatestOptionsPdf();
+        if (!pdf) {
+          return Response.json({ error: "No options report available yet" }, { status: 404 });
+        }
+        return new Response(pdf.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
+            "Content-Length": String(pdf.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
+      }
+    }
+
     // ==========================================
     // Issue #319: autonomous options research.
     // The manual route and the scheduled tick are thin triggers over the
