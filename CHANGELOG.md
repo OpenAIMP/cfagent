@@ -18,6 +18,19 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Scheduled research run restored via the */30 tick** (#354): the account's
+  Workers Free 5-cron-trigger ceiling (error 10072) makes the dedicated
+  `0 21 * * 1-5` trigger impossible, so its `scheduled()` branch was dead
+  code. The daily options-research run now rides the `*/30` tick instead:
+  after the ScheduledAgent tick, the handler POSTs
+  `/research/scheduled-tick`, and a pure guard
+  (`src/services/researchScheduleGuard.ts`) fires the run exactly once per
+  weekday at/after 21:00 UTC. Idempotency is durable — the last-fired date
+  is stored in the orchestrator's `mas_settings` (survives ticks and
+  isolates); the marker is written only after a successful run, so a failed
+  21:00 run retries at 21:30. Skips return an explicit
+  `skipped: true` with the reason.
+
 - **Canonical report store** (#308, #307): every generated report is stored
   once at generation into `mas_reports` (idempotent on generation id);
   UX, email, Slack, webhook, and HITL approval all deliver that single

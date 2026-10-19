@@ -60,11 +60,15 @@
       // Issue #255 — nightly mas_messages retention pass (enforced in the
       // scheduled() handler; runs against the Orchestrator agent's SQLite)
       "0 4 * * *"
-      // Issue #319 — the daily options-research run (21:00 UTC = 17:00 ET on
-      // weekdays) is deliberately NOT a fifth cron trigger: the account is at
-      // the Workers Free ceiling of 5 triggers per account (error 10072) and a
-      // fifth entry fails the entire deploy. Re-enable by folding it into the
-      // "*/30" tick in scheduled() (src/server.ts), or on the paid plan.
+      // Issue #319 + #354 — the daily options-research run (21:00 UTC =
+      // 17:00 ET on weekdays) is deliberately NOT a fifth cron trigger: the
+      // account is at the Workers Free ceiling of 5 triggers per account
+      // (error 10072) and a fifth entry fails the entire deploy. It rides
+      // the "*/30" tick instead: src/server.ts scheduled() POSTs
+      // /research/scheduled-tick after the ScheduledAgent tick, and the
+      // route's idempotency guard (src/services/researchScheduleGuard.ts,
+      // last-fired date in the orchestrator's mas_settings) fires it exactly
+      // once per weekday at/after 21:00 UTC. Or use the paid plan.
     ]
   },
   // PR #6 — Vectorize for VectorMemory
