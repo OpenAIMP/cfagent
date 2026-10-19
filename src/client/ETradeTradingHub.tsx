@@ -797,7 +797,10 @@ export function ETradeTradingHub({
       setDiagnostics(data);
       setShowDiagnosticsModal(true);
       if (data?.upstreamAccounts?.count > 0 || (data?.upstreamAccounts?.accounts && data.upstreamAccounts.accounts.length > 0)) {
-        await Promise.all([
+        // These panels make their own broker requests. Keep them off the
+        // diagnostics critical path so a slow positions/status call cannot
+        // leave the successful REST verification stuck in a loading state.
+        void Promise.allSettled([
           fetchBrokerStatus(envToUse),
           fetchPositions(envToUse),
           fetchOAuthStatus(envToUse),
