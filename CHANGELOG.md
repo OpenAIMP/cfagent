@@ -34,6 +34,17 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Payments routes extracted from orchestrator.ts** (#359/#370): the
+  Multi-Gateway Payments & DID Management API (GET `/payments/gateways|/status`,
+  GET `/payments/dids`, the transactions ledger, POST `/payments/create`,
+  POST `/payments/confirm` (HITL), POST `/payments/capture`, POST
+  `/payments/webhook`) moved to `src/agents/routes/payments.ts`, invoked from
+  `routeRequest` at the exact original position (between the referrals+ads
+  handler and the Cloudflare Agentic Payments block). All money-adjacent
+  guards preserved exactly (#156 gateway 400-before-checkout, #148 webhook
+  provider default-deny, signature verification, the payment.created/
+  confirmed/rejected/captured/settled_webhook audit events); a
+  characterization test pins route order and behavior.
 - **Memory + reset routes extracted from orchestrator.ts** (#359/#369): the
   Persistent Memory facts routes (GET/DELETE `/memory`) and the session reset
   routes (POST|DELETE|GET `/clear|/reset`) moved to

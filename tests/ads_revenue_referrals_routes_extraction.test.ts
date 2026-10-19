@@ -167,7 +167,12 @@ describe("ads/revenue/referrals route inventory (extraction #366)", () => {
     // would resolve to indexOf -1 (trivially true, meaningless).
     const callBIdx = orchSrc.indexOf("handleReferralsAdsRoutes(request, url, path, sessionId,");
     expect(callBIdx).toBeGreaterThan(orchSrc.indexOf("handleMemoryResetRoutes(request, url, path, sessionId,"));
-    expect(callBIdx).toBeLessThan(orchSrc.indexOf("Multi-Gateway Payments & DID Management API"));
+    // Landmark swap (#370): slice 07 extracted the payments block into
+    // src/agents/routes/payments.ts, so the "// Multi-Gateway Payments & DID
+    // Management API" banner comment is gone from orchestrator.ts — anchoring
+    // to it would resolve to indexOf -1. The payments DELEGATION CALL stands
+    // at exactly the position the banner occupied.
+    expect(callBIdx).toBeLessThan(orchSrc.indexOf("handlePaymentsRoutes(request, url, path, sessionId,"));
   });
 });
 
