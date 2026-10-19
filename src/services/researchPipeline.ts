@@ -1,0 +1,1089 @@
+/**
+ * Issue #319 — autonomous options-research pipeline (spec §§1–9, ARR, OODA).
+ *
+ * Single pipeline entry: runResearchPipeline(). The manual route and the
+ * scheduled tick are thin triggers over this entry (amendment 2) — zero
+ * duplicated screening/validation/report logic.
+ *
+ * SDK-free. Data arrives through the injected ResearchDataProvider; the
+ * E*TRADE-backed implementation lives in researchProviders.ts. The pipeline
+ * never fabricates a data point: missing retrieval becomes Unverified /
+ * missing-evidence, never an estimate dressed as data.
+ *
+ * READ-ONLY: the pipeline has no code path to any order function.
+ */
+
+import type { ResearchConfig } from "./researchConfig";
+import type {
+  ResearchLeg,
+  StructureEconomics,
+  ScenarioRow,
+  CostAssumptions,
+} from "./researchEconomics";
+import {
+  blackScholesPrice,
+  expectedMove,
+  verticalSpreadEconomics,
+  ironCondorEconomics,
+  butterflyEconomics,
+  straddleEconomics,
+  pmccEconomics,
+  buildScenarioRows,
+} from "./researchEconomics";
+import type {
+  GateCandidate,
+  IdeaStatus,
+  Outlook,
+  ChainProvenance,
+} from "./researchGates";
+import { runStageGates } from "./researchGates";
+import type {
+  Falsification,
+  Premortem,
+} from "./researchFalsification";
+import { buildFalsification, buildPremortem } from "./researchFalsification";
+
+export type TriggerSource = "manual" | "scheduled";
+
+/* ------------------------------------------------------------------ */
+/* Provider interface                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface QuoteSnapshot {
+  symbol: string;
+  price: number;
+  /** ms epoch. */
+  timestamp: number;
+  marketCap?: number | null;
+  isEtf?: boolean;
+  quoteStatus: string;
+  source: string;
+}
+
+export interface ProviderChainLeg {
+  optionType: "call" | "put";
+  strike: number;
+  expiry: string;
+  dte: number;
+  bid: number;
+  ask: number;
+  iv?: number | null;
+  volume?: number | null;
+  openInterest?: number | null;
+}
+
+export interface ProviderChainExpiry {
+  expiry: string;
+  dte: number;
+  legs: ProviderChainLeg[];
+}
+
+export interface ChainSnapshot {
+  symbol: string;
+  underlyingPrice: number;
+  asOf: number;
+  provenance: ChainProvenance;
+  expiries: ProviderChainExpiry[];
+}
+
+export interface Technicals {
+  trend: "up" | "down" | "flat";
+  /** Signed momentum signal in [-1, 1]. */
+  momentum: number | null;
+  rsi?: number | null;
+  notes: string[];
+}
+
+export interface CatalystInfo {
+  description: string;
+  date?: string | null;
+  direction: "bullish" | "bearish" | "neutral";
+}
+
+export interface RegimeAssessment {
+  regime: "bull" | "bear" | "chop" | "high_vol" | "unknown";
+  notes: string[];
+  asOf: number;
+}
+
+export interface ResearchDataProvider {
+  getUniverseSymbols(universe: string): Promise<string[]>;
+  getQuote(symbol: string): Promise<QuoteSnapshot | null>;
+  getChain(symbol: string): Promise<ChainSnapshot>;
+  getTechnicals(symbol: string): Promise<Technicals | null>;
+  /** Null when no catalyst feed is wired — never fabricated. */
+  getCatalysts(symbol: string): Promise<CatalystInfo[] | null>;
+  getRegime(): Promise<RegimeAssessment>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Report types                                                        */
+/* ------------------------------------------------------------------ */
+
+export interface TradeCard {
+  rank: number;
+  symbol: string;
+  outlook: Outlook;
+  thesis: string;
+  supportingEvidence: string[];
+  contradictingEvidence: string[];
+  falsification: Falsification;
+  falsificationWarnings: string[];
+  premortem: Premortem;
+  structure: string;
+  legs: ResearchLeg[];
+  economics: StructureEconomics;
+  /** PMCC-only: correct model figures (null for other structures). */
+  pmcc?: {
+    maxProfit: number;
+    maxLoss: number;
+    netDebit: number;
+    maxProfitSpot: number;
+  } | null;
+  scenarios: ScenarioRow[];
+  entryCondition: string;
+  invalidation: string;
+  contractualMaxLoss: number;
+  feesNote: string;
+  limitations: string[];
+  sources: string[];
+  quoteTimestamp: number;
+  /** Underlying spot price at idea creation (§9 baseline for evaluation). */
+  entrySpot: number;
+  chainProvenance: ChainProvenance;
+  score: number;
+  status: "qualified";
+}
+
+export interface WatchlistEntry {
+  symbol: string;
+  outlook: Outlook;
+  thesis: string;
+  structure: string;
+  reason: string;
+  triggerCondition: string;
+}
+
+export interface RejectedEntry {
+  symbol: string;
+  outlook: Outlook;
+  structure: string;
+  gate: string;
+  reason: string;
+}
+
+export interface RunStats {
+  universeSize: number;
+  quotesRetrieved: number;
+  candidatesEvaluated: number;
+  chainsFetched: number;
+  chainsCalibrated: number;
+  qualified: number;
+  watchlist: number;
+  rejected: number;
+  unverified: number;
+  oodaIterations: number;
+  durationMs: number;
+}
+
+export interface OodaStep {
+  stage: "observe" | "orient" | "decide" | "act";
+  detail: string;
+  at: string;
+}
+
+export interface ResearchReport {
+  runId: string;
+  generationId: string;
+  trigger: TriggerSource;
+  userLogin: string;
+  createdAt: string;
+  rulesVersion: string;
+  /** Amendment 1: the effective filter/config snapshot this run used. */
+  configSnapshot: ResearchConfig;
+  regime: RegimeAssessment;
+  summary: string;
+  ideas: TradeCard[];
+  watchlist: WatchlistEntry[];
+  rejected: RejectedEntry[];
+  stats: RunStats;
+  oodaTrace: OodaStep[];
+}
+
+export interface ResearchRunOptions {
+  trigger: TriggerSource;
+  userLogin: string;
+  runId?: string;
+  now?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Thesis + structure selection (rule-based, documented, reproducible)  */
+/* ------------------------------------------------------------------ */
+
+interface ThesisDraft {
+  outlook: Outlook;
+  thesis: string;
+  supporting: string[];
+  contradicting: string[];
+  strength: number;
+}
+
+function draftThesis(
+  symbol: string,
+  technicals: Technicals | null,
+  catalysts: CatalystInfo[] | null,
+  regime: RegimeAssessment
+): ThesisDraft {
+  const supporting: string[] = [];
+  const contradicting: string[] = [];
+  let outlook: Outlook = "unknown";
+  let strength = 0.4;
+
+  if (!technicals) {
+    return {
+      outlook: "unknown",
+      thesis: `No technical data for ${symbol}; no outlook formed.`,
+      supporting,
+      contradicting: ["Technical data unavailable."],
+      strength: 0,
+    };
+  }
+  supporting.push(
+    `Trend ${technicals.trend}${technicals.rsi != null ? `, RSI ${technicals.rsi.toFixed(0)}` : ""}.`
+  );
+  if (technicals.momentum != null) {
+    supporting.push(`Momentum ${technicals.momentum >= 0 ? "+" : ""}${technicals.momentum.toFixed(2)}.`);
+  }
+
+  const alignedCatalysts = (catalysts ?? []).filter((c) => c.direction !== "neutral");
+  if (technicals.trend === "up" && (technicals.momentum ?? 0) >= 0) {
+    outlook = "bullish";
+    strength = 0.6;
+  } else if (technicals.trend === "down" && (technicals.momentum ?? 0) <= 0) {
+    outlook = "bearish";
+    strength = 0.6;
+  } else if (technicals.trend === "flat") {
+    outlook = "range_bound";
+    strength = 0.55;
+  }
+  if (regime.regime === "high_vol" && outlook !== "unknown") {
+    outlook = "volatile";
+    supporting.push("Elevated volatility regime favors long-volatility structures.");
+  }
+  for (const c of alignedCatalysts) {
+    supporting.push(`Catalyst (${c.direction}): ${c.description}.`);
+    strength = Math.min(1, strength + 0.1);
+  }
+  if (catalysts === null) {
+    contradicting.push("No catalyst feed available — event-driven drivers unassessed.");
+  }
+  contradicting.push(
+    "Mean-reversion risk: the observed trend may already be priced into the options."
+  );
+  if (technicals.notes.length > 0) contradicting.push(...technicals.notes);
+
+  const thesis =
+    outlook === "unknown"
+      ? `No coherent outlook for ${symbol}.`
+      : `${symbol} screens ${outlook} on ${technicals.trend} trend${alignedCatalysts.length > 0 ? ` with ${alignedCatalysts.length} aligned catalyst(s)` : ""} in a ${regime.regime} regime.`;
+  return { outlook, thesis, supporting, contradicting, strength };
+}
+
+/** Spec §6 strategy table: candidate structures per outlook. */
+function structuresForOutlook(
+  outlook: Outlook,
+  ownershipAllowed: boolean,
+  pmccEnabled: boolean
+): string[] {
+  switch (outlook) {
+    case "bullish": {
+      const list = ["bull_call_spread", "bull_put_spread"];
+      if (ownershipAllowed) list.push("cash_secured_put");
+      if (pmccEnabled) list.push("pmcc");
+      return list;
+    }
+    case "bearish":
+      return ["bear_put_spread", "bear_call_spread"];
+    case "range_bound":
+      return ["iron_condor", "butterfly"];
+    case "volatile":
+      return ["long_straddle", "long_strangle"];
+    default:
+      return [];
+  }
+}
+
+interface BuiltStructure {
+  name: string;
+  legs: ResearchLeg[];
+  economics: StructureEconomics;
+  pmcc?: TradeCard["pmcc"];
+}
+
+function pickExpiry(
+  expiries: ProviderChainExpiry[],
+  minDte: number,
+  targetMin: number,
+  targetMax: number
+): ProviderChainExpiry | null {
+  const viable = expiries
+    .filter((e) => e.dte >= minDte && e.legs.length > 0)
+    .sort((a, b) => a.dte - b.dte);
+  if (viable.length === 0) return null;
+  const inTarget = viable.find((e) => e.dte >= targetMin && e.dte <= targetMax);
+  return inTarget ?? viable[0];
+}
+
+function findLeg(
+  expiry: ProviderChainExpiry,
+  optionType: "call" | "put",
+  strikeFilter: (strike: number, spot: number) => boolean,
+  spot: number,
+  pick: "nearest" | "farthest" = "nearest"
+): ProviderChainLeg | null {
+  const cands = expiry.legs
+    .filter((l) => l.optionType === optionType && strikeFilter(l.strike, spot) && l.bid > 0 && l.ask >= l.bid)
+    .sort((a, b) =>
+      pick === "nearest"
+        ? Math.abs(a.strike - spot) - Math.abs(b.strike - spot)
+        : Math.abs(b.strike - spot) - Math.abs(a.strike - spot)
+    );
+  return cands[0] ?? null;
+}
+
+function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number): ResearchLeg {
+  return {
+    optionType: leg.optionType,
+    strike: leg.strike,
+    expiry: leg.expiry,
+    dte: leg.dte,
+    bid: leg.bid,
+    ask: leg.ask,
+    iv: leg.iv ?? null,
+    volume: leg.volume ?? null,
+    openInterest: leg.openInterest ?? null,
+    quantity,
+    quoteTimestamp: quoteTs,
+  };
+}
+
+function buildStructure(
+  name: string,
+  chain: ChainSnapshot,
+  spot: number,
+  config: ResearchConfig
+): BuiltStructure | null {
+  const expiry = pickExpiry(chain.expiries, config.minDte, 30, 45);
+  if (!expiry) return null;
+  const qt = chain.asOf;
+  const widthPct = 0.05;
+
+  const legOrNull = (
+    type: "call" | "put",
+    filter: (s: number, spot: number) => boolean,
+    qty: number
+  ): ResearchLeg | null => {
+    const found = findLeg(expiry, type, filter, spot);
+    return found ? toResearchLeg(found, qty, qt) : null;
+  };
+
+  let legs: ResearchLeg[] | null = null;
+  let economics: StructureEconomics | null = null;
+  let pmcc: TradeCard["pmcc"] = null;
+
+  switch (name) {
+    case "bull_call_spread": {
+      const long = legOrNull("call", (s) => s >= spot, 1);
+      const short = long ? legOrNull("call", (s) => s > long.strike, -1) : null;
+      if (long && short) {
+        legs = [long, short];
+        economics = verticalSpreadEconomics(legs, spot);
+      }
+      break;
+    }
+    case "bull_put_spread": {
+      const short = legOrNull("put", (s) => s <= spot, -1);
+      const long = short ? legOrNull("put", (s) => s < short.strike, 1) : null;
+      if (long && short) {
+        legs = [short, long];
+        economics = verticalSpreadEconomics(legs, spot);
+      }
+      break;
+    }
+    case "bear_put_spread": {
+      const long = legOrNull("put", (s) => s <= spot, 1);
+      const short = long ? legOrNull("put", (s) => s < long.strike, -1) : null;
+      if (long && short) {
+        legs = [long, short];
+        economics = verticalSpreadEconomics(legs, spot);
+      }
+      break;
+    }
+    case "bear_call_spread": {
+      const short = legOrNull("call", (s) => s >= spot, -1);
+      const long = short ? legOrNull("call", (s) => s > short.strike, 1) : null;
+      if (long && short) {
+        legs = [short, long];
+        economics = verticalSpreadEconomics(legs, spot);
+      }
+      break;
+    }
+    case "cash_secured_put": {
+      const short = legOrNull("put", (s) => s < spot, -1);
+      if (short) {
+        legs = [short];
+        // Single short put: max loss = strike - credit (stock to zero).
+        const priced = [{ ...short, mid: (short.bid + short.ask) / 2 }];
+        const credit = priced[0].mid;
+        economics = {
+          structure: "cash_secured_put",
+          legs: priced,
+          netDebit: 0,
+          netCredit: Number(credit.toFixed(2)),
+          maxLoss: Number((short.strike - credit).toFixed(2)),
+          maxGain: Number(credit.toFixed(2)),
+          breakevens: [Number((short.strike - credit).toFixed(2))],
+          derivationNotes: [
+            "Ownership-dependent strategy: only built when explicitly permitted. Max loss assumes stock to zero.",
+          ],
+        };
+      }
+      break;
+    }
+    case "iron_condor": {
+      const putShort = legOrNull("put", (s) => s < spot * (1 - widthPct / 2), -1);
+      const putLong = putShort ? legOrNull("put", (s) => s < putShort.strike, 1) : null;
+      const callShort = legOrNull("call", (s) => s > spot * (1 + widthPct / 2), -1);
+      const callLong = callShort ? legOrNull("call", (s) => s > callShort.strike, 1) : null;
+      if (putShort && putLong && callShort && callLong) {
+        legs = [putLong, putShort, callShort, callLong];
+        economics = ironCondorEconomics(legs, spot);
+      }
+      break;
+    }
+    case "butterfly": {
+      const body = findLeg(expiry, "call", (s) => Math.abs(s - spot) / spot < 0.02, spot);
+      if (body) {
+        const wingLow = legOrNull("call", (s) => s < body.strike, 1);
+        const wingHigh = legOrNull("call", (s) => s > body.strike, 1);
+        if (wingLow && wingHigh) {
+          const bodyLeg = toResearchLeg(body, -2, qt);
+          legs = [wingLow, bodyLeg, wingHigh];
+          economics = butterflyEconomics(legs, spot);
+        }
+      }
+      break;
+    }
+    case "long_straddle": {
+      const call = legOrNull("call", () => true, 1);
+      const put = call ? legOrNull("put", (s) => s === call.strike, 1) : null;
+      if (call && put) {
+        legs = [call, put];
+        const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
+        const premium = priced.reduce((s, l) => s + l.mid, 0);
+        const assess = straddleEconomics(legs, spot, call.iv ?? 0.4, call.dte);
+        economics = {
+          structure: "long_straddle",
+          legs: priced,
+          netDebit: Number(premium.toFixed(2)),
+          netCredit: 0,
+          maxLoss: Number(premium.toFixed(2)),
+          maxGain: null,
+          breakevens: assess.breakevens,
+          derivationNotes: assess.derivationNotes.concat([
+            `Premium/expected-move ${assess.premiumToExpectedMove}.`,
+          ]),
+        };
+      }
+      break;
+    }
+    case "long_strangle": {
+      const call = legOrNull("call", (s) => s > spot, 1);
+      const put = call ? legOrNull("put", (s) => s < spot, 1) : null;
+      if (call && put) {
+        legs = [call, put];
+        const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
+        const premium = priced.reduce((s, l) => s + l.mid, 0);
+        const assess = straddleEconomics(legs, spot, call.iv ?? 0.4, call.dte);
+        economics = {
+          structure: "long_strangle",
+          legs: priced,
+          netDebit: Number(premium.toFixed(2)),
+          netCredit: 0,
+          maxLoss: Number(premium.toFixed(2)),
+          maxGain: null,
+          breakevens: assess.breakevens,
+          derivationNotes: assess.derivationNotes,
+        };
+      }
+      break;
+    }
+    case "pmcc": {
+      const leaps = chain.expiries
+        .filter((e) => e.dte >= 300)
+        .sort((a, b) => a.dte - b.dte)[0];
+      if (leaps) {
+        const long = findLeg(leaps, "call", (s) => s < spot * 0.9, spot);
+        const shortExp = pickExpiry(chain.expiries, config.minDte, 30, 45);
+        const short = shortExp ? findLeg(shortExp, "call", (s) => s > spot, spot) : null;
+        if (long && short && short.strike > long.strike) {
+          const longLeg = toResearchLeg(long, 1, qt);
+          const shortLeg = toResearchLeg(short, -1, qt);
+          legs = [longLeg, shortLeg];
+          const model = pmccEconomics({
+            longCall: longLeg,
+            shortCall: shortLeg,
+            spot,
+            rate: config.riskFreeRate,
+            dividendYield: config.dividendYield,
+            longIv: longLeg.iv ?? 0.4,
+          });
+          const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
+          economics = {
+            structure: "pmcc",
+            legs: priced,
+            netDebit: model.netDebit,
+            netCredit: 0,
+            maxLoss: model.maxLoss,
+            maxGain: model.maxProfit,
+            breakevens: [],
+            derivationNotes: model.derivationNotes,
+          };
+          pmcc = {
+            maxProfit: model.maxProfit,
+            maxLoss: model.maxLoss,
+            netDebit: model.netDebit,
+            maxProfitSpot: model.maxProfitSpot,
+          };
+        }
+      }
+      break;
+    }
+    default:
+      return null;
+  }
+  if (!legs || !economics) return null;
+  return { name, legs, economics, pmcc };
+}
+
+function scoreCandidate(
+  thesisStrength: number,
+  economics: StructureEconomics,
+  chainProvenance: ChainProvenance,
+  eventRisk: string | null,
+  config: ResearchConfig
+): number {
+  const avgSpread = economics.legs.reduce(
+    (s, l) => s + (l.ask - l.bid) / l.mid,
+    0
+  ) / Math.max(economics.legs.length, 1);
+  const liquidity = Math.max(0, Math.min(1, 1 - avgSpread / config.maxSpreadPct));
+  const rewardRisk =
+    economics.maxLoss > 0 && economics.maxGain !== null
+      ? Math.min(economics.maxGain / economics.maxLoss, 3) / 3
+      : 0.5;
+  let score = 0.4 * thesisStrength + 0.35 * liquidity + 0.25 * rewardRisk;
+  if (chainProvenance !== "live") score -= 1;
+  if (eventRisk) score -= 0.15;
+  return Number(score.toFixed(4));
+}
+
+/* ------------------------------------------------------------------ */
+/* Pipeline                                                            */
+/* ------------------------------------------------------------------ */
+
+export interface PipelineDeps {
+  provider: ResearchDataProvider;
+}
+
+function newRunId(): string {
+  return `rsr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * THE single pipeline entry. Both the manual route and the scheduled tick
+ * are thin triggers over this function (amendment 2).
+ */
+export async function runResearchPipeline(
+  deps: PipelineDeps,
+  config: ResearchConfig,
+  opts: ResearchRunOptions
+): Promise<ResearchReport> {
+  const started = Date.now();
+  const now = opts.now ?? Date.now();
+  const runId = opts.runId ?? newRunId();
+  const trace: OodaStep[] = [];
+  const step = (stage: OodaStep["stage"], detail: string) =>
+    trace.push({ stage, detail, at: new Date().toISOString() });
+
+  const rejected: RejectedEntry[] = [];
+  const watchlist: WatchlistEntry[] = [];
+  const qualified: TradeCard[] = [];
+  let unverified = 0;
+  const stats: RunStats = {
+    universeSize: 0,
+    quotesRetrieved: 0,
+    candidatesEvaluated: 0,
+    chainsFetched: 0,
+    chainsCalibrated: 0,
+    qualified: 0,
+    watchlist: 0,
+    rejected: 0,
+    unverified: 0,
+    oodaIterations: 0,
+    durationMs: 0,
+  };
+  const costs: CostAssumptions = {
+    feePerContract: config.feePerContract,
+    slippagePerContract: config.slippagePerContract,
+    contracts: 1,
+  };
+
+  // OBSERVE — market regime.
+  step("observe", "Assessing market regime.");
+  let regime: RegimeAssessment;
+  try {
+    regime = await deps.provider.getRegime();
+  } catch {
+    regime = { regime: "unknown", notes: ["Regime feed failed — proceeding without regime context."], asOf: now };
+  }
+  step("orient", `Regime: ${regime.regime}.`);
+
+  // OBSERVE — universe.
+  let symbols: string[] = [];
+  try {
+    symbols = await deps.provider.getUniverseSymbols(config.universe);
+  } catch (err) {
+    // Fail closed: no universe, no ideas — still publish the report honestly.
+    return finishReport({
+      runId, config, opts, now, started, trace, regime,
+      ideas: [], watchlist, rejected: [{
+        symbol: "*", outlook: "unknown", structure: "-",
+        gate: "data_integrity",
+        reason: `Universe retrieval failed: ${err instanceof Error ? err.message : String(err)}.`,
+      }],
+      stats, summary: "Universe retrieval failed; no candidates evaluated.",
+    });
+  }
+  stats.universeSize = symbols.length;
+  step("observe", `Universe ${config.universe}: ${symbols.length} symbols.`);
+
+  let iterations = 0;
+  const screened = symbols.slice(0, config.maxCandidates * 3);
+
+  for (const symbol of screened) {
+    // OODA budget: stop when the next action has no clear purpose.
+    if (iterations >= config.oodaMaxIterations) {
+      step("decide", "OODA budget exhausted — stopping candidate evaluation.");
+      break;
+    }
+    if (qualified.length >= config.maxIdeas && watchlist.length >= config.maxIdeas) break;
+    iterations++;
+    stats.oodaIterations = iterations;
+
+    // OBSERVE — quote.
+    let quote: QuoteSnapshot | null = null;
+    try {
+      quote = await deps.provider.getQuote(symbol);
+    } catch {
+      quote = null;
+    }
+    if (!quote) {
+      rejected.push({ symbol, outlook: "unknown", structure: "-", gate: "data_integrity", reason: "No quote retrieved." });
+      continue;
+    }
+    stats.quotesRetrieved++;
+
+    // ORIENT — initial filters (from config, never hardcoded).
+    if (quote.isEtf && !config.etfsIncluded) continue;
+    if (!quote.isEtf && quote.marketCap != null && quote.marketCap < config.marketCapMin) {
+      continue; // Spec initial filter; not a "rejection" — just screened out.
+    }
+    if (config.priceCap !== null && quote.price > config.priceCap) continue;
+
+    // OBSERVE — technicals + catalysts.
+    const [technicals, catalysts] = await Promise.all([
+      deps.provider.getTechnicals(symbol).catch(() => null),
+      deps.provider.getCatalysts(symbol).catch(() => null),
+    ]);
+
+    // ORIENT — thesis.
+    const draft = draftThesis(symbol, technicals, catalysts, regime);
+    step("orient", `${symbol}: outlook ${draft.outlook}.`);
+    if (draft.outlook === "unknown") {
+      rejected.push({ symbol, outlook: draft.outlook, structure: "-", gate: "thesis_coherence", reason: draft.thesis });
+      continue;
+    }
+
+    // DECIDE — investigate (chain) or skip.
+    let chain: ChainSnapshot;
+    try {
+      chain = await deps.provider.getChain(symbol);
+      stats.chainsFetched++;
+      if (stats.chainsFetched > config.maxChainsPerRun) {
+        step("decide", "Chain budget exhausted — stopping.");
+        break;
+      }
+      if (chain.provenance === "calibrated") stats.chainsCalibrated++;
+    } catch {
+      rejected.push({ symbol, outlook: draft.outlook, structure: "-", gate: "quote_quality", reason: "Chain retrieval failed." });
+      continue;
+    }
+    stats.candidatesEvaluated++;
+
+    // ACT — construct candidate structures per the §6 table; keep the best
+    // gated one. Alternatives are evaluated, not just the richest premium.
+    const structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
+    let bestCard: TradeCard | null = null;
+
+    for (const name of structureNames) {
+      let built: BuiltStructure | null = null;
+      try {
+        built = buildStructure(name, chain, quote.price, config);
+      } catch {
+        built = null;
+      }
+      if (!built) continue;
+
+      const eventRisk: string | null =
+        (catalysts ?? []).find((c) => c.date != null)?.description ?? null;
+      const hasNearTermShortLeg = built.legs.some(
+        (l) => l.quantity < 0 && l.dte <= config.assignmentRiskDte
+      );
+      const em = expectedMove(quote.price, built.legs[0].iv ?? 0.4, built.legs[0].dte / 365);
+
+      const gateCandidate: GateCandidate = {
+        symbol,
+        outlook: draft.outlook,
+        thesis: draft.thesis,
+        quote: {
+          price: quote.price,
+          timestamp: quote.timestamp,
+          marketCap: quote.marketCap ?? null,
+          quoteStatus: quote.quoteStatus,
+          source: quote.source,
+        },
+        chain: {
+          underlyingPrice: chain.underlyingPrice,
+          asOf: chain.asOf,
+          provenance: chain.provenance,
+        },
+        legs: built.legs,
+        structure: name,
+        economics: built.economics,
+        expectedMovePct: Number.isFinite(em) ? Number((em / quote.price).toFixed(4)) : null,
+        eventRisk,
+        hasNearTermShortLeg,
+        sources: [quote.source, `chain:${chain.provenance}`],
+        limitations: [
+          ...(catalysts === null ? ["Catalyst/event feed unavailable — event risk partially unassessed."] : []),
+          ...(chain.provenance === "calibrated" ? ["Chain is model-calibrated, not a live broker quote."] : []),
+          "American-exercise nuances are not priced; early assignment is a risk-review item, not a modeled cost.",
+          "Portfolio concentration unassessed — no portfolio data available.",
+        ],
+        falsificationPresent: true,
+      };
+
+      const outcome = runStageGates(gateCandidate, { config, now });
+      if (outcome.status === "rejected") {
+        rejected.push({
+          symbol, outlook: draft.outlook, structure: name,
+          gate: outcome.gateResults.find((g) => !g.passed)?.gate ?? "unknown",
+          reason: outcome.rejectionReason ?? "Rejected.",
+        });
+        continue;
+      }
+      if (outcome.status === "unverified") {
+        unverified++;
+        continue;
+      }
+
+      // Falsification + pre-mortem (§§4,7).
+      const invalidation =
+        draft.outlook === "bullish"
+          ? `Underlying closes below ${quote.price.toFixed(2)} (thesis entry reference) or breakeven ${built.economics.breakevens.join("/")} violated at expiry.`
+          : draft.outlook === "bearish"
+            ? `Underlying closes above ${quote.price.toFixed(2)} or breakeven violated at expiry.`
+            : `Underlying exits the ${(built.economics.breakevens.join(" – ") || "profitable")} range.`;
+      const { falsification, warnings } = buildFalsification({
+        symbol,
+        outlook: draft.outlook,
+        thesis: draft.thesis,
+        supportingEvidence: draft.supporting,
+        contradictingEvidence: draft.contradicting,
+        resolutionTrigger: eventRisk ?? "Price action toward the thesis over the holding window.",
+        horizon: `${built.legs[0]?.dte ?? 30} DTE`,
+        invalidation,
+        whyThisStructure: `${name} expresses ${draft.outlook} with defined risk; max loss $${built.economics.maxLoss.toFixed(2)}/unit vs uncapped directional exposure in shares.`,
+      });
+      const premortem = buildPremortem({
+        symbol,
+        structure: name,
+        hasShortLeg: built.legs.some((l) => l.quantity < 0),
+        eventRisk,
+        maxLoss: built.economics.maxLoss,
+      });
+
+      const scenarios = buildScenarioRows(
+        built.economics,
+        quote.price,
+        built.legs[0].iv ?? 0.4,
+        Math.min(21, Math.max(7, Math.floor(built.legs[0].dte / 2))),
+        config.riskFreeRate,
+        config.dividendYield,
+        costs
+      );
+      const contractualMaxLoss = Number(
+        (built.economics.maxLoss * 100 * costs.contracts +
+          (costs.feePerContract + costs.slippagePerContract) * costs.contracts).toFixed(2)
+      );
+      const score = scoreCandidate(draft.strength, built.economics, chain.provenance, eventRisk, config);
+
+      const card: TradeCard = {
+        rank: 0,
+        symbol,
+        outlook: draft.outlook,
+        thesis: draft.thesis,
+        supportingEvidence: draft.supporting,
+        contradictingEvidence: draft.contradicting,
+        falsification,
+        falsificationWarnings: warnings,
+        premortem,
+        structure: name,
+        legs: built.legs,
+        economics: built.economics,
+        pmcc: built.pmcc ?? null,
+        scenarios,
+        entryCondition: `Enter at or better than mid; re-verify quotes are live (≤${config.quoteFreshnessSeconds}s old) before entry.`,
+        invalidation,
+        contractualMaxLoss,
+        feesNote: `Fees $${config.feePerContract}/contract + $${config.slippagePerContract} slippage/contract assumed; 1 contract modeled.`,
+        limitations: gateCandidate.limitations,
+        sources: gateCandidate.sources,
+        quoteTimestamp: quote.timestamp,
+        entrySpot: quote.price,
+        chainProvenance: chain.provenance,
+        score,
+        status: "qualified",
+      };
+
+      if (outcome.status === "watchlist") {
+        watchlist.push({
+          symbol,
+          outlook: draft.outlook,
+          thesis: draft.thesis,
+          structure: name,
+          reason: outcome.rejectionReason ?? "Watchlist.",
+          triggerCondition: "Re-run when live quotes are available and spread/activity thresholds pass.",
+        });
+        continue;
+      }
+      if (!bestCard || card.score > bestCard.score) bestCard = card;
+      step("act", `${symbol} ${name}: gated ${outcome.status}, score ${card.score}.`);
+    }
+
+    if (bestCard) {
+      qualified.push(bestCard);
+      step("decide", `${symbol}: shortlisted ${bestCard.structure}.`);
+    }
+  }
+
+  // Rank: top config.maxIdeas.
+  qualified.sort((a, b) => b.score - a.score);
+  const ideas = qualified.slice(0, config.maxIdeas).map((c, i) => ({ ...c, rank: i + 1 }));
+
+  stats.qualified = ideas.length;
+  stats.watchlist = watchlist.length;
+  stats.rejected = rejected.length;
+  stats.unverified = unverified;
+
+  const summary =
+    ideas.length > 0
+      ? `${ideas.length} qualified idea(s); ${watchlist.length} watchlist; ${rejected.length} rejected.`
+      : "No qualifying opportunities — no candidate passed the evidence and risk gates.";
+
+  return finishReport({
+    runId, config, opts, now, started, trace, regime,
+    ideas, watchlist, rejected, stats, summary,
+  });
+}
+
+function finishReport(args: {
+  runId: string;
+  config: ResearchConfig;
+  opts: ResearchRunOptions;
+  now: number;
+  started: number;
+  trace: OodaStep[];
+  regime: RegimeAssessment;
+  ideas: TradeCard[];
+  watchlist: WatchlistEntry[];
+  rejected: RejectedEntry[];
+  stats: RunStats;
+  summary: string;
+}): ResearchReport {
+  const { runId, config, opts, now, started, trace, regime, ideas, watchlist, rejected, stats, summary } = args;
+  stats.durationMs = Date.now() - started;
+  return {
+    runId,
+    // Idempotent generation id: one canonical row per run (re-delivery never duplicates).
+    generationId: `options_research:${runId}`,
+    trigger: opts.trigger,
+    userLogin: opts.userLogin,
+    createdAt: new Date(now).toISOString(),
+    rulesVersion: config.rulesVersion,
+    // Amendment 1: the effective filter/config snapshot this run used.
+    configSnapshot: JSON.parse(JSON.stringify(config)) as ResearchConfig,
+    regime,
+    summary,
+    ideas,
+    watchlist,
+    rejected,
+    stats,
+    oodaTrace: trace,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* §9 — evaluation pass (later prices vs thesis; no retrospective edits)*/
+/* ------------------------------------------------------------------ */
+
+export interface StoredIdeaRecord {
+  runId: string;
+  symbol: string;
+  structure: string;
+  legs: ResearchLeg[];
+  economics: StructureEconomics;
+  thesis: string;
+  invalidation: string;
+  entrySpot: number;
+  quoteTimestamp: number;
+  rulesVersion: string;
+  createdAt: string;
+}
+
+export interface IdeaEvaluation {
+  symbol: string;
+  structure: string;
+  invalidated: boolean;
+  /** P&L estimate per unit at evaluation (intrinsic-based when expired, BS otherwise). */
+  pnlEstimatePerUnit: number | null;
+  evalSpot: number | null;
+  notes: string[];
+}
+
+export interface ResearchEvaluation {
+  runId: string;
+  evaluatedAt: string;
+  rulesVersion: string;
+  ideas: IdeaEvaluation[];
+  aggregates: {
+    evaluated: number;
+    invalidated: number;
+    avgPnlPerUnit: number | null;
+    dataQualityFailures: number;
+  };
+  /** Rules are versioned; evaluation never edits the original record. */
+  note: string;
+}
+
+/**
+ * Evaluate a published run against later prices. Reads the stored idea
+ * records; writes an evaluation row; never mutates the original report
+ * (spec §9: no retrospective rule changes).
+ */
+export async function runResearchEvaluation(
+  deps: PipelineDeps,
+  ideas: StoredIdeaRecord[],
+  runId: string,
+  config: ResearchConfig,
+  now?: number
+): Promise<ResearchEvaluation> {
+  const at = now ?? Date.now();
+  const results: IdeaEvaluation[] = [];
+  let dataQualityFailures = 0;
+
+  for (const idea of ideas) {
+    const notes: string[] = [];
+    let quote: QuoteSnapshot | null = null;
+    try {
+      quote = await deps.provider.getQuote(idea.symbol);
+    } catch {
+      quote = null;
+    }
+    if (!quote) {
+      dataQualityFailures++;
+      results.push({
+        symbol: idea.symbol,
+        structure: idea.structure,
+        invalidated: false,
+        pnlEstimatePerUnit: null,
+        evalSpot: null,
+        notes: ["Evaluation quote unavailable — data quality failure recorded."],
+      });
+      continue;
+    }
+    // Invalidation heuristic: eval spot beyond the first breakeven on the
+    // wrong side, or spot moved >2× the entry expected range against the
+    // structure. Documented as heuristic, not a fill record.
+    const bes = idea.economics.breakevens;
+    let invalidated = false;
+    if (bes.length > 0) {
+      const lo = Math.min(...bes);
+      const hi = Math.max(...bes);
+      if (quote.price < lo * 0.98 || quote.price > hi * 1.02) {
+        invalidated = true;
+        notes.push(`Spot ${quote.price} outside breakeven band [${lo}, ${hi}].`);
+      }
+    }
+    // P&L estimate: intrinsic value of legs at eval spot minus opening cost.
+    // When legs have not expired this is a rough estimate — flagged as such.
+    let pnl: number | null = null;
+    try {
+      const intrinsic = idea.legs.reduce((s, leg) => {
+        const iv =
+          leg.optionType === "call"
+            ? Math.max(quote!.price - leg.strike, 0)
+            : Math.max(leg.strike - quote!.price, 0);
+        return s + leg.quantity * iv;
+      }, 0);
+      const openCost = idea.legs.reduce(
+        (s, leg) => s + leg.quantity * ((leg.bid + leg.ask) / 2),
+        0
+      );
+      pnl = Number((intrinsic - openCost).toFixed(2));
+      notes.push("P&L is an intrinsic-based estimate, not a fill record.");
+    } catch {
+      notes.push("P&L estimation failed.");
+    }
+    results.push({
+      symbol: idea.symbol,
+      structure: idea.structure,
+      invalidated,
+      pnlEstimatePerUnit: pnl,
+      evalSpot: quote.price,
+      notes,
+    });
+  }
+
+  const pnls = results
+    .map((r) => r.pnlEstimatePerUnit)
+    .filter((p): p is number => p !== null);
+  return {
+    runId,
+    evaluatedAt: new Date(at).toISOString(),
+    rulesVersion: config.rulesVersion,
+    ideas: results,
+    aggregates: {
+      evaluated: results.length,
+      invalidated: results.filter((r) => r.invalidated).length,
+      avgPnlPerUnit:
+        pnls.length > 0
+          ? Number((pnls.reduce((a, b) => a + b, 0) / pnls.length).toFixed(2))
+          : null,
+      dataQualityFailures,
+    },
+    note: `Evaluated under rules ${config.rulesVersion}; original records unmodified.`,
+  };
+}

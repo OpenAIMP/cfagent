@@ -1,0 +1,228 @@
+/**
+ * Issue #319 — typed research configuration (amendment 1).
+ *
+ * ONE config owner: ResearchConfigService. The spec's defaults table is the
+ * fallback; overrides persist in a settings key/value store (mas_settings
+ * idiom: key/value/updated_at, DELETE+INSERT). Every stage gate reads its
+ * thresholds from the loaded config — nothing in the pipeline hardcodes a
+ * filter. Every published report embeds the effective config snapshot.
+ *
+ * SDK-free. Storage is injected via ResearchSettingsStore so the agent
+ * (Durable Object SQLite) and tests (in-memory) share the service.
+ */
+
+export interface ResearchConfig {
+  /** Minimum market cap for company screening (spec default: $5B). */
+  marketCapMin: number;
+  /** Maximum underlying price; null = no restriction (spec default). */
+  priceCap: number | null;
+  /** Screening universe id (e.g. "NASDAQ100"). */
+  universe: string;
+  /** ETFs evaluated separately from companies (spec default: true). */
+  etfsIncluded: boolean;
+  /** Maximum qualified ideas per report (spec default: 5). */
+  maxIdeas: number;
+  /** Option quote freshness window in seconds (configurable per spec §5). */
+  quoteFreshnessSeconds: number;
+  /** Underlying quote max age in seconds. */
+  maxQuoteAgeSeconds: number;
+  /** Maximum bid/ask spread as a fraction of mid (configurable). */
+  maxSpreadPct: number;
+  /** Minimum option volume (configurable activity threshold). */
+  minOptionVolume: number;
+  /** Minimum open interest (configurable activity threshold). */
+  minOpenInterest: number;
+  /** Minimum days to expiry for any leg. */
+  minDte: number;
+  /** DTE at/below which short legs carry assignment risk. */
+  assignmentRiskDte: number;
+  /**
+   * Ownership-dependent strategies (cash-secured puts, covered calls)
+   * require explicit permission (spec default: OFF).
+   */
+  ownershipStrategiesAllowed: boolean;
+  /** PMCC analysis enabled for longer-term bullish theses (spec: optional). */
+  pmccEnabled: boolean;
+  /** Email the published report after each run (default off). */
+  autoEmail: boolean;
+  /** Report email recipient (empty = no email). */
+  emailTo: string;
+  /** Daily schedule (cron). Spec: once each trading day after market close. */
+  scheduleCron: string;
+  /** Pricing assumptions. */
+  riskFreeRate: number;
+  dividendYield: number;
+  feePerContract: number;
+  slippagePerContract: number;
+  /** OODA loop budgets (spec §3: enforce limits on tool calls/runtime). */
+  maxCandidates: number;
+  maxChainsPerRun: number;
+  oodaMaxIterations: number;
+  /** Rules version pinned on every published idea (spec §9). */
+  rulesVersion: string;
+}
+
+export const RESEARCH_CONFIG_DEFAULTS: ResearchConfig = {
+  marketCapMin: 5_000_000_000,
+  priceCap: null,
+  universe: "NASDAQ100",
+  etfsIncluded: true,
+  maxIdeas: 5,
+  quoteFreshnessSeconds: 300,
+  maxQuoteAgeSeconds: 900,
+  maxSpreadPct: 0.15,
+  minOptionVolume: 10,
+  minOpenInterest: 50,
+  minDte: 7,
+  assignmentRiskDte: 7,
+  ownershipStrategiesAllowed: false,
+  pmccEnabled: true,
+  autoEmail: false,
+  emailTo: "",
+  scheduleCron: "0 21 * * 1-5",
+  riskFreeRate: 0.05,
+  dividendYield: 0,
+  feePerContract: 0.65,
+  slippagePerContract: 0.02,
+  maxCandidates: 12,
+  maxChainsPerRun: 12,
+  oodaMaxIterations: 40,
+  rulesVersion: "1.0.0",
+};
+
+/** Storage idiom mirrors mas_settings (key/value/updated_at, DELETE+INSERT). */
+export interface ResearchSettingsStore {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+export const RESEARCH_SETTING_PREFIX = "research.";
+
+export type ResearchConfigKey = keyof ResearchConfig;
+
+export interface ConfigSchemaField {
+  key: ResearchConfigKey;
+  label: string;
+  type: "number" | "boolean" | "string" | "nullable-number";
+  default: unknown;
+  hint: string;
+}
+
+/** UI-bound schema for the filter editor (amendment 2). */
+export const RESEARCH_CONFIG_SCHEMA: ConfigSchemaField[] = [
+  { key: "marketCapMin", label: "Min market cap ($)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.marketCapMin, hint: "Spec default: $5B for companies." },
+  { key: "priceCap", label: "Max underlying price ($, empty = none)", type: "nullable-number", default: RESEARCH_CONFIG_DEFAULTS.priceCap, hint: "No restriction unless configured." },
+  { key: "universe", label: "Universe", type: "string", default: RESEARCH_CONFIG_DEFAULTS.universe, hint: "Screening universe id." },
+  { key: "etfsIncluded", label: "Include ETFs", type: "boolean", default: RESEARCH_CONFIG_DEFAULTS.etfsIncluded, hint: "ETFs evaluated separately from companies." },
+  { key: "maxIdeas", label: "Max qualified ideas", type: "number", default: RESEARCH_CONFIG_DEFAULTS.maxIdeas, hint: "Spec: up to five." },
+  { key: "quoteFreshnessSeconds", label: "Quote freshness (s)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.quoteFreshnessSeconds, hint: "Option quote max age." },
+  { key: "maxQuoteAgeSeconds", label: "Underlying quote max age (s)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.maxQuoteAgeSeconds, hint: "Underlying snapshot max age." },
+  { key: "maxSpreadPct", label: "Max spread (fraction of mid)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.maxSpreadPct, hint: "Quote-quality gate threshold." },
+  { key: "minOptionVolume", label: "Min option volume", type: "number", default: RESEARCH_CONFIG_DEFAULTS.minOptionVolume, hint: "Activity threshold." },
+  { key: "minOpenInterest", label: "Min open interest", type: "number", default: RESEARCH_CONFIG_DEFAULTS.minOpenInterest, hint: "Activity threshold." },
+  { key: "minDte", label: "Min DTE", type: "number", default: RESEARCH_CONFIG_DEFAULTS.minDte, hint: "Minimum days to expiry per leg." },
+  { key: "ownershipStrategiesAllowed", label: "Allow cash-secured puts / covered calls", type: "boolean", default: RESEARCH_CONFIG_DEFAULTS.ownershipStrategiesAllowed, hint: "Spec default OFF — requires explicit permission." },
+  { key: "pmccEnabled", label: "Enable PMCC analysis", type: "boolean", default: RESEARCH_CONFIG_DEFAULTS.pmccEnabled, hint: "Spec: optional PMCC analysis." },
+  { key: "autoEmail", label: "Email report after run", type: "boolean", default: RESEARCH_CONFIG_DEFAULTS.autoEmail, hint: "Off by default." },
+  { key: "emailTo", label: "Report email recipient", type: "string", default: RESEARCH_CONFIG_DEFAULTS.emailTo, hint: "Empty = no email." },
+  { key: "scheduleCron", label: "Daily schedule (cron)", type: "string", default: RESEARCH_CONFIG_DEFAULTS.scheduleCron, hint: "After market close, weekdays." },
+  { key: "riskFreeRate", label: "Risk-free rate", type: "number", default: RESEARCH_CONFIG_DEFAULTS.riskFreeRate, hint: "Pricing assumption." },
+  { key: "feePerContract", label: "Fee per contract ($)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.feePerContract, hint: "Scenario economics." },
+  { key: "slippagePerContract", label: "Slippage per contract ($)", type: "number", default: RESEARCH_CONFIG_DEFAULTS.slippagePerContract, hint: "Scenario economics." },
+  { key: "maxCandidates", label: "Max candidates per run", type: "number", default: RESEARCH_CONFIG_DEFAULTS.maxCandidates, hint: "OODA budget." },
+];
+
+function parseStoredValue(key: ResearchConfigKey, raw: string): unknown {
+  const def = RESEARCH_CONFIG_DEFAULTS[key];
+  if (typeof def === "boolean") {
+    if (raw === "1" || raw.toLowerCase() === "true") return true;
+    if (raw === "0" || raw.toLowerCase() === "false") return false;
+    throw new Error(`Invalid boolean for ${key}: ${raw}`);
+  }
+  if (typeof def === "number" || def === null) {
+    if (raw.trim() === "") return def === null ? null : def;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error(`Invalid number for ${key}: ${raw}`);
+    return n;
+  }
+  return raw;
+}
+
+function validateConfig(config: ResearchConfig): string[] {
+  const errors: string[] = [];
+  if (!(config.marketCapMin >= 0)) errors.push("marketCapMin must be >= 0");
+  if (config.priceCap !== null && !(config.priceCap > 0)) errors.push("priceCap must be positive or null");
+  if (!(config.maxIdeas >= 1 && config.maxIdeas <= 20)) errors.push("maxIdeas must be 1..20");
+  if (!(config.quoteFreshnessSeconds > 0)) errors.push("quoteFreshnessSeconds must be positive");
+  if (!(config.maxQuoteAgeSeconds > 0)) errors.push("maxQuoteAgeSeconds must be positive");
+  if (!(config.maxSpreadPct > 0 && config.maxSpreadPct < 2)) errors.push("maxSpreadPct must be in (0, 2)");
+  if (!(config.minOptionVolume >= 0)) errors.push("minOptionVolume must be >= 0");
+  if (!(config.minOpenInterest >= 0)) errors.push("minOpenInterest must be >= 0");
+  if (!(config.minDte >= 0)) errors.push("minDte must be >= 0");
+  if (!config.universe.trim()) errors.push("universe must be non-empty");
+  if (!config.scheduleCron.trim()) errors.push("scheduleCron must be non-empty");
+  if (config.emailTo && !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(config.emailTo)) {
+    errors.push("emailTo is not a valid email address");
+  }
+  if (!(config.riskFreeRate >= 0 && config.riskFreeRate < 1)) errors.push("riskFreeRate must be in [0, 1)");
+  if (!(config.maxCandidates >= 1 && config.maxCandidates <= 100)) errors.push("maxCandidates must be 1..100");
+  return errors;
+}
+
+export class ResearchConfigService {
+  constructor(private readonly store: ResearchSettingsStore) {}
+
+  private keyFor(key: ResearchConfigKey): string {
+    return `${RESEARCH_SETTING_PREFIX}${key}`;
+  }
+
+  /** Load the effective config: stored overrides merged over spec defaults. */
+  load(): ResearchConfig {
+    const config: ResearchConfig = { ...RESEARCH_CONFIG_DEFAULTS };
+    const errors: string[] = [];
+    for (const key of Object.keys(RESEARCH_CONFIG_DEFAULTS) as ResearchConfigKey[]) {
+      const raw = this.store.get(this.keyFor(key));
+      if (raw === null) continue;
+      try {
+        (config as unknown as Record<string, unknown>)[key] = parseStoredValue(key, raw);
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    const validation = validateConfig(config);
+    if (validation.length > 0 || errors.length > 0) {
+      // Fail closed to defaults on corrupt stored config — never run with
+      // an unvalidated filter set.
+      return { ...RESEARCH_CONFIG_DEFAULTS };
+    }
+    return config;
+  }
+
+  /**
+   * Save a partial patch. Returns the effective config and any errors.
+   * Invalid patches are rejected atomically (nothing is written).
+   */
+  save(patch: Partial<ResearchConfig>): { config: ResearchConfig; errors: string[] } {
+    const next: ResearchConfig = { ...this.load(), ...patch };
+    const errors = validateConfig(next);
+    if (errors.length > 0) return { config: this.load(), errors };
+    for (const key of Object.keys(patch) as ResearchConfigKey[]) {
+      const value = patch[key];
+      const raw =
+        value === null || value === undefined
+          ? ""
+          : typeof value === "boolean"
+            ? value
+            ? "1"
+            : "0"
+          : String(value);
+      this.store.set(this.keyFor(key), raw);
+    }
+    return { config: next, errors: [] };
+  }
+
+  /** Deep snapshot for embedding in the published report (amendment 1). */
+  snapshot(config: ResearchConfig): ResearchConfig {
+    return JSON.parse(JSON.stringify(config)) as ResearchConfig;
+  }
+}
