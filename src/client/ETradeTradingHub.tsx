@@ -12,6 +12,9 @@ import {
   TradeRecord,
 } from "../types";
 import { OptionsResearchPanel } from "./OptionsResearchPanel";
+// Issue #319 — autonomous options-research runs (read-only; separate surface
+// from the per-symbol research panel above).
+import { ResearchRunsPanel } from "./options/ResearchRunsPanel";
 import type { TradeAssetClass, TradeOrderContext } from "./trading/tradeOrderContext";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
@@ -86,6 +89,8 @@ export function ETradeTradingHub({
     setSubTab(newSubTab);
     onSelectSubTab?.(newSubTab);
   };
+  // Issue #319: toggle between per-symbol research and the autonomous runs surface.
+  const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("runs");
 
   useEffect(() => {
     if (activeSubTab && activeSubTab !== subTab) {
@@ -1572,13 +1577,32 @@ export function ETradeTradingHub({
       )}
 
       <OptionsResearchPanelHost hidden={effectiveSubTab !== "options"}>
-        <OptionsResearchPanel
-          activeEnv={activeEnv}
-          userLogin={user?.login}
-          onPreviewTrade={handleTradeOrder}
-          onJobStateChange={setOptionsJob}
-          onSendPrompt={onSendPrompt}
-        />
+        {/* Issue #319: one research-run surface for manual + scheduled runs. */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <button
+            onClick={() => setResearchRunsView("symbol")}
+            style={{ fontWeight: researchRunsView === "symbol" ? 700 : 400 }}
+          >
+            Symbol research
+          </button>
+          <button
+            onClick={() => setResearchRunsView("runs")}
+            style={{ fontWeight: researchRunsView === "runs" ? 700 : 400 }}
+          >
+            Autonomous runs
+          </button>
+        </div>
+        {researchRunsView === "runs" ? (
+          <ResearchRunsPanel userLogin={user?.login} onSendPrompt={onSendPrompt} />
+        ) : (
+          <OptionsResearchPanel
+            activeEnv={activeEnv}
+            userLogin={user?.login}
+            onPreviewTrade={handleTradeOrder}
+            onJobStateChange={setOptionsJob}
+            onSendPrompt={onSendPrompt}
+          />
+        )}
       </OptionsResearchPanelHost>
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
