@@ -77,7 +77,7 @@ export interface EtradeBrokerRouteContext {
     payload: Record<string, unknown>
   ): void;
   /** Screener agent (owner: OrchestratorAgent - was `this.getScreenerAgent()`). */
-  getScreenerAgent(): ScreenerAgent;
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
   /** Canonical-copy screener persistence (owner: OrchestratorAgent - was `this.persistScreenerReportCanonical`). */
   persistScreenerReportCanonical(result: {
     timestamp: string;
@@ -289,7 +289,7 @@ export async function handleEtradeBrokerRoutes(
       // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
       // TECH (fuzzy keyword match with unpredictable symbol count).
       const universe = (filters.universe as string) || "NASDAQ100";
-      const agent = ctx.getScreenerAgent();
+      const agent = ctx.getScreenerAgent(userLogin);
       if (universe === "ALL") {
         const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
         const orm = ctx.getOrm();

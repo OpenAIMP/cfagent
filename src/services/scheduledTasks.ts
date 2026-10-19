@@ -55,6 +55,7 @@ export interface AutonomousOptionsAnalysisOptions {
   webhookUrl?: string;
   environment?: string;
   trigger?: "manual" | "scheduled";
+  userLogin?: string;
 }
 
 /**
@@ -88,8 +89,10 @@ export class ScheduledTasksService {
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    */
-  private getScreenerAgent(): import("../agents/screener-agent").ScreenerAgent {
-    const id = (this.env as any).SCREENER_AGENT.idFromName("default");
+  private getScreenerAgent(userLogin = this.userLogin): import("../agents/screener-agent").ScreenerAgent {
+    const id = (this.env as any).SCREENER_AGENT.idFromName(
+      userLogin === "default_trader" ? "default" : `screener:${userLogin}`
+    );
     return (this.env as any).SCREENER_AGENT.get(id);
   }
 
@@ -240,7 +243,7 @@ export class ScheduledTasksService {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
-      const result = await this.getScreenerAgent().runScreen({
+      const result = await this.getScreenerAgent(userLogin).runScreen({
         trigger: options.trigger || "scheduled",
         sector: options.sector || "Technology",
         universe: (options.universe as any) || "TECH",
@@ -543,6 +546,10 @@ export class ScheduledTasksService {
       (options.pushToSlack === undefined && Boolean(this.env.SLACK_BOT_TOKEN || getCfpayConfig(this.env)));
 
     try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        throw new Error("No authenticated E*TRADE account is associated with this options screen. Sign in and run it again.");
+      }
       // Resolve universe to symbols inside the failure boundary so listings
       // and E*TRADE errors reach the scheduled failure notification path.
       const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
@@ -560,7 +567,7 @@ export class ScheduledTasksService {
 
       const unifiedService = new UnifiedOptionsService(
         this.env,
-        this.userLogin,
+        userLogin,
         options.environment,
         this.orm,
         this.scanRunStore
@@ -574,7 +581,7 @@ export class ScheduledTasksService {
         riskProfile: options.riskProfile || "balanced",
         allowedStrategies: options.allowedStrategies,
         channel: "ui",
-        userLogin: this.userLogin,
+        userLogin,
         overrideEnv: options.environment,
       });
       if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
@@ -588,7 +595,7 @@ export class ScheduledTasksService {
         optionsPdfFile = optionsPdfFileName(response.data);
         let binary = "";
         for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
-        optionsPdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), optionsPdfFile);
+        optionsPdfKey = await this.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), optionsPdfFile);
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
       }
