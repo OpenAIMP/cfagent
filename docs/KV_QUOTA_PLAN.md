@@ -1,6 +1,6 @@
 # KV free-tier quota: feasibility assessment and plan (issue #329)
 
-Status: **shipped except P0 (ops) and P4 (this doc set)** - see the status block below.
+Status: **shipped except P0 (ops)** - see the status block below.
 Last updated: 2026-10-19.
 
 ## Status: what shipped
