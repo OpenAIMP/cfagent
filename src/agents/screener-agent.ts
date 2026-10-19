@@ -17,7 +17,7 @@ import { Agent } from "agents";
 import type { Env } from "../types";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
-import { DynamicMarketScreener } from "../trading";
+import { DynamicMarketScreener } from "../trading/screener";
 import {
   acquireUniverse,
   screenUniverse,
@@ -28,16 +28,16 @@ import {
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
-} from "../trading";
-import { fetchTechnicalsBatch } from "../trading";
+} from "../trading/screenerPipeline";
+import { fetchTechnicalsBatch } from "../trading/yahooHistory";
 import {
   UNIVERSES,
   shardableUniverses,
   resolveUniverse,
   type UniverseId,
-} from "../trading";
+} from "../trading/universes";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
-import { DEFAULT_SCREENER_CONFIG } from "../trading";
+import { DEFAULT_SCREENER_CONFIG } from "../trading/screenerConfig";
 import type { StockScreenerFilter } from "../types";
 
 export interface ScreenerRunRequest {
