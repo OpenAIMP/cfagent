@@ -16,6 +16,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **cfpay email-with-attachments A2A helper** (#384): `cfpaySendEmailWithAttachments()` in cfpayA2A.ts wraps cfpay's `email.sendWithAttachments` A2A op, enabling options-report PDF delivery by email (wiring into the scheduled options analysis follows).
+
 ### Changed
 
 - **Reports + HITL routes extracted from orchestrator.ts** (#359/#363): the
