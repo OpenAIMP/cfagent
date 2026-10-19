@@ -1,0 +1,126 @@
+/**
+ * Issue #278: tests for the bounded in-isolate TTL cache for AI Search
+ * queries (src/services/aiSearchCache.ts). The module is SDK-free; the
+ * cache under test never touches the network.
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  AiSearchCache,
+  aiSearchCacheKey,
+  getAiSearchCache,
+  resolveAiSearchCacheConfig,
+  __resetAiSearchCacheForTests,
+  AI_SEARCH_CACHE_DEFAULT_TTL_MS,
+  AI_SEARCH_CACHE_DEFAULT_MAX_ENTRIES,
+} from "../src/services/aiSearchCache";
+
+describe("resolveAiSearchCacheConfig", () => {
+  it("returns sane defaults when env is absent", () => {
+    const cfg = resolveAiSearchCacheConfig(undefined);
+    expect(cfg.ttlMs).toBe(AI_SEARCH_CACHE_DEFAULT_TTL_MS);
+    expect(cfg.maxEntries).toBe(AI_SEARCH_CACHE_DEFAULT_MAX_ENTRIES);
+  });
+
+  it("parses env vars", () => {
+    const cfg = resolveAiSearchCacheConfig({
+      AI_SEARCH_CACHE_TTL_MS: "60000",
+      AI_SEARCH_CACHE_MAX_ENTRIES: "42",
+    });
+    expect(cfg.ttlMs).toBe(60000);
+    expect(cfg.maxEntries).toBe(42);
+  });
+
+  it("falls back to defaults on invalid values", () => {
+    const cfg = resolveAiSearchCacheConfig({
+      AI_SEARCH_CACHE_TTL_MS: "nope",
+      AI_SEARCH_CACHE_MAX_ENTRIES: "-5",
+    });
+    expect(cfg.ttlMs).toBe(AI_SEARCH_CACHE_DEFAULT_TTL_MS);
+    expect(cfg.maxEntries).toBe(AI_SEARCH_CACHE_DEFAULT_MAX_ENTRIES);
+  });
+});
+
+describe("aiSearchCacheKey", () => {
+  it("normalizes case and whitespace", () => {
+    expect(aiSearchCacheKey("  NVDA  Earnings  ", "s1")).toBe(
+      aiSearchCacheKey("nvda earnings", "S1")
+    );
+  });
+
+  it("separates scopes (no cross-tenant reads)", () => {
+    expect(aiSearchCacheKey("nvda", "session-a")).not.toBe(
+      aiSearchCacheKey("nvda", "session-b")
+    );
+  });
+
+  it("defaults an empty scope", () => {
+    expect(aiSearchCacheKey("nvda", "")).toBe(aiSearchCacheKey("nvda", "default"));
+  });
+});
+
+describe("AiSearchCache", () => {
+  let now: number;
+  let cache: AiSearchCache;
+
+  beforeEach(() => {
+    now = 1_000_000;
+    cache = new AiSearchCache({ ttlMs: 60_000, maxEntries: 3 }, () => now);
+  });
+
+  it("misses on unknown keys and hits after set", () => {
+    expect(cache.get("k")).toBeUndefined();
+    cache.set("k", { ok: true });
+    expect(cache.get("k")).toEqual({ ok: true });
+  });
+
+  it("expires entries after TTL (stale results are never served)", () => {
+    cache.set("k", "v");
+    now += 59_999;
+    expect(cache.get("k")).toBe("v");
+    now += 1;
+    expect(cache.get("k")).toBeUndefined();
+  });
+
+  it("evicts the oldest entry when over capacity", () => {
+    cache.set("a", 1);
+    cache.set("b", 2);
+    cache.set("c", 3);
+    cache.set("d", 4); // evicts "a"
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("d")).toBe(4);
+    expect(cache.size).toBe(3);
+  });
+
+  it("overwriting an existing key does not evict", () => {
+    cache.set("a", 1);
+    cache.set("b", 2);
+    cache.set("c", 3);
+    cache.set("b", 22);
+    expect(cache.get("a")).toBe(1);
+    expect(cache.get("b")).toBe(22);
+  });
+
+  it("refreshes the TTL on overwrite", () => {
+    cache.set("k", "v1");
+    now += 59_000;
+    cache.set("k", "v2");
+    now += 59_000;
+    expect(cache.get("k")).toBe("v2");
+  });
+});
+
+describe("getAiSearchCache (isolate singleton)", () => {
+  beforeEach(() => __resetAiSearchCacheForTests());
+
+  it("returns the same instance within the isolate", () => {
+    const a = getAiSearchCache({});
+    const b = getAiSearchCache({});
+    expect(a).toBe(b);
+  });
+
+  it("resolves config from env on first creation", () => {
+    const c = getAiSearchCache({ AI_SEARCH_CACHE_TTL_MS: "1234" });
+    c.set("k", "v");
+    expect(c.get("k")).toBe("v");
+  });
+});

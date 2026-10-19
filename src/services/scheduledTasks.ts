@@ -27,6 +27,8 @@ import { DynamicOptionsScreener } from "../trading/optionsScreener";
 import { OptionsDataAgent } from "../trading/options/optionsDataAgent";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading/options/ivCollector";
 import type { IvHistoryStore } from "../trading/options/ivHistoryStore";
+// Issue #278: durable scheduled-run reports for the AI Search agent.
+import { toScheduledReportRecord } from "./scheduledReports";
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
@@ -755,6 +757,25 @@ export class ScheduledTasksService {
           });
         } catch {
           // Non-critical message record error
+        }
+      }
+
+      // Issue #278: persist the scheduled run's report durably
+      // (mas_reports) so the AI Search agent can surface it later.
+      if (this.orm?.reports) {
+        try {
+          this.orm.reports.create(
+            toScheduledReportRecord({
+              runId: `iv_collection:${report.date}`,
+              title: `Daily IV collection — ${report.date}`,
+              source: "iv_collection",
+              summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
+              body: { ...report, trackedCount: report.outcomes.length },
+              createdAt: timestamp,
+            })
+          );
+        } catch {
+          // Non-critical report persistence error
         }
       }
 

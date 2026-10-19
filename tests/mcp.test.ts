@@ -87,7 +87,7 @@ describe("Model Context Protocol (MCP) Server", () => {
 
       expect(resp.result?.isError).toBe(false);
       const parsed = JSON.parse(resp.result.content[0].text);
-      expect(parsed.count).toBe(10); // 10 after webhook_replay_nonces (#143 P0)
+      expect(parsed.count).toBe(11); // 11 after mas_reports (#278)
       expect(parsed.tables.some((t: any) => t.name === "mas_categories")).toBe(true);
       expect(parsed.tables.some((t: any) => t.name === "mas_trades")).toBe(true);
     });
@@ -285,7 +285,7 @@ describe("Model Context Protocol (MCP) Server", () => {
       const content = resp.result?.contents?.[0];
       expect(content?.uri).toBe("sqlite://schema/tables");
       const tables = JSON.parse(content?.text);
-      expect(tables.length).toBe(10); // 10 after webhook_replay_nonces (#143 P0)
+      expect(tables.length).toBe(11); // 11 after mas_reports (#278)
     });
 
     it("reads resource: sqlite://revenue/summary", async () => {

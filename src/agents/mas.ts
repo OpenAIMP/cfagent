@@ -3,6 +3,10 @@ import { z } from "zod";
 import type { AgentName, Env } from "../types";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "./did";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
+// Issue #278: single-owner TTL cache for AI Search queries + durable
+// scheduled-run reports searchable through this same path.
+import { getAiSearchCache, aiSearchCacheKey } from "../services/aiSearchCache";
+import { searchScheduledReports } from "../services/scheduledReports";
 
 export interface MASOptions {
   env: Env;
@@ -19,6 +23,25 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
       query: z.string().min(1).max(500).describe("The concise search query or topic to retrieve documents for"),
     }),
     execute: async ({ query }) => {
+      // Issue #278: bounded in-isolate TTL cache, keyed by query + session
+      // scope. Only successful results are cached; errors never are.
+      const cache = getAiSearchCache(env);
+      const cacheKey = aiSearchCacheKey(query, sessionId);
+      const cached = cache.get(cacheKey);
+      if (cached !== undefined) {
+        audit("search.cache_hit", "search", { query });
+        return cached;
+      }
+      // Issue #278: durable scheduled-run reports first — local,
+      // from this store's mas_reports table.
+      const reports = searchScheduledReports(sql, query, 5);
+      const reportChunks = reports.map((r) => ({
+        title: r.title,
+        snippet: r.summary,
+        source: "scheduled_report",
+        reportId: r.id,
+        createdAt: r.createdAt,
+      }));
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000);
       try {
@@ -32,28 +55,62 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         if (!response.ok) {
           const errMsg = `Knowledge search upstream returned ${response.status}`;
           audit("search.failed", "search", { query, status: response.status });
+          // Upstream failed: still surface any local reports honestly;
+          // the error result itself is NOT cached.
+          if (reports.length > 0) {
+            return {
+              query,
+              resultsFound: true,
+              count: 0,
+              reportCount: reports.length,
+              chunks: reportChunks,
+              message: `Retrieved ${reports.length} scheduled-run report(s) locally; the AI Search upstream was unavailable (${response.status}).`,
+              source: "Scheduled reports",
+            };
+          }
           return { error: errMsg, query };
         }
 
         const data = (await response.json()) as any;
         const rawChunks = data?.result?.chunks ?? (Array.isArray(data) ? data : []);
         const chunks = Array.isArray(rawChunks) ? rawChunks : [];
-        const resultsFound = chunks.length > 0;
+        const resultsFound = chunks.length > 0 || reports.length > 0;
 
-        audit("search.completed", "search", { query, resultsFound, count: chunks.length });
-        return {
+        const result = {
           query,
           resultsFound,
           count: chunks.length,
-          chunks: chunks.slice(0, 5),
+          reportCount: reports.length,
+          chunks: [...reportChunks, ...chunks].slice(0, 5),
           message: resultsFound
-            ? `Retrieved ${chunks.length} factual documents from Cloudflare AI Search.`
+            ? reports.length > 0
+              ? `Retrieved ${reports.length} scheduled-run report(s) and ${chunks.length} factual documents from Cloudflare AI Search.`
+              : `Retrieved ${chunks.length} factual documents from Cloudflare AI Search.`
             : "No custom indexed documents found in the Cloudflare AI Search knowledge base. Synthesize a helpful, authoritative response from general knowledge, clearly informing the user that no specific internal documents were indexed.",
-          source: "Cloudflare AI Search",
+          source: reports.length > 0 ? "Scheduled reports + Cloudflare AI Search" : "Cloudflare AI Search",
         };
+        cache.set(cacheKey, result);
+        audit("search.completed", "search", {
+          query,
+          resultsFound,
+          count: chunks.length,
+          reportCount: reports.length,
+        });
+        return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Search request failed";
         audit("search.error", "search", { query, error: message });
+        if (reports.length > 0) {
+          return {
+            query,
+            resultsFound: true,
+            count: 0,
+            reportCount: reports.length,
+            chunks: reportChunks,
+            message: `Retrieved ${reports.length} scheduled-run report(s) locally; the AI Search upstream request failed (${message}).`,
+            source: "Scheduled reports",
+          };
+        }
         return { error: message, query, resultsFound: false, count: 0, chunks: [] };
       } finally {
         clearTimeout(timeout);

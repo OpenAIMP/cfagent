@@ -5,7 +5,9 @@
  *   recallForPlan(goal) → up to 8 chunks injected into the
  *   orchestrator prompt, so planning is grounded in past outcomes.
  *
- * Uses AI_SEARCH_INSTANCE (existing binding) + Vectorize.
+ * Uses the AI Search HTTP endpoint (AI_SEARCH_ENDPOINT, via the injected
+ * aiSearch client) + Vectorize. (Issue #278: there is no AI_SEARCH_INSTANCE
+ * binding — only the endpoint var.)
  */
 
 export interface MemoryOutcome {

@@ -131,11 +131,11 @@ describe("DatabaseORM & Repositories", () => {
   });
 
   describe("Schema Introspection & Querying", () => {
-    it("listTables() returns all 10 relational tables with descriptions and column types", () => {
-      // 10 after the webhook_replay_nonces table added for issue #143 P0
-      // (inbound webhook replay protection).
+    it("listTables() returns all 11 relational tables with descriptions and column types", () => {
+      // 11 after the mas_reports table added for issue #278
+      // (durable scheduled-run reports for the AI Search agent).
       const tables = orm.listTables();
-      expect(tables.length).toBe(10);
+      expect(tables.length).toBe(11);
 
       const catTable = tables.find((t) => t.name === "mas_categories");
       expect(catTable).toBeDefined();
