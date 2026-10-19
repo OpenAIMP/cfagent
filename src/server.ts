@@ -2,6 +2,7 @@ import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getSessionCached } from "./security/sessionCache";
 import { serveStaticAsset } from "./security/staticAssets";
+import { withErrorBoundary } from "./security/workerErrorBoundary";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import { renderLandingPage } from "./landing";
 import { routeAgentRequest } from "agents";
@@ -58,6 +59,7 @@ export { ScreenerAgent } from "./agents/screener-agent";
 // Issue #319 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { ResearchAgent } from "./agents/research-agent";
+export { SessionStore } from "./security/sessionStore";
 
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -191,8 +193,7 @@ async function handleNlqWebhookRequest(
   return Response.json(result);
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+async function handleFetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -1177,7 +1178,14 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
-  },
+}
+
+export default {
+  // Issue #329: an escaped throw used to surface as Cloudflare error 1101 —
+  // every visitor saw an edge error page. The boundary turns any failure into a
+  // real 5xx with a machine-readable code (and stops KV quota throws from
+  // taking authentication, and therefore the site, down).
+  fetch: withErrorBoundary(handleFetch),
   async email(message: any, env: Env, ctx?: any): Promise<void> {
     await handleCloudflareEmailMessage(message, env, ctx);
   },

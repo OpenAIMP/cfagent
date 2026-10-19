@@ -25,5 +25,11 @@ export default defineConfig({
   test: {
     testTimeout: 25000,
     hookTimeout: 25000,
+    // `src/server.ts` exports Durable Object classes, so importing the Worker
+    // under Node resolves `cloudflare:workers` — a scheme the ESM loader cannot
+    // load. The stub only provides the base class; tests never instantiate one.
+    alias: {
+      "cloudflare:workers": new URL("./tests/stubs/cloudflareWorkers.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+    },
   },
 });

@@ -1,4 +1,6 @@
 import type { Env, SessionData } from "../types";
+import { createStoreKv, type DoNamespaceLike } from "./durableKv";
+import { createResilientKv, type KvLike } from "./kvResilience";
 
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 export const COOKIE_NAME = "session_id";
@@ -36,14 +38,32 @@ export function clearSessionCookie(): string {
   return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 }
 
+/**
+ * Sessions live in the SessionStore Durable Object (issue #329), not KV.
+ *
+ * KV's free tier caps reads at 100k/day and throws once exhausted — that throw
+ * was the 1101. The DO has no such cap. Legacy KV is still consulted on a miss
+ * so sessions created before the move keep working, and each one is copied into
+ * the DO as it is read; set `SESSIONS_KV_FALLBACK=off` once the migration window
+ * has passed to drop the last KV dependency.
+ */
+export function sessionStore(env: Env): KvLike {
+  return createStoreKv({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    legacy: createResilientKv(env.SESSIONS, "sessions"),
+    namespaceName: "sessions",
+    legacyFallback: env.SESSIONS_KV_FALLBACK !== "off",
+  });
+}
+
 export async function createSession(env: Env, data: SessionData): Promise<string> {
   const sessionId = crypto.randomUUID();
-  await env.SESSIONS.put(sessionId, JSON.stringify(data), { expirationTtl: SESSION_TTL });
+  await sessionStore(env).put(sessionId, JSON.stringify(data), { expirationTtl: SESSION_TTL });
   return sessionId;
 }
 
 export async function getSession(env: Env, sessionId: string): Promise<SessionData | null> {
-  const raw = await env.SESSIONS.get(sessionId);
+  const raw = await sessionStore(env).get(sessionId);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as SessionData;
@@ -53,7 +73,7 @@ export async function getSession(env: Env, sessionId: string): Promise<SessionDa
 }
 
 export async function deleteSession(env: Env, sessionId: string): Promise<void> {
-  await env.SESSIONS.delete(sessionId);
+  await sessionStore(env).delete(sessionId);
 }
 
 async function hmacSign(secret: string, message: string): Promise<string> {

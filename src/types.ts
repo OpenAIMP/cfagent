@@ -2,6 +2,10 @@ export interface Env {
   ASSETS: Fetcher;
   AI: Ai;
   SESSIONS: KVNamespace;
+  // Issue #329: session + credential store. KV stays bound only for the
+  // one-time legacy migration (see security/session.ts).
+  SESSION_STORE?: DurableObjectNamespace;
+  SESSIONS_KV_FALLBACK?: string;
   SEARCH_AGENT: DurableObjectNamespace;
   // PR #3 — x402 PaymentsAgent DO (issue #161)
   PAYMENTS_AGENT: DurableObjectNamespace;
