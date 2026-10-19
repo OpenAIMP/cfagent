@@ -245,6 +245,29 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (null for non-owned paths; 400s on invalid llm-ideas symbol and strategy
   requests before any backend call). orchestrator.ts: 4432 → 3454 lines.
 
+- **Screener + research routes extracted from orchestrator.ts** (#359/#378):
+  the contiguous screener/research block (GET `/screener/latest`,
+  `/screener/report.pdf`, `/options/report.pdf`, POST `/research/run`,
+  `/research/scheduled-tick`, GET `/research/latest|/history|/settings`,
+  POST `/research/settings|/evaluate`) moved to
+  `src/agents/routes/screenerResearch.ts` as a single handler,
+  `handleScreenerResearchRoutes`, invoked from `routeRequest` at the exact
+  original position (after the FOSS compare/screen delegation, before the
+  task schedules block). The `triggerManualResearch` /
+  `triggerScheduledResearch` and `shouldFireResearchTick` /
+  `RESEARCH_SCHEDULED_LAST_RUN_KEY` imports moved with the blocks; the
+  orchestrator-owned `getScreenerAgent`, `getResearchAgent`,
+  `runResearchAndPublish` (the #308 canonical store lives inside it),
+  `readSettingRaw` and `writeSetting` helpers arrive via the context object
+  with identical arguments (store-first, fail-closed semantics unchanged).
+  A scripted scan confirms the 10-condition inventory and order are
+  unchanged. Characterization:
+  `tests/screener_research_routes_extraction.test.ts` pins the route
+  inventory and order, the delegation position (anchored to the
+  `handleFossCompareScreenRoutes(...)` delegation call per the #405 rule),
+  and behavior (null for non-owned paths; 404/400 contracts on the PDF and
+  evaluate paths). orchestrator.ts: 3317 → 3146 lines.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.
