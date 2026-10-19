@@ -78,8 +78,10 @@ export interface ScreenerRunResult {
 
 const LATEST_KEY = "screener:latest";
 const HISTORY_KEY = "screener:history";
-// History limit from config (issue #273).
-const PDF_KEY = "screener:latest.pdf";
+// Issue #297: Per-run PDF storage (not a single shared key).
+// Each run gets its own key to prevent franken-PDFs.
+const PDF_KEY_PREFIX = "screener:pdf:";
+const PDF_LATEST_KEY = "screener:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -231,11 +233,25 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
-   * Latest report PDF (issue #269) — generated at run time, served by
+   * Latest report PDF (issue #269, #297) — generated at run time, served by
    * GET /api/screener/report.pdf and attached to Slack/email deliveries.
+   * Issue #297: Also stores per-run PDFs with unique keys to prevent
+   * franken-PDFs from concurrent runs overwriting each other.
    */
   async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
-    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(PDF_KEY);
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(PDF_LATEST_KEY);
+    if (!stored) return null;
+    const bin = atob(stored.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, fileName: stored.fileName };
+  }
+
+  /**
+   * Get a specific run's PDF by its storage key (issue #297).
+   */
+  async getPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(pdfKey);
     if (!stored) return null;
     const bin = atob(stored.base64);
     const bytes = new Uint8Array(bin.length);
@@ -252,6 +268,7 @@ export class ScreenerAgent extends Agent<Env> {
       [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
     );
     // Issue #269: generate + store the report PDF for download/delivery.
+    // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
     try {
       const { generateScreenerPdf, screenerPdfFileName } = await import(
         "../trading/screenerReportPdf"
@@ -262,10 +279,18 @@ export class ScreenerAgent extends Agent<Env> {
       for (let i = 0; i < pdfBytes.length; i += chunk) {
         base64 += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
       }
-      await this.ctx.storage.put(PDF_KEY, {
+      const fileName = screenerPdfFileName(result);
+      const pdfData = {
         base64: btoa(base64),
-        fileName: screenerPdfFileName(result),
-      });
+        fileName,
+      };
+      // Store with per-run unique key
+      const perRunKey = `${PDF_KEY_PREFIX}${fileName}`;
+      await this.ctx.storage.put(perRunKey, pdfData);
+      // Also update the "latest" pointer for backward compatibility
+      await this.ctx.storage.put(PDF_LATEST_KEY, pdfData);
+      // Store the key on the result for the UI to fetch the specific PDF
+      (result as any).pdfKey = perRunKey;
     } catch (err) {
       console.warn("[ScreenerAgent] PDF generation failed:", err);
     }

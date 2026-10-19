@@ -185,7 +185,12 @@ export async function generateScreenerPdf(
 }
 
 export function screenerPdfFileName(result: ScreenerRunResult): string {
-  const d = new Date(result.timestamp).toISOString().slice(0, 10);
-  const u = (result.universe || "TECH").toLowerCase().replace(/_/g, "-");
-  return `screener-${result.trigger}-${u}-${d}.pdf`;
+  // Issue #297: Include full timestamp (not just date) to ensure uniqueness.
+  // Format: market-screen_{universe}_hourly-{mm}_{timestamp}_{jobId}.pdf
+  // The schedule and jobId are appended by the caller when available.
+  const ts = new Date(result.timestamp).toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+  const u = (result.universe || "NASDAQ100").toLowerCase().replace(/_/g, "-");
+  const schedule = (result as any).schedule || "manual";
+  const jobId = (result as any).jobId || "adhoc";
+  return `market-screen_${u}_${schedule}_${ts}_${jobId}.pdf`;
 }
