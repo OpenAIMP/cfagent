@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import {
   storeReportAtGeneration,
+  ensureScheduledReportsTable,
   type ScheduledReportInput,
 } from "../services/scheduledReports";
 
@@ -499,40 +500,16 @@ export class DatabaseORM {
       )
     `);
 
-    // 8c. Scheduled-run reports (issue #278) — every report a
-    // scheduled run generates is persisted here so the AI Search
-    // agent can surface it later.
-    // Issue #308 adds generation_id (idempotency key for the single
-    // generate→store seam); the service DDL owns the additive migration.
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_reports (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        source TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        body TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        generation_id TEXT
-      )
-    `);
-    // Issue #389: Additive migration for generation_id (added by #308).
-    // CREATE TABLE IF NOT EXISTS does not add columns to existing tables,
-    // so we must ALTER existing mas_reports tables that predate #308.
-    try {
-      this.sql.exec(`ALTER TABLE mas_reports ADD COLUMN generation_id TEXT`);
-    } catch (e: any) {
-      // Ignore "duplicate column name" — column already exists.
-      if (!String(e?.message || e).includes("duplicate column")) {
-        throw e;
-      }
-    }
-    this.sql.exec(`
-      CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON mas_reports (created_at DESC)
-    `);
-    this.sql.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON mas_reports (generation_id)
-    `);
+    // 8c. Scheduled-run reports (issues #278, #308) — the DDL lives in
+    // src/services/scheduledReports.ts ensureScheduledReportsTable(),
+    // which is migration-safe on pre-#308 tables (PRAGMA-checked
+    // ALTER for generation_id before the unique index).
+    // Issue #389: the ORM used to carry its own duplicate DDL here,
+    // creating the unique index WITHOUT the column guard — any DO
+    // whose mas_reports predated #308 threw SQLITE_ERROR
+    // "no such column: generation_id" on every schema init.
+    // Never duplicate this DDL again; the service is the single source.
+    ensureScheduledReportsTable(this.sql);
 
     // 9. Trades & E*TRADE Orders Table
     this.sql.exec(`
