@@ -1,1 +1,400 @@
-LyoqCiAqIElzc3VlICMyMTA6IFNjcmVlbmVyIHJlc3VsdCBwdWJsaXNoZXJzIChTbGFjaywgZW1haWwsIHdlYmhvb2spLgogKgogKiBUaGVzZSBhcmUgdGhlIHB1Yi9zdWIgc3Vic2NyaWJlcnMgdGhhdCBoYXJ2ZXN0IHRoZSBzY3JlZW5lcidzIHZhbHVlLgogKiBFYWNoIHN1YnNjcmliZXMgdG8gdGhlIHNjcmVlbmVyIGV2ZW50IGJ1czsgd2hlbiBhIHNjcmVlbiBjb21wbGV0ZXMKICogKG9yIGZhaWxzKSwgdGhlIHB1Ymxpc2hlciBub3RpZmllcyBpdHMgY2hhbm5lbCBpbmRlcGVuZGVudGx5IOKAlCBhCiAqIGZhaWx1cmUgaW4gb25lIG5ldmVyIGJsb2NrcyB0aGUgb3RoZXJzICh0aGUgYnVzIGNhdGNoZXMgcGVyLWhhbmRsZXIKICogZXJyb3JzKS4KICoKICogQ29uZmlndXJhdGlvbiAoZW52IHZhcnMpOgogKiAtIENGUEFZX0EyQV9UT0tFTjogdXNlIGNmcGF5J3MgYWdlbnRzIHZpYSBBMkEgKHRyaWVkIGZpcnN0KQogKiAtIFNMQUNLX0JPVF9UT0tFTiBvciBTTEFDS19XRUJIT09LX1VSTDogbG9jYWwgU2xhY2sgZmFsbGJhY2sKICogLSBTQ1JFRU5FUl9FTUFJTF9UTzogZW5hYmxlcyBlbWFpbCBwdWJsaXNoaW5nIChsb2NhbCBmYWxsYmFjaykKICogLSBPVVRCT1VORF9XRUJIT09LX1VSTDogZW5hYmxlcyB3ZWJob29rIHB1Ymxpc2hpbmcgKGxvY2FsIG9ubHk7CiAqICAgY2ZwYXkgaGFzIG5vIG91dGJvdW5kIHdlYmhvb2sgZGlzcGF0Y2ggdmlhIEEyQSkKICoKICogSXNzdWUgIzIxNTogY2ZwYXkgdmlhIEEyQSBpcyB0cmllZCBmaXJzdDsgbG9jYWwgc2VydmljZXMgYXJlIHRoZSBmYWxsYmFjay4KICovCgppbXBvcnQgewogIFNjcmVlbmVyRXZlbnRCdXMsCiAgdHlwZSBTY3JlZW5lckNvbXBsZXRlZEV2ZW50LAogIHR5cGUgU2NyZWVuZXJGYWlsZWRFdmVudCwKfSBmcm9tICIuL3NjcmVlbmVyRXZlbnRzIjsKaW1wb3J0IHsgRVRyYWRlU2xhY2tUcmFkaW5nU2VydmljZSB9IGZyb20gIi4uL3RyYWRpbmciOwppbXBvcnQgeyBFVHJhZGVFbWFpbFRyYWRpbmdTZXJ2aWNlIH0gZnJvbSAiLi4vdHJhZGluZyI7CmltcG9ydCB7IEVUcmFkZVdlYmhvb2tTZXJ2aWNlIH0gZnJvbSAiLi4vc2VydmljZXMvdHJhZGluZ1dlYmhvb2tzIjsKaW1wb3J0IHR5cGUgeyBTY3JlZW5lckFnZW50IH0gZnJvbSAiLi4vYWdlbnRzL3NjcmVlbmVyLWFnZW50IjsKaW1wb3J0IHR5cGUgeyBFbnYgfSBmcm9tICIuLi90eXBlcyI7CmltcG9ydCB0eXBlIHsgRGF0YWJhc2VPUk0gfSBmcm9tICIuLi9vcm0iOwppbXBvcnQgewogIGdldENmcGF5Q29uZmlnLAogIGNmcGF5UG9zdFRvU2xhY2ssCiAgY2ZwYXlTZW5kRW1haWwsCiAgY2ZwYXlTZW5kRW1haWxXaXRoQXR0YWNobWVudHMsCn0gZnJvbSAiLi4vc2VydmljZXMvY2ZwYXlBMkEiOwppbXBvcnQgeyBkZWxpdmVyU2NyZWVuZXJUb1NsYWNrQTJBIH0gZnJvbSAiLi4vc2VydmljZXMvc2NyZWVuZXJTbGFja0RlbGl2ZXJ5IjsKCmV4cG9ydCBpbnRlcmZhY2UgU2NyZWVuZXJQdWJsaXNoZXJEZXBzIHsKICBlbnY6IEVudjsKICBvcm0/OiBEYXRhYmFzZU9STTsKICB1c2VyTG9naW46IHN0cmluZzsKfQoKaW50ZXJmYWNlIFNjcmVlbmVyUGRmIHsKICBieXRlczogVWludDhBcnJheTsKICBmaWxlTmFtZTogc3RyaW5nOwp9CgovKiogRmV0Y2ggdGhpcyBydW4ncyBQREYsIG5ldmVyIGFub3RoZXIgY29uY3VycmVudCBydW4ncyBsYXRlc3QgUERGLiAqLwphc3luYyBmdW5jdGlvbiBmZXRjaFNjcmVlbmVyUGRmKGRlcHM6IFNjcmVlbmVyUHVibGlzaGVyRGVwcywgcGRmS2V5Pzogc3RyaW5nKTogUHJvbWlzZTxTY3JlZW5lclBkZiB8IG51bGw+IHsKICB0cnkgewogICAgY29uc3QgbnMgPSAoZGVwcy5lbnYgYXMgYW55KS5TQ1JFRU5FUl9BR0VOVDsKICAgIGlmICghbnMpIHJldHVybiBudWxsOwogICAgY29uc3QgYWdlbnQgPSBucy5nZXQobnMuaWRGcm9tTmFtZSgiZGVmYXVsdCIpKSBhcyB1bmtub3duIGFzIFNjcmVlbmVyQWdlbnQ7CiAgICByZXR1cm4gcGRmS2V5ID8gYXdhaXQgYWdlbnQuZ2V0UGRmQnlLZXkocGRmS2V5KSA6IGF3YWl0IGFnZW50LmdldExhdGVzdFBkZigpOwogIH0gY2F0Y2ggewogICAgcmV0dXJuIG51bGw7CiAgfQp9CgovKioKICogVXBsb2FkIHRoZSBQREYgdG8gU2xhY2sgdmlhIGZpbGVzLmdldFVwbG9hZFVSTEV4dGVybmFsIChpc3N1ZSAjMjY5KS4KICogRmFsbHMgYmFjayB0byBwb3N0aW5nIHRoZSBkb3dubG9hZCBsaW5rIHdoZW4gbm8gYm90IHRva2VuIGlzIGNvbmZpZ3VyZWQuCiAqLwphc3luYyBmdW5jdGlvbiBkZWxpdmVyUGRmVG9TbGFjaygKICBkZXBzOiBTY3JlZW5lclB1Ymxpc2hlckRlcHMsCiAgcGRmOiBTY3JlZW5lclBkZiwKICBldmVudDogU2NyZWVuZXJDb21wbGV0ZWRFdmVudCwKICBwbGFpblRleHQ6IHN0cmluZwopOiBQcm9taXNlPHZvaWQ+IHsKICBjb25zdCBib3RUb2tlbiA9IGRlcHMuZW52LlNMQUNLX0JPVF9UT0tFTjsKICBjb25zdCBjaGFubmVsID0gKGRlcHMuZW52IGFzIGFueSkuU0NSRUVORVJfU0xBQ0tfQ0hBTk5FTCB8fCAoZGVwcy5lbnYgYXMgYW55KS5TTEFDS19DSEFOTkVMOwogIGNvbnN0IHJlcG9ydFVybCA9IGAke2RlcHMuZW52LkFQUF9CQVNFX1VSTCB8fCAiaHR0cHM6Ly9hZ2VudC5vcGVuYWltcC5jb20ifS9hcGkvc2NyZWVuZXIvcmVwb3J0LnBkZiR7ZXZlbnQucGRmS2V5ID8gYD9rZXk9JHtlbmNvZGVVUklDb21wb25lbnQoZXZlbnQucGRmS2V5KX1gIDogIiJ9YDsKCiAgaWYgKCFib3RUb2tlbikgewogICAgLy8gTm8gYm90IHRva2VuOiBsaW5rIHRoZSBkb3dubG9hZGFibGUgcmVwb3J0IGluIHRoZSBjaGFubmVsIG1lc3NhZ2UuCiAgICBpZiAoY2hhbm5lbCkgewogICAgICB0cnkgewogICAgICAgIGNvbnN0IHNsYWNrID0gbmV3IEVUcmFkZVNsYWNrVHJhZGluZ1NlcnZpY2UoZGVwcy5lbnYsIGRlcHMub3JtLCBkZXBzLnVzZXJMb2dpbik7CiAgICAgICAgYXdhaXQgc2xhY2sucG9zdFNsYWNrTWVzc2FnZSh7CiAgICAgICAgICB0ZXh0OiBg8J+ThCBTY3JlZW5lciByZXBvcnQgUERGOiAke3JlcG9ydFVybH1gLAogICAgICAgICAgY2hhbm5lbCwKICAgICAgICB9IGFzIGFueSk7CiAgICAgIH0gY2F0Y2ggKGVycikgewogICAgICAgIGNvbnNvbGUud2FybigiW1NjcmVlbmVyUHVibGlzaGVyc10gU2xhY2sgUERGIGxpbmsgZmFpbGVkOiIsIGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyKSk7CiAgICAgIH0KICAgIH0KICAgIHJldHVybjsKICB9CgogIHRyeSB7CiAgICAvLyBTdGVwIDE6IGdldCB1cGxvYWQgVVJMLgogICAgY29uc3QgZ2V0VXJsID0gYXdhaXQgZmV0Y2goImh0dHBzOi8vc2xhY2suY29tL2FwaS9maWxlcy5nZXRVcGxvYWRVUkxFeHRlcm5hbCIsIHsKICAgICAgbWV0aG9kOiAiUE9TVCIsCiAgICAgIGhlYWRlcnM6IHsKICAgICAgICBBdXRob3JpemF0aW9uOiBgQmVhcmVyICR7Ym90VG9rZW59YCwKICAgICAgICAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL3gtd3d3LWZvcm0tdXJsZW5jb2RlZCIsCiAgICAgIH0sCiAgICAgIGJvZHk6IG5ldyBVUkxTZWFyY2hQYXJhbXMoewogICAgICAgIGZpbGVuYW1lOiBwZGYuZmlsZU5hbWUsCiAgICAgICAgbGVuZ3RoOiBTdHJpbmcocGRmLmJ5dGVzLmxlbmd0aCksCiAgICAgIH0pLAogICAgfSk7CiAgICBjb25zdCB1cmxEYXRhID0gKGF3YWl0IGdldFVybC5qc29uKCkpIGFzIGFueTsKICAgIGlmICghdXJsRGF0YS5vaykgdGhyb3cgbmV3IEVycm9yKHVybERhdGEuZXJyb3IgfHwgImdldFVwbG9hZFVSTEV4dGVybmFsIGZhaWxlZCIpOwoKICAgIC8vIFN0ZXAgMjogdXBsb2FkIGJ5dGVzLgogICAgY29uc3QgcHV0ID0gYXdhaXQgZmV0Y2godXJsRGF0YS51cGxvYWRfdXJsLCB7CiAgICAgIG1ldGhvZDogIlBVVCIsCiAgICAgIGhlYWRlcnM6IHsgIkNvbnRlbnQtVHlwZSI6ICJhcHBsaWNhdGlvbi9wZGYiIH0sCiAgICAgIGJvZHk6IHBkZi5ieXRlcyBhcyB1bmtub3duIGFzIEJvZHlJbml0LAogICAgfSk7CiAgICBpZiAoIXB1dC5vaykgdGhyb3cgbmV3IEVycm9yKGB1cGxvYWQgUFVUIGZhaWxlZDogJHtwdXQuc3RhdHVzfWApOwoKICAgIC8vIFN0ZXAgMzogY29tcGxldGUuCiAgICBjb25zdCBjb21wbGV0ZSA9IGF3YWl0IGZldGNoKCJodHRwczovL3NsYWNrLmNvbS9hcGkvZmlsZXMuY29tcGxldGVVcGxvYWRFeHRlcm5hbCIsIHsKICAgICAgbWV0aG9kOiAiUE9TVCIsCiAgICAgIGhlYWRlcnM6IHsKICAgICAgICBBdXRob3JpemF0aW9uOiBgQmVhcmVyICR7Ym90VG9rZW59YCwKICAgICAgICAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24iLAogICAgICB9LAogICAgICBib2R5OiBKU09OLnN0cmluZ2lmeSh7CiAgICAgICAgZmlsZXM6IFt7IGlkOiB1cmxEYXRhLmZpbGVfaWQsIHRpdGxlOiBgU2NyZWVuZXIgcmVwb3J0IOKAlCAke2V2ZW50LnNlY3Rvcn0gJHtldmVudC50aW1lc3RhbXAuc2xpY2UoMCwgMTApfWAgfV0sCiAgICAgICAgY2hhbm5lbF9pZDogY2hhbm5lbCwKICAgICAgICBpbml0aWFsX2NvbW1lbnQ6IGDwn5OEIFNjcmVlbmVyIHJlcG9ydCBQREYg4oCUICR7ZXZlbnQub3Bwb3J0dW5pdGllcy5sZW5ndGh9IG9wcG9ydHVuaXRpZXNgLAogICAgICB9KSwKICAgIH0pOwogICAgY29uc3QgZG9uZURhdGEgPSAoYXdhaXQgY29tcGxldGUuanNvbigpKSBhcyBhbnk7CiAgICBpZiAoIWRvbmVEYXRhLm9rKSB0aHJvdyBuZXcgRXJyb3IoZG9uZURhdGEuZXJyb3IgfHwgImNvbXBsZXRlVXBsb2FkRXh0ZXJuYWwgZmFpbGVkIik7CiAgfSBjYXRjaCAoZXJyKSB7CiAgICBjb25zb2xlLndhcm4oIltTY3JlZW5lclB1Ymxpc2hlcnNdIFNsYWNrIFBERiB1cGxvYWQgZmFpbGVkOiIsIGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyKSk7CiAgICAvLyBGYWxsYmFjazogbGluay4KICAgIHRyeSB7CiAgICAgIGNvbnN0IHNsYWNrID0gbmV3IEVUcmFkZVNsYWNrVHJhZGluZ1NlcnZpY2UoZGVwcy5lbnYsIGRlcHMub3JtLCBkZXBzLnVzZXJMb2dpbik7CiAgICAgIGF3YWl0IHNsYWNrLnBvc3RTbGFja01lc3NhZ2UoewogICAgICAgIHRleHQ6IGAke3BsYWluVGV4dH1cblxu8J+ThCBSZXBvcnQgUERGOiAke3JlcG9ydFVybH1gLAogICAgICAgIGNoYW5uZWwsCiAgICAgIH0gYXMgYW55KTsKICAgIH0gY2F0Y2ggewogICAgICAvLyBBbHJlYWR5IHdhcm5lZCBhYm92ZTsgZG9uJ3QgY2FzY2FkZS4KICAgIH0KICB9Cn0KCi8qKiBBdHRhY2ggdGhlIFBERiB0byB0aGUgc2NyZWVuZXIgZW1haWwgKGlzc3VlICMyNjkpLiAqLwphc3luYyBmdW5jdGlvbiBkZWxpdmVyUGRmVG9FbWFpbCgKICBkZXBzOiBTY3JlZW5lclB1Ymxpc2hlckRlcHMsCiAgcGRmOiBTY3JlZW5lclBkZiwKICBldmVudDogU2NyZWVuZXJDb21wbGV0ZWRFdmVudCwKICBodG1sOiBzdHJpbmcsCiAgcGxhaW5UZXh0OiBzdHJpbmcKKTogUHJvbWlzZTx2b2lkPiB7CiAgY29uc3QgZW1haWxUbyA9IChkZXBzLmVudiBhcyBhbnkpLlNDUkVFTkVSX0VNQUlMX1RPOwogIGlmICghZW1haWxUbykgcmV0dXJuOwogIHRyeSB7CiAgICBsZXQgYmFzZTY0ID0gIiI7CiAgICBjb25zdCBjaHVuayA9IDgxOTI7CiAgICBmb3IgKGxldCBpID0gMDsgaSA8IHBkZi5ieXRlcy5sZW5ndGg7IGkgKz0gY2h1bmspIHsKICAgICAgYmFzZTY0ICs9IFN0cmluZy5mcm9tQ2hhckNvZGUoLi4ucGRmLmJ5dGVzLnN1YmFycmF5KGksIGkgKyBjaHVuaykpOwogICAgfQogICAgY29uc3QgZW1haWwgPSBuZXcgRVRyYWRlRW1haWxUcmFkaW5nU2VydmljZShkZXBzLmVudiwgZGVwcy5vcm0sIGRlcHMudXNlckxvZ2luKTsKICAgIGF3YWl0IGVtYWlsLnNlbmRPdXRib3VuZEVtYWlsKAogICAgICBlbWFpbFRvLAogICAgICBg8J+TiiBNYXJrZXQgU2NyZWVuIFske2V2ZW50LnNlY3Rvcn1dIOKAlCAke2V2ZW50Lm9wcG9ydHVuaXRpZXMubGVuZ3RofSBvcHBvcnR1bml0aWVzIChQREYgYXR0YWNoZWQpYCwKICAgICAgYCR7aHRtbH08cD5GdWxsIHJlcG9ydCBhdHRhY2hlZCBhcyBQREYuPC9wPmAsCiAgICAgIGAke3BsYWluVGV4dH1cblxuRnVsbCByZXBvcnQgYXR0YWNoZWQgYXMgUERGLmAsCiAgICAgIHsgZmlsZU5hbWU6IHBkZi5maWxlTmFtZSwgY29udGVudFR5cGU6ICJhcHBsaWNhdGlvbi9wZGYiLCBjb250ZW50QmFzZTY0OiBidG9hKGJhc2U2NCkgfQogICAgKTsKICB9IGNhdGNoIChlcnIpIHsKICAgIGNvbnNvbGUud2FybigiW1NjcmVlbmVyUHVibGlzaGVyc10gRW1haWwgUERGIGRlbGl2ZXJ5IGZhaWxlZDoiLCBlcnIgaW5zdGFuY2VvZiBFcnJvciA/IGVyci5tZXNzYWdlIDogU3RyaW5nKGVycikpOwogIH0KfQoKY29uc3QgcmVnaXN0ZXJlZEJ1c2VzID0gbmV3IFdlYWtTZXQ8U2NyZWVuZXJFdmVudEJ1cz4oKTsKCi8qKgogKiBSZWdpc3RlciBhbGwgc2NyZWVuZXIgcHVibGlzaGVycyBvbiB0aGUgYnVzLiBJZGVtcG90ZW50IOKAlCBzYWZlIHRvIGNhbGwKICogbXVsdGlwbGUgdGltZXM7IHN1YnNlcXVlbnQgY2FsbHMgZm9yIHRoZSBzYW1lIGJ1cyBhcmUgbm8tb3BzLgogKiBGaXhlcyAjNDIzIChkdXBsaWNhdGUgU2xhY2sgbm90aWZpY2F0aW9ucyBmcm9tIG11bHRpcGxlIHJlZ2lzdHJhdGlvbnMpLgogKi8KZXhwb3J0IGZ1bmN0aW9uIHJlZ2lzdGVyU2NyZWVuZXJQdWJsaXNoZXJzKAogIGJ1czogU2NyZWVuZXJFdmVudEJ1cywKICBkZXBzOiBTY3JlZW5lclB1Ymxpc2hlckRlcHMKKTogdm9pZCB7CiAgaWYgKHJlZ2lzdGVyZWRCdXNlcy5oYXMoYnVzKSkgcmV0dXJuOwogIHJlZ2lzdGVyZWRCdXNlcy5hZGQoYnVzKTsKICBidXMuc3Vic2NyaWJlKCJzY3JlZW5lci5jb21wbGV0ZWQiLCAoZXZlbnQpID0+CiAgICBwdWJsaXNoQ29tcGxldGVkKGRlcHMsIGV2ZW50IGFzIFNjcmVlbmVyQ29tcGxldGVkRXZlbnQpCiAgKTsKICBidXMuc3Vic2NyaWJlKCJzY3JlZW5lci5mYWlsZWQiLCAoZXZlbnQpID0+CiAgICBwdWJsaXNoRmFpbGVkKGRlcHMsIGV2ZW50IGFzIFNjcmVlbmVyRmFpbGVkRXZlbnQpCiAgKTsKfQoKZnVuY3Rpb24gZm9ybWF0T3Bwb3J0dW5pdGllcygKICBldmVudDogU2NyZWVuZXJDb21wbGV0ZWRFdmVudAopOiB7IHRleHQ6IHN0cmluZzsgaHRtbDogc3RyaW5nIH0gewogIGNvbnN0IGxpbmVzID0gZXZlbnQub3Bwb3J0dW5pdGllcy5tYXAoCiAgICAobywgaSkgPT4KICAgICAgYCR7aSArIDF9LiAqJHtvLnN5bWJvbH0qICgke28uY29tcGFueU5hbWV9KSDigJQgJHtvLnNpZ25hbH0gfCBgICsKICAgICAgYG1vbWVudHVtICR7by5tb21lbnR1bVNjb3JlLnRvRml4ZWQoMCl9IHwgJCR7by5sYXN0UHJpY2UudG9GaXhlZCgyKX0gYCArCiAgICAgIGAoJHtvLmNoYW5nZVBlcmNlbnQgPj0gMCA/ICIrIiA6ICIifSR7by5jaGFuZ2VQZXJjZW50LnRvRml4ZWQoMil9JSlgCiAgKTsKICBjb25zdCB1bml2ZXJzZSA9IGV2ZW50LnVuaXZlcnNlIHx8ICJURUNIIjsKICBjb25zdCBzZWN0b3JMYWJlbCA9IGV2ZW50LnNlY3RvciAmJiBldmVudC5zZWN0b3IgIT09ICJBTEwiID8gYCDCtyAke2V2ZW50LnNlY3Rvcn1gIDogIiI7CiAgY29uc3Qgc2Nhbm5lZCA9IGV2ZW50LmV4cGVjdGVkQ291bnQgJiYgZXZlbnQuZXhwZWN0ZWRDb3VudCA+IGV2ZW50LnRvdGFsU2Nhbm5lZAogICAgPyBgU2Nhbm5lZCAke2V2ZW50LnRvdGFsU2Nhbm5lZH0gb2YgJHtldmVudC5leHBlY3RlZENvdW50fSAke3VuaXZlcnNlfSBzdG9ja3MsICR7ZXZlbnQubWF0Y2hlZENvdW50fSBtYXRjaGVkLmAKICAgIDogYFNjYW5uZWQgJHtldmVudC50b3RhbFNjYW5uZWR9ICR7dW5pdmVyc2V9IHN0b2NrcywgJHtldmVudC5tYXRjaGVkQ291bnR9IG1hdGNoZWQuYDsKICBjb25zdCB0ZXh0ID0gWwogICAgYPCfk4ogTWFya2V0IFNjcmVlbiDigJQgJHt1bml2ZXJzZX0ke3NlY3RvckxhYmVsfWAsCiAgICBzY2FubmVkLAogICAgYGAsCiAgICAuLi5saW5lcywKICAgIGBgLAogICAgYF9Db21wbGV0ZWQgJHtldmVudC50aW1lc3RhbXB9X2AsCiAgXS5qb2luKCJcbiIpOwoKICBjb25zdCBodG1sUm93cyA9IGV2ZW50Lm9wcG9ydHVuaXRpZXMKICAgIC5tYXAoCiAgICAgIChvKSA9PgogICAgICAgIGA8dHI+PHRkPjxiPiR7by5zeW1ib2x9PC9iPjwvdGQ+PHRkPiR7by5jb21wYW55TmFtZX08L3RkPmAgKwogICAgICAgIGA8dGQ+JHtvLnNpZ25hbH08L3RkPjx0ZD4ke28ubW9tZW50dW1TY29yZS50b0ZpeGVkKDApfTwvdGQ+YCArCiAgICAgICAgYDx0ZD4kJHtvLmxhc3RQcmljZS50b0ZpeGVkKDIpfTwvdGQ+YCArCiAgICAgICAgYDx0ZD4ke28uY2hhbmdlUGVyY2VudCA+PSAwID8gIisiIDogIiJ9JHtvLmNoYW5nZVBlcmNlbnQudG9GaXhlZCgyKX0lPC90ZD48L3RyPmAKICAgICkKICAgIC5qb2luKCIiKTsKICBjb25zdCBodG1sID0gWwogICAgYDxoMj7wn5OKIE1hcmtldCBTY3JlZW4g4oCUICR7dW5pdmVyc2V9JHtzZWN0b3JMYWJlbH08L2gyPmAsCiAgICBgPHA+JHtzY2FubmVkfTwvcD5gLAogICAgYDx0YWJsZSBib3JkZXI9IjEiIGNlbGxwYWRkaW5nPSI2IiBjZWxsc3BhY2luZz0iMCI+YCwKICAgIGA8dHI+PHRoPlN5bWJvbDwvdGg+PHRoPkNvbXBhbnk8L3RoPjx0aD5TaWduYWw8L3RoPjx0aD5Nb21lbnR1bTwvdGg+PHRoPlByaWNlPC90aD48dGg+Q2hhbmdlPC90aD48L3RyPmAsCiAgICBodG1sUm93cywKICAgIGA8L3RhYmxlPmAsCiAgICBgPHA+PGk+Q29tcGxldGVkICR7ZXZlbnQudGltZXN0YW1wfTwvaT48L3A+YCwKICBdLmpvaW4oIlxuIik7CiAgcmV0dXJuIHsgdGV4dCwgaHRtbCB9Owp9Cgphc3luYyBmdW5jdGlvbiBwdWJsaXNoQ29tcGxldGVkKAogIGRlcHM6IFNjcmVlbmVyUHVibGlzaGVyRGVwcywKICBldmVudDogU2NyZWVuZXJDb21wbGV0ZWRFdmVudAopOiBQcm9taXNlPHZvaWQ+IHsKICBjb25zdCB7IHRleHQsIGh0bWwgfSA9IGZvcm1hdE9wcG9ydHVuaXRpZXMoZXZlbnQpOwogIGNvbnN0IHBsYWluVGV4dCA9IHRleHQucmVwbGFjZSgvXCovZywgIiIpOwoKICAvLyAxLiBSZXNvbHZlIHRoZSBleGFjdCBydW4ncyBQREYgYmVmb3JlIHNlbmRpbmcgb25lIEEyQSBTbGFjayBmaWxlCiAgLy8gbm90aWZpY2F0aW9uLiBTZW5kaW5nIGEgc2VwYXJhdGUgc3VtbWFyeSBhbmQgdGhlbiBhIGZpbGUgZ2VuZXJhdGVkIGEKICAvLyBkdXBsaWNhdGUgcGFpciBvZiBTbGFjayBtZXNzYWdlcyBmb3IgZWFjaCBzY3JlZW4uCiAgY29uc3QgY2ZwYXkgPSBnZXRDZnBheUNvbmZpZyhkZXBzLmVudik7CiAgY29uc3Qgc2xhY2tDaGFubmVsID0gKGRlcHMuZW52IGFzIGFueSkuU0NSRUVORVJfU0xBQ0tfQ0hBTk5FTCB8fCAoZGVwcy5lbnYgYXMgYW55KS5TTEFDS19DSEFOTkVMOwogIGNvbnN0IHBkZiA9IGF3YWl0IGZldGNoU2NyZWVuZXJQZGYoZGVwcywgZXZlbnQucGRmS2V5KTsKICBjb25zdCByZXBvcnRVcmwgPSBgJHtkZXBzLmVudi5BUFBfQkFTRV9VUkwgfHwgImh0dHBzOi8vYWdlbnQub3BlbmFpbXAuY29tIn0vYXBpL3NjcmVlbmVyL3JlcG9ydC5wZGYke2V2ZW50LnBkZktleSA/IGA/a2V5PSR7ZW5jb2RlVVJJQ29tcG9uZW50KGV2ZW50LnBkZktleSl9YCA6ICIifWA7CiAgY29uc3Qgc2xhY2tCb2R5ID0gcGRmIHx8IGNmcGF5CiAgICA/IHBsYWluVGV4dAogICAgOiBgJHtwbGFpblRleHR9JHtldmVudC5wZGZLZXkgPyBgXG5cbvCfk4QgUERGIHJlcG9ydDogJHtyZXBvcnRVcmx9YCA6ICIifWA7CiAgaWYgKGNmcGF5KSB7CiAgICBjb25zdCBkZWxpdmVyeSA9IGF3YWl0IGRlbGl2ZXJTY3JlZW5lclRvU2xhY2tBMkEoZGVwcy5lbnYsIHsKICAgICAgdGV4dDogcGxhaW5UZXh0LAogICAgICBjaGFubmVsOiBzbGFja0NoYW5uZWwsCiAgICAgIC4uLihwZGYgPyB7CiAgICAgICAgcGRmOiB7CiAgICAgICAgICAuLi5wZGYsCiAgICAgICAgICB0aXRsZTogYE1hcmtldCBTY3JlZW4g4oCUICR7ZXZlbnQudW5pdmVyc2UgfHwgIlRFQ0gifSAke2V2ZW50LnRpbWVzdGFtcC5zbGljZSgwLCAxMCl9YCwKICAgICAgICAgIGNvbW1lbnQ6IHBsYWluVGV4dCwKICAgICAgICB9LAogICAgICB9IDoge30pLAogICAgfSk7CiAgICBpZiAoIWRlbGl2ZXJ5Lm9rKSB7CiAgICAgIGNvbnNvbGUud2FybigiW1NjcmVlbmVyUHVibGlzaGVyc10gU2xhY2sgQTJBIGRlbGl2ZXJ5IGZhaWxlZDoiLCBkZWxpdmVyeS5lcnJvcik7CiAgICB9CiAgfSBlbHNlIGlmIChkZXBzLmVudi5TTEFDS19CT1RfVE9LRU4gfHwgZGVwcy5lbnYuU0xBQ0tfV0VCSE9PS19VUkwpIHsKICAgIHRyeSB7CiAgICAgIGlmIChwZGYgJiYgZGVwcy5lbnYuU0xBQ0tfQk9UX1RPS0VOKSB7CiAgICAgICAgYXdhaXQgZGVsaXZlclBkZlRvU2xhY2soZGVwcywgcGRmLCBldmVudCwgcGxhaW5UZXh0KTsKICAgICAgfSBlbHNlIHsKICAgICAgICBjb25zdCBzbGFjayA9IG5ldyBFVHJhZGVTbGFja1RyYWRpbmdTZXJ2aWNlKGRlcHMuZW52LCBkZXBzLm9ybSwgZGVwcy51c2VyTG9naW4pOwogICAgICAgIGF3YWl0IHNsYWNrLnBvc3RTbGFja01lc3NhZ2UoeyB0ZXh0OiBzbGFja0JvZHksIGNoYW5uZWw6IHNsYWNrQ2hhbm5lbCB9IGFzIGFueSk7CiAgICAgIH0KICAgIH0gY2F0Y2ggKGVycikgewogICAgICBjb25zb2xlLndhcm4oIltTY3JlZW5lclB1Ymxpc2hlcnNdIFNsYWNrIHB1Ymxpc2ggZmFpbGVkOiIsIGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyKSk7CiAgICB9CiAgfQoKICAvLyAyLiBFbWFpbCDigJQgdHJ5IGNmcGF5IHZpYSBBMkEgZmlyc3QsIGZhbGwgYmFjayB0byBsb2NhbC4KICBjb25zdCBlbWFpbFRvID0gKGRlcHMuZW52IGFzIGFueSkuU0NSRUVORVJfRU1BSUxfVE87CiAgaWYgKGVtYWlsVG8pIHsKICAgIGxldCBlbWFpbE9rID0gZmFsc2U7CiAgICBpZiAoY2ZwYXkpIHsKICAgICAgbGV0IHI7CiAgICAgIGlmIChwZGYpIHsKICAgICAgICBsZXQgYmluYXJ5ID0gIiI7CiAgICAgICAgZm9yIChsZXQgaSA9IDA7IGkgPCBwZGYuYnl0ZXMubGVuZ3RoOyBpICs9IDgxOTIpIGJpbmFyeSArPSBTdHJpbmcuZnJvbUNoYXJDb2RlKC4uLnBkZi5ieXRlcy5zdWJhcnJheShpLCBpICsgODE5MikpOwogICAgICAgIHIgPSBhd2FpdCBjZnBheVNlbmRFbWFpbFdpdGhBdHRhY2htZW50cyhjZnBheSwgewogICAgICAgICAgdG86IGVtYWlsVG8sCiAgICAgICAgICBzdWJqZWN0OiBg8J+TiiBNYXJrZXQgU2NyZWVuIFske2V2ZW50LnVuaXZlcnNlIHx8IGV2ZW50LnNlY3Rvcn1dIOKAlCAke2V2ZW50Lm9wcG9ydHVuaXRpZXMubGVuZ3RofSBvcHBvcnR1bml0aWVzYCwKICAgICAgICAgIGJvZHk6IHBsYWluVGV4dCwKICAgICAgICAgIGF0dGFjaG1lbnRzOiBbeyBmaWxlbmFtZTogcGRmLmZpbGVOYW1lLCBjb250ZW50QjY0OiBidG9hKGJpbmFyeSksIGNvbnRlbnRUeXBlOiAiYXBwbGljYXRpb24vcGRmIiB9XSwKICAgICAgICB9KTsKICAgICAgfSBlbHNlIHsKICAgICAgICByID0gYXdhaXQgY2ZwYXlTZW5kRW1haWwoY2ZwYXksIGVtYWlsVG8sCiAgICAgICAgICBg8J+TiiBNYXJrZXQgU2NyZWVuIFske2V2ZW50LnVuaXZlcnNlIHx8IGV2ZW50LnNlY3Rvcn1dIOKAlCAke2V2ZW50Lm9wcG9ydHVuaXRpZXMubGVuZ3RofSBvcHBvcnR1bml0aWVzYCwgcGxhaW5UZXh0KTsKICAgICAgfQogICAgICBlbWFpbE9rID0gci5vazsKICAgICAgaWYgKCFyLm9rKSB7CiAgICAgICAgY29uc29sZS53YXJuKCJbU2NyZWVuZXJQdWJsaXNoZXJzXSBjZnBheSBFbWFpbCBmYWlsZWQsIGZhbGxpbmcgYmFjayB0byBsb2NhbDoiLCByLmVycm9yKTsKICAgICAgfQogICAgfQogICAgaWYgKCFlbWFpbE9rKSB7CiAgICAgIHRyeSB7CiAgICAgICAgY29uc3QgZW1haWwgPSBuZXcgRVRyYWRlRW1haWxUcmFkaW5nU2VydmljZShkZXBzLmVudiwgZGVwcy5vcm0sIGRlcHMudXNlckxvZ2luKTsKICAgICAgICBhd2FpdCBlbWFpbC5zZW5kT3V0Ym91bmRFbWFpbCgKICAgICAgICAgIGVtYWlsVG8sCiAgICAgICAgICBg8J+TiiBNYXJrZXQgU2NyZWVuIFske2V2ZW50LnVuaXZlcnNlIHx8IGV2ZW50LnNlY3Rvcn1dIOKAlCAke2V2ZW50Lm9wcG9ydHVuaXRpZXMubGVuZ3RofSBvcHBvcnR1bml0aWVzYCwKICAgICAgICAgIGAke2h0bWx9JHtwZGYgPyBgPHA+RnVsbCByZXBvcnQgYXR0YWNoZWQ6ICR7cGRmLmZpbGVOYW1lfTwvcD5gIDogIiJ9YCwKICAgICAgICAgIGAke3BsYWluVGV4dH0ke3JlcG9ydFVybCA/IGBcblxuUERGIHJlcG9ydDogJHtyZXBvcnRVcmx9YCA6ICIifWAsCiAgICAgICAgICBwZGYgPyAoKCkgPT4gewogICAgICAgICAgICBsZXQgYmluYXJ5ID0gIiI7CiAgICAgICAgICAgIGZvciAobGV0IGkgPSAwOyBpIDwgcGRmLmJ5dGVzLmxlbmd0aDsgaSArPSA4MTkyKSBiaW5hcnkgKz0gU3RyaW5nLmZyb21DaGFyQ29kZSguLi5wZGYuYnl0ZXMuc3ViYXJyYXkoaSwgaSArIDgxOTIpKTsKICAgICAgICAgICAgcmV0dXJuIHsgZmlsZU5hbWU6IHBkZi5maWxlTmFtZSwgY29udGVudFR5cGU6ICJhcHBsaWNhdGlvbi9wZGYiLCBjb250ZW50QmFzZTY0OiBidG9hKGJpbmFyeSkgfTsKICAgICAgICAgIH0pKCkgOiB1bmRlZmluZWQKICAgICAgICApOwogICAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgICBjb25zb2xlLndhcm4oIltTY3JlZW5lclB1Ymxpc2hlcnNdIEVtYWlsIHB1Ymxpc2ggZmFpbGVkOiIsIGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyKSk7CiAgICAgIH0KICAgIH0KICB9CgogIC8vIDMuIFdlYmhvb2sKICBjb25zdCB3ZWJob29rVXJsID0gKGRlcHMuZW52IGFzIGFueSkuT1VUQk9VTkRfV0VCSE9PS19VUkw7CiAgaWYgKHdlYmhvb2tVcmwpIHsKICAgIHRyeSB7CiAgICAgIGNvbnN0IHdlYmhvb2sgPSBuZXcgRVRyYWRlV2ViaG9va1NlcnZpY2UoZGVwcy5vcm0sIGRlcHMuZW52LCBkZXBzLnVzZXJMb2dpbik7CiAgICAgIGF3YWl0IHdlYmhvb2suZGlzcGF0Y2hPdXRib3VuZFdlYmhvb2soCiAgICAgICAgInNjcmVlbmVyLmNvbXBsZXRlZCIsCiAgICAgICAgewogICAgICAgICAgc2VjdG9yOiBldmVudC5zZWN0b3IsCiAgICAgICAgICB0b3RhbFNjYW5uZWQ6IGV2ZW50LnRvdGFsU2Nhbm5lZCwKICAgICAgICAgIG1hdGNoZWRDb3VudDogZXZlbnQubWF0Y2hlZENvdW50LAogICAgICAgICAgb3Bwb3J0dW5pdGllczogZXZlbnQub3Bwb3J0dW5pdGllcywKICAgICAgICAgIHJlcG9ydFVybDogZXZlbnQucGRmS2V5ID8gcmVwb3J0VXJsIDogdW5kZWZpbmVkLAogICAgICAgICAgdGltZXN0YW1wOiBldmVudC50aW1lc3RhbXAsCiAgICAgICAgfSwKICAgICAgICB3ZWJob29rVXJsCiAgICAgICk7CiAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgY29uc29sZS53YXJuKCJbU2NyZWVuZXJQdWJsaXNoZXJzXSBXZWJob29rIHB1Ymxpc2ggZmFpbGVkOiIsIGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyKSk7CiAgICB9CiAgfQp9Cgphc3luYyBmdW5jdGlvbiBwdWJsaXNoRmFpbGVkKAogIGRlcHM6IFNjcmVlbmVyUHVibGlzaGVyRGVwcywKICBldmVudDogU2NyZWVuZXJGYWlsZWRFdmVudAopOiBQcm9taXNlPHZvaWQ+IHsKICBjb25zdCB0ZXh0ID0gYOKaoO+4jyBNYXJrZXQgU2NyZWVuIEZBSUxFRCDigJQgJHtldmVudC51bml2ZXJzZSB8fCAiVEVDSCJ9JHtldmVudC5zZWN0b3IgJiYgZXZlbnQuc2VjdG9yICE9PSAiQUxMIiA/IGAgwrcgJHtldmVudC5zZWN0b3J9YCA6ICIifVxuRXJyb3I6ICR7ZXZlbnQuZXJyb3J9XG5fVGltZTogJHtldmVudC50aW1lc3RhbXB9X2A7CgogIGNvbnN0IGNmcGF5ID0gZ2V0Q2ZwYXlDb25maWcoZGVwcy5lbnYpOwogIGNvbnN0IHNsYWNrQ2hhbm5lbCA9IChkZXBzLmVudiBhcyBhbnkpLlNDUkVFTkVSX1NMQUNLX0NIQU5ORUwgfHwgKGRlcHMuZW52IGFzIGFueSkuU0xBQ0tfQ0hBTk5FTDsKICBpZiAoY2ZwYXkpIHsKICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IGRlbGl2ZXJTY3JlZW5lclRvU2xhY2tBMkEoZGVwcy5lbnYsIHsgdGV4dCB9KTsKICAgIGlmICghcmVzdWx0Lm9rKSBjb25zb2xlLndhcm4oIltTY3JlZW5lclB1Ymxpc2hlcnNdIFNsYWNrIEEyQSBmYWlsdXJlLW5vdGlmeSBmYWlsZWQ6IiwgcmVzdWx0LmVycm9yKTsKICB9IGVsc2UgaWYgKGRlcHMuZW52LlNMQUNLX0JPVF9UT0tFTiB8fCBkZXBzLmVudi5TTEFDS19XRUJIT09LX1VSTCkgewogICAgdHJ5IHsKICAgICAgY29uc3Qgc2xhY2sgPSBuZXcgRVRyYWRlU2xhY2tUcmFkaW5nU2VydmljZShkZXBzLmVudiwgZGVwcy5vcm0sIGRlcHMudXNlckxvZ2luKTsKICAgICAgYXdhaXQgc2xhY2sucG9zdFNsYWNrTWVzc2FnZSh7IHRleHQsIGNoYW5uZWw6IHNsYWNrQ2hhbm5lbCB9IGFzIGFueSk7CiAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgY29uc29sZS53YXJuKCJbU2NyZWVuZXJQdWJsaXNoZXJzXSBTbGFjayBmYWlsdXJlLW5vdGlmeSBmYWlsZWQ6IiwgZXJyIGluc3RhbmNlb2YgRXJyb3IgPyBlcnIubWVzc2FnZSA6IFN0cmluZyhlcnIpKTsKICAgIH0KICB9CgogIGNvbnN0IHdlYmhvb2tVcmwgPSAoZGVwcy5lbnYgYXMgYW55KS5PVVRCT1VORF9XRUJIT09LX1VSTDsKICBpZiAod2ViaG9va1VybCkgewogICAgdHJ5IHsKICAgICAgY29uc3Qgd2ViaG9vayA9IG5ldyBFVHJhZGVXZWJob29rU2VydmljZShkZXBzLm9ybSwgZGVwcy5lbnYsIGRlcHMudXNlckxvZ2luKTsKICAgICAgYXdhaXQgd2ViaG9vay5kaXNwYXRjaE91dGJvdW5kV2ViaG9vaygKICAgICAgICAic2NyZWVuZXIuZmFpbGVkIiwKICAgICAgICB7IHNlY3RvcjogZXZlbnQuc2VjdG9yLCBlcnJvcjogZXZlbnQuZXJyb3IsIHRpbWVzdGFtcDogZXZlbnQudGltZXN0YW1wIH0sCiAgICAgICAgd2ViaG9va1VybAogICAgICApOwogICAgfSBjYXRjaCAoZXJyKSB7CiAgICAgIGNvbnNvbGUud2FybigiW1NjcmVlbmVyUHVibGlzaGVyc10gV2ViaG9vayBmYWlsdXJlLW5vdGlmeSBmYWlsZWQ6IiwgZXJyIGluc3RhbmNlb2YgRXJyb3IgPyBlcnIubWVzc2FnZSA6IFN0cmluZyhlcnIpKTsKICAgIH0KICB9Cn0KCi8qKiBTaGFyZWQgZW50cnkgcG9pbnRzIGZvciBtYW51YWwgcm91dGVzOyBzY2hlZHVsZWQgcnVucyB1c2UgdGhlIHNhbWUgYnVzIHN1YnNjcmliZXJzLiAqLwpleHBvcnQgZnVuY3Rpb24gcHVibGlzaFNjcmVlbmVyQ29tcGxldGVkKAogIGRlcHM6IFNjcmVlbmVyUHVibGlzaGVyRGVwcywKICBldmVudDogU2NyZWVuZXJDb21wbGV0ZWRFdmVudCwKKTogUHJvbWlzZTx2b2lkPiB7CiAgcmV0dXJuIHB1Ymxpc2hDb21wbGV0ZWQoZGVwcywgZXZlbnQpOwp9CgpleHBvcnQgZnVuY3Rpb24gcHVibGlzaFNjcmVlbmVyRmFpbGVkKAogIGRlcHM6IFNjcmVlbmVyUHVibGlzaGVyRGVwcywKICBldmVudDogU2NyZWVuZXJGYWlsZWRFdmVudCwKKTogUHJvbWlzZTx2b2lkPiB7CiAgcmV0dXJuIHB1Ymxpc2hGYWlsZWQoZGVwcywgZXZlbnQpOwp9Cg==
+/**
+ * Issue #210: Screener result publishers (Slack, email, webhook).
+ *
+ * These are the pub/sub subscribers that harvest the screener's value.
+ * Each subscribes to the screener event bus; when a screen completes
+ * (or fails), the publisher notifies its channel independently — a
+ * failure in one never blocks the others (the bus catches per-handler
+ * errors).
+ *
+ * Configuration (env vars):
+ * - CFPAY_A2A_TOKEN: use cfpay's agents via A2A (tried first)
+ * - SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL: local Slack fallback
+ * - SCREENER_EMAIL_TO: enables email publishing (local fallback)
+ * - OUTBOUND_WEBHOOK_URL: enables webhook publishing (local only;
+ *   cfpay has no outbound webhook dispatch via A2A)
+ *
+ * Issue #215: cfpay via A2A is tried first; local services are the fallback.
+ */
+
+import {
+  ScreenerEventBus,
+  type ScreenerCompletedEvent,
+  type ScreenerFailedEvent,
+} from "./screenerEvents";
+import { ETradeSlackTradingService } from "../trading";
+import { ETradeEmailTradingService } from "../trading";
+import { ETradeWebhookService } from "../services/tradingWebhooks";
+import type { ScreenerAgent } from "../agents/screener-agent";
+import type { Env } from "../types";
+import type { DatabaseORM } from "../orm";
+import {
+  getCfpayConfig,
+  cfpayPostToSlack,
+  cfpaySendEmail,
+  cfpaySendEmailWithAttachments,
+} from "../services/cfpayA2A";
+import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
+
+export interface ScreenerPublisherDeps {
+  env: Env;
+  orm?: DatabaseORM;
+  userLogin: string;
+}
+
+const registeredBuses = new WeakSet<ScreenerEventBus>();
+
+interface ScreenerPdf {
+  bytes: Uint8Array;
+  fileName: string;
+}
+
+/** Fetch this run's PDF, never another concurrent run's latest PDF. */
+async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): Promise<ScreenerPdf | null> {
+  try {
+    const ns = (deps.env as any).SCREENER_AGENT;
+    if (!ns) return null;
+    const agent = ns.get(ns.idFromName("default")) as unknown as ScreenerAgent;
+    return pdfKey ? await agent.getPdfByKey(pdfKey) : await agent.getLatestPdf();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upload the PDF to Slack via files.getUploadURLExternal (issue #269).
+ * Falls back to posting the download link when no bot token is configured.
+ */
+async function deliverPdfToSlack(
+  deps: ScreenerPublisherDeps,
+  pdf: ScreenerPdf,
+  event: ScreenerCompletedEvent,
+  plainText: string
+): Promise<void> {
+  const botToken = deps.env.SLACK_BOT_TOKEN;
+  const channel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+
+  if (!botToken) {
+    // No bot token: link the downloadable report in the channel message.
+    if (channel) {
+      try {
+        const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+        await slack.postSlackMessage({
+          text: `📄 Screener report PDF: ${reportUrl}`,
+          channel,
+        } as any);
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Slack PDF link failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+    return;
+  }
+
+  try {
+    // Step 1: get upload URL.
+    const getUrl = await fetch("https://slack.com/api/files.getUploadURLExternal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        filename: pdf.fileName,
+        length: String(pdf.bytes.length),
+      }),
+    });
+    const urlData = (await getUrl.json()) as any;
+    if (!urlData.ok) throw new Error(urlData.error || "getUploadURLExternal failed");
+
+    // Step 2: upload bytes.
+    const put = await fetch(urlData.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdf.bytes as unknown as BodyInit,
+    });
+    if (!put.ok) throw new Error(`upload PUT failed: ${put.status}`);
+
+    // Step 3: complete.
+    const complete = await fetch("https://slack.com/api/files.completeUploadExternal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        files: [{ id: urlData.file_id, title: `Screener report — ${event.sector} ${event.timestamp.slice(0, 10)}` }],
+        channel_id: channel,
+        initial_comment: `📄 Screener report PDF — ${event.opportunities.length} opportunities`,
+      }),
+    });
+    const doneData = (await complete.json()) as any;
+    if (!doneData.ok) throw new Error(doneData.error || "completeUploadExternal failed");
+  } catch (err) {
+    console.warn("[ScreenerPublishers] Slack PDF upload failed:", err instanceof Error ? err.message : String(err));
+    // Fallback: link.
+    try {
+      const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+      await slack.postSlackMessage({
+        text: `${plainText}\n\n📄 Report PDF: ${reportUrl}`,
+        channel,
+      } as any);
+    } catch {
+      // Already warned above; don't cascade.
+    }
+  }
+}
+
+/** Attach the PDF to the screener email (issue #269). */
+async function deliverPdfToEmail(
+  deps: ScreenerPublisherDeps,
+  pdf: ScreenerPdf,
+  event: ScreenerCompletedEvent,
+  html: string,
+  plainText: string
+): Promise<void> {
+  const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
+  if (!emailTo) return;
+  try {
+    let base64 = "";
+    const chunk = 8192;
+    for (let i = 0; i < pdf.bytes.length; i += chunk) {
+      base64 += String.fromCharCode(...pdf.bytes.subarray(i, i + chunk));
+    }
+    const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+    await email.sendOutboundEmail(
+      emailTo,
+      `📊 Market Screen [${event.sector}] — ${event.opportunities.length} opportunities (PDF attached)`,
+      `${html}<p>Full report attached as PDF.</p>`,
+      `${plainText}\n\nFull report attached as PDF.`,
+      { fileName: pdf.fileName, contentType: "application/pdf", contentBase64: btoa(base64) }
+    );
+  } catch (err) {
+    console.warn("[ScreenerPublishers] Email PDF delivery failed:", err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Register all screener publishers on the bus. Idempotent — call once
+ * per service instance.
+ */
+export function registerScreenerPublishers(
+  bus: ScreenerEventBus,
+  deps: ScreenerPublisherDeps
+): void {
+  if (registeredBuses.has(bus)) return;
+  registeredBuses.add(bus);
+
+  bus.subscribe("screener.completed", (event) =>
+    publishCompleted(deps, event as ScreenerCompletedEvent)
+  );
+  bus.subscribe("screener.failed", (event) =>
+    publishFailed(deps, event as ScreenerFailedEvent)
+  );
+}
+
+function formatOpportunities(
+  event: ScreenerCompletedEvent
+): { text: string; html: string } {
+  const lines = event.opportunities.map(
+    (o, i) =>
+      `${i + 1}. *${o.symbol}* (${o.companyName}) — ${o.signal} | ` +
+      `momentum ${o.momentumScore.toFixed(0)} | $${o.lastPrice.toFixed(2)} ` +
+      `(${o.changePercent >= 0 ? "+" : ""}${o.changePercent.toFixed(2)}%)`
+  );
+  const universe = event.universe || "TECH";
+  const sectorLabel = event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : "";
+  const scanned = event.expectedCount && event.expectedCount > event.totalScanned
+    ? `Scanned ${event.totalScanned} of ${event.expectedCount} ${universe} stocks, ${event.matchedCount} matched.`
+    : `Scanned ${event.totalScanned} ${universe} stocks, ${event.matchedCount} matched.`;
+  const text = [
+    `📊 Market Screen — ${universe}${sectorLabel}`,
+    scanned,
+    ``,
+    ...lines,
+    ``,
+    `_Completed ${event.timestamp}_`,
+  ].join("\n");
+
+  const htmlRows = event.opportunities
+    .map(
+      (o) =>
+        `<tr><td><b>${o.symbol}</b></td><td>${o.companyName}</td>` +
+        `<td>${o.signal}</td><td>${o.momentumScore.toFixed(0)}</td>` +
+        `<td>$${o.lastPrice.toFixed(2)}</td>` +
+        `<td>${o.changePercent >= 0 ? "+" : ""}${o.changePercent.toFixed(2)}%</td></tr>`
+    )
+    .join("");
+  const html = [
+    `<h2>📊 Market Screen — ${universe}${sectorLabel}</h2>`,
+    `<p>${scanned}</p>`,
+    `<table border="1" cellpadding="6" cellspacing="0">`,
+    `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
+    htmlRows,
+    `</table>`,
+    `<p><i>Completed ${event.timestamp}</i></p>`,
+  ].join("\n");
+  return { text, html };
+}
+
+async function publishCompleted(
+  deps: ScreenerPublisherDeps,
+  event: ScreenerCompletedEvent
+): Promise<void> {
+  const { text, html } = formatOpportunities(event);
+  const plainText = text.replace(/\*/g, "");
+
+  // 1. Resolve the exact run's PDF before sending one A2A Slack file
+  // notification. Sending a separate summary and then a file generated a
+  // duplicate pair of Slack messages for each screen.
+  const cfpay = getCfpayConfig(deps.env);
+  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const pdf = await fetchScreenerPdf(deps, event.pdfKey);
+  const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+  const slackBody = pdf || cfpay
+    ? plainText
+    : `${plainText}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
+  if (cfpay) {
+    const delivery = await deliverScreenerToSlackA2A(deps.env, {
+      text: plainText,
+      channel: slackChannel,
+      ...(pdf ? {
+        pdf: {
+          ...pdf,
+          title: `Market Screen — ${event.universe || "TECH"} ${event.timestamp.slice(0, 10)}`,
+          comment: plainText,
+        },
+      } : {}),
+    });
+    if (!delivery.ok) {
+      console.warn("[ScreenerPublishers] Slack A2A delivery failed:", delivery.error);
+    }
+  } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
+    try {
+      if (pdf && deps.env.SLACK_BOT_TOKEN) {
+        await deliverPdfToSlack(deps, pdf, event, plainText);
+      } else {
+        const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+        await slack.postSlackMessage({ text: slackBody, channel: slackChannel } as any);
+      }
+    } catch (err) {
+      console.warn("[ScreenerPublishers] Slack publish failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // 2. Email — try cfpay via A2A first, fall back to local.
+  const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
+  if (emailTo) {
+    let emailOk = false;
+    if (cfpay) {
+      let r;
+      if (pdf) {
+        let binary = "";
+        for (let i = 0; i < pdf.bytes.length; i += 8192) binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+        r = await cfpaySendEmailWithAttachments(cfpay, {
+          to: emailTo,
+          subject: `📊 Market Screen [${event.universe || event.sector}] — ${event.opportunities.length} opportunities`,
+          body: plainText,
+          attachments: [{ filename: pdf.fileName, contentB64: btoa(binary), contentType: "application/pdf" }],
+        });
+      } else {
+        r = await cfpaySendEmail(cfpay, emailTo,
+          `📊 Market Screen [${event.universe || event.sector}] — ${event.opportunities.length} opportunities`, plainText);
+      }
+      emailOk = r.ok;
+      if (!r.ok) {
+        console.warn("[ScreenerPublishers] cfpay Email failed, falling back to local:", r.error);
+      }
+    }
+    if (!emailOk) {
+      try {
+        const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+        await email.sendOutboundEmail(
+          emailTo,
+          `📊 Market Screen [${event.universe || event.sector}] — ${event.opportunities.length} opportunities`,
+          `${html}${pdf ? `<p>Full report attached: ${pdf.fileName}</p>` : ""}`,
+          `${plainText}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`,
+          pdf ? (() => {
+            let binary = "";
+            for (let i = 0; i < pdf.bytes.length; i += 8192) binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+            return { fileName: pdf.fileName, contentType: "application/pdf", contentBase64: btoa(binary) };
+          })() : undefined
+        );
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Email publish failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  // 3. Webhook
+  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  if (webhookUrl) {
+    try {
+      const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
+      await webhook.dispatchOutboundWebhook(
+        "screener.completed",
+        {
+          sector: event.sector,
+          totalScanned: event.totalScanned,
+          matchedCount: event.matchedCount,
+          opportunities: event.opportunities,
+          reportUrl: event.pdfKey ? reportUrl : undefined,
+          timestamp: event.timestamp,
+        },
+        webhookUrl
+      );
+    } catch (err) {
+      console.warn("[ScreenerPublishers] Webhook publish failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+}
+
+async function publishFailed(
+  deps: ScreenerPublisherDeps,
+  event: ScreenerFailedEvent
+): Promise<void> {
+  const text = `⚠️ Market Screen FAILED — ${event.universe || "TECH"}${event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : ""}\nError: ${event.error}\n_Time: ${event.timestamp}_`;
+
+  const cfpay = getCfpayConfig(deps.env);
+  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  if (cfpay) {
+    const result = await deliverScreenerToSlackA2A(deps.env, { text });
+    if (!result.ok) console.warn("[ScreenerPublishers] Slack A2A failure-notify failed:", result.error);
+  } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
+    try {
+      const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
+      await slack.postSlackMessage({ text, channel: slackChannel } as any);
+    } catch (err) {
+      console.warn("[ScreenerPublishers] Slack failure-notify failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  if (webhookUrl) {
+    try {
+      const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
+      await webhook.dispatchOutboundWebhook(
+        "screener.failed",
+        { sector: event.sector, error: event.error, timestamp: event.timestamp },
+        webhookUrl
+      );
+    } catch (err) {
+      console.warn("[ScreenerPublishers] Webhook failure-notify failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+}
+
+/** Shared entry points for manual routes; scheduled runs use the same bus subscribers. */
+export function publishScreenerCompleted(
+  deps: ScreenerPublisherDeps,
+  event: ScreenerCompletedEvent,
+): Promise<void> {
+  return publishCompleted(deps, event);
+}
+
+export function publishScreenerFailed(
+  deps: ScreenerPublisherDeps,
+  event: ScreenerFailedEvent,
+): Promise<void> {
+  return publishFailed(deps, event);
+}
