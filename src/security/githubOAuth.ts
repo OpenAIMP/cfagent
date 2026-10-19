@@ -1,5 +1,6 @@
 import type { Env, SessionData } from "../types";
 import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId } from "./session";
+import { invalidateSessionCache } from "./sessionCache";          // ← add
 import { revokeStoredTokens } from "./etradeOAuth";
 
 function getRedirectUri(env: Env): string {
@@ -107,8 +108,9 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
           if (session?.githubLogin) {
             await revokeStoredTokens(env, session.githubLogin);
           }
-        } catch {}
+        } catch { }
       }
+      invalidateSessionCache(sessionId);       // ← NEW
       await env.SESSIONS.delete(sessionId);
     } catch {
       // Ignore KV deletion errors on logout

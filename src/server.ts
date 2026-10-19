@@ -1,5 +1,6 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
-import { getSessionId, getSession, setSessionCookie } from "./session";
+import { getSessionId, setSessionCookie } from "./session";
+import { getSessionCached } from "./security/sessionCache";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import { renderLandingPage } from "./landing";
 import { routeAgentRequest } from "agents";
@@ -1005,8 +1006,8 @@ export default {
           provenance: summarizeFlowProvenance(flows),
           ...(sub === "historical"
             ? {
-                note: "No historical options trade tape is available in this product; this returns the current modelled flow estimates, not archived prints.",
-              }
+              note: "No historical options trade tape is available in this product; this returns the current modelled flow estimates, not archived prints.",
+            }
             : {}),
           isDynamic: true,
           updatedAt: new Date().toISOString(),
@@ -1279,5 +1280,6 @@ export default {
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
   const sessionId = getSessionId(request);
   if (!sessionId) return null;
-  return await getSession(env, sessionId);
+  return await getSessionCached(env, sessionId);
 }
+
