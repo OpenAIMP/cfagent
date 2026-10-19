@@ -277,9 +277,13 @@ export async function acquireUniverse(
       );
     }
     if (quotes.length === 0) {
+      const reasonSummary = Object.entries(failureReasons)
+        .map(([reason, count]) => `${reason}=${count}`)
+        .join(", ");
       throw new Error(
         `E*TRADE unavailable: no live quotes returned for ${limited.length} symbols` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
+          (reasonSummary ? ` (failure reasons: ${reasonSummary})` : "") +
           ". No fallback data substituted."
       );
     }

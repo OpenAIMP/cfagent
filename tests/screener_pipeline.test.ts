@@ -226,4 +226,17 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
     expect(result.totalScanned).toBe(0);
     expect(result.stocks).toEqual([]);
   });
+
+  it("includes categorized broker failures when no E*TRADE quotes are returned", async () => {
+    await expect(acquireUniverse({
+      mode: "etrade-only",
+      symbols: [
+        { symbol: "NVDA", companyName: "NVIDIA", exchange: "NASDAQ" },
+        { symbol: "AAPL", companyName: "Apple", exchange: "NASDAQ" },
+      ] as any,
+      liveDeps: {
+        fetchETradeQuote: async () => { throw new Error("E*TRADE Session Expired [HTTP 401]"); },
+      },
+    })).rejects.toThrow("failure reasons: auth=2");
+  });
 });

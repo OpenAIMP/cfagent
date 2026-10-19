@@ -57,6 +57,8 @@ export interface ScreenerRunRequest {
   maxSymbols?: number;
   /** User login for E*TRADE auth scoping. */
   userLogin?: string;
+  /** E*TRADE environment selected by the signed-in user. */
+  environment?: "TEST" | "PROD";
 }
 
 export interface ScreenerRunResult {
@@ -125,7 +127,8 @@ export class ScreenerAgent extends Agent<Env> {
       const etrade = new ETradeService(
         this.getOrm(),
         this.env,
-        userLogin
+        userLogin,
+        req.environment
       );
 
       // Issue #270: resolve the universe to symbols (listings directory

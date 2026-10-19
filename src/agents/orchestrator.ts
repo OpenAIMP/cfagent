@@ -197,6 +197,10 @@ export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[nu
 
 
 
+type ETradeEnvironment = "TEST" | "PROD";
+type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
+const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
+
 export class OrchestratorAgent extends AIChatAgent<Env> {
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
@@ -444,7 +448,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Runs periodic market screening
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
-  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean; trigger?: "manual" | "scheduled" }): Promise<void> {
+  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean; trigger?: "manual" | "scheduled"; userLogin?: string; environment?: ETradeEnvironment }): Promise<void> {
     try {
       await this.waitUntilStable({ timeout: 30_000 });
     } catch {
@@ -471,9 +475,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
+      const savedContext = await this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
+      const userLogin = payload?.userLogin || savedContext?.userLogin;
+      const environment = payload?.environment || savedContext?.environment;
       const orm = this.getOrm();
-      const service = new ScheduledTasksService(this.env, orm, this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
-      const res = await service.autonomousMarketScreen(payload);
+      // Scheduled callbacks have no authenticated HTTP headers. Use the
+      // identity and environment saved from the user's schedules requests.
+      const service = new ScheduledTasksService(this.env, orm, userLogin || "", new SqlScanRunStore(this.ctx.storage.sql));
+      const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment });
       // Issue #212: persist the run for the "last results" UX endpoint.
       try {
         const key = "screener:last_runs";
@@ -2350,6 +2359,22 @@ Agentic Best Practices & Workflow Rules:
     const path = url.pathname;
     this.ensureTables();
 
+    // Cron callbacks do not retain request headers. Save the authenticated
+    // schedule owner's login and selected E*TRADE environment for later runs.
+    if (/(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path)) {
+      const userLogin = request.headers.get("x-user-login") || "";
+      const environment = (request.headers.get("x-environment") || "").toUpperCase();
+      if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin)) {
+        const previous = await this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
+        await this.ctx.storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
+          userLogin,
+          environment: environment === "TEST" || environment === "PROD"
+            ? environment
+            : previous?.environment,
+        });
+      }
+    }
+
     if (/(?:^|\/api)\/jobs$/.test(path) && request.method === "GET") {
       const jobs = this.listAsyncJobs(Number(url.searchParams.get("limit")) || 50).map((job) => {
         const { result: _result, ...summary } = job;
@@ -3450,7 +3475,10 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/schedules/trigger-screen") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        await this.autonomousMarketScreen({ ...body, trigger: "manual" });
+        const userLogin = request.headers.get("x-user-login") || undefined;
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : undefined;
+        await this.autonomousMarketScreen({ ...body, userLogin, environment, trigger: "manual" });
         return Response.json({ success: true, message: "Autonomous market screen triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
