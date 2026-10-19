@@ -516,6 +516,17 @@ export class DatabaseORM {
         generation_id TEXT
       )
     `);
+    // Issue #389: Additive migration for generation_id (added by #308).
+    // CREATE TABLE IF NOT EXISTS does not add columns to existing tables,
+    // so we must ALTER existing mas_reports tables that predate #308.
+    try {
+      this.sql.exec(`ALTER TABLE mas_reports ADD COLUMN generation_id TEXT`);
+    } catch (e: any) {
+      // Ignore "duplicate column name" — column already exists.
+      if (!String(e?.message || e).includes("duplicate column")) {
+        throw e;
+      }
+    }
     this.sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON mas_reports (created_at DESC)
     `);
