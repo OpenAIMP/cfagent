@@ -1,7 +1,7 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import type { Schedule, ScheduleCriteria } from "agents";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "./model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
@@ -76,7 +76,7 @@ import { SlackAgent } from "./slackAgent";
 import { ETradeVoiceTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
-import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
+import { executeMCPTool } from "../mcp";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 // Issue #308: the single generate→store seam + canonical report bodies.
@@ -91,6 +91,7 @@ import {
 // Issue #359-01: reports + HITL routes live in src/agents/routes/reports.ts;
 // routeRequest delegates to handleReportsRoutes at the original position.
 import { handleReportsRoutes } from "./routes/reports";
+import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2505,173 +2506,27 @@ Agentic Best Practices & Workflow Rules:
     });
     if (reportsResponse) return reportsResponse;
 
-    // Model Context Protocol (MCP) Server Endpoint (JSON-RPC 2.0 & Discovery)
-    if (path.endsWith("/mcp")) {
-      const orm = this.getOrm();
-
-      if (request.method === "GET") {
-        return Response.json({
-          server: MCP_SERVER_INFO,
-          tools: MCP_TOOLS,
-          resources: MCP_RESOURCES,
-          prompts: MCP_PROMPTS,
-          endpoints: {
-            jsonrpc: "/api/mcp",
-            protocol: "MCP JSON-RPC 2.0",
-          },
-        });
-      }
-
-      if (request.method === "POST") {
-        try {
-          const body = (await request.json().catch(() => ({}))) as any;
-          const response = await handleMCPRequest(body, {
-            env: this.env,
-            orm,
-            sessionId,
-            audit: (type, agent, payload) => this.audit(type, agent, payload),
-            submitJob: (job) => this.submitAsyncJob(job),
-            getJob: (jobId) => this.getAsyncJob(jobId),
-            listJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
-          });
-          return Response.json(response);
-        } catch (err: any) {
-          return Response.json(
-            { jsonrpc: "2.0", id: null, error: { code: -32603, message: err.message || "Internal error" } },
-            { status: 500 }
-          );
-        }
-      }
-    }
-
-    // Natural Language Query (NLQ) endpoint
-    // Issue #312: the advertised POST /api/chat. The Worker strips the /api
-    // prefix when forwarding, so it arrives here as /chat (also registered as
-    // an immediate endpoint in onRequest so it is not queued as an async job).
-    // This is a thin adapter over the single-owner agentic chat turn
-    // (runAgenticChatTurn) — the same judge-routed pipeline the WebSocket chat
-    // runs. The HTTP response carries the completed turn as JSON; true
-    // streaming remains available over the agent WebSocket chat the UI uses.
-    // One turn per request, executed against the per-user conversation state.
-    if ((path === "/chat" || path === "/api/chat") && request.method === "POST") {
-      const chatBody = (await request.json().catch(() => null)) as {
-        messages?: Array<{ role?: unknown; content?: unknown }>;
-      } | null;
-      const incoming = Array.isArray(chatBody?.messages) ? chatBody.messages : [];
-      const lastUserMessage = [...incoming]
-        .reverse()
-        .find((m) => typeof m?.role === "string" && (m.role as string).toLowerCase() === "user");
-      const chatUserText = this.extractMessageText(lastUserMessage);
-      if (!chatUserText) {
-        return Response.json(
-          { error: "messages must be a non-empty array with a final user message containing text." },
-          { status: 400 }
-        );
-      }
-      const chatUserLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-      try {
-        // Merge this turn into the per-user conversation state (deduped by
-        // tail so a re-sent history is not duplicated), then run the pipeline.
-        const tailUser = [...(this.messages || [])]
-          .reverse()
-          .find((m: any) => m?.role === "user");
-        if (this.extractMessageText(tailUser) !== chatUserText) {
-          this.messages = [
-            ...(this.messages || []),
-            {
-              id: crypto.randomUUID(),
-              role: "user",
-              content: chatUserText,
-              parts: [{ type: "text", text: chatUserText }],
-            } as any,
-          ];
-          this.recordMessage("user", chatUserText, "orchestrator");
-          await this.persistMessages(this.messages as any);
-        }
-        const chatRecentTurns = (this.messages || []).slice(-6).map((m: any) => ({
-          role: m?.role,
-          content: this.extractMessageText(m),
-        }));
-
-        const { result: chatResult, route: chatRoute } = await this.runAgenticChatTurn({
-          userText: chatUserText,
-          recentTurns: chatRecentTurns,
-          userLogin: chatUserLogin,
-          isAutoOptionsResearchRequest: false,
-        });
-        const chatText = await chatResult.text;
-        this.messages = [
-          ...(this.messages || []),
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: chatText,
-            parts: [{ type: "text", text: chatText }],
-          } as any,
-        ];
-        await this.persistMessages(this.messages as any);
-        this.audit("chat.http_turn", "orchestrator", {
-          route: chatRoute.agent,
-          confidence: chatRoute.confidence,
-          reason: chatRoute.reason,
-        });
-
-        return Response.json({
-          reply: chatText,
-          route: {
-            agent: chatRoute.agent,
-            confidence: chatRoute.confidence,
-            reason: chatRoute.reason,
-            needsConfirmation: chatRoute.needsConfirmation,
-          },
-          model: resolveAiModelName(this.env),
-          streaming: false,
-        });
-      } catch (err) {
-        // Same degraded content the WebSocket chat would stream, as JSON.
-        const fallbackText = await this.buildChatErrorFallback(err, chatUserText, chatUserLogin);
-        this.recordMessage("assistant", fallbackText, "orchestrator");
-        return Response.json({ reply: fallbackText, fallback: true, streaming: false });
-      }
-    }
-
-    if (path.endsWith("/nlq") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as {
-          query?: string;
-          context?: string;
-          validateWithLLM?: boolean;
-        };
-        const query = (body.query || "").trim();
-        if (!query) {
-          return Response.json({ error: "Query parameter is required" }, { status: 400 });
-        }
-
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const contextHeader = request.headers.get("x-nlq-context") || body.context;
-        const userDid = getUserDid(sessionId);
-        const orm = this.getOrm();
-        const { plan, result } = await executeNaturalLanguageQuery(
-          orm,
-          sessionId,
-          query,
-          this.env,
-          userLogin,
-          userDid,
-          { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
-        );
-        this.audit("nlq.executed", "nlq", {
-          query,
-          domain: result.domain,
-          operation: plan.operation,
-          count: result.count,
-        });
-
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "NLQ query processing failed" }, { status: 500 });
-      }
-    }
+    // Issue #359-02: MCP + chat + NLQ routes are handled by
+    // src/agents/routes/mcpChatNlq.ts. Invoked at this exact position in the
+    // sequential path.endsWith matching sequence; a non-null return matched.
+    const mcpChatNlqResponse = await handleMcpChatNlqRoutes(request, url, path, sessionId, {
+      getOrm: () => this.getOrm(),
+      getStorageSql: () => this.ctx.storage.sql,
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      submitAsyncJob: (job) => this.submitAsyncJob(job),
+      getAsyncJob: (jobId) => this.getAsyncJob(jobId),
+      listAsyncJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
+      extractMessageText: (message) => this.extractMessageText(message),
+      getMessages: () => this.messages,
+      setMessages: (messages) => { this.messages = messages; },
+      recordMessage: (role, content, agent) => this.recordMessage(role, content, agent),
+      persistMessages: (messages) => this.persistMessages(messages),
+      runAgenticChatTurn: (opts) => this.runAgenticChatTurn(opts),
+      buildChatErrorFallback: (err, userText, userLogin) => this.buildChatErrorFallback(err, userText, userLogin),
+      nlqSchedulingPort: () => this.nlqSchedulingPort(),
+    });
+    if (mcpChatNlqResponse) return mcpChatNlqResponse;
 
     // Schema Introspection & Database Tables via ORM
     if (path.endsWith("/schema/tables") && request.method === "GET") {
