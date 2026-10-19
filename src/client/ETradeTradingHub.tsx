@@ -18,6 +18,8 @@ import { AccountPanels } from "./AccountPanels";
 import { ScannerPanel } from "./ScannerPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub } from "./ScreenersHub";
+import { ReportsPanel } from "./ReportsPanel";
+import { SchedulesPanel } from "./SchedulesPanel";
 import { IvHistoryPanel } from "./IvHistoryPanel";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
@@ -40,6 +42,8 @@ export type TradingSubTab =
   | "autopilot"
   | "scanner"
   | "screeners"
+  | "reports"
+  | "schedules"
   | "iv-history"
   | "options"
   | "llm-ideas"
@@ -1227,6 +1231,8 @@ export function ETradeTradingHub({
       autopilot: "Autopilot Control Center",
       scanner: "Strategy/Symbol Scanner",
       screeners: "Multi-Asset Screeners",
+      reports: "Reports",
+      schedules: "Schedules",
       "iv-history": "IV History",
       options: "Auto Options Research",
       "llm-ideas": "LLM Idea Experiment",
@@ -1548,6 +1554,14 @@ export function ETradeTradingHub({
           userLogin={user?.login}
           onStocksLoaded={setScreenerStocks}
         />
+      )}
+
+      {effectiveSubTab === "reports" && (
+        <ReportsPanel />
+      )}
+
+      {effectiveSubTab === "schedules" && (
+        <SchedulesPanel activeEnv={activeEnv} userLogin={user?.login} />
       )}
 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
