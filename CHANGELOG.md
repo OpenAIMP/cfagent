@@ -40,6 +40,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   queries and 29 NLQ questions with accuracy/regression thresholds in CI.
 - **Per-run PDF naming** (#297): screener PDFs are stored per run as
   `{screener}_{universe}_{schedule}_{timestamp}_{jobId}`.
+- **Auto-tag every deploy** (#321): the deploy workflow tags each
+  successful production deploy `v0.1.<patch>` (auto-incrementing),
+  pointing at the deployed commit for rollback and release tracking;
+  milestones bump minor/major manually.
 
 ### Changed
 
@@ -50,6 +54,9 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Options scanner defaults** (#296): scans default to the NASDAQ-100
   universe instead of 4 symbols; scanner delivery tries the cfpay A2A
   Slack/Email path first with local fallback (#303).
+- **Reports/Schedules panels wired into navigation** (#324): the #309
+  panels are reachable from the app navigation (NavigationMenu +
+  ETradeTradingHub) instead of existing as orphan surfaces.
 
 ### Security
 
