@@ -19,6 +19,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **Reports/Schedules tabs render their panels** (#388): the #309 navigation items were missing from Chat's `TRADING_TABS` and `mapTabToTradingSubTab`, so selecting Reports or Schedules hid the trading hub and rendered a blank main view. Both tabs are now trading tabs with explicit subtab mappings and breadcrumb labels; a regression test pins the wiring.
+- **Research section default view restored** (#387): the Trading hub research section landed on the new Autonomous runs panel (empty state) instead of the per-symbol research panel it showed before #319. The toggle now defaults to Symbol research; Autonomous runs remains one click away.
 
 ### Added
 

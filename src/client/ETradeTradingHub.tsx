@@ -90,7 +90,9 @@ export function ETradeTradingHub({
     onSelectSubTab?.(newSubTab);
   };
   // Issue #319: toggle between per-symbol research and the autonomous runs surface.
-  const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("runs");
+  // Issue #387: default to "symbol" — the section landed on the per-symbol
+  // panel before #319; the runs surface is an addition, not a replacement.
+  const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("symbol");
 
   useEffect(() => {
     if (activeSubTab && activeSubTab !== subTab) {
