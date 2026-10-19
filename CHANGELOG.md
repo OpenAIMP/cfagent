@@ -18,6 +18,14 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Manual options scans → Slack via A2A** (#358): the `/trading/options/unified`
+  endpoint now honors a `pushToSlack` request-body param. After the scan
+  completes (action `opportunities`), the summary text goes via
+  `cfpayPostToSlack()` and the options PDF report (`generateOptionsPdf()`) via
+  `cfpayPostFileToSlack()` — same pattern as the scheduled path in
+  `scheduledTasks.ts:autonomousOptionsAnalysis()`. Optional `slackChannel`
+  param overrides `SCREENER_SLACK_CHANNEL`.
+
 - **Scheduled research run restored via the */30 tick** (#354): the account's
   Workers Free 5-cron-trigger ceiling (error 10072) makes the dedicated
   `0 21 * * 1-5` trigger impossible, so its `scheduled()` branch was dead

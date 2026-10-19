@@ -5923,6 +5923,45 @@ Agentic Best Practices & Workflow Rules:
         const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm(), new SqlScanRunStore(this.ctx.storage.sql), new SqlStrategyProfileStore(this.ctx.storage.sql));
         const result = await service.execute(reqData);
 
+        // Issue #358: manual options scans → Slack via A2A (preferred solution).
+        // Same pattern as scheduled in scheduledTasks.ts:autonomousOptionsAnalysis,
+        // triggered by the pushToSlack request-body param instead of cron.
+        const pushToSlack = reqData.pushToSlack === true || reqData.pushToSlack === "true" || reqData.pushToSlack === "1";
+        if (pushToSlack && reqData.action === "opportunities") {
+          const slackChannel = reqData.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
+          const timestamp = new Date().toISOString();
+          try {
+            const { getCfpayConfig, cfpayPostToSlack, cfpayPostFileToSlack } = await import("../services/cfpayA2A");
+            const cfpay = getCfpayConfig(this.env);
+            if (cfpay) {
+              const slackPayload = result.toSlack();
+              const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
+              const r = await cfpayPostToSlack(cfpay, text, slackChannel);
+              if (!r.ok) console.warn("[Orchestrator] cfpay Slack (manual options) failed:", r.error);
+              const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+              const pdfBytes = await generateOptionsPdf(result.data);
+              const fileName = optionsPdfFileName(result.data);
+              let binary = "";
+              const chunk = 8192;
+              for (let i = 0; i < pdfBytes.length; i += chunk) {
+                binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
+              }
+              const pr = await cfpayPostFileToSlack(cfpay, {
+                channel: slackChannel,
+                filename: fileName,
+                contentB64: btoa(binary),
+                title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
+                initial_comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched`,
+              });
+              if (!pr.ok) console.warn("[Orchestrator] cfpay PDF upload (manual options) failed:", pr.error);
+            } else {
+              console.warn("[Orchestrator] pushToSlack requested but cfpay A2A is not configured");
+            }
+          } catch (slackErr) {
+            console.warn("[Orchestrator] Slack notification (manual options) error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
+          }
+        }
+
         const channel = reqData.channel || "ui";
         if (channel === "slack") {
           return Response.json(result.toSlack());
