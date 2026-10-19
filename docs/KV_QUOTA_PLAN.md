@@ -1,7 +1,23 @@
 # KV free-tier quota: feasibility assessment and plan (issue #329)
 
-Status: **decision required** — plan only, no code changed.
+Status: **shipped except P0 (ops) and P4 (this doc set)** - see the status block below.
 Last updated: 2026-10-19.
+
+## Status: what shipped
+
+| Item | PR | State |
+| --- | --- | --- |
+| Static assets off the auth path | #407, #414 | live |
+| Sessions + E*TRADE credentials in `SessionStore` DO | #416 | live |
+| `SESSIONS_KV_FALLBACK=off` (no KV at all for those paths) | #417 | live |
+| Polling: 4s -> 20s idle / 4s busy, 30s -> 60s, paused when hidden | #418 | live |
+| x402 replay guard -> serialised DO `consume` | #420 | live |
+| KV usage alerting (50% + rate-of-change) | - | **open (P0, outside this repo)** |
+
+With those merged, the request path no longer touches KV: sessions, credentials
+and replay claims all live in the Durable Object. P1 was still necessary, and is
+still the capacity fix, because Workers requests and KV reads share the same
+100k/day free-tier budget.
 
 ## 0. Verdict
 
@@ -161,7 +177,12 @@ Two ways, neither of which requires switching to cookies:
 
 P2b is the lower-risk option and the better fit if the objection to cookies is revocation semantics — it keeps KV authoritative and only shortens how often you ask.
 
-**Status: P2b is implemented and live.** `src/security/sessionCache.ts` holds the bounded `Map` (500 entries, 30 s TTL, 10 s for misses, oldest-entry eviction, explicit invalidation hook), wired in through the `src/session.ts` facade so `requireAuth` reads through it. The one gap is the local-logout purge: `handleLogout` deletes the KV key directly and cannot yet call `invalidateSessionCache`, because that file is refused by the workspace secret scanner. Until it lands, a logged-out session can keep authenticating for up to 30 s in the isolate that served the logout. Remaining edits are listed in `docs/patches/329-kv-session-cache-wiring.md`.
+**Status: superseded.** P2b shipped as `src/security/sessionCache.ts` (bounded
+`Map`, 500 entries, 30 s TTL, 10 s for misses, explicit invalidation), and the
+logout gap it described is closed: `handleLogout` now calls
+`invalidateSessionCache`. The storage move in #416 then took sessions and
+credentials off KV entirely, so the cache is a latency layer in front of the
+Durable Object rather than a KV read reducer.
 
 ### P3 — Write hygiene (~1 hour)
 
@@ -183,6 +204,7 @@ Document the budget in `docs/OBSERVABILITY.md` (reads, writes, the 00:00 UTC res
 
 | State | KV reads/tab/day | Requests/tab/day | Notes |
 | --- | --- | --- | --- |
+| After #414-#420 (today) | 0 (KV is a migration source only, off in prod) | 5,760 | ~17 tabs; x402 guard is DO-serialised |
 | Today | 24,480 | 24,480 | ~4 tabs exhausts both; they fail together |
 | After P1 | 5,760 | 5,760 | **~17 tabs** — both axes move together |
 | After P1 + P2a (cookie) | ~0 + token reads | 5,760 | Ceiling unchanged at ~17; auth now survives KV exhaustion |
@@ -211,4 +233,7 @@ Post-P1, the Workers request allowance is the binding constraint and KV reads si
 - The read/write attribution in §3 is inferred from code, not measured. **P0.1 settles it.**
 - Concurrency is unknown: the per-tab model assumes panels left mounted, which is the normal state for this UI.
 - `SessionData` size is small enough for a cookie; to be confirmed against the cookie limit before P2a.
-- Not investigated: Worker CPU/DO request quotas, and whether `assets.run_worker_first: true` (`wrangler.jsonc:8`) makes static-asset requests count against the 100k request allowance. If it does, page loads are a larger consumer than polling and that ordering changes. Worth checking before P1 sizing.
+- **Answered:** `assets.run_worker_first: true` did route static assets through
+  the Worker, so they spent request allowance. #414 scoped it to
+  `["/", "/index.html"]`: assets are served by the asset layer and never invoke
+  the Worker. Worker CPU/DO request quotas were not measured.
