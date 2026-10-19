@@ -52,6 +52,7 @@ export function RawContractsScreener({
   const [contracts, setContracts] = useState<ScreenedOptionContractItem[]>([]);
   const [summary, setSummary] = useState("");
   const [scannedAt, setScannedAt] = useState<string | null>(null);
+  const [reportUrl, setReportUrl] = useState<string | null>(null);
 
   // In-memory table search & filter
   const [tableSearch, setTableSearch] = useState("");
@@ -70,7 +71,7 @@ export function RawContractsScreener({
         ...(userLogin ? { "x-user-login": userLogin } : {}),
         ...(paymentSignature ? { "PAYMENT-SIGNATURE": paymentSignature } : {}),
       },
-      body: JSON.stringify(filters),
+      body: JSON.stringify({ ...filters, pushToSlack: true }),
     });
 
     const body = (await response.json()) as Record<string, any>;
@@ -94,6 +95,7 @@ export function RawContractsScreener({
       matchedCount?: number;
       totalMatches?: number;
       scannedAt?: string;
+      reportUrl?: string;
     };
 
     if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
@@ -106,6 +108,7 @@ export function RawContractsScreener({
         `${data.totalContractsEvaluated ?? 0} evaluated · ${data.totalMatches ?? results.length} matching contracts (limit ${filters.limit})`
     );
     setScannedAt(data.scannedAt ? new Date(data.scannedAt).toLocaleTimeString() : new Date().toLocaleTimeString());
+    setReportUrl(data.reportUrl || null);
     setPending(null);
     return null;
   };
@@ -401,6 +404,7 @@ export function RawContractsScreener({
                 · Updated: {scannedAt}
               </span>
             )}
+            {reportUrl && <a href={reportUrl} download>📄 Download this run’s PDF</a>}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>

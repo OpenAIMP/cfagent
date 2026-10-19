@@ -195,6 +195,9 @@ export async function acquireUniverse(
     if (lower.includes("null-response")) {
       return "api-empty-response";
     }
+    if (lower.includes("http 200 empty response") || lower.includes("returned no quote data")) {
+      return "api-empty-response";
+    }
     if (lower.includes("zero-price")) {
       return "api-zero-price";
     }

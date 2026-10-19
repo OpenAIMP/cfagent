@@ -401,6 +401,8 @@ export class ETradeService {
    */
   async fetchQuoteRemote(symbol: string): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
+    const envConfig = this.client.getEnvConfig();
+    let quoteError: unknown;
     try {
       const live = await this.client.fetchQuote(cleanSym);
       if (live && live.lastPrice > 0) {
@@ -410,9 +412,22 @@ export class ETradeService {
           cleanSym !== "GOOGL";
         if (!isStub) return live;
       }
-    } catch {
-      // Fall through to platform quote
+      quoteError = this.client.getLastError();
+    } catch (err) {
+      quoteError = err;
     }
+    if (envConfig.isLive) {
+      // Do not turn a failed live request into a stale screener-cache or
+      // curated-table price. That was hiding upstream quote errors and made
+      // the E*TRADE-only screener report misleading symbol-not-quotable data.
+      const detail = quoteError instanceof Error
+        ? quoteError.message
+        : typeof quoteError === "string" && quoteError
+          ? quoteError
+          : this.client.getLastError();
+      throw new Error(detail || `E*TRADE returned no live quote for ${cleanSym}`);
+    }
+    // Sandbox retains its explicit mock/cache behavior for development.
     return this.platform.getQuote(cleanSym);
   }
 

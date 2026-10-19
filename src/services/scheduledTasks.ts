@@ -27,20 +27,19 @@ import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import { generateOptionsPdf, optionsPdfFileName } from "../trading";
-import { postFilesToSlack } from "../services/slackFiles";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import {
   getCfpayConfig,
-  cfpayPostToSlack,
   cfpaySendEmail,
+  cfpaySendEmailWithAttachments,
 } from "./cfpayA2A";
-import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
+import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 
 export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
@@ -55,6 +54,7 @@ export interface AutonomousOptionsAnalysisOptions {
   emailTo?: string;
   webhookUrl?: string;
   environment?: string;
+  trigger?: "manual" | "scheduled";
 }
 
 /**
@@ -226,6 +226,7 @@ export class ScheduledTasksService {
     allStocks: ScannedStock[];
     sector?: string;
     universe?: string;
+    expectedCount?: number;
   }>> {
     const timestamp = new Date().toISOString();
 
@@ -246,7 +247,7 @@ export class ScheduledTasksService {
       // Audit every run (not just ones with hits) so "Recent autonomous
       // actions" shows the full history, including quiet runs.
       this.audit("screener.run_completed", {
-        sector: options.sector || "ALL",
+        sector: result.sector,
         universe: result.universe,
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
@@ -255,7 +256,7 @@ export class ScheduledTasksService {
       });
       if (result.opportunities.length > 0) {
         this.audit("screener.opportunities_detected", {
-          sector: options.sector || "ALL",
+          sector: result.sector,
           universe: result.universe,
           count: result.opportunities.length,
           symbols: result.opportunities.map(s => s.symbol),
@@ -267,7 +268,12 @@ export class ScheduledTasksService {
       await this.publishScreenerEvent({
         type: "screener.completed",
         timestamp,
-        sector: options.sector || "ALL",
+        universe: result.universe,
+        trigger: "scheduled",
+        expectedCount: result.expectedCount,
+        pdfKey: result.pdfKey,
+        deliveryId: `scheduled:${result.universe}:${timestamp.slice(0, 13)}`,
+        sector: result.sector || options.sector || "Technology",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
@@ -281,7 +287,9 @@ export class ScheduledTasksService {
           matchedCount: result.matchedCount,
           opportunities: result.opportunities,
           allStocks: result.allStocks,
-          sector: options.sector,
+          sector: result.sector,
+          universe: result.universe,
+          expectedCount: result.expectedCount,
         },
         timestamp,
       };
@@ -313,7 +321,10 @@ export class ScheduledTasksService {
       await this.publishScreenerEvent({
         type: "screener.failed",
         timestamp,
-        sector: options.sector || "ALL",
+        universe: options.universe || "TECH",
+        trigger: "scheduled",
+        deliveryId: `scheduled:${options.universe || "TECH"}:${timestamp.slice(0, 13)}`,
+        sector: options.sector || "Technology",
         error: err.message || "Market screener execution error",
       });
 
@@ -513,28 +524,30 @@ export class ScheduledTasksService {
       webhook?: boolean;
     };
     opportunities?: any[];
+    reportUrl?: string;
   }>> {
     const timestamp = new Date().toISOString();
-    // Resolve universe to symbols if specified; otherwise use explicit
-    // symbols or default to NASDAQ100 universe (issue #296).
-    // The old 4-symbol hardcoded default (AAPL, NVDA, SPY, MSFT) was too
-    // narrow for a scheduled scanner.
-    let symbols: string[];
-    const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
-    if (effectiveUniverse) {
-      const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
-      const { resolveUniverse, UNIVERSES } = await import("../trading");
-      const listings = await fetchAllUsStockListings();
-      const universeDef = UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES];
-      const resolved = resolveUniverse(effectiveUniverse as any, listings);
-      const maxSymbols = universeDef?.defaultMaxSymbols ?? 50;
-      symbols = resolved.slice(0, maxSymbols).map((l) => l.symbol);
-    } else {
-      symbols = options.symbols!;
-    }
+    let symbols: string[] = [];
     const targetThesis = options.thesis || "bullish";
+    const shouldNotifySlack = options.pushToSlack === true ||
+      (options.pushToSlack === undefined && Boolean(this.env.SLACK_BOT_TOKEN || getCfpayConfig(this.env)));
 
     try {
+      // Resolve universe to symbols inside the failure boundary so listings
+      // and E*TRADE errors reach the scheduled failure notification path.
+      const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
+      if (effectiveUniverse) {
+        const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
+        const { resolveUniverse, UNIVERSES } = await import("../trading");
+        const listings = await fetchAllUsStockListings();
+        const universeDef = UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES];
+        const resolved = resolveUniverse(effectiveUniverse as any, listings);
+        const maxSymbols = universeDef?.defaultMaxSymbols ?? 50;
+        symbols = resolved.slice(0, maxSymbols).map((l) => l.symbol);
+      } else {
+        symbols = options.symbols || [];
+      }
+
       const unifiedService = new UnifiedOptionsService(
         this.env,
         this.userLogin,
@@ -554,83 +567,49 @@ export class ScheduledTasksService {
         userLogin: this.userLogin,
         overrideEnv: options.environment,
       });
+      if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
 
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
+      let optionsPdf: Uint8Array | undefined;
+      let optionsPdfFile: string | undefined;
+      let optionsPdfKey: string | undefined;
+      try {
+        optionsPdf = await generateOptionsPdf(response.data);
+        optionsPdfFile = optionsPdfFileName(response.data);
+        let binary = "";
+        for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
+        optionsPdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), optionsPdfFile);
+      } catch (pdfErr) {
+        console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+      }
+      const reportUrl = optionsPdfKey
+        ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`
+        : undefined;
 
-      // 1. Push to Slack if requested or if SLACK_BOT_TOKEN is present
-      // Issue #303: Try cfpay via A2A first, fall back to local.
-      if (options.pushToSlack || this.env.SLACK_BOT_TOKEN) {
-        const cfpay = getCfpayConfig(this.env);
-        const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
-        let slackOk = false;
-        if (cfpay) {
-          try {
-            const slackPayload = response.toSlack();
-            const text = typeof slackPayload === 'string' ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
-            const r = await cfpayPostToSlack(cfpay, text, slackChannel);
-            slackOk = r.ok;
-            if (!r.ok) {
-              console.warn("[ScheduledTasksService] cfpay Slack failed, falling back to local:", r.error);
-            }
-          } catch (err) {
-            console.warn("[ScheduledTasksService] cfpay Slack error:", err);
-          }
-        }
-        if (!slackOk) {
-          try {
-            const slackService = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
-            const slackPayload = response.toSlack();
-            if (options.slackChannel) {
-              slackPayload.channel = options.slackChannel;
-            }
-            notifications.slack = await slackService.postSlackMessage(slackPayload);
-          } catch (slackErr) {
-            console.warn("[ScheduledTasksService] Slack notification error:", slackErr);
-            notifications.slack = false;
-          }
-        } else {
-          notifications.slack = true;
-        }
-
-        // Issue #350: Attach options PDF report to Slack via A2A (preferred solution).
-        // Reuses cfpay's Slack agent via A2A instead of local upload.
+      // One A2A file operation creates one Slack notification with the
+      // summary attached, avoiding the old text-plus-file duplicate pair.
+      if (shouldNotifySlack) {
+        const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
+        const slackPayload = response.toSlack();
+        const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
         try {
-          const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
-          const { getCfpayConfig, cfpayPostFileToSlack } = await import("../services/cfpayA2A");
-          const pdfBytes = await generateOptionsPdf(response.data);
-          const fileName = optionsPdfFileName(response.data);
-          // Convert Uint8Array to base64
-          let binary = "";
-          const chunk = 8192;
-          for (let i = 0; i < pdfBytes.length; i += chunk) {
-            binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
-          }
-          const base64 = btoa(binary);
-          
-          // Issue #361: Store options PDF in ScreenerAgent DO storage (mirrors stock pattern).
-          // Uses DO storage, not KV (PR #414 removed KV writes as dead code).
-          try {
-            const screenerAgent = this.getScreenerAgent();
-            await screenerAgent.storeOptionsPdf(base64, fileName);
-          } catch (storeErr) {
-            console.warn("[ScheduledTasksService] Options PDF DO storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
-          }
-          
-          const cfpayCfg = getCfpayConfig(this.env);
-          if (cfpayCfg) {
-            const r = await cfpayPostFileToSlack(cfpayCfg, {
-              channel: slackChannel,
-              filename: fileName,
-              contentB64: base64,
+          const delivery = await deliverScreenerToSlackA2A(this.env, {
+            text,
+            channel: slackChannel,
+            ...(optionsPdf && optionsPdfFile ? { pdf: {
+              bytes: optionsPdf,
+              fileName: optionsPdfFile,
               title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
-              initial_comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched`,
-            });
-            if (!r.ok) {
-              console.warn("[ScheduledTasksService] cfpay PDF upload failed:", r.error);
-            }
-          }
+              comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
+            } } : {}),
+          });
+          notifications.slack = delivery.ok;
+          if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A PDF delivery failed:", delivery.error);
         } catch (pdfErr) {
-          console.warn("[ScheduledTasksService] Options PDF upload failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+          console.warn("[ScheduledTasksService] Options Slack delivery failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+          const delivery = await deliverScreenerToSlackA2A(this.env, { text, channel: slackChannel });
+          notifications.slack = delivery.ok;
+          if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A notification failed:", delivery.error);
         }
       }
 
@@ -641,12 +620,21 @@ export class ScheduledTasksService {
         let emailOk = false;
         if (cfpay) {
           try {
-            const r = await cfpaySendEmail(
-              cfpay,
-              options.emailTo,
-              `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
-              response.toEmailText()
-            );
+            const subject = `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`;
+            const body = `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`;
+            let r;
+            if (optionsPdf && optionsPdfFile) {
+              let binary = "";
+              for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
+              r = await cfpaySendEmailWithAttachments(cfpay, {
+                to: options.emailTo,
+                subject,
+                body,
+                attachments: [{ filename: optionsPdfFile, contentB64: btoa(binary), contentType: "application/pdf" }],
+              });
+            } else {
+              r = await cfpaySendEmail(cfpay, options.emailTo, subject, body);
+            }
             emailOk = r.ok;
             if (!r.ok) {
               console.warn("[ScheduledTasksService] cfpay Email failed, falling back to local:", r.error);
@@ -662,7 +650,12 @@ export class ScheduledTasksService {
               options.emailTo,
               `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
               response.toEmailHtml(),
-              response.toEmailText()
+              `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`,
+              optionsPdf && optionsPdfFile ? {
+                fileName: optionsPdfFile,
+                contentType: "application/pdf",
+                contentBase64: (() => { let b = ""; for (let i = 0; i < optionsPdf!.length; i += 8192) b += String.fromCharCode(...optionsPdf!.subarray(i, i + 8192)); return btoa(b); })(),
+              } : undefined
             );
           } catch (emailErr) {
             console.warn("[ScheduledTasksService] Email notification error:", emailErr);
@@ -678,7 +671,7 @@ export class ScheduledTasksService {
       if (targetWebhookUrl) {
         try {
           const webhookService = new ETradeWebhookService(this.orm, this.env, this.userLogin);
-          const webhookPayload = response.toWebhook();
+          const webhookPayload = { ...response.toWebhook(), reportUrl };
           const whResult = await webhookService.dispatchOutboundWebhook(
             "options.scheduled_analysis",
             webhookPayload,
@@ -729,6 +722,7 @@ export class ScheduledTasksService {
           summary: response.summary,
           notifications,
           opportunities: response.data?.opportunities,
+          reportUrl,
         },
         timestamp,
       };
@@ -755,6 +749,14 @@ export class ScheduledTasksService {
         } catch {
           // Non-critical message record error
         }
+      }
+
+      if (shouldNotifySlack) {
+        const failure = await deliverScreenerToSlackA2A(this.env, {
+          channel: options.slackChannel,
+          text: `⚠️ Scheduled Options Screen FAILED — ${options.universe || symbols.join(", ") || "NASDAQ100"} (${targetThesis})\nError: ${err.message || "Scheduled options analysis failed"}\n_Time: ${timestamp}_`,
+        });
+        if (!failure.ok) console.warn("[ScheduledTasksService] Slack A2A failure notification failed:", failure.error);
       }
 
       return {

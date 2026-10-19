@@ -643,7 +643,7 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
       <div className="scp-results-head">
         <strong>Mode: {MODE_LABELS[mode]}</strong>
         <a
-          href="/api/options/report.pdf"
+          href={result.reportUrl || "/api/options/report.pdf"}
           download
           style={{
             fontSize: "0.8rem",

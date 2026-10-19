@@ -73,6 +73,7 @@ export type {
 export interface OpportunityScanResponse extends OpportunityScanResult {
   action: string;
   success: boolean;
+  reportUrl?: string;
   scanRunId?: string;
   persisted?: boolean;
   meta?: {
@@ -129,7 +130,7 @@ export async function runOpportunityScan(
   const resp = await apiFetch("/api/trading/options/unified", {
     method: "POST",
     headers: headers(activeEnv, userLogin, true),
-    body: JSON.stringify({ ...body, action: "opportunities" }),
+    body: JSON.stringify({ ...body, action: "opportunities", pushToSlack: true }),
   });
   const data = (await resp.json().catch(() => ({}))) as Record<string, unknown> & { error?: string };
   if (!resp.ok) throw new Error(data.error || `Scanner request failed (${resp.status})`);

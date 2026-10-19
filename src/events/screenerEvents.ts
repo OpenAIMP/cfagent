@@ -23,6 +23,15 @@ export interface ScreenerOpportunity {
 export interface ScreenerCompletedEvent {
   type: "screener.completed";
   timestamp: string;
+  /** The selected stock universe; distinct from the sector filter. */
+  universe?: string;
+  trigger?: "manual" | "scheduled";
+  /** Target size before any E*TRADE quote failures or filters. */
+  expectedCount?: number;
+  /** Per-run PDF storage key, avoiding races through the latest-report pointer. */
+  pdfKey?: string;
+  /** Stable delivery id used to suppress duplicate scheduled notifications. */
+  deliveryId?: string;
   sector: string;
   totalScanned: number;
   matchedCount: number;
@@ -32,6 +41,9 @@ export interface ScreenerCompletedEvent {
 export interface ScreenerFailedEvent {
   type: "screener.failed";
   timestamp: string;
+  universe?: string;
+  trigger?: "manual" | "scheduled";
+  deliveryId?: string;
   sector: string;
   error: string;
 }
