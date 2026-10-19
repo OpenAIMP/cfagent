@@ -69,11 +69,7 @@ import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument }
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading";
-import { ETradeSlackTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
-import { BrowserAgent } from "./browserAgent";
-import { SlackAgent } from "./slackAgent";
-import { ETradeVoiceTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool } from "../mcp";
@@ -100,6 +96,7 @@ import { handlePaymentsRoutes } from "./routes/payments";
 // Issue #359-08: premium routes live in src/agents/routes/premium.ts;
 // routeRequest delegates to handlePremiumRoutes at the original position.
 import { handlePremiumRoutes } from "./routes/premium";
+import { handleTradingIntegrationsRoutes } from "./routes/tradingIntegrations";
 import {
   handleEtradeBrokerRoutes,
   handleEtradeBrokerActivityRoutes,
@@ -2711,100 +2708,21 @@ Agentic Best Practices & Workflow Rules:
     const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
     const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
 
-    // Omnichannel Trading Channel: Inbound Email Trading Agent
-    if (path.endsWith("/trading/email/inbound") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "email_trader";
-        const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
-        const result = await emailService.processInboundEmail(body);
-        this.audit("trading.email_processed", "trading", { actionType: result.actionType, from: result.from, orderId: result.orderId });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to process inbound email" }, { status: 500 });
-      }
-    }
-
-    // Omnichannel Trading Channel: Slack Event Handler
-    if (path.endsWith("/trading/slack/event") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
-        const slackService = new ETradeSlackTradingService(this.env, this.getOrm(), userLogin);
-        const result = await slackService.processSlackEvent(body);
-        this.audit("trading.slack_event", "trading", { actionType: result.actionType, handled: result.handled });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack event" }, { status: 500 });
-      }
-    }
-
-    // Omnichannel Trading Channel: Slack Interactive Component Actions (Button Approvals)
-    if (path.endsWith("/trading/slack/interaction") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
-        const slackService = new ETradeSlackTradingService(this.env, this.getOrm(), userLogin);
-        const result = await slackService.processSlackInteraction(body);
-        this.audit("trading.slack_interaction", "trading", { actionId: result.actionId, orderId: result.orderId, status: result.status });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slack interaction" }, { status: 500 });
-      }
-    }
-
-    // Omnichannel Trading Channel: Slack Slash Commands (/trade, /quote, /screen, /options, /snap)
-    if (path.endsWith("/trading/slack/command") && request.method === "POST") {
-      try {
-        const formData = await request.formData();
-        const slackAgent = new SlackAgent(this.ctx, this.env);
-        return slackAgent.handleSlashCommand(formData);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to process slash command" }, { status: 500 });
-      }
-    }
-
-    // Cloudflare Browser Agent: Transaction Snapshot Dispatch via Webhook
-    if ((path.endsWith("/trading/browser/transaction-snap") || path.endsWith("/browser/transaction-snap")) && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const tx: TransactionSnapData = body.transaction || body;
-        const browserAgent = new BrowserAgent(this.ctx, this.env);
-        const result = await browserAgent.sendTransactionSnapToSlack(tx, {
-          webhookUrl: body.webhookUrl || this.env.SLACK_WEBHOOK_URL,
-          channel: body.channel,
-          caption: body.caption,
-        });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to generate transaction snap" }, { status: 500 });
-      }
-    }
-
-    // Omnichannel Trading Channel: Voice Trading Turn
-    if (path.endsWith("/trading/voice/turn") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
-        const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin, this.nlqSchedulingPort());
-        const result = await voiceService.processVoiceTurn({
-          ...body,
-          sessionId: userLogin,
-          userLogin,
-        });
-        this.audit("trading.voice_turn", "trading", { actionType: result.actionType, orderId: result.orderId, success: result.success });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to process voice turn" }, { status: 500 });
-      }
-    }
-
-    // Omnichannel Trading Channel: Voice Trading Welcome Greeting
-    if (path.endsWith("/trading/voice/greeting") && request.method === "GET") {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
-      const voiceService = new ETradeVoiceTradingService(this.env, this.getOrm(), userLogin);
-      return Response.json(voiceService.getWelcomeGreeting());
-    }
+    // Issue #359-10: omnichannel trading channel routes (email / slack /
+    // browser / voice trading integrations) are handled by
+    // src/agents/routes/tradingIntegrations.ts
+    // (handleTradingIntegrationsRoutes). Invoked at this exact position in
+    // the sequential path.endsWith matching sequence (after the E*TRADE
+    // broker routes block, before the broker activity delegation); a
+    // non-null return matched.
+    const tradingIntegrationsResponse = await handleTradingIntegrationsRoutes(request, url, path, sessionId, {
+      env: this.env,
+      getOrm: () => this.getOrm(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      agentCtx: this.ctx,
+      nlqSchedulingPort: () => this.nlqSchedulingPort(),
+    });
+    if (tradingIntegrationsResponse) return tradingIntegrationsResponse;
 
     // Issue #359-09: E*TRADE broker account-activity routes (transactions,
     // alerts, product lookup) are handled by

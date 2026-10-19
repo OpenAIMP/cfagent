@@ -34,6 +34,18 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Trading integrations routes extracted from orchestrator.ts** (#359/#373):
+  the omnichannel trading channel block (POST `/trading/email/inbound`,
+  POST `/trading/slack/event|/interaction|/command`, POST
+  `/trading/browser/transaction-snap` (also `/browser/transaction-snap`),
+  POST `/trading/voice/turn`, GET `/trading/voice/greeting`) moved to
+  `src/agents/routes/tradingIntegrations.ts` as a single handler,
+  `handleTradingIntegrationsRoutes`, invoked from `routeRequest` at the
+  exact original position (between the E*TRADE broker block and the broker
+  activity delegation). ETrade*TradingService imports stay behind the
+  `src/trading/index.ts` boundary (#290); dependencies arrive via an
+  explicit context object. A characterization test pins route order and
+  behavior.
 - **E*TRADE broker routes extracted from orchestrator.ts** (#359/#372): the
   "Environment & E*TRADE Trading APIs" block (the #314 environment switcher
   with both `/environment/switch` and `/broker/etrade/environment` spellings
