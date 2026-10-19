@@ -122,7 +122,7 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
     if (!m || typeof m !== "object") continue;
     const item = m as any;
     const role = item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user";
-    
+
     // Robustly extract text from content, parts, or text property
     let text = typeof item.content === "string" ? item.content.trim() : "";
     let parts = Array.isArray(item.parts) ? [...item.parts].filter(Boolean) : [];
@@ -750,19 +750,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           JSON.stringify(
             res.success
               ? {
-                  type: "scheduled_reminder",
-                  reminderId: payload.reminderId,
-                  message: payload.message,
-                  timestamp: res.timestamp,
-                }
+                type: "scheduled_reminder",
+                reminderId: payload.reminderId,
+                message: payload.message,
+                timestamp: res.timestamp,
+              }
               : {
-                  type: "scheduled_reminder",
-                  reminderId: payload.reminderId,
-                  message: payload.message,
-                  success: false,
-                  error: res.error,
-                  timestamp: res.timestamp,
-                }
+                type: "scheduled_reminder",
+                reminderId: payload.reminderId,
+                message: payload.message,
+                success: false,
+                error: res.error,
+                timestamp: res.timestamp,
+              }
           )
         );
       } catch {
@@ -1886,16 +1886,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       verdictId: verdict.verdictId,
       draftId: params.draftId ?? null,
       symbol: verdict.intents.symbol,
-      summary: `${verdict.intents.action} ${verdict.intents.quantity} ${verdict.intents.symbol}${
-        verdict.dryRun ? " (dry run)" : ""
-      }`,
+      summary: `${verdict.intents.action} ${verdict.intents.quantity} ${verdict.intents.symbol}${verdict.dryRun ? " (dry run)" : ""
+        }`,
       policyCheckRule: describeVerdict(verdict),
       policyCheckPassed: verdict.passed,
       status: !verdict.passed || !verdict.executionAllowed
         ? "blocked"
         : verdict.requiresApproval
-        ? "routed_to_approval"
-        : "verified",
+          ? "routed_to_approval"
+          : "verified",
       bindingRule: verdict.bindingRule,
       dryRun: Boolean(verdict.dryRun),
       mode: verdict.mode,
@@ -2076,13 +2075,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
     }
 
-      const result = streamText({
-        model,
-        system: `You are the master orchestrator for Multi-Agent Studio (OpenAIMP), an enterprise financial intelligence and multi-agent execution platform powered by Cloudflare Agents, Durable Objects, and SQLite.
+    const result = streamText({
+      model,
+      system: `You are the master orchestrator for Multi-Agent Studio (OpenAIMP), an enterprise financial intelligence and multi-agent execution platform powered by Cloudflare Agents, Durable Objects, and SQLite.
 Intent router classified request as: [${route.agent}] (confidence: ${(route.confidence * 100).toFixed(0)}%). Rationale: ${route.reason}.${memoryContext}${vectorContext}
 ${optionsResearchContext ? `\n${optionsResearchContext}\n${isAutoOptionsResearchRequest
-    ? "If AUTO_OPTIONS_RESEARCH_JOB_SUBMITTED is present, tell the user it was accepted and include its job ID; do not claim analysis results yet. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that queueing failure clearly."
-    : ""}` : ""}
+          ? "If AUTO_OPTIONS_RESEARCH_JOB_SUBMITTED is present, tell the user it was accepted and include its job ID; do not claim analysis results yet. If AUTO_OPTIONS_RESEARCH_EXECUTION_ERROR is present, report that queueing failure clearly."
+          : ""}` : ""}
 
 Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Architecture):
 - 'query_platform_knowledge' / 'queryPlatformKnowledge': Retrieve authoritative documentation and how-to guides for all 8 platform workflows, 8 quantitative FAQs, 6 decisioning engines (PickBestTrades, screeners), and UI navigation.
@@ -2140,50 +2139,50 @@ Agentic Best Practices & Workflow Rules:
 6. E*TRADE Trading & Market Screening: When user asks to scan, screen, quote, or trade stocks, invoke 'etrade_market_scan' or 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
 7. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.
 8. Background execution: MCP capabilities return queued job IDs instead of final results. Tell the user the job ID, and use 'get_async_job' or 'list_async_jobs' only when they ask for status or results. Never imply queued work is already complete.`,
-        messages: modelMessages,
-        tools: isAutoOptionsResearchRequest ? {} : tools,
-        stopWhen: stepCountIs(maxSteps),
-        onFinish: async ({ text }: { text?: string }) => {
-          if (text) {
-            this.recordMessage("assistant", text, route.agent);
-            // Run background quality evaluation
-            const quality = await judge.evaluate({ question: userText, answer: text, agent: route.agent });
-            this.audit("response.evaluated", "judge", {
-              score: quality.score,
-              grounded: quality.grounded,
-              safe: quality.safe,
-              issues: quality.issues,
-            });
-            // VectorMemory remember (issue #201): store this turn's outcome
-            // for future recall. Best-effort; never break the turn.
-            try {
-              if (this.env.AI && vectorizeBinding) {
-                const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
-                await vm.remember({
-                  jobId: requestId,
-                  operation: `chat:${route.agent}`,
-                  summary: `Q: ${userText.slice(0, 300)}\nA: ${text.slice(0, 500)}`,
-                  success: quality.safe !== false && quality.grounded !== false,
-                  timestamp: new Date().toISOString(),
-                });
-              }
-            } catch (err) {
-              console.warn("[VectorMemory] remember failed:", err instanceof Error ? err.message : String(err));
-            }
-          }
-        },
-        onError: ({ error }: { error: unknown }) => {
-          const aspect = resolveErrorAspect(error);
-          logAspectEvent({
-            aspect: "ChatStream",
-            operationName: "streamError",
-            code: aspect.code,
-            level: "error",
-            error: aspect.message,
-            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+      messages: modelMessages,
+      tools: isAutoOptionsResearchRequest ? {} : tools,
+      stopWhen: stepCountIs(maxSteps),
+      onFinish: async ({ text }: { text?: string }) => {
+        if (text) {
+          this.recordMessage("assistant", text, route.agent);
+          // Run background quality evaluation
+          const quality = await judge.evaluate({ question: userText, answer: text, agent: route.agent });
+          this.audit("response.evaluated", "judge", {
+            score: quality.score,
+            grounded: quality.grounded,
+            safe: quality.safe,
+            issues: quality.issues,
           });
-        },
-      });
+          // VectorMemory remember (issue #201): store this turn's outcome
+          // for future recall. Best-effort; never break the turn.
+          try {
+            if (this.env.AI && vectorizeBinding) {
+              const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
+              await vm.remember({
+                jobId: requestId,
+                operation: `chat:${route.agent}`,
+                summary: `Q: ${userText.slice(0, 300)}\nA: ${text.slice(0, 500)}`,
+                success: quality.safe !== false && quality.grounded !== false,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } catch (err) {
+            console.warn("[VectorMemory] remember failed:", err instanceof Error ? err.message : String(err));
+          }
+        }
+      },
+      onError: ({ error }: { error: unknown }) => {
+        const aspect = resolveErrorAspect(error);
+        logAspectEvent({
+          aspect: "ChatStream",
+          operationName: "streamError",
+          code: aspect.code,
+          level: "error",
+          error: aspect.message,
+          audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+        });
+      },
+    });
     return { result, route };
   }
 
@@ -2199,71 +2198,71 @@ Agentic Best Practices & Workflow Rules:
   ): Promise<string> {
     const orm = this.getOrm();
     const sessionId = this.sessionKey();
-      const aspect = resolveErrorAspect(streamErr);
-      logAspectEvent({
-        aspect: "ChatStream",
-        operationName: "streamInitializationError",
-        code: aspect.code,
-        level: "error",
-        error: aspect.message,
-        metadata: { userText, userLogin },
-        audit: (e, _c, p) => this.audit(e, "orchestrator", p),
-      });
-      this.audit("stream.error", "orchestrator", { code: aspect.code, error: aspect.message });
+    const aspect = resolveErrorAspect(streamErr);
+    logAspectEvent({
+      aspect: "ChatStream",
+      operationName: "streamInitializationError",
+      code: aspect.code,
+      level: "error",
+      error: aspect.message,
+      metadata: { userText, userLogin },
+      audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+    });
+    this.audit("stream.error", "orchestrator", { code: aspect.code, error: aspect.message });
 
-      // Attempt deterministic query execution (e.g. Stock Screener or Research query)
-      let deterministicSection = "";
-      if (userText && userText.trim().length > 0) {
-        try {
-          const { result } = await executeNaturalLanguageQuery(
-            orm,
-            sessionId,
-            userText,
-            this.env,
-            userLogin,
-            undefined,
-            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
-          );
-          if (result && result.status !== "error") {
-            if (Array.isArray(result.rows) && result.rows.length > 0) {
-              deterministicSection = [
-                "",
-                "---",
-                "### 📈 Deterministic Results (Executed without AI tokens):",
-                `Found **${result.count || result.rows.length}** results matching your criteria:`,
-                "",
-                ...result.rows.slice(0, 12).map((row: any) => {
-                  const sym = row.symbol || row.ticker || "";
-                  const name = row.companyName || row.name || "";
-                  const mcap = row.marketCap ? ` · MCap: ${formatMarketCap(Number(row.marketCap))}` : "";
-                  const price = row.price !== undefined ? ` · Price: $${Number(row.price).toFixed(2)}` : "";
-                  const change = row.changePct !== undefined ? ` (${row.changePct >= 0 ? "+" : ""}${Number(row.changePct).toFixed(2)}%)` : "";
-                  return `- **${sym}** ${name ? `(${name})` : ""}${price}${change}${mcap}`;
-                }),
-              ].join("\n");
-            } else if (result.summary) {
-              deterministicSection = `\n\n---\n### 📈 Deterministic Result:\n${result.summary}`;
-            }
+    // Attempt deterministic query execution (e.g. Stock Screener or Research query)
+    let deterministicSection = "";
+    if (userText && userText.trim().length > 0) {
+      try {
+        const { result } = await executeNaturalLanguageQuery(
+          orm,
+          sessionId,
+          userText,
+          this.env,
+          userLogin,
+          undefined,
+          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
+        );
+        if (result && result.status !== "error") {
+          if (Array.isArray(result.rows) && result.rows.length > 0) {
+            deterministicSection = [
+              "",
+              "---",
+              "### 📈 Deterministic Results (Executed without AI tokens):",
+              `Found **${result.count || result.rows.length}** results matching your criteria:`,
+              "",
+              ...result.rows.slice(0, 12).map((row: any) => {
+                const sym = row.symbol || row.ticker || "";
+                const name = row.companyName || row.name || "";
+                const mcap = row.marketCap ? ` · MCap: ${formatMarketCap(Number(row.marketCap))}` : "";
+                const price = row.price !== undefined ? ` · Price: $${Number(row.price).toFixed(2)}` : "";
+                const change = row.changePct !== undefined ? ` (${row.changePct >= 0 ? "+" : ""}${Number(row.changePct).toFixed(2)}%)` : "";
+                return `- **${sym}** ${name ? `(${name})` : ""}${price}${change}${mcap}`;
+              }),
+            ].join("\n");
+          } else if (result.summary) {
+            deterministicSection = `\n\n---\n### 📈 Deterministic Result:\n${result.summary}`;
           }
-        } catch (fallbackQueryErr) {
-          console.warn("[OrchestratorAgent] Deterministic fallback query error:", fallbackQueryErr);
         }
+      } catch (fallbackQueryErr) {
+        console.warn("[OrchestratorAgent] Deterministic fallback query error:", fallbackQueryErr);
       }
+    }
 
 
-      const fallbackText = [
-        `⚠️ **[${aspect.code}] ${aspect.title}**`,
-        "",
-        `**Diagnosis:** ${aspect.message}`,
-        "",
-        "**What needs to be done to resolve this:**",
-        ...aspect.resolutionSteps.map((step, idx) => `${idx + 1}. ${step}`),
-        "",
-        aspect.suggestedTab
-          ? `👉 **Direct Navigation:** Go to the **${aspect.suggestedTabLabel || aspect.suggestedTab}** from the navigation bar to run scans and queries directly with direct exchange feeds.`
-          : "",
-        deterministicSection,
-      ].filter(Boolean).join("\n");
+    const fallbackText = [
+      `⚠️ **[${aspect.code}] ${aspect.title}**`,
+      "",
+      `**Diagnosis:** ${aspect.message}`,
+      "",
+      "**What needs to be done to resolve this:**",
+      ...aspect.resolutionSteps.map((step, idx) => `${idx + 1}. ${step}`),
+      "",
+      aspect.suggestedTab
+        ? `👉 **Direct Navigation:** Go to the **${aspect.suggestedTabLabel || aspect.suggestedTab}** from the navigation bar to run scans and queries directly with direct exchange feeds.`
+        : "",
+      deterministicSection,
+    ].filter(Boolean).join("\n");
     return fallbackText;
   }
 
@@ -4065,11 +4064,11 @@ Agentic Best Practices & Workflow Rules:
             screenResult: result,
             ...(failed
               ? {
-                  error:
-                    result.validationError ||
-                    result.fetchErrors?.[0]?.reason ||
-                    "Options screen failed upstream; no data could be fetched.",
-                }
+                error:
+                  result.validationError ||
+                  result.fetchErrors?.[0]?.reason ||
+                  "Options screen failed upstream; no data could be fetched.",
+              }
               : {}),
           };
         }
@@ -4654,8 +4653,8 @@ Agentic Best Practices & Workflow Rules:
             previewId: body.previewId && String(body.previewId).trim() !== ""
               ? String(body.previewId).trim()
               : existingRecord?.orderRef && String(existingRecord.orderRef).trim() !== ""
-              ? String(existingRecord.orderRef).trim()
-              : undefined,
+                ? String(existingRecord.orderRef).trim()
+                : undefined,
             optionLegs: strategyOrder?.optionLegs,
             strategyNetDebit: strategyOrder?.strategyNetDebit,
             userLogin,
@@ -5537,9 +5536,9 @@ Agentic Best Practices & Workflow Rules:
         const rationaleByCandidate = new Map((llmJudgment?.ranked ?? []).map((judgment) => [judgment.candidateId, judgment.rationale]));
         const answer = llmJudgment
           ? llmJudgment.ranked.slice(0, 3).map((judgment, idx) => {
-              const candidate = candidates.find((c) => c.id === judgment.candidateId);
-              return `${idx + 1}. ${candidate ? candidate.label : judgment.candidateId} — ${judgment.rationale}`;
-            }).join("\n")
+            const candidate = candidates.find((c) => c.id === judgment.candidateId);
+            return `${idx + 1}. ${candidate ? candidate.label : judgment.candidateId} — ${judgment.rationale}`;
+          }).join("\n")
           : llmErrorText;
         const candidateContractSymbols = [...new Set(candidates.flatMap((c) => c.legs.map((leg) => leg.symbol)))];
         const groupResults = [{
@@ -5922,6 +5921,18 @@ Agentic Best Practices & Workflow Rules:
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const service = new UnifiedOptionsService(this.env, userLogin, requestedEnv, this.getOrm(), new SqlScanRunStore(this.ctx.storage.sql), new SqlStrategyProfileStore(this.ctx.storage.sql));
         const result = await service.execute(reqData);
+        // Issue #358: explicit opt-in Slack delivery over A2A — the same path
+        // scheduled scans use (#331/#350). Never posts unless the caller asked.
+        let slackDelivery: { text: boolean; pdf: boolean; error?: string } | undefined;
+        if (reqData.pushToSlack === true && reqData.action === "opportunities") {
+          const { deliverOptionsScanToSlack } = await import("../services/optionsSlackDelivery");
+          slackDelivery = await deliverOptionsScanToSlack(this.env, {
+            slackPayload: result.toSlack(),
+            scanData: result.data,
+            slackChannel: reqData.slackChannel,
+            thesis: reqData.thesis,
+          });
+        }
 
         const channel = reqData.channel || "ui";
         if (channel === "slack") {
@@ -5939,7 +5950,8 @@ Agentic Best Practices & Workflow Rules:
         if (channel === "mcp") {
           return Response.json(result.toMcp());
         }
-        return Response.json(result.toUi());
+        const uiBody = result.toUi();
+        return Response.json(slackDelivery ? { ...uiBody, slackDelivery } : uiBody);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
       }
