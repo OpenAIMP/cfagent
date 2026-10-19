@@ -556,6 +556,9 @@ export class ScheduledTasksService {
       });
 
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
+      // Issue #384: PDF artifacts shared between Slack and Email delivery
+      let pdfBase64: string | undefined;
+      let pdfFileName: string | undefined;
 
       // 1. Push to Slack if requested or if SLACK_BOT_TOKEN is present
       // Issue #303: Try cfpay via A2A first, fall back to local.
@@ -598,23 +601,23 @@ export class ScheduledTasksService {
           const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
           const { getCfpayConfig, cfpayPostFileToSlack } = await import("../services/cfpayA2A");
           const pdfBytes = await generateOptionsPdf(response.data);
-          const fileName = optionsPdfFileName(response.data);
+          pdfFileName = optionsPdfFileName(response.data);
           // Convert Uint8Array to base64
           let binary = "";
           const chunk = 8192;
           for (let i = 0; i < pdfBytes.length; i += chunk) {
             binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
           }
-          const base64 = btoa(binary);
+          pdfBase64 = btoa(binary);
           
           // Issue #361: Store options PDF to KV (reuse stock pattern).
           // Key: options:pdf:{filename}, value: { base64, fileName }
           // Mirrors stock's screener:pdf:{filename} in DO storage.
           try {
-            const kvKey = `options:pdf:${fileName}`;
-            await this.env.SESSIONS.put(kvKey, JSON.stringify({ base64, fileName }));
+            const kvKey = `options:pdf:${pdfFileName}`;
+            await this.env.SESSIONS.put(kvKey, JSON.stringify({ base64: pdfBase64, fileName: pdfFileName }));
             // Also update latest pointer for the download endpoint
-            await this.env.SESSIONS.put("options:pdf:latest", JSON.stringify({ base64, fileName, kvKey }));
+            await this.env.SESSIONS.put("options:pdf:latest", JSON.stringify({ base64: pdfBase64, fileName: pdfFileName, kvKey }));
           } catch (kvErr) {
             console.warn("[ScheduledTasksService] Options PDF KV storage failed:", kvErr instanceof Error ? kvErr.message : String(kvErr));
           }
@@ -623,8 +626,8 @@ export class ScheduledTasksService {
           if (cfpayCfg) {
             const r = await cfpayPostFileToSlack(cfpayCfg, {
               channel: slackChannel,
-              filename: fileName,
-              contentB64: base64,
+              filename: pdfFileName!,
+              contentB64: pdfBase64!,
               title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
               initial_comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched`,
             });
@@ -639,20 +642,35 @@ export class ScheduledTasksService {
 
       // 2. Push Email if recipient is specified
       // Issue #303: Try cfpay via A2A first, fall back to local.
+      // Issue #384: Attach PDF via cfpaySendEmailWithAttachments when available.
       if (options.emailTo) {
         const cfpay = getCfpayConfig(this.env);
         let emailOk = false;
         if (cfpay) {
           try {
-            const r = await cfpaySendEmail(
-              cfpay,
-              options.emailTo,
-              `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
-              response.toEmailText()
-            );
-            emailOk = r.ok;
-            if (!r.ok) {
-              console.warn("[ScheduledTasksService] cfpay Email failed, falling back to local:", r.error);
+            const { cfpaySendEmailWithAttachments } = await import("../services/cfpayA2A");
+            const emailSubject = `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`;
+            const emailBody = response.toEmailText();
+            // Use PDF attachment if available (generated in Slack section above)
+            if (typeof pdfBase64 !== "undefined" && pdfBase64 && typeof pdfFileName !== "undefined" && pdfFileName) {
+              const r = await cfpaySendEmailWithAttachments(cfpay, {
+                to: options.emailTo,
+                subject: emailSubject,
+                body: emailBody,
+                attachments: [{
+                  filename: pdfFileName,
+                  contentB64: pdfBase64,
+                  contentType: "application/pdf",
+                }],
+              });
+              emailOk = r.ok;
+            } else {
+              const { cfpaySendEmail } = await import("../services/cfpayA2A");
+              const r = await cfpaySendEmail(cfpay, options.emailTo, emailSubject, emailBody);
+              emailOk = r.ok;
+            }
+            if (!emailOk) {
+              console.warn("[ScheduledTasksService] cfpay Email failed, falling back to local");
             }
           } catch (err) {
             console.warn("[ScheduledTasksService] cfpay Email error:", err);
