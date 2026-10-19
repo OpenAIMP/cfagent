@@ -23,7 +23,6 @@
 
 import type { DatabaseORM } from "../orm";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
-import { toScheduledReportRecord } from "../services/scheduledReports";
 
 /** Default retention window, days — matches the 90d the UI advertises. */
 export const STORAGE_RETENTION_DEFAULT_DAYS = 90;
@@ -148,17 +147,18 @@ export function runStorageRetention(
 
   // Issue #278: persist the scheduled run's summary as a durable report
   // (mas_reports) so the AI Search agent can surface it later.
+  // Issue #308: through the single generate→store seam — one canonical
+  // row per generation (generationId = run id).
   try {
-    orm.reports.create(
-      toScheduledReportRecord({
-        runId: `retention:${cutoffIso}`,
-        title: `Nightly storage retention — ${windowDays}d window`,
-        source: "retention",
-        summary: `Pruned ${pruned} mas_messages rows older than ${cutoffIso} (${windowDays}d window${capped ? ", capped at per-run max" : ""}).`,
-        body: { pruned, cutoffIso, windowDays, batchSize, maxPerRun, capped },
-        createdAt: new Date(nowMs).toISOString(),
-      })
-    );
+    orm.storeCanonicalReport({
+      runId: `retention:${cutoffIso}`,
+      generationId: `retention:${cutoffIso}`,
+      title: `Nightly storage retention — ${windowDays}d window`,
+      source: "retention",
+      summary: `Pruned ${pruned} mas_messages rows older than ${cutoffIso} (${windowDays}d window${capped ? ", capped at per-run max" : ""}).`,
+      body: { pruned, cutoffIso, windowDays, batchSize, maxPerRun, capped },
+      createdAt: new Date(nowMs).toISOString(),
+    });
   } catch {
     // Non-critical report persistence error
   }

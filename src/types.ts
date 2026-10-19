@@ -178,6 +178,8 @@ export interface WebhookReplayNonce {
 export interface ScheduledReportRecord {
   id: string;
   runId: string;
+  /** Issue #308: idempotency key for the single generate→store seam. */
+  generationId?: string;
   title: string;
   source: string;
   summary: string;
