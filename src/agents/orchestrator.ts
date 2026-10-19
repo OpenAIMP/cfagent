@@ -40,6 +40,10 @@ import {
   triggerManualResearch,
   triggerScheduledResearch,
 } from "../services/researchTriggers";
+import {
+  shouldFireResearchTick,
+  RESEARCH_SCHEDULED_LAST_RUN_KEY,
+} from "../services/researchScheduleGuard";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading";
 import {
   OptionsAgentPipeline,
@@ -6423,14 +6427,34 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Scheduled tick (server.ts cron after market close).
+    // Scheduled tick (server.ts folds the daily run into the */30 tick,
+    // issue #354 — a dedicated 0 21 * * 1-5 cron cannot exist at the
+    // Workers Free 5-trigger ceiling). Fires exactly once per weekday at
+    // or after 21:00 UTC; the manual route above is never guarded.
     if (path.endsWith("/research/scheduled-tick") && request.method === "POST") {
       const userLogin = request.headers.get("x-user-login") || "default";
       try {
+        // Issue #354 — idempotency guard against double-fire across the
+        // 21:00/21:30 ticks. The last-fired date lives in mas_settings
+        // (durable across ticks AND isolates); it is written only after a
+        // successful run so a failed 21:00 run retries at 21:30.
+        const decision = shouldFireResearchTick(
+          new Date(),
+          this.readSettingRaw(RESEARCH_SCHEDULED_LAST_RUN_KEY)
+        );
+        if (!decision.fire) {
+          return Response.json({
+            success: true,
+            skipped: true,
+            reason: decision.reason,
+            dateKey: decision.dateKey,
+          });
+        }
         const out = await triggerScheduledResearch(
           (t, u) => this.runResearchAndPublish(t, u),
           userLogin
         );
+        this.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
         return Response.json(out);
       } catch (err: any) {
         return Response.json(
