@@ -6413,8 +6413,10 @@ Agentic Best Practices & Workflow Rules:
           reports = searchScheduledReports(this.ctx.storage.sql, query, limit);
         } else {
           // List all, newest first
+          // Note: mas_reports has no report_url column (see #307 R2 discussion).
+          // The PDF URL is constructed from the runId via /api/screener/report.pdf
           const sql = this.ctx.storage.sql;
-          let sqlQuery = `SELECT id, run_id as runId, title, source, summary, report_url as reportUrl, created_at as createdAt FROM ${SCHEDULED_REPORTS_TABLE}`;
+          let sqlQuery = `SELECT id, run_id as runId, title, source, summary, created_at as createdAt FROM ${SCHEDULED_REPORTS_TABLE}`;
           const params: unknown[] = [];
           if (sourceFilter) {
             sqlQuery += ` WHERE source = ?`;
@@ -6438,7 +6440,6 @@ Agentic Best Practices & Workflow Rules:
             title: r.title,
             source: r.source,
             summary: r.summary,
-            reportUrl: r.reportUrl,
             createdAt: r.createdAt,
           })),
           timestamp: new Date().toISOString(),
