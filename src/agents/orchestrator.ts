@@ -71,6 +71,7 @@ import { createAgentMcpTools } from "./mcpAdapter";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
+import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool } from "../mcp";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
@@ -274,6 +275,8 @@ export async function handleOptionsStrategyRecommend(
 }
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
+  private readonly scheduledScreenerSlots = new Set<string>();
+  private readonly scheduledOptionsSlots = new Set<string>();
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
@@ -445,7 +448,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         await this.schedule(
           `${staggerMin} * * * *`,
           "autonomousMarketScreen",
-          { universe, maxItems },
+          { universe, maxItems, trigger: "scheduled" },
           { idempotent: true }
         );
         staggerMin = (staggerMin + 10) % 60;
@@ -459,7 +462,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       await this.schedule(
         "35 * * * *",
         "autonomousOptionsAnalysis",
-        { thesis: theses[thesisIdx], pushToSlack: true },
+        { thesis: theses[thesisIdx], pushToSlack: true, trigger: "scheduled" },
         { idempotent: true }
       );
 
@@ -504,13 +507,32 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * Cloudflare Agents Scheduled Callback: Runs periodic market screening
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
-  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean }): Promise<void> {
+  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean; trigger?: "manual" | "scheduled" }): Promise<void> {
     try {
       await this.waitUntilStable({ timeout: 30_000 });
     } catch {
       // Continue if timeout or unhandled
     }
     const runScreen = async () => {
+      const trigger = payload?.trigger || "scheduled";
+      const universe = payload?.universe || "TECH";
+      if (trigger === "scheduled") {
+        // Old or duplicate cron records can still invoke the same universe
+        // more than once in an hour. Keep the last delivered slot per
+        // universe in DO storage so only one run publishes to Slack.
+        const slot = new Date().toISOString().slice(0, 13);
+        const slotKey = `${universe}:${slot}`;
+        if (this.scheduledScreenerSlots.has(slotKey)) return;
+        if (this.scheduledScreenerSlots.size > 32) this.scheduledScreenerSlots.clear();
+        this.scheduledScreenerSlots.add(slotKey);
+        const key = `screener:scheduled:last-slot:${universe}`;
+        const last = await this.ctx.storage.get<{ slot: string }>(key);
+        if (last?.slot === slot) {
+          console.warn(`[OrchestratorAgent] Suppressing duplicate scheduled screen for ${universe} in ${slot}Z`);
+          return;
+        }
+        await this.ctx.storage.put(key, { slot });
+      }
       const orm = this.getOrm();
       const service = new ScheduledTasksService(this.env, orm, this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousMarketScreen(payload);
@@ -520,7 +542,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         const existing = ((await this.ctx.storage.get(key)) as any[]) || [];
         const run = {
           timestamp: res.timestamp,
-          sector: payload?.sector || "ALL",
+          sector: res.data?.sector || payload?.sector || "Technology",
+          universe: res.data?.universe || payload?.universe || "TECH",
           success: res.success,
           totalScanned: res.data?.totalScanned ?? 0,
           matchedCount: res.data?.matchedCount ?? 0,
@@ -539,7 +562,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         orm.storeCanonicalReport({
           runId: `screener:${res.timestamp}`,
           generationId: `screener:${res.timestamp}`,
-          title: `Autonomous market screen — ${payload?.sector || "ALL"}`,
+          title: `Autonomous market screen — ${res.data?.universe || payload?.universe || "TECH"}`,
           source: "screener",
           summary: res.success
             ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
@@ -610,6 +633,21 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // Continue if timeout or unhandled
     }
     const runAnalysis = async () => {
+      if (payload?.trigger !== "manual") {
+        const slot = new Date().toISOString().slice(0, 13);
+        const thesis = payload?.thesis || "bullish";
+        const slotKey = `${thesis}:${slot}`;
+        if (this.scheduledOptionsSlots.has(slotKey)) return;
+        if (this.scheduledOptionsSlots.size > 32) this.scheduledOptionsSlots.clear();
+        this.scheduledOptionsSlots.add(slotKey);
+        const key = `options:scheduled:last-slot:${thesis}`;
+        const last = await this.ctx.storage.get<{ slot: string }>(key);
+        if (last?.slot === slot) {
+          console.warn(`[OrchestratorAgent] Suppressing duplicate scheduled options scan (${thesis}) in ${slot}Z`);
+          return;
+        }
+        await this.ctx.storage.put(key, { slot });
+      }
       const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousOptionsAnalysis(payload);
       if (res.success && res.data) {
@@ -3499,8 +3537,8 @@ Agentic Best Practices & Workflow Rules:
     }
 
     if (path.endsWith("/trading/options/screen") && (request.method === "POST" || request.method === "GET")) {
+      let filter: any = {};
       try {
-        let filter: any = {};
         if (request.method === "POST") {
           filter = (await request.json().catch(() => ({}))) as any;
         } else {
@@ -3553,9 +3591,52 @@ Agentic Best Practices & Workflow Rules:
         }
         if (result.dataSource === undefined) result.dataSource = "live";
 
-        return Response.json(result);
+        const pushToSlack = filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1";
+        let optionsReportUrl: string | undefined;
+        if (pushToSlack) {
+          const slackChannel = filter.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
+          const summary = `📊 Options Contract Screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
+          try {
+            const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+            const pdfBytes = await generateOptionsPdf(result);
+            const fileName = optionsPdfFileName(result);
+            let binary = "";
+            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
+            try {
+              const pdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+              optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+            } catch (storeErr) {
+              console.warn("[Orchestrator] Manual options contracts PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
+            }
+            const sent = await deliverScreenerToSlackA2A(this.env, {
+              text: summary,
+              channel: filter.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL,
+              pdf: {
+                bytes: pdfBytes,
+                fileName,
+                title: `Options Contract Screen — ${new Date().toISOString().slice(0, 10)}`,
+                comment: `📄 Options contract screener PDF\n\n${summary}`,
+              },
+            });
+            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
+          } catch (pdfErr) {
+            console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+            const sent = await deliverScreenerToSlackA2A(this.env, { text: summary, channel: slackChannel });
+            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract notification failed:", sent.error);
+          }
+        }
+
+        return Response.json({ ...result, reportUrl: optionsReportUrl });
       } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Options screening failed" }, { status: 500 });
+        const error = err instanceof Error ? err.message : "Options screening failed";
+        if (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1") {
+          const sent = await deliverScreenerToSlackA2A(this.env, {
+            channel: filter.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL,
+            text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,
+          });
+          if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract failure notification failed:", sent.error);
+        }
+        return Response.json({ error }, { status: 500 });
       }
     }
 
@@ -3586,35 +3667,41 @@ Agentic Best Practices & Workflow Rules:
         // Same pattern as scheduled in scheduledTasks.ts:autonomousOptionsAnalysis,
         // triggered by the pushToSlack request-body param instead of cron.
         const pushToSlack = reqData.pushToSlack === true || reqData.pushToSlack === "true" || reqData.pushToSlack === "1";
+        let reportUrl: string | undefined;
         if (pushToSlack && reqData.action === "opportunities") {
           const slackChannel = reqData.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
           const timestamp = new Date().toISOString();
           try {
-            const { getCfpayConfig, cfpayPostToSlack, cfpayPostFileToSlack } = await import("../services/cfpayA2A");
-            const cfpay = getCfpayConfig(this.env);
-            if (cfpay) {
-              const slackPayload = result.toSlack();
-              const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
-              const r = await cfpayPostToSlack(cfpay, text, slackChannel);
-              if (!r.ok) console.warn("[Orchestrator] cfpay Slack (manual options) failed:", r.error);
+            const slackPayload = result.toSlack();
+            const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
+            if (result.success) {
               const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
               const pdfBytes = await generateOptionsPdf(result.data);
               const fileName = optionsPdfFileName(result.data);
               let binary = "";
-              const chunk = 8192;
-              for (let i = 0; i < pdfBytes.length; i += chunk) {
-                binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
+              for (let i = 0; i < pdfBytes.length; i += 8192) {
+                binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
               }
-              const pr = await cfpayPostFileToSlack(cfpay, {
+              try {
+                const pdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+                reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+              } catch (storeErr) {
+                console.warn("[Orchestrator] Manual options PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
+              }
+              const sent = await deliverScreenerToSlackA2A(this.env, {
+                text,
                 channel: slackChannel,
-                filename: fileName,
-                contentB64: btoa(binary),
-                title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
-                initial_comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched`,
+                pdf: {
+                  bytes: pdfBytes,
+                  fileName,
+                  title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
+                  comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched\n\n${text}`,
+                },
               });
-              if (!pr.ok) console.warn("[Orchestrator] cfpay PDF upload (manual options) failed:", pr.error);
+              if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
             } else {
-              console.warn("[Orchestrator] pushToSlack requested but cfpay A2A is not configured");
+              const sent = await deliverScreenerToSlackA2A(this.env, { text, channel: slackChannel });
+              if (!sent.ok) console.warn("[Orchestrator] Slack A2A notification (manual options) failed:", sent.error);
             }
           } catch (slackErr) {
             console.warn("[Orchestrator] Slack notification (manual options) error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
@@ -3632,12 +3719,12 @@ Agentic Best Practices & Workflow Rules:
           return Response.json(result.toVoice());
         }
         if (channel === "webhook") {
-          return Response.json(result.toWebhook());
+          return Response.json({ ...result.toWebhook(), reportUrl });
         }
         if (channel === "mcp") {
           return Response.json(result.toMcp());
         }
-        return Response.json(result.toUi());
+        return Response.json({ ...result.toUi(), reportUrl });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
       }
@@ -4084,7 +4171,11 @@ Agentic Best Practices & Workflow Rules:
     // Issue #269: downloadable PDF report of the latest screener run.
     if (path.endsWith("/screener/report.pdf") && request.method === "GET") {
       try {
-        const pdf = await this.getScreenerAgent().getLatestPdf();
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const pdf = key
+          ? await this.getScreenerAgent().getPdfByKey(key)
+          : await this.getScreenerAgent().getLatestPdf();
         if (!pdf) {
           return Response.json({ error: "No screener report available yet" }, { status: 404 });
         }
@@ -4364,7 +4455,7 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/schedules/trigger-screen") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        await this.autonomousMarketScreen(body);
+        await this.autonomousMarketScreen({ ...body, trigger: "manual" });
         return Response.json({ success: true, message: "Autonomous market screen triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
@@ -4387,7 +4478,7 @@ Agentic Best Practices & Workflow Rules:
       try {
         const body = (await request.json().catch(() => ({}))) as any;
         const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
-        const result = await service.autonomousOptionsAnalysis(body);
+        const result = await service.autonomousOptionsAnalysis({ ...body, trigger: "manual" });
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });

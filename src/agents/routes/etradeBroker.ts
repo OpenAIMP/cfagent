@@ -51,6 +51,8 @@ import { resolveEnvironmentConfig } from "../../config/environment";
 import { getValidTokens } from "../../security/etradeOAuth";
 import { ETradeRestClient, ETradeSlackTradingService } from "../../trading";
 import { ETradeBrowserService } from "../../services/browserAgent";
+import { publishScreenerCompleted, publishScreenerFailed } from "../../events/screenerPublishers";
+import type { ScreenerRunResult } from "../screener-agent";
 import { getUserDid } from "../did";
 import type { AgentName, Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
@@ -106,6 +108,40 @@ export interface EtradeBrokerRouteContext {
   schedule(when: number, callback: string, payload: any): Promise<Schedule>;
   /** SDK schedule cancellation (owner: OrchestratorAgent - was `this.cancelSchedule`). */
   cancelSchedule(id: string): Promise<boolean>;
+}
+
+async function publishManualScreenerRun(
+  env: Env,
+  orm: DatabaseORM,
+  userLogin: string,
+  result: ScreenerRunResult,
+): Promise<void> {
+  const deps = { env, orm, userLogin };
+  if (!result.success) {
+    await publishScreenerFailed(deps, {
+      type: "screener.failed",
+      timestamp: result.timestamp,
+      universe: result.universe,
+      trigger: "manual",
+      deliveryId: `manual:${result.timestamp}:${result.universe}`,
+      sector: result.sector,
+      error: result.error || "E*TRADE unavailable",
+    });
+    return;
+  }
+  await publishScreenerCompleted(deps, {
+    type: "screener.completed",
+    timestamp: result.timestamp,
+    universe: result.universe,
+    trigger: "manual",
+    expectedCount: result.expectedCount,
+    pdfKey: result.pdfKey,
+    deliveryId: `manual:${result.timestamp}:${result.universe}`,
+    sector: result.sector,
+    totalScanned: result.totalScanned,
+    matchedCount: result.matchedCount,
+    opportunities: result.opportunities,
+  });
 }
 
 /**
@@ -256,6 +292,10 @@ export async function handleEtradeBrokerRoutes(
       const agent = ctx.getScreenerAgent();
       if (universe === "ALL") {
         const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
+        const orm = ctx.getOrm();
+        for (const shard of shards) {
+          await publishManualScreenerRun(ctx.env, orm, userLogin, shard);
+        }
         const failed = shards.filter((r) => !r.success);
         if (failed.length === shards.length) {
           return Response.json({ error: failed[0]?.error || "E*TRADE unavailable" }, { status: 502 });
@@ -278,6 +318,7 @@ export async function handleEtradeBrokerRoutes(
             stocks: r.allStocks,
             discoveryMessage: r.discoveryMessage,
             scannedAt: r.timestamp,
+            reportUrl: r.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(r.pdfKey)}` : undefined,
             success: r.success,
             error: r.error,
           })),
@@ -297,6 +338,7 @@ export async function handleEtradeBrokerRoutes(
       // Issue #307/#308: store the canonical report copy (one row per
       // generation) so manual screens are searchable like scheduled ones.
       ctx.persistScreenerReportCanonical(result);
+      await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result);
       if (!result.success) {
         return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
       }
@@ -308,6 +350,8 @@ export async function handleEtradeBrokerRoutes(
         stocks: result.allStocks,
         discoveryMessage: result.discoveryMessage,
         scannedAt: result.timestamp,
+        pdfKey: result.pdfKey,
+        reportUrl: result.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}` : undefined,
       });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });

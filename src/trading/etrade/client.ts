@@ -38,6 +38,14 @@ import { etradeOrderKind, etradePriceType, toETradeInstruments, validateTradingO
 import type { TradingOrderLeg } from "../interfaces";
 export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 
+function firstQuoteData(data: any): any {
+  const quoteData = data?.QuoteResponse?.QuoteData;
+  if (Array.isArray(quoteData)) return quoteData[0];
+  // E*TRADE's single-symbol responses can serialize QuoteData as an object
+  // while multi-symbol responses use an array.
+  return quoteData && typeof quoteData === "object" ? quoteData : undefined;
+}
+
 export class ETradeRestClient {
   public lastError?: string;
 
@@ -102,9 +110,11 @@ export class ETradeRestClient {
    */
   async fetchQuote(symbol: string): Promise<ETradeQuote | null> {
     const sym = symbol.toUpperCase().trim();
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
 
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for live quote requests.";
       return null;
     }
 
@@ -124,6 +134,7 @@ export class ETradeRestClient {
 
     if (!token || !tokenSecret) {
       // Unauthenticated: cannot call authenticated 3-legged E*TRADE quote endpoint
+      this.lastError = `E*TRADE OAuth access token is missing for ${sym} in ${envConfig.name} mode.`;
       return null;
     }
 
@@ -164,15 +175,49 @@ export class ETradeRestClient {
         return null;
       }
 
-      const data = (await res.json().catch(() => ({}))) as any;
-      const quoteItem = data?.QuoteResponse?.QuoteData?.[0];
-      const quoteData = quoteItem?.All || quoteItem?.Product;
-      if (!quoteData) return null;
+      let data = (await res.json().catch(() => null)) as any;
+      let quoteItem = firstQuoteData(data);
+      let quoteData = quoteItem?.All || quoteItem?.Product;
+
+      // Some E*TRADE gateways return HTTP 200 for the extensionless form but
+      // omit the JSON quote payload. Retry the documented JSON representation
+      // before classifying a valid ticker as non-quotable.
+      if (!quoteData && url === primaryUrl) {
+        url = fallbackUrl;
+        assertSandboxUrlSafety(url, envConfig.isLive);
+        authHeader = await this.generateOAuthHeader("GET", url);
+        res = await fetch(url, {
+          method: "GET",
+          headers: { Authorization: authHeader, Accept: "application/json" },
+        });
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => "");
+          this.lastError = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+          this.handleUpstreamAuthError(res.status, "quote", errorText);
+          return null;
+        }
+        if (res.ok) {
+          data = (await res.json().catch(() => null)) as any;
+          quoteItem = firstQuoteData(data);
+          quoteData = quoteItem?.All || quoteItem?.Product;
+        }
+      }
+      if (!quoteData) {
+        const messages = data?.QuoteResponse?.Messages?.Message;
+        const detail = Array.isArray(messages)
+          ? messages.map((message: any) => String(message?.description || message?.message || message?.code || "")).filter(Boolean).join("; ")
+          : "";
+        this.lastError = `E*TRADE returned no quote data for ${sym}${detail ? `: ${detail}` : " (HTTP 200 empty response)"}`;
+        return null;
+      }
 
       const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
       const rawCompanyName = String(quoteData?.companyName || "").trim();
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.close || quoteData.previousClose || quoteData.bid || 0);
-      if (price <= 0) return null;
+      if (price <= 0) {
+        this.lastError = `E*TRADE quote response for ${sym} contained no positive trade or bid price.`;
+        return null;
+      }
 
       // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
       const isGoogleStub =
@@ -183,6 +228,7 @@ export class ETradeRestClient {
 
       if (isGoogleStub && sym !== "GOOG" && sym !== "GOOGL") {
         // Reject sandbox dummy Google mock response for non-Google equities
+        this.lastError = `E*TRADE returned a mismatched sandbox quote for ${sym} (GOOG mock).`;
         return null;
       }
 
@@ -193,6 +239,7 @@ export class ETradeRestClient {
 
       if (returnedSym && returnedSym !== sym) {
         // Symbol mismatch: E*TRADE returned a different symbol than requested
+        this.lastError = `E*TRADE quote symbol mismatch: requested ${sym}, received ${returnedSym}.`;
         return null;
       }
 
@@ -316,8 +363,9 @@ export class ETradeRestClient {
         }
 
         const data = (await res.json().catch(() => ({}))) as any;
-        const rawList = data?.QuoteResponse?.QuoteData;
-        if (!Array.isArray(rawList)) return [];
+        const rawQuoteData = data?.QuoteResponse?.QuoteData;
+        const rawList = Array.isArray(rawQuoteData) ? rawQuoteData : rawQuoteData ? [rawQuoteData] : [];
+        if (rawList.length === 0) return [];
 
         return rawList
           .map((item: any) => {

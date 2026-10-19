@@ -67,12 +67,16 @@ export interface ScreenerRunResult {
   sector: string;
   success: boolean;
   totalScanned: number;
+  /** Symbols selected for this run before E*TRADE quote failures. */
+  expectedCount?: number;
   matchedCount: number;
   /** Standout opportunities (the screening result — what matters). */
   opportunities: OpportunityStock[];
   /** Full scanned set with provenance (for the results table). */
   allStocks: ScannedStock[];
   discoveryMessage: string;
+  /** Per-run PDF key populated by persistRun after the PDF is stored. */
+  pdfKey?: string;
   error?: string;
 }
 
@@ -143,6 +147,10 @@ export class ScreenerAgent extends Agent<Env> {
         maxSymbols: req.maxSymbols ?? universeDef.defaultMaxSymbols,
         liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
       });
+      const expectedCount = Math.min(
+        symbols?.length ?? universeDef.defaultMaxSymbols,
+        req.maxSymbols ?? universeDef.defaultMaxSymbols,
+      );
 
       const screenResult = screenUniverse(screener, acquired, {
         ...(req.filters ?? {}),
@@ -181,6 +189,7 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
         success: true,
         totalScanned: screenResult.totalScanned,
+        expectedCount,
         matchedCount: screenResult.matchedCount,
         opportunities,
         allStocks,
@@ -199,6 +208,7 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
         success: false,
         totalScanned: 0,
+        expectedCount: 0,
         matchedCount: 0,
         opportunities: [],
         allStocks: [],
@@ -328,7 +338,7 @@ export class ScreenerAgent extends Agent<Env> {
       // Also update the "latest" pointer for backward compatibility
       await this.ctx.storage.put(PDF_LATEST_KEY, pdfData);
       // Store the key on the result for the UI to fetch the specific PDF
-      (result as any).pdfKey = perRunKey;
+      result.pdfKey = perRunKey;
     } catch (err) {
       console.warn("[ScreenerAgent] PDF generation failed:", err);
     }

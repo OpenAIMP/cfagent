@@ -51,6 +51,7 @@ export interface ScreenedIndicatorsData {
 
 export interface ScreenerResultData {
   timestamp: string;
+  reportUrl?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -318,7 +319,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
         <a
-          href="/api/screener/report.pdf"
+          href={result.reportUrl || "/api/screener/report.pdf"}
           download
           style={{
             fontSize: "0.8rem",
