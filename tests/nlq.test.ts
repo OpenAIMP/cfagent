@@ -353,6 +353,15 @@ describe("Natural Language Query (NLQ) Engine", () => {
 
     it("evaluates and validates options query with LLM validation metadata", async () => {
       const query = "find strategies where max profit is more than max loss";
+      // Mock LLM validation response to avoid real API call (prevents timeout)
+      vi.mocked(generateObject).mockResolvedValueOnce({
+        object: {
+          isValid: true,
+          detectedDomain: "options_strategy",
+          suggestedAction: "options_opportunities",
+          preventedStockScreenerFallback: true,
+        },
+      } as any);
       const result = await executeNaturalLanguageQuery(orm, "test_session", query, mockEnv, {
         context: "options",
         validateWithLLM: true,
