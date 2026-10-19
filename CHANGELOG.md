@@ -54,6 +54,26 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tests/mcp_chat_nlq_routes_extraction.test.ts` pins the 3-route inventory,
   relative order, and the NLQ pipeline argument contract.
 
+- **Ads / revenue / referrals routes extracted from orchestrator.ts** (#359/#366):
+  the referral-categories ORM CRUD (`/categories`), the revenue summary
+  (`GET /revenue`), and the external ad network placements with impression/click
+  tracking (`/external-ads`, `/external-ads/impression`, `/external-ads/click`),
+  plus the community referrals (`/referrals`, `/referrals/click`) and sponsored
+  ads (`/ads`, `/ads/click`), now live in
+  `src/agents/routes/adsRevenueReferrals.ts`. Pure move — same paths, same
+  matching order in `routeRequest`, same response shapes/statuses. The domain's
+  blocks are not contiguous in the original file (inventory group sat between
+  /schema/query and /audit; community group between /memory and the payments
+  block), so the module exports two handlers — `handleAdsRevenueReferralsRoutes()`
+  and `handleReferralsAdsRoutes()` — each invoked at its original position in
+  the sequential matching sequence. Handlers reach OrchestratorAgent state only
+  through an explicit `AdsRevenueReferralsRouteContext`.
+  Characterization: `tests/ads_revenue_referrals_routes_extraction.test.ts`
+  pins both handlers' route inventories and relative order, the two call-site
+  positions, and behavior (null for non-owned paths, validation, audit events,
+  SQL writes). A scripted scan of the full 120-condition route inventory
+  confirms the matching order is unchanged. orchestrator.ts: 6364 → 5998 lines.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.
