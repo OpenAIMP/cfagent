@@ -219,7 +219,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
   }
 
   private async getScreenerExecutionContext(): Promise<ScreenerExecutionContext | undefined> {
-    return this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
+    // Some lightweight route harnesses omit Durable Object storage. The
+    // authenticated context is best-effort in those environments; real DO
+    // instances always provide storage.
+    const storage = this.ctx?.storage;
+    if (!storage || typeof storage.get !== "function") return undefined;
+    return storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
   }
 
   /**
@@ -2376,9 +2381,10 @@ Agentic Best Practices & Workflow Rules:
     // schedules panel, so all existing cron records gain the right context.
     const userLogin = request.headers.get("x-user-login") || "";
     const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-    if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin)) {
+    const storage = this.ctx?.storage;
+    if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin) && storage && typeof storage.put === "function") {
       const previous = await this.getScreenerExecutionContext();
-      await this.ctx.storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
+      await storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
         userLogin,
         environment: rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment

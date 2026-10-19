@@ -210,7 +210,7 @@ describe("Scheduled job failure semantics (#112)", () => {
       // The service-level surfacing happened on the same run.
       const orm = makeOrm(sql);
       expect(orm.events.findMany({ where: { type: "options.scheduled_analysis_failed" } }).length).toBe(1);
-      const messages = orm.messages.findMany({ where: { sessionId } });
+      const messages = orm.messages.findMany({ where: { sessionId: "live_account_owner" } });
       expect(messages.some(m => m.content.includes("Scheduled Options Intelligence failed"))).toBe(true);
     });
 
