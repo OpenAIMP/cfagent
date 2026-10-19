@@ -46,7 +46,7 @@ export interface OptionsDataSnapshot {
 export type SnapshotParams = Pick<
   StrategyRequest,
   "symbol" | "minDte" | "maxDte" | "minVolume" | "minOpenInterest" | "maxSpreadPct" | "maxQuoteAgeSeconds" | "contractLimit" | "dataMode"
->;
+> & Pick<OptionScreenerFilter, "expirationDteBands">;
 
 const DEMO_DISABLED_ERROR =
   "Calibrated demo mode is not enabled in this deployment. Production serves live broker data only; generated chains require the dev/demo gate (demo.calibratedChains / CFAGENT_DEMO_CALIBRATED_CHAINS).";
@@ -68,6 +68,7 @@ export class OptionsDataAgent {
       contractType: "BOTH",
       minDte: params.minDte,
       maxDte: params.maxDte,
+      expirationDteBands: params.expirationDteBands,
       minVolume: params.minVolume,
       minOpenInterest: params.minOpenInterest,
       maxSpreadPct: params.maxSpreadPct,

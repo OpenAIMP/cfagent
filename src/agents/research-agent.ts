@@ -16,7 +16,10 @@
  * function (pinned by tests/research-boundary.test.ts). Research only.
  */
 
-import { Agent } from "agents";
+import { Think } from "@cloudflare/think";
+import { tool, type ToolSet } from "ai";
+import { z } from "zod";
+import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
 import { DatabaseORM } from "../orm";
 import {
@@ -64,7 +67,32 @@ export interface ResearchRunSummary {
   summary: string;
 }
 
-export class ResearchAgent extends Agent<Env> {
+export class ResearchAgent extends Think<Env> {
+  /** Think supplies durable chat turns and tool dispatch for research workflows. */
+  getModel() {
+    return resolveAiModelName(this.env, "researchAgent");
+  }
+
+  getSystemPrompt(): string {
+    return "You are the read-only options research agent. For a research request, call run_options_research exactly once and then summarize its result faithfully. You may discover, analyze, validate, and recommend strategies, but must never place, preview, or submit trades. Use only source-backed market data; report uncertainty and do not fabricate missing fields.";
+  }
+
+  getTools(): ToolSet {
+    return {
+      run_options_research: tool({
+        description: "Run the validated, read-only options research pipeline and persist the resulting report.",
+        inputSchema: z.object({
+          trigger: z.enum(["manual", "scheduled"]),
+          userLogin: z.string().optional(),
+        }),
+        execute: async (input) => {
+          const result = await this.runResearch(input);
+          return JSON.stringify({ success: result.success, error: result.error, runId: result.report?.runId, ideas: result.report?.ideas.length, summary: result.report?.summary });
+        },
+      }),
+    };
+  }
+
   private orm: DatabaseORM | null = null;
 
   private getOrm(): DatabaseORM {
@@ -137,7 +165,7 @@ export class ResearchAgent extends Agent<Env> {
   }
 
   /** Typed config read (amendment 1: the single config owner). */
-  async getConfig(): Promise<ResearchConfig> {
+  async getResearchConfig(): Promise<ResearchConfig> {
     return this.configService().load();
   }
 

@@ -30,6 +30,7 @@ export default defineConfig({
     // load. The stub only provides the base class; tests never instantiate one.
     alias: {
       "cloudflare:workers": new URL("./tests/stubs/cloudflareWorkers.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+      "@cloudflare/think": new URL("./tests/stubs/cloudflareThink.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
     },
   },
 });

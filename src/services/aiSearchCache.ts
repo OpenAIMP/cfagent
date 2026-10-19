@@ -50,10 +50,11 @@ export function resolveAiSearchCacheConfig(env?: unknown): AiSearchCacheConfig {
  * user login). Scope prevents one tenant/session from reading another's
  * cached results.
  */
-export function aiSearchCacheKey(query: string, scope: string): string {
+export function aiSearchCacheKey(query: string, scope: string, topK = 5): string {
   const q = query.trim().toLowerCase().replace(/\s+/g, " ");
   const s = (scope || "default").trim().toLowerCase().replace(/\s+/g, " ");
-  return `aisearch:${s}:${q}`;
+  const k = Number.isFinite(topK) ? Math.max(1, Math.min(50, Math.floor(topK))) : 5;
+  return `aisearch:${s}:${k}:${q}`;
 }
 
 interface CacheEntry {

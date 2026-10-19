@@ -143,12 +143,13 @@ const trade = (spot: number): SymbolBehavior => ({ kind: "trade", spot });
 
 function fakeScreener(
   behaviors: Record<string, SymbolBehavior>,
-  opts: { mults?: number[]; calls?: string[] } = {},
+  opts: { mults?: number[]; calls?: string[]; filters?: Array<{ maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }> } = {},
 ): DynamicOptionsScreener {
   return {
-    screenOptions: async (filter: { underlyingSymbols?: string[] }) => {
+    screenOptions: async (filter: { underlyingSymbols?: string[]; maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }) => {
       const symbol = filter.underlyingSymbols?.[0] ?? "";
       opts.calls?.push(symbol);
+      opts.filters?.push(filter);
       const behavior = behaviors[symbol] ?? trade(100);
       if (behavior.kind === "throw") throw new Error(behavior.message);
       if (behavior.kind === "throwRaw") throw behavior.value;
@@ -728,6 +729,102 @@ describe("OpportunityScanner.scan modes (issue #23)", () => {
     expect(result.fitsTotal).toBe(0);
     expect(result.opportunities).toHaveLength(10); // today's top-10 behavior
     expect(result.matrix).toHaveLength(12); // the matrix is returned in both modes
+  });
+});
+
+describe("strategy-driven expiry discovery", () => {
+  it("loads catalog horizons for PMCC in both screener views and keeps the near window bounded", async () => {
+    for (const mode of ["per_name_best", "strategy_fit"] as const) {
+      const filters: Array<{ maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }> = [];
+      const scanner = new OpportunityScanner(fakeScreener({ PMCC: trade(100) }, { filters }));
+      const template = baseTemplate({
+        allowedStrategies: ["poor_mans_covered_call"],
+        minDte: 14,
+        maxDte: 60,
+        minRewardRisk: 0,
+      });
+      const result = await scanner.scan(["PMCC"], template, { mode });
+
+      expect(result.mode).toBe(mode);
+      expect(filters).toHaveLength(1);
+      expect(filters[0].maxDte).toBe(365);
+      expect(filters[0].expirationDteBands).toEqual([
+        { minDte: 14, maxDte: 60, maxExpirations: expect.any(Number) },
+        { minDte: 180, maxDte: 365, maxExpirations: 4 },
+      ]);
+    }
+  });
+
+  it("uses LEAPS catalog horizon and long-dated band without widening the ordinary near window", async () => {
+    const filters: Array<{ maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }> = [];
+    const scanner = new OpportunityScanner(fakeScreener({ LEAP: trade(100) }, { filters }));
+    await scanner.scan(["LEAP"], baseTemplate({ allowedStrategies: ["leaps_call"], maxDte: 60 }));
+    expect(filters[0].maxDte).toBe(550);
+    expect(filters[0].expirationDteBands).toEqual([
+      { minDte: 14, maxDte: 60, maxExpirations: expect.any(Number) },
+      { minDte: 365, maxDte: 550, maxExpirations: 4 },
+    ]);
+  });
+
+  it("uses the generic multi-expiry horizon for calendar strategies", async () => {
+    const filters: Array<{ maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }> = [];
+    const scanner = new OpportunityScanner(fakeScreener({ CAL: trade(100) }, { filters }));
+    await scanner.scan(["CAL"], baseTemplate({ allowedStrategies: ["call_calendar"], maxDte: 60 }));
+    expect(filters[0].maxDte).toBe(365);
+    expect(filters[0].expirationDteBands).toEqual([
+      { minDte: 14, maxDte: 60, maxExpirations: expect.any(Number) },
+      { minDte: 67, maxDte: 365, maxExpirations: 4 },
+    ]);
+  });
+
+  it("loads long-dated strategies for per-symbol thesis overrides too", async () => {
+    const filters: Array<{ maxDte?: number; expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }> }> = [];
+    const scanner = new OpportunityScanner(fakeScreener({ OVERRIDE: trade(100) }, { filters }));
+    await scanner.scan(["OVERRIDE"], baseTemplate({
+      thesis: "bearish",
+      allowedStrategies: ["poor_mans_covered_call"],
+      maxDte: 60,
+      perSymbol: { OVERRIDE: { thesis: "bullish" } },
+    }));
+    expect(filters[0].maxDte).toBe(365);
+    expect(filters[0].expirationDteBands).toContainEqual({ minDte: 180, maxDte: 365, maxExpirations: 4 });
+  });
+
+  it("builds PMCC candidates from near and far expirations in both scan modes", async () => {
+    for (const mode of ["per_name_best", "strategy_fit"] as const) {
+      const contracts = [30, 220, 330].flatMap((dte) => {
+        const expirationDate = new Date(Date.now() + dte * 86_400_000).toISOString().slice(0, 10);
+        return makeContracts("PMCC", 100).map((contract) => ({
+          ...contract,
+          daysToExpiration: dte,
+          expirationDate,
+          osiKey: `${contract.osiKey}-${expirationDate}`,
+        }));
+      });
+      const screener = {
+        screenOptions: async () => ({
+          contracts,
+          matchedCount: contracts.length,
+          totalContractsEvaluated: contracts.length,
+          totalUnderlyingsScanned: 1,
+          scannedAt: new Date().toISOString(),
+          rejections: [],
+        }),
+      } as unknown as DynamicOptionsScreener;
+      const scanner = new OpportunityScanner(screener);
+      const result = await scanner.scan(["PMCC"], baseTemplate({
+        allowedStrategies: ["poor_mans_covered_call"],
+        maxDte: 60,
+        minRewardRisk: 0,
+        maxPlannedLoss: 20_000,
+      }), { mode });
+
+      const pmccCell = result.matrix[0].cells.find((cell) => cell.strategyType === "poor_mans_covered_call");
+      expect(pmccCell).toBeDefined();
+      expect(pmccCell!.evaluatedCount).toBeGreaterThan(0);
+      expect(pmccCell!.best?.legs.some((leg) => leg.daysToExpiration >= 180)).toBe(true);
+      expect(pmccCell!.best?.legs.some((leg) => leg.daysToExpiration <= 60)).toBe(true);
+    }
   });
 });
 

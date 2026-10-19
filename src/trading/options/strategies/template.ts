@@ -22,6 +22,8 @@ export interface TemplateSpec {
   minDte?: number;
   /** Two-expiry structures: minimum DTE of the far expiry. */
   farMinDte?: number;
+  /** Extra chain horizon to search beyond the minimum DTE floor. */
+  searchMaxDte?: number;
   strikeFilter?: (strikes: number[], underlying: number) => boolean;
 }
 
@@ -69,11 +71,13 @@ function combinations(pool: number[], size: number): number[][] {
   return out;
 }
 
-function expiryPairs(spec: TemplateSpec, chains: ChainView[], multi: boolean): Array<{ near: ChainView; far?: ChainView }> {
-  const eligibleNear = chains.filter((chain) => chain.dte >= (spec.minDte ?? 0));
+function expiryPairs(spec: TemplateSpec, chains: ChainView[], multi: boolean, nearMaxDte: number): Array<{ near: ChainView; far?: ChainView }> {
+  const eligibleNear = chains.filter((chain) =>
+    chain.dte >= (spec.minDte ?? 0) && chain.dte <= nearMaxDte
+  );
   if (!multi) return eligibleNear.map((near) => ({ near }));
   const pairs: Array<{ near: ChainView; far?: ChainView }> = [];
-  for (const near of chains.slice(0, MAX_NEAR_EXPIRIES)) {
+  for (const near of eligibleNear.slice(0, MAX_NEAR_EXPIRIES)) {
     for (const far of chains) {
       if (far.dte - near.dte >= MIN_EXPIRY_GAP_DAYS && far.dte >= (spec.farMinDte ?? 0) && near.dte >= (spec.minDte ?? 0)) {
         pairs.push({ near, far });
@@ -87,7 +91,14 @@ interface Proposal { legs: StrategyLeg[]; distance: number; tie: string }
 
 function proposals(spec: TemplateSpec, ctx: StrategyContext): { items: Proposal[]; reason?: string } {
   const multi = spec.legs.some((leg) => leg.expiry === "far");
-  const pairs = expiryPairs(spec, ctx.chains, multi);
+  const requestMaxDte = ctx.request.maxDte ?? Number.MAX_SAFE_INTEGER;
+  // A strategy's catalog floor (e.g. LEAPS 365 DTE) overrides the
+  // ordinary window for single-expiry strategies. A multi-expiry strategy
+  // keeps maxDte on its near leg while farMinDte governs the long leg.
+  const nearMaxDte = multi && spec.farMinDte !== undefined
+    ? requestMaxDte
+    : Math.max(requestMaxDte, spec.minDte ?? 0);
+  const pairs = expiryPairs(spec, ctx.chains, multi, nearMaxDte);
   if (pairs.length === 0) {
     if (multi) return { items: [], reason: `Needs two expirations at least ${MIN_EXPIRY_GAP_DAYS} days apart${spec.farMinDte ? ` with the far leg at ${spec.farMinDte}+ DTE` : ""}; the loaded chain/DTE window does not provide them` };
     return { items: [], reason: `No expiration at ${spec.minDte}+ DTE in the loaded chain/DTE window` };
@@ -129,6 +140,16 @@ function proposals(spec: TemplateSpec, ctx: StrategyContext): { items: Proposal[
 export function createTemplateStrategy(options: TemplateStrategyOptions): StrategyDefinition {
   const multiExpiry = options.specs.some((spec) => spec.legs.some((leg) => leg.expiry === "far"));
   const usesStock = options.specs.some((spec) => spec.legs.some((leg) => leg.type === "STOCK"));
+  const requiredMaxDte = Math.max(
+    0,
+    ...options.specs.flatMap((spec) => [spec.minDte ?? 0, spec.farMinDte ?? 0]),
+  );
+  const dataHorizonDte = Math.max(
+    requiredMaxDte,
+    multiExpiry ? 365 : 0,
+    ...options.specs.map((spec) => multiExpiry ? (spec.minDte ?? 0) + MIN_EXPIRY_GAP_DAYS : 0),
+    ...options.specs.map((spec) => spec.searchMaxDte ?? 0),
+  );
   return {
     id: options.id,
     label: options.label,
@@ -138,6 +159,8 @@ export function createTemplateStrategy(options: TemplateStrategyOptions): Strate
     theses: options.theses,
     usesStock,
     multiExpiry,
+    ...(requiredMaxDte > 0 ? { requiredMaxDte } : {}),
+    ...(dataHorizonDte > 0 ? { dataHorizonDte } : {}),
     generate(ctx, defaultMax): GenerationResult {
       const cap = options.maxCombinations ?? defaultMax;
       const all: Proposal[] = [];

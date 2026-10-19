@@ -206,6 +206,20 @@ export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}, con
     filter.limit = config.maxReturnedContracts;
   }
 
+  if (filter.expirationDteBands !== undefined) {
+    const bands = Array.isArray(filter.expirationDteBands) ? filter.expirationDteBands : [];
+    const normalizedBands = bands.slice(0, 12).flatMap((band) => {
+      if (!band || !Number.isFinite(band.minDte) || !Number.isFinite(band.maxDte)) return [];
+      const minDte = Math.max(0, Math.floor(band.minDte));
+      const maxDte = Math.max(0, Math.floor(band.maxDte));
+      if (maxDte < minDte) return [];
+      const requested = Number.isFinite(band.maxExpirations) ? Math.floor(band.maxExpirations!) : 4;
+      return [{ minDte, maxDte, maxExpirations: Math.max(1, Math.min(8, requested)) }];
+    });
+    if (normalizedBands.length !== bands.length) warnings.push("Ignored invalid or excess expiration DTE bands.");
+    filter.expirationDteBands = normalizedBands;
+  }
+
   // Scanning every listed expiration fans out into dozens of upstream calls per symbol,
   // so an unbounded DTE window is never fetched implicitly.
   if (filter.minDte === undefined && filter.maxDte === undefined) {
@@ -320,8 +334,19 @@ export class DynamicOptionsScreener {
       };
     }
 
-    const requested = eligibleExpirations.slice(0, this.config.maxExpirationsPerSymbol);
-    const expirationsTruncated = eligibleExpirations.length - requested.length;
+    const selectedExpirations = filter.expirationDteBands?.length
+      ? filter.expirationDteBands.flatMap((band) => eligibleExpirations
+        .filter((expiry) => {
+          const dte = Math.ceil((Date.UTC(expiry.year, expiry.month - 1, expiry.day) - todayUtc) / (24 * 60 * 60 * 1000));
+          return dte >= band.minDte && dte <= band.maxDte;
+        })
+        .slice(0, band.maxExpirations ?? 4))
+      : eligibleExpirations;
+    const uniqueSelected = Array.from(new Map(selectedExpirations.map((expiry) => [
+      `${expiry.year}-${expiry.month}-${expiry.day}`, expiry,
+    ])).values()).sort((a, b) => Date.UTC(a.year, a.month - 1, a.day) - Date.UTC(b.year, b.month - 1, b.day));
+    const requested = uniqueSelected.slice(0, this.config.maxExpirationsPerSymbol);
+    const expirationsTruncated = uniqueSelected.length - requested.length;
     const chains = await mapLimit(requested, this.config.expiryFetchConcurrency, (expiry) =>
       client.getOptionChains({
         symbol,

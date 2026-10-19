@@ -8,8 +8,9 @@ import { OptionsDataAgent } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RankedStrategy, type RiskProfile } from "./recommendationAgent";
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
-import { MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
+import { DEFAULT_MAX_DTE, MAX_EXPIRATIONS_PER_SYMBOL, MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
+import { defaultRegistry } from "./strategies/catalog";
 import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { ScreenedOptionContractItem } from "../../types";
 
@@ -26,7 +27,7 @@ const CONCURRENCY = baseOppConfig.concurrency;
  * with different model versions are never silently compared as if they
  * were produced by the same model.
  */
-export const SCAN_MODEL_VERSION = "1.1.2";
+export const SCAN_MODEL_VERSION = "1.2.0";
 
 /**
  * The two strategy questions a scan can answer (issue #23):
@@ -770,6 +771,14 @@ export class OpportunityScanner {
       effectiveTemplate = applied.merged;
       appliedProfileFields = applied.appliedFields;
     }
+    // An omitted ceiling follows the screener's default near-leg horizon.
+    // Strategy-specific catalog requirements extend only the acquired data
+    // window; the engine keeps those long expiries isolated to strategies
+    // that declare the corresponding DTE floor.
+    effectiveTemplate = {
+      ...effectiveTemplate,
+      maxDte: effectiveTemplate.maxDte ?? DEFAULT_MAX_DTE,
+    };
     const profileGateApplied = strategyProfile?.fitGate !== undefined;
     const profile = explicitSet.has("riskProfile")
       ? options.riskProfile ?? "balanced"
@@ -789,6 +798,28 @@ export class OpportunityScanner {
     // metadata, not request fields: strip them so per-symbol
     // StrategyRequests stay exactly StrategyRequest-shaped.
     const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = effectiveTemplate;
+    const resolvedStrategies = new Set(defaultRegistry.resolveMany(requestTemplate.allowedStrategies).ids);
+    const scanTheses = new Set([
+      requestTemplate.thesis,
+      ...Object.values(effectiveTemplate.perSymbol ?? {}).flatMap((override) => override.thesis ? [override.thesis] : []),
+    ]);
+    const selectedDefinitions = defaultRegistry.list()
+      .filter((def) => resolvedStrategies.has(def.id) && def.theses.some((thesis) => scanTheses.has(thesis)));
+    const nearMaxDte = requestTemplate.maxDte ?? DEFAULT_MAX_DTE;
+    const dataMaxDte = Math.max(nearMaxDte, ...selectedDefinitions.map((def) => def.dataHorizonDte ?? 0));
+    const expirationDteBands = [
+      { minDte: requestTemplate.minDte ?? 0, maxDte: nearMaxDte, maxExpirations: MAX_EXPIRATIONS_PER_SYMBOL },
+      ...selectedDefinitions.flatMap((def) => {
+        const horizon = def.dataHorizonDte ?? 0;
+        if (horizon <= nearMaxDte) return [];
+        const minDte = def.multiExpiry
+          ? Math.max(nearMaxDte + 7, def.requiredMaxDte ?? 0)
+          : Math.max(nearMaxDte + 1, def.requiredMaxDte ?? 0);
+        return minDte <= horizon ? [{ minDte, maxDte: horizon, maxExpirations: 4 }] : [];
+      }),
+    ].filter((band, index, bands) => bands.findIndex((candidate) =>
+      candidate.minDte === band.minDte && candidate.maxDte === band.maxDte
+    ) === index);
 
     const outcomes = await mapLimit(batch, CONCURRENCY, async (symbol): Promise<{ opportunity: OpportunityRow | null; matrix: ScanMatrixRow }> => {
       const skippedMatrixRow = (reason: string): ScanMatrixRow => ({
@@ -805,7 +836,7 @@ export class OpportunityScanner {
         gateReasons: [],
       });
       try {
-        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, symbol });
+        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, maxDte: dataMaxDte, expirationDteBands, symbol });
         const price = snapshot.contracts[0]?.underlyingPrice;
         if (!price) {
           const reason = snapshot.validationError || snapshot.screen.fetchErrors?.[0]?.reason || "No eligible option contracts";

@@ -169,8 +169,13 @@ describe("Scheduled job failure semantics (#112)", () => {
   // =========================================================================
   describe("OrchestratorAgent scheduled callbacks", () => {
     function makeAgent(sql: MockSqlStorage) {
+      const storage = new Map<string, unknown>();
       const ctx = {
-        storage: { sql },
+        storage: {
+          sql,
+          get: async (key: string) => storage.get(key),
+          put: async (key: string, value: unknown) => { storage.set(key, value); },
+        },
         id: { toString: () => sessionId },
       } as any;
       const agent: any = Object.create(OrchestratorAgent.prototype);
@@ -210,6 +215,7 @@ describe("Scheduled job failure semantics (#112)", () => {
       const sql = new MockSqlStorage();
       const agent = makeAgent(sql);
       vi.spyOn(UnifiedOptionsService.prototype, "execute").mockResolvedValue({
+        success: true,
         summary: "Scanned 2 symbols; 1 actionable setup.",
         data: { scanned: 2, withTrades: 1, opportunities: [] },
         toSlack: () => ({}),
@@ -223,7 +229,7 @@ describe("Scheduled job failure semantics (#112)", () => {
       const sent = broadcasts(agent);
       expect(sent.length).toBe(1);
       expect(sent[0].type).toBe("options_alert");
-      expect(sent[0].title).toBe("Autonomous Options Intelligence Alert");
+      expect(sent[0].title, JSON.stringify(sent[0])).toBe("Autonomous Options Intelligence Alert");
       expect(sent[0].summary).toContain("Scanned 2 symbols");
       expect(sent[0].success).toBeUndefined();
 

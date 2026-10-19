@@ -19,8 +19,8 @@ const DEFINITIONS: StrategyDefinition[] = [
   createTemplateStrategy({ id: "short_call", label: "Short Call", category: "single", description: "Sell one naked call; unlimited upside risk.", aliases: ["Naked Call"], theses: ["bearish", "range_bound"], specs: [spec(1, [call("SELL")])] }),
   createTemplateStrategy({ id: "short_put", label: "Short Put", category: "single", description: "Sell one naked put; downside risk is strike minus premium.", aliases: ["Naked Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [put("SELL")])] }),
   createTemplateStrategy({ id: "cash_secured_put", label: "Cash-Secured Put", category: "single", description: "Sell one put backed by cash for assignment; risk is strike minus premium.", aliases: ["Cash Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [put("SELL")])] }),
-  createTemplateStrategy({ id: "leaps_call", label: "LEAPS Call", category: "single", description: "Long call with at least 365 DTE (stock replacement).", theses: ["bullish"], specs: [spec(1, [call("BUY")], { minDte: 365 })] }),
-  createTemplateStrategy({ id: "leaps_put", label: "LEAPS Put", category: "single", description: "Long put with at least 365 DTE.", theses: ["bearish"], specs: [spec(1, [put("BUY")], { minDte: 365 })] }),
+  createTemplateStrategy({ id: "leaps_call", label: "LEAPS Call", category: "single", description: "Long call with at least 365 DTE (stock replacement).", theses: ["bullish"], specs: [spec(1, [call("BUY")], { minDte: 365, searchMaxDte: 550 })] }),
+  createTemplateStrategy({ id: "leaps_put", label: "LEAPS Put", category: "single", description: "Long put with at least 365 DTE.", theses: ["bearish"], specs: [spec(1, [put("BUY")], { minDte: 365, searchMaxDte: 550 })] }),
 
   // Stock plus options (100 hypothetical shares per structure)
   createTemplateStrategy({ id: "covered_call", label: "Covered Call", category: "stock", description: "Long 100 shares plus one short call.", aliases: ["Buy-Write", "Synthetic Short Put"], theses: ["bullish", "range_bound"], specs: [spec(1, [stock("BUY"), call("SELL")])] }),

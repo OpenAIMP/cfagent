@@ -470,6 +470,8 @@ export interface OptionScreenerFilter {
   maxImpliedVolatility?: number; // decimal e.g. 1.20 = 120%
   minDte?: number; // Days to expiration min
   maxDte?: number; // Days to expiration max
+  /** Optional bounded expiry bands for strategy discovery. Each band selects its earliest expirations. */
+  expirationDteBands?: Array<{ minDte: number; maxDte: number; maxExpirations?: number }>;
   moneyness?: "ITM" | "OTM" | "ATM" | "ALL";
   maxStrikeDistancePct?: number; // e.g. 10 for strikes within 10% of underlying price
   /** Maximum contracts returned (clamped to MAX_RETURNED_CONTRACTS); use totalMatches for the pre-limit count. */

@@ -275,8 +275,8 @@ export async function handleOptionsStrategyRecommend(
 }
 
 export class OrchestratorAgent extends AIChatAgent<Env> {
-  private readonly scheduledScreenerSlots = new Set<string>();
-  private readonly scheduledOptionsSlots = new Set<string>();
+  private scheduledScreenerSlots = new Set<string>();
+  private scheduledOptionsSlots = new Set<string>();
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
@@ -321,11 +321,25 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     if (!agent) {
       return { success: false, error: "ResearchAgent binding not configured." };
     }
-    const result = await agent.runResearch({ trigger, userLogin: login });
-    if (!result.success || !result.report) {
-      return { success: false, error: result.error || "Research run failed." };
+    // Dispatch discovery through the Think agent-tool workflow. The child
+    // invokes its deterministic, read-only pipeline tool and persists the
+    // typed report before returning its summary.
+    const { ResearchAgent } = await import("./research-agent");
+    const previousRunId = (await agent.getLatest())?.runId;
+    const child = await this.runAgentTool(ResearchAgent, {
+      input: { trigger, userLogin: login },
+    });
+    let report = await agent.getLatest();
+    if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
+      // Keep scheduled discovery dependable if a provider cannot complete
+      // the Think turn. The same read-only deterministic pipeline remains
+      // the recovery path and persists through the same ResearchAgent.
+      const fallback = await agent.runResearch({ trigger, userLogin: login });
+      if (!fallback.success || !fallback.report) {
+        return { success: false, error: fallback.error || child.error || `Research agent finished with status ${child.status}.` };
+      }
+      report = fallback.report;
     }
-    const report = result.report;
     const sql = this.ensureTables();
     const stored = storeReportAtGeneration(sql, {
       runId: report.runId,
@@ -338,7 +352,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Delivery: email the stored summary when explicitly configured.
     let emailed = false;
     try {
-      const cfg = await agent.getConfig();
+      const cfg = await agent.getResearchConfig();
       if (cfg.autoEmail && cfg.emailTo) {
         emailed = await this.sendResearchSummaryEmail(
           cfg.emailTo,
@@ -522,6 +536,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         // universe in DO storage so only one run publishes to Slack.
         const slot = new Date().toISOString().slice(0, 13);
         const slotKey = `${universe}:${slot}`;
+        this.scheduledScreenerSlots ??= new Set<string>();
         if (this.scheduledScreenerSlots.has(slotKey)) return;
         if (this.scheduledScreenerSlots.size > 32) this.scheduledScreenerSlots.clear();
         this.scheduledScreenerSlots.add(slotKey);
@@ -552,6 +567,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           // Issue #253: full scanned set so the panel can render the
           // per-symbol data table. Already shaped by the shared pipeline.
           allStocks: res.data?.allStocks || [],
+          pdfKey: res.data?.pdfKey,
           error: res.success ? undefined : res.error,
         };
         await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
@@ -567,7 +583,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           summary: res.success
             ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
             : `Scheduled screen failed: ${res.error ?? "unknown error"}.`,
-          body: run,
+          body: {
+            ...run,
+            pdfKey: run.pdfKey,
+            reportUrl: run.pdfKey
+              ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf?key=${encodeURIComponent(String(run.pdfKey))}`
+              : undefined,
+          },
           createdAt: res.timestamp,
         });
       } catch {
@@ -637,6 +659,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         const slot = new Date().toISOString().slice(0, 13);
         const thesis = payload?.thesis || "bullish";
         const slotKey = `${thesis}:${slot}`;
+        this.scheduledOptionsSlots ??= new Set<string>();
         if (this.scheduledOptionsSlots.has(slotKey)) return;
         if (this.scheduledOptionsSlots.size > 32) this.scheduledOptionsSlots.clear();
         this.scheduledOptionsSlots.add(slotKey);
@@ -1739,6 +1762,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     matchedCount: number;
     opportunities: unknown[];
     allStocks: unknown[];
+    pdfKey?: string;
     error?: string;
     trigger?: unknown;
   }): void {
@@ -1763,6 +1787,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           matchedCount: result.matchedCount,
           opportunities: result.opportunities,
           allStocks: result.allStocks,
+          pdfKey: result.pdfKey,
+          reportUrl: result.pdfKey
+            ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
+            : undefined,
           error: result.error,
         },
         createdAt: result.timestamp,
@@ -3593,6 +3621,7 @@ Agentic Best Practices & Workflow Rules:
 
         const pushToSlack = filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1";
         let optionsReportUrl: string | undefined;
+        let optionsPdfKey: string | undefined;
         if (pushToSlack) {
           const slackChannel = filter.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
           const summary = `📊 Options Contract Screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
@@ -3604,6 +3633,7 @@ Agentic Best Practices & Workflow Rules:
             for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
             try {
               const pdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+              optionsPdfKey = pdfKey;
               optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
             } catch (storeErr) {
               console.warn("[Orchestrator] Manual options contracts PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
@@ -3625,6 +3655,33 @@ Agentic Best Practices & Workflow Rules:
             if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract notification failed:", sent.error);
           }
         }
+
+        // Every manual options scan gets a PDF and one searchable canonical
+        // row, whether or not Slack delivery was requested.
+        if (!optionsPdfKey) {
+          try {
+            const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+            const pdfBytes = await generateOptionsPdf(result);
+            const fileName = optionsPdfFileName(result);
+            let binary = "";
+            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
+            optionsPdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+            optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
+          } catch (pdfErr) {
+            console.warn("[Orchestrator] Manual options contract report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+          }
+        }
+        const generatedAt = new Date().toISOString();
+        const generationId = `options_scanner:manual:${generatedAt}`;
+        this.getOrm().storeCanonicalReport({
+          runId: generationId,
+          generationId,
+          title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}`,
+          source: "options_scanner",
+          summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
+          body: { generatedAt, filter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
+          createdAt: generatedAt,
+        });
 
         return Response.json({ ...result, reportUrl: optionsReportUrl });
       } catch (err) {
@@ -3706,6 +3763,37 @@ Agentic Best Practices & Workflow Rules:
           } catch (slackErr) {
             console.warn("[Orchestrator] Slack notification (manual options) error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
           }
+        }
+
+        if (reqData.action === "opportunities" && result.success) {
+          let pdfKey: string | undefined;
+          if (reportUrl) {
+            try { pdfKey = new URL(reportUrl, "https://local.invalid").searchParams.get("key") || undefined; } catch { /* URL is optional metadata */ }
+          }
+          if (!pdfKey) {
+            try {
+              const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+              const pdfBytes = await generateOptionsPdf(result.data);
+              const fileName = optionsPdfFileName(result.data);
+              let binary = "";
+              for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
+              pdfKey = await this.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+              reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+            } catch (pdfErr) {
+              console.warn("[Orchestrator] Manual options report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+            }
+          }
+          const generatedAt = new Date().toISOString();
+          const generationId = `options_scanner:${generatedAt}:${reqData.thesis || "mixed"}`;
+          this.getOrm().storeCanonicalReport({
+            runId: generationId,
+            generationId,
+            title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
+            source: "options_scanner",
+            summary: result.summary,
+            body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl },
+            createdAt: generatedAt,
+          });
         }
 
         const channel = reqData.channel || "ui";
@@ -4299,7 +4387,7 @@ Agentic Best Practices & Workflow Rules:
       if (!agent) {
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
-      const config = await agent.getConfig();
+      const config = await agent.getResearchConfig();
       return Response.json({ config });
     }
     if (path.endsWith("/research/settings") && request.method === "POST") {
