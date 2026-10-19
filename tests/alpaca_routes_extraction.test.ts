@@ -167,10 +167,14 @@ describe("alpaca route inventory (extraction #376)", () => {
     ]) {
       expect(orchSrc.split(needle).length - 1, `expected exactly one call site: ${needle}`).toBe(1);
     }
-    // FossResearchService import moved into the module but STAYS in
-    // orchestrator.ts: the remaining inline FOSS blocks still use it.
+    // Slice #359-14 (foss research) legitimately moved this import: no
+    // inline FOSS blocks remain in orchestrator.ts, so FossResearchService
+    // and fossBarsSourceLabel are owned by src/agents/routes/fossResearch.ts
+    // now (swap per the #405 landmark rule - the "stays inline" premise was
+    // stale after extraction).
     expect(moduleSrc).toContain('import { FossResearchService } from "../../services/fossResearch"');
-    expect(orchSrc).toContain('import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch"');
+    expect(orchSrc).not.toContain('import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch"');
+    expect(src("agents/routes/fossResearch.ts")).toContain('import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch"');
   });
 
   it("the trading delegation sits after the watchlists delegation; the foss delegation follows it", () => {

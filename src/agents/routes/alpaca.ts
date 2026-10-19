@@ -15,8 +15,8 @@
  *
  * Group 2 (between the /foss/research block and the /foss/compare block):
  * the alpaca-named FOSS routes (the non-alpaca /foss/quote, /foss/fundamentals,
- * /foss/bars, /foss/research and /foss/compare blocks are NOT moved — they
- * are slice #359-14's (foss research) domain and stay inline) —
+ * /foss/bars, /foss/research and /foss/compare blocks moved to slice
+ * #359-14's foss research module — src/agents/routes/fossResearch.ts) —
  *   GET         /foss/snapshot
  *   GET         /foss/alpaca/account
  *   GET         /foss/alpaca/positions
