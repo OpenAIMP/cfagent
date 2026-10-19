@@ -15,6 +15,8 @@ import {
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
+import { createStoreKv, type DoNamespaceLike } from "./durableKv";
+import { createResilientKv, type KvLike } from "./kvResilience";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { ETradeError, ETradeErrorCode } from "../aspects/errorCodes";
@@ -51,15 +53,20 @@ const KV_ACCESS_TOKEN_KEY = (userLogin: string, envName?: string) =>
 const KV_REQUEST_TOKEN_KEY = (userLogin: string, envName?: string) =>
   envName ? `etrade:req_token:${envName.toUpperCase()}:${userLogin}` : `etrade:req_token:${userLogin}`;
 
-function getKv(env: Env): KVNamespace {
-  const kv = (env as any).ETRADE_KV || env.SESSIONS || env.KV;
-  if (!kv) {
-    throw new ETradeError(
-      ETradeErrorCode.INTERNAL_ERROR,
-      "No KV namespace configured for E*TRADE token storage. Bind ETRADE_KV or SESSIONS."
-    );
-  }
-  return kv;
+/**
+ * Token storage, moved off KV (issue #329).
+ *
+ * Same reasoning as sessions: a KV quota throw here surfaced as a 1101 on any
+ * E*TRADE route. Tokens now live in the SessionStore DO; the legacy KV is read
+ * once per key to migrate what is already stored there.
+ */
+function getKv(env: Env): KvLike {
+  return createStoreKv({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    legacy: createResilientKv((env as any).ETRADE_KV || env.SESSIONS || env.KV, "etrade"),
+    namespaceName: "etrade",
+    legacyFallback: env.SESSIONS_KV_FALLBACK !== "off",
+  });
 }
 
 /**

@@ -27,7 +27,9 @@
       // Issue #261 — ScreenerAgent DO (one agent, one UI, E*TRADE-only)
       { "name": "SCREENER_AGENT", "class_name": "ScreenerAgent" },
       // Issue #319 — ResearchAgent DO (autonomous options research)
-      { "name": "RESEARCH_AGENT", "class_name": "ResearchAgent" }
+      { "name": "RESEARCH_AGENT", "class_name": "ResearchAgent" },
+      // Issue #329 — sessions + E*TRADE credentials off KV (no daily read cap)
+      { "name": "SESSION_STORE", "class_name": "SessionStore" }
     ]
   },
   "migrations": [
@@ -38,7 +40,9 @@
     // Issue #261 — ScreenerAgent
     { "tag": "v4", "new_sqlite_classes": ["ScreenerAgent"] },
     // Issue #319 — ResearchAgent
-    { "tag": "v5", "new_sqlite_classes": ["ResearchAgent"] }
+    { "tag": "v5", "new_sqlite_classes": ["ResearchAgent"] },
+    // Issue #329 — SessionStore (sessions + credentials)
+    { "tag": "v6", "new_sqlite_classes": ["SessionStore"] }
   ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },

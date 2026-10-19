@@ -1,5 +1,5 @@
 import type { Env, SessionData } from "../types";
-import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat } from "./session";
+import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
 import { invalidateSessionCache } from "./sessionCache";
 import { revokeStoredTokens } from "./etradeOAuth";
 
@@ -103,19 +103,16 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
   // read (and the delete) for anything else keeps junk cookies off KV.
   if (isSessionIdFormat(sessionId)) {
     try {
-      const rawSession = await env.SESSIONS.get(sessionId);
-      if (rawSession) {
-        try {
-          const session = JSON.parse(rawSession) as SessionData;
-          if (session?.githubLogin) {
-            await revokeStoredTokens(env, session.githubLogin);
-          }
-        } catch { }
+      // Authoritative read from the session store (not KV): logout must see the
+      // real record even if a cache layer still holds a copy.
+      const session = await getSession(env, sessionId);
+      if (session?.githubLogin) {
+        await revokeStoredTokens(env, session.githubLogin);
       }
       invalidateSessionCache(sessionId);
-      await env.SESSIONS.delete(sessionId);
+      await deleteSession(env, sessionId);
     } catch {
-      // Ignore KV deletion errors on logout
+      // Logout must never fail the request; the cookie is cleared regardless.
     }
   }
 
