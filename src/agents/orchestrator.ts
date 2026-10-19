@@ -35,6 +35,11 @@ import { sharedCorrelationService } from "../services/correlationService";
 import { YFinanceMarketScreener } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
+import type { ResearchAgent } from "./research-agent";
+import {
+  triggerManualResearch,
+  triggerScheduledResearch,
+} from "../services/researchTriggers";
 import { recommendOptionStrategies, type StrategyRequest } from "../trading";
 import {
   OptionsAgentPipeline,
@@ -77,6 +82,7 @@ import {
   getCanonicalReport,
   parseResearchReportBody,
   sha256Hex,
+  storeReportAtGeneration,
 } from "../services/scheduledReports";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
@@ -196,6 +202,104 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
   private getScreenerAgent(): ScreenerAgent {
     const id = this.env.SCREENER_AGENT.idFromName("default");
     return this.env.SCREENER_AGENT.get(id) as unknown as ScreenerAgent;
+  }
+
+  /**
+   * ResearchAgent stub (issue #319) — one agent owns options research.
+   * Per-tenant instance id: research:<userLogin>.
+   */
+  private getResearchAgent(userLogin?: string): ResearchAgent | null {
+    const ns = this.env.RESEARCH_AGENT;
+    if (!ns) return null;
+    const login = userLogin || "default";
+    const id = ns.idFromName(`research:${login}`);
+    return ns.get(id) as unknown as ResearchAgent;
+  }
+
+  /**
+   * Issue #319: THE single publish entry for autonomous options research.
+   * The manual route and the scheduled tick are thin triggers over this
+   * method (amendment 2). The ResearchAgent runs the pipeline; the
+   * canonical copy is stored here via the #308 seam on the orchestrator's
+   * mas_reports — the table the Reports tab (#318) and AI Search read.
+   */
+  async runResearchAndPublish(
+    trigger: "manual" | "scheduled",
+    userLogin?: string
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    reportId?: string | null;
+    created?: boolean;
+    emailed?: boolean;
+    report?: unknown;
+  }> {
+    const login = userLogin || "default";
+    const agent = this.getResearchAgent(login);
+    if (!agent) {
+      return { success: false, error: "ResearchAgent binding not configured." };
+    }
+    const result = await agent.runResearch({ trigger, userLogin: login });
+    if (!result.success || !result.report) {
+      return { success: false, error: result.error || "Research run failed." };
+    }
+    const report = result.report;
+    const sql = this.ensureTables();
+    const stored = storeReportAtGeneration(sql, {
+      runId: report.runId,
+      generationId: report.generationId,
+      title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+      source: "options_research",
+      summary: report.summary,
+      body: report as unknown as Record<string, unknown>,
+    });
+    // Delivery: email the stored summary when explicitly configured.
+    let emailed = false;
+    try {
+      const cfg = await agent.getConfig();
+      if (cfg.autoEmail && cfg.emailTo) {
+        emailed = await this.sendResearchSummaryEmail(
+          cfg.emailTo,
+          report.summary,
+          report.ideas.length,
+          stored?.reportId ?? null,
+          login
+        );
+      }
+    } catch {
+      // Delivery never fails the run.
+    }
+    return {
+      success: true,
+      reportId: stored?.reportId ?? null,
+      created: stored?.created ?? false,
+      emailed,
+      report,
+    };
+  }
+
+  /** Issue #319: opt-in email delivery of the stored research summary. */
+  private async sendResearchSummaryEmail(
+    recipient: string,
+    summary: string,
+    ideaCount: number,
+    reportId: string | null,
+    userLogin: string
+  ): Promise<boolean> {
+    const { validateEmailRecipient } = await import("../security/webhookReplay");
+    const check = validateEmailRecipient(recipient, this.env.EMAIL_TO_ALLOWED_DOMAINS);
+    if (!check.ok) return false;
+    try {
+      const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
+      return await emailService.sendOutboundEmail(
+        recipient,
+        `Options research report — ${ideaCount} qualified idea(s)`,
+        `<p>${summary.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p><p>Full report${reportId ? ` (id ${reportId})` : ""} is available in the dashboard Reports tab. Research only; no trades were placed.</p>`,
+        `${summary}\n\nFull report${reportId ? ` (id ${reportId})` : ""} is available in the dashboard Reports tab.\nResearch only; no trades were placed.`
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -6237,6 +6341,100 @@ Agentic Best Practices & Workflow Rules:
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
       }
+    }
+
+    // ==========================================
+    // Issue #319: autonomous options research.
+    // The manual route and the scheduled tick are thin triggers over the
+    // single runResearchAndPublish entry (amendment 2) — only the trigger
+    // source differs. Note: server.ts strips the /api prefix before
+    // forwarding, so the DO sees /research/*.
+    // ==========================================
+
+    // Manual run (dashboard "Run now").
+    if (path.endsWith("/research/run") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      try {
+        const out = await triggerManualResearch(
+          (t, u) => this.runResearchAndPublish(t, u),
+          userLogin
+        );
+        return Response.json(out);
+      } catch (err: any) {
+        return Response.json(
+          { success: false, error: err?.message || "Research run failed." },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Scheduled tick (server.ts cron after market close).
+    if (path.endsWith("/research/scheduled-tick") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || "default";
+      try {
+        const out = await triggerScheduledResearch(
+          (t, u) => this.runResearchAndPublish(t, u),
+          userLogin
+        );
+        return Response.json(out);
+      } catch (err: any) {
+        return Response.json(
+          { success: false, error: err?.message || "Scheduled research run failed." },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Latest + history (trigger-labeled; one view serves both run types).
+    if (path.endsWith("/research/latest") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = this.getResearchAgent(userLogin);
+      if (!agent) return Response.json({ latest: null });
+      const latest = await agent.getLatest();
+      return Response.json({ latest });
+    }
+    if (path.endsWith("/research/history") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = this.getResearchAgent(userLogin);
+      if (!agent) return Response.json({ history: [] });
+      const history = await agent.getHistory();
+      return Response.json({ history });
+    }
+
+    // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
+    if (path.endsWith("/research/settings") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = this.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const config = await agent.getConfig();
+      return Response.json({ config });
+    }
+    if (path.endsWith("/research/settings") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = this.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const patch = (await request.json().catch(() => null)) as Partial<import("../services/researchConfig").ResearchConfig> | null;
+      const out = await agent.saveConfig(patch ?? {});
+      return Response.json(out);
+    }
+
+    // §9 evaluation pass over a published run.
+    if (path.endsWith("/research/evaluate") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = this.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const body = (await request.json().catch(() => null)) as { runId?: string } | null;
+      if (!body?.runId) {
+        return Response.json({ error: "runId is required." }, { status: 400 });
+      }
+      const evaluation = await agent.evaluateRun(body.runId, userLogin);
+      return Response.json({ evaluation });
     }
 
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
