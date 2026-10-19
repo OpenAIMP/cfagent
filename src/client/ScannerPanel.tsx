@@ -642,6 +642,21 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
     <div className="scp-results">
       <div className="scp-results-head">
         <strong>Mode: {MODE_LABELS[mode]}</strong>
+        <a
+          href="/api/options/report.pdf"
+          download
+          style={{
+            fontSize: "0.8rem",
+            padding: "0.35rem 0.75rem",
+            borderRadius: "4px",
+            border: "1px solid var(--color-accent)",
+            color: "var(--color-accent)",
+            textDecoration: "none",
+            marginLeft: "auto",
+          }}
+        >
+          📄 Download PDF report
+        </a>
         {result.profileRef && (
           <span className="scp-badge scp-badge-profile">Profile: {result.profileRef.name} v{result.profileRef.version}</span>
         )}
