@@ -38,6 +38,19 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Watchlists routes extracted from orchestrator.ts** (#359/#375): the
+  E*TRADE watchlists block (GET `/etrade/watchlists`,
+  GET `/etrade/watchlist/details`, POST `/etrade/watchlist/create`,
+  POST `/etrade/watchlist/save-screen`, DELETE|POST
+  `/etrade/watchlist/delete`) moved to `src/agents/routes/watchlists.ts` as a
+  single handler, `handleWatchlistsRoutes`, invoked from `routeRequest` at the
+  exact original position (between the E*TRADE options delegation and the
+  Alpaca block). The `ETradeService` import moved with the block;
+  `requestedEnv` stays inline and is passed through the context; dependencies
+  arrive via an explicit context object. Slice #359-11's test landmark (the
+  watchlists banner anchor) was swapped to the new delegation call per the
+  #405 rule. Pure move, no behavior change.
+
 - **Trading integrations routes extracted from orchestrator.ts** (#359/#373):
   the omnichannel trading channel block (POST `/trading/email/inbound`,
   POST `/trading/slack/event|/interaction|/command`, POST

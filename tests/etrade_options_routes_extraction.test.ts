@@ -19,11 +19,9 @@
  *
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS or
  * own-domain markers, never to a neighboring domain's inline comments or
- * blocks. The upper bound here anchors to the still-inline watchlists banner
- * with an explicit handoff: slice #359-12 (watchlists) must swap this anchor
- * for its delegation call when it extracts that block. This slice already
- * performed slice #359-09's requested swap (the options banner anchor became
- * this module's delegation call).
+ * blocks. The upper bound anchors to the slice-12 watchlists delegation call
+ * (this slice already performed slice #359-09's requested swap: the options
+ * banner anchor became this module's delegation call).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -134,11 +132,11 @@ describe("E*TRADE options route inventory (extraction #374)", () => {
     const activityIdx = orchSrc.indexOf("handleEtradeBrokerActivityRoutes(request, url, path, sessionId,");
     expect(activityIdx).toBeGreaterThan(-1);
     expect(optionsIdx, "options delegation must follow the broker-activity delegation").toBeGreaterThan(activityIdx);
-    // Upper bound: the still-inline watchlists banner (slice #359-12 swaps
-    // this anchor for its delegation call when it extracts that block).
-    const watchlistsIdx = orchSrc.indexOf("// E*TRADE Watchlist Endpoints & Persistence");
+    // Upper bound: the watchlists delegation call (slice #359-12 performed
+    // this swap; delegation-call anchor per the #405 rule).
+    const watchlistsIdx = orchSrc.indexOf("handleWatchlistsRoutes(request, url, path, sessionId,");
     expect(watchlistsIdx).toBeGreaterThan(-1);
-    expect(optionsIdx, "options delegation must precede the watchlists block").toBeLessThan(watchlistsIdx);
+    expect(optionsIdx, "options delegation must precede the watchlists delegation").toBeLessThan(watchlistsIdx);
   });
 
   it("the strategy routes delegate to the single-owner handler (both spellings)", () => {

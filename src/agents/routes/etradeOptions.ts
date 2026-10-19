@@ -43,7 +43,7 @@
  * EtradeOptionsRouteContext parameter; there are no new globals and no
  * back-references into the class. The requestedEnv binding stays inline in
  * routeRequest and is passed through the context (it is shared with the
- * still-inline watchlists block below).
+ * the watchlists module below (#359-12); passed through the context).
  */
 
 import type { AgentContext } from "agents";
@@ -94,7 +94,7 @@ export interface EtradeOptionsRouteContext {
   /** Table initializer (owner: OrchestratorAgent - was `this.ensureTables()`). */
   ensureTables(): SqlStorage;
   /** Requested E*TRADE environment (owner: routeRequest local - stays inline,
-   * shared with the still-inline watchlists block; passed through here). */
+   * shared with the watchlists module (#359-12); passed through here). */
   requestedEnv: "TEST" | "PROD" | undefined;
   /** Screener agent (owner: OrchestratorAgent - was `this.getScreenerAgent()`). */
   getScreenerAgent(): ScreenerAgent;

@@ -9,7 +9,6 @@ import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedGateway, SUPPORTED_GATEWAYS, type SupportedGateway } from "../services/payments";
-import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
 import { runStorageRetention } from "../security/storageRetention";
@@ -86,6 +85,7 @@ import {
   handleEtradeBrokerActivityRoutes,
 } from "./routes/etradeBroker";
 import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
+import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2777,82 +2777,18 @@ Agentic Best Practices & Workflow Rules:
     });
     if (etradeOptionsResponse) return etradeOptionsResponse;
 
-    // ==========================================
-    // E*TRADE Watchlist Endpoints & Persistence
-    // ==========================================
-
-    // List Watchlists (E*TRADE REST + Durable SQLite)
-    if (path.endsWith("/etrade/watchlists") && request.method === "GET") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const watchlists = await etrade.getWatchlists();
-        return Response.json({ count: watchlists.length, watchlists });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to retrieve watchlists" }, { status: 500 });
-      }
-    }
-
-    // Get Watchlist Details
-    if (path.endsWith("/etrade/watchlist/details") && request.method === "GET") {
-      try {
-        const id = url.searchParams.get("id") || url.searchParams.get("name") || "";
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const details = await etrade.getWatchlistDetails(id);
-        if (!details) {
-          return Response.json({ error: `Watchlist '${id}' not found` }, { status: 404 });
-        }
-        return Response.json(details);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to get watchlist details" }, { status: 500 });
-      }
-    }
-
-    // Create Watchlist
-    if (path.endsWith("/etrade/watchlist/create") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const name = (body.name || "Default Watchlist").trim();
-        const symbols = Array.isArray(body.symbols) ? body.symbols : [];
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const res = await etrade.createWatchlist({ name, symbols });
-        return Response.json(res);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to create watchlist" }, { status: 500 });
-      }
-    }
-
-    // Save Screen Results directly as Watchlist
-    if (path.endsWith("/etrade/watchlist/save-screen") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const name = (body.name || "Screener Results").trim();
-        const symbols = Array.isArray(body.symbols) ? body.symbols : [];
-        const items = body.items || [];
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const res = await etrade.saveScanAsWatchlist(name, symbols, items);
-        return Response.json(res);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to save screen as watchlist" }, { status: 500 });
-      }
-    }
-
-    // Delete Watchlist
-    if (path.endsWith("/etrade/watchlist/delete") && (request.method === "DELETE" || request.method === "POST")) {
-      try {
-        const id = url.searchParams.get("id") || (await request.json().catch(() => ({})) as any)?.id;
-        if (!id) return Response.json({ error: "Missing watchlist id" }, { status: 400 });
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const deleted = await etrade.deleteWatchlist(id);
-        return Response.json({ success: deleted, deletedId: id });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete watchlist" }, { status: 500 });
-      }
-    }
+    // Issue #359-12: E*TRADE watchlists routes (list / details / create /
+    // save-screen / delete) are handled by src/agents/routes/watchlists.ts
+    // (handleWatchlistsRoutes). Invoked at this exact position in the
+    // sequential path.endsWith matching sequence (after the E*TRADE options
+    // delegation, before the Alpaca block); a non-null return matched. The
+    // requestedEnv binding stays inline and is passed through the context.
+    const watchlistsResponse = await handleWatchlistsRoutes(request, url, path, sessionId, {
+      env: this.env,
+      getOrm: () => this.getOrm(),
+      requestedEnv,
+    });
+    if (watchlistsResponse) return watchlistsResponse;
 
     // ==========================================
     // Alpaca Trading API v2 Endpoints
