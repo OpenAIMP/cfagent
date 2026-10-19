@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RAW_LIVE_FLOW_ITEMS,
   DEFAULT_SAVED_PRESETS,
@@ -23,6 +23,45 @@ import type { ETradeOptionChain } from "../src/types";
 import type { CongressFlowItem, InsiderFlowItem, NewsFlowItem } from "../src/trading/options/flows/types";
 
 describe("Options Flows Engine & Institutional Activity Suite", () => {
+  // Issue #404: this suite must never make live network calls. Stub global
+  // fetch so Yahoo Finance hosts fail fast (ok: false — the crumb session
+  // never establishes and the live-flow path yields nothing) while any
+  // other URL throws, so a new network dependency cannot sneak in silently.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+        const rawUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : (input as Request).url;
+        const host = new URL(rawUrl).hostname.toLowerCase();
+        const isYahoo =
+          host === "fc.yahoo.com" ||
+          host === "finance.yahoo.com" ||
+          host.endsWith(".finance.yahoo.com");
+        if (isYahoo) {
+          return {
+            ok: false,
+            status: 503,
+            headers: { get: () => null },
+            text: async () => "",
+            json: async () => ({}),
+          } as unknown as Response;
+        }
+        throw new Error(
+          `network disabled in tests/options_flows.test.ts — unexpected fetch to ${rawUrl}`
+        );
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("contains the static fixture flow table, every row stamped provenance: static (issue #119)", () => {
     expect(RAW_LIVE_FLOW_ITEMS.length).toBeGreaterThanOrEqual(15);
     // Static seed/demo rows must never present as live market data.
