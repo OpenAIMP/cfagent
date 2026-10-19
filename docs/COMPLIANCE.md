@@ -3,7 +3,7 @@
 Standalone compliance review of the in-repo trading capability (`src/trading/`).
 Produced for assessment P2 item 9, issue #290 (owner verdict 2026-10-18: do
 NOT extract trading to a worker; enforce the boundary in-repo instead).
-All statements below are sourced from the code as of main `2c6d543b`;
+All statements below are sourced from the code as of main `0af55d4`;
 file paths are given so every claim is checkable. No secret VALUES appear
 in this document — names only.
 
@@ -85,12 +85,13 @@ for completeness): `SLACK_BOT_TOKEN`, `OUTBOUND_WEBHOOK_SECRET`.
   layer with HITL confirmation surfaces; payment/trade drafts use the
   confirmation pattern (`src/client/confirmationCard.ts`, `confirmDraft`).
 - **Recommendation report dispatch** (`POST /trading/reports/email|webhook`):
-  ships autonomously by owner decision; an opt-in HITL setting is being added
-  (issue #277, claim `fix/277-report-hitl-setting`) — when enabled, dispatch
+  ships autonomously by owner decision; the opt-in HITL setting from issue
+  #277 is now merged (commit `8f5edef`) — when enabled in Settings, dispatch
   requires the same confirmation pattern before sending.
 - **Scheduled runs**: scheduled screenings/reports run via the scheduler
-  (`src/services/scheduledTasks.ts`); issue #278 adds durable persistence of
-  scheduled-run reports so the AI Search agent can surface them later.
+  (`src/services/scheduledTasks.ts`); issue #278 is merged (commit `0af55d4`):
+  scheduled-run reports persist durably so the AI Search agent can surface
+  them later.
 
 ## 5. Data stores touched
 
@@ -110,8 +111,11 @@ for completeness): `SLACK_BOT_TOKEN`, `OUTBOUND_WEBHOOK_SECRET`.
 ## 6. Boundary posture (issue #290)
 
 All non-trading code imports trading capabilities only through
-`src/trading/index.ts`; deep-path imports were re-pointed mechanically (69
-import sites across 14 files, zero logic changes). One pinned disambiguation:
+`src/trading/index.ts` (36 `export *` statements covering the options engine,
+etrade/alpaca platforms, channel agents, screeners, stores, and reports, plus
+the platform-registry named exports); deep-path imports were re-pointed
+mechanically (69 static + 2 dynamic import sites across 14 files, zero logic
+changes). One pinned disambiguation:
 `MAX_SCAN_SYMBOLS` exists in both `optionsScreener.ts` and
 `options/opportunityScanner.ts` with different values; the index explicitly
 re-exports the options binding external code used. Enforced by
