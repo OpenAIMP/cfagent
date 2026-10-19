@@ -17,7 +17,7 @@ import { Agent } from "agents";
 import type { Env } from "../types";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
-import { DynamicMarketScreener } from "../trading/screener";
+import { DynamicMarketScreener } from "../trading";
 import {
   acquireUniverse,
   screenUniverse,
@@ -28,16 +28,16 @@ import {
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
-} from "../trading/screenerPipeline";
-import { fetchTechnicalsBatch } from "../trading/yahooHistory";
+} from "../trading";
+import { fetchTechnicalsBatch } from "../trading";
 import {
   UNIVERSES,
   shardableUniverses,
   resolveUniverse,
   type UniverseId,
-} from "../trading/universes";
+} from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
-import { DEFAULT_SCREENER_CONFIG } from "../trading/screenerConfig";
+import { DEFAULT_SCREENER_CONFIG } from "../trading";
 import type { StockScreenerFilter } from "../types";
 
 export interface ScreenerRunRequest {
@@ -271,7 +271,7 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
     try {
       const { generateScreenerPdf, screenerPdfFileName } = await import(
-        "../trading/screenerReportPdf"
+        "../trading"
       );
       const pdfBytes = await generateScreenerPdf(result);
       let base64 = "";

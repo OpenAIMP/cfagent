@@ -13,7 +13,7 @@ import { ETradeService } from "../services/etrade";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { getValidTokens } from "../security/etradeOAuth";
 import { runStorageRetention } from "../security/storageRetention";
-import { ETradeRestClient } from "../trading/etrade/client";
+import { ETradeRestClient } from "../trading";
 import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
@@ -32,10 +32,10 @@ import { assessPortfolioConcentration } from "../services/portfolioConcentration
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
-import { YFinanceMarketScreener } from "../trading/yfinanceScreener";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { YFinanceMarketScreener } from "../trading";
+import { DynamicOptionsScreener } from "../trading";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
-import { recommendOptionStrategies, type StrategyRequest } from "../trading/options/strategyEngine";
+import { recommendOptionStrategies, type StrategyRequest } from "../trading";
 import {
   OptionsAgentPipeline,
   UnifiedOptionsService,
@@ -43,28 +43,28 @@ import {
   type StrategyScreenFilter,
   type RiskProfile,
   type UnifiedOptionsRequest,
-} from "../trading/options";
+} from "../trading";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
-import { buildCalibratedOptionChains } from "../trading/options/calibratedOptionChains";
+import { buildCalibratedOptionChains } from "../trading";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
-import { describeLlmInput, rankCandidatesWithLlm } from "../trading/options/llmComparison";
-import { SqlScanRunStore, diffScanRuns } from "../trading/options/scanRunStore";
-import { SqlIvHistoryStore } from "../trading/options/ivHistoryStore";
-import { flattenWatchlistSymbols, getIvHistoryEntry, resolveTrackedSymbols } from "../trading/options/ivCollector";
+import { describeLlmInput, rankCandidatesWithLlm } from "../trading";
+import { SqlScanRunStore, diffScanRuns } from "../trading";
+import { SqlIvHistoryStore } from "../trading";
+import { flattenWatchlistSymbols, getIvHistoryEntry, resolveTrackedSymbols } from "../trading";
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
-import { validateStrategyProfile, type StrategyProfileSpec } from "../trading/options/strategyProfile";
-import { SqlStrategyProfileStore } from "../trading/options/strategyProfileStore";
-import { generateSyntheticOptionChains } from "../trading/options/syntheticChains";
-import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading/options/strategies/catalog";
+import { validateStrategyProfile, type StrategyProfileSpec } from "../trading";
+import { SqlStrategyProfileStore } from "../trading";
+import { generateSyntheticOptionChains } from "../trading";
+import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "../trading";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
-import { ETradeEmailTradingService } from "../trading/email/agent";
-import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeEmailTradingService } from "../trading";
+import { ETradeSlackTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { BrowserAgent } from "./browserAgent";
 import { SlackAgent } from "./slackAgent";
-import { ETradeVoiceTradingService } from "../trading/voice/agent";
+import { ETradeVoiceTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
@@ -225,7 +225,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // The migration was too aggressive and cleared all schedules.
       // Manual cleanup via UI recommended instead.
       const { shardableUniverses: _shardable, UNIVERSES: _U } = await import(
-        "../trading/universes"
+        "../trading"
       );
       let staggerMin = 5;
       for (const universe of _shardable()) {

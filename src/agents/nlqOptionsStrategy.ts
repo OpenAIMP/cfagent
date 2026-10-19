@@ -4,25 +4,25 @@
  * screening) stays on the existing `options_screen` NLQ action.
  */
 
-import { OptionsAgentPipeline } from "../trading/options";
-import { defaultRegistry } from "../trading/options/strategies/catalog";
-import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading/options/opportunityScanner";
-import type { ScanRunStore } from "../trading/options/scanRunStore";
-import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "../trading/options/strategyProfile";
-import type { StrategyProfileStore } from "../trading/options/strategyProfileStore";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { OptionsAgentPipeline } from "../trading";
+import { defaultRegistry } from "../trading";
+import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading";
+import type { ScanRunStore } from "../trading";
+import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "../trading";
+import type { StrategyProfileStore } from "../trading";
+import { DynamicOptionsScreener } from "../trading";
 import type {
   ExpectedIvDirection,
   OptionStrategyType,
   OptionThesis,
   StrategyRequest,
-} from "../trading/options/strategyEngine";
-import type { RiskProfile } from "../trading/options/recommendationAgent";
-import { buildTypeRollup, type StrategyTypeRollup } from "../trading/options/strategies/ledger";
-import { validateStrategyRequest, type StrategyScreenFilter } from "../trading/options/strategyRiskAgent";
+} from "../trading";
+import type { RiskProfile } from "../trading";
+import { buildTypeRollup, type StrategyTypeRollup } from "../trading";
+import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
 
-export { buildTypeRollup } from "../trading/options/strategies/ledger";
-export type { StrategyTypeRollup } from "../trading/options/strategies/ledger";
+export { buildTypeRollup } from "../trading";
+export type { StrategyTypeRollup } from "../trading";
 
 export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities";
 

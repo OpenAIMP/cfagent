@@ -1,4 +1,4 @@
-import type { TradeAssetClass } from "../../trading/interfaces";
+import type { TradeAssetClass } from "../../trading";
 
 /** Asset-aware handoff from research and portfolio tools to the shared order ticket.
  * Add a new asset class here together with its ticket fields and broker adapter;

@@ -12,10 +12,10 @@ import {
   getETradeAuthStatus,
   getValidTokens,
 } from "./services/etradeOAuth";
-import { ETradeRestClient } from "./trading/etrade/client";
+import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
-import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading/email/agent";
-import { ETradeSlackTradingService } from "./trading/slack/agent";
+import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
+import { ETradeSlackTradingService } from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -23,7 +23,7 @@ import {
   sharedMemoryReplayStore,
   validateEmailRecipient,
 } from "./security/webhookReplay";
-import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading/voice/agent";
+import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
@@ -42,7 +42,7 @@ import {
   fetchRealCongressDisclosures,
   MarketCapCategory,
   AssetClassCategory,
-} from "./trading/options/flows";
+} from "./trading";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";

@@ -6,6 +6,15 @@ export default defineConfig({
   build: {
     outDir: "dist",
     chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      // mppx/server is node-only (imports node:util) and is only ever loaded
+      // lazily inside server-side MPP payment flows (see
+      // src/services/agenticPayments.ts). Keep it out of the browser bundle;
+      // the worker build (wrangler/esbuild) ignores this config and bundles
+      // it normally. (Issue #290: the trading boundary index is imported by
+      // client code, which would otherwise drag mppx into the client graph.)
+      external: ["mppx/server"],
+    },
   },
   resolve: {
     alias: {

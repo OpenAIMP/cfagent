@@ -26,7 +26,7 @@ import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { executeNaturalLanguageQuery } from "./nlq";
 import { AGENT_DIDS } from "./did";
-import { ETradeSlackTradingService, verifySlackSignature } from "../trading/slack/agent";
+import { ETradeSlackTradingService, verifySlackSignature } from "../trading";
 import { gateSlackRequest } from "../security/webhookSecurity";
 import { BrowserAgent } from "./browserAgent";
 

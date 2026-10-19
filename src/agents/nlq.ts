@@ -9,19 +9,19 @@ import {
   isLiveQuoteStatus,
   isNonLivePricingQuoteStatus,
   nonLivePricingNotice,
-} from "../trading/etrade/platform";
+} from "../trading";
 import { FossResearchService, weakestFossProvenance } from "../services/fossResearch";
 import { resolveEnvironmentConfig } from "../config/environment";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
-import type { ScanRunStore } from "../trading/options/scanRunStore";
-import type { ProfileRef } from "../trading/options/strategyProfile";
-import type { StrategyProfileStore } from "../trading/options/strategyProfileStore";
+import { DynamicOptionsScreener } from "../trading";
+import type { ScanRunStore } from "../trading";
+import type { ProfileRef } from "../trading";
+import type { StrategyProfileStore } from "../trading";
 import { parseOptionsStrategyIntent, runOptionsStrategyAction, type OptionsStrategyDeps, type OptionsStrategyIntent } from "./nlqOptionsStrategy";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
-import { getDynamicLiveFlowItems, describeFlowProvenance } from "../trading/options/flows";
+import { getDynamicLiveFlowItems, describeFlowProvenance } from "../trading";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { getPlatformCapabilitiesDeskSummary } from "../services/platformKnowledge";
-import { ETradeSlackTradingService } from "../trading/slack/agent";
+import { ETradeSlackTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 
 /**
