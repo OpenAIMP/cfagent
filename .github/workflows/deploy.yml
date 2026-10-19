@@ -243,7 +243,42 @@ jobs:
           if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
           if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
 
-  # ── Step 3: post-deploy QA smoke test (ported from cfpay) ──
+  # ── Step 3: tag the deployed commit (issue #321) ──
+  # Tags every successful deploy for rollback and release tracking.
+  # Format: v0.1.<patch> auto-incrementing. Milestones bump minor/major manually.
+  tag-release:
+    runs-on: ubuntu-latest
+    name: Tag Release
+    needs: deploy
+    permissions:
+      contents: write
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create release tag
+        run: |
+          # Get the latest v0.1.x tag, increment patch
+          LATEST=$(git tag --list 'v0.1.*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            PATCH=0
+          else
+            PATCH=$(echo "$LATEST" | sed 's/v0\.1\.//')
+            PATCH=$((PATCH + 1))
+          fi
+          TAG="v0.1.$PATCH"
+          echo "Creating tag: $TAG for commit ${{ github.sha }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Deploy ${{ github.sha }} to production" ${{ github.sha }}
+          git push origin "$TAG"
+          echo "Tagged $TAG"
+
+  # ── Step 4: post-deploy QA smoke test (ported from cfpay) ──
   qa-smoke:
     runs-on: ubuntu-latest
     name: Post-deploy QA
