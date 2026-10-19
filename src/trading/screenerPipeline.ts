@@ -246,6 +246,10 @@ export async function acquireUniverse(
             ...live,
             symbol: listing.symbol,
             companyName: live.companyName || listing.companyName,
+            // E*TRADE quote payloads do not reliably include sector. The
+            // dynamically fetched Nasdaq listing row does, so preserve that
+            // classification for sector filtering without a static symbol map.
+            sector: live.sector || listing.sector,
             source: "E*TRADE live",
             quoteStatus: "LIVE",
           } as ETradeQuote;

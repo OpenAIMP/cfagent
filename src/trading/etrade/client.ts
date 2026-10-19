@@ -75,10 +75,10 @@ export class ETradeRestClient {
     const envConfig = this.getEnvConfig();
     const consumerKey = envConfig.etrade.apiKey || "";
     const consumerSecret = envConfig.etrade.apiSecret || "";
-    let token = envConfig.etrade.oauthToken || "";
-    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
+    let token = "";
+    let tokenSecret = "";
 
-    if ((!token || !tokenSecret) && this.userLogin) {
+    if (this.userLogin) {
       try {
         const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {
@@ -118,9 +118,9 @@ export class ETradeRestClient {
       return null;
     }
 
-    let token = envConfig.etrade.oauthToken || "";
-    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
-    if ((!token || !tokenSecret) && this.userLogin) {
+    let token = "";
+    let tokenSecret = "";
+    if (this.userLogin) {
       try {
         const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {
@@ -294,9 +294,9 @@ export class ETradeRestClient {
       return [];
     }
 
-    let token = envConfig.etrade.oauthToken || "";
-    let tokenSecret = envConfig.etrade.oauthTokenSecret || "";
-    if ((!token || !tokenSecret) && this.userLogin) {
+    let token = "";
+    let tokenSecret = "";
+    if (this.userLogin) {
       try {
         const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
         if (stored) {

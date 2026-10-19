@@ -245,31 +245,38 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const storage = this.ctx?.storage;
     if (!storage || typeof storage.get !== "function" || typeof storage.put !== "function") return;
 
-    const environment = context.environment;
-    const previous = await storage.get<{ userLogin: string; environment?: string; storedAt?: string; enabled: boolean }>(BASELINE_SCHEDULES_STATE_KEY);
-    if (previous?.userLogin === context.userLogin && previous?.environment === environment &&
-        previous.enabled && previous.storedAt && !isTokenExpiredEt(previous.storedAt)) {
-      return;
-    }
-    const storedTokens = await getStoredTokens(this.env, context.userLogin, environment);
-    const hasUserToken = Boolean(storedTokens && !isTokenExpiredEt(storedTokens.storedAt));
-    const stateMatches = previous?.userLogin === context.userLogin &&
-      previous?.environment === environment && previous?.storedAt === storedTokens?.storedAt &&
-      previous?.enabled === hasUserToken;
-    if (stateMatches) return;
-
+    const environment = context.environment || "PROD";
+    // Reconcile legacy records before consulting the cached registration state.
+    // Older startup-created jobs have no account identity, and a cached state
+    // used to let those jobs survive indefinitely beside the account-owned jobs.
     const existing = await this.listSchedules().catch(() => [] as Schedule<unknown>[]);
     for (const schedule of existing) {
       const item = schedule as any;
       const payload = item.payload || {};
       const callback = item.callback;
-      const isBaselineScreen =
-        ((callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis") && payload.trigger === "scheduled") ||
-        ((callback === "autoRenewETradeTokens" || callback === "collectIvHistory") && payload.userLogin === this.sessionKey());
-      if (isBaselineScreen) await this.cancelSchedule(item.id).catch(() => undefined);
+      const isScreen = callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis";
+      const isAccountMaintenance = callback === "autoRenewETradeTokens" || callback === "collectIvHistory";
+      const orphanedScreen = isScreen && !payload.userLogin;
+      const wrongAccountMaintenance = isAccountMaintenance && payload.userLogin === context.userLogin &&
+        (payload.environment || payload.env) !== environment;
+      if (orphanedScreen || wrongAccountMaintenance) {
+        console.warn(`[OrchestratorAgent] Removing stale baseline schedule ${item.id} (${callback})`);
+        await this.cancelSchedule(item.id).catch(() => undefined);
+      }
     }
 
+    const storedTokens = await getStoredTokens(this.env, context.userLogin, environment);
+    const hasUserToken = Boolean(storedTokens && !isTokenExpiredEt(storedTokens.storedAt));
+
     if (!hasUserToken) {
+      for (const schedule of existing) {
+        const item = schedule as any;
+        const payload = item.payload || {};
+        if (payload.userLogin === context.userLogin &&
+            ["autonomousMarketScreen", "autonomousOptionsAnalysis", "autoRenewETradeTokens", "collectIvHistory"].includes(item.callback)) {
+          await this.cancelSchedule(item.id).catch(() => undefined);
+        }
+      }
       await storage.put(BASELINE_SCHEDULES_STATE_KEY, {
         userLogin: context.userLogin,
         environment,
@@ -278,6 +285,9 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       });
       return;
     }
+
+    // `schedule(..., { idempotent: true })` repairs missing registrations
+    // while leaving already-registered account jobs intact.
 
     const ownedPayload = { userLogin: context.userLogin, environment };
     await this.schedule("0 3 * * *", "autoRenewETradeTokens", {
@@ -318,8 +328,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const payload = item.payload || {};
       const callback = item.callback;
       const orphanedBaseline =
-        ((callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis") && !payload.userLogin) ||
-        ((callback === "autoRenewETradeTokens" || callback === "collectIvHistory") && payload.userLogin === this.sessionKey());
+        ((callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis") && !payload.userLogin);
       if (orphanedBaseline) {
         console.warn(`[OrchestratorAgent] Removing unowned baseline schedule ${item.id} (${callback})`);
         await this.cancelSchedule(item.id).catch(() => undefined);

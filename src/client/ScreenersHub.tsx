@@ -25,6 +25,8 @@ type ScreenRow = Record<string, unknown>;
 // Issue #261: trigger identifies the source for the unified UI.
 interface ScreenRun {
   timestamp: string;
+  pdfKey?: string;
+  reportUrl?: string;
   trigger?: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -77,6 +79,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [shardedResults, setShardedResults] = useState<any[]>([]);
   const [manualResult, setManualResult] = useState<{
     timestamp: string;
+    pdfKey?: string;
+    reportUrl?: string;
     trigger: "manual" | "scheduled";
     sector: string;
     success: boolean;
@@ -205,6 +209,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           message?: string;
         };
         scannedAt?: string;
+        pdfKey?: string;
+        reportUrl?: string;
       };
 
       if (!response.ok) throw new Error(data.error || `Screening request failed [HTTP ${response.status}].`);
@@ -231,6 +237,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           shards.map((u: any) => ({
             universe: u.universe,
             timestamp: u.scannedAt || new Date().toISOString(),
+            pdfKey: u.pdfKey,
+            reportUrl: u.reportUrl,
             trigger: "manual" as const,
             sector: "Technology",
             success: u.success,
@@ -250,6 +258,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       const stockResults = data.stocks || [];
       setManualResult({
         timestamp: data.scannedAt || new Date().toISOString(),
+        pdfKey: data.pdfKey,
+        reportUrl: data.reportUrl,
         trigger: "manual",
         sector: "Technology",
         success: true,
