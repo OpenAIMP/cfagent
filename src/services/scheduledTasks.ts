@@ -26,6 +26,8 @@ import type { ScanRunStore } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
+import { generateOptionsPdf, optionsPdfFileName } from "../trading";
+import { postFilesToSlack } from "../services/slackFiles";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
@@ -588,6 +590,31 @@ export class ScheduledTasksService {
           }
         } else {
           notifications.slack = true;
+        }
+
+        // Issue #350: Attach options PDF report to Slack (reuse stock pattern).
+        try {
+          const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+          const { postFilesToSlack } = await import("../services/slackFiles");
+          const pdfBytes = await generateOptionsPdf(response.data);
+          const fileName = optionsPdfFileName(response.data);
+          // Convert Uint8Array to base64
+          let binary = "";
+          const chunk = 8192;
+          for (let i = 0; i < pdfBytes.length; i += chunk) {
+            binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
+          }
+          const base64 = btoa(binary);
+          await postFilesToSlack(this.env, {
+            channel: slackChannel,
+            filename: fileName,
+            filetype: "pdf",
+            title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
+            initial_comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched`,
+            contentBase64: base64,
+          });
+        } catch (pdfErr) {
+          console.warn("[ScheduledTasksService] Options PDF upload failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
         }
       }
 
