@@ -16,6 +16,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reports/Schedules tabs render their panels** (#388): the #309 navigation items were missing from Chat's `TRADING_TABS` and `mapTabToTradingSubTab`, so selecting Reports or Schedules hid the trading hub and rendered a blank main view. Both tabs are now trading tabs with explicit subtab mappings and breadcrumb labels; a regression test pins the wiring.
+
 ### Added
 
 - **cfpay email-with-attachments A2A helper** (#384): `cfpaySendEmailWithAttachments()` in cfpayA2A.ts wraps cfpay's `email.sendWithAttachments` A2A op, enabling options-report PDF delivery by email (wiring into the scheduled options analysis follows).

@@ -47,6 +47,8 @@ const TRADING_TABS = new Set<string>([
   "ledger",
   "screeners",
   "scanner",
+  "reports",
+  "schedules",
   "options",
   "voice",
   "omnichannel",
@@ -69,6 +71,10 @@ function mapTabToTradingSubTab(targetTab: string): TradingSubTab {
       return "screeners";
     case "scanner":
       return "scanner";
+    case "reports":
+      return "reports";
+    case "schedules":
+      return "schedules";
     case "options":
       return "options";
     case "voice":
@@ -2285,6 +2291,10 @@ export function Chat({ user }: { user: User }) {
                     ? "Screeners"
                     : tab === "scanner"
                     ? "Strategy/Symbol Scanner"
+                    : tab === "reports"
+                    ? "Reports"
+                    : tab === "schedules"
+                    ? "Schedules"
                     : tab === "options"
                     ? "Options"
                     : tab === "voice"
