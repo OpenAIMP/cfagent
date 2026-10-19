@@ -18,7 +18,6 @@ export interface ReportItem {
   title: string;
   source: string;
   summary: string;
-  reportUrl?: string;
   createdAt: string;
 }
 
@@ -130,16 +129,6 @@ export function ReportsPanel() {
             <h3 className="report-title">{r.title}</h3>
             <p className="report-summary">{r.summary}</p>
             <div className="report-actions">
-              {r.reportUrl && (
-                <a
-                  href={r.reportUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-link"
-                >
-                  📄 Full Report (PDF)
-                </a>
-              )}
               <span className="run-id" title={r.runId}>
                 Run: {r.runId.slice(0, 12)}…
               </span>
