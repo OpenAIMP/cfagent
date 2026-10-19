@@ -68,13 +68,18 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
   const sendEmail = () => runAction("email", async () => {
     if (!email.trim()) throw new Error("Enter an email address.");
     const bytes = await workbook();
-    await postJson("/api/trading/reports/email", {
+    const response = await postJson<{ status?: string; confirmationId?: string }>("/api/trading/reports/email", {
       to: email.trim(),
       fileName,
       attachmentBase64: encodeBase64(bytes),
       query,
       title,
     });
+    // Issue #277: with the HITL setting on, dispatch is held for
+    // confirmation — report the pending state, never a fake success.
+    if (response.status === "pending_confirmation") {
+      return `Workbook held for confirmation (ID ${response.confirmationId}). Approve it in Settings to dispatch.`;
+    }
     return `Workbook emailed to ${email.trim()}.`;
   });
 
@@ -105,12 +110,17 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
   });
 
   const publishWebhook = () => runAction("webhook", async () => {
-    await postJson("/api/trading/reports/webhook", {
+    const response = await postJson<{ status?: string; confirmationId?: string }>("/api/trading/reports/webhook", {
       eventType: "research.recommendations",
       title,
       query,
       sheets,
     });
+    // Issue #277: with the HITL setting on, dispatch is held for
+    // confirmation — report the pending state, never a fake success.
+    if (response.status === "pending_confirmation") {
+      return `Recommendation report held for confirmation (ID ${response.confirmationId}). Approve it in Settings to dispatch.`;
+    }
     return "Recommendation report sent to the configured signed webhook.";
   });
 

@@ -1424,6 +1424,80 @@ export function Chat({ user }: { user: User }) {
     return 15;
   });
 
+  // Issue #277: server-owned setting for optional HITL confirmation on
+  // research-report dispatch. Default OFF (autonomous, current behavior).
+  const [reportDispatchHitl, setReportDispatchHitl] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/trading/settings/report-dispatch-hitl", {
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { enabled?: unknown };
+        if (!cancelled && typeof data.enabled === "boolean") setReportDispatchHitl(data.enabled);
+      } catch {
+        // Server unreachable or setting unavailable: keep default OFF.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Issue #277: pending report-dispatch confirmations awaiting review.
+  const [pendingReportConfirmations, setPendingReportConfirmations] = useState<
+    Array<{ confirmationId: string; kind: string; createdAt: string; detail: string }>
+  >([]);
+
+  const refreshPendingReportConfirmations = async () => {
+    try {
+      const res = await fetch("/api/trading/reports/pending", {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { pending?: unknown };
+      setPendingReportConfirmations(Array.isArray(data.pending) ? data.pending as Array<{ confirmationId: string; kind: string; createdAt: string; detail: string }> : []);
+    } catch {
+      // Leave the previous list in place on fetch failure.
+    }
+  };
+
+  useEffect(() => {
+    if (reportDispatchHitl) void refreshPendingReportConfirmations();
+    else setPendingReportConfirmations([]);
+  }, [reportDispatchHitl]);
+
+  const handleDecideReportConfirmation = async (confirmationId: string, decision: "approved" | "rejected") => {
+    try {
+      const res = await fetch("/api/trading/reports/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationId, decision }),
+      });
+      if (res.ok) await refreshPendingReportConfirmations();
+    } catch {
+      // Keep the list as-is; the operator can refresh and retry.
+    }
+  };
+
+  const handleToggleReportDispatchHitl = async (enabled: boolean) => {
+    setReportDispatchHitl(enabled);
+    try {
+      const res = await fetch("/api/trading/settings/report-dispatch-hitl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) setReportDispatchHitl(!enabled);
+    } catch {
+      // Server write failed: revert the toggle so the UI matches the server.
+      setReportDispatchHitl(!enabled);
+    }
+  };
+
   const handleToggleAutoRefresh = (enabled: boolean, interval?: number) => {
     setAutoRefreshEnabled(enabled);
     const nextInterval = interval !== undefined ? interval : autoRefreshInterval;
@@ -2301,6 +2375,11 @@ export function Chat({ user }: { user: User }) {
                 autoRefreshEnabled={autoRefreshEnabled}
                 autoRefreshInterval={autoRefreshInterval}
                 onToggleAutoRefresh={handleToggleAutoRefresh}
+                reportDispatchHitl={reportDispatchHitl}
+                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
+                pendingReportConfirmations={pendingReportConfirmations}
+                onRefreshReportConfirmations={refreshPendingReportConfirmations}
+                onDecideReportConfirmation={handleDecideReportConfirmation}
                 adBannerConfig={adBannerConfig}
                 onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
                 onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
@@ -2355,6 +2434,11 @@ export function Chat({ user }: { user: User }) {
                   autoRefreshEnabled={autoRefreshEnabled}
                   autoRefreshInterval={autoRefreshInterval}
                   onToggleAutoRefresh={handleToggleAutoRefresh}
+                reportDispatchHitl={reportDispatchHitl}
+                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
+                pendingReportConfirmations={pendingReportConfirmations}
+                onRefreshReportConfirmations={refreshPendingReportConfirmations}
+                onDecideReportConfirmation={handleDecideReportConfirmation}
                   adBannerConfig={adBannerConfig}
                   onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
                   onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
