@@ -3294,7 +3294,9 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
         }
         // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
-        const universe = (filters.universe as string) || "TECH";
+        // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
+        // TECH (fuzzy keyword match with unpredictable symbol count).
+        const universe = (filters.universe as string) || "NASDAQ100";
         const agent = this.getScreenerAgent();
         if (universe === "ALL") {
           const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
