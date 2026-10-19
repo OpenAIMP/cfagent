@@ -61,10 +61,17 @@ export async function fetchYahooDailyHistory(
         headers: { "User-Agent": UA, Accept: "application/json" },
         signal: AbortSignal.timeout(config.yahoo.requestTimeoutMs),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        // Issue #295: Log non-OK responses for diagnostics (was silent).
+        console.warn(`[YahooHistory] ${clean}: HTTP ${res.status} from ${url.includes('query1') ? 'query1' : 'query2'}`);
+        continue;
+      }
       const data = (await res.json().catch(() => ({}))) as any;
       const result = data?.chart?.result?.[0];
-      if (!result) continue;
+      if (!result) {
+        console.warn(`[YahooHistory] ${clean}: No chart result in response`);
+        continue;
+      }
       const timestamps: number[] = result.timestamp || [];
       const quote = result.indicators?.quote?.[0] || {};
       const bars: YahooDailyBar[] = [];
@@ -82,7 +89,11 @@ export async function fetchYahooDailyHistory(
         });
       }
       if (bars.length >= 5) return bars;
-    } catch {
+      console.warn(`[YahooHistory] ${clean}: Only ${bars.length} bars (need 5+)`);
+    } catch (err) {
+      // Issue #295: Log fetch errors for diagnostics (was silent).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[YahooHistory] ${clean}: Fetch failed: ${msg}`);
       // Try the next URL.
     }
   }
