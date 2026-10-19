@@ -199,25 +199,13 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     }
 
     const envConfig = this.getEnvConfig();
-    return {
-      symbol: cleanSym,
-      companyName: `${cleanSym} Inc.`,
-      lastPrice: 0.0,
-      price: 0.0,
-      change: 0,
-      changePercent: 0,
-      bid: 0.0,
-      ask: 0.0,
-      volume: 0,
-      open: 0.0,
-      high: 0.0,
-      low: 0.0,
-      week52High: 0.0,
-      week52Low: 0.0,
-      quoteStatus: "AUTH_REQUIRED",
-      source: `E*TRADE REST API [${envConfig.name}]`,
-      timestamp: new Date().toISOString(),
-    };
+    // Issue #294: Fail fast with auth error instead of returning a zero-price
+    // stub. The stub masked auth failures as "api-zero-price", hiding the real
+    // root cause. Throwing ensures correct categorization as "auth".
+    throw new Error(
+      `E*TRADE auth required for ${cleanSym}: no valid OAuth tokens available ` +
+      `(quoteStatus=AUTH_REQUIRED, env=${envConfig.name})`
+    );
   }
 
   async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {

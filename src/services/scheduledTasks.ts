@@ -28,6 +28,11 @@ import { OptionsDataAgent } from "../trading/options/optionsDataAgent";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading/options/ivCollector";
 import type { IvHistoryStore } from "../trading/options/ivHistoryStore";
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
+import {
+  getCfpayConfig,
+  cfpayPostToSlack,
+  cfpaySendEmail,
+} from "./cfpayA2A";
 import { ETradeSlackTradingService } from "../trading/slack/agent";
 import { ETradeEmailTradingService } from "../trading/email/agent";
 import { ETradeWebhookService } from "./tradingWebhooks";
@@ -547,33 +552,77 @@ export class ScheduledTasksService {
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
 
       // 1. Push to Slack if requested or if SLACK_BOT_TOKEN is present
+      // Issue #303: Try cfpay via A2A first, fall back to local.
       if (options.pushToSlack || this.env.SLACK_BOT_TOKEN) {
-        try {
-          const slackService = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
-          const slackPayload = response.toSlack();
-          if (options.slackChannel) {
-            slackPayload.channel = options.slackChannel;
+        const cfpay = getCfpayConfig(this.env);
+        const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL;
+        let slackOk = false;
+        if (cfpay) {
+          try {
+            const slackPayload = response.toSlack();
+            const text = typeof slackPayload === 'string' ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
+            const r = await cfpayPostToSlack(cfpay, text, slackChannel);
+            slackOk = r.ok;
+            if (!r.ok) {
+              console.warn("[ScheduledTasksService] cfpay Slack failed, falling back to local:", r.error);
+            }
+          } catch (err) {
+            console.warn("[ScheduledTasksService] cfpay Slack error:", err);
           }
-          notifications.slack = await slackService.postSlackMessage(slackPayload);
-        } catch (slackErr) {
-          console.warn("[ScheduledTasksService] Slack notification error:", slackErr);
-          notifications.slack = false;
+        }
+        if (!slackOk) {
+          try {
+            const slackService = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
+            const slackPayload = response.toSlack();
+            if (options.slackChannel) {
+              slackPayload.channel = options.slackChannel;
+            }
+            notifications.slack = await slackService.postSlackMessage(slackPayload);
+          } catch (slackErr) {
+            console.warn("[ScheduledTasksService] Slack notification error:", slackErr);
+            notifications.slack = false;
+          }
+        } else {
+          notifications.slack = true;
         }
       }
 
       // 2. Push Email if recipient is specified
+      // Issue #303: Try cfpay via A2A first, fall back to local.
       if (options.emailTo) {
-        try {
-          const emailService = new ETradeEmailTradingService(this.env, this.orm, this.userLogin);
-          notifications.email = await emailService.sendOutboundEmail(
-            options.emailTo,
-            `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
-            response.toEmailHtml(),
-            response.toEmailText()
-          );
-        } catch (emailErr) {
-          console.warn("[ScheduledTasksService] Email notification error:", emailErr);
-          notifications.email = false;
+        const cfpay = getCfpayConfig(this.env);
+        let emailOk = false;
+        if (cfpay) {
+          try {
+            const r = await cfpaySendEmail(
+              cfpay,
+              options.emailTo,
+              `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
+              response.toEmailText()
+            );
+            emailOk = r.ok;
+            if (!r.ok) {
+              console.warn("[ScheduledTasksService] cfpay Email failed, falling back to local:", r.error);
+            }
+          } catch (err) {
+            console.warn("[ScheduledTasksService] cfpay Email error:", err);
+          }
+        }
+        if (!emailOk) {
+          try {
+            const emailService = new ETradeEmailTradingService(this.env, this.orm, this.userLogin);
+            notifications.email = await emailService.sendOutboundEmail(
+              options.emailTo,
+              `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
+              response.toEmailHtml(),
+              response.toEmailText()
+            );
+          } catch (emailErr) {
+            console.warn("[ScheduledTasksService] Email notification error:", emailErr);
+            notifications.email = false;
+          }
+        } else {
+          notifications.email = true;
         }
       }
 
