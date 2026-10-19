@@ -111,7 +111,9 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/schedules");
+      const res = await fetch("/api/schedules", {
+        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as any;
       setSchedules(data.schedules || data || []);
@@ -120,7 +122,7 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeEnv]);
 
   useEffect(() => {
     fetchSchedules();
@@ -129,7 +131,10 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
   const handleCancel = async (id: string) => {
     if (!confirm("Cancel this schedule?")) return;
     try {
-      const res = await fetch(`/api/schedules/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/schedules/${id}`, {
+        method: "DELETE",
+        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchSchedules();
     } catch (err) {
@@ -139,7 +144,10 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
 
   const handleTriggerNow = async (id: string) => {
     try {
-      const res = await fetch(`/api/schedules/${id}/trigger`, { method: "POST" });
+      const res = await fetch(`/api/schedules/${id}/trigger`, {
+        method: "POST",
+        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       alert("Triggered successfully");
     } catch (err) {
@@ -176,6 +184,11 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
 
   return (
     <div className="schedules-panel">
+      {userLogin && (
+        <div className="schedule-context">
+          Schedules for <strong>{userLogin}</strong>{activeEnv ? ` · E*TRADE ${activeEnv}` : ""}
+        </div>
+      )}
       <div className="schedules-tabs">
         {tabs.map((t) => (
           <button
@@ -205,6 +218,10 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
             : s.type;
           const universe = s.payload?.universe;
           const thesis = s.payload?.thesis;
+          const accountScoped = ["autonomousmarketscreen", "autonomousoptionsanalysis", "autorenewetradetokens", "collectivhistory"]
+            .some((name) => s.callback.toLowerCase().includes(name));
+          const owner = s.payload?.userLogin;
+          const environment = s.payload?.environment || s.payload?.env;
           const shortId = s.id.slice(0, 8) + "…";
 
           return (
@@ -217,8 +234,15 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
               <div className="schedule-when">{scheduleDesc}</div>
               {universe && <div className="schedule-meta">Universe: {universe}</div>}
               {thesis && <div className="schedule-meta">Thesis: {thesis}</div>}
-              {s.payload?.maxItems && (
+              {s.payload?.maxItems != null && (
                 <div className="schedule-meta">Max items: {s.payload.maxItems}</div>
+              )}
+              {accountScoped && (
+                <div className={`schedule-meta ${owner ? "schedule-auth-ok" : "schedule-auth-missing"}`}>
+                  {owner
+                    ? `E*TRADE account: ${owner}${environment ? ` · ${environment}` : ""}`
+                    : "E*TRADE account: missing — this schedule cannot authenticate"}
+                </div>
               )}
               <div className="card-actions">
                 <button onClick={() => handleTriggerNow(s.id)} title="Run now">

@@ -8,6 +8,9 @@ export interface NasdaqStockListing {
   change: number;
   changePercent: number;
   marketCap?: number;
+  /** Live sector metadata from Nasdaq's listings feed; never a local ticker map. */
+  sector?: string;
+  industry?: string;
 }
 
 interface NasdaqScreenerRow {
@@ -17,6 +20,8 @@ interface NasdaqScreenerRow {
   netchange?: string;
   pctchange?: string;
   marketCap?: string;
+  sector?: string;
+  industry?: string;
 }
 
 function parseNumber(value: string | undefined): number | undefined {
@@ -40,6 +45,8 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
     change: parseNumber(row.netchange) ?? 0,
     changePercent: parseNumber(row.pctchange) ?? 0,
     marketCap: parseNumber(row.marketCap),
+    sector: String(row.sector || "").trim() || undefined,
+    industry: String(row.industry || "").trim() || undefined,
   };
 }
 

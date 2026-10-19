@@ -52,6 +52,8 @@ export interface ScreenedIndicatorsData {
 export interface ScreenerResultData {
   timestamp: string;
   reportUrl?: string;
+  /** Durable, per-run PDF key returned by ScreenerAgent. */
+  pdfKey?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -312,6 +314,9 @@ function sentimentColor(s?: string): string {
 
 export function ScreenerResultsView({ result }: { result: ScreenerResultData }) {
   const triggerLabel = result.trigger === "manual" ? "Manual Screen" : "Autonomous Screen";
+  const reportUrl = result.reportUrl || (result.pdfKey
+    ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
+    : "/api/screener/report.pdf");
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
@@ -319,7 +324,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
         <a
-          href={result.reportUrl || "/api/screener/report.pdf"}
+          href={reportUrl}
           download
           style={{
             fontSize: "0.8rem",

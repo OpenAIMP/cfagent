@@ -87,6 +87,21 @@
   margin-bottom: 0.25rem;
 }
 
+.schedule-context {
+  margin-bottom: 0.75rem;
+  color: var(--theme-text-muted, #6b7280);
+  font-size: 0.875rem;
+}
+
+.schedule-auth-ok {
+  color: var(--theme-success, #16a34a);
+}
+
+.schedule-auth-missing {
+  color: var(--theme-danger, #dc2626);
+  font-weight: 600;
+}
+
 .schedule-card .card-actions {
   display: flex;
   gap: 0.5rem;
