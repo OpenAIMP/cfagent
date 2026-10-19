@@ -15,7 +15,7 @@ import {
   type CapabilityMatrixRow,
 } from "../client/workflowsFaqData";
 
-import { defaultRegistry } from "../trading/options/strategies/catalog";
+import { defaultRegistry } from "../trading";
 
 /** Live strategy-catalog size, derived from the server registry so published counts cannot drift (issue #29). */
 const STRATEGY_CATALOG_COUNT = defaultRegistry.list().length;

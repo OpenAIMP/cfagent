@@ -22,8 +22,8 @@ import {
   type ScreenerCompletedEvent,
   type ScreenerFailedEvent,
 } from "./screenerEvents";
-import { ETradeSlackTradingService } from "../trading/slack/agent";
-import { ETradeEmailTradingService } from "../trading/email/agent";
+import { ETradeSlackTradingService } from "../trading";
+import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import type { ScreenerAgent } from "../agents/screener-agent";
 import type { Env } from "../types";

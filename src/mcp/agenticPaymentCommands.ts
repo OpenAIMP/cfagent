@@ -7,7 +7,7 @@
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
+import { DynamicOptionsScreener } from "../trading";
 import { ETradeService } from "../services/etrade";
 import { FossResearchService } from "../services/fossResearch";
 

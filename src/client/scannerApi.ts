@@ -44,17 +44,17 @@ import { apiFetch } from "./apiFetch";
 import type {
   OpportunityScanResult,
   ScanMode,
-} from "../trading/options/opportunityScanner";
+} from "../trading";
 import type {
   StrategyProfile,
   StrategyProfileSpec,
-} from "../trading/options/strategyProfile";
+} from "../trading";
 import type {
   ScanRunDiff,
   ScanRunSummary,
   StoredScanRun,
-} from "../trading/options/scanRunStore";
-import type { UnifiedOptionsRequest } from "../trading/options/unifiedOptionsService";
+} from "../trading";
+import type { UnifiedOptionsRequest } from "../trading";
 
 export type {
   OpportunityScanResult,

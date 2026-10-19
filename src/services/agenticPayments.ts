@@ -31,7 +31,22 @@ import type {
   PaymentRequiredCallback,
   TransactionRecord,
 } from "../types";
-import { Mppx, tempo } from "mppx/server";
+// NOTE (issue #290): mppx/server is node-only (it imports node:util, which the
+// browser bundle cannot externalize). It is loaded lazily inside createMppx()
+// so that modules which (transitively) import this service — including the
+// trading boundary index src/trading/index.ts, imported by client code — stay
+// importable from browser bundles. Behavior is unchanged: the module loads on
+// first MPP use, exactly as it did at startup before.
+type MppxServer = typeof import("mppx/server");
+let mppxServerPromise: Promise<MppxServer> | undefined;
+function loadMppxServer(): Promise<MppxServer> {
+  // mppx/server is node-only (it imports node:util) and is marked external in
+  // vite.config.ts so the browser bundle never includes it. The worker build
+  // (wrangler/esbuild) does not read the vite config and bundles it normally.
+  // This executes only inside MPP payment flows, which are server-side.
+  if (!mppxServerPromise) mppxServerPromise = import("mppx/server");
+  return mppxServerPromise;
+}
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
@@ -431,8 +446,9 @@ export class ETradeAgenticPaymentService {
     });
   }
 
-  private createMppx() {
+  private async createMppx() {
     if (!this.mppSecretKey) return null;
+    const { Mppx, tempo } = await loadMppxServer();
     return Mppx.create({
       methods: [
         tempo.charge({
@@ -446,7 +462,7 @@ export class ETradeAgenticPaymentService {
 
   /** Returns the mppx-signed WWW-Authenticate challenge, or null when MPP is not configured. */
   private async issueMppChallenge(req: Request, priceUSD: number, description: string): Promise<string | null> {
-    const mppx = this.createMppx();
+    const mppx = await this.createMppx();
     if (!mppx) return null;
     const result = await mppx.charge({ amount: priceUSD.toFixed(2), description })(req.clone() as unknown as Request);
     return result.status === 402 ? result.challenge.headers.get("WWW-Authenticate") : null;
@@ -460,7 +476,7 @@ export class ETradeAgenticPaymentService {
     description: string,
     fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>
   ): Promise<Response> {
-    const mppx = this.createMppx();
+    const mppx = await this.createMppx();
     if (!mppx) {
       return new Response(JSON.stringify({ error: "MPP payments are not configured (MPP_SECRET_KEY missing)." }), {
         status: 402,

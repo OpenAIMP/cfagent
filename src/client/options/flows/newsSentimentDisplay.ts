@@ -1,4 +1,4 @@
-import type { NewsFlowItem } from "../../../trading/options/flows/types";
+import type { NewsFlowItem } from "../../../trading";
 
 /**
  * Issue #132: how a news item's sentiment is presented in the flows hub.

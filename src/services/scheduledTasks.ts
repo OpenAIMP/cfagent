@@ -11,22 +11,22 @@
 import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
-import { DynamicMarketScreener } from "../trading/screener";
+import { DynamicMarketScreener } from "../trading";
 import {
   type ScannedStock,
   type OpportunityStock,
-} from "../trading/screenerPipeline";
+} from "../trading";
 import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
   type OptionThesis,
   type OptionStrategyType,
-} from "../trading/options";
-import type { ScanRunStore } from "../trading/options/scanRunStore";
-import { DynamicOptionsScreener } from "../trading/optionsScreener";
-import { OptionsDataAgent } from "../trading/options/optionsDataAgent";
-import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading/options/ivCollector";
-import type { IvHistoryStore } from "../trading/options/ivHistoryStore";
+} from "../trading";
+import type { ScanRunStore } from "../trading";
+import { DynamicOptionsScreener } from "../trading";
+import { OptionsDataAgent } from "../trading";
+import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
+import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 import { toScheduledReportRecord } from "./scheduledReports";
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
@@ -35,8 +35,8 @@ import {
   cfpayPostToSlack,
   cfpaySendEmail,
 } from "./cfpayA2A";
-import { ETradeSlackTradingService } from "../trading/slack/agent";
-import { ETradeEmailTradingService } from "../trading/email/agent";
+import { ETradeSlackTradingService } from "../trading";
+import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
@@ -519,7 +519,7 @@ export class ScheduledTasksService {
     let symbols: string[];
     if (options.universe) {
       const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
-      const { resolveUniverse, UNIVERSES } = await import("../trading/universes");
+      const { resolveUniverse, UNIVERSES } = await import("../trading");
       const listings = await fetchAllUsStockListings();
       const universeDef = UNIVERSES[options.universe as keyof typeof UNIVERSES];
       const resolved = resolveUniverse(options.universe as any, listings);
