@@ -70,7 +70,14 @@ import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool, handleMCPRequest, MCP_SERVER_INFO, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from "../mcp";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
-import { toScheduledReportRecord } from "../services/scheduledReports";
+// Issue #308: the single generate→store seam + canonical report bodies.
+import {
+  canonicalResearchEmailBody,
+  canonicalResearchWebhookBody,
+  getCanonicalReport,
+  parseResearchReportBody,
+  sha256Hex,
+} from "../services/scheduledReports";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -321,18 +328,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         await this.ctx.storage.put(key, [run, ...existing].slice(0, 20));
         // Issue #278: persist the scheduled run's report durably
         // (mas_reports) so the AI Search agent can surface it later.
-        orm.reports.create(
-          toScheduledReportRecord({
-            runId: `screener:${res.timestamp}`,
-            title: `Autonomous market screen — ${payload?.sector || "ALL"}`,
-            source: "screener",
-            summary: res.success
-              ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
-              : `Scheduled screen failed: ${res.error ?? "unknown error"}.`,
-            body: run,
-            createdAt: res.timestamp,
-          })
-        );
+        // Issue #308: through the single generate→store seam — one
+        // canonical row per generation (generationId = run id).
+        orm.storeCanonicalReport({
+          runId: `screener:${res.timestamp}`,
+          generationId: `screener:${res.timestamp}`,
+          title: `Autonomous market screen — ${payload?.sector || "ALL"}`,
+          source: "screener",
+          summary: res.success
+            ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
+            : `Scheduled screen failed: ${res.error ?? "unknown error"}.`,
+          body: run,
+          createdAt: res.timestamp,
+        });
       } catch {
         // Non-critical: persistence failure must not break the screen.
       }
@@ -672,6 +680,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // Payloads are stored verbatim at creation time; the actual email or
     // webhook send happens only when a human approves via
     // POST /trading/reports/confirm. Mirrors the /payments/confirm flow.
+    // Issue #308: payload_json carries delivery metadata only (recipient /
+    // fileName / title); the report bytes themselves live once in
+    // mas_reports, referenced by report_id. Legacy rows (pre-#308) carry
+    // the full payload in payload_json and are read via a fallback.
     sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_report_confirmations (
         id TEXT PRIMARY KEY,
@@ -680,9 +692,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         status TEXT NOT NULL,
         created_at TEXT NOT NULL,
         decided_at TEXT,
-        decided_by TEXT
+        decided_by TEXT,
+        report_id TEXT
       )
     `);
+    // Additive migration for tables created before issue #308.
+    try {
+      const cols = Array.from(
+        sql.exec("PRAGMA table_info(mas_report_confirmations)")
+      ) as Array<{ name?: unknown }>;
+      const names = cols.map((c) => String(c?.name ?? ""));
+      if (!names.includes("report_id")) {
+        sql.exec("ALTER TABLE mas_report_confirmations ADD COLUMN report_id TEXT");
+      }
+    } catch {
+      // Non-critical: best-effort migration; fresh installs get the column.
+    }
     // Append-only verdict ledger: every policy decision, its inputs, and a
     // signature produced server-side where the decision is made.
     sql.exec(`
@@ -1303,8 +1328,17 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     this.writeSetting(OrchestratorAgent.REPORT_DISPATCH_HITL_KEY, enabled ? "1" : "0");
   }
 
-  /** Stores a pending report-dispatch confirmation; returns its confirmation id. */
-  private createReportConfirmation(kind: "email" | "webhook", payloadJson: string): string {
+  /**
+   * Stores a pending report-dispatch confirmation; returns its confirmation id.
+   * Issue #308: payloadJson carries delivery metadata only (recipient /
+   * fileName / title — never report bytes); the canonical report copy
+   * lives once in mas_reports and is referenced by reportId.
+   */
+  private createReportConfirmation(
+    kind: "email" | "webhook",
+    payloadJson: string,
+    reportId?: string | null
+  ): string {
     const sql = this.ensureTables();
     const now = new Date().toISOString();
     // Lazy sweep: drop confirmations that expired unconfirmed.
@@ -1314,12 +1348,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     );
     const id = `rc_${crypto.randomUUID().slice(0, 8)}`;
     sql.exec(
-      "INSERT INTO mas_report_confirmations (id, kind, payload_json, status, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO mas_report_confirmations (id, kind, payload_json, status, created_at, report_id) VALUES (?, ?, ?, ?, ?, ?)",
       id,
       kind,
       payloadJson,
       "pending",
-      now
+      now,
+      reportId ?? null
     );
     return id;
   }
@@ -1348,6 +1383,148 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       );
     } catch (err) {
       console.warn("[OrchestratorAgent] Failed to decide report confirmation:", err);
+    }
+  }
+
+  /**
+   * Issue #308: store the canonical report copy at generation time via the
+   * single seam. The generation id is a content hash, so re-posts and
+   * re-deliveries of the same report dedupe to one row. Returns the
+   * mas_reports row id, or null when the store failed (dispatch routes
+   * fail closed in that case — no copy is sent that search cannot see).
+   */
+  private async storeResearchReportCanonicalAsync(
+    bodyJson: string,
+    meta: { title: string; summary: string }
+  ): Promise<{ reportId: string; generationId: string } | null> {
+    const generationId = await sha256Hex(bodyJson);
+    const orm = this.getOrm();
+    const stored = orm.storeCanonicalReport({
+      runId: generationId,
+      generationId,
+      title: meta.title,
+      source: "research_report",
+      summary: meta.summary,
+      body: JSON.parse(bodyJson),
+      createdAt: new Date().toISOString(),
+    });
+    return stored ? { reportId: stored.reportId, generationId } : null;
+  }
+
+  /**
+   * Issue #308: delivery metadata from a confirmation row. For #308 rows
+   * this is exactly what was stored (no report bytes); for legacy rows
+   * (pre-#308) it is parsed from the embedded full payload.
+   */
+  private confirmationDeliveryMeta(row: any): { recipient?: string } {
+    try {
+      const payload = JSON.parse(String(row.payload_json)) as any;
+      if (payload && typeof payload === "object") {
+        return {
+          recipient:
+            typeof payload.recipient === "string" ? payload.recipient : undefined,
+        };
+      }
+    } catch {
+      // fall through
+    }
+    return {};
+  }
+
+  /**
+   * Issue #308: deliver the STORED canonical copy by email. Returns
+   * "sent" | "missing" (stored row gone) | "failed" (email service).
+   */
+  private async deliverStoredReportEmail(
+    reportId: string,
+    recipient: string,
+    userLogin: string
+  ): Promise<"sent" | "missing" | "failed"> {
+    const stored = getCanonicalReport(this.ensureTables(), reportId);
+    if (!stored) return "missing";
+    const delivery = parseResearchReportBody(stored.body);
+    if (!delivery || !delivery.attachmentBase64) return "missing";
+    const sent = await this.sendReportEmail(
+      recipient,
+      delivery.title,
+      delivery.fileName,
+      delivery.attachmentBase64,
+      userLogin
+    );
+    return sent ? "sent" : "failed";
+  }
+
+  /**
+   * Issue #308: deliver the STORED canonical copy by webhook. Returns
+   * "sent" | "missing" (stored row gone) | "failed" (dispatch failed).
+   */
+  private async deliverStoredReportWebhook(
+    reportId: string,
+    userLogin: string
+  ): Promise<{ outcome: "sent" | "missing" | "failed"; result?: { success: boolean; status?: number; error?: string; notConfigured?: boolean } }> {
+    const stored = getCanonicalReport(this.ensureTables(), reportId);
+    if (!stored) return { outcome: "missing" };
+    const delivery = parseResearchReportBody(stored.body);
+    if (!delivery || !Array.isArray(delivery.sheets) || delivery.sheets.length === 0) {
+      return { outcome: "missing" };
+    }
+    const result = await this.sendReportWebhook(
+      delivery.title,
+      delivery.query,
+      delivery.sheets,
+      userLogin
+    );
+    return { outcome: result.success ? "sent" : "failed", result };
+  }
+
+  /**
+   * Issue #308: persist a screener run's canonical report copy in the
+   * orchestrator instance's mas_reports (the store the AI Search read
+   * path queries — issue #307). ScreenerAgent.persistRun() keeps writing
+   * the delivery cache (latest/history/per-run PDFs) in the screener
+   * instance's own DO storage; the SEARCHABLE copy is written once here,
+   * keyed by generationId `screener:<timestamp>`, so the scheduled
+   * wrapper and manual runs cannot create duplicate rows for one run.
+   */
+  private persistScreenerReportCanonical(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    error?: string;
+    trigger?: unknown;
+  }): void {
+    try {
+      const orm = this.getOrm();
+      const generationId = `screener:${result.timestamp}`;
+      orm.storeCanonicalReport({
+        runId: generationId,
+        generationId,
+        title: `Market screen — ${String(result.universe ?? result.sector ?? "ALL")} (${String(result.trigger ?? "scheduled")})`,
+        source: "screener",
+        summary: result.success
+          ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched, ${result.opportunities.length} opportunities.`
+          : `Screen failed: ${result.error ?? "unknown error"}.`,
+        body: {
+          timestamp: result.timestamp,
+          universe: result.universe,
+          sector: result.sector,
+          trigger: result.trigger,
+          success: result.success,
+          totalScanned: result.totalScanned,
+          matchedCount: result.matchedCount,
+          opportunities: result.opportunities,
+          allStocks: result.allStocks,
+          error: result.error,
+        },
+        createdAt: result.timestamp,
+      });
+    } catch {
+      // Non-critical: persistence failure must not break the screen.
     }
   }
 
@@ -2060,6 +2237,10 @@ Agentic Best Practices & Workflow Rules:
             } catch {
               payload = {};
             }
+            // Issue #308: new rows carry delivery metadata in payload_json
+            // (sheetCount); legacy rows carry the full payload (sheets).
+            const sheetCount =
+              (payload.sheets || []).length || payload.sheetCount || 0;
             return {
               confirmationId: String(row.id),
               kind: String(row.kind),
@@ -2067,7 +2248,7 @@ Agentic Best Practices & Workflow Rules:
               detail:
                 row.kind === "email"
                   ? `${payload.recipient || "?"} · ${payload.fileName || "?"}`
-                  : `${payload.title || "Research report"} · ${(payload.sheets || []).length} sheets`,
+                  : `${payload.title || "Research report"} · ${sheetCount} sheets`,
             };
           }),
         });
@@ -2125,6 +2306,51 @@ Agentic Best Practices & Workflow Rules:
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
       if (decision === "approved") {
+        // Issue #308: deliver the STORED canonical copy. New rows
+        // reference mas_reports via report_id; legacy rows (pre-#308)
+        // carry the full payload in payload_json (fallback below).
+        if (row.report_id) {
+          const reportId = String(row.report_id);
+          const meta = this.confirmationDeliveryMeta(row);
+          if (row.kind === "email") {
+            const recipient = meta.recipient || "";
+            if (!recipient) {
+              return Response.json({ error: "The confirmation has no delivery recipient." }, { status: 500 });
+            }
+            const outcome = await this.deliverStoredReportEmail(reportId, recipient, userLogin);
+            if (outcome === "missing") {
+              return Response.json({ error: "The stored report is no longer available." }, { status: 500 });
+            }
+            if (outcome !== "sent") {
+              return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
+            }
+            this.decideReportConfirmation(confirmationId, "approved", userLogin);
+            this.audit("research_report.emailed", "trading", {
+              confirmationId,
+              recipient,
+              reportId,
+              via: "hitl_confirmation",
+            });
+            return Response.json({ success: true, status: "dispatched", confirmationId });
+          }
+          const delivered = await this.deliverStoredReportWebhook(reportId, userLogin);
+          if (delivered.outcome === "missing") {
+            return Response.json({ error: "The stored report is no longer available." }, { status: 500 });
+          }
+          const result = delivered.result!;
+          if (!result.success) {
+            const status = result.notConfigured ? 503 : 502;
+            return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status });
+          }
+          this.decideReportConfirmation(confirmationId, "approved", userLogin);
+          this.audit("research_report.webhook_dispatched", "trading", {
+            confirmationId,
+            status: result.status,
+            reportId,
+            via: "hitl_confirmation",
+          });
+          return Response.json({ success: true, status: "dispatched", confirmationId });
+        }
         const payload = JSON.parse(String(row.payload_json)) as any;
         if (row.kind === "email") {
           const sent = await this.sendReportEmail(
@@ -2198,18 +2424,34 @@ Agentic Best Practices & Workflow Rules:
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
       const title = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+      // Issue #308: store the canonical copy FIRST — every channel
+      // delivers the stored report, never the request in memory.
+      const reportBodyJson = canonicalResearchEmailBody({ title, fileName, attachmentBase64 });
+      const stored = await this.storeResearchReportCanonicalAsync(reportBodyJson, {
+        title,
+        summary: `Research report workbook: ${fileName} (${title})`,
+      });
+      if (!stored) {
+        return Response.json({ error: "The report could not be stored; dispatch aborted." }, { status: 500 });
+      }
       if (this.getReportDispatchHitl()) {
         // Issue #277: hold for human confirmation instead of sending.
+        // Issue #308: the pending row references the stored report id;
+        // payload_json carries delivery metadata only (no report bytes).
         const confirmationId = this.createReportConfirmation(
           "email",
-          JSON.stringify({ recipient, title, fileName, attachmentBase64 })
+          JSON.stringify({ recipient, title, fileName }),
+          stored.reportId
         );
-        this.audit("research_report.pending_confirmation", "trading", { confirmationId, recipient, fileName });
+        this.audit("research_report.pending_confirmation", "trading", { confirmationId, recipient, fileName, reportId: stored.reportId });
         return Response.json({ success: true, status: "pending_confirmation", confirmationId });
       }
-      const sent = await this.sendReportEmail(recipient, title, fileName, attachmentBase64, userLogin);
-      if (!sent) return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
-      this.audit("research_report.emailed", "trading", { recipient, fileName });
+      const outcome = await this.deliverStoredReportEmail(stored.reportId, recipient, userLogin);
+      if (outcome === "missing") {
+        return Response.json({ error: "The stored report is unavailable; dispatch aborted." }, { status: 500 });
+      }
+      if (outcome !== "sent") return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
+      this.audit("research_report.emailed", "trading", { recipient, fileName, reportId: stored.reportId });
       return Response.json({ success: true });
     }
 
@@ -2223,26 +2465,48 @@ Agentic Best Practices & Workflow Rules:
         body.sheets.some((sheet) => !sheet || typeof sheet.name !== "string" || !Array.isArray(sheet.rows))) {
         return Response.json({ error: "A research report with named data sheets is required." }, { status: 400 });
       }
+      // Issue #308: store the canonical copy FIRST — every channel
+      // delivers the stored report, never the request in memory.
+      const wtitle = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+      const reportBodyJson = canonicalResearchWebhookBody({
+        title: wtitle,
+        query: typeof body.query === "string" ? body.query : "",
+        sheets: body.sheets,
+      });
+      const stored = await this.storeResearchReportCanonicalAsync(reportBodyJson, {
+        title: wtitle,
+        summary: `Research report: ${wtitle} (${body.sheets.length} sheets)`,
+      });
+      if (!stored) {
+        return Response.json({ error: "The report could not be stored; dispatch aborted." }, { status: 500 });
+      }
       if (this.getReportDispatchHitl()) {
         // Issue #277: hold for human confirmation instead of dispatching.
-        const title = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+        // Issue #308: the pending row references the stored report id;
+        // payload_json carries delivery metadata only (no report bytes).
         const confirmationId = this.createReportConfirmation(
           "webhook",
-          JSON.stringify({ title, query: body.query || "", sheets: body.sheets })
+          JSON.stringify({ title: wtitle, query: typeof body.query === "string" ? body.query : "", sheetCount: body.sheets.length }),
+          stored.reportId
         );
         this.audit("research_report.pending_confirmation", "trading", {
           confirmationId,
           sheets: body.sheets.length,
+          reportId: stored.reportId,
         });
         return Response.json({ success: true, status: "pending_confirmation", confirmationId });
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const result = await this.sendReportWebhook(body.title || "", body.query || "", body.sheets, userLogin);
+      const delivered = await this.deliverStoredReportWebhook(stored.reportId, userLogin);
+      if (delivered.outcome === "missing") {
+        return Response.json({ error: "The stored report is unavailable; dispatch aborted." }, { status: 500 });
+      }
+      const result = delivered.result!;
       if (!result.success) {
         const status = result.notConfigured ? 503 : 502;
         return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status });
       }
-      this.audit("research_report.webhook_dispatched", "trading", { status: result.status, sheets: body.sheets.length });
+      this.audit("research_report.webhook_dispatched", "trading", { status: result.status, sheets: body.sheets.length, reportId: stored.reportId });
       return Response.json({ success: true, status: result.status });
     }
 
@@ -3447,6 +3711,27 @@ Agentic Best Practices & Workflow Rules:
           const screener = new DynamicOptionsScreener(etrade.client);
           const result = await screener.screenOptions(filter);
           const failed = result.status === "error";
+          // Issue #307/#308: store the canonical options-scan report copy
+          // (one row per generation) so scans are searchable via AI Search.
+          try {
+            const timestamp = new Date().toISOString();
+            const symbols = Array.isArray(filter?.underlyingSymbols)
+              ? filter.underlyingSymbols.join(",")
+              : "";
+            this.getOrm().storeCanonicalReport({
+              runId: `options_scanner:${timestamp}`,
+              generationId: `options_scanner:${timestamp}`,
+              title: `Options scan — ${symbols || "universe"} (${filter?.contractType || "BOTH"})`,
+              source: "options_scanner",
+              summary: failed
+                ? `Options scan failed: ${result.validationError || result.fetchErrors?.[0]?.reason || "upstream error"}.`
+                : `Options scan completed for ${symbols || "the default universe"} (thesis: ${filter?.contractType || "BOTH"}).`,
+              body: { filter, result, failed },
+              createdAt: timestamp,
+            });
+          } catch {
+            // Non-critical: persistence failure must not break the scan.
+          }
           return {
             success: !failed,
             service: tier.name,
@@ -3487,6 +3772,24 @@ Agentic Best Practices & Workflow Rules:
 
           const foss = new FossResearchService(this.env);
           const report = await foss.generateResearchReport(symbol);
+          // Issue #308: store the canonical copy at generation time (one
+          // row per content hash) so the report is searchable via AI Search.
+          try {
+            const timestamp = new Date().toISOString();
+            const reportJson = JSON.stringify(report ?? {});
+            const generationId = await sha256Hex(reportJson);
+            this.getOrm().storeCanonicalReport({
+              runId: generationId,
+              generationId,
+              title: `Market research — ${symbol}`,
+              source: "research_report",
+              summary: `Equity research report for ${symbol}.`,
+              body: report ?? {},
+              createdAt: timestamp,
+            });
+          } catch {
+            // Non-critical: persistence failure must not break the report.
+          }
           return {
             success: true,
             service: tier.name,
@@ -3670,6 +3973,9 @@ Agentic Best Practices & Workflow Rules:
             count: shards.reduce((n, r) => n + r.allStocks.length, 0),
             success: true,
           });
+          // Issue #307/#308: store each shard's canonical report copy
+          // (one row per generation) so manual screens are searchable.
+          for (const r of shards) this.persistScreenerReportCanonical(r);
           return Response.json({
             sharded: true,
             universes: shards.map((r) => ({
@@ -3696,6 +4002,9 @@ Agentic Best Practices & Workflow Rules:
           count: result.allStocks.length,
           success: result.success,
         });
+        // Issue #307/#308: store the canonical report copy (one row per
+        // generation) so manual screens are searchable like scheduled ones.
+        this.persistScreenerReportCanonical(result);
         if (!result.success) {
           return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
         }

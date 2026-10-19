@@ -19,6 +19,10 @@ import type {
   OptionsChainCacheRecord,
   ScheduledReportRecord,
 } from "../types";
+import {
+  storeReportAtGeneration,
+  type ScheduledReportInput,
+} from "../services/scheduledReports";
 
 export interface SqlStorage {
   exec: (query: string, ...args: unknown[]) => Iterable<unknown>;
@@ -296,6 +300,7 @@ export class DatabaseORM {
     this.reports = new Repository<ScheduledReportRecord>(sql, "mas_reports", "id", {
       id: "id",
       runId: "run_id",
+      generationId: "generation_id",
       title: "title",
       source: "source",
       summary: "summary",
@@ -497,6 +502,8 @@ export class DatabaseORM {
     // 8c. Scheduled-run reports (issue #278) — every report a
     // scheduled run generates is persisted here so the AI Search
     // agent can surface it later.
+    // Issue #308 adds generation_id (idempotency key for the single
+    // generate→store seam); the service DDL owns the additive migration.
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_reports (
         id TEXT PRIMARY KEY,
@@ -505,11 +512,15 @@ export class DatabaseORM {
         source TEXT NOT NULL,
         summary TEXT NOT NULL,
         body TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        generation_id TEXT
       )
     `);
     this.sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON mas_reports (created_at DESC)
+    `);
+    this.sql.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON mas_reports (generation_id)
     `);
 
     // 9. Trades & E*TRADE Orders Table
@@ -1004,5 +1015,16 @@ export class DatabaseORM {
    */
   execQuery(query: string, ...args: unknown[]): any[] {
     return Array.from(this.sql.exec(query, ...args));
+  }
+
+  /**
+   * Issue #308: single generate→store seam for reports, reached through
+   * the ORM. Idempotent on input.generationId — one canonical row per
+   * generation, no matter how many channels deliver it. Never throws.
+   */
+  storeCanonicalReport(
+    input: ScheduledReportInput
+  ): { reportId: string; created: boolean } | null {
+    return storeReportAtGeneration(this.sql, input);
   }
 }

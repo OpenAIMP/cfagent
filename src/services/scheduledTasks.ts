@@ -28,7 +28,6 @@ import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
-import { toScheduledReportRecord } from "./scheduledReports";
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import {
   getCfpayConfig,
@@ -814,18 +813,19 @@ export class ScheduledTasksService {
 
       // Issue #278: persist the scheduled run's report durably
       // (mas_reports) so the AI Search agent can surface it later.
-      if (this.orm?.reports) {
+      // Issue #308: through the single generate→store seam — one
+      // canonical row per generation (generationId = run id).
+      if (this.orm?.storeCanonicalReport) {
         try {
-          this.orm.reports.create(
-            toScheduledReportRecord({
-              runId: `iv_collection:${report.date}`,
-              title: `Daily IV collection — ${report.date}`,
-              source: "iv_collection",
-              summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
-              body: { ...report, trackedCount: report.outcomes.length },
-              createdAt: timestamp,
-            })
-          );
+          this.orm.storeCanonicalReport({
+            runId: `iv_collection:${report.date}`,
+            generationId: `iv_collection:${report.date}`,
+            title: `Daily IV collection — ${report.date}`,
+            source: "iv_collection",
+            summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
+            body: { ...report, trackedCount: report.outcomes.length },
+            createdAt: timestamp,
+          });
         } catch {
           // Non-critical report persistence error
         }
