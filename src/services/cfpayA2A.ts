@@ -134,6 +134,29 @@ export async function cfpayPostToSlack(
 }
 
 /**
+ * Post a file (PDF) to Slack via cfpay A2A (issue #331).
+ * Uses the slack.postFile operation added to cfpay's Slack agent.
+ */
+export async function cfpayPostFileToSlack(
+  config: CfpayA2AConfig,
+  args: {
+    channel: string;
+    filename: string;
+    contentB64: string;
+    title?: string;
+    initial_comment?: string;
+  }
+): Promise<A2AOperationResult> {
+  return cfpayA2AOperation(config, "/a2a/slack", "slack.postFile", {
+    channel: args.channel,
+    filename: args.filename,
+    contentB64: args.contentB64,
+    ...(args.title ? { title: args.title } : {}),
+    ...(args.initial_comment ? { initial_comment: args.initial_comment } : {}),
+  });
+}
+
+/**
  * Send email via cfpay.
  */
 export async function cfpaySendEmail(
