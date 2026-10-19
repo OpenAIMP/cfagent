@@ -161,6 +161,8 @@ Two ways, neither of which requires switching to cookies:
 
 P2b is the lower-risk option and the better fit if the objection to cookies is revocation semantics — it keeps KV authoritative and only shortens how often you ask.
 
+**Status: P2b is implemented and live.** `src/security/sessionCache.ts` holds the bounded `Map` (500 entries, 30 s TTL, 10 s for misses, oldest-entry eviction, explicit invalidation hook), wired in through the `src/session.ts` facade so `requireAuth` reads through it. The one gap is the local-logout purge: `handleLogout` deletes the KV key directly and cannot yet call `invalidateSessionCache`, because that file is refused by the workspace secret scanner. Until it lands, a logged-out session can keep authenticating for up to 30 s in the isolate that served the logout. Remaining edits are listed in `docs/patches/329-kv-session-cache-wiring.md`.
+
 ### P3 — Write hygiene (~1 hour)
 
 | Change | Site | Saves |

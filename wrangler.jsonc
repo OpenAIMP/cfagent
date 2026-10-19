@@ -59,10 +59,12 @@
       "*/30 * * * *",
       // Issue #255 — nightly mas_messages retention pass (enforced in the
       // scheduled() handler; runs against the Orchestrator agent's SQLite)
-      "0 4 * * *",
-      // Issue #319 — daily options-research run after market close
-      // (21:00 UTC = 17:00 ET on weekdays)
-      "0 21 * * 1-5"
+      "0 4 * * *"
+      // Issue #319 — the daily options-research run (21:00 UTC = 17:00 ET on
+      // weekdays) is deliberately NOT a fifth cron trigger: the account is at
+      // the Workers Free ceiling of 5 triggers per account (error 10072) and a
+      // fifth entry fails the entire deploy. Re-enable by folding it into the
+      // "*/30" tick in scheduled() (src/server.ts), or on the paid plan.
     ]
   },
   // PR #6 — Vectorize for VectorMemory
