@@ -18,6 +18,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **mas_reports DDL single-sourced (SQLITE_ERROR: no such column: generation_id)** (#389): the ORM's `initializeSchema()` carried its own duplicate `mas_reports` DDL that created the unique index on `generation_id` without a column guard, so any Durable Object whose table predated #308 threw on every schema init (the Strategy/Symbol Scanner failure). The block now delegates to `ensureScheduledReportsTable()` in `src/services/scheduledReports.ts` (PRAGMA-checked additive migration); the unguarded duplicate is deleted. Regression test: a pre-#308 table migrates without throwing and keeps its rows.
+
+### Fixed
+
 - **Reports/Schedules tabs render their panels** (#388): the #309 navigation items were missing from Chat's `TRADING_TABS` and `mapTabToTradingSubTab`, so selecting Reports or Schedules hid the trading hub and rendered a blank main view. Both tabs are now trading tabs with explicit subtab mappings and breadcrumb labels; a regression test pins the wiring.
 - **Research section default view restored** (#387): the Trading hub research section landed on the new Autonomous runs panel (empty state) instead of the per-symbol research panel it showed before #319. The toggle now defaults to Symbol research; Autonomous runs remains one click away.
 
