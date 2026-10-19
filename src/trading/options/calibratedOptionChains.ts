@@ -75,8 +75,10 @@ export function buildCalibratedOptionChains(
   const chains: ETradeOptionChain[] = [];
   const now = new Date();
 
-  // DTE schedule intervals inside the requested window
-  const dteIntervals = [7, 14, 21, 30, 45, 60, 90, 120].filter(
+  // DTE schedule intervals inside the requested window.
+  // Issue #353 — the grid extends to LEAPS (180/270/365) so the research
+  // provider's calibrated fallback can cover the PMCC long-leg band.
+  const dteIntervals = [7, 14, 21, 30, 45, 60, 90, 120, 180, 270, 365].filter(
     (dte) => dte >= minDte && dte <= maxDte
   );
   if (dteIntervals.length === 0) {

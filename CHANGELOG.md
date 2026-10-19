@@ -31,6 +31,15 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   21:00 run retries at 21:30. Skips return an explicit
   `skipped: true` with the reason.
 
+- **PMCC reachable in the research pipeline** (#352/#353): `getChain` now
+  selects expirations across two bounded windows — the 30–45 DTE near band
+  the short-dated structures use and a >=180 DTE LEAPS band — instead of the
+  first four expirations only, which made the `pmccEnabled` flag inert. The
+  PMCC long-leg requirement drops from >=300 to the catalog's >=180 DTE
+  (`farMinDte`), and the thesis/range gates admit PMCC for `range_bound`
+  outlooks as the catalog tags it (`[bullish, range_bound]`). The calibrated
+  fallback builder's DTE grid extends to LEAPS (180/270/365) so synthetic
+  chains mirror the same two windows.
 - **Canonical report store** (#308, #307): every generated report is stored
   once at generation into `mas_reports` (idempotent on generation id);
   UX, email, Slack, webhook, and HITL approval all deliver that single
