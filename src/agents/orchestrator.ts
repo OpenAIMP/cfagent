@@ -32,14 +32,6 @@ import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
-import {
-  triggerManualResearch,
-  triggerScheduledResearch,
-} from "../services/researchTriggers";
-import {
-  shouldFireResearchTick,
-  RESEARCH_SCHEDULED_LAST_RUN_KEY,
-} from "../services/researchScheduleGuard";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { SqlScanRunStore, diffScanRuns } from "../trading";
@@ -86,6 +78,7 @@ import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
 import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
+import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2841,187 +2834,23 @@ Agentic Best Practices & Workflow Rules:
     // ==========================================
 
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
-    // Issue #212/#261: latest screener runs (GET /api/screener/latest).
-    // Served by ScreenerAgent — one agent owns all screening results.
-    // Note: server.ts strips the /api prefix before forwarding, so the DO
-    // sees /screener/latest.
-    if (path.endsWith("/screener/latest") && request.method === "GET") {
-      try {
-        const context = await this.getScreenerExecutionContext();
-        const agent = this.getScreenerAgent(request.headers.get("x-user-login") || context?.userLogin || "default_trader");
-        const latest = await agent.getLatest();
-        const history = await agent.getHistory();
-        return Response.json({
-          count: history.length,
-          runs: history,
-          latest,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to load screener runs", runs: [] }, { status: 500 });
-      }
-    }
-
-    // Issue #269: downloadable PDF report of the latest screener run.
-    if (path.endsWith("/screener/report.pdf") && request.method === "GET") {
-      try {
-        const url = new URL(request.url);
-        const key = url.searchParams.get("key");
-        const pdf = key
-          ? await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getPdfByKey(key)
-          : await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestPdf();
-        if (!pdf) {
-          return Response.json({ error: "No screener report available yet" }, { status: 404 });
-        }
-        return new Response(pdf.bytes as unknown as BodyInit, {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
-            "Content-Length": String(pdf.bytes.length),
-          },
-        });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
-      }
-    }
-
-    // Issue #361: Options PDF download endpoint (mirrors stock).
-    if (path.endsWith("/options/report.pdf") && request.method === "GET") {
-      try {
-        const url = new URL(request.url);
-        const key = url.searchParams.get("key") || url.searchParams.get("filename");
-        const pdf = key
-          ? await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getOptionsPdfByKey(key)
-          : await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestOptionsPdf();
-        if (!pdf) {
-          return Response.json({ error: "No options report available yet" }, { status: 404 });
-        }
-        return new Response(pdf.bytes as unknown as BodyInit, {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
-            "Content-Length": String(pdf.bytes.length),
-          },
-        });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
-      }
-    }
-
-    // ==========================================
-    // Issue #319: autonomous options research.
-    // The manual route and the scheduled tick are thin triggers over the
-    // single runResearchAndPublish entry (amendment 2) — only the trigger
-    // source differs. Note: server.ts strips the /api prefix before
-    // forwarding, so the DO sees /research/*.
-    // ==========================================
-
-    // Manual run (dashboard "Run now").
-    if (path.endsWith("/research/run") && request.method === "POST") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      try {
-        const out = await triggerManualResearch(
-          (t, u) => this.runResearchAndPublish(t, u),
-          userLogin
-        );
-        return Response.json(out);
-      } catch (err: any) {
-        return Response.json(
-          { success: false, error: err?.message || "Research run failed." },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Scheduled tick (server.ts folds the daily run into the */30 tick,
-    // issue #354 — a dedicated 0 21 * * 1-5 cron cannot exist at the
-    // Workers Free 5-trigger ceiling). Fires exactly once per weekday at
-    // or after 21:00 UTC; the manual route above is never guarded.
-    if (path.endsWith("/research/scheduled-tick") && request.method === "POST") {
-      const userLogin = request.headers.get("x-user-login") || "default";
-      try {
-        // Issue #354 — idempotency guard against double-fire across the
-        // 21:00/21:30 ticks. The last-fired date lives in mas_settings
-        // (durable across ticks AND isolates); it is written only after a
-        // successful run so a failed 21:00 run retries at 21:30.
-        const decision = shouldFireResearchTick(
-          new Date(),
-          this.readSettingRaw(RESEARCH_SCHEDULED_LAST_RUN_KEY)
-        );
-        if (!decision.fire) {
-          return Response.json({
-            success: true,
-            skipped: true,
-            reason: decision.reason,
-            dateKey: decision.dateKey,
-          });
-        }
-        const out = await triggerScheduledResearch(
-          (t, u) => this.runResearchAndPublish(t, u),
-          userLogin
-        );
-        this.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
-        return Response.json(out);
-      } catch (err: any) {
-        return Response.json(
-          { success: false, error: err?.message || "Scheduled research run failed." },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Latest + history (trigger-labeled; one view serves both run types).
-    if (path.endsWith("/research/latest") && request.method === "GET") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = this.getResearchAgent(userLogin);
-      if (!agent) return Response.json({ latest: null });
-      const latest = await agent.getLatest();
-      return Response.json({ latest });
-    }
-    if (path.endsWith("/research/history") && request.method === "GET") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = this.getResearchAgent(userLogin);
-      if (!agent) return Response.json({ history: [] });
-      const history = await agent.getHistory();
-      return Response.json({ history });
-    }
-
-    // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
-    if (path.endsWith("/research/settings") && request.method === "GET") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = this.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const config = await agent.getResearchConfig();
-      return Response.json({ config });
-    }
-    if (path.endsWith("/research/settings") && request.method === "POST") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = this.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const patch = (await request.json().catch(() => null)) as Partial<import("../services/researchConfig").ResearchConfig> | null;
-      const out = await agent.saveConfig(patch ?? {});
-      return Response.json(out);
-    }
-
-    // §9 evaluation pass over a published run.
-    if (path.endsWith("/research/evaluate") && request.method === "POST") {
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = this.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const body = (await request.json().catch(() => null)) as { runId?: string } | null;
-      if (!body?.runId) {
-        return Response.json({ error: "runId is required." }, { status: 400 });
-      }
-      const evaluation = await agent.evaluateRun(body.runId, userLogin);
-      return Response.json({ evaluation });
-    }
-
+    // Issue #359-15: screener + autonomous research routes (stock screener
+    // /screener/*, options PDF, and /research/*) are handled by
+    // src/agents/routes/screenerResearch.ts (handleScreenerResearchRoutes).
+    // Invoked at this exact position in the sequential path.endsWith
+    // matching sequence (after the FOSS compare/screen delegation, before
+    // the task schedules block); a non-null return matched. Orchestrator-
+    // owned helpers (getScreenerAgent, getResearchAgent, runResearchAndPublish,
+    // mas_settings) arrive via the context object.
+    const screenerResearchResponse = await handleScreenerResearchRoutes(request, url, path, sessionId, {
+      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
+      getResearchAgent: (userLogin?: string) => this.getResearchAgent(userLogin),
+      runResearchAndPublish: (trigger, userLogin) => this.runResearchAndPublish(trigger, userLogin),
+      readSettingRaw: (key) => this.readSettingRaw(key),
+      writeSetting: (key, value) => this.writeSetting(key, value),
+    });
+    if (screenerResearchResponse) return screenerResearchResponse;
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
         // Issue #108: the typed listSchedules() is called directly. The
