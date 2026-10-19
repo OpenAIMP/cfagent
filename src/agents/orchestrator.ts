@@ -95,13 +95,13 @@ import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
 import { handleAutopilotRoutes } from "./routes/autopilot";
+import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
   AgentName,
   AuditEvent,
   MessageRecord,
-  MemoryRecord,
   TransactionRecord,
   CategoryRecord,
   ExternalAdRecord,
@@ -2603,63 +2603,23 @@ Agentic Best Practices & Workflow Rules:
     });
     if (autopilotResponse) return autopilotResponse;
 
-    // Persistent Memory facts endpoint
-    if (path.endsWith("/memory")) {
-      if (request.method === "GET") {
-        try {
-          const rawMemories = Array.from(
-            sql.exec("SELECT key, value, updated_at FROM mas_memory ORDER BY updated_at DESC LIMIT 100")
-          ) as Array<{ key: string; value: string; updated_at: string }>;
-          const memories: MemoryRecord[] = rawMemories.map((m) => ({
-            key: String(m.key),
-            value: String(m.value),
-            updatedAt: String(m.updated_at),
-          }));
-          return Response.json({ count: memories.length, memories });
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch memories" }, { status: 500 });
-        }
-      }
-
-      if (request.method === "DELETE") {
-        try {
-          const key = url.searchParams.get("key");
-          if (key) {
-            sql.exec("DELETE FROM mas_memory WHERE key = ?", key);
-            this.audit("memory.deleted", "memory", { key });
-          } else {
-            sql.exec("DELETE FROM mas_memory");
-            this.audit("memory.cleared", "memory", {});
-          }
-          return Response.json({ success: true });
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to delete memory" }, { status: 500 });
-        }
-      }
-    }
-
-    // Clear active conversation transcript and reset session state
-    if ((path.endsWith("/clear") || path.endsWith("/reset")) && (request.method === "POST" || request.method === "DELETE" || request.method === "GET")) {
-      try {
-        this.abortAllRequests("Session reset requested by user");
-        this.resetTurnState();
+    // Issue #359-06: memory + reset routes (GET/DELETE /memory,
+    // POST|DELETE|GET /clear|/reset) are handled by
+    // src/agents/routes/memoryReset.ts. Invoked at this exact position
+    // in the sequential path.endsWith matching sequence (between the
+    // autopilot handler and the referrals+ads handler); a non-null
+    // return matched.
+    const memoryResetResponse = await handleMemoryResetRoutes(request, url, path, sessionId, {
+      ensureTables: () => this.ensureTables(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      abortAllRequests: (reason) => this.abortAllRequests(reason),
+      resetTurnState: () => this.resetTurnState(),
+      clearConversationMessages: async () => {
         this.messages = [];
         await this.persistMessages([]);
-        const purge = url.searchParams.get("purge") !== "false";
-        if (purge) {
-          sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
-          this.audit("history.purged", "orchestrator", {});
-        } else {
-          this.audit("history.cleared", "orchestrator", {});
-        }
-        return Response.json({
-          success: true,
-          message: purge ? "All chat transcripts and session state purged from SQLite" : "Active chat cleared; historical analytics vault preserved in SQLite",
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to clear history" }, { status: 500 });
-      }
-    }
+      },
+    });
+    if (memoryResetResponse) return memoryResetResponse;
 
     // Issue #359-03: referrals + sponsored ads (community group) are
     // handled by src/agents/routes/adsRevenueReferrals.ts. Invoked at this
