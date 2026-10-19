@@ -164,6 +164,12 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Reports/Schedules tabs render their panels** (#388): the #309 navigation
+  items were not in Chat's `TRADING_TABS` set and had no
+  `mapTabToTradingSubTab` mapping, so selecting Reports or Schedules hid the
+  trading hub and rendered a blank main view. Both tabs are now trading tabs
+  with explicit subtab mappings (plus breadcrumb labels), so the already-wired
+  `ReportsPanel`/`SchedulesPanel` mount.
 - **Storage lifecycle** (#255): nightly retention pass enforces the
   advertised 90-day window on `mas_messages` (configurable, batched,
   audited per run).
