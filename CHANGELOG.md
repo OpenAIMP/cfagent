@@ -59,6 +59,34 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pointing at the deployed commit for rollback and release tracking;
   milestones bump minor/major manually.
 
+- **Autonomous options research + trade-idea validation agent** (#319): a new
+  `ResearchAgent` Durable Object runs a daily after-close pipeline (OODA loop
+  with budget) — market regime, screened universe, live E*TRADE quotes and
+  option chains, Yahoo technicals — and publishes a canonical report via the
+  `options_research` seam into `mas_reports` (one stored copy; Reports tab and
+  AI Search read it). Stage gates (§5) enforced as code with the spec's
+  failure actions (data integrity → Unverified; contract/thesis/strategy/risk
+  → Rejected with reason; soft quote-quality → Watchlist-only); every
+  shortlisted idea carries the seven-question falsification (§4), a pre-mortem
+  (§7), five scenario rows with fees/slippage/assignment limitations (§8), and
+  an independently recomputed economics table (SDK-free Black-Scholes
+  module — PMCC modeled on the long call's residual value; the
+  width-minus-debit trap is pinned by test). Max 5 Qualified ideas;
+  "No qualifying opportunities" is a valid published outcome. Filters and
+  thresholds live in a typed config service (spec defaults as fallback) with a
+  filter editor + run controls + trade-card view (`ResearchRunsPanel`);
+  every run embeds its effective config snapshot; §9 evaluation replays later
+  prices against the pinned stored record (versioned rules, no retrospective
+  edits). Read-only: no order path exists from any research module (boundary
+  test pins it). Routes: `POST /research/run`, `POST /research/scheduled-tick`
+  (21:00 UTC weekdays via new wrangler cron), `GET /research/latest`,
+  `GET /research/history`, `GET/POST /research/settings`, `POST
+  /research/evaluate`.
+- The options subtab gains an "Autonomous runs" toggle next to the existing
+  per-symbol "Symbol research" view; manual and scheduled runs are thin
+  triggers over the single pipeline entry and surface in the same views
+  labeled by trigger source (manual | scheduled).
+
 ### Changed
 
 - **Trading boundary** (#290): all trading code is imported solely through
