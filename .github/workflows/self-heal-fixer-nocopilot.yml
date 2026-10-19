@@ -13,7 +13,7 @@
 # fixer poller claims and fixes unclaimed issues per the branch-as-lock
 # protocol. Re-enable Copilot later by uncommenting the steps below.
 
-name: Self-heal Fixer (Copilot)
+name: Self-heal Fixer (No-op)
 
 on:
   issues:
