@@ -86,6 +86,7 @@ import {
 } from "./routes/etradeBroker";
 import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
 import { handleWatchlistsRoutes } from "./routes/watchlists";
+import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2807,75 +2808,11 @@ Agentic Best Practices & Workflow Rules:
     });
     if (watchlistsResponse) return watchlistsResponse;
 
-    // ==========================================
-    // Alpaca Trading API v2 Endpoints
-    // ==========================================
-
-    // Place Alpaca Live / Paper Order
-    if (path.endsWith("/trading/alpaca/order") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const symbol = (body.symbol || "").trim();
-        const qty = Number(body.qty) || 1;
-        const side = (body.side || "buy").toLowerCase() as "buy" | "sell";
-        const type = body.type || "market";
-        const limit_price = body.limit_price !== undefined ? Number(body.limit_price) : undefined;
-        const time_in_force = body.time_in_force || "day";
-
-        if (!symbol) {
-          return Response.json({ error: "Stock symbol is required" }, { status: 400 });
-        }
-
-        const foss = new FossResearchService(this.env);
-        const orderResult = await foss.placeAlpacaOrder({
-          symbol,
-          qty,
-          side,
-          type,
-          limit_price,
-          time_in_force,
-        });
-
-        this.audit("alpaca.order_placed", "trading", { symbol, qty, side, status: orderResult.status });
-        return Response.json(orderResult);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to place Alpaca order" }, { status: 500 });
-      }
-    }
-
-    // Get Alpaca Account & Buying Power
-    if (path.endsWith("/trading/alpaca/account") && request.method === "GET") {
-      try {
-        const foss = new FossResearchService(this.env);
-        const account = await foss.getAlpacaAccount();
-        return Response.json(account);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to fetch Alpaca account" }, { status: 500 });
-      }
-    }
-
-    // Get Alpaca Open Positions
-    if (path.endsWith("/trading/alpaca/positions") && request.method === "GET") {
-      try {
-        const foss = new FossResearchService(this.env);
-        const positions = await foss.getAlpacaPositions();
-        return Response.json(positions);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to fetch Alpaca positions" }, { status: 500 });
-      }
-    }
-
-    // Get Alpaca Orders List
-    if (path.endsWith("/trading/alpaca/orders") && request.method === "GET") {
-      try {
-        const status = (url.searchParams.get("status") || "open") as any;
-        const foss = new FossResearchService(this.env);
-        const orders = await foss.getAlpacaOrders(status);
-        return Response.json(orders);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to fetch Alpaca orders" }, { status: 500 });
-      }
-    }
+    const alpacaTradingResponse = await handleAlpacaTradingRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (alpacaTradingResponse) return alpacaTradingResponse;
 
     // ==========================================
     // FOSS Market Research & Quoting APIs (yfinance & Alpaca)
@@ -2948,115 +2885,12 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Alpaca real-time market snapshot & NBBO spread
-    if (path.endsWith("/foss/snapshot") && request.method === "GET") {
-      try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
-        const foss = new FossResearchService(this.env);
-        const snapshot = await foss.getAlpacaSnapshot(symbol);
-        this.audit("alpaca.snapshot_queried", "trading", {
-          symbol,
-          price: snapshot.latestTrade?.price,
-          bid: snapshot.latestQuote?.bidPrice,
-          ask: snapshot.latestQuote?.askPrice,
-          assetClass: snapshot.assetClass,
-        });
-        return Response.json(snapshot);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch Alpaca market snapshot" }, { status: 500 });
-      }
-    }
+    const alpacaFossResponse = await handleAlpacaFossRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (alpacaFossResponse) return alpacaFossResponse;
 
-    // Alpaca Trading v2: Account Status & Balance with Agentic Tracing
-    if (path.endsWith("/foss/alpaca/account") && request.method === "GET") {
-      try {
-        const foss = new FossResearchService(this.env);
-        const result = await foss.getAlpacaAccount();
-        this.audit("alpaca.account_queried", "trading", {
-          success: result.success,
-          accountId: result.account?.id,
-          buyingPower: result.account?.buying_power,
-          portfolioValue: result.account?.portfolio_value,
-        });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch Alpaca account" }, { status: 500 });
-      }
-    }
-
-    // Alpaca Trading v2: Portfolio Positions with Agentic Tracing
-    if (path.endsWith("/foss/alpaca/positions") && request.method === "GET") {
-      try {
-        const foss = new FossResearchService(this.env);
-        const result = await foss.getAlpacaPositions();
-        this.audit("alpaca.positions_queried", "trading", {
-          success: result.success,
-          count: result.positions?.length || 0,
-          symbols: result.positions?.map((p: any) => p.symbol) || [],
-        });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch Alpaca positions" }, { status: 500 });
-      }
-    }
-
-    // Alpaca Trading v2: Order History Ledger with Agentic Tracing
-    if (path.endsWith("/foss/alpaca/orders") && request.method === "GET") {
-      try {
-        const status = (url.searchParams.get("status") || "open") as "open" | "closed" | "all";
-        const foss = new FossResearchService(this.env);
-        const result = await foss.getAlpacaOrders(status);
-        this.audit("alpaca.orders_queried", "trading", {
-          status,
-          count: result.orders?.length || 0,
-        });
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch Alpaca orders" }, { status: 500 });
-      }
-    }
-
-    // Alpaca Trading v2: Place Order with Agent DID Attestation & Agentic Tracing
-    if (path.endsWith("/foss/alpaca/order") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const symbol = (body.symbol || "").toUpperCase().trim();
-        const qty = Number(body.qty || body.quantity || 1);
-        const side = (body.side || body.orderAction || "buy").toLowerCase() as "buy" | "sell";
-        const type = (body.type || body.orderType || "market").toLowerCase() as any;
-        const limit_price = body.limit_price || body.limitPrice ? Number(body.limit_price || body.limitPrice) : undefined;
-        const time_in_force = body.time_in_force || "day";
-
-        if (!symbol) {
-          return Response.json({ error: "Symbol is required" }, { status: 400 });
-        }
-
-        const foss = new FossResearchService(this.env);
-        const result = await foss.placeAlpacaOrder({
-          symbol,
-          qty,
-          side,
-          type,
-          limit_price,
-          time_in_force,
-        });
-
-        this.audit("alpaca.order_placed", "trading", {
-          symbol,
-          qty,
-          side,
-          type,
-          limitPrice: limit_price,
-          orderId: result.orderId,
-          status: result.status,
-          success: result.success,
-        });
-
-        return Response.json(result);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to place Alpaca order" }, { status: 500 });
-      }
-    }
 
     // Multi-ticker valuation comparison
     if (path.endsWith("/foss/compare") && (request.method === "POST" || request.method === "GET")) {
