@@ -1036,6 +1036,25 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [fitLimit, setFitLimit] = useState(25);
   // Issue #391: Selected strategy IDs for filtering (empty = all strategies)
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
+  // Issue #391: Strategy catalog for the multi-select (loaded from API)
+  const [strategyCatalog, setStrategyCatalog] = useState<CatalogStrategy[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+
+  // Load strategy catalog on mount
+  useEffect(() => {
+    if (catalogLoaded) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/trading/options/catalog");
+        if (!res.ok) return;
+        const data = (await res.json()) as { strategies?: CatalogStrategy[] };
+        setStrategyCatalog(data.strategies ?? []);
+        setCatalogLoaded(true);
+      } catch {
+        // Catalog unavailable — multi-select stays empty.
+      }
+    })();
+  }, [catalogLoaded]);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [result, setResult] = useState<OpportunityScanResponse | null>(null);
@@ -1360,7 +1379,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         <div className="scp-field scp-field-strategies">
           <label htmlFor="scp-strategies">Strategies <span className="scp-hint">(empty = all)</span></label>
           <div className="scp-strategy-checkboxes" id="scp-strategies">
-            {strategies.map((s) => (
+            {strategyCatalog.map((s) => (
               <label key={s.id} className="scp-strategy-check">
                 <input
                   type="checkbox"
@@ -1376,7 +1395,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
                 <span title={s.description}>{s.label || s.id}</span>
               </label>
             ))}
-            {strategies.length === 0 && (
+            {strategyCatalog.length === 0 && (
               <span className="scp-muted">Loading strategies…</span>
             )}
           </div>
