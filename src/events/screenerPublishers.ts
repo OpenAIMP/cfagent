@@ -42,6 +42,8 @@ export interface ScreenerPublisherDeps {
   userLogin: string;
 }
 
+const registeredBuses = new WeakSet<ScreenerEventBus>();
+
 interface ScreenerPdf {
   bytes: Uint8Array;
   fileName: string;
@@ -180,6 +182,9 @@ export function registerScreenerPublishers(
   bus: ScreenerEventBus,
   deps: ScreenerPublisherDeps
 ): void {
+  if (registeredBuses.has(bus)) return;
+  registeredBuses.add(bus);
+
   bus.subscribe("screener.completed", (event) =>
     publishCompleted(deps, event as ScreenerCompletedEvent)
   );

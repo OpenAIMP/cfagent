@@ -12,6 +12,7 @@ import {
   ScreenerEventBus,
   type ScreenerCompletedEvent,
 } from "../src/events/screenerEvents";
+import { registerScreenerPublishers } from "../src/events/screenerPublishers";
 
 const completedEvent: ScreenerCompletedEvent = {
   type: "screener.completed",
@@ -81,5 +82,17 @@ describe("ScreenerEventBus (#210)", () => {
     });
     expect(completed).not.toHaveBeenCalled();
     expect(failed).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers the publisher set only once per event bus", () => {
+    const bus = new ScreenerEventBus();
+    const deps = { env: {} as never, userLogin: "test" };
+
+    registerScreenerPublishers(bus, deps);
+    registerScreenerPublishers(bus, deps);
+    registerScreenerPublishers(bus, { ...deps, userLogin: "another-user" });
+
+    expect(bus.subscriberCount("screener.completed")).toBe(1);
+    expect(bus.subscriberCount("screener.failed")).toBe(1);
   });
 });
