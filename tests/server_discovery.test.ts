@@ -130,15 +130,16 @@ describe("server discovery mapping (issue #29)", () => {
     // The order-preview endpoint must pass complete option strategies through
     // to E*TRADE instead of silently degrading them to equity orders.
     // (Slice #359-09 moved the order-preview route into
-    // src/agents/routes/etradeBroker.ts; the pins follow the ownership. The
-    // demoCalibratedChainsEnabled pin stays on orchestrator.ts — that line is
-    // in the still-inline options strategy block, slice #359-11.)
+    // src/agents/routes/etradeBroker.ts; the pins follow the ownership.
+    // Slice #359-11 moved the options strategy block (with the
+    // demoCalibratedChainsEnabled line) into
+    // src/agents/routes/etradeOptions.ts; the pin follows the ownership.)
     const brokerCode = fs.readFileSync(path.resolve("src/agents/routes/etradeBroker.ts"), "utf8");
-    const orchestratorCode = fs.readFileSync(path.resolve("src/agents/orchestrator.ts"), "utf8");
+    const optionsCode = fs.readFileSync(path.resolve("src/agents/routes/etradeOptions.ts"), "utf8");
     expect(brokerCode).toContain("assetClass,");
     expect(brokerCode).toContain("optionLegs,");
     expect(brokerCode).toContain("strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined");
-    expect(orchestratorCode).toContain("demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled()");
+    expect(optionsCode).toContain("demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled()");
   });
 
   it("verifies backend defaultRegistry has 74 canonical strategies in sync with catalog endpoint", async () => {

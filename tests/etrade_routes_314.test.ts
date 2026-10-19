@@ -61,10 +61,8 @@ vi.mock("../src/trading", async (importOriginal) => {
   };
 });
 
-import {
-  handleOptionsStrategyRecommend,
-  OrchestratorAgent,
-} from "../src/agents/orchestrator";
+import { OrchestratorAgent } from "../src/agents/orchestrator";
+import { handleOptionsStrategyRecommend } from "../src/agents/routes/etradeOptions";
 import { handleEnvironmentSwitch } from "../src/agents/routes/etradeBroker";
 import { MockSqlStorage } from "./mock-sql";
 
@@ -329,9 +327,16 @@ describe("options strategy discovery — /api/etrade/options/strategy (#314)", (
   });
 
   it("registers the advertised spelling and the immediate-sync exception", () => {
-    const src = readFileSync("src/agents/orchestrator.ts", "utf8");
+    // (Slice #359-11 moved the options routes into
+    // src/agents/routes/etradeOptions.ts; the pin follows the ownership.
+    // routeRequest delegates to handleEtradeOptionsRoutes at the exact
+    // original position. The immediate-endpoint regex still lives in
+    // orchestrator.ts — outside this slice's domain.)
+    const src = readFileSync("src/agents/routes/etradeOptions.ts", "utf8");
     expect(src).toContain('path.endsWith("/etrade/options/strategy")');
-    expect(src).toMatch(/etrade\\\/options\\\/strategy/);
+    const orch = readFileSync("src/agents/orchestrator.ts", "utf8");
+    expect(orch).toMatch(/etrade\\\/options\\\/strategy/);
+    expect(orch).toContain("handleEtradeOptionsRoutes(request, url, path, sessionId,");
   });
 
   it("imports trading only through the boundary index (tests/trading-boundary.test.ts)", () => {
