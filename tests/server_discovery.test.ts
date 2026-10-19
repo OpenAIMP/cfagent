@@ -75,7 +75,6 @@ describe("server discovery mapping (issue #29)", () => {
     const fs = require("fs");
     const path = require("path");
     const panelCode = fs.readFileSync(path.resolve("src/client/options/StrategyDiscoveryPanel.tsx"), "utf8");
-    const orchestratorCode = fs.readFileSync(path.resolve("src/agents/orchestrator.ts"), "utf8");
 
     // UI must NOT perform client-side fallback discovery processing
     expect(panelCode).not.toContain("function fallbackDiscoverStrategies");
@@ -130,9 +129,15 @@ describe("server discovery mapping (issue #29)", () => {
 
     // The order-preview endpoint must pass complete option strategies through
     // to E*TRADE instead of silently degrading them to equity orders.
-    expect(orchestratorCode).toContain("assetClass,");
-    expect(orchestratorCode).toContain("optionLegs,");
-    expect(orchestratorCode).toContain("strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined");
+    // (Slice #359-09 moved the order-preview route into
+    // src/agents/routes/etradeBroker.ts; the pins follow the ownership. The
+    // demoCalibratedChainsEnabled pin stays on orchestrator.ts — that line is
+    // in the still-inline options strategy block, slice #359-11.)
+    const brokerCode = fs.readFileSync(path.resolve("src/agents/routes/etradeBroker.ts"), "utf8");
+    const orchestratorCode = fs.readFileSync(path.resolve("src/agents/orchestrator.ts"), "utf8");
+    expect(brokerCode).toContain("assetClass,");
+    expect(brokerCode).toContain("optionLegs,");
+    expect(brokerCode).toContain("strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined");
     expect(orchestratorCode).toContain("demoCalibratedChainsEnabled: isDemoCalibratedChainsEnabled()");
   });
 
