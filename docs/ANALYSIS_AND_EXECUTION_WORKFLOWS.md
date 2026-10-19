@@ -227,6 +227,7 @@ Analysis workflows focus on data ingestion, quantitative mathematical modeling, 
 * **Enabling Components**: `UnifiedOptionsService` (`src/trading/options/unifiedOptionsService.ts`), `OptionsStrategyRegistry` (`src/trading/options/strategyRegistry.ts`), `BlackScholesCalculator` (`src/trading/options/blackScholes.ts`), `CalibratedOptionChains` (`src/trading/options/calibratedOptionChains.ts`), `StrategyDiscoveryEngine` (`src/client/options/strategyDiscoveryEngine.ts`).
 * **REST Endpoints**: `POST /api/etrade/options/strategy`, `POST /api/trading/options/unified`, `GET /api/etrade/options/chains`
 * **MCP Tools**: `query_platform_knowledge`, `execute_nlq`
+* **Honesty note (2026-10-19)**: candidates carry Black-Scholes Greeks, model-implied probability of profit ($N(d_2)$), EV, payoff curves, and a volatility-*alignment* score per candidate. The engine does not compute a standalone "IV rank" field; IV enters through per-leg `impliedVolatility` and the volatility-alignment score weight.
 
 ---
 
