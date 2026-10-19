@@ -97,6 +97,9 @@ import { handleAuditRoutes } from "./routes/audit";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
+// Issue #359-08: premium routes live in src/agents/routes/premium.ts;
+// routeRequest delegates to handlePremiumRoutes at the original position.
+import { handlePremiumRoutes } from "./routes/premium";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2685,175 +2688,17 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
-    // Paid Trading Service: Institutional Options & Greeks Screener ($0.05 USDC)
-    if (path.includes("/premium/options-scan") && (request.method === "GET" || request.method === "POST")) {
-      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
-      const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
-
-      return paymentService.handleGatedEndpoint(
-        request,
-        tier.resource,
-        tier.priceUSD,
-        tier.description,
-        async (receipt) => {
-          let filter: any = {};
-          if (request.method === "POST") {
-            filter = (await request.json().catch(() => ({}))) as any;
-          } else {
-            filter = {
-              underlyingSymbols: url.searchParams.get("symbol") ? [url.searchParams.get("symbol")!.toUpperCase().trim()] : undefined,
-              maxUnderlyings: url.searchParams.get("maxUnderlyings") ? Number(url.searchParams.get("maxUnderlyings")) : undefined,
-              contractType: url.searchParams.get("contractType") || "BOTH",
-              minDelta: url.searchParams.get("minDelta") ? Number(url.searchParams.get("minDelta")) : undefined,
-              maxDelta: url.searchParams.get("maxDelta") ? Number(url.searchParams.get("maxDelta")) : undefined,
-              minVolume: url.searchParams.get("minVolume") ? Number(url.searchParams.get("minVolume")) : undefined,
-              minOpenInterest: url.searchParams.get("minOpenInterest") ? Number(url.searchParams.get("minOpenInterest")) : undefined,
-              maxSpreadPct: url.searchParams.get("maxSpreadPct") ? Number(url.searchParams.get("maxSpreadPct")) : undefined,
-              maxQuoteAgeSeconds: url.searchParams.get("maxQuoteAgeSeconds") ? Number(url.searchParams.get("maxQuoteAgeSeconds")) : undefined,
-              minDte: url.searchParams.get("minDte") ? Number(url.searchParams.get("minDte")) : undefined,
-              maxDte: url.searchParams.get("maxDte") ? Number(url.searchParams.get("maxDte")) : undefined,
-              limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
-            };
-          }
-          const userLogin = request.headers.get("x-user-login") || sessionId || "premium_subscriber";
-          const rawEnvHdr = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
-          const reqEnvLocal = (rawEnvHdr === "TEST" || rawEnvHdr === "PROD") ? rawEnvHdr : undefined;
-          const etrade = new ETradeService(this.getOrm(), this.env, userLogin, reqEnvLocal);
-          const screener = new DynamicOptionsScreener(etrade.client);
-          const result = await screener.screenOptions(filter);
-          const failed = result.status === "error";
-          // Issue #307/#308: store the canonical options-scan report copy
-          // (one row per generation) so scans are searchable via AI Search.
-          try {
-            const timestamp = new Date().toISOString();
-            const symbols = Array.isArray(filter?.underlyingSymbols)
-              ? filter.underlyingSymbols.join(",")
-              : "";
-            this.getOrm().storeCanonicalReport({
-              runId: `options_scanner:${timestamp}`,
-              generationId: `options_scanner:${timestamp}`,
-              title: `Options scan — ${symbols || "universe"} (${filter?.contractType || "BOTH"})`,
-              source: "options_scanner",
-              summary: failed
-                ? `Options scan failed: ${result.validationError || result.fetchErrors?.[0]?.reason || "upstream error"}.`
-                : `Options scan completed for ${symbols || "the default universe"} (thesis: ${filter?.contractType || "BOTH"}).`,
-              body: { filter, result, failed },
-              createdAt: timestamp,
-            });
-          } catch {
-            // Non-critical: persistence failure must not break the scan.
-          }
-          return {
-            success: !failed,
-            service: tier.name,
-            receipt,
-            screenResult: result,
-            ...(failed
-              ? {
-                  error:
-                    result.validationError ||
-                    result.fetchErrors?.[0]?.reason ||
-                    "Options screen failed upstream; no data could be fetched.",
-                }
-              : {}),
-          };
-        }
-      );
-    }
-
-    // Paid Trading Service: Autonomous Equity Research Report ($0.10 USDC)
-    if (path.includes("/premium/market-research") && (request.method === "GET" || request.method === "POST")) {
-      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
-      const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
-
-      return paymentService.handleGatedEndpoint(
-        request,
-        tier.resource,
-        tier.priceUSD,
-        tier.description,
-        async (receipt) => {
-          let symbol = "NVDA";
-          if (request.method === "POST") {
-            const body = (await request.json().catch(() => ({}))) as any;
-            if (body.symbol) symbol = String(body.symbol).toUpperCase().trim();
-          } else {
-            const sym = url.searchParams.get("symbol");
-            if (sym) symbol = sym.toUpperCase().trim();
-          }
-
-          const foss = new FossResearchService(this.env);
-          const report = await foss.generateResearchReport(symbol);
-          // Issue #308: store the canonical copy at generation time (one
-          // row per content hash) so the report is searchable via AI Search.
-          try {
-            const timestamp = new Date().toISOString();
-            const reportJson = JSON.stringify(report ?? {});
-            const generationId = await sha256Hex(reportJson);
-            this.getOrm().storeCanonicalReport({
-              runId: generationId,
-              generationId,
-              title: `Market research — ${symbol}`,
-              source: "research_report",
-              summary: `Equity research report for ${symbol}.`,
-              body: report ?? {},
-              createdAt: timestamp,
-            });
-          } catch {
-            // Non-critical: persistence failure must not break the report.
-          }
-          return {
-            success: true,
-            service: tier.name,
-            receipt,
-            report,
-          };
-        }
-      );
-    }
-
-    // Paid Trading Service: Real-Time Quantitative Anomaly Signals ($0.02 USDC)
-    if (path.includes("/premium/stock-signals") && (request.method === "GET" || request.method === "POST")) {
-      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
-      const tier = TRADING_PAID_SERVICES.STOCK_SIGNALS;
-
-      return paymentService.handleGatedEndpoint(
-        request,
-        tier.resource,
-        tier.priceUSD,
-        tier.description,
-        async (receipt) => {
-          let symbols = ["NVDA", "AAPL", "MSFT", "TSLA"];
-          if (request.method === "POST") {
-            const body = (await request.json().catch(() => ({}))) as any;
-            if (Array.isArray(body.symbols) && body.symbols.length > 0) symbols = body.symbols;
-          } else {
-            const sym = url.searchParams.get("symbols") || url.searchParams.get("symbol");
-            if (sym) symbols = sym.split(",").map(s => s.trim().toUpperCase());
-          }
-
-          const screener = new YFinanceMarketScreener();
-          const screen = await screener.screenMarkets({ search: symbols.join(",") });
-          const signals = screen.stocks.map(stock => ({
-            symbol: stock.symbol,
-            price: stock.price,
-            changePercent: stock.changePercent,
-            rsi: stock.rsi,
-            volume: stock.volume,
-            signalType: (stock.rsi && stock.rsi < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi && stock.rsi > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
-            confidence: 0.88,
-            timestamp: new Date().toISOString(),
-          }));
-
-          return {
-            success: true,
-            service: tier.name,
-            receipt,
-            count: signals.length,
-            signals,
-          };
-        }
-      );
-    }
+    // Issue #359-08: premium paid-trading routes (Paid Trading Service:
+    // Institutional Options Screener, Equity Research, Anomaly Signals)
+    // are handled by src/agents/routes/premium.ts. Invoked at this exact
+    // position in the sequential matching sequence (between the Cloudflare
+    // Agentic Payments block and the Environment & E*TRADE Trading APIs
+    // block); a non-null return matched.
+    const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, {
+      env: this.env,
+      getOrm: () => this.getOrm(),
+    });
+    if (premiumResponse) return premiumResponse;
 
     // ==========================================
     // Environment & E*TRADE Trading APIs
