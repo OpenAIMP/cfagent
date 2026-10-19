@@ -201,6 +201,11 @@ type ETradeEnvironment = "TEST" | "PROD";
 type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
 const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
 
+function screenerAgentName(userLogin: string): string {
+  // Preserve the original shared agent for the legacy system identity.
+  return userLogin === "default_trader" ? "default" : `screener:${userLogin}`;
+}
+
 export class OrchestratorAgent extends AIChatAgent<Env> {
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
@@ -208,9 +213,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
    */
-  private getScreenerAgent(): ScreenerAgent {
-    const id = this.env.SCREENER_AGENT.idFromName("default");
+  private getScreenerAgent(userLogin = "default_trader"): ScreenerAgent {
+    const id = this.env.SCREENER_AGENT.idFromName(screenerAgentName(userLogin));
     return this.env.SCREENER_AGENT.get(id) as unknown as ScreenerAgent;
+  }
+
+  private async getScreenerExecutionContext(): Promise<ScreenerExecutionContext | undefined> {
+    return this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
   }
 
   /**
@@ -475,14 +484,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const savedContext = await this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
-      const userLogin = payload?.userLogin || savedContext?.userLogin;
-      const environment = payload?.environment || savedContext?.environment;
+      const savedContext = await this.getScreenerExecutionContext();
+      const userLogin = savedContext?.userLogin || payload?.userLogin;
+      const environment = savedContext?.environment || payload?.environment;
       const orm = this.getOrm();
       // Scheduled callbacks have no authenticated HTTP headers. Use the
       // identity and environment saved from the user's schedules requests.
       const service = new ScheduledTasksService(this.env, orm, userLogin || "", new SqlScanRunStore(this.ctx.storage.sql));
-      const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment });
+      const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
       // Issue #212: persist the run for the "last results" UX endpoint.
       try {
         const key = "screener:last_runs";
@@ -603,8 +612,11 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
-      const res = await service.autonomousOptionsAnalysis(payload);
+      const savedContext = await this.getScreenerExecutionContext();
+      const userLogin = savedContext?.userLogin || payload?.userLogin || "";
+      const environment = savedContext?.environment || payload?.environment;
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
+      const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if (res.success && res.data) {
         if (typeof (this as any).broadcast === "function") {
           try {
@@ -2359,20 +2371,19 @@ Agentic Best Practices & Workflow Rules:
     const path = url.pathname;
     this.ensureTables();
 
-    // Cron callbacks do not retain request headers. Save the authenticated
-    // schedule owner's login and selected E*TRADE environment for later runs.
-    if (/(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path)) {
-      const userLogin = request.headers.get("x-user-login") || "";
-      const environment = (request.headers.get("x-environment") || "").toUpperCase();
-      if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin)) {
-        const previous = await this.ctx.storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
-        await this.ctx.storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
-          userLogin,
-          environment: environment === "TEST" || environment === "PROD"
-            ? environment
-            : previous?.environment,
-        });
-      }
+    // Scheduled callbacks have no request headers. Remember the authenticated
+    // owner/environment on every authenticated app request, not only the
+    // schedules panel, so all existing cron records gain the right context.
+    const userLogin = request.headers.get("x-user-login") || "";
+    const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+    if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin)) {
+      const previous = await this.getScreenerExecutionContext();
+      await this.ctx.storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
+        userLogin,
+        environment: rawEnvironment === "TEST" || rawEnvironment === "PROD"
+          ? rawEnvironment
+          : previous?.environment,
+      });
     }
 
     if (/(?:^|\/api)\/jobs$/.test(path) && request.method === "GET") {
@@ -2706,7 +2717,7 @@ Agentic Best Practices & Workflow Rules:
       env: this.env,
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
-      getScreenerAgent: () => this.getScreenerAgent(),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
       evaluateAndRecordAutopilotVerdict: (params) => this.evaluateAndRecordAutopilotVerdict(params),
       getAutopilotState: () => this.getAutopilotState(),
@@ -2748,7 +2759,7 @@ Agentic Best Practices & Workflow Rules:
       env: this.env,
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
-      getScreenerAgent: () => this.getScreenerAgent(),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
       evaluateAndRecordAutopilotVerdict: (params) => this.evaluateAndRecordAutopilotVerdict(params),
       getAutopilotState: () => this.getAutopilotState(),
@@ -2773,7 +2784,7 @@ Agentic Best Practices & Workflow Rules:
       agentCtx: this.ctx,
       ensureTables: () => this.ensureTables(),
       requestedEnv,
-      getScreenerAgent: () => this.getScreenerAgent(),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
     });
     if (etradeOptionsResponse) return etradeOptionsResponse;
 
@@ -3110,7 +3121,8 @@ Agentic Best Practices & Workflow Rules:
     // sees /screener/latest.
     if (path.endsWith("/screener/latest") && request.method === "GET") {
       try {
-        const agent = this.getScreenerAgent();
+        const context = await this.getScreenerExecutionContext();
+        const agent = this.getScreenerAgent(request.headers.get("x-user-login") || context?.userLogin || "default_trader");
         const latest = await agent.getLatest();
         const history = await agent.getHistory();
         return Response.json({
@@ -3130,8 +3142,8 @@ Agentic Best Practices & Workflow Rules:
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
         const pdf = key
-          ? await this.getScreenerAgent().getPdfByKey(key)
-          : await this.getScreenerAgent().getLatestPdf();
+          ? await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getPdfByKey(key)
+          : await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestPdf();
         if (!pdf) {
           return Response.json({ error: "No screener report available yet" }, { status: 404 });
         }
@@ -3153,8 +3165,8 @@ Agentic Best Practices & Workflow Rules:
         const url = new URL(request.url);
         const key = url.searchParams.get("key") || url.searchParams.get("filename");
         const pdf = key
-          ? await this.getScreenerAgent().getOptionsPdfByKey(key)
-          : await this.getScreenerAgent().getLatestOptionsPdf();
+          ? await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getOptionsPdfByKey(key)
+          : await this.getScreenerAgent(request.headers.get("x-user-login") || (await this.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestOptionsPdf();
         if (!pdf) {
           return Response.json({ error: "No options report available yet" }, { status: 404 });
         }
@@ -3370,6 +3382,18 @@ Agentic Best Practices & Workflow Rules:
           );
         }
 
+        // Stamp screening schedules with the identity established by the
+        // authenticated Worker forwarder. Never trust a caller-supplied
+        // payload.userLogin to select another account's E*TRADE credentials.
+        const context = await this.getScreenerExecutionContext();
+        const screeningPayload = callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis"
+          ? {
+              ...(payload && typeof payload === "object" ? payload : {}),
+              ...(context?.userLogin ? { userLogin: context.userLogin } : {}),
+              ...(context?.environment ? { environment: context.environment } : {}),
+            }
+          : payload;
+
         // No fabricated success (#111): this route never invents a
         // schedule id or reports success for a schedule that does not
         // exist. Issue #108: the calls below use the typed Agents SDK
@@ -3379,13 +3403,13 @@ Agentic Best Practices & Workflow Rules:
         // same honest 503 {success:false} shape.
         let schedule: Schedule<unknown> | undefined;
         if (scheduleType === "interval" && intervalSeconds) {
-          schedule = await this.scheduleEvery(Number(intervalSeconds), callback, payload);
+          schedule = await this.scheduleEvery(Number(intervalSeconds), callback, screeningPayload);
         } else if (scheduleType === "cron" && cron) {
-          schedule = await this.schedule(cron, callback, payload, { idempotent: body.idempotent !== false });
+          schedule = await this.schedule(cron, callback, screeningPayload, { idempotent: body.idempotent !== false });
         } else if (scheduleType === "scheduled" && date) {
-          schedule = await this.schedule(new Date(date), callback, payload);
+          schedule = await this.schedule(new Date(date), callback, screeningPayload);
         } else if (delayInSeconds !== undefined) {
-          schedule = await this.schedule(Number(delayInSeconds), callback, payload);
+          schedule = await this.schedule(Number(delayInSeconds), callback, screeningPayload);
         } else {
           return Response.json(
             { error: "Invalid schedule parameters: provide intervalSeconds, cron, date, or delayInSeconds" },
@@ -3436,8 +3460,14 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/schedules/trigger-options-analysis") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
-        const service = new ScheduledTasksService(this.env, this.getOrm(), this.sessionKey(), new SqlScanRunStore(this.ctx.storage.sql));
-        const result = await service.autonomousOptionsAnalysis({ ...body, trigger: "manual" });
+        const context = await this.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin || "";
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
+          ? rawEnvironment
+          : context?.environment;
+        const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
+        const result = await service.autonomousOptionsAnalysis({ ...body, userLogin, environment, trigger: "manual" });
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });

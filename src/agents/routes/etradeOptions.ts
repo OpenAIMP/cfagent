@@ -97,7 +97,7 @@ export interface EtradeOptionsRouteContext {
    * shared with the watchlists module (#359-12); passed through here). */
   requestedEnv: "TEST" | "PROD" | undefined;
   /** Screener agent (owner: OrchestratorAgent - was `this.getScreenerAgent()`). */
-  getScreenerAgent(): ScreenerAgent;
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
 }
 
 /**
@@ -1003,7 +1003,7 @@ export async function handleEtradeOptionsRoutes(
             let binary = "";
             for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
             try {
-              const pdfKey = await ctx.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+              const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
               optionsPdfKey = pdfKey;
               optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
             } catch (storeErr) {
@@ -1036,7 +1036,7 @@ export async function handleEtradeOptionsRoutes(
             const fileName = optionsPdfFileName(result);
             let binary = "";
             for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            optionsPdfKey = await ctx.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+            optionsPdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
             optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
           } catch (pdfErr) {
             console.warn("[Orchestrator] Manual options contract report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
@@ -1114,7 +1114,7 @@ export async function handleEtradeOptionsRoutes(
                 binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
               }
               try {
-                const pdfKey = await ctx.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+                const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
                 reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
               } catch (storeErr) {
                 console.warn("[Orchestrator] Manual options PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
@@ -1151,7 +1151,7 @@ export async function handleEtradeOptionsRoutes(
               const fileName = optionsPdfFileName(result.data);
               let binary = "";
               for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-              pdfKey = await ctx.getScreenerAgent().storeOptionsPdf(btoa(binary), fileName);
+              pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
               reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
             } catch (pdfErr) {
               console.warn("[Orchestrator] Manual options report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));

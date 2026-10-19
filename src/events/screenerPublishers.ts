@@ -54,7 +54,8 @@ async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): P
   try {
     const ns = (deps.env as any).SCREENER_AGENT;
     if (!ns) return null;
-    const agent = ns.get(ns.idFromName("default")) as unknown as ScreenerAgent;
+    const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
+    const agent = ns.get(ns.idFromName(agentName)) as unknown as ScreenerAgent;
     return pdfKey ? await agent.getPdfByKey(pdfKey) : await agent.getLatestPdf();
   } catch {
     return null;
