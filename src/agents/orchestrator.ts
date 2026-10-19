@@ -10,7 +10,7 @@ import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedGateway, SUPPORTED_GATEWAYS, type SupportedGateway } from "../services/payments";
 import { resolveEnvironmentConfig } from "../config/environment";
-import { getValidTokens } from "../security/etradeOAuth";
+import { getStoredTokens, getValidTokens, isTokenExpiredEt } from "../security/etradeOAuth";
 import { runStorageRetention } from "../security/storageRetention";
 import { ETradeRestClient } from "../trading";
 import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
@@ -194,6 +194,13 @@ export const CREATABLE_SCHEDULE_CALLBACKS = [
   "sendScheduledReminder",
 ] as const;
 
+const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS = new Set<string>([
+  "autonomousOptionsAnalysis",
+  "autonomousMarketScreen",
+  "autoRenewETradeTokens",
+  "collectIvHistory",
+]);
+
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
 
 
@@ -201,6 +208,7 @@ export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[nu
 type ETradeEnvironment = "TEST" | "PROD";
 type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
 const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
+const BASELINE_SCHEDULES_STATE_KEY = "screener:authenticated-baselines:v1";
 
 function screenerAgentName(userLogin: string): string {
   // Preserve the original shared agent for the legacy system identity.
@@ -226,6 +234,97 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const storage = this.ctx?.storage;
     if (!storage || typeof storage.get !== "function") return undefined;
     return storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
+  }
+
+  /**
+   * Baseline E*TRADE jobs belong to an authenticated account, never to the
+   * opaque Durable Object id. Move registration here from onStart so a new
+   * system/default DO cannot create unowned hourly jobs.
+   */
+  private async ensureAuthenticatedBaselineSchedules(context: ScreenerExecutionContext): Promise<void> {
+    const storage = this.ctx?.storage;
+    if (!storage || typeof storage.get !== "function" || typeof storage.put !== "function") return;
+
+    const environment = context.environment;
+    const previous = await storage.get<{ userLogin: string; environment?: string; storedAt?: string; enabled: boolean }>(BASELINE_SCHEDULES_STATE_KEY);
+    if (previous?.userLogin === context.userLogin && previous?.environment === environment &&
+        previous.enabled && previous.storedAt && !isTokenExpiredEt(previous.storedAt)) {
+      return;
+    }
+    const storedTokens = await getStoredTokens(this.env, context.userLogin, environment);
+    const hasUserToken = Boolean(storedTokens && !isTokenExpiredEt(storedTokens.storedAt));
+    const stateMatches = previous?.userLogin === context.userLogin &&
+      previous?.environment === environment && previous?.storedAt === storedTokens?.storedAt &&
+      previous?.enabled === hasUserToken;
+    if (stateMatches) return;
+
+    const existing = await this.listSchedules().catch(() => [] as Schedule<unknown>[]);
+    for (const schedule of existing) {
+      const item = schedule as any;
+      const payload = item.payload || {};
+      const callback = item.callback;
+      const isBaselineScreen =
+        ((callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis") && payload.trigger === "scheduled") ||
+        ((callback === "autoRenewETradeTokens" || callback === "collectIvHistory") && payload.userLogin === this.sessionKey());
+      if (isBaselineScreen) await this.cancelSchedule(item.id).catch(() => undefined);
+    }
+
+    if (!hasUserToken) {
+      await storage.put(BASELINE_SCHEDULES_STATE_KEY, {
+        userLogin: context.userLogin,
+        environment,
+        storedAt: undefined,
+        enabled: false,
+      });
+      return;
+    }
+
+    const ownedPayload = { userLogin: context.userLogin, environment };
+    await this.schedule("0 3 * * *", "autoRenewETradeTokens", {
+      ...ownedPayload, env: environment,
+    }, { idempotent: true });
+
+    const { shardableUniverses } = await import("../trading");
+    const { getScreenerConfig } = await import("../trading");
+    const screenerCfg = getScreenerConfig();
+    let staggerMin = 5;
+    for (const universe of shardableUniverses()) {
+      const maxItems = (screenerCfg.universes.defaultMaxSymbols as any)[universe] ?? screenerCfg.acquisition.defaultMaxSymbols;
+      await this.schedule(`${staggerMin} * * * *`, "autonomousMarketScreen", {
+        ...ownedPayload, universe, maxItems, trigger: "scheduled",
+      }, { idempotent: true });
+      staggerMin = (staggerMin + 10) % 60;
+    }
+
+    const theses = ["bullish", "bearish", "range_bound", "large_move"];
+    const thesis = theses[new Date().getHours() % theses.length];
+    await this.schedule("35 * * * *", "autonomousOptionsAnalysis", {
+      ...ownedPayload, thesis, pushToSlack: true, trigger: "scheduled",
+    }, { idempotent: true });
+    await this.schedule("15 22 * * 1-5", "collectIvHistory", ownedPayload, { idempotent: true });
+
+    await storage.put(BASELINE_SCHEDULES_STATE_KEY, {
+      userLogin: context.userLogin,
+      environment,
+      storedAt: storedTokens?.storedAt,
+      enabled: true,
+    });
+  }
+
+  private async removeUnownedBaselineSchedules(): Promise<void> {
+    const schedules = await this.listSchedules().catch(() => [] as Schedule<unknown>[]);
+    for (const schedule of schedules) {
+      const item = schedule as any;
+      const payload = item.payload || {};
+      const callback = item.callback;
+      const orphanedBaseline =
+        ((callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis") && !payload.userLogin) ||
+        ((callback === "autoRenewETradeTokens" || callback === "collectIvHistory") && payload.userLogin === this.sessionKey());
+      if (orphanedBaseline) {
+        console.warn(`[OrchestratorAgent] Removing unowned baseline schedule ${item.id} (${callback})`);
+        await this.cancelSchedule(item.id).catch(() => undefined);
+      }
+    }
   }
 
   /**
@@ -354,91 +453,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     }
 
     try {
-      // 1. Proactive daily E*TRADE token renewal. Cron expressions run in
-      // UTC, and no single UTC cron can track an ET wall-clock time across
-      // DST — so this is anchored to the invariant that matters, not to an
-      // exact ET hour: "0 3 * * *" UTC fires at 23:00 EDT / 22:00 EST,
-      // i.e. always at least 1 hour before the midnight-ET token expiry in
-      // both DST regimes. (Idempotent by default for cron.)
-      await this.schedule(
-        "0 3 * * *",
-        "autoRenewETradeTokens",
-        { userLogin: this.sessionKey() },
-        { idempotent: true }
-      );
-
-      // Issue #317: Clean up legacy duplicate schedules with maxItems:5
-      // baked in. These were created before the config externalization
-      // fix and cause double-screening. Remove them before registering
-      // the correct ones.
-      try {
-        const existing = await this.listSchedules();
-        for (const s of existing) {
-          const payload = (s as any).payload || {};
-          if ((s as any).callback === "autonomousMarketScreen" &&
-              payload.maxItems === 5) {
-            console.log(`[OrchestratorAgent][onStart] Removing legacy duplicate schedule ${(s as any).id} (universe=${payload.universe}, maxItems=5)`);
-            await this.cancelSchedule((s as any).id);
-          }
-        }
-      } catch (cleanupErr) {
-        console.error("[OrchestratorAgent][onStart] Legacy schedule cleanup failed:", cleanupErr);
-        // Non-fatal: continue with registration
-      }
-
-      // 2. Autonomous market screening — hourly per-universe runs
-      // (issue #270). Each universe gets its own schedule + PDF report.
-      // Staggered by 10 minutes to spread E*TRADE load.
-      // NOTE: Legacy 5-min interval Technology screen cleanup reverted.
-      // The migration was too aggressive and cleared all schedules.
-      // Manual cleanup via UI recommended instead.
-      const { shardableUniverses: _shardable, UNIVERSES: _U } = await import(
-        "../trading"
-      );
-      let staggerMin = 5;
-      const { getScreenerConfig } = await import("../trading");
-      const screenerCfg = getScreenerConfig();
-      for (const universe of _shardable()) {
-        // Use per-universe max from config (externalized, not hardcoded)
-        const maxItems = (screenerCfg.universes.defaultMaxSymbols as any)[universe] ?? screenerCfg.acquisition.defaultMaxSymbols;
-        await this.schedule(
-          `${staggerMin} * * * *`,
-          "autonomousMarketScreen",
-          { universe, maxItems, trigger: "scheduled" },
-          { idempotent: true }
-        );
-        staggerMin = (staggerMin + 10) % 60;
-      }
-
-      // 2b. Strategy/Symbol Scanner as a scheduled job (issue #275).
-      // Runs the full strategy catalog hourly, staggered off the equity
-      // screens. Thesis rotates to cover all directions across the day.
-      const theses = ["bullish", "bearish", "range_bound", "large_move"];
-      const thesisIdx = new Date().getHours() % theses.length;
-      await this.schedule(
-        "35 * * * *",
-        "autonomousOptionsAnalysis",
-        { thesis: theses[thesisIdx], pushToSlack: true, trigger: "scheduled" },
-        { idempotent: true }
-      );
-
-      // 3. IV history collection (issue #15) at 22:15 UTC, Mon–Fri —
-      // after the US close in both EST and EDT, so the day's record
-      // reads the closing chain. Weekdays only: the series is one
-      // record per trading session, and a weekend run would restate
-      // Friday's chain under a new date. (US holidays still record
-      // the prior session's chain — a disclosed approximation of one
-      // row, versus ~104 stale weekend rows a year.) Idempotent per
-      // (symbol, day) at the store, so a retry or manual trigger the
-      // same day is a no-op.
-      await this.schedule(
-        "15 22 * * 1-5",
-        "collectIvHistory",
-        { userLogin: this.sessionKey() },
-        { idempotent: true }
-      );
+      // A newly initialized Agent has only an opaque DO id, not its account
+      // owner. Never use that id as an E*TRADE login. Authenticated requests
+      // register owner-bound baselines after a real user token is present.
+      const context = await this.getScreenerExecutionContext();
+      if (context?.userLogin) await this.ensureAuthenticatedBaselineSchedules(context);
+      else await this.removeUnownedBaselineSchedules();
     } catch (schedErr) {
-      console.warn("[OrchestratorAgent][onStart] Note on schedule registration:", schedErr);
+      console.warn("[OrchestratorAgent][onStart] Baseline schedule reconciliation failed:", schedErr);
     }
   }
 
@@ -451,9 +473,16 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch {
       // Continue if timeout or unhandled
     }
-    const user = payload?.userLogin || this.sessionKey();
+    const context = await this.getScreenerExecutionContext();
+    const user = context?.userLogin || payload?.userLogin;
+    if (!user) {
+      await this.removeUnownedBaselineSchedules();
+      console.warn("[OrchestratorAgent] Skipping token renewal without an authenticated account owner.");
+      return;
+    }
+    const environment = context?.environment || payload?.env;
     const service = new ScheduledTasksService(this.env, this.getOrm(), user, new SqlScanRunStore(this.ctx.storage.sql));
-    const res = await service.autoRenewETradeTokens(user, payload?.env);
+    const res = await service.autoRenewETradeTokens(user, environment);
     if (!res.success) {
       console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
     }
@@ -472,6 +501,16 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const runScreen = async () => {
       const trigger = payload?.trigger || "scheduled";
       const universe = payload?.universe || "TECH";
+      const savedContext = await this.getScreenerExecutionContext();
+      const userLogin = savedContext?.userLogin || payload?.userLogin;
+      const environment = savedContext?.environment || payload?.environment;
+      if (trigger === "scheduled" && !userLogin) {
+        // A pre-auth startup schedule has no safe account mapping. Remove it
+        // before it can emit the same Slack failure every hour.
+        await this.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled market screen.");
+        return;
+      }
       if (trigger === "scheduled") {
         // Old or duplicate cron records can still invoke the same universe
         // more than once in an hour. Keep the last delivered slot per
@@ -490,9 +529,6 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const savedContext = await this.getScreenerExecutionContext();
-      const userLogin = savedContext?.userLogin || payload?.userLogin;
-      const environment = savedContext?.environment || payload?.environment;
       const orm = this.getOrm();
       // Scheduled callbacks have no authenticated HTTP headers. Use the
       // identity and environment saved from the user's schedules requests.
@@ -602,6 +638,14 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // Continue if timeout or unhandled
     }
     const runAnalysis = async () => {
+      const savedContext = await this.getScreenerExecutionContext();
+      const userLogin = savedContext?.userLogin || payload?.userLogin || "";
+      const environment = savedContext?.environment || payload?.environment;
+      if (payload?.trigger !== "manual" && !userLogin) {
+        await this.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled options screen.");
+        return;
+      }
       if (payload?.trigger !== "manual") {
         const slot = new Date().toISOString().slice(0, 13);
         const thesis = payload?.thesis || "bullish";
@@ -618,9 +662,6 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const savedContext = await this.getScreenerExecutionContext();
-      const userLogin = savedContext?.userLogin || payload?.userLogin || "";
-      const environment = savedContext?.environment || payload?.environment;
       const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if (res.success && res.data) {
@@ -688,14 +729,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // Continue if timeout or unhandled
     }
     const runCollection = async () => {
+      const context = await this.getScreenerExecutionContext();
+      const userLogin = context?.userLogin || payload?.userLogin;
+      if (!userLogin) {
+        await this.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping IV collection without an authenticated account owner.");
+        return;
+      }
+      const environment = context?.environment || payload?.environment;
       const service = new ScheduledTasksService(
         this.env,
         this.getOrm(),
-        payload?.userLogin || this.sessionKey(),
+        userLogin,
         new SqlScanRunStore(this.ctx.storage.sql),
         new SqlIvHistoryStore(this.ctx.storage.sql)
       );
-      const res = await service.collectDailyIvHistory(payload);
+      const res = await service.collectDailyIvHistory({ symbols: payload?.symbols, environment });
       if (!res.success) {
         console.warn("[OrchestratorAgent] collectIvHistory error:", res.error);
       } else if (typeof (this as any).broadcast === "function") {
@@ -2385,12 +2434,20 @@ Agentic Best Practices & Workflow Rules:
     const storage = this.ctx?.storage;
     if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin) && storage && typeof storage.put === "function") {
       const previous = await this.getScreenerExecutionContext();
-      await storage.put(SCREENER_EXECUTION_CONTEXT_KEY, {
+      const context: ScreenerExecutionContext = {
         userLogin,
         environment: rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : previous?.environment,
-      });
+      };
+      await storage.put(SCREENER_EXECUTION_CONTEXT_KEY, context);
+      try {
+        await this.ensureAuthenticatedBaselineSchedules(context);
+      } catch (scheduleError) {
+        // Authentication-context persistence must not make unrelated API
+        // routes fail if Durable Object schedule registration is unavailable.
+        console.warn("[OrchestratorAgent] Could not reconcile authenticated baseline schedules:", scheduleError);
+      }
     }
 
     if (/(?:^|\/api)\/jobs$/.test(path) && request.method === "GET") {
@@ -3226,11 +3283,28 @@ Agentic Best Practices & Workflow Rules:
         // authenticated Worker forwarder. Never trust a caller-supplied
         // payload.userLogin to select another account's E*TRADE credentials.
         const context = await this.getScreenerExecutionContext();
-        const screeningPayload = callback === "autonomousMarketScreen" || callback === "autonomousOptionsAnalysis"
+        const headerUserLogin = request.headers.get("x-user-login") || "";
+        const trustedUserLogin = context?.userLogin || (/^[A-Za-z0-9._-]{1,80}$/.test(headerUserLogin) ? headerUserLogin : "");
+        if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback) && !trustedUserLogin) {
+          return Response.json({ success: false, error: "An authenticated E*TRADE account is required to create screening schedules." }, { status: 401 });
+        }
+        if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback)) {
+          const storedTokens = await getStoredTokens(this.env, trustedUserLogin, context?.environment);
+          if (!storedTokens || isTokenExpiredEt(storedTokens.storedAt)) {
+            return Response.json({
+              success: false,
+              error: "Connect an E*TRADE account for this environment before creating an account-scoped schedule.",
+            }, { status: 409 });
+          }
+        }
+        const { userLogin: _untrustedUserLogin, environment: _untrustedEnvironment, ...safePayload } =
+          payload && typeof payload === "object" ? payload : {};
+        const screeningPayload = ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback)
           ? {
-              ...(payload && typeof payload === "object" ? payload : {}),
-              ...(context?.userLogin ? { userLogin: context.userLogin } : {}),
+              ...safePayload,
+              ...(trustedUserLogin ? { userLogin: trustedUserLogin } : {}),
               ...(context?.environment ? { environment: context.environment } : {}),
+              ...(callback === "autoRenewETradeTokens" && context?.environment ? { env: context.environment } : {}),
             }
           : payload;
 
@@ -3288,8 +3362,12 @@ Agentic Best Practices & Workflow Rules:
     // Trigger E*TRADE token renewal immediately on demand
     if (path.endsWith("/schedules/trigger-renew") && request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        await this.autoRenewETradeTokens(body);
+        const context = await this.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
+        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : context?.environment;
+        await this.autoRenewETradeTokens({ userLogin, env: environment });
         return Response.json({ success: true, message: "E*TRADE token renewal triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger token renewal" }, { status: 500 });
@@ -3333,14 +3411,19 @@ Agentic Best Practices & Workflow Rules:
     if (path.endsWith("/schedules/trigger-iv-collection") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
+        const context = await this.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
+        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : context?.environment;
         const service = new ScheduledTasksService(
           this.env,
           this.getOrm(),
-          this.sessionKey(),
+          userLogin,
           new SqlScanRunStore(this.ctx.storage.sql),
           new SqlIvHistoryStore(this.ctx.storage.sql)
         );
-        const result = await service.collectDailyIvHistory(body);
+        const result = await service.collectDailyIvHistory({ ...body, userLogin, environment });
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger IV collection" }, { status: 500 });
