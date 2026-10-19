@@ -1,7 +1,7 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import type { Schedule, ScheduleCriteria } from "agents";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { DEFAULT_AI_MODEL, getWorkersAIModel } from "./model";
+import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "./model";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
@@ -1758,41 +1758,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return "";
   }
 
-  async onChatMessage() {
+  /**
+   * Issue #312: the single-owner agentic chat turn. Judge routing, sub-agent
+   * tools, memory/vector grounding, and the model call live here and only here.
+   * The WebSocket chat (onChatMessage) streams the result; POST /api/chat awaits
+   * the final text. Never duplicate this pipeline.
+   */
+  private async runAgenticChatTurn(opts: {
+    userText: string;
+    recentTurns: Array<{ role?: string; content: string }>;
+    userLogin: string;
+    isAutoOptionsResearchRequest: boolean;
+    /** WS chat only: the originating UI tab, for options-research audit context. */
+    sourceTab?: string;
+  }) {
     const requestId = crypto.randomUUID();
     const sql = this.ensureTables();
     const sessionId = this.sessionKey();
-
-    // Purge any empty assistant messages from prior failed turns in session memory
-    this.messages = this.messages.filter((m: any) => {
-      if (!m || typeof m !== "object") return false;
-      if (m.metadata?.activity) return true;
-      if (m.role === "assistant") {
-        const text = typeof m.content === "string" ? m.content.trim() : "";
-        const parts = Array.isArray(m.parts) ? m.parts : [];
-        const hasText = parts.some((p: any) => p && p.type === "text" && typeof p.text === "string" && p.text.trim());
-        const hasTool = parts.some((p: any) => p && p.type !== "text");
-        return Boolean(text || hasText || hasTool);
-      }
-      return true;
-    });
-
-    // Safely retrieve last user question
-    const lastUserMsg = [...this.messages].reverse().find((m: unknown) => (m as { role?: string })?.role === "user");
-    const userText = this.extractMessageText(lastUserMsg);
-    const messageMetadata = (lastUserMsg as { metadata?: { sourceTab?: string; userLogin?: string } } | undefined)?.metadata;
-    const isAutoOptionsResearchRequest = messageMetadata?.sourceTab === "E*TRADE · Auto Options Research";
-    const userLogin = messageMetadata?.userLogin || sessionId;
-
-    if (userText) {
-      this.recordMessage("user", userText, "orchestrator");
-    }
-
-    // Run Judge intent classification with recent conversation history
-    const recentTurns = (this.messages || []).slice(-6).map((m: any) => ({
-      role: m?.role,
-      content: this.extractMessageText(m),
-    }));
+    const { userText, recentTurns, userLogin, isAutoOptionsResearchRequest, sourceTab } = opts;
 
     const judge = new LLMJudge(this.env);
     const route = isAutoOptionsResearchRequest
@@ -1829,7 +1812,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         ].join("\n");
         this.audit("options_research.chat_query_executed", "nlq", {
           query: userText,
-          sourceTab: messageMetadata?.sourceTab,
+          sourceTab: sourceTab,
           jobId: job.jobId,
           status: job.status,
         });
@@ -1840,7 +1823,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         ].join("\n");
         this.audit("options_research.chat_query_failed", "nlq", {
           query: userText,
-          sourceTab: messageMetadata?.sourceTab,
+          sourceTab: sourceTab,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -1900,7 +1883,6 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
     }
 
-    try {
       const result = streamText({
         model,
         system: `You are the master orchestrator for Multi-Agent Studio (OpenAIMP), an enterprise financial intelligence and multi-agent execution platform powered by Cloudflare Agents, Durable Objects, and SQLite.
@@ -2009,22 +1991,21 @@ Agentic Best Practices & Workflow Rules:
           });
         },
       });
+    return { result, route };
+  }
 
-      return result.toUIMessageStreamResponse({
-        onError: (error: unknown) => {
-          const aspect = resolveErrorAspect(error);
-          logAspectEvent({
-            aspect: "ChatStream",
-            operationName: "uiStreamError",
-            code: aspect.code,
-            level: "error",
-            error: aspect.message,
-            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
-          });
-          return `[${aspect.code}] ${aspect.title}: ${aspect.message}\n\nRemediation:\n${aspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
-        },
-      });
-    } catch (streamErr) {
+  /**
+   * Issue #312: shared degraded-answer builder for chat turns. Runs the
+   * deterministic NLQ fallback and returns the same diagnostic text the
+   * WebSocket chat streams; POST /api/chat returns it as JSON instead.
+   */
+  private async buildChatErrorFallback(
+    streamErr: unknown,
+    userText: string,
+    userLogin: string
+  ): Promise<string> {
+    const orm = this.getOrm();
+    const sessionId = this.sessionKey();
       const aspect = resolveErrorAspect(streamErr);
       logAspectEvent({
         aspect: "ChatStream",
@@ -2090,6 +2071,68 @@ Agentic Best Practices & Workflow Rules:
           : "",
         deterministicSection,
       ].filter(Boolean).join("\n");
+    return fallbackText;
+  }
+
+  async onChatMessage() {
+    const sessionId = this.sessionKey();
+
+    // Purge any empty assistant messages from prior failed turns in session memory
+    this.messages = this.messages.filter((m: any) => {
+      if (!m || typeof m !== "object") return false;
+      if (m.metadata?.activity) return true;
+      if (m.role === "assistant") {
+        const text = typeof m.content === "string" ? m.content.trim() : "";
+        const parts = Array.isArray(m.parts) ? m.parts : [];
+        const hasText = parts.some((p: any) => p && p.type === "text" && typeof p.text === "string" && p.text.trim());
+        const hasTool = parts.some((p: any) => p && p.type !== "text");
+        return Boolean(text || hasText || hasTool);
+      }
+      return true;
+    });
+
+    // Safely retrieve last user question
+    const lastUserMsg = [...this.messages].reverse().find((m: unknown) => (m as { role?: string })?.role === "user");
+    const userText = this.extractMessageText(lastUserMsg);
+    const messageMetadata = (lastUserMsg as { metadata?: { sourceTab?: string; userLogin?: string } } | undefined)?.metadata;
+    const isAutoOptionsResearchRequest = messageMetadata?.sourceTab === "E*TRADE · Auto Options Research";
+    const userLogin = messageMetadata?.userLogin || sessionId;
+
+    if (userText) {
+      this.recordMessage("user", userText, "orchestrator");
+    }
+
+    // Run Judge intent classification with recent conversation history
+    const recentTurns = (this.messages || []).slice(-6).map((m: any) => ({
+      role: m?.role,
+      content: this.extractMessageText(m),
+    }));
+
+    try {
+      const { result } = await this.runAgenticChatTurn({
+        userText,
+        recentTurns,
+        userLogin,
+        isAutoOptionsResearchRequest,
+        sourceTab: messageMetadata?.sourceTab,
+      });
+
+      return result.toUIMessageStreamResponse({
+        onError: (error: unknown) => {
+          const aspect = resolveErrorAspect(error);
+          logAspectEvent({
+            aspect: "ChatStream",
+            operationName: "uiStreamError",
+            code: aspect.code,
+            level: "error",
+            error: aspect.message,
+            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+          });
+          return `[${aspect.code}] ${aspect.title}: ${aspect.message}\n\nRemediation:\n${aspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+        },
+      });
+    } catch (streamErr) {
+      const fallbackText = await this.buildChatErrorFallback(streamErr, userText, userLogin);
 
       this.recordMessage("assistant", fallbackText, "orchestrator");
 
@@ -2135,7 +2178,7 @@ Agentic Best Practices & Workflow Rules:
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
-    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat-activity|screener\/report\.pdf|etrade\/screen|etrade\/options\/profiles|etrade\/options\/scans)(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener\/report\.pdf|etrade\/screen|etrade\/options\/profiles|etrade\/options\/scans)(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
     if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
       return this.enqueueHttpRequest(request, url);
@@ -2550,6 +2593,96 @@ Agentic Best Practices & Workflow Rules:
     }
 
     // Natural Language Query (NLQ) endpoint
+    // Issue #312: the advertised POST /api/chat. The Worker strips the /api
+    // prefix when forwarding, so it arrives here as /chat (also registered as
+    // an immediate endpoint in onRequest so it is not queued as an async job).
+    // This is a thin adapter over the single-owner agentic chat turn
+    // (runAgenticChatTurn) — the same judge-routed pipeline the WebSocket chat
+    // runs. The HTTP response carries the completed turn as JSON; true
+    // streaming remains available over the agent WebSocket chat the UI uses.
+    // One turn per request, executed against the per-user conversation state.
+    if ((path === "/chat" || path === "/api/chat") && request.method === "POST") {
+      const chatBody = (await request.json().catch(() => null)) as {
+        messages?: Array<{ role?: unknown; content?: unknown }>;
+      } | null;
+      const incoming = Array.isArray(chatBody?.messages) ? chatBody.messages : [];
+      const lastUserMessage = [...incoming]
+        .reverse()
+        .find((m) => typeof m?.role === "string" && (m.role as string).toLowerCase() === "user");
+      const chatUserText = this.extractMessageText(lastUserMessage);
+      if (!chatUserText) {
+        return Response.json(
+          { error: "messages must be a non-empty array with a final user message containing text." },
+          { status: 400 }
+        );
+      }
+      const chatUserLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      try {
+        // Merge this turn into the per-user conversation state (deduped by
+        // tail so a re-sent history is not duplicated), then run the pipeline.
+        const tailUser = [...(this.messages || [])]
+          .reverse()
+          .find((m: any) => m?.role === "user");
+        if (this.extractMessageText(tailUser) !== chatUserText) {
+          this.messages = [
+            ...(this.messages || []),
+            {
+              id: crypto.randomUUID(),
+              role: "user",
+              content: chatUserText,
+              parts: [{ type: "text", text: chatUserText }],
+            } as any,
+          ];
+          this.recordMessage("user", chatUserText, "orchestrator");
+          await this.persistMessages(this.messages as any);
+        }
+        const chatRecentTurns = (this.messages || []).slice(-6).map((m: any) => ({
+          role: m?.role,
+          content: this.extractMessageText(m),
+        }));
+
+        const { result: chatResult, route: chatRoute } = await this.runAgenticChatTurn({
+          userText: chatUserText,
+          recentTurns: chatRecentTurns,
+          userLogin: chatUserLogin,
+          isAutoOptionsResearchRequest: false,
+        });
+        const chatText = await chatResult.text;
+        this.messages = [
+          ...(this.messages || []),
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: chatText,
+            parts: [{ type: "text", text: chatText }],
+          } as any,
+        ];
+        await this.persistMessages(this.messages as any);
+        this.audit("chat.http_turn", "orchestrator", {
+          route: chatRoute.agent,
+          confidence: chatRoute.confidence,
+          reason: chatRoute.reason,
+        });
+
+        return Response.json({
+          reply: chatText,
+          route: {
+            agent: chatRoute.agent,
+            confidence: chatRoute.confidence,
+            reason: chatRoute.reason,
+            needsConfirmation: chatRoute.needsConfirmation,
+          },
+          model: resolveAiModelName(this.env),
+          streaming: false,
+        });
+      } catch (err) {
+        // Same degraded content the WebSocket chat would stream, as JSON.
+        const fallbackText = await this.buildChatErrorFallback(err, chatUserText, chatUserLogin);
+        this.recordMessage("assistant", fallbackText, "orchestrator");
+        return Response.json({ reply: fallbackText, fallback: true, streaming: false });
+      }
+    }
+
     if (path.endsWith("/nlq") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as {

@@ -1055,7 +1055,7 @@ export default {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
-      const isImmediateSync = /^\/(?:clear|reset|memory|audit)(?:\/|\?|$)/i.test(subPath);
+      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat)(?:\/|\?|$)/i.test(subPath);
       if (!isImmediateSync) {
         forwardReq.headers.set("x-async-eligible", "1");
       }
