@@ -11,9 +11,9 @@ Three findings drive the plan:
 
 1. **The binding dimension is almost certainly reads, not writes.** Reads scale with *every authenticated API request* (`requireAuth` → `getSession` → one KV read). Writes are event-shaped and tiny: I count roughly 10–60 per day from code, not 500.
 2. **Steady-state UI polling alone can exhaust the daily read budget with ~4 idle browser tabs.** The 4-second job poll is the single largest consumer.
-3. **The free tier is one quota pair, not one quota.** The same polling that spends KV reads also spends the Workers request allowance (100k/day). Fixing KV reads without cutting request volume just moves the wall a short distance.
+3. **The free tier is one quota pair, not one quota — and both dimensions land on the same ceiling.** Every authenticated request costs exactly one KV read *and* one Workers request, and both budgets are 100,000/day. So "~4 tabs" is true of either axis, and **removing the KV read (cookies) does not raise that ceiling** — the request count is unchanged.
 
-**Recommendation: do the structural fix (sessions off KV + polling hygiene). It is justified on engineering merit alone, independent of the quota. Treat the $5/mo paid plan as insurance against the daily cliff, not as a substitute for the fix.**
+**Recommendation: fix request volume first, via polling hygiene. On the free plan that alone is sufficient, and cookies add nothing on top of it, because the request ceiling then binds at the same number. Cookies are worth doing later only for resilience (auth surviving a KV outage) — not for capacity.**
 
 ---
 
@@ -59,8 +59,8 @@ Measured per-tab consumption (one dashboard tab, panels left mounted):
 | --- | --- | --- | --- |
 | `AsyncJobsPanel.tsx:39` → `/api/jobs` | 4 s | 21,600 | 21,600 |
 | `ScreenersHub.tsx:134` → `/api/screener/latest` | 30 s | 2,880 | 2,880 |
-| `MarketTickerTape.tsx:115` → `/api/market/quotes` | 12 s | 7,200 | **0** — handled at `src/server.ts:741`, before the auth gateway |
-| **Total** | | **24,480** | **24,480** |
+| `MarketTickerTape.tsx:115` → `/api/market/quotes` | 12 s (fallback only) | 0–7,200 | **0 KV** — bypasses the auth gateway, and the component prefers WebSocket (`MarketTickerTape.tsx:130`); the 12 s poll only runs while the socket is not open |
+| **Total (normal operation)** | | **24,480** | **24,480** |
 
 So **one idle tab ≈ 24% of the daily KV read budget**, and ≈24% of the daily Workers request budget. Four tabs left open ≈ 98k reads ≈ the full day.
 
@@ -123,6 +123,8 @@ Fixing KV reads does not end the quota conversation, because the same polling sp
 
 This is why polling hygiene is part of the same change, not a follow-up optimisation.
 
+**The two walls are the same wall.** Both budgets are 100,000/day and both are spent one-per-request, so the tab ceiling is identical on either axis (~4 today). A signed cookie or a session cache drives KV reads toward zero but leaves the request count untouched — **the ceiling does not move**. Only sending fewer requests moves it. What a cookie buys is *decoupling*: KV reads then stop competing with other KV consumers, and auth survives a KV quota exhaustion. That is a resilience property, not capacity. On the paid plan the ratio is still 1:1 (10M/month each), so the same holds there.
+
 ---
 
 ## 5. Plan
@@ -136,24 +138,28 @@ This is why polling hygiene is part of the same change, not a follow-up optimisa
 
 **Exit criteria:** the 04:47 reading is attributed to a named path and a tab count in #329, and the monitor alerts at 50%.
 
-### P1 — Take sessions off KV (the structural fix, ~half a day)
-
-`getSession` is a network round-trip on every authenticated request, and it makes a storage quota the availability limit for auth. Replace the KV-backed session with a **stateless signed cookie**: the payload is already small (`SessionData`), and `hmacSign`/`verifyState` in `src/security/session.ts:42` already implement the HMAC pattern used for OAuth state — the machinery exists.
-
-- Cookie carries `{githubLogin, issuedAt, exp}` + HMAC, verified in-process. **Zero KV reads on the auth path.**
-- Consequence to design for: **logout can no longer revoke instantly.** Mitigate with a bounded TTL (e.g. 24h) and a small revocation list checked only on sensitive actions — order execution, token revoke, `/clear`. Those are already gated separately (`src/server.ts:926`), so the blast radius is contained.
-- Keep `SESSION_SECRET` rotation possible: accept the current and previous key during the transition window.
-
-This removes ~100% of the read pressure from UI traffic and one network round-trip per request.
-
-### P2 — Polling hygiene (~2 hours)
+### P1 — Fix request volume (the change that actually moves the ceiling, ~2 hours)
 
 | Change | Before | After | Effect |
 | --- | --- | --- | --- |
-| `AsyncJobsPanel` poll | 4 s, always | 20 s, paused when no active job and when the tab is hidden | 21,600 → ~2,000–4,300 req/day/tab |
+| `AsyncJobsPanel` poll | 4 s, always | 20 s, paused when no job is in flight and when the tab is hidden | 21,600 → 4,320 req/day/tab |
 | `ScreenersHub` poll | 30 s | 60 s, pause when hidden | 2,880 → 1,440 req/day/tab |
 
-`document.visibilityState` gating is the cheap half of this — backgrounded tabs are the common case for a trading dashboard left open. Restoring to a fast interval only while a job is in flight preserves the UX that motivated 4 s.
+`document.visibilityState` gating is the cheap half of this — backgrounded tabs are the common case for a trading dashboard left open. Restoring the fast interval only while a job is in flight preserves the UX that motivated 4 s. Combined: **5,760 requests/tab/day, ~17 concurrent tabs.**
+
+Optional further cut: collapse both pollers into one `/api/poll` response, which halves the remaining request cost again.
+
+### P2 — Optional: decouple auth from KV (not required for quota)
+
+Skip this entirely if the goal is only to fit the free tier — P1 already gets there. Do it if you want **auth to keep working when KV is exhausted or degraded**, which is the actual failure mode in §1.
+
+Two ways, neither of which requires switching to cookies:
+
+**P2a — stateless signed cookie.** Payload is small (`SessionData`); `hmacSign`/`verifyState` in `src/security/session.ts:42` already implement the pattern for OAuth state. Zero KV reads on the auth path. Cost: logout can no longer revoke instantly — bound it with a TTL and re-check sensitive actions (`src/server.ts:926`) against an authoritative store.
+
+**P2b — short-TTL session cache, no cookie, KV stays the source of truth.** A bounded `Map` in front of `getSession` with a 30–60 s TTL. At a 20 s poll that is roughly a 3:1 hit ratio, so reads fall ~66%. Note that KV is already eventually consistent with up to ~60 s propagation across colos, so this adds **almost no new staleness** to the guarantee you already have. Requirements: bound the map, keep negative (miss) entries very short-lived, purge on local logout, and bypass the cache on order execution / token revoke so the sensitive paths stay authoritative.
+
+P2b is the lower-risk option and the better fit if the objection to cookies is revocation semantics — it keeps KV authoritative and only shortens how often you ask.
 
 ### P3 — Write hygiene (~1 hour)
 
@@ -175,25 +181,26 @@ Document the budget in `docs/OBSERVABILITY.md` (reads, writes, the 00:00 UTC res
 
 | State | KV reads/tab/day | Requests/tab/day | Notes |
 | --- | --- | --- | --- |
-| Today | 24,480 | 24,480 | ~4 tabs exhausts both budgets |
-| After P1 | ~0 (auth) + token reads on trading calls | 24,480 | KV no longer the wall; requests are |
-| After P1+P2 | ~0 | **5,760** | ~17 concurrent always-open tabs before the request ceiling |
-| After P1+P2+P3 | ~0 | 5,760 | writes <30/day, deletes <20/day |
+| Today | 24,480 | 24,480 | ~4 tabs exhausts both; they fail together |
+| After P1 | 5,760 | 5,760 | **~17 tabs** — both axes move together |
+| After P1 + P2a (cookie) | ~0 + token reads | 5,760 | Ceiling unchanged at ~17; auth now survives KV exhaustion |
+| After P1 + P2b (cache) | ~1,920 | 5,760 | Ceiling unchanged; KV authoritative |
+| After P1 + P3 | 5,760 | 5,760 | writes <30/day, deletes <20/day |
 
-Post-fix, KV usage becomes a rounding error (hundreds of reads/day) and the constraint becomes the Workers request allowance — which is the same constraint on the paid plan, just 100× larger (10M/month included).
+Post-P1, the Workers request allowance is the binding constraint and KV reads sit at the same level — which is why the auth change is optional rather than structural.
 
 ---
 
 ## 7. Feasibility verdict
 
-**Viable: yes, at current and near-term usage — conditional on P1 and P2 both landing.**
+**Viable: yes, at current and near-term usage — and P1 alone is enough to get there.**
 
-- Today, no: the free tier is a single-tenant demo budget, and this app's polling profile spends a whole day's allowance per four idle tabs. That is consistent with the observed 50% before 01:00 UTC.
-- With P1 alone: KV stops being the constraint, but the request ceiling lands at roughly 4 tabs — the wall moves, it does not disappear.
-- With P1+P2: ~5–10× headroom against both budgets at current concurrency. Comfortable.
-- Growth limit: the free tier gives out at roughly 10–17 concurrently open dashboards, or on any new feature that adds a KV read to a per-request path. **It is not a viable steady state beyond modest growth** — it is a viable *stage*.
+- Today, no: the free tier is a single-tenant demo budget, and this app's polling profile spends a whole day's allowance per four idle tabs. Consistent with the observed 50% at 04:47 UTC.
+- With P1 alone: ~17 concurrent always-open tabs, both axes moving together. **Sufficient for current usage without touching auth.**
+- With P1 + P2a/P2b: same ceiling, plus auth that does not depend on KV being healthy. Worth it for resilience, not for capacity.
+- Growth limit: the free tier gives out around 17 concurrently open dashboards, or on any new per-request endpoint. **Not a viable steady state beyond modest growth** — a viable *stage*.
 
-**On spending $5/mo:** the paid plan buys ~3.3× on both quotas (10M KV reads and 10M requests per month) and, more importantly, **replaces the daily hard cliff with monthly metered overage**. For a system where quota exhaustion manifests as a 401 on login mid-session, the cliff is the real hazard, not the volume. My recommendation: ship P1–P3 first — they are justified without reference to the quota (a per-request storage round-trip and a racy payment guard are both defects) — then adopt the paid plan at the first sustained post-fix watermark above 60%. If a mid-day auth outage is unacceptable at any frequency, adopt it now; the fix makes the marginal cost negligible either way.
+**On spending $5/mo:** the paid plan buys ~3.3× on both quotas (10M KV reads and 10M requests per month) and, more importantly, **replaces the daily hard cliff with monthly metered overage**. For a system where exhaustion surfaces as a 401 mid-session, the cliff is the hazard, not the volume. Recommendation: ship P1 and P3 — P1 for capacity, P3 because a racy payment guard is a defect either way — then adopt the paid plan at the first sustained watermark above 60%. P2 can wait for a reason other than quota.
 
 ---
 
@@ -201,5 +208,5 @@ Post-fix, KV usage becomes a rounding error (hundreds of reads/day) and the cons
 
 - The read/write attribution in §3 is inferred from code, not measured. **P0.1 settles it.**
 - Concurrency is unknown: the per-tab model assumes panels left mounted, which is the normal state for this UI.
-- `SessionData` size is small enough for a cookie; to be confirmed against the cookie limit before P1.
-- Not investigated: Worker CPU/DO request quotas. They will become the next ceiling after P2 and deserve their own assessment rather than being discovered in an outage.
+- `SessionData` size is small enough for a cookie; to be confirmed against the cookie limit before P2a.
+- Not investigated: Worker CPU/DO request quotas, and whether `assets.run_worker_first: true` (`wrangler.jsonc:8`) makes static-asset requests count against the 100k request allowance. If it does, page loads are a larger consumer than polling and that ordering changes. Worth checking before P1 sizing.
