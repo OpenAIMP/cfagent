@@ -16,6 +16,21 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Reports + HITL routes extracted from orchestrator.ts** (#359/#363): the
+  report generation/dispatch routes (`/trading/reports/email`,
+  `/trading/reports/webhook`), the #277 HITL confirmation routes
+  (`/trading/reports/pending`, `/trading/reports/confirm`) and report-settings
+  routes (`/trading/settings/report-dispatch-hitl`), plus the #309
+  `GET /reports` list route, now live in `src/agents/routes/reports.ts` as
+  `handleReportsRoutes()`. Pure move — same paths, same matching order in
+  `routeRequest` (verified: no other handler in the region matches these
+  paths), same response shapes/statuses/auth. Handlers reach OrchestratorAgent
+  state only through an explicit `ReportsRouteContext`. Characterization:
+  `tests/reports_routes_extraction.test.ts` pins the 7-route inventory and
+  relative order. orchestrator.ts: 6803 → 6490 lines.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.

@@ -264,8 +264,12 @@ describe("Issue #277 — source pins (no fabricated surfaces)", () => {
 
   it("dispatch routes read the server setting through a single owner", () => {
     expect(agentSrc()).toContain("getReportDispatchHitl");
-    expect(agentSrc()).toContain("/trading/settings/report-dispatch-hitl");
-    expect(agentSrc()).toContain("/trading/reports/confirm");
+    // Issue #359-01: the routes live in the extracted reports module, wired
+    // into routeRequest via handleReportsRoutes at the original position.
+    const routesSrc = () => src("agents/routes/reports.ts");
+    expect(routesSrc()).toContain("/trading/settings/report-dispatch-hitl");
+    expect(routesSrc()).toContain("/trading/reports/confirm");
+    expect(agentSrc()).toContain("handleReportsRoutes(request, url, path, sessionId");
     expect(agentSrc()).toContain("mas_report_confirmations");
     expect(agentSrc()).toContain("mas_settings");
   });
