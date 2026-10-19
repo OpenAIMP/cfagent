@@ -82,6 +82,9 @@ const HISTORY_KEY = "screener:history";
 // Each run gets its own key to prevent franken-PDFs.
 const PDF_KEY_PREFIX = "screener:pdf:";
 const PDF_LATEST_KEY = "screener:latest.pdf";
+// Issue #361: Options PDF storage (mirrors stock pattern).
+const OPTIONS_PDF_KEY_PREFIX = "options:pdf:";
+const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -257,6 +260,41 @@ export class ScreenerAgent extends Agent<Env> {
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return { bytes, fileName: stored.fileName };
+  }
+
+  /**
+   * Get the latest options PDF (issue #361).
+   */
+  async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(OPTIONS_PDF_LATEST_KEY);
+    if (!stored) return null;
+    const bin = atob(stored.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, fileName: stored.fileName };
+  }
+
+  /**
+   * Get a specific options run's PDF by its storage key (issue #361).
+   */
+  async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(pdfKey);
+    if (!stored) return null;
+    const bin = atob(stored.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, fileName: stored.fileName };
+  }
+
+  /**
+   * Store an options PDF (issue #361). Called from scheduledTasks after generation.
+   */
+  async storeOptionsPdf(base64: string, fileName: string): Promise<string> {
+    const pdfData = { base64, fileName };
+    const perRunKey = `${OPTIONS_PDF_KEY_PREFIX}${fileName}`;
+    await this.ctx.storage.put(perRunKey, pdfData);
+    await this.ctx.storage.put(OPTIONS_PDF_LATEST_KEY, pdfData);
+    return perRunKey;
   }
 
   private async persistRun(result: ScreenerRunResult): Promise<void> {
