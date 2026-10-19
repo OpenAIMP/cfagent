@@ -219,6 +219,8 @@ export class ScheduledTasksService {
     sector?: string;
     universe?: string;
     maxItems?: number;
+    userLogin?: string;
+    environment?: "TEST" | "PROD";
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -232,13 +234,18 @@ export class ScheduledTasksService {
     const timestamp = new Date().toISOString();
 
     try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
+      }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       const result = await this.getScreenerAgent().runScreen({
         trigger: "scheduled",
         sector: options.sector || "Technology",
         universe: (options.universe as any) || "TECH",
         maxItems: options.maxItems,
-        userLogin: this.userLogin,
+        userLogin,
+        environment: options.environment,
       });
 
       if (!result.success) {

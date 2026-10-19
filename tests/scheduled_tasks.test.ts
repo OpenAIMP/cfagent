@@ -32,11 +32,13 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
   let sql: MockSqlStorage;
   let orm: DatabaseORM;
   let mockKv: MockKVNamespace;
+  let lastScreenerRequest: any;
   let env: Env;
   const sessionId = "scheduler_test_trader";
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    lastScreenerRequest = undefined;
     DynamicMarketScreener.setTestUniverseFixture(MOCK_TEST_UNIVERSE);
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
@@ -58,7 +60,9 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       SCREENER_AGENT: {
         idFromName: () => "mock-screener-id",
         get: () => ({
-          runScreen: async (req: any) => ({
+          runScreen: async (req: any) => {
+            lastScreenerRequest = req;
+            return {
             timestamp: new Date().toISOString(),
             trigger: req.trigger,
             sector: req.sector || "Technology",
@@ -172,7 +176,8 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
               },
             ],
             discoveryMessage: "E*TRADE-only live quotes (mock); 3 of 3 symbols quoted.",
-          }),
+            };
+          },
         }),
       } as any,
     } as Env;
@@ -220,6 +225,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       const res = await service.autonomousMarketScreen({ sector: "Technology", maxItems: 3 });
 
       expect(res.success).toBe(true);
+      expect(lastScreenerRequest.userLogin).toBe(sessionId);
       expect(res.taskType).toBe("market_screen");
       expect(res.data?.totalScanned).toBeGreaterThan(0);
       expect(Array.isArray(res.data?.opportunities)).toBe(true);
@@ -238,6 +244,22 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       if (res.data?.opportunities && res.data.opportunities.length > 0) {
         expect(events.length).toBeGreaterThan(0);
       }
+    });
+
+    it("passes the selected E*TRADE identity and environment to the screener", async () => {
+      const service = new ScheduledTasksService(env, orm, sessionId);
+      const res = await service.autonomousMarketScreen({
+        universe: "SP100",
+        userLogin: "live_account_owner",
+        environment: "PROD",
+      });
+
+      expect(res.success).toBe(true);
+      expect(lastScreenerRequest).toMatchObject({
+        universe: "SP100",
+        userLogin: "live_account_owner",
+        environment: "PROD",
+      });
     });
 
     it("automatically expires a stale order draft after 15m HITL window", async () => {

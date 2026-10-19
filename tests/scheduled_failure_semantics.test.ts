@@ -169,7 +169,10 @@ describe("Scheduled job failure semantics (#112)", () => {
   // =========================================================================
   describe("OrchestratorAgent scheduled callbacks", () => {
     function makeAgent(sql: MockSqlStorage) {
-      const storage = new Map<string, unknown>();
+      const storage = new Map<string, unknown>([["screener:execution-context", {
+        userLogin: "live_account_owner",
+        environment: "PROD",
+      }]]);
       const ctx = {
         storage: {
           sql,
@@ -251,11 +254,35 @@ describe("Scheduled job failure semantics (#112)", () => {
       expect(sent[0].success).toBe(false);
       expect(sent[0].sector).toBe("Technology");
       expect(sent[0].error).toContain("screener universe unavailable");
+      expect(mockRunScreen).toHaveBeenCalledWith(expect.objectContaining({
+        userLogin: "live_account_owner",
+        environment: "PROD",
+      }));
 
       const orm = makeOrm(sql);
       expect(orm.events.findMany({ where: { type: "screener.screen_failed" } }).length).toBe(1);
-      const messages = orm.messages.findMany({ where: { sessionId } });
+      const messages = orm.messages.findMany({ where: { sessionId: "live_account_owner" } });
       expect(messages.some(m => m.content.includes("Scheduled Market Screen failed"))).toBe(true);
+    });
+
+    it("persists the authenticated owner and selected environment for later cron runs", async () => {
+      const agent = makeAgent(new MockSqlStorage());
+      const storage = agent.ctx.storage;
+      agent.ensureTables = vi.fn();
+      agent.listSchedules = vi.fn().mockResolvedValue([]);
+
+      const response = await agent.onRequest(new Request("https://agent.test/api/schedules", {
+        headers: {
+          "x-user-login": "live_account_owner",
+          "x-environment": "PROD",
+        },
+      }));
+
+      expect(response.status).toBe(200);
+      expect(await storage.get("screener:execution-context")).toEqual({
+        userLogin: "live_account_owner",
+        environment: "PROD",
+      });
     });
 
     it("still broadcasts a market screen success with standouts, with the unchanged shape", async () => {
