@@ -107,7 +107,7 @@ describe("Durable Object backed store (#329)", () => {
     expect(await kv.get("short")).toBeNull();
   });
 
-  it("skips the legacy read entirely when the fallback is off", async () => {
+  it("skips KV entirely when the fallback is off", async () => {
     const store = makeStore();
     const legacy = makeLegacy();
     legacy.data.set("old-session", "legacy-payload");
@@ -118,8 +118,19 @@ describe("Durable Object backed store (#329)", () => {
       legacyFallback: false,
     });
 
+    // No migration read...
     expect(await kv.get("old-session")).toBeNull();
     expect(legacy.get).not.toHaveBeenCalled();
+
+    // ...and no write or delete fallback either: the flag means "KV is not part
+    // of this store", not just "do not read the legacy key".
+    await kv.put("new-session", "payload");
+    await kv.delete("new-session");
+    await kv.delete("old-session");
+
+    expect(legacy.put).not.toHaveBeenCalled();
+    expect(legacy.delete).not.toHaveBeenCalled();
+    expect(legacy.data.has("old-session")).toBe(true);
   });
 
   it("keeps working from KV when the store is unavailable", async () => {
