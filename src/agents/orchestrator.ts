@@ -1129,20 +1129,34 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return orm;
   }
 
+  /**
+   * Inserts one audit row into mas_events and returns the stored record.
+   * Single owner of audit-row inserts (issue #270): this.audit() and the
+   * POST /audit/event route both funnel through here.
+   */
+  private recordAudit(
+    type: string,
+    agent: string,
+    payload: Record<string, unknown>
+  ): { id: string; type: string; agent: string; payload: Record<string, unknown>; created_at: string } {
+    const sql = this.ensureTables();
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    sql.exec(
+      "INSERT INTO mas_events (id, session_id, type, agent, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      id,
+      this.sessionKey(),
+      type,
+      agent,
+      JSON.stringify(payload),
+      now
+    );
+    return { id, type, agent, payload, created_at: now };
+  }
+
   private audit(type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) {
     try {
-      const sql = this.ensureTables();
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      sql.exec(
-        "INSERT INTO mas_events (id, session_id, type, agent, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        id,
-        this.sessionKey(),
-        type,
-        agent,
-        JSON.stringify(payload),
-        now
-      );
+      this.recordAudit(type, agent, payload);
     } catch {
       // Don't fail execution if audit insertion fails
     }
@@ -2286,6 +2300,47 @@ Agentic Best Practices & Workflow Rules:
         const payload = (body.payload && typeof body.payload === "object") ? body.payload : body;
         this.audit(type, agent, payload);
         return Response.json({ success: true, message: "Audit event recorded" });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
+      }
+    }
+
+    // Audit event append — advertised by the WorkflowsHub Observability card
+    // as "POST /api/audit/event" (issue #270). Same mas_events idiom as
+    // POST /audit, but with strict validation and the stored record echoed
+    // back, so callers need no second GET. Tenant-scoped like every other
+    // audit row: session_id is the per-user Durable Object instance key.
+    if (path.endsWith("/audit/event") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => null)) as {
+          type?: unknown;
+          agent?: unknown;
+          payload?: unknown;
+        } | null;
+        if (!body || typeof body !== "object") {
+          return Response.json({ error: "A JSON object body is required" }, { status: 400 });
+        }
+        const type = typeof body.type === "string" ? body.type.trim() : "";
+        if (!type) {
+          return Response.json({ error: "type (non-empty string) is required" }, { status: 400 });
+        }
+        if (type.length > 120) {
+          return Response.json({ error: "type must be at most 120 characters" }, { status: 400 });
+        }
+        const agent =
+          typeof body.agent === "string" && body.agent.trim()
+            ? body.agent.trim().slice(0, 64)
+            : "orchestrator";
+        const payload =
+          body.payload && typeof body.payload === "object"
+            ? (body.payload as Record<string, unknown>)
+            : {};
+        const serialized = JSON.stringify(payload);
+        if (serialized.length > 65536) {
+          return Response.json({ error: "payload must serialize to at most 64 KB" }, { status: 400 });
+        }
+        const record = this.recordAudit(type, agent, JSON.parse(serialized));
+        return Response.json(record, { status: 201 });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
       }
