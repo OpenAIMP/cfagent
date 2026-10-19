@@ -93,6 +93,7 @@ import {
 import { handleReportsRoutes } from "./routes/reports";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
+import { handleAuditRoutes } from "./routes/audit";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2574,88 +2575,17 @@ Agentic Best Practices & Workflow Rules:
     });
     if (adsRevenueReferralsResponse) return adsRevenueReferralsResponse;
 
-    // Audit logs endpoint
-    if (path.endsWith("/audit") && request.method === "GET") {
-      try {
-        const limitParam = Number(url.searchParams.get("limit") || 50);
-        const limit = Math.max(1, Math.min(100, limitParam));
-        const events = Array.from(
-          sql.exec(
-            "SELECT id, type, agent, payload, created_at FROM mas_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-            sessionId,
-            limit
-          )
-        ) as Array<{ id: string; type: string; agent: string; payload: string; created_at: string }>;
-
-        const parsed = events.map((e) => {
-          let payload: Record<string, unknown> = {};
-          try {
-            payload = JSON.parse(e.payload);
-          } catch {
-            payload = { raw: e.payload };
-          }
-          return { ...e, payload };
-        });
-
-        return Response.json({ count: parsed.length, events: parsed });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch audit log" }, { status: 500 });
-      }
-    }
-
-    if (path.endsWith("/audit") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const type = String(body.type || "autopilot.policy_check");
-        const agent = (body.agent || "trading") as AgentName | "judge" | "nlq" | "orchestrator";
-        const payload = (body.payload && typeof body.payload === "object") ? body.payload : body;
-        this.audit(type, agent, payload);
-        return Response.json({ success: true, message: "Audit event recorded" });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
-      }
-    }
-
-    // Audit event append — advertised by the WorkflowsHub Observability card
-    // as "POST /api/audit/event" (issue #270). Same mas_events idiom as
-    // POST /audit, but with strict validation and the stored record echoed
-    // back, so callers need no second GET. Tenant-scoped like every other
-    // audit row: session_id is the per-user Durable Object instance key.
-    if (path.endsWith("/audit/event") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => null)) as {
-          type?: unknown;
-          agent?: unknown;
-          payload?: unknown;
-        } | null;
-        if (!body || typeof body !== "object") {
-          return Response.json({ error: "A JSON object body is required" }, { status: 400 });
-        }
-        const type = typeof body.type === "string" ? body.type.trim() : "";
-        if (!type) {
-          return Response.json({ error: "type (non-empty string) is required" }, { status: 400 });
-        }
-        if (type.length > 120) {
-          return Response.json({ error: "type must be at most 120 characters" }, { status: 400 });
-        }
-        const agent =
-          typeof body.agent === "string" && body.agent.trim()
-            ? body.agent.trim().slice(0, 64)
-            : "orchestrator";
-        const payload =
-          body.payload && typeof body.payload === "object"
-            ? (body.payload as Record<string, unknown>)
-            : {};
-        const serialized = JSON.stringify(payload);
-        if (serialized.length > 65536) {
-          return Response.json({ error: "payload must serialize to at most 64 KB" }, { status: 400 });
-        }
-        const record = this.recordAudit(type, agent, JSON.parse(serialized));
-        return Response.json(record, { status: 201 });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
-      }
-    }
+    // Issue #359-04: audit routes (GET/POST /audit, POST /audit/event) are
+    // handled by src/agents/routes/audit.ts. Invoked at this exact position
+    // in the sequential path.endsWith matching sequence (between the
+    // ads/revenue/referrals handler and the autopilot block); a non-null
+    // return matched.
+    const auditResponse = await handleAuditRoutes(request, url, path, sessionId, {
+      ensureTables: () => this.ensureTables(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
+    });
+    if (auditResponse) return auditResponse;
 
     // ---------------------------------------------------------------------
     // Autopilot control center (autopilot Phase 1): server-owned run state,
