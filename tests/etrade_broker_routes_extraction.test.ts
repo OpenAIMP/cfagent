@@ -137,9 +137,10 @@ describe("E*TRADE broker route inventory (extraction #372)", () => {
     expect(premiumIdx).toBeGreaterThan(-1);
     expect(brokerIdx, "broker delegation must follow the premium delegation").toBeGreaterThan(premiumIdx);
     expect(activityIdx, "activity delegation must follow the broker delegation").toBeGreaterThan(brokerIdx);
-    // Upper bound: the still-inline options banner (slice #359-11 swaps this
-    // anchor for its delegation call when it extracts the options block).
-    const optionsIdx = orchSrc.indexOf("// Real E*TRADE REST API: Option Chains");
+    // Upper bound: the options delegation call (slice #359-11 swapped the
+    // still-inline options banner for this delegation call when it extracted
+    // the options block; delegation-call anchor per the #405 rule).
+    const optionsIdx = orchSrc.indexOf("handleEtradeOptionsRoutes(request, url, path, sessionId,");
     expect(optionsIdx).toBeGreaterThan(-1);
     expect(activityIdx, "activity delegation must precede the options block").toBeLessThan(optionsIdx);
     // The requestedEnv binding stays inline for the still-inline options block.

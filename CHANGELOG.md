@@ -180,6 +180,25 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   paths; unpaid requests get the 402 payment-required challenge without
   running the fulfill callback, so no canonical-report row is written).
   orchestrator.ts: 5435 → 5280 lines.
+- **E*TRADE options routes extracted from orchestrator.ts** (#359/#374): the
+  contiguous options block (GET `/etrade/options/chains|/expire-dates|/scans|`
+  `/scans/diff|/iv-history|/profiles`, POST `/etrade/options/profiles|`
+  `/strategy` (the #314 advertised spelling), POST
+  `/trading/options/llm-ideas|/compare|/recommend|/strategies|/best-trade`,
+  GET `/trading/options/catalog`, POST|GET `/trading/options/screen|`
+  `/unified|/config`) moved to `src/agents/routes/etradeOptions.ts` as a
+  single handler, `handleEtradeOptionsRoutes`, invoked from `routeRequest` at
+  the exact original position (between the E*TRADE broker account-activity
+  delegation and the watchlists block). The #314 single-owner
+  `handleOptionsStrategyRecommend` moved with its block (both strategy
+  spellings delegate to it; byte-identical contract); the `requestedEnv`
+  binding stays inline and is passed through the context. All trading access
+  stays behind the `src/trading/index.ts` boundary (#290); a scripted scan
+  confirms the 18-condition inventory and order are unchanged.
+  Characterization: `tests/etrade_options_routes_extraction.test.ts` pins the
+  route inventory and order, the single call-site position, and behavior
+  (null for non-owned paths; 400s on invalid llm-ideas symbol and strategy
+  requests before any backend call). orchestrator.ts: 4432 → 3454 lines.
 
 ### Added
 
