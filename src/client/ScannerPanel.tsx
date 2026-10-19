@@ -115,6 +115,7 @@ export interface ScanFormInput {
   mode: ScanMode;
   profileId: string;
   fitLimit: number;
+  selectedStrategies: string[];
 }
 
 /** The exact request body a Run click sends. Mode rides on EVERY run
@@ -130,6 +131,8 @@ export function buildScanRequest(input: ScanFormInput): UnifiedOptionsRequest {
     mode: input.mode,
     ...(input.profileId ? { profileId: input.profileId } : {}),
     ...(input.mode === "strategy_fit" ? { limit: input.fitLimit } : {}),
+    // Issue #391: Pass selected strategies as allowedStrategies filter
+    ...(input.selectedStrategies.length > 0 ? { allowedStrategies: input.selectedStrategies } : {}),
   };
 }
 
@@ -1031,6 +1034,8 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [riskProfile, setRiskProfile] = useState<RiskProfileValue>("balanced");
   const [profileId, setProfileId] = useState("");
   const [fitLimit, setFitLimit] = useState(25);
+  // Issue #391: Selected strategy IDs for filtering (empty = all strategies)
+  const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [result, setResult] = useState<OpportunityScanResponse | null>(null);
@@ -1095,7 +1100,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const runScan = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (scanning) return;
-    const input: ScanFormInput = { symbolsText, thesis, riskProfile, mode, profileId, fitLimit };
+    const input: ScanFormInput = { symbolsText, thesis, riskProfile, mode, profileId, fitLimit, selectedStrategies };
     const chosen = profiles.find((p) => p.id === profileId);
     // Snapshot the run's context BEFORE the request: the results header
     // describes the run that produced them, not the live form.
@@ -1351,6 +1356,39 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           <select id="scp-thesis" value={thesis} onChange={(e) => setThesis(e.target.value as OptionThesis)}>
             {THESIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+        </div>
+        <div className="scp-field scp-field-strategies">
+          <label htmlFor="scp-strategies">Strategies <span className="scp-hint">(empty = all)</span></label>
+          <div className="scp-strategy-checkboxes" id="scp-strategies">
+            {strategies.map((s) => (
+              <label key={s.id} className="scp-strategy-check">
+                <input
+                  type="checkbox"
+                  checked={selectedStrategies.includes(s.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedStrategies([...selectedStrategies, s.id]);
+                    } else {
+                      setSelectedStrategies(selectedStrategies.filter((id) => id !== s.id));
+                    }
+                  }}
+                />
+                <span title={s.description}>{s.label || s.id}</span>
+              </label>
+            ))}
+            {strategies.length === 0 && (
+              <span className="scp-muted">Loading strategies…</span>
+            )}
+          </div>
+          {selectedStrategies.length > 0 && (
+            <button
+              type="button"
+              className="scp-clear-btn"
+              onClick={() => setSelectedStrategies([])}
+            >
+              Clear ({selectedStrategies.length})
+            </button>
+          )}
         </div>
         <div className="scp-field">
           <label htmlFor="scp-risk">Risk profile</label>
