@@ -57,6 +57,10 @@ function timeoutSignal(): AbortSignal | undefined {
  */
 export function createStoreKv(options: StoreKvOptions): KvLike {
   const { namespace, legacy, namespaceName, instanceName = "kv", legacyFallback = true } = options;
+  // `legacyFallback: false` means "KV is not part of this store at all" - no
+  // migration read, no write fallback, no delete. Gating only the read would
+  // leave KV traffic that the flag is supposed to stop.
+  const legacyStore = legacyFallback ? legacy : null;
 
   const send = async (payload: Record<string, unknown>): Promise<StoreReply | null> => {
     if (!namespace) return null;
@@ -90,8 +94,8 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       if (fromStore && typeof fromStore.value === "string") return fromStore.value;
 
       // Miss (or store unavailable): consult the legacy KV once, then migrate.
-      if (!legacyFallback || !legacy) return null;
-      const legacyValue = await legacy.get(key);
+      if (!legacyStore) return null;
+      const legacyValue = await legacyStore.get(key);
       if (legacyValue === null) return null;
 
       // Copy through to the store so the next read is served from it. Awaited
@@ -110,12 +114,12 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       });
       if (stored) return;
       // Store unavailable — keep the write somewhere durable rather than losing it.
-      if (legacy) await legacy.put(key, value, putOptions);
+      if (legacyStore) await legacyStore.put(key, value, putOptions);
     },
 
     async delete(key: string): Promise<void> {
       await send({ op: "delete", ns: namespaceName, key });
-      if (legacy) await legacy.delete(key);
+      if (legacyStore) await legacyStore.delete(key);
     },
   };
 }
