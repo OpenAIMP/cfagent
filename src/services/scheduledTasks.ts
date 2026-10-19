@@ -592,10 +592,11 @@ export class ScheduledTasksService {
           notifications.slack = true;
         }
 
-        // Issue #350: Attach options PDF report to Slack (reuse stock pattern).
+        // Issue #350: Attach options PDF report to Slack via A2A (preferred solution).
+        // Reuses cfpay's Slack agent via A2A instead of local upload.
         try {
           const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
-          const { postFilesToSlack } = await import("../services/slackFiles");
+          const { getCfpayConfig, cfpayPostFileToSlack } = await import("../services/cfpayA2A");
           const pdfBytes = await generateOptionsPdf(response.data);
           const fileName = optionsPdfFileName(response.data);
           // Convert Uint8Array to base64
@@ -605,14 +606,19 @@ export class ScheduledTasksService {
             binary += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
           }
           const base64 = btoa(binary);
-          await postFilesToSlack(this.env, {
-            channel: slackChannel,
-            filename: fileName,
-            filetype: "pdf",
-            title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
-            initial_comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched`,
-            contentBase64: base64,
-          });
+          const cfpayCfg = getCfpayConfig(this.env);
+          if (cfpayCfg) {
+            const r = await cfpayPostFileToSlack(cfpayCfg, {
+              channel: slackChannel,
+              filename: fileName,
+              contentB64: base64,
+              title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
+              initial_comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched`,
+            });
+            if (!r.ok) {
+              console.warn("[ScheduledTasksService] cfpay PDF upload failed:", r.error);
+            }
+          }
         } catch (pdfErr) {
           console.warn("[ScheduledTasksService] Options PDF upload failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
         }
