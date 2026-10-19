@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "../src/agents/did";
 import { PaymentGatewayService } from "../src/services/payments";
 import type { Env } from "../src/types";
@@ -50,6 +50,33 @@ describe("Agent Decentralized Identifiers (DIDs) & Payments", () => {
   });
 
   describe("PaymentGatewayService", () => {
+    // Issue #401: the Stripe strategy performs a LIVE fetch to
+    // api.stripe.com when an API key resolves — with the mock key the
+    // unit test made a real network call (~5.3s, past the 25s timeout
+    // under suite load) and silently passed on the 401 error path.
+    // Stub fetch hermetically and assert the real success contract.
+    beforeEach(() => {
+      vi.stubGlobal("fetch", async (input: any) => {
+        const url = String(input?.url ?? input);
+        if (url.includes("api.stripe.com/v1/checkout/sessions")) {
+          return {
+            ok: true,
+            status: 200,
+            statusText: "OK",
+            json: async () => ({
+              id: "cs_test_401",
+              url: "https://checkout.stripe.com/c/pay/cs_test_401",
+            }),
+          } as Response;
+        }
+        throw new Error(`network disabled in tests (unexpected fetch: ${url})`);
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it("reports configured status for Stripe when API key is set", () => {
       const service = new PaymentGatewayService(mockEnv);
       const statuses = service.getGatewayStatuses();
@@ -74,7 +101,9 @@ describe("Agent Decentralized Identifiers (DIDs) & Payments", () => {
       });
 
       expect(result.draftId).toBe("pay_test_service");
-      expect(result.checkoutUrl).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.checkoutUrl).toBe("https://checkout.stripe.com/c/pay/cs_test_401");
+      expect(result.gatewayRef).toBe("cs_test_401");
       expect(result.didAttestation).toBeDefined();
       expect(result.didAttestation?.proposerDid).toBe(AGENT_DIDS.PAYMENTS);
       expect(result.didAttestation?.signature).toBeDefined();
