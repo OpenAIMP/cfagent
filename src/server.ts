@@ -53,6 +53,9 @@ export { SlackAgent } from "./agents/slackAgent";
 export { PaymentsAgent } from "./agents/payments-agent";
 export { ScheduledAgent } from "./agents/scheduled-agent";
 export { ScreenerAgent } from "./agents/screener-agent";
+// Issue #319 — wrangler requires every bound DO class to be exported from
+// the entrypoint, otherwise `wrangler deploy` fails.
+export { ResearchAgent } from "./agents/research-agent";
 
 
 function isAllowedOrigin(request: Request, env: Env): boolean {
@@ -1212,6 +1215,18 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(retentionPromise);
       else await retentionPromise;
+    } else if (event?.cron === "0 21 * * 1-5") {
+      // Issue #319 — daily options-research run after market close
+      // (21:00 UTC = 17:00 ET on weekdays). Thin scheduled trigger over the
+      // same runResearchAndPublish entry as the manual route.
+      const researchPromise = agent.fetch(
+        new Request("https://agent.internal/research/scheduled-tick", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(researchPromise);
+      else await researchPromise;
     } else {
       const optionsPromise = agent.fetch(
         new Request("https://agent.internal/schedules/trigger-options-analysis", {

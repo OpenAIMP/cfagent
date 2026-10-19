@@ -19,7 +19,9 @@
       // PR #4 — ScheduledAgent DO (autonomous cron-driven goals)
       { "name": "SCHEDULED_AGENT", "class_name": "ScheduledAgent" },
       // Issue #261 — ScreenerAgent DO (one agent, one UI, E*TRADE-only)
-      { "name": "SCREENER_AGENT", "class_name": "ScreenerAgent" }
+      { "name": "SCREENER_AGENT", "class_name": "ScreenerAgent" },
+      // Issue #319 — ResearchAgent DO (autonomous options research)
+      { "name": "RESEARCH_AGENT", "class_name": "ResearchAgent" }
     ]
   },
   "migrations": [
@@ -28,7 +30,9 @@
     // PR #3 + PR #4 — new SQLite DO classes
     { "tag": "v3", "new_sqlite_classes": ["PaymentsAgent", "ScheduledAgent"] },
     // Issue #261 — ScreenerAgent
-    { "tag": "v4", "new_sqlite_classes": ["ScreenerAgent"] }
+    { "tag": "v4", "new_sqlite_classes": ["ScreenerAgent"] },
+    // Issue #319 — ResearchAgent
+    { "tag": "v5", "new_sqlite_classes": ["ResearchAgent"] }
   ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
@@ -55,7 +59,10 @@
       "*/30 * * * *",
       // Issue #255 — nightly mas_messages retention pass (enforced in the
       // scheduled() handler; runs against the Orchestrator agent's SQLite)
-      "0 4 * * *"
+      "0 4 * * *",
+      // Issue #319 — daily options-research run after market close
+      // (21:00 UTC = 17:00 ET on weekdays)
+      "0 21 * * 1-5"
     ]
   },
   // PR #6 — Vectorize for VectorMemory
