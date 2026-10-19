@@ -18,6 +18,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Slice 03/04 characterization tests no longer contradict on main** (#405): the ads/revenue/referrals extraction test anchored its position check to the `// Audit logs endpoint` comment, which slice 04 (#367) legitimately moved into `routes/audit.ts` — the landmark resolved to -1 and the assertion failed every CI/deploy test run. The check now anchors to the `handleAuditRoutes(...)` delegation call. (Rule for remaining #359 slices: anchor positions to delegation calls, never a neighboring domain's inline comments.)
 - **mas_reports DDL single-sourced (SQLITE_ERROR: no such column: generation_id)** (#389): the ORM's `initializeSchema()` carried its own duplicate `mas_reports` DDL that created the unique index on `generation_id` without a column guard, so any Durable Object whose table predated #308 threw on every schema init (the Strategy/Symbol Scanner failure). The block now delegates to `ensureScheduledReportsTable()` in `src/services/scheduledReports.ts` (PRAGMA-checked additive migration); the unguarded duplicate is deleted. Regression test: a pre-#308 table migrates without throwing and keeps its rows.
 
 ### Fixed
