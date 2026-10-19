@@ -515,18 +515,21 @@ export class ScheduledTasksService {
   }>> {
     const timestamp = new Date().toISOString();
     // Resolve universe to symbols if specified; otherwise use explicit
-    // symbols or the default watchlist.
+    // symbols or default to NASDAQ100 universe (issue #296).
+    // The old 4-symbol hardcoded default (AAPL, NVDA, SPY, MSFT) was too
+    // narrow for a scheduled scanner.
     let symbols: string[];
-    if (options.universe) {
+    const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
+    if (effectiveUniverse) {
       const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
       const { resolveUniverse, UNIVERSES } = await import("../trading");
       const listings = await fetchAllUsStockListings();
-      const universeDef = UNIVERSES[options.universe as keyof typeof UNIVERSES];
-      const resolved = resolveUniverse(options.universe as any, listings);
+      const universeDef = UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES];
+      const resolved = resolveUniverse(effectiveUniverse as any, listings);
       const maxSymbols = universeDef?.defaultMaxSymbols ?? 50;
       symbols = resolved.slice(0, maxSymbols).map((l) => l.symbol);
     } else {
-      symbols = options.symbols && options.symbols.length > 0 ? options.symbols : ["AAPL", "NVDA", "SPY", "MSFT"];
+      symbols = options.symbols!;
     }
     const targetThesis = options.thesis || "bullish";
 
