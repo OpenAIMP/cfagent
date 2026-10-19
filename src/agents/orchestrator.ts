@@ -414,6 +414,25 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         { idempotent: true }
       );
 
+      // Issue #317: Clean up legacy duplicate schedules with maxItems:5
+      // baked in. These were created before the config externalization
+      // fix and cause double-screening. Remove them before registering
+      // the correct ones.
+      try {
+        const existing = await this.listSchedules();
+        for (const s of existing) {
+          const payload = (s as any).payload || {};
+          if ((s as any).callback === "autonomousMarketScreen" &&
+              payload.maxItems === 5) {
+            console.log(`[OrchestratorAgent][onStart] Removing legacy duplicate schedule ${(s as any).id} (universe=${payload.universe}, maxItems=5)`);
+            await this.cancelSchedule((s as any).id);
+          }
+        }
+      } catch (cleanupErr) {
+        console.error("[OrchestratorAgent][onStart] Legacy schedule cleanup failed:", cleanupErr);
+        // Non-fatal: continue with registration
+      }
+
       // 2. Autonomous market screening — hourly per-universe runs
       // (issue #270). Each universe gets its own schedule + PDF report.
       // Staggered by 10 minutes to spread E*TRADE load.
