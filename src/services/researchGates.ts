@@ -267,7 +267,9 @@ function gateThesisCoherence(
   const compatible: Record<string, string[]> = {
     bullish: ["vertical_spread", "pmcc"],
     bearish: ["vertical_spread"],
-    range_bound: ["iron_condor", "butterfly"],
+    // Issue #353 — the catalog tags PMCC [bullish, range_bound], so the
+    // thesis gate admits it for range_bound outlooks too.
+    range_bound: ["iron_condor", "butterfly", "pmcc"],
     volatile: ["straddle", "strangle"],
   };
   // Pipeline structure ids (bull_call_spread, long_straddle, ...) map onto

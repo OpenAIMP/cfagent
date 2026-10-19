@@ -291,6 +291,14 @@ function draftThesis(
 }
 
 /** Spec §6 strategy table: candidate structures per outlook. */
+
+/**
+ * Issue #353 — minimum DTE for the PMCC long leg. Matches the catalog's
+ * poor_mans_covered_call farMinDte (180), so the provider's LEAPS band
+ * (>=180 DTE) can actually satisfy it.
+ */
+const PMCC_LONG_LEG_MIN_DTE = 180;
+
 function structuresForOutlook(
   outlook: Outlook,
   ownershipAllowed: boolean,
@@ -305,8 +313,11 @@ function structuresForOutlook(
     }
     case "bearish":
       return ["bear_put_spread", "bear_call_spread"];
-    case "range_bound":
-      return ["iron_condor", "butterfly"];
+    case "range_bound": {
+      const list = ["iron_condor", "butterfly"];
+      if (pmccEnabled) list.push("pmcc");
+      return list;
+    }
     case "volatile":
       return ["long_straddle", "long_strangle"];
     default:
@@ -520,8 +531,11 @@ function buildStructure(
       break;
     }
     case "pmcc": {
+      // Issue #353 — the long leg needs a LEAPS expiry; the catalog's
+      // poor_mans_covered_call declares farMinDte: 180, so >= 180 here
+      // (was >= 300, which no loaded expiry could satisfy).
       const leaps = chain.expiries
-        .filter((e) => e.dte >= 300)
+        .filter((e) => e.dte >= PMCC_LONG_LEG_MIN_DTE)
         .sort((a, b) => a.dte - b.dte)[0];
       if (leaps) {
         const long = findLeg(leaps, "call", (s) => s < spot * 0.9, spot);

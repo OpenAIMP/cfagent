@@ -53,6 +53,23 @@ function dteOf(year: number, month: number, day: number, now: number): number {
   return Math.max(0, Math.round((expiry - now) / 86_400_000));
 }
 
+/**
+ * Issue #353 — research chain expiry selection windows. getChain covers TWO
+ * working windows instead of the first four expirations only: the near band
+ * the short-dated structures use, and the LEAPS band the PMCC long leg
+ * requires (>=180 DTE, per the catalog's poor_mans_covered_call farMinDte).
+ * Selection is bounded per band so wide option chains stay cheap.
+ */
+const NEAR_EXPIRY_MIN_DTE = 30;
+const NEAR_EXPIRY_MAX_DTE = 45;
+const LEAPS_EXPIRY_MIN_DTE = 180;
+const MAX_EXPIRIES_PER_BAND = 4;
+
+/** Calibrated-fallback DTE windows mirror the two live bands. */
+const CALIBRATED_NEAR_MAX_DTE = 120;
+const CALIBRATED_LEAPS_MIN_DTE = 180;
+const CALIBRATED_LEAPS_MAX_DTE = 400;
+
 function toProviderLeg(
   optionType: "call" | "put",
   contract: {
@@ -176,7 +193,24 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
     // Live path first.
     try {
       const expiries = await this.etrade.getOptionExpireDates(symbol);
-      const picked = expiries.slice(0, 4);
+      // Issue #353 — select expiries across the near band (30–45 DTE) AND the
+      // LEAPS band (>=180 DTE); the old slice(0, 4) cut every LEAPS expiry,
+      // which made the PMCC branch unreachable.
+      const withDte = expiries.map((exp) => ({
+        exp,
+        dte: dteOf(exp.year, exp.month, exp.day, now),
+      }));
+      const nearBand = withDte
+        .filter(
+          (e) => e.dte >= NEAR_EXPIRY_MIN_DTE && e.dte <= NEAR_EXPIRY_MAX_DTE
+        )
+        .sort((a, b) => a.dte - b.dte)
+        .slice(0, MAX_EXPIRIES_PER_BAND);
+      const leapsBand = withDte
+        .filter((e) => e.dte >= LEAPS_EXPIRY_MIN_DTE)
+        .sort((a, b) => a.dte - b.dte)
+        .slice(0, MAX_EXPIRIES_PER_BAND);
+      const picked = [...nearBand, ...leapsBand].map((e) => e.exp);
       const chainExpiries: ProviderChainExpiry[] = [];
       let underlyingPrice = 0;
       for (const exp of picked) {
@@ -210,8 +244,21 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
       // Fall through to the calibrated path — labeled, never live.
     }
     // Calibrated fallback: explicitly synthetic, never an executable quote.
+    // Issue #353 — mirror the two live bands: the builder's DTE grid now
+    // covers LEAPS, so the PMCC path works on calibrated chains too.
     try {
-      const calibrated = buildCalibratedOptionChains([symbol], 0, 120);
+      const calibrated = [
+        ...buildCalibratedOptionChains(
+          [symbol],
+          0,
+          CALIBRATED_NEAR_MAX_DTE
+        ),
+        ...buildCalibratedOptionChains(
+          [symbol],
+          CALIBRATED_LEAPS_MIN_DTE,
+          CALIBRATED_LEAPS_MAX_DTE
+        ),
+      ];
       const chainExpiries: ProviderChainExpiry[] = [];
       let underlyingPrice = 0;
       for (const chain of calibrated) {
