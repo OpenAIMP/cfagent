@@ -204,11 +204,12 @@ function formatOpportunities(
   );
   const universe = event.universe || "TECH";
   const sectorLabel = event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : "";
+  const triggerLabel = event.trigger === "manual" ? "Manual" : "Scheduled";
   const scanned = event.expectedCount && event.expectedCount > event.totalScanned
     ? `Scanned ${event.totalScanned} of ${event.expectedCount} ${universe} stocks, ${event.matchedCount} matched.`
     : `Scanned ${event.totalScanned} ${universe} stocks, ${event.matchedCount} matched.`;
   const text = [
-    `📊 Market Screen — ${universe}${sectorLabel}`,
+    `📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}`,
     scanned,
     ``,
     ...lines,
@@ -226,7 +227,7 @@ function formatOpportunities(
     )
     .join("");
   const html = [
-    `<h2>📊 Market Screen — ${universe}${sectorLabel}</h2>`,
+    `<h2>📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}</h2>`,
     `<p>${scanned}</p>`,
     `<table border="1" cellpadding="6" cellspacing="0">`,
     `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
@@ -353,7 +354,8 @@ async function publishFailed(
   deps: ScreenerPublisherDeps,
   event: ScreenerFailedEvent
 ): Promise<void> {
-  const text = `⚠️ Market Screen FAILED — ${event.universe || "TECH"}${event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : ""}\nError: ${event.error}\n_Time: ${event.timestamp}_`;
+  const triggerLabel = event.trigger === "manual" ? "Manual" : "Scheduled";
+  const text = `⚠️ Market Screen FAILED — ${event.universe || "TECH"}${event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : ""} · ${triggerLabel}\nError: ${event.error}\n_Time: ${event.timestamp}_`;
 
   const cfpay = getCfpayConfig(deps.env);
   const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;

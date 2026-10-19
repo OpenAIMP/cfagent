@@ -221,6 +221,7 @@ export class ScheduledTasksService {
     maxItems?: number;
     userLogin?: string;
     environment?: "TEST" | "PROD";
+    trigger?: "manual" | "scheduled";
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -240,7 +241,7 @@ export class ScheduledTasksService {
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       const result = await this.getScreenerAgent().runScreen({
-        trigger: "scheduled",
+        trigger: options.trigger || "scheduled",
         sector: options.sector || "Technology",
         universe: (options.universe as any) || "TECH",
         maxItems: options.maxItems,
@@ -277,10 +278,10 @@ export class ScheduledTasksService {
         type: "screener.completed",
         timestamp,
         universe: result.universe,
-        trigger: "scheduled",
+        trigger: options.trigger || "scheduled",
         expectedCount: result.expectedCount,
         pdfKey: result.pdfKey,
-        deliveryId: `scheduled:${result.universe}:${timestamp.slice(0, 13)}`,
+        deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 13)}`,
         sector: result.sector || options.sector || "Technology",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
@@ -331,8 +332,8 @@ export class ScheduledTasksService {
         type: "screener.failed",
         timestamp,
         universe: options.universe || "TECH",
-        trigger: "scheduled",
-        deliveryId: `scheduled:${options.universe || "TECH"}:${timestamp.slice(0, 13)}`,
+        trigger: options.trigger || "scheduled",
+        deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 13)}`,
         sector: options.sector || "Technology",
         error: err.message || "Market screener execution error",
       });

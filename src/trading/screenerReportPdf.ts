@@ -39,16 +39,33 @@ function text(
 ): void {
   const size = opts.size ?? 10;
   const font = opts.bold ? ctx.bold : ctx.font;
-  ensureSpace(ctx, size + 4);
   const c = opts.color ?? [0.15, 0.15, 0.15];
-  ctx.page.drawText(str.slice(0, 120), {
-    x: opts.x ?? MARGIN,
-    y: ctx.y,
-    size,
-    font,
-    color: rgb(c[0], c[1], c[2]),
-  });
-  ctx.y -= size + 4;
+  const x = opts.x ?? MARGIN;
+  const maxWidth = PAGE_W - MARGIN - x;
+  const words = str.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  for (const renderedLine of lines) {
+    ensureSpace(ctx, size + 4);
+    ctx.page.drawText(renderedLine, {
+      x,
+      y: ctx.y,
+      size,
+      font,
+      color: rgb(c[0], c[1], c[2]),
+    });
+    ctx.y -= size + 4;
+  }
 }
 
 function rule(ctx: Ctx): void {
@@ -87,7 +104,7 @@ export async function generateScreenerPdf(
   const universeLabel = (result.universe || "TECH").replace(/_/g, " ");
   text(ctx, `Stock Screener Report — ${universeLabel}`, { size: 18, bold: true });
   text(ctx, `${triggerLabel}  •  ${result.sector} sector`, { size: 11, color: [0.4, 0.4, 0.4] });
-  text(ctx, new Date(result.timestamp).toLocaleString(), { size: 10, color: [0.4, 0.4, 0.4] });
+  text(ctx, `Generated (UTC): ${result.timestamp}`, { size: 10, color: [0.4, 0.4, 0.4] });
   rule(ctx);
 
   if (!result.success) {
@@ -190,7 +207,7 @@ export function screenerPdfFileName(result: ScreenerRunResult): string {
   // The schedule and jobId are appended by the caller when available.
   const ts = new Date(result.timestamp).toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
   const u = (result.universe || "NASDAQ100").toLowerCase().replace(/_/g, "-");
-  const schedule = (result as any).schedule || "manual";
+  const schedule = (result as any).schedule || result.trigger;
   const jobId = (result as any).jobId || "adhoc";
   return `market-screen_${u}_${schedule}_${ts}_${jobId}.pdf`;
 }
