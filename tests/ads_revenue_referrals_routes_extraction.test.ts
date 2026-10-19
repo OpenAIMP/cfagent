@@ -159,9 +159,14 @@ describe("ads/revenue/referrals route inventory (extraction #366)", () => {
     const callAIdx = orchSrc.indexOf("handleAdsRevenueReferralsRoutes(request, url, path, sessionId,");
     expect(callAIdx).toBeGreaterThan(orchSrc.indexOf('if (path.endsWith("/schema/query")'));
     expect(callAIdx).toBeLessThan(orchSrc.indexOf("handleAuditRoutes(request, url, path, sessionId,"));
-    // Call-site B sits between /memory and the payments block.
+    // Call-site B sits between the memory/reset handler and the payments block.
+    // Landmark rule (#405): anchor to the DELEGATION CALL, never to a
+    // neighboring domain's inline block — slice 06 (#369) moved the inline
+    // `if (path.endsWith("/memory"))` block into
+    // src/agents/routes/memoryReset.ts, so anchoring to the inline condition
+    // would resolve to indexOf -1 (trivially true, meaningless).
     const callBIdx = orchSrc.indexOf("handleReferralsAdsRoutes(request, url, path, sessionId,");
-    expect(callBIdx).toBeGreaterThan(orchSrc.indexOf('if (path.endsWith("/memory"))'));
+    expect(callBIdx).toBeGreaterThan(orchSrc.indexOf("handleMemoryResetRoutes(request, url, path, sessionId,"));
     expect(callBIdx).toBeLessThan(orchSrc.indexOf("Multi-Gateway Payments & DID Management API"));
   });
 });

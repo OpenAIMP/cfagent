@@ -34,6 +34,15 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Memory + reset routes extracted from orchestrator.ts** (#359/#369): the
+  Persistent Memory facts routes (GET/DELETE `/memory`) and the session reset
+  routes (POST|DELETE|GET `/clear|/reset`) moved to
+  `src/agents/routes/memoryReset.ts`, invoked from `routeRequest` at the exact
+  original position (between the autopilot handler and the referrals+ads
+  handler). Reset guards preserved byte-for-byte in behavior (the
+  `?purge=false` opt-out, the abort reason string, the
+  memory.deleted/memory.cleared/history.purged/history.cleared audit events);
+  a characterization test pins route order and behavior.
 - **Reports + HITL routes extracted from orchestrator.ts** (#359/#363): the
   report generation/dispatch routes (`/trading/reports/email`,
   `/trading/reports/webhook`), the #277 HITL confirmation routes
