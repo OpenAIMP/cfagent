@@ -74,6 +74,22 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   SQL writes). A scripted scan of the full 120-condition route inventory
   confirms the matching order is unchanged. orchestrator.ts: 6364 → 5998 lines.
 
+- **Audit routes extracted from orchestrator.ts** (#359/#367): the audit-log
+  read route (`GET /api/audit`), the generic audit write (`POST /api/audit`)
+  and the strictly-validated event append (`POST /api/audit/event`, issue
+  #270/PR #302) now live in `src/agents/routes/audit.ts` as
+  `handleAuditRoutes()`. Pure move — same paths, same matching order in
+  `routeRequest` (the three blocks were contiguous between the
+  ads/revenue/referrals handler and the autopilot block, so a single
+  delegation at that position preserves order), same response
+  shapes/statuses. Audit writes stay funneled through the single-owner
+  `recordAudit()` via an explicit `AuditRouteContext`; nothing is inlined.
+  Characterization: `tests/audit_routes_extraction.test.ts` pins the 3-route
+  inventory and order, the single call-site position, and behavior (null for
+  non-owned paths, GET parsing/limit clamp, POST defaults, event-append
+  validation + 201 delegation). The source pin in
+  `tests/audit-event-endpoint.test.ts` now points at the new ownership.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.

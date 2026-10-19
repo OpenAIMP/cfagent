@@ -141,7 +141,11 @@ describe("POST /api/audit/event (#270)", () => {
       .map((m) => m[1])
       .find((s) => s.includes("/api/audit"));
     expect(advertised).toBe("GET /api/audit · POST /api/audit/event");
+    // Issue #359-04: the audit routes now live in src/agents/routes/audit.ts;
+    // orchestrator.ts delegates to handleAuditRoutes at the same position.
+    const moduleSrc = readFileSync("src/agents/routes/audit.ts", "utf8");
+    expect(moduleSrc).toContain('path.endsWith("/audit/event") && request.method === "POST"');
     const orch = readFileSync("src/agents/orchestrator.ts", "utf8");
-    expect(orch).toContain('path.endsWith("/audit/event") && request.method === "POST"');
+    expect(orch).toContain("handleAuditRoutes(request, url, path, sessionId,");
   });
 });
