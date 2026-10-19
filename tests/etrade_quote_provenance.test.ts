@@ -8,7 +8,7 @@
  * them (order previews, NLQ chat/voice answers) must disclose the non-live
  * pricing basis. The genuine live path stays byte-identical.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { ETradeService } from "../src/services/etrade";
@@ -249,11 +249,16 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
       expect(result.summary).toContain("STATIC_FALLBACK");
     });
 
-    it("async preview_order in LIVE env discloses static-fallback pricing in summary and rows", async () => {
+    it("async preview_order in LIVE env propagates quote failures instead of substituting fallback data", async () => {
       const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY}`);
-      const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv);
-      expect(result.rows[0].pricingQuoteStatus).toBe("STATIC_FALLBACK");
-      expect(result.summary).toContain("NON-LIVE QUOTE");
+      const quoteFailure = vi.spyOn(ETradeService.prototype, "fetchQuoteRemote")
+        .mockRejectedValue(new Error("fixture: live quote unavailable"));
+      try {
+        await expect(executeNLQQueryAsync(orm, sessionId, plan, liveEnv))
+          .rejects.toThrow("fixture: live quote unavailable");
+      } finally {
+        quoteFailure.mockRestore();
+      }
     });
   });
 });
