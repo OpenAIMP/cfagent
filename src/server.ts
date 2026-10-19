@@ -1,5 +1,5 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
-import { getSessionId, setSessionCookie } from "./session";
+import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getSessionCached } from "./security/sessionCache";
 import { serveStaticAsset } from "./security/staticAssets";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
@@ -927,10 +927,9 @@ export default {
       const redirectUri = `${env.APP_BASE_URL || "https://agent.openaimp.com"}/slack/oauth_callback`;
       try {
         const tokens = await ETradeSlackTradingService.exchangeOAuthCode(code, clientId, clientSecret, redirectUri);
-        const kv = env.ETRADE_KV || env.SESSIONS;
-        if (kv) {
-          await kv.put(`slack_token_${tokens.teamId}`, tokens.accessToken);
-        }
+        // Issue #329: the team token used to be written to KV under
+        // `slack_token_{teamId}`, but nothing in the Worker ever read it back —
+        // pure write-quota spend. Posting goes through the Slack service itself.
         return Response.redirect(`/?tab=trading&slack=connected&team=${encodeURIComponent(tokens.teamName)}`, 302);
       } catch (err: any) {
         return Response.redirect(`/?tab=trading&error=${encodeURIComponent(err.message || "slack_oauth_failed")}`, 302);
@@ -1289,7 +1288,9 @@ export default {
 
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
   const sessionId = getSessionId(request);
-  if (!sessionId) return null;
+  // Issue #329: a value that isn't a UUID cannot name a session, so reject it
+  // before the cache and before KV — junk cookies cost a regex, not a read.
+  if (!isSessionIdFormat(sessionId)) return null;
   return await getSessionCached(env, sessionId);
 }
 

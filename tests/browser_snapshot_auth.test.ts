@@ -64,7 +64,7 @@ import worker from "../src/server";
 import type { Env } from "../src/types";
 
 const LOGIN = "octocat-181";
-const SESSION_ID = "test-session-181";
+const SESSION_ID = "0d9a1810-1c2b-4e3f-8a5b-181000000001";
 
 interface ForwardedCall {
   id: string;

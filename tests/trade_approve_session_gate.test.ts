@@ -71,7 +71,7 @@ import type { Env } from "../src/types";
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 
 const LOGIN = "octocat-149";
-const SESSION_ID = "test-session-149";
+const SESSION_ID = "0d9a1490-1c2b-4e3f-8a5b-149000000001";
 const ORDER_ID = "ord_149_test";
 
 interface ForwardedCall {

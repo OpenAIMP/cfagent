@@ -12,6 +12,7 @@ import {
 } from "../src/services/etradeOAuth";
 import { ETradeService } from "../src/services/etrade";
 import type { Env } from "../src/types";
+import { __resetTokenCache } from "../src/security/etradeTokenCache";
 
 // In-memory KV mock for testing token storage
 class MockKVNamespace {
@@ -39,6 +40,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetTokenCache();
     mockKv = new MockKVNamespace();
     env = {
       APP_ENV: "TEST",

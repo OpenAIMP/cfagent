@@ -21,7 +21,6 @@ export class MemoryAgent extends AIChatAgent<Env> {
             value: z.string().min(1).max(1000),
           }),
           execute: async ({ key, value }) => {
-            const sessionId = this.ctx?.id?.toString?.() || "default";
             const storage = this.ctx?.storage;
             if (storage?.sql) {
               storage.sql.exec(
@@ -33,10 +32,12 @@ export class MemoryAgent extends AIChatAgent<Env> {
                 value,
                 new Date().toISOString()
               );
-            } else if (this.env.SESSIONS) {
-              await this.env.SESSIONS.put(`memory:${sessionId}:${key}`, value);
             }
-            return { stored: true, key, value };
+            // Issue #329: the KV fallback wrote `memory:{session}:{key}` and
+            // nothing ever read it back. A DO without SQL storage has no
+            // durable memory to offer, so report that instead of paying for a
+            // write nobody can observe.
+            return { stored: Boolean(storage?.sql), key, value };
           },
         }),
       },

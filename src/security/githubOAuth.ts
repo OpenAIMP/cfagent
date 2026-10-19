@@ -1,6 +1,6 @@
 import type { Env, SessionData } from "../types";
-import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId } from "./session";
-import { invalidateSessionCache } from "./sessionCache";          // ← add
+import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat } from "./session";
+import { invalidateSessionCache } from "./sessionCache";
 import { revokeStoredTokens } from "./etradeOAuth";
 
 function getRedirectUri(env: Env): string {
@@ -99,7 +99,9 @@ export async function handleOAuthCallback(env: Env, request: Request): Promise<R
 export async function handleLogout(env: Env, request: Request): Promise<Response> {
   const sessionId = getSessionId(request);
 
-  if (sessionId) {
+  // Issue #329: only a UUID-shaped cookie can name a session; skipping the
+  // read (and the delete) for anything else keeps junk cookies off KV.
+  if (isSessionIdFormat(sessionId)) {
     try {
       const rawSession = await env.SESSIONS.get(sessionId);
       if (rawSession) {
@@ -110,7 +112,7 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
           }
         } catch { }
       }
-      invalidateSessionCache(sessionId);       // ← NEW
+      invalidateSessionCache(sessionId);
       await env.SESSIONS.delete(sessionId);
     } catch {
       // Ignore KV deletion errors on logout
