@@ -607,10 +607,14 @@ export class ScheduledTasksService {
           }
           const base64 = btoa(binary);
           
-          // Issue #329: this used to write the base64 PDF to KV under
-          // `options:pdf:{file}` and `options:pdf:latest`, but nothing — Worker
-          // or UI — ever read those keys back. The PDF still reaches Slack via
-          // cfpay below; the KV copies were pure write-quota spend.
+          // Issue #361: Store options PDF in ScreenerAgent DO storage (mirrors stock pattern).
+          // Uses DO storage, not KV (PR #414 removed KV writes as dead code).
+          try {
+            const screenerAgent = this.getScreenerAgent();
+            await screenerAgent.storeOptionsPdf(base64, fileName);
+          } catch (storeErr) {
+            console.warn("[ScheduledTasksService] Options PDF DO storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
+          }
           
           const cfpayCfg = getCfpayConfig(this.env);
           if (cfpayCfg) {
