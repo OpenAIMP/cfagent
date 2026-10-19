@@ -644,6 +644,7 @@ export function recommendOptionStrategies(
   const registry = defaultRegistry;
   const ledger = new EvaluationLedger(registry.list());
   const wanted = new Set(registry.resolveMany(request.allowedStrategies).ids);
+  const selectedDefs = registry.list().filter((def) => wanted.has(def.id) && def.theses.includes(request.thesis));
   const finish = (partial: Omit<StrategyRecommendationResult, "evaluations" | "nameLedger">): StrategyRecommendationResult => {
     const evaluations = ledger.report();
     return { ...partial, evaluations, nameLedger: buildNameLedger(evaluations) };
@@ -664,9 +665,11 @@ export function recommendOptionStrategies(
     });
   }
   const targetDays = daysUntil(request.targetDate);
+  const strategyDataMaxDte = Math.max(maxDte, ...selectedDefs.map((def) => def.dataHorizonDte ?? 0));
   const normalized = contracts.filter((contract) =>
     contract.underlyingSymbol.toUpperCase() === request.symbol.toUpperCase() &&
-    contract.daysToExpiration >= minDte && contract.daysToExpiration <= maxDte
+    contract.daysToExpiration >= minDte &&
+    contract.daysToExpiration <= strategyDataMaxDte
   );
   const byExpiry = new Map<string, ScreenedOptionContractItem[]>();
   for (const contract of normalized) {
@@ -689,7 +692,6 @@ export function recommendOptionStrategies(
     stockShares: 100,
   };
 
-  const contractMap = new Map(normalized.map((contract) => [contractKey(contract), contract]));
   const rejected = new Map<string, number>();
   const candidates: StrategyCandidate[] = [];
 
@@ -704,7 +706,28 @@ export function recommendOptionStrategies(
       addRejected(rejected, reason);
       continue;
     }
-    if (chains.length === 0) {
+    // DTE ceilings apply to the ordinary scan window. A strategy may also
+    // need contracts beyond that window (e.g. LEAPS or a PMCC far leg); the
+    // catalog declares that floor, and only that strategy receives those
+    // extended expirations. For multi-expiry templates maxDte still bounds
+    // eligible near legs (see template.expiryPairs).
+    const strategyNormalized = normalized.filter((contract) =>
+      contract.daysToExpiration <= maxDte ||
+      (def.dataHorizonDte !== undefined && contract.daysToExpiration <= def.dataHorizonDte)
+    );
+    const strategyByExpiry = new Map<string, ScreenedOptionContractItem[]>();
+    for (const contract of strategyNormalized) {
+      strategyByExpiry.set(contract.expirationDate, [...(strategyByExpiry.get(contract.expirationDate) || []), contract]);
+    }
+    const strategyChains: ChainView[] = Array.from(strategyByExpiry.entries()).map(([expiration, items]) => ({
+      expiration,
+      dte: items[0].daysToExpiration,
+      calls: new Map(closest(items.filter((item) => item.optionType === "CALL")).map((item) => [item.strikePrice, item])),
+      puts: new Map(closest(items.filter((item) => item.optionType === "PUT")).map((item) => [item.strikePrice, item])),
+    })).sort((a, b) => a.dte - b.dte);
+    const strategyContext = { ...context, chains: strategyChains };
+    const strategyContractMap = new Map(strategyNormalized.map((contract) => [contractKey(contract), contract]));
+    if (strategyContext.chains.length === 0) {
       ledger.onSkipped(def, `Skipped: no ${context.symbol} option contracts are available inside the DTE window.`);
       continue;
     }
@@ -713,10 +736,10 @@ export function recommendOptionStrategies(
       continue;
     }
     const cap = def.id === "iron_condor" && request.maxIronCondors !== undefined ? request.maxIronCondors : DEFAULT_MAX_COMBINATIONS;
-    const generated = def.generate(context, cap);
+    const generated = def.generate(strategyContext, cap);
     ledger.onGenerated(def, generated.sets.length, generated.truncated, generated.skipReason);
     for (const legs of generated.sets) {
-      const outcome = buildCandidate(def, legs, contractMap, request, targetDays);
+      const outcome = buildCandidate(def, legs, strategyContractMap, request, targetDays);
       const reason = "candidate" in outcome ? runAcceptanceRules(outcome.candidate, request) : outcome.reason;
       if (reason) {
         ledger.onRejected(def, reason);

@@ -46,6 +46,11 @@ export interface StrategyDefinition {
   theses: OptionThesis[];
   usesStock: boolean;
   multiExpiry: boolean;
+  /** Largest strategy-specific DTE floor (single/near or far leg) that
+   *  must be present in the acquired chain for this definition to run. */
+  requiredMaxDte?: number;
+  /** Discovery horizon required by this strategy's chain-generation rules. */
+  dataHorizonDte?: number;
   generate(context: StrategyContext, maxCombinations: number): GenerationResult;
 }
 

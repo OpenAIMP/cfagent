@@ -56,6 +56,15 @@ describe("aiSearchCacheKey", () => {
   it("defaults an empty scope", () => {
     expect(aiSearchCacheKey("nvda", "")).toBe(aiSearchCacheKey("nvda", "default"));
   });
+
+  it("keeps result limits isolated in cache keys", () => {
+    expect(aiSearchCacheKey("nvda", "session-a", 5)).not.toBe(
+      aiSearchCacheKey("nvda", "session-a", 10)
+    );
+    expect(aiSearchCacheKey("nvda", "session-a", 0)).toBe(
+      aiSearchCacheKey("nvda", "session-a", 1)
+    );
+  });
 });
 
 describe("AiSearchCache", () => {

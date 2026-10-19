@@ -1807,6 +1807,7 @@ describe("issue #103 — history rows label the profile; recorded runs replay ve
       maxDte: 45,
       profileId: "prof-1",
       limit: 5,
+      pushToSlack: true,
     });
   });
 });

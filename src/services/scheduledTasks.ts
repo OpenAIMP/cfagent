@@ -227,6 +227,7 @@ export class ScheduledTasksService {
     sector?: string;
     universe?: string;
     expectedCount?: number;
+    pdfKey?: string;
   }>> {
     const timestamp = new Date().toISOString();
 
@@ -290,6 +291,7 @@ export class ScheduledTasksService {
           sector: result.sector,
           universe: result.universe,
           expectedCount: result.expectedCount,
+          pdfKey: result.pdfKey,
         },
         timestamp,
       };
@@ -586,6 +588,30 @@ export class ScheduledTasksService {
         ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`
         : undefined;
 
+      // Store the searchable report once before any channel delivery. The
+      // PDF remains in ScreenerAgent storage; mas_reports keeps its key/URL
+      // and the complete structured scan payload for AI Search.
+      const generationId = `options_scanner:${timestamp}:${targetThesis}`;
+      const canonical = this.orm?.storeCanonicalReport({
+        runId: generationId,
+        generationId,
+        title: `Options scanner — ${targetThesis} (${timestamp.slice(0, 10)})`,
+        source: "options_scanner",
+        summary: response.summary,
+        body: {
+          generatedAt: timestamp,
+          thesis: targetThesis,
+          symbols,
+          totalScanned: response.data?.scanned ?? symbols.length,
+          withTrades: response.data?.withTrades ?? 0,
+          opportunities: response.data?.opportunities ?? [],
+          pdfKey: optionsPdfKey,
+          reportUrl,
+          report: typeof response.toWebhook === "function" ? response.toWebhook() : response.data,
+        },
+        createdAt: timestamp,
+      });
+
       // One A2A file operation creates one Slack notification with the
       // summary attached, avoiding the old text-plus-file duplicate pair.
       if (shouldNotifySlack) {
@@ -695,6 +721,7 @@ export class ScheduledTasksService {
         scanned: response.data?.scanned ?? symbols.length,
         withTrades: response.data?.withTrades ?? 0,
         notifications,
+        reportId: canonical?.reportId,
       });
 
       if (this.orm?.messages) {

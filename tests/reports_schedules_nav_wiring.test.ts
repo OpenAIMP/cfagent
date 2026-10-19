@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const chatSrc = readFileSync(join(here, "..", "src", "client", "Chat.tsx"), "utf8");
+const chatSrc = readFileSync(join(here, "..", "src", "client", "Chat.tsx"), "utf8").replace(/\r\n/g, "\n");
 const hubSrc = readFileSync(
   join(here, "..", "src", "client", "ETradeTradingHub.tsx"),
   "utf8",
