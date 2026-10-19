@@ -13,7 +13,6 @@ import { resolveEnvironmentConfig } from "../config/environment";
 import { getStoredTokens, getValidTokens, isTokenExpiredEt } from "../security/etradeOAuth";
 import { runStorageRetention } from "../security/storageRetention";
 import { ETradeRestClient } from "../trading";
-import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
 import {
@@ -31,7 +30,6 @@ import { assessPortfolioConcentration } from "../services/portfolioConcentration
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
-import { YFinanceMarketScreener } from "../trading";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
 import {
@@ -87,6 +85,7 @@ import {
 import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
 import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
+import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -202,8 +201,6 @@ const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS = new Set<string>([
 ]);
 
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
-
-
 
 type ETradeEnvironment = "TEST" | "PROD";
 type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
@@ -2328,7 +2325,6 @@ Agentic Best Practices & Workflow Rules:
         }
       }
 
-
       const fallbackText = [
         `⚠️ **[${aspect.code}] ${aspect.title}**`,
         "",
@@ -2875,72 +2871,11 @@ Agentic Best Practices & Workflow Rules:
     // FOSS Market Research & Quoting APIs (yfinance & Alpaca)
     // ==========================================
 
-    // Real-time quote (Yahoo Finance, Alpaca, or Hybrid)
-    if (path.endsWith("/foss/quote") && request.method === "GET") {
-      try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
-        const provider = (url.searchParams.get("provider") || "hybrid") as any;
-        const foss = new FossResearchService(this.env);
-        const quote = await foss.getQuote(symbol, provider);
-        return Response.json(quote);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS quote" }, { status: 500 });
-      }
-    }
-
-    // Company fundamentals & valuation metrics (yfinance)
-    if (path.endsWith("/foss/fundamentals") && request.method === "GET") {
-      try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
-        const foss = new FossResearchService(this.env);
-        const fundamentals = await foss.getFundamentals(symbol);
-        return Response.json(fundamentals);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch fundamentals" }, { status: 500 });
-      }
-    }
-
-    // Historical OHLCV bars (yfinance / Alpaca)
-    if (path.endsWith("/foss/bars") && request.method === "GET") {
-      try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
-        const timeframe = url.searchParams.get("timeframe") || "1D";
-        const limit = Number(url.searchParams.get("limit") || "30");
-        const provider = (url.searchParams.get("provider") || "yfinance") as "yfinance" | "alpaca" | "hybrid";
-        const foss = new FossResearchService(this.env);
-        const bars = await foss.getHistoricalBars(symbol, timeframe, limit, provider);
-        // Issue #117: `source` is stamped from the bars' actual provenance —
-        // a provider API name only when the bars were really fetched live;
-        // generated/static fallback bars are labelled as such, and the
-        // provenance rides in the response alongside the per-bar fields.
-        const provenance = bars[0]?.provenance ?? "generated";
-        return Response.json({
-          symbol: symbol.toUpperCase(),
-          provider,
-          timeframe,
-          count: bars.length,
-          bars,
-          provenance,
-          source: fossBarsSourceLabel(provider, provenance),
-          timestamp: new Date().toISOString(),
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch historical bars" }, { status: 500 });
-      }
-    }
-
-    // Comprehensive equity research report with Agent DID stamp
-    if (path.endsWith("/foss/research") && request.method === "GET") {
-      try {
-        const symbol = url.searchParams.get("symbol") || "NVDA";
-        const foss = new FossResearchService(this.env);
-        const report = await foss.generateResearchReport(symbol);
-        this.audit("foss.research_generated", "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
-        return Response.json(report);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to generate research report" }, { status: 500 });
-      }
-    }
+    const fossResearchResponse = await handleFossQuoteResearchRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (fossResearchResponse) return fossResearchResponse;
 
     const alpacaFossResponse = await handleAlpacaFossRoutes(request, url, path, sessionId, {
       env: this.env,
@@ -2948,64 +2883,11 @@ Agentic Best Practices & Workflow Rules:
     });
     if (alpacaFossResponse) return alpacaFossResponse;
 
-
-    // Multi-ticker valuation comparison
-    if (path.endsWith("/foss/compare") && (request.method === "POST" || request.method === "GET")) {
-      try {
-        let symbols = ["NVDA", "AAPL", "MSFT"];
-        if (request.method === "POST") {
-          const body = (await request.json().catch(() => ({}))) as any;
-          if (Array.isArray(body.symbols) && body.symbols.length > 0) {
-            symbols = body.symbols;
-          }
-        } else {
-          const symParam = url.searchParams.get("symbols");
-          if (symParam) symbols = symParam.split(",").map(s => s.trim());
-        }
-        const foss = new FossResearchService(this.env);
-        const comparison = await foss.compareStocks(symbols);
-        return Response.json({ count: comparison.length, comparison });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to compare stocks" }, { status: 500 });
-      }
-    }
-
-    // FOSS provider statuses (Yahoo Finance + Alpaca)
-    if (path.endsWith("/foss/providers") && request.method === "GET") {
-      try {
-        const foss = new FossResearchService(this.env);
-        const statuses = foss.getProviderStatuses();
-        return Response.json({ providers: statuses });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS providers" }, { status: 500 });
-      }
-    }
-
-    // Dedicated Yahoo Finance (FOSS) Market Screener
-    if ((path.endsWith("/foss/screen") || path.endsWith("/yfinance/screen")) && (request.method === "POST" || request.method === "GET")) {
-      try {
-        const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
-        if (request.method === "GET") {
-          if (url.searchParams.get("sector")) filters.sector = url.searchParams.get("sector");
-          if (url.searchParams.get("search")) filters.search = url.searchParams.get("search");
-          if (url.searchParams.get("maxRsi")) filters.maxRsi = Number(url.searchParams.get("maxRsi"));
-          if (url.searchParams.get("minRsi")) filters.minRsi = Number(url.searchParams.get("minRsi"));
-          if (url.searchParams.get("maxPeRatio")) filters.maxPeRatio = Number(url.searchParams.get("maxPeRatio"));
-          if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
-          if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
-        }
-        const screener = new YFinanceMarketScreener();
-        const results = await screener.screenMarkets(filters);
-        this.audit("foss.screener.executed", "research", { filterSummary: results.filterSummary, count: results.stocks.length });
-        return Response.json({
-          ...results,
-          results: results.stocks,
-          stocks: results.stocks,
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to run Yahoo Finance screener" }, { status: 500 });
-      }
-    }
+    const fossScreeningResponse = await handleFossCompareScreenRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (fossScreeningResponse) return fossScreeningResponse;
 
     // ==========================================
     // Cloudflare Agents Task Scheduling Management APIs

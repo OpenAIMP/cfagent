@@ -38,6 +38,20 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **FOSS research routes extracted from orchestrator.ts** (#359/#377): the
+  non-alpaca FOSS route blocks moved to `src/agents/routes/fossResearch.ts`
+  as TWO handlers, each invoked from `routeRequest` at its exact original
+  position — `handleFossQuoteResearchRoutes` (GET `/foss/quote`,
+  `/foss/fundamentals`, `/foss/bars`, `/foss/research`, before the
+  handleAlpacaFossRoutes delegation) and `handleFossCompareScreenRoutes`
+  (POST|GET `/foss/compare`, GET `/foss/providers`, POST|GET
+  `/foss/screen`|`/yfinance/screen`, after it). The `FossResearchService` /
+  `fossBarsSourceLabel` and `YFinanceMarketScreener` imports moved with the
+  blocks; audit events stay funneled through the single-owner `recordAudit()`
+  via the context. Slice #359-13's test landmark (the
+  FossResearchService-import-stays-inline anchor) was swapped to the new
+  ownership per the #405 rule. Pure move, no behavior change.
+
 - **Alpaca routes extracted from orchestrator.ts** (#359/#376): the
   alpaca-named route blocks moved to `src/agents/routes/alpaca.ts` as TWO
   handlers, each invoked from `routeRequest` at its exact original position —
@@ -46,12 +60,12 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   delegation) and `handleAlpacaFossRoutes` (GET `/foss/snapshot`, GET
   `/foss/alpaca/account|/positions|/orders`, POST `/foss/alpaca/order`,
   between the `/foss/research` and `/foss/compare` blocks). The non-alpaca
-  foss routes (`/foss/quote`, `/foss/fundamentals`, `/foss/bars`,
-  `/foss/research`, `/foss/compare`) stay inline — they are slice #359-14's
-  (foss research) domain. `FossResearchService` is constructed with the same
-  env (no credential/auth semantics change); the import stays in
-  orchestrator.ts for the remaining inline FOSS blocks and is duplicated in
-  the module; audit events stay funneled through the single-owner
+  foss routes were slice #359-14's (foss research) domain and are now
+  extracted to `src/agents/routes/fossResearch.ts` (two handlers flanking
+  this delegation). `FossResearchService` was constructed with the same
+  env (no credential/auth semantics change); the import has moved to the
+  fossResearch module with the blocks (slice #377 swapped the test
+  landmark). Audit events stay funneled through the single-owner
   `recordAudit()` via the context. Slice #359-12's test needs no landmark
   swap (it already anchored to the watchlists delegation call). Pure move,
   no behavior change.
