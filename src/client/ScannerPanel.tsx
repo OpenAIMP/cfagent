@@ -1407,7 +1407,8 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
             {(() => {
               // Issue #437: Filter by thesis and search, group by category
               const filtered = strategyCatalog.filter((s) => {
-                const thesisMatch = !thesis || s.theses.includes(thesis);
+                const normalize = (t: string) => t.toLowerCase().replace(/_/g, " ");
+                const thesisMatch = !thesis || s.theses.some((t) => normalize(t) === normalize(thesis));
                 const searchMatch = !strategySearch ||
                   s.label.toLowerCase().includes(strategySearch.toLowerCase()) ||
                   s.id.toLowerCase().includes(strategySearch.toLowerCase());
