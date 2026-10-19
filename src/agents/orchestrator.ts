@@ -639,6 +639,33 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         updated_at TEXT NOT NULL
       )
     `);
+    // Server-owned settings (issue #277): per-key runtime flags readable by
+    // the agent and writable through the /trading/settings routes. Same
+    // shape as mas_autopilot; DELETE+INSERT is used for upsert so the
+    // MockSqlStorage harness (which does not parse INSERT OR REPLACE)
+    // stays byte-compatible with real SQLite.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    // Issue #277: pending HITL confirmations for research-report dispatch.
+    // Payloads are stored verbatim at creation time; the actual email or
+    // webhook send happens only when a human approves via
+    // POST /trading/reports/confirm. Mirrors the /payments/confirm flow.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_report_confirmations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        decided_by TEXT
+      )
+    `);
     // Append-only verdict ledger: every policy decision, its inputs, and a
     // signature produced server-side where the decision is made.
     sql.exec(`
@@ -1209,6 +1236,132 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       console.warn("[OrchestratorAgent] Autopilot: failed to persist state:", err);
     }
     return next;
+  }
+
+  /** Issue #277: setting key for optional HITL confirmation on report dispatch. */
+  private static readonly REPORT_DISPATCH_HITL_KEY = "report_dispatch_hitl";
+  /** Pending report confirmations expire unconfirmed after this long. */
+  private static readonly REPORT_CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+  private readSettingRaw(key: string): string | null {
+    try {
+      const sql = this.ensureTables();
+      const rows = Array.from(
+        sql.exec("SELECT value FROM mas_settings WHERE key = ?", key)
+      ) as Array<{ value: string }>;
+      return rows[0]?.value ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeSetting(key: string, value: string): void {
+    const sql = this.ensureTables();
+    const now = new Date().toISOString();
+    // DELETE+INSERT (not INSERT OR REPLACE) so MockSqlStorage stays compatible.
+    sql.exec("DELETE FROM mas_settings WHERE key = ?", key);
+    sql.exec("INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)", key, value, now);
+  }
+
+  /** Issue #277: true when report dispatch requires human confirmation. Default OFF. */
+  private getReportDispatchHitl(): boolean {
+    return this.readSettingRaw(OrchestratorAgent.REPORT_DISPATCH_HITL_KEY) === "1";
+  }
+
+  private setReportDispatchHitl(enabled: boolean): void {
+    this.writeSetting(OrchestratorAgent.REPORT_DISPATCH_HITL_KEY, enabled ? "1" : "0");
+  }
+
+  /** Stores a pending report-dispatch confirmation; returns its confirmation id. */
+  private createReportConfirmation(kind: "email" | "webhook", payloadJson: string): string {
+    const sql = this.ensureTables();
+    const now = new Date().toISOString();
+    // Lazy sweep: drop confirmations that expired unconfirmed.
+    sql.exec(
+      "DELETE FROM mas_report_confirmations WHERE status = 'pending' AND created_at < ?",
+      new Date(Date.now() - OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS).toISOString()
+    );
+    const id = `rc_${crypto.randomUUID().slice(0, 8)}`;
+    sql.exec(
+      "INSERT INTO mas_report_confirmations (id, kind, payload_json, status, created_at) VALUES (?, ?, ?, ?, ?)",
+      id,
+      kind,
+      payloadJson,
+      "pending",
+      now
+    );
+    return id;
+  }
+
+  private getReportConfirmation(id: string): any | null {
+    try {
+      const sql = this.ensureTables();
+      const rows = Array.from(
+        sql.exec("SELECT * FROM mas_report_confirmations WHERE id = ?", id)
+      ) as any[];
+      return rows[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private decideReportConfirmation(id: string, status: "approved" | "rejected" | "expired", decidedBy: string | null): void {
+    try {
+      const sql = this.ensureTables();
+      sql.exec(
+        "UPDATE mas_report_confirmations SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?",
+        status,
+        new Date().toISOString(),
+        decidedBy,
+        id
+      );
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Failed to decide report confirmation:", err);
+    }
+  }
+
+  /** Shared send leg for POST /trading/reports/email (immediate + confirmed paths). */
+  private async sendReportEmail(
+    recipient: string,
+    title: string,
+    fileName: string,
+    attachmentBase64: string,
+    userLogin: string
+  ): Promise<boolean> {
+    const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
+    return emailService.sendOutboundEmail(
+      recipient,
+      `Research report: ${title}`,
+      "<p>Your requested research workbook is attached.</p><p>Research only; no trades were placed.</p>",
+      "Your requested research workbook is attached.\nResearch only; no trades were placed.",
+      {
+        fileName,
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        contentBase64: attachmentBase64,
+      }
+    );
+  }
+
+  /** Shared send leg for POST /trading/reports/webhook (immediate + confirmed paths). */
+  private async sendReportWebhook(
+    title: string,
+    query: string,
+    sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }>,
+    userLogin: string
+  ): Promise<{ success: boolean; status?: number; error?: string; notConfigured?: boolean }> {
+    const reportData = JSON.stringify({ title: title || "Research report", query: query || "", sheets });
+    if (reportData.length > 512_000) {
+      return { success: false, error: "The recommendation report exceeds the 512 KB webhook limit." };
+    }
+    if (!this.env.OUTBOUND_WEBHOOK_URL || !this.env.OUTBOUND_WEBHOOK_SECRET) {
+      return {
+        success: false,
+        notConfigured: true,
+        error: "Configure OUTBOUND_WEBHOOK_URL and OUTBOUND_WEBHOOK_SECRET to publish recommendations.",
+      };
+    }
+    const webhook = new ETradeWebhookService(this.getOrm(), this.env, userLogin);
+    return webhook.dispatchOutboundWebhook("research.recommendations", JSON.parse(reportData));
   }
 
   /** Counts a broker submission against today's autonomous order budget. */
@@ -1858,6 +2011,134 @@ Agentic Best Practices & Workflow Rules:
     const sql = this.ensureTables();
     const sessionId = this.sessionKey();
 
+    // Issue #277: list pending report-dispatch confirmations for the
+    // Settings UI. Summaries only — payloads stay server-side until decided.
+    if (path.endsWith("/trading/reports/pending") && request.method === "GET") {
+      try {
+        const sql = this.ensureTables();
+        const rows = Array.from(
+          sql.exec(
+            "SELECT id, kind, payload_json, created_at FROM mas_report_confirmations WHERE status = 'pending' ORDER BY created_at DESC"
+          )
+        ) as any[];
+        return Response.json({
+          pending: rows.map((row) => {
+            let payload: any = {};
+            try {
+              payload = JSON.parse(String(row.payload_json));
+            } catch {
+              payload = {};
+            }
+            return {
+              confirmationId: String(row.id),
+              kind: String(row.kind),
+              createdAt: String(row.created_at),
+              detail:
+                row.kind === "email"
+                  ? `${payload.recipient || "?"} · ${payload.fileName || "?"}`
+                  : `${payload.title || "Research report"} · ${(payload.sheets || []).length} sheets`,
+            };
+          }),
+        });
+      } catch (err) {
+        return Response.json({ error: "Failed to list pending confirmations." }, { status: 500 });
+      }
+    }
+
+    // Issue #277: server-side setting for optional HITL confirmation on
+    // report dispatch. Default OFF (autonomous, today's behavior).
+    if (path.endsWith("/trading/settings/report-dispatch-hitl") && request.method === "GET") {
+      return Response.json({ enabled: this.getReportDispatchHitl() });
+    }
+
+    if (path.endsWith("/trading/settings/report-dispatch-hitl") && request.method === "POST") {
+      const body = (await request.json().catch(() => null)) as { enabled?: unknown } | null;
+      if (!body || typeof body.enabled !== "boolean") {
+        return Response.json({ error: "enabled (boolean) is required." }, { status: 400 });
+      }
+      this.setReportDispatchHitl(body.enabled);
+      this.audit("report_dispatch_hitl.changed", "orchestrator", { enabled: body.enabled });
+      return Response.json({ enabled: body.enabled });
+    }
+
+    // Issue #277: confirm (or reject) a pending report dispatch. Mirrors
+    // POST /payments/confirm: the stored payload is executed only on
+    // "approved"; nothing is sent on "rejected" or for unknown/expired ids.
+    if (path.endsWith("/trading/reports/confirm") && request.method === "POST") {
+      const body = (await request.json().catch(() => ({}))) as {
+        confirmationId?: string;
+        decision?: "approved" | "rejected";
+        note?: string;
+      };
+      const confirmationId = (body.confirmationId || "").trim();
+      const decision = body.decision || "approved";
+      const note = (body.note || "").trim();
+      if (!confirmationId) {
+        return Response.json({ error: "confirmationId is required" }, { status: 400 });
+      }
+      const row = this.getReportConfirmation(confirmationId);
+      if (!row) {
+        return Response.json({ error: "Report confirmation not found." }, { status: 404 });
+      }
+      if (row.status !== "pending") {
+        return Response.json(
+          { error: `Report confirmation already ${row.status}.`, confirmationId },
+          { status: 409 }
+        );
+      }
+      const ageMs = Date.now() - new Date(String(row.created_at)).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS) {
+        this.decideReportConfirmation(confirmationId, "expired", null);
+        this.audit("research_report.confirmation_expired", "trading", { confirmationId });
+        return Response.json({ error: "Report confirmation expired.", confirmationId }, { status: 410 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      if (decision === "approved") {
+        const payload = JSON.parse(String(row.payload_json)) as any;
+        if (row.kind === "email") {
+          const sent = await this.sendReportEmail(
+            String(payload.recipient),
+            String(payload.title),
+            String(payload.fileName),
+            String(payload.attachmentBase64),
+            userLogin
+          );
+          if (!sent) {
+            return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
+          }
+          this.decideReportConfirmation(confirmationId, "approved", userLogin);
+          this.audit("research_report.emailed", "trading", {
+            confirmationId,
+            recipient: payload.recipient,
+            fileName: payload.fileName,
+            via: "hitl_confirmation",
+          });
+          return Response.json({ success: true, status: "dispatched", confirmationId });
+        }
+        const result = await this.sendReportWebhook(
+          String(payload.title),
+          String(payload.query || ""),
+          payload.sheets,
+          userLogin
+        );
+        if (!result.success) {
+          const status = result.notConfigured ? 503 : 502;
+          return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status });
+        }
+        this.decideReportConfirmation(confirmationId, "approved", userLogin);
+        this.audit("research_report.webhook_dispatched", "trading", {
+          confirmationId,
+          status: result.status,
+          sheets: (payload.sheets || []).length,
+          via: "hitl_confirmation",
+        });
+        return Response.json({ success: true, status: "dispatched", confirmationId });
+      }
+      this.decideReportConfirmation(confirmationId, "rejected", userLogin);
+      this.audit("research_report.confirmation_rejected", "trading", { confirmationId, note });
+      return Response.json({ success: true, status: "rejected", confirmationId });
+    }
+
     if (path.endsWith("/trading/reports/email") && request.method === "POST") {
       const body = await request.json().catch(() => null) as {
         to?: string;
@@ -1885,19 +2166,17 @@ Agentic Best Practices & Workflow Rules:
         return Response.json({ error: "The attachment must be a valid .xlsx workbook under 5 MB." }, { status: 400 });
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
       const title = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
-      const sent = await emailService.sendOutboundEmail(
-        recipient,
-        `Research report: ${title}`,
-        "<p>Your requested research workbook is attached.</p><p>Research only; no trades were placed.</p>",
-        "Your requested research workbook is attached.\nResearch only; no trades were placed.",
-        {
-          fileName,
-          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          contentBase64: attachmentBase64,
-        },
-      );
+      if (this.getReportDispatchHitl()) {
+        // Issue #277: hold for human confirmation instead of sending.
+        const confirmationId = this.createReportConfirmation(
+          "email",
+          JSON.stringify({ recipient, title, fileName, attachmentBase64 })
+        );
+        this.audit("research_report.pending_confirmation", "trading", { confirmationId, recipient, fileName });
+        return Response.json({ success: true, status: "pending_confirmation", confirmationId });
+      }
+      const sent = await this.sendReportEmail(recipient, title, fileName, attachmentBase64, userLogin);
       if (!sent) return Response.json({ error: "Email delivery is unavailable; check the configured email binding." }, { status: 503 });
       this.audit("research_report.emailed", "trading", { recipient, fileName });
       return Response.json({ success: true });
@@ -1913,15 +2192,25 @@ Agentic Best Practices & Workflow Rules:
         body.sheets.some((sheet) => !sheet || typeof sheet.name !== "string" || !Array.isArray(sheet.rows))) {
         return Response.json({ error: "A research report with named data sheets is required." }, { status: 400 });
       }
-      const reportData = JSON.stringify({ title: body.title || "Research report", query: body.query || "", sheets: body.sheets });
-      if (reportData.length > 512_000) return Response.json({ error: "The recommendation report exceeds the 512 KB webhook limit." }, { status: 413 });
-      if (!this.env.OUTBOUND_WEBHOOK_URL || !this.env.OUTBOUND_WEBHOOK_SECRET) {
-        return Response.json({ error: "Configure OUTBOUND_WEBHOOK_URL and OUTBOUND_WEBHOOK_SECRET to publish recommendations." }, { status: 503 });
+      if (this.getReportDispatchHitl()) {
+        // Issue #277: hold for human confirmation instead of dispatching.
+        const title = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+        const confirmationId = this.createReportConfirmation(
+          "webhook",
+          JSON.stringify({ title, query: body.query || "", sheets: body.sheets })
+        );
+        this.audit("research_report.pending_confirmation", "trading", {
+          confirmationId,
+          sheets: body.sheets.length,
+        });
+        return Response.json({ success: true, status: "pending_confirmation", confirmationId });
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const webhook = new ETradeWebhookService(this.getOrm(), this.env, userLogin);
-      const result = await webhook.dispatchOutboundWebhook("research.recommendations", JSON.parse(reportData));
-      if (!result.success) return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status: 502 });
+      const result = await this.sendReportWebhook(body.title || "", body.query || "", body.sheets, userLogin);
+      if (!result.success) {
+        const status = result.notConfigured ? 503 : 502;
+        return Response.json({ error: result.error || `Webhook returned HTTP ${result.status}.` }, { status });
+      }
       this.audit("research_report.webhook_dispatched", "trading", { status: result.status, sheets: body.sheets.length });
       return Response.json({ success: true, status: result.status });
     }
@@ -3294,9 +3583,7 @@ Agentic Best Practices & Workflow Rules:
           if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
         }
         // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
-        // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
-        // TECH (fuzzy keyword match with unpredictable symbol count).
-        const universe = (filters.universe as string) || "NASDAQ100";
+        const universe = (filters.universe as string) || "TECH";
         const agent = this.getScreenerAgent();
         if (universe === "ALL") {
           const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });

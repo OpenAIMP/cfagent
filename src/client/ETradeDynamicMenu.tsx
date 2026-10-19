@@ -68,6 +68,19 @@ export interface SettingsMenuProps {
   autoRefreshEnabled?: boolean;
   autoRefreshInterval?: number;
   onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
+  // Issue #277: optional HITL confirmation for research-report dispatch
+  // (POST /trading/reports/email|webhook). Default OFF = autonomous.
+  reportDispatchHitl?: boolean;
+  onToggleReportDispatchHitl?: (enabled: boolean) => void;
+  // Issue #277: pending report-dispatch confirmations for review.
+  pendingReportConfirmations?: Array<{
+    confirmationId: string;
+    kind: string;
+    createdAt: string;
+    detail: string;
+  }>;
+  onRefreshReportConfirmations?: () => void;
+  onDecideReportConfirmation?: (confirmationId: string, decision: "approved" | "rejected") => void;
   // Ads & Sponsor Banners Configuration
   adBannerConfig?: AdBannerConfig;
   onUpdateAdBannerConfig?: (config: AdBannerConfig) => void;
@@ -110,6 +123,11 @@ export function SettingsMenu({
   autoRefreshEnabled,
   autoRefreshInterval,
   onToggleAutoRefresh,
+  reportDispatchHitl = false,
+  onToggleReportDispatchHitl,
+  pendingReportConfirmations = [],
+  onRefreshReportConfirmations,
+  onDecideReportConfirmation,
   adBannerConfig,
   onUpdateAdBannerConfig,
   onOpenPartnerDeals,
@@ -787,6 +805,79 @@ export function SettingsMenu({
                         {sec < 60 ? `${sec}s` : `${sec / 60}m`}
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Issue #277: optional HITL confirmation for report dispatch */}
+              {onToggleReportDispatchHitl && (
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Report dispatch HITL:</span>
+                  <div className="settings-pref-btn-group">
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${!reportDispatchHitl ? "active" : ""}`}
+                      onClick={() => onToggleReportDispatchHitl(false)}
+                      title="Send research reports autonomously (current behavior)"
+                    >
+                      ⏹ Autonomous
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${reportDispatchHitl ? "active" : ""}`}
+                      onClick={() => onToggleReportDispatchHitl(true)}
+                      title="Hold research reports for human confirmation before dispatch"
+                    >
+                      ✅ Require confirmation
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Issue #277: pending report confirmations awaiting review */}
+              {(reportDispatchHitl || pendingReportConfirmations.length > 0) && onDecideReportConfirmation && (
+                <div className="settings-pref-row">
+                  <span className="pref-row-lbl">Pending confirmations:</span>
+                  <div className="settings-pref-pending-list">
+                    {pendingReportConfirmations.length === 0 ? (
+                      <span className="pending-empty">None awaiting review.</span>
+                    ) : (
+                      pendingReportConfirmations.map((item) => (
+                        <div key={item.confirmationId} className="pending-confirm-row">
+                          <span className="pending-detail" title={`${item.kind} · ${item.createdAt}`}>
+                            {item.kind === "email" ? "📧" : "🔗"} {item.detail}
+                          </span>
+                          <div className="settings-pref-btn-group">
+                            <button
+                              type="button"
+                              className="btn-pref-pill"
+                              onClick={() => onDecideReportConfirmation(item.confirmationId, "approved")}
+                              title={`Approve and dispatch (ID ${item.confirmationId})`}
+                            >
+                              ✅ Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-pref-pill"
+                              onClick={() => onDecideReportConfirmation(item.confirmationId, "rejected")}
+                              title={`Reject (ID ${item.confirmationId})`}
+                            >
+                              ❌ Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {onRefreshReportConfirmations && (
+                      <button
+                        type="button"
+                        className="btn-pref-pill"
+                        onClick={() => onRefreshReportConfirmations()}
+                        title="Refresh the pending confirmations list"
+                      >
+                        ⟳ Refresh
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
