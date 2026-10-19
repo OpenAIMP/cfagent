@@ -11,15 +11,16 @@
  * that must observe the authoritative value rather than a value up to one TTL
  * old — for example re-checking a session immediately after a revoke.
  *
- * Note: `src/security/githubOAuth.ts` imports `./session` directly, so logout
- * still bypasses this facade. Until its `env.SESSIONS.delete(sessionId)` is
- * paired with `invalidateSessionCache(sessionId)`, a logged-out session can
- * keep authenticating in this isolate for up to one TTL.
+ * Note: `src/security/githubOAuth.ts` imports `./session` directly and keeps
+ * its own authoritative read on logout — it pairs the delete with
+ * `invalidateSessionCache(sessionId)`, so a logged-out session stops
+ * authenticating in this isolate immediately.
  */
 export {
   SESSION_TTL,
   COOKIE_NAME,
   getSessionId,
+  isSessionIdFormat,
   setSessionCookie,
   clearSessionCookie,
   createSession,

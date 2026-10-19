@@ -607,17 +607,10 @@ export class ScheduledTasksService {
           }
           const base64 = btoa(binary);
           
-          // Issue #361: Store options PDF to KV (reuse stock pattern).
-          // Key: options:pdf:{filename}, value: { base64, fileName }
-          // Mirrors stock's screener:pdf:{filename} in DO storage.
-          try {
-            const kvKey = `options:pdf:${fileName}`;
-            await this.env.SESSIONS.put(kvKey, JSON.stringify({ base64, fileName }));
-            // Also update latest pointer for the download endpoint
-            await this.env.SESSIONS.put("options:pdf:latest", JSON.stringify({ base64, fileName, kvKey }));
-          } catch (kvErr) {
-            console.warn("[ScheduledTasksService] Options PDF KV storage failed:", kvErr instanceof Error ? kvErr.message : String(kvErr));
-          }
+          // Issue #329: this used to write the base64 PDF to KV under
+          // `options:pdf:{file}` and `options:pdf:latest`, but nothing — Worker
+          // or UI — ever read those keys back. The PDF still reaches Slack via
+          // cfpay below; the KV copies were pure write-quota spend.
           
           const cfpayCfg = getCfpayConfig(this.env);
           if (cfpayCfg) {

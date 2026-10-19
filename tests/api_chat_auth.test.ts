@@ -37,7 +37,7 @@ import type { Env } from "../src/types";
  * x-user-login set. It must not be queued as an async job (immediate sync).
  */
 const LOGIN = "octocat-312";
-const SESSION_ID = "test-session-312";
+const SESSION_ID = "0d9a3120-1c2b-4e3f-8a5b-312000000001";
 
 interface ForwardedCall {
   id: string;

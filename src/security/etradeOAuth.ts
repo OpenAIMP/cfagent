@@ -9,6 +9,12 @@
  */
 
 import type { Env } from "../types";
+import {
+  invalidateTokenCacheFor,
+  readTokenCache,
+  tokenCacheKey,
+  writeTokenCache,
+} from "./etradeTokenCache";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { ETradeError, ETradeErrorCode } from "../aspects/errorCodes";
@@ -122,6 +128,8 @@ export async function storeAccessTokens(
     kv.put(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), { expirationTtl: 86400 }),
     kv.put(KV_ACCESS_TOKEN_KEY(userLogin), JSON.stringify(payload), { expirationTtl: 86400 }),
   ]);
+  // Issue #329 follow-up: a fresh token must never be shadowed by a cached copy.
+  invalidateTokenCacheFor(userLogin);
 }
 
 /**
@@ -203,6 +211,8 @@ export async function revokeStoredTokens(env: Env, userLogin: string, overrideEn
     );
   }
   await Promise.all(deletes);
+  // Issue #329 follow-up: revoked tokens must not survive in any isolate cache.
+  invalidateTokenCacheFor(userLogin);
 }
 
 /**
@@ -509,6 +519,14 @@ export async function getValidTokens(
 
   const kv = getKv(env);
   const scopedKey = KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name);
+
+  // Issue #329 follow-up: this function runs once per E*TRADE request, so the
+  // KV read (or two, on the legacy-key fallback) is the hottest remaining read
+  // path. Serve repeats from the isolate cache; every write path invalidates.
+  const cacheKey = tokenCacheKey(envConfig.name, userLogin);
+  const cached = readTokenCache(cacheKey);
+  if (cached !== undefined) return cached;
+
   let raw = await kv.get(scopedKey);
   let tokens: ETradeTokenSet | null = null;
 
@@ -531,14 +549,19 @@ export async function getValidTokens(
     }
   }
 
-  if (!tokens) return null;
+  if (!tokens) {
+    writeTokenCache(cacheKey, null);
+    return null;
+  }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
     await revokeStoredTokens(env, userLogin, overrideEnv);
+    writeTokenCache(cacheKey, null);
     return null;
   }
 
+  writeTokenCache(cacheKey, tokens);
   return tokens;
 }
 
