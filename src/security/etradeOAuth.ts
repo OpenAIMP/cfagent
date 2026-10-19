@@ -131,10 +131,13 @@ export async function storeAccessTokens(
     environment: envConfig.name,
     userLogin,
   };
-  await Promise.all([
-    kv.put(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), { expirationTtl: 86400 }),
-    kv.put(KV_ACCESS_TOKEN_KEY(userLogin), JSON.stringify(payload), { expirationTtl: 86400 }),
-  ]);
+  // Issue #329 P3: only the environment-scoped key is written. The unscoped
+  // legacy key is still *read* (getValidTokens falls back to it once, to migrate
+  // older tokens), but writing it doubled every store for a key nothing new
+  // depends on.
+  await kv.put(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), {
+    expirationTtl: 86400,
+  });
   // Issue #329 follow-up: a fresh token must never be shadowed by a cached copy.
   invalidateTokenCacheFor(userLogin);
 }
