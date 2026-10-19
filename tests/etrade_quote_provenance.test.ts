@@ -249,11 +249,10 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
       expect(result.summary).toContain("STATIC_FALLBACK");
     });
 
-    it("async preview_order in LIVE env discloses static-fallback pricing in summary and rows", async () => {
+    it("async preview_order in LIVE env fails closed when quote authorization is unavailable", async () => {
       const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY}`);
-      const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv);
-      expect(result.rows[0].pricingQuoteStatus).toBe("STATIC_FALLBACK");
-      expect(result.summary).toContain("NON-LIVE QUOTE");
+      await expect(executeNLQQueryAsync(orm, sessionId, plan, liveEnv))
+        .rejects.toThrow(/E\*TRADE consumer credentials are not configured/);
     });
   });
 });
