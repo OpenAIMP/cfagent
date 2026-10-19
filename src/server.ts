@@ -1,6 +1,7 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, setSessionCookie } from "./session";
 import { getSessionCached } from "./security/sessionCache";
+import { serveStaticAsset } from "./security/staticAssets";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import { renderLandingPage } from "./landing";
 import { routeAgentRequest } from "agents";
@@ -194,6 +195,12 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Issue #329: static assets never need a session, but `run_worker_first`
+    // routes them through this handler anyway — so serve them from the ASSETS
+    // binding before `requireAuth` can spend a SESSIONS KV read on them.
+    const staticAsset = await serveStaticAsset(request, path, env);
+    if (staticAsset) return staticAsset;
 
     // Issue #241: abuse throttling on expensive ingress routes.
     // `null` = allowed, otherwise a 429 Response to return immediately.

@@ -1,0 +1,46 @@
+import type { Env } from "../types";
+
+/**
+ * Paths served verbatim from the ASSETS binding (wrangler.jsonc,
+ * `assets.directory` = ./dist). They carry no session semantics, so issue #329
+ * requires them to be answered without a SESSIONS KV read.
+ *
+ * Anything not listed here — `/`, `/index.html`, the API and agent routes —
+ * keeps going through `requireAuth`.
+ */
+const STATIC_ASSET_PREFIXES = ["/assets/", "/strategies/"] as const;
+const STATIC_ASSET_PATHS = new Set([
+  "/favicon.ico",
+  "/robots.txt",
+  "/site.webmanifest",
+  "/manifest.webmanifest",
+]);
+
+export function isStaticAssetRequest(request: Request, path: string): boolean {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  return (
+    STATIC_ASSET_PATHS.has(path) ||
+    STATIC_ASSET_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
+/**
+ * Issue #329: static assets never need a session, but `run_worker_first` routes
+ * them through the Worker anyway. Before this, every bundle/CSS/favicon request
+ * reached `requireAuth` and spent a SESSIONS KV `get()` first — the reads that
+ * exhausted the free tier's daily budget and 401'd authenticated routes.
+ *
+ * Returns the asset response for an asset request, or `null` when the request
+ * must continue through the normal (authenticated) handler. The response is
+ * exactly what the ASSETS fallback at the end of the handler would return,
+ * minus the KV read; this module never touches SESSIONS, which is what makes
+ * the "no KV" property hold by construction rather than by convention.
+ */
+export async function serveStaticAsset(
+  request: Request,
+  path: string,
+  env: Env
+): Promise<Response | null> {
+  if (!isStaticAssetRequest(request, path)) return null;
+  return env.ASSETS.fetch(request);
+}
