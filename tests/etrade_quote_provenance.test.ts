@@ -119,11 +119,9 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
       expect(q.volume).toBe(0);
     });
 
-    it("unknown symbol → AUTH_REQUIRED with zero price (unchanged)", async () => {
+    it("unknown symbol → throws auth error (issue #294)", async () => {
       const platform = new ETradeTradingPlatform(liveEnv, undefined, "tester", undefined, nullClient);
-      const q = await platform.getQuote("ZZZZNOTREAL");
-      expect(q.quoteStatus).toBe("AUTH_REQUIRED");
-      expect(q.lastPrice).toBe(0);
+      await expect(platform.getQuote("ZZZZNOTREAL")).rejects.toThrow(/auth required/i);
     });
   });
 
