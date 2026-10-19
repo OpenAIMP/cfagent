@@ -130,6 +130,24 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   validation + pipeline delegation). A scripted scan of the full 92-condition
   route inventory confirms the matching order is unchanged. orchestrator.ts:
   5928 → 5842 lines.
+- **Premium routes extracted from orchestrator.ts** (#359/#371): the three
+  Paid Trading Service blocks — `/premium/options-scan` (Institutional Options
+  & Greeks Screener, $0.05 USDC), `/premium/market-research` (Autonomous Equity
+  Research Report, $0.10 USDC), `/premium/stock-signals` (Real-Time Quantitative
+  Anomaly Signals, $0.02 USDC), each GET|POST and payment-gated — moved to
+  `src/agents/routes/premium.ts` as `handlePremiumRoutes()`. Pure move: same
+  paths, same matching order in `routeRequest` (the three blocks were
+  contiguous between the Cloudflare Agentic Payments block and the Environment
+  & E*TRADE Trading APIs block, so a single delegation at that position
+  preserves order — scripted scan of the full 90-condition inventory confirms
+  it), same response shapes/statuses, canonical-copy reporting (#307/#308)
+  preserved. Handlers reach OrchestratorAgent state only through an explicit
+  `PremiumRouteContext` (env + getOrm). Characterization:
+  `tests/premium_routes_extraction.test.ts` pins the 3-route inventory and
+  order, the single call-site position, and behavior (null for non-owned
+  paths; unpaid requests get the 402 payment-required challenge without
+  running the fulfill callback, so no canonical-report row is written).
+  orchestrator.ts: 5435 → 5280 lines.
 
 ### Added
 
