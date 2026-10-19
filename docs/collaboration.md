@@ -73,3 +73,16 @@ paths:
 
 Issue first (every change tracks an issue), then branch → PR → merge.
 Never push directly to `main`. Commit messages reference the issue number.
+
+## Merge method: rebase-and-merge (all lanes, owner directive 2026-10-18)
+
+Every PR in this repo (and in OpenAIMP/cfpay) merges with GitHub's
+**rebase** method — linear history, the branch's individual commits
+preserved, no squash commits, no merge commits. This applies to every
+lane: the main chat, the scheduler pollers, and the self-heal fixer.
+
+Cadence: **rebase-and-merge after every fix** — as soon as a PR's checks
+are green, rebase it onto current `main` if it has fallen behind (and let
+checks re-run), merge it immediately, and delete the claim branch.
+Finished work never sits unmerged. PRs merged before this directive stay
+as they are; history is not rewritten.
