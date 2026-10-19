@@ -228,11 +228,15 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         "../trading"
       );
       let staggerMin = 5;
+      const { getScreenerConfig } = await import("../trading/screenerConfig");
+      const screenerCfg = getScreenerConfig();
       for (const universe of _shardable()) {
+        // Use per-universe max from config (externalized, not hardcoded)
+        const maxItems = (screenerCfg.universes.defaultMaxSymbols as any)[universe] ?? screenerCfg.acquisition.defaultMaxSymbols;
         await this.schedule(
           `${staggerMin} * * * *`,
           "autonomousMarketScreen",
-          { universe, maxItems: 5 },
+          { universe, maxItems },
           { idempotent: true }
         );
         staggerMin = (staggerMin + 10) % 60;
@@ -5947,6 +5951,58 @@ Agentic Best Practices & Workflow Rules:
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
+      }
+    }
+
+    // List persisted reports (issue #309). Queries mas_reports (populated by #278, #308).
+    // Supports ?q=search query and ?source=screener|options_scanner|iv_collection
+    if ((path.endsWith("/reports") || path === "/reports" || path === "/api/reports") && request.method === "GET") {
+      try {
+        const { searchScheduledReports, ensureScheduledReportsTable, SCHEDULED_REPORTS_TABLE } = await import("../services/scheduledReports");
+        const query = url.searchParams.get("q") || "";
+        const sourceFilter = url.searchParams.get("source") || undefined;
+        const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100));
+
+        ensureScheduledReportsTable(this.ctx.storage.sql);
+
+        let reports: any[];
+        if (query.trim()) {
+          // Search with query
+          reports = searchScheduledReports(this.ctx.storage.sql, query, limit);
+        } else {
+          // List all, newest first
+          const sql = this.ctx.storage.sql;
+          let sqlQuery = `SELECT id, run_id as runId, title, source, summary, report_url as reportUrl, created_at as createdAt FROM ${SCHEDULED_REPORTS_TABLE}`;
+          const params: unknown[] = [];
+          if (sourceFilter) {
+            sqlQuery += ` WHERE source = ?`;
+            params.push(sourceFilter);
+          }
+          sqlQuery += ` ORDER BY created_at DESC LIMIT ?`;
+          params.push(limit);
+          reports = Array.from(sql.exec(sqlQuery, ...params)) as any[];
+        }
+
+        // Apply source filter to search results (search doesn't support it natively)
+        if (sourceFilter && query.trim()) {
+          reports = reports.filter((r: any) => r.source === sourceFilter);
+        }
+
+        return Response.json({
+          count: reports.length,
+          reports: reports.map((r: any) => ({
+            id: r.id,
+            runId: r.runId,
+            title: r.title,
+            source: r.source,
+            summary: r.summary,
+            reportUrl: r.reportUrl,
+            createdAt: r.createdAt,
+          })),
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to list reports", reports: [] }, { status: 500 });
       }
     }
 
