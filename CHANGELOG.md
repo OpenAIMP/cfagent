@@ -92,6 +92,24 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   validation + 201 delegation). The source pin in
   `tests/audit-event-endpoint.test.ts` now points at the new ownership.
 
+- **Autopilot routes extracted from orchestrator.ts** (#359/#368): the
+  Autopilot control center routes (autopilot Phase 1) — `GET /autopilot`,
+  `POST /autopilot/state`, `POST /autopilot/kill-switch`,
+  `POST|PUT /autopilot/limits`, `POST /autopilot/evaluate` — now live in
+  `src/agents/routes/autopilot.ts` as `handleAutopilotRoutes()`. Pure move —
+  same paths, same matching order in `routeRequest` (the five blocks were
+  contiguous between the audit handler and the Persistent Memory endpoint, so
+  a single delegation at that position preserves order), same response
+  shapes/statuses. The policy-verdict pipeline stays behind the orchestrator's
+  `evaluateAndRecordAutopilotVerdict()` via an explicit
+  `AutopilotRouteContext`; nothing is inlined. Characterization:
+  `tests/autopilot_routes_extraction.test.ts` pins the 5-route inventory and
+  order, the single call-site position, and behavior (null for non-owned
+  paths, state/kill-switch/limits updates with audit events, evaluate
+  validation + pipeline delegation). A scripted scan of the full 92-condition
+  route inventory confirms the matching order is unchanged. orchestrator.ts:
+  5928 → 5842 lines.
+
 ### Added
 
 - **Options PDF stored to KV for download** (#361, PR #362): generated options-scanner PDFs are stored in KV (`options:pdf:{filename}` plus an `options:pdf:latest` pointer), mirroring the stock screener pattern, so the download endpoint can serve them.
