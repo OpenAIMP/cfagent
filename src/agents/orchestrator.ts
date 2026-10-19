@@ -194,6 +194,87 @@ export const CREATABLE_SCHEDULE_CALLBACKS = [
 
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
 
+/**
+ * Issue #314 — single-owner handler for the environment switcher.
+ * Both spellings (`/environment/switch` and the advertised
+ * `/broker/etrade/environment` from ETradeDynamicMenu.tsx) delegate here,
+ * so the request/response contract, validation, and auth are identical.
+ */
+export async function handleEnvironmentSwitch(request: Request): Promise<Response> {
+  try {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const requested = String(body.environment || "PROD").toUpperCase().trim();
+    if (requested === "TEST" || requested === "PROD") {
+      return Response.json({ success: true, environment: requested });
+    }
+    return Response.json({ error: "Invalid environment. Expected TEST or PROD." }, { status: 400 });
+  } catch (err) {
+    return Response.json({ error: "Failed to switch environment" }, { status: 500 });
+  }
+}
+
+/**
+ * Issue #314 — single-owner handler for options strategy discovery
+ * (Workflow A2). Both spellings (`/trading/options/recommend` and the
+ * advertised `POST /api/etrade/options/strategy`) delegate here, so the
+ * strategy request is validated once and evaluated once by the real
+ * engine (E*TRADE chain snapshot -> screened contracts ->
+ * recommendOptionStrategies), with byte-identical responses.
+ *
+ * Honest subset vs the docs: the engine computes Black-Scholes Greeks,
+ * model-implied probability of profit (N(d2)), expected value, payoff
+ * curves, and a volatility-ALIGNMENT score per candidate. It does not
+ * compute a standalone "IV rank" field; IV enters through the per-leg
+ * impliedVolatility and the volatility-alignment score weight.
+ */
+export async function handleOptionsStrategyRecommend(
+  request: Request,
+  deps: { orm: any; env: Env; sessionKey: string; requestedEnv: "TEST" | "PROD" | undefined }
+): Promise<Response> {
+  const body = await request.json().catch(() => null) as Partial<StrategyRequest> | null;
+  const validationError = validateStrategyRequest(body);
+  if (validationError) {
+    return Response.json({ error: validationError }, { status: 400 });
+  }
+
+  try {
+    const strategyRequest = body as StrategyRequest;
+    const userLogin = request.headers.get("x-user-login") || deps.sessionKey || "default_trader";
+    const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
+    const screener = new DynamicOptionsScreener(etrade.client);
+    const screened = await screener.screenOptions({
+      underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
+      contractType: "BOTH",
+      minDte: strategyRequest.minDte,
+      maxDte: strategyRequest.maxDte,
+      minVolume: strategyRequest.minVolume,
+      minOpenInterest: strategyRequest.minOpenInterest,
+      maxSpreadPct: strategyRequest.maxSpreadPct,
+      maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
+      limit: strategyRequest.contractLimit,
+    });
+    const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
+    return Response.json({
+      ...recommendations,
+      contracts: screened.contracts,
+      screen: {
+        scannedAt: screened.scannedAt,
+        underlyingsScanned: screened.totalUnderlyingsScanned,
+        contractsEvaluated: screened.totalContractsEvaluated,
+        contractsMatched: screened.matchedCount,
+        quoteQuality: screened.quoteQuality,
+        fetchErrors: screened.fetchErrors,
+        warnings: screened.warnings,
+        validationError: screened.validationError,
+        status: screened.status,
+      },
+      contractRejections: (screened.rejections || []).slice(0, 50),
+    });
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : "Options recommendation failed" }, { status: 400 });
+  }
+}
+
 export class OrchestratorAgent extends AIChatAgent<Env> {
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
@@ -2286,7 +2367,7 @@ Agentic Best Practices & Workflow Rules:
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
-    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener\/report\.pdf|etrade\/screen|etrade\/options\/profiles|etrade\/options\/scans)(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener\/report\.pdf|etrade\/screen|etrade\/options\/profiles|etrade\/options\/scans|etrade\/options\/strategy)(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
     if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
       return this.enqueueHttpRequest(request, url);
@@ -4093,17 +4174,14 @@ Agentic Best Practices & Workflow Rules:
     const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
 
     // Environment Switcher API (allows client to toggle between Sandbox TEST and Live PROD)
+    // Issue #314: the advertised /api/broker/etrade/environment spelling
+    // (ETradeDynamicMenu.tsx fallback) delegates to the same single-owner
+    // handler, so both spellings share one contract.
     if (path.endsWith("/environment/switch") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const requested = String(body.environment || "PROD").toUpperCase().trim();
-        if (requested === "TEST" || requested === "PROD") {
-          return Response.json({ success: true, environment: requested });
-        }
-        return Response.json({ error: "Invalid environment. Expected TEST or PROD." }, { status: 400 });
-      } catch (err) {
-        return Response.json({ error: "Failed to switch environment" }, { status: 500 });
-      }
+      return handleEnvironmentSwitch(request);
+    }
+    if (path.endsWith("/broker/etrade/environment") && request.method === "POST") {
+      return handleEnvironmentSwitch(request);
     }
 
     // Broker status & account metadata
@@ -5040,6 +5118,19 @@ Agentic Best Practices & Workflow Rules:
       }
     }
 
+    // Issue #314: the advertised POST /api/etrade/options/strategy spelling
+    // (docs/ANALYSIS_AND_EXECUTION_WORKFLOWS.md, Workflow A2) delegates to
+    // the same single-owner strategy-discovery handler as
+    // /trading/options/recommend — one logic owner, byte-identical contract.
+    if (path.endsWith("/etrade/options/strategy") && request.method === "POST") {
+      return handleOptionsStrategyRecommend(request, {
+        orm: this.getOrm(),
+        env: this.env,
+        sessionKey: sessionId,
+        requestedEnv,
+      });
+    }
+
     // Real E*TRADE REST API: Option Expire Dates
     if (path.endsWith("/etrade/options/expire-dates") && request.method === "GET") {
       try {
@@ -5651,48 +5742,12 @@ Agentic Best Practices & Workflow Rules:
     }
 
     if (path.endsWith("/trading/options/recommend") && request.method === "POST") {
-      const body = await request.json().catch(() => null) as Partial<StrategyRequest> | null;
-      const validationError = validateStrategyRequest(body);
-      if (validationError) {
-        return Response.json({ error: validationError }, { status: 400 });
-      }
-
-      try {
-        const strategyRequest = body as StrategyRequest;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(this.getOrm(), this.env, userLogin, requestedEnv);
-        const screener = new DynamicOptionsScreener(etrade.client);
-        const screened = await screener.screenOptions({
-          underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
-          contractType: "BOTH",
-          minDte: strategyRequest.minDte,
-          maxDte: strategyRequest.maxDte,
-          minVolume: strategyRequest.minVolume,
-          minOpenInterest: strategyRequest.minOpenInterest,
-          maxSpreadPct: strategyRequest.maxSpreadPct,
-          maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
-          limit: strategyRequest.contractLimit,
-        });
-        const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
-        return Response.json({
-          ...recommendations,
-          contracts: screened.contracts,
-          screen: {
-            scannedAt: screened.scannedAt,
-            underlyingsScanned: screened.totalUnderlyingsScanned,
-            contractsEvaluated: screened.totalContractsEvaluated,
-            contractsMatched: screened.matchedCount,
-            quoteQuality: screened.quoteQuality,
-            fetchErrors: screened.fetchErrors,
-            warnings: screened.warnings,
-            validationError: screened.validationError,
-            status: screened.status,
-          },
-          contractRejections: (screened.rejections || []).slice(0, 50),
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Options recommendation failed" }, { status: 400 });
-      }
+      return handleOptionsStrategyRecommend(request, {
+        orm: this.getOrm(),
+        env: this.env,
+        sessionKey: sessionId,
+        requestedEnv,
+      });
     }
 
     // Unified Options Strategy Catalog (Single source of truth: 74 registered strategies & 114 aliases)
