@@ -43,6 +43,13 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Advertised `POST /api/chat` route** (#312): the route the UX/docs
   advertised is implemented, delegating to the platform's canonical chat
   handler.
+- **Documented `POST /api/chat` response contract** (#325): the endpoint
+  catalog entry no longer advertises a streaming route — it documents the
+  real synchronous response (`reply`, `route`, `model`, `streaming: false`)
+  with a rendered sample in the API explorer, and
+  `docs/async-capabilities.md` now lists the immediate-sync `/api/*`
+  exceptions (chat included) instead of claiming every request returns
+  `202`.
 - **Judge + NLQ golden evaluation sets** (#258): 105 labeled judge-routing
   queries and 29 NLQ questions with accuracy/regression thresholds in CI.
 - **Per-run PDF naming** (#297): screener PDFs are stored per run as
