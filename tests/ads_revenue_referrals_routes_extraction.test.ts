@@ -152,9 +152,13 @@ describe("ads/revenue/referrals route inventory (extraction #366)", () => {
       expect(orchSrc, `inline condition should be gone: ${cond}`).not.toContain(cond);
     }
     // Call-site A sits between /schema/query and the /audit block.
+    // Landmark rule (#405): anchor to the audit DELEGATION CALL, never to a
+    // neighboring domain's inline comment — slice 04 (#367) moved the
+    // "// Audit logs endpoint" comment into routes/audit.ts, which broke
+    // this assertion on main. Delegation calls are the stable landmarks.
     const callAIdx = orchSrc.indexOf("handleAdsRevenueReferralsRoutes(request, url, path, sessionId,");
     expect(callAIdx).toBeGreaterThan(orchSrc.indexOf('if (path.endsWith("/schema/query")'));
-    expect(callAIdx).toBeLessThan(orchSrc.indexOf("// Audit logs endpoint"));
+    expect(callAIdx).toBeLessThan(orchSrc.indexOf("handleAuditRoutes(request, url, path, sessionId,"));
     // Call-site B sits between /memory and the payments block.
     const callBIdx = orchSrc.indexOf("handleReferralsAdsRoutes(request, url, path, sessionId,");
     expect(callBIdx).toBeGreaterThan(orchSrc.indexOf('if (path.endsWith("/memory"))'));
