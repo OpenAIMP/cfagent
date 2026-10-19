@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePolling } from "./usePolling";
 
 type AsyncJob = {
   jobId: string;
@@ -36,9 +37,18 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 4_000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+
+  // Issue #329 (P1): the 4 s poll cost 21.6k requests per idle tab per day.
+  // Keep the fast cadence only while a job is actually in flight, fall back to
+  // 20 s when the queue is clear, and stop entirely while the tab is hidden.
+  const busyRef = useRef(false);
+  busyRef.current = jobs.some((job) => job.status === "queued" || job.status === "running");
+  usePolling(refresh, {
+    fastMs: 4_000,
+    idleMs: 20_000,
+    isBusy: () => busyRef.current,
+  });
 
   const openResult = async (jobId: string) => {
     setSelectedJob(jobId);

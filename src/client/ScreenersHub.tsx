@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePolling } from "./usePolling";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -116,27 +117,25 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [autoRuns, setAutoRuns] = useState<ScreenRun[]>([]);
   const [autoLoading, setAutoLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadAuto = async () => {
-      try {
-        const res = await fetch("/api/screener/latest");
-        if (!res.ok) return;
-        const data = (await res.json()) as { runs?: unknown };
-        if (!cancelled && Array.isArray(data.runs)) setAutoRuns(data.runs as ScreenRun[]);
-      } catch {
-        // Non-critical: panel stays empty.
-      } finally {
-        if (!cancelled) setAutoLoading(false);
-      }
-    };
-    void loadAuto();
-    const timer = setInterval(() => void loadAuto(), 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+  const loadAuto = useCallback(async () => {
+    try {
+      const res = await fetch("/api/screener/latest");
+      if (!res.ok) return;
+      const data = (await res.json()) as { runs?: unknown };
+      if (Array.isArray(data.runs)) setAutoRuns(data.runs as ScreenRun[]);
+    } catch {
+      // Non-critical: panel stays empty.
+    } finally {
+      setAutoLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadAuto();
+  }, [loadAuto]);
+
+  // Issue #329 (P1): 30 s -> 60 s, and paused entirely while the tab is hidden.
+  usePolling(loadAuto, { fastMs: 60_000, idleMs: 60_000 });
 
   useEffect(() => {
     if (providers.length > 0 && !providers.some((provider) => provider.id === providerId)) {
