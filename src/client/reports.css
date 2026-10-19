@@ -1,0 +1,253 @@
+/**
+ * Issue #309: Styles for Reports Panel and Schedules Panel.
+ */
+
+/* --- Schedules Panel --- */
+.schedules-panel {
+  padding: 1rem;
+}
+
+.schedules-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.schedules-tabs .tab {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 6px;
+  background: var(--theme-card-bg, #fff);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.schedules-tabs .tab.active {
+  background: var(--theme-accent, #3b82f6);
+  color: white;
+  border-color: var(--theme-accent, #3b82f6);
+}
+
+.schedules-tabs .tab.refresh {
+  margin-left: auto;
+}
+
+.schedules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.schedule-card {
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--theme-card-bg, #fff);
+}
+
+.schedule-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.schedule-type {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--theme-text-muted, #6b7280);
+  background: var(--theme-bg-subtle, #f3f4f6);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.schedule-id {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted, #6b7280);
+}
+
+.schedule-callback {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.schedule-when {
+  color: var(--theme-accent, #3b82f6);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.schedule-meta {
+  font-size: 0.8rem;
+  color: var(--theme-text-muted, #6b7280);
+  margin-bottom: 0.25rem;
+}
+
+.schedule-card .card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.schedule-card .card-actions button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 6px;
+  background: var(--theme-card-bg, #fff);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.schedule-card .card-actions button.danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.schedule-card .card-actions button:hover {
+  background: var(--theme-bg-subtle, #f3f4f6);
+}
+
+/* --- Reports Panel --- */
+.reports-panel {
+  padding: 1rem;
+}
+
+.reports-toolbar {
+  margin-bottom: 1.5rem;
+}
+
+.reports-search {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.reports-search .search-input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.reports-search .search-btn {
+  padding: 0.6rem 1.2rem;
+  background: var(--theme-accent, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.source-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 20px;
+  background: var(--theme-card-bg, #fff);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.filter-chip.active {
+  background: var(--theme-accent, #3b82f6);
+  color: white;
+  border-color: var(--theme-accent, #3b82f6);
+}
+
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.report-card {
+  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--theme-card-bg, #fff);
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.source-badge {
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+}
+
+.report-time {
+  font-size: 0.8rem;
+  color: var(--theme-text-muted, #6b7280);
+}
+
+.report-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}
+
+.report-summary {
+  font-size: 0.875rem;
+  color: var(--theme-text-muted, #6b7280);
+  margin: 0 0 0.75rem 0;
+  line-height: 1.5;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-link {
+  color: var(--theme-accent, #3b82f6);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.run-id {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted, #6b7280);
+}
+
+.reports-panel .empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--theme-text-muted, #6b7280);
+}
+
+.reports-panel .empty .hint {
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.reports-panel .loading,
+.reports-panel .error,
+.schedules-panel .empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--theme-text-muted, #6b7280);
+}

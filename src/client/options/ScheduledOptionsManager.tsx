@@ -87,11 +87,12 @@ export function triggerRouteFor(callback: unknown): string | undefined {
 }
 
 /** Jobs the create form can register. Anything else stays API-only. */
-export type CreatableJob = "optionsAnalysis" | "ivCollection";
+export type CreatableJob = "optionsAnalysis" | "ivCollection" | "marketScreen";
 
 export const JOB_CALLBACKS: Record<CreatableJob, string> = {
   optionsAnalysis: "autonomousOptionsAnalysis",
   ivCollection: "collectIvHistory",
+  marketScreen: "autonomousMarketScreen",
 };
 
 export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
@@ -1046,6 +1047,7 @@ export function ScheduledOptionsManager({
                     onChange={(e) => setJobType(e.target.value as CreatableJob)}
                   >
                     <option value="optionsAnalysis">Autonomous Options Analysis</option>
+                    <option value="marketScreen">Autonomous Market Screen (Stocks)</option>
                     <option value="ivCollection">IV History Collection</option>
                   </select>
                   {jobType === "ivCollection" && (
