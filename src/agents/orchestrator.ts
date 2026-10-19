@@ -228,7 +228,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         "../trading"
       );
       let staggerMin = 5;
-      const { getScreenerConfig } = await import("../trading/screenerConfig");
+      const { getScreenerConfig } = await import("../trading");
       const screenerCfg = getScreenerConfig();
       for (const universe of _shardable()) {
         // Use per-universe max from config (externalized, not hardcoded)
