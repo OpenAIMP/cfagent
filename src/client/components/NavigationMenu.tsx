@@ -15,6 +15,8 @@ export type NavTabId =
   | "options-flows"
   | "screeners"
   | "scanner"
+  | "reports"
+  | "schedules"
   | "research"
   | "chat"
   | "voice"
@@ -87,6 +89,8 @@ export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
   options: true,
   screeners: true,
   scanner: true,
+  reports: true,
+  schedules: true,
   research: true,
   chat: true,
   voice: true,
@@ -437,6 +441,22 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     badgeType: "pro",
     icon: NavIcons.Screeners,
     description: "Screen equities, options, crypto, futures, and indices across connected market data providers",
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    shortLabel: "Reports",
+    category: "Intelligence",
+    icon: NavIcons.Screeners,
+    description: "View and search persisted screener reports from scheduled and manual runs",
+  },
+  {
+    id: "schedules",
+    label: "Schedules",
+    shortLabel: "Schedules",
+    category: "Intelligence",
+    icon: NavIcons.Screeners,
+    description: "Manage automated screener schedules: view, pause, cancel, and create new",
   },
   {
     id: "research",
