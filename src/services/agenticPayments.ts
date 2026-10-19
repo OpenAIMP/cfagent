@@ -50,7 +50,7 @@ function loadMppxServer(): Promise<MppxServer> {
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
-import { createResilientKv, kvHealth, type KvLike } from "../security/kvResilience";
+import { consumeStoreKey, createStoreKv, type DoNamespaceLike } from "../security/durableKv";
 
 // Fallback replay guard used only when no KV namespace is bound.
 const consumedTxHashes = new Set<string>();
@@ -106,7 +106,6 @@ export class ETradeAgenticPaymentService {
   private autoApproveLimitUSD: number;
   private agentWalletAddress: string;
   private mppSecretKey?: string;
-  private _kv?: KvLike | null;
 
   constructor(
     private orm?: DatabaseORM,
@@ -282,14 +281,21 @@ export class ETradeAgenticPaymentService {
 
   private async consumeTxHash(txHash: string): Promise<boolean> {
     const key = `x402tx:${txHash.toLowerCase()}`;
-    const kv = this.kv();
-    // A degraded KV must not turn a replay guard into "allow": fall back to the
-    // isolate-local set when the store is known to be failing.
-    if (kv && Date.now() >= kvHealth("payments").blockedUntil) {
-      if (await kv.get(key)) return false;
-      await kv.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 365 });
-      return true;
-    }
+    // Issue #329 P3: this used to be a KV `get`-then-`put`, which two colos
+    // could both win. The DO serialises the check and the claim.
+    const outcome = await consumeStoreKey({
+      namespace: this.env?.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+      namespaceName: "payments",
+      key,
+      value: new Date().toISOString(),
+      ttlSeconds: 60 * 60 * 24 * 365,
+    });
+
+    if (outcome === "consumed") return true;
+    if (outcome === "duplicate") return false;
+
+    // Store unreachable: refuse rather than treat the payment as fresh. The
+    // isolate-local set still catches repeats within this worker's lifetime.
     if (consumedTxHashes.has(key)) return false;
     consumedTxHashes.add(key);
     return true;
@@ -297,16 +303,11 @@ export class ETradeAgenticPaymentService {
 
   private async releaseTxHash(txHash: string): Promise<void> {
     const key = `x402tx:${txHash.toLowerCase()}`;
-    const kv = this.kv();
-    if (kv) await kv.delete(key);
+    await createStoreKv({
+      namespace: this.env?.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+      namespaceName: "payments",
+    }).delete(key);
     consumedTxHashes.delete(key);
-  }
-
-  /** KV failures are swallowed here; the payment path must not 1101 on them. */
-  private kv() {
-    if (!this.env?.SESSIONS) return null;
-    if (!this._kv) this._kv = createResilientKv(this.env.SESSIONS, "payments");
-    return this._kv;
   }
 
   /**

@@ -5,8 +5,9 @@ import type { KvLike } from "./kvResilience";
  *
  * Why: Workers KV's free tier caps reads at 100k/day, and exhausting it took
  * the whole site down (every `getSession` threw). Durable Object SQLite has no
- * equivalent daily read cap, and this Worker already runs six DOs — so session
- * and token storage move here, and KV becomes a one-time migration source.
+ * equivalent daily read cap, and this Worker already runs several DOs — so
+ * session, credential and replay-guard state move here, and KV becomes a
+ * one-time migration source.
  *
  * Wire format is deliberately a tiny JSON protocol over `stub.fetch` rather
  * than RPC: it needs no `cloudflare:workers` import on the client side, which
@@ -26,7 +27,7 @@ export interface StoreKvOptions {
   namespace?: DoNamespaceLike | null;
   /** Legacy KV to read from on a DO miss (migration) and fall back to on failure. */
   legacy?: KvLike | null;
-  /** Logical bucket inside the DO: "sessions", "etrade", ... */
+  /** Logical bucket inside the DO: "sessions", "etrade", "payments". */
   namespaceName: string;
   /** DO instance name; one instance holds every bucket. */
   instanceName?: string;
@@ -37,9 +38,10 @@ export interface StoreKvOptions {
 const STORE_URL = "https://session-store.internal/kv";
 const CALL_TIMEOUT_MS = 2_000;
 
-interface StoreReply {
+export interface StoreReply {
   value?: string | null;
   ok?: boolean;
+  consumed?: boolean;
   error?: string;
 }
 
@@ -49,20 +51,12 @@ function timeoutSignal(): AbortSignal | undefined {
   return typeof anySignal.timeout === "function" ? anySignal.timeout(CALL_TIMEOUT_MS) : undefined;
 }
 
-/**
- * A KV-like store whose reads come from the Durable Object and which falls back
- * to the legacy KV exactly once per key (copying the value into the DO as it
- * goes). No call throws: a DO failure degrades to the legacy backend, and a
- * legacy failure degrades to a miss — never to a 1101.
- */
-export function createStoreKv(options: StoreKvOptions): KvLike {
-  const { namespace, legacy, namespaceName, instanceName = "kv", legacyFallback = true } = options;
-  // `legacyFallback: false` means "KV is not part of this store at all" - no
-  // migration read, no write fallback, no delete. Gating only the read would
-  // leave KV traffic that the flag is supposed to stop.
-  const legacyStore = legacyFallback ? legacy : null;
-
-  const send = async (payload: Record<string, unknown>): Promise<StoreReply | null> => {
+function createStoreClient(
+  namespace: DoNamespaceLike | null | undefined,
+  namespaceName: string,
+  instanceName: string
+): (payload: Record<string, unknown>) => Promise<StoreReply | null> {
+  return async (payload: Record<string, unknown>): Promise<StoreReply | null> => {
     if (!namespace) return null;
     try {
       const stub = namespace.get(namespace.idFromName(instanceName));
@@ -87,6 +81,21 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       return null;
     }
   };
+}
+
+/**
+ * A KV-like store whose reads come from the Durable Object and which falls back
+ * to the legacy KV exactly once per key (copying the value into the DO as it
+ * goes). No call throws: a DO failure degrades to the legacy backend, and a
+ * legacy failure degrades to a miss — never to a 1101.
+ */
+export function createStoreKv(options: StoreKvOptions): KvLike {
+  const { namespace, legacy, namespaceName, instanceName = "kv", legacyFallback = true } = options;
+  // `legacyFallback: false` means "KV is not part of this store at all" - no
+  // migration read, no write fallback, no delete. Gating only the read would
+  // leave KV traffic that the flag is supposed to stop.
+  const legacyStore = legacyFallback ? legacy : null;
+  const send = createStoreClient(namespace, namespaceName, instanceName);
 
   return {
     async get(key: string): Promise<string | null> {
@@ -122,4 +131,38 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       if (legacyStore) await legacyStore.delete(key);
     },
   };
+}
+
+export type ConsumeOutcome = "consumed" | "duplicate" | "unavailable";
+
+/**
+ * Atomically claims `key` — the replay guard for x402 payments.
+ *
+ * The Durable Object handles one request at a time, so its
+ * `SELECT`-then-`INSERT` cannot interleave with another consume. That is the
+ * point: the previous KV guard was a `get`-then-`put` on an eventually
+ * consistent store, so two requests carrying the same payment hash could both
+ * pass in different colos.
+ *
+ * Returns `"unavailable"` when the DO cannot be reached; the caller decides how
+ * to fail (it must not treat that as "fresh").
+ */
+export async function consumeStoreKey(options: {
+  namespace?: DoNamespaceLike | null;
+  namespaceName: string;
+  instanceName?: string;
+  key: string;
+  value: string;
+  ttlSeconds?: number;
+}): Promise<ConsumeOutcome> {
+  const send = createStoreClient(options.namespace, options.namespaceName, options.instanceName ?? "kv");
+  const reply = await send({
+    op: "consume",
+    ns: options.namespaceName,
+    key: options.key,
+    value: options.value,
+    ttl: options.ttlSeconds,
+  });
+  if (!reply || typeof reply.consumed !== "boolean") return "unavailable";
+  return reply.consumed ? "consumed" : "duplicate";
 }

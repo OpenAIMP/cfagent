@@ -14,7 +14,7 @@ import type { Env } from "../types";
  * the client only has to add a binding — not a second index or routing scheme.
  */
 interface StoreOp {
-  op: "get" | "put" | "delete";
+  op: "get" | "put" | "delete" | "consume";
   ns: string;
   key: string;
   value?: string;
@@ -60,6 +60,31 @@ export class SessionStore extends DurableObject<Env> {
           return Response.json({ value: null });
         }
         return Response.json({ value: row.value });
+      }
+
+      if (op === "consume") {
+        // Replay guard (issue #329 P3). A DO handles one request at a time, so
+        // this read-then-write cannot interleave — unlike the KV get-then-put it
+        // replaces, where two colos could both see "not consumed".
+        const existing = this.ctx.storage.sql
+          .exec("SELECT expires_at FROM kv_store WHERE ns = ? AND key = ?", ns, key)
+          .toArray()[0] as { expires_at: number | null } | undefined;
+
+        if (existing && (existing.expires_at === null || existing.expires_at > Date.now())) {
+          return Response.json({ consumed: false });
+        }
+
+        const claimedUntil =
+          typeof body.ttl === "number" ? Date.now() + body.ttl * 1000 : null;
+        this.ctx.storage.sql.exec(
+          `INSERT INTO kv_store (ns, key, value, expires_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`,
+          ns,
+          key,
+          body.value ?? "",
+          claimedUntil
+        );
+        return Response.json({ consumed: true });
       }
 
       if (op === "put") {

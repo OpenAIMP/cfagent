@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createStoreKv, type DoNamespaceLike } from "../src/security/durableKv";
+import { consumeStoreKey, createStoreKv, type DoNamespaceLike } from "../src/security/durableKv";
 import { createResilientKv } from "../src/security/kvResilience";
 
 /**
@@ -42,6 +42,16 @@ function makeStore(options: { fail?: boolean } = {}) {
         if (op === "put") {
           rows.set(id, { value: value as string, expiresAt: ttl ? Date.now() + ttl * 1000 : null });
           return Response.json({ ok: true });
+        }
+        if (op === "consume") {
+          // The DO handles one request at a time, so this read-then-write is
+          // atomic. The fake mirrors that by not awaiting between the two.
+          const row = rows.get(id);
+          if (row && (row.expiresAt === null || row.expiresAt > Date.now())) {
+            return Response.json({ consumed: false });
+          }
+          rows.set(id, { value: value ?? "", expiresAt: ttl ? Date.now() + ttl * 1000 : null });
+          return Response.json({ consumed: true });
         }
         rows.delete(id);
         return Response.json({ ok: true });
@@ -162,6 +172,70 @@ describe("Durable Object backed store (#329)", () => {
 
     expect(store.rows.has("sessions:k")).toBe(false);
     expect(legacy.data.has("k")).toBe(false);
+  });
+
+  it("claims a replay key exactly once", async () => {
+    const store = makeStore();
+
+    const first = await consumeStoreKey({
+      namespace: store.namespace,
+      namespaceName: "payments",
+      key: "x402tx:0xabc",
+      value: "claimed",
+      ttlSeconds: 60,
+    });
+    const second = await consumeStoreKey({
+      namespace: store.namespace,
+      namespaceName: "payments",
+      key: "x402tx:0xabc",
+      value: "claimed",
+      ttlSeconds: 60,
+    });
+
+    expect(first).toBe("consumed");
+    expect(second).toBe("duplicate");
+  });
+
+  it("lets exactly one of two concurrent claims win", async () => {
+    const store = makeStore();
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        consumeStoreKey({
+          namespace: store.namespace,
+          namespaceName: "payments",
+          key: "x402tx:race",
+          value: "claimed",
+          ttlSeconds: 60,
+        })
+      )
+    );
+
+    expect(outcomes.filter((entry) => entry === "consumed")).toHaveLength(1);
+    expect(outcomes.filter((entry) => entry === "duplicate")).toHaveLength(4);
+  });
+
+  it("releases the key once its claim TTL lapses", async () => {
+    const store = makeStore();
+    const options = {
+      namespace: store.namespace,
+      namespaceName: "payments",
+      key: "x402tx:ttl",
+      value: "claimed",
+      ttlSeconds: 60,
+    };
+
+    expect(await consumeStoreKey(options)).toBe("consumed");
+    expect(await consumeStoreKey(options)).toBe("duplicate");
+
+    vi.advanceTimersByTime(61_000);
+    expect(await consumeStoreKey(options)).toBe("consumed");
+  });
+
+  it("reports the store as unavailable instead of claiming", async () => {
+    expect(
+      await consumeStoreKey({ namespace: null, namespaceName: "payments", key: "k", value: "v" })
+    ).toBe("unavailable");
   });
 
   it("does not throw when both backends fail", async () => {
