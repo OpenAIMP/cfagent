@@ -11,6 +11,8 @@
  *   GET  /etrade/options/expire-dates
  *   GET  /etrade/options/scans
  *   GET  /etrade/options/scans/diff
+ *   GET  /etrade/options/discovery-runs        (#126 scheduled discovery)
+ *   GET  /etrade/options/discovery-runs/:id    (#126 scheduled discovery)
  *   GET  /etrade/options/iv-history
  *   GET  /etrade/options/profiles
  *   POST /etrade/options/profiles
@@ -53,6 +55,7 @@ import {
   recommendOptionStrategies,
   validateStrategyRequest,
   SqlScanRunStore,
+  SqlDiscoveryRunStore,
   diffScanRuns,
   SqlIvHistoryStore,
   UnifiedOptionsService,
@@ -313,6 +316,41 @@ export async function handleEtradeOptionsRoutes(
         return Response.json(run);
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch scan run" }, { status: 500 });
+      }
+    }
+
+    // Persisted scheduled-discovery runs (issue #126, PR-E): executions
+    // of autonomousStrategyDiscovery (scheduled fires and manual
+    // triggers) are retrievable here with their provenance, saved
+    // requests, and per-symbol outcomes. Scoped per user exactly like
+    // the scan runs above (issue #103 rule, enforced by the store).
+    if (path.endsWith("/etrade/options/discovery-runs") && request.method === "GET") {
+      try {
+        const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
+        const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlDiscoveryRunStore(sql);
+        const runs = await store.list({ limit, offset, userLogin });
+        return Response.json({ count: runs.length, runs });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to list discovery runs" }, { status: 500 });
+      }
+    }
+
+    const discoveryRunIdMatch = path.match(/\/etrade\/options\/discovery-runs\/([^/]+)$/);
+    if (discoveryRunIdMatch && request.method === "GET") {
+      try {
+        // Issue #103: scoped like the list — another user's run is
+        // indistinguishable from a pruned one (same 404).
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const store = new SqlDiscoveryRunStore(sql);
+        const run = await store.get(decodeURIComponent(discoveryRunIdMatch[1]), { userLogin });
+        if (!run) {
+          return Response.json({ error: "discovery run not found" }, { status: 404 });
+        }
+        return Response.json(run);
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch discovery run" }, { status: 500 });
       }
     }
 

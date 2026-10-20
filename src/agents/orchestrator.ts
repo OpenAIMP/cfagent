@@ -33,6 +33,7 @@ import type { ResearchAgent } from "./research-agent";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { SqlScanRunStore, diffScanRuns } from "../trading";
+import { SqlDiscoveryRunStore } from "../trading";
 import { SqlIvHistoryStore } from "../trading";
 import { SqlStrategyProfileStore } from "../trading";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
@@ -44,7 +45,7 @@ import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 import { McpSystemFacade } from "../patterns/facade";
 import { executeMCPTool } from "../mcp";
-import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions } from "../services/scheduledTasks";
+import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions, type AutonomousStrategyDiscoveryOptions } from "../services/scheduledTasks";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 // Issue #308: the single generate→store seam + canonical report bodies.
 import {
@@ -173,18 +174,21 @@ function normalizeMessagesForSDK(messages: unknown[]): any[] {
  * user-creatable jobs. Internal-only callbacks — `executeAsyncJob` (the
  * async-job plumbing) and `expireStaleOrderDraft` (order-draft expiry) —
  * are armed by the agent itself and are deliberately NOT in this list;
- * the route rejects them with HTTP 400. Only stock and options screening
- * callbacks can be created through this route. NLQ scheduling (#109) uses
- * its separate agent scheduling port.
+ * the route rejects them with HTTP 400. Only stock screening, options
+ * screening, and saved-request strategy discovery (issue #126)
+ * callbacks can be created through this route. NLQ scheduling (#109)
+ * uses its separate agent scheduling port.
  */
 export const CREATABLE_SCHEDULE_CALLBACKS = [
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
+  "autonomousStrategyDiscovery",
 ] as const;
 
 const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS = new Set<string>([
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
+  "autonomousStrategyDiscovery",
 ]);
 
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
@@ -202,6 +206,7 @@ function screenerAgentName(userLogin: string): string {
 export class OrchestratorAgent extends AIChatAgent<Env> {
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
+  private scheduledDiscoverySlots = new Set<string>();
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
@@ -258,7 +263,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const payload = item.payload || {};
       const callback = item.callback;
       const orphanedBaseline =
-        (["autonomousMarketScreen", "autonomousOptionsAnalysis", "autoRenewETradeTokens", "collectIvHistory"].includes(callback) && !payload.userLogin);
+        (["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery", "autoRenewETradeTokens", "collectIvHistory"].includes(callback) && !payload.userLogin);
       if (orphanedBaseline) {
         console.warn(`[OrchestratorAgent] Removing unowned baseline schedule ${item.id} (${callback})`);
         await this.cancelSchedule(item.id).catch(() => undefined);
@@ -657,6 +662,110 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       await (this as any).keepAliveWhile(runAnalysis);
     } else {
       await runAnalysis();
+    }
+  }
+
+  /**
+   * Cloudflare Agents Scheduled Callback: Scheduled Strategy Discovery
+   * (issue #126, PR-E). Re-runs the schedule payload's SAVED
+   * StrategyRequests verbatim through the discovery pipeline and
+   * persists the run (SqlDiscoveryRunStore) for the panel to read
+   * back. Mirrors the autonomousOptionsAnalysis wrapper: saved
+   * execution context wins for identity/environment, unowned
+   * scheduled fires are skipped, duplicate fires within the same
+   * minute slot for the same saved-request set are suppressed, and
+   * results AND failures are broadcast (issue #112) — the service
+   * itself audits and records the session message. Deliberately no
+   * throw: see the failure contract on ScheduledTasksService.
+   */
+  async autonomousStrategyDiscovery(payload?: AutonomousStrategyDiscoveryOptions): Promise<void> {
+    try {
+      await this.waitUntilStable({ timeout: 30_000 });
+    } catch {
+      // Continue if timeout or unhandled
+    }
+    const runDiscovery = async () => {
+      const savedContext = await this.getScreenerExecutionContext();
+      const userLogin = savedContext?.userLogin || payload?.userLogin || "";
+      const environment = savedContext?.environment || payload?.environment;
+      if (payload?.trigger !== "manual" && !userLogin) {
+        await this.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled strategy discovery.");
+        return;
+      }
+      if (payload?.trigger !== "manual") {
+        // Duplicate-fire suppression, keyed on the saved-request set
+        // (not a thesis): the same schedule re-firing inside one
+        // minute slot is a platform duplicate; a different request
+        // set in the same minute is a different run and proceeds.
+        const slot = new Date().toISOString().slice(0, 16);
+        const requestsJson = JSON.stringify(payload?.requests ?? []);
+        let hash = 0;
+        for (let i = 0; i < requestsJson.length; i++) {
+          hash = ((hash << 5) - hash + requestsJson.charCodeAt(i)) | 0;
+        }
+        const slotKey = `${userLogin}:${slot}:${(hash >>> 0).toString(36)}`;
+        this.scheduledDiscoverySlots ??= new Set<string>();
+        if (this.scheduledDiscoverySlots.has(slotKey)) return;
+        if (this.scheduledDiscoverySlots.size > 32) this.scheduledDiscoverySlots.clear();
+        this.scheduledDiscoverySlots.add(slotKey);
+        const key = `discovery:scheduled:last-slot:${(hash >>> 0).toString(36)}`;
+        const last = await this.ctx.storage.get<{ slot: string; userLogin: string }>(key);
+        if (last?.slot === slot && last?.userLogin === userLogin) {
+          console.warn(`[OrchestratorAgent] Suppressing duplicate scheduled strategy discovery in ${slot}Z`);
+          return;
+        }
+        await this.ctx.storage.put(key, { slot, userLogin });
+      }
+      const service = new ScheduledTasksService(
+        this.env,
+        this.getOrm(),
+        userLogin,
+        new SqlScanRunStore(this.ctx.storage.sql),
+        undefined,
+        new SqlDiscoveryRunStore(this.ctx.storage.sql)
+      );
+      const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
+      if ((res as any).skipped) return;
+      if (typeof (this as any).broadcast === "function") {
+        try {
+          if (res.success && res.data) {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "discovery_alert",
+                title: "Scheduled Strategy Discovery",
+                success: true,
+                runId: res.data.runId,
+                status: res.data.status,
+                symbols: res.data.symbols,
+                requestCount: res.data.requestCount,
+                completedCount: res.data.completedCount,
+                failedCount: res.data.failedCount,
+                timestamp: res.timestamp,
+              })
+            );
+          } else if (!res.success) {
+            (this as any).broadcast(
+              JSON.stringify({
+                type: "discovery_alert",
+                title: "Scheduled Strategy Discovery Failed",
+                success: false,
+                symbols: (payload?.requests ?? []).map((r) => r?.symbol),
+                error: res.error,
+                timestamp: res.timestamp,
+              })
+            );
+          }
+        } catch {
+          // Non-critical broadcast error
+        }
+      }
+    };
+
+    if (typeof (this as any).keepAliveWhile === "function") {
+      await (this as any).keepAliveWhile(runDiscovery);
+    } else {
+      await runDiscovery();
     }
   }
 
