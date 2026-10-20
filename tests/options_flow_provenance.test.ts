@@ -185,7 +185,10 @@ describe("Issue #119 — /api/options/flows route envelopes disclose provenance"
 describe("Issue #119 — fabricated news wire stays deleted (source pins)", () => {
   const flowServiceSrc = readFileSync("src/trading/options/flows/flowService.ts", "utf8");
   const serverSrc = readFileSync("src/server.ts", "utf8");
-  const nlqSrc = readFileSync("src/agents/nlq.ts", "utf8");
+  // Issue #399: nlq.ts was decomposed into src/agents/nlq/* modules; the
+  // flow-answer prose now lives in the execution module. The barrel
+  // src/agents/nlq.ts only re-exports.
+  const nlqSrc = readFileSync("src/agents/nlq/execution.ts", "utf8");
 
   it("flowService.ts contains no fake news wire and no fabricated outlet attributions", () => {
     expect(flowServiceSrc).not.toContain("RAW_NEWS_FLOW_ITEMS");
