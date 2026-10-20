@@ -192,6 +192,28 @@ export interface OodaStep {
   at: string;
 }
 
+/**
+ * Issue #774: the 8 pipeline stages from the design doc
+ * (docs/research/autonomous-options-research-pipeline.docx §1).
+ * The OODA steps (above) operate *within* these stages — OODA is the
+ * candidate-level loop, the pipeline stages are the run-level flow.
+ */
+export type PipelineStage =
+  | "configure"
+  | "observe"
+  | "orient"
+  | "decide"
+  | "build-and-price"
+  | "challenge-and-gate"
+  | "rank-and-report"
+  | "evaluate-later";
+
+export interface PipelineStageStep {
+  stage: PipelineStage;
+  detail: string;
+  at: string;
+}
+
 export interface ResearchReport {
   runId: string;
   generationId: string;
@@ -208,6 +230,8 @@ export interface ResearchReport {
   rejected: RejectedEntry[];
   stats: RunStats;
   oodaTrace: OodaStep[];
+  /** Issue #774: pipeline stage trace — the 8 stages from the design doc. */
+  stageTrace: PipelineStageStep[];
 }
 
 export interface ResearchRunOptions {
@@ -631,6 +655,11 @@ export async function runResearchPipeline(
   const step = (stage: OodaStep["stage"], detail: string) =>
     trace.push({ stage, detail, at: new Date().toISOString() });
 
+  // Issue #774: pipeline stage trace (the 8 stages from the design doc).
+  const stageTrace: PipelineStageStep[] = [];
+  const stage = (s: PipelineStage, detail: string) =>
+    stageTrace.push({ stage: s, detail, at: new Date().toISOString() });
+
   const rejected: RejectedEntry[] = [];
   const watchlist: WatchlistEntry[] = [];
   const qualified: TradeCard[] = [];
@@ -654,7 +683,10 @@ export async function runResearchPipeline(
     contracts: 1,
   };
 
+  // CONFIGURE — load validated universe, thresholds, budgets.
+  stage("configure", `Universe ${config.universe}, rules v${config.rulesVersion || "1"}.`);
   // OBSERVE — market regime.
+  stage("observe", "Assessing market regime.");
   step("observe", "Assessing market regime.");
   let regime: RegimeAssessment;
   try {
@@ -662,6 +694,7 @@ export async function runResearchPipeline(
   } catch {
     regime = { regime: "unknown", notes: ["Regime feed failed — proceeding without regime context."], asOf: now };
   }
+  stage("orient", `Regime: ${regime.regime}.`);
   step("orient", `Regime: ${regime.regime}.`);
 
   // OBSERVE — universe.
@@ -671,7 +704,7 @@ export async function runResearchPipeline(
   } catch (err) {
     // Fail closed: no universe, no ideas — still publish the report honestly.
     return finishReport({
-      runId, config, opts, now, started, trace, regime,
+      runId, config, opts, now, started, trace, stageTrace, regime,
       ideas: [], watchlist, rejected: [{
         symbol: "*", outlook: "unknown", structure: "-",
         gate: "data_integrity",
@@ -746,8 +779,9 @@ export async function runResearchPipeline(
     }
     stats.candidatesEvaluated++;
 
-    // ACT — construct candidate structures per the §6 table; keep the best
+    // BUILD-AND-PRICE — construct candidate structures per the §6 table; keep the best
     // gated one. Alternatives are evaluated, not just the richest premium.
+    stage("build-and-price", `${symbol}: building ${draft.outlook} structures.`);
     const structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
     let bestCard: TradeCard | null = null;
 
@@ -896,6 +930,7 @@ export async function runResearchPipeline(
       if (!bestCard || card.score > bestCard.score) bestCard = card;
       step("act", `${symbol} ${name}: gated ${outcome.status}, score ${card.score}.`);
     }
+    stage("challenge-and-gate", `${symbol}: ${bestCard ? `qualified ${bestCard.structure}` : "no qualifying structure"}.`);
 
     if (bestCard) {
       qualified.push(bestCard);
@@ -903,9 +938,10 @@ export async function runResearchPipeline(
     }
   }
 
-  // Rank: top config.maxIdeas.
+  // RANK-AND-REPORT: top config.maxIdeas.
   qualified.sort((a, b) => b.score - a.score);
   const ideas = qualified.slice(0, config.maxIdeas).map((c, i) => ({ ...c, rank: i + 1 }));
+  stage("rank-and-report", `${ideas.length} ideas ranked from ${qualified.length} qualified.`);
 
   stats.qualified = ideas.length;
   stats.watchlist = watchlist.length;
@@ -918,7 +954,7 @@ export async function runResearchPipeline(
       : "No qualifying opportunities — no candidate passed the evidence and risk gates.";
 
   return finishReport({
-    runId, config, opts, now, started, trace, regime,
+    runId, config, opts, now, started, trace, stageTrace, regime,
     ideas, watchlist, rejected, stats, summary,
   });
 }
@@ -930,6 +966,7 @@ function finishReport(args: {
   now: number;
   started: number;
   trace: OodaStep[];
+  stageTrace: PipelineStageStep[];
   regime: RegimeAssessment;
   ideas: TradeCard[];
   watchlist: WatchlistEntry[];
@@ -937,7 +974,7 @@ function finishReport(args: {
   stats: RunStats;
   summary: string;
 }): ResearchReport {
-  const { runId, config, opts, now, started, trace, regime, ideas, watchlist, rejected, stats, summary } = args;
+  const { runId, config, opts, now, started, trace, stageTrace, regime, ideas, watchlist, rejected, stats, summary } = args;
   stats.durationMs = Date.now() - started;
   return {
     runId,
@@ -956,6 +993,7 @@ function finishReport(args: {
     rejected,
     stats,
     oodaTrace: trace,
+    stageTrace,
   };
 }
 
