@@ -47,7 +47,7 @@
  "src/client/scannerApi.ts": 1,
  "src/client/scannerPanel.css": 74,
  "src/client/scheduleApi.ts": 1,
- "src/client/styles.css": 1984,
+ "src/client/styles.css": 1609,
  "src/client/usePolling.ts": 1,
  "src/client/workflowsHub.css": 42
 }
