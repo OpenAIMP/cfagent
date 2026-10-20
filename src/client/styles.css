@@ -453,7 +453,7 @@ body {
   justify-content: center;
   width: 34px;
   height: 34px;
-  background: linear-gradient(135deg, #4f46e5, #0ea5e9);
+  background: var(--gradient-ai);
   border-radius: 10px;
   font-size: 1.1rem;
 }
@@ -1410,7 +1410,7 @@ body {
 }
 
 .notice-link-btn:hover {
-  background: #047857;
+  background: var(--color-success-hover);
 }
 
 /* ==========================================================================
@@ -1693,7 +1693,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 0.35rem 0.45rem 0.35rem 0.85rem;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-inner);
 }
 
 .referral-url-field {
@@ -1773,27 +1773,27 @@ body {
 }
 
 .social-btn.x-twitter:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--color-surface-hover);
 }
 
 .social-btn.linkedin {
-  background: rgba(14, 118, 168, 0.2);
-  color: #38bdf8;
-  border: 1px solid rgba(14, 118, 168, 0.4);
+  background: var(--brand-linkedin-subtle);
+  color: var(--color-accent);
+  border: 1px solid var(--brand-linkedin-strong);
 }
 
 .social-btn.linkedin:hover {
-  background: rgba(14, 118, 168, 0.35);
+  background: var(--brand-linkedin-strong);
 }
 
 .social-btn.telegram {
-  background: rgba(36, 161, 222, 0.2);
+  background: var(--brand-telegram-subtle);
   color: var(--color-info-text);
-  border: 1px solid rgba(36, 161, 222, 0.4);
+  border: 1px solid var(--brand-telegram-strong);
 }
 
 .social-btn.telegram:hover {
-  background: rgba(36, 161, 222, 0.35);
+  background: var(--brand-telegram-strong);
 }
 
 /* ==========================================================================
@@ -1931,7 +1931,7 @@ body {
 .form-group input:focus,
 .form-group select:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .form-row-2 {
@@ -2321,8 +2321,8 @@ body {
   box-sizing: border-box;
 }
 
-.gateway-card.stripe { border-top: 3px solid #6366f1; }
-.gateway-card.paypal { border-top: 3px solid #06b6d4; }
+.gateway-card.stripe { border-top: 3px solid var(--brand-stripe); }
+.gateway-card.paypal { border-top: 3px solid var(--brand-paypal); }
 .gateway-card.lemonsqueezy { border-top: 3px solid var(--color-warning); }
 
 .gateway-card:hover {
@@ -3242,7 +3242,7 @@ body {
   color: var(--color-text-primary);
   border: 1px solid var(--color-border-subtle);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .social-btn:hover {
@@ -3251,18 +3251,18 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-.social-btn.x-twitter { background: #000000; border-color: #333333; }
-.social-btn.linkedin { background: #0a66c2; border-color: #0d7ae5; }
-.social-btn.reddit { background: #ff4500; border-color: #ff5714; }
-.social-btn.facebook { background: #1877f2; border-color: #3b82f6; }
-.social-btn.whatsapp { background: #128c7e; border-color: #25d366; }
-.social-btn.telegram { background: #229ed9; border-color: var(--color-accent); }
-.social-btn.threads { background: #111111; border-color: #333333; }
-.social-btn.bluesky { background: #0285ff; border-color: var(--color-accent); }
-.social-btn.hackernews { background: #ff6600; border-color: #ea580c; }
-.social-btn.pinterest { background: #bd081c; border-color: #e11d48; }
-.social-btn.discord { background: #5865f2; border-color: #818cf8; cursor: pointer; }
-.social-btn.discord.copied { background: var(--color-success); border-color: #34d399; }
+.social-btn.x-twitter { background: var(--brand-x); border-color: var(--color-border-strong); }
+.social-btn.linkedin { background: var(--brand-linkedin); border-color: var(--brand-linkedin); }
+.social-btn.reddit { background: var(--brand-reddit); border-color: var(--brand-reddit-bright); }
+.social-btn.facebook { background: var(--brand-facebook); border-color: var(--brand-facebook-border); }
+.social-btn.whatsapp { background: var(--brand-whatsapp); border-color: var(--brand-whatsapp-bright); }
+.social-btn.telegram { background: var(--brand-telegram); border-color: var(--color-accent); }
+.social-btn.threads { background: var(--brand-threads); border-color: var(--color-border-strong); }
+.social-btn.bluesky { background: var(--brand-bluesky); border-color: var(--color-accent); }
+.social-btn.hackernews { background: var(--brand-hackernews); border-color: var(--brand-hackernews); }
+.social-btn.pinterest { background: var(--brand-pinterest); border-color: var(--brand-pinterest); }
+.social-btn.discord { background: var(--brand-discord); border-color: var(--color-indigo-text); cursor: pointer; }
+.social-btn.discord.copied { background: var(--color-success); border-color: var(--color-success); }
 
 .share-toggle-btn {
   background: var(--color-primary-alpha);
@@ -3321,14 +3321,14 @@ body {
   filter: brightness(1.2);
 }
 
-.mini-social-btn.x-twitter { background: #000000; }
-.mini-social-btn.linkedin { background: #0a66c2; }
-.mini-social-btn.reddit { background: #ff4500; }
-.mini-social-btn.whatsapp { background: #128c7e; }
-.mini-social-btn.telegram { background: #229ed9; }
-.mini-social-btn.threads { background: #111111; }
-.mini-social-btn.bluesky { background: #0285ff; }
-.mini-social-btn.discord { background: #5865f2; cursor: pointer; }
+.mini-social-btn.x-twitter { background: var(--brand-x); }
+.mini-social-btn.linkedin { background: var(--brand-linkedin); }
+.mini-social-btn.reddit { background: var(--brand-reddit); }
+.mini-social-btn.whatsapp { background: var(--brand-whatsapp); }
+.mini-social-btn.telegram { background: var(--brand-telegram); }
+.mini-social-btn.threads { background: var(--brand-threads); }
+.mini-social-btn.bluesky { background: var(--brand-bluesky); }
+.mini-social-btn.discord { background: var(--brand-discord); cursor: pointer; }
 
 /* ========================================================
    Developer Social Platforms & Community Hub Card
@@ -3438,8 +3438,8 @@ body {
 }
 
 .google-ad-pill {
-  background: #fbbc04;
-  color: #202124;
+  background: var(--brand-google-yellow);
+  color: var(--brand-google-text);
   font-size: 0.68rem;
   font-weight: 800;
   padding: 0.1rem 0.4rem;
@@ -3500,7 +3500,7 @@ body {
 
 .google-ad-verified-badge {
   font-size: 0.68rem;
-  color: #38bdf8;
+  color: var(--color-accent);
   background: var(--color-info-subtle);
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
@@ -3527,8 +3527,8 @@ body {
 }
 
 .google-ad-cta-btn {
-  background: linear-gradient(135deg, #4285f4, #1a73e8);
-  color: #ffffff;
+  background: var(--brand-google-gradient);
+  color: var(--color-on-gradient);
   border: 0;
   padding: 0.55rem 1.15rem;
   border-radius: 8px;
@@ -3536,12 +3536,12 @@ body {
   font-size: 0.84rem;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(66, 133, 244, 0.35);
+  box-shadow: var(--shadow-glow-accent);
   transition: all 0.15s ease;
 }
 
 .google-ad-cta-btn:hover {
-  background: linear-gradient(135deg, #1a73e8, #1557b0);
+  background: var(--brand-google-gradient-hover);
   transform: translateY(-1px);
 }
 
@@ -4086,7 +4086,7 @@ body {
 }
 
 .run-mcp-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
+  background: var(--gradient-ai);
   color: var(--color-on-gradient);
   border: 0;
   padding: 0.65rem 1.4rem;
@@ -4901,7 +4901,7 @@ body {
 
 .nlq-bar-input:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .btn-nlq-submit {
@@ -6481,7 +6481,7 @@ body {
 
 .nlq-bar-input:focus {
   border-color: var(--border-focus);
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .btn-nlq-submit {
@@ -7824,13 +7824,13 @@ body {
 }
 
 .env-status-badge.badge-prod {
-  background: rgba(239, 68, 68, 0.35);
+  background: var(--color-danger-subtle);
   color: var(--color-danger-text);
   border: 1px solid var(--color-danger-border);
 }
 
 .env-status-badge.badge-test {
-  background: rgba(234, 179, 8, 0.35);
+  background: var(--color-warning-subtle);
   color: var(--color-warning-text);
   border: 1px solid var(--color-warning-border);
 }
@@ -8104,7 +8104,7 @@ body {
 .etrade-dynamic-menu-trigger.pinned {
   background: var(--color-card-elevated);
   border-color: var(--color-accent);
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.28);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .etrade-dynamic-menu-trigger.prod {
@@ -8112,7 +8112,7 @@ body {
 }
 .etrade-dynamic-menu-trigger.prod:hover {
   border-color: var(--color-danger);
-  box-shadow: 0 0 10px rgba(248, 113, 113, 0.22);
+  box-shadow: var(--shadow-glow-danger);
 }
 
 .menu-status-dot {
@@ -9371,7 +9371,7 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-accent) !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.3) !important;
+  box-shadow: var(--shadow-focus-ring) !important;
 }
 
 /* WCAG 2.2 SC 2.3.3 (Animation from Interactions) & ISO 9241 Ergonomics */
@@ -9471,7 +9471,7 @@ body {
   isolation: isolate;
   contain: paint layout;
   border: 1px solid var(--color-accent-border);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.98), 0 0 0 1px rgba(56, 189, 248, 0.3), 0 0 20px rgba(56, 189, 248, 0.15);
+  box-shadow: var(--shadow-popover);
   border-radius: 10px;
   padding: 0.75rem 0.95rem;
   width: max-content;
@@ -9493,7 +9493,7 @@ body {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-bottom: 6px solid var(--color-card);
-  filter: drop-shadow(0 -1px 0 rgba(56, 189, 248, 0.45));
+  filter: drop-shadow(0 -1px 0 var(--color-accent-border));
   z-index: 3;
 }
 
@@ -9606,7 +9606,7 @@ body {
   display: block;
   position: relative;
   z-index: 2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--text-shadow-popover);
 }
 
 .tab-hover-title {
@@ -9617,7 +9617,7 @@ body {
   line-height: 1.25;
   position: relative;
   z-index: 2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--text-shadow-popover);
 }
 
 .tab-hover-desc {
@@ -9628,7 +9628,7 @@ body {
   line-height: 1.38;
   position: relative;
   z-index: 2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--text-shadow-popover);
 }
 
 /* =========================================================================
@@ -9805,7 +9805,7 @@ body {
 }
 
 .error-action-btn.copy:hover {
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--color-surface-hover);
   color: var(--color-text-secondary);
 }
 
@@ -9866,7 +9866,7 @@ body {
   flex-direction: column !important;
   z-index: 1000 !important;
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: var(--shadow-sidebar) !important;
   user-select: none !important;
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
@@ -10705,7 +10705,7 @@ body {
 }
 
 .top-theme-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: var(--color-muted) !important;
   color: var(--color-on-gradient) !important;
   border-color: var(--color-border-medium) !important;
 }
@@ -10918,7 +10918,7 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  text-shadow: var(--text-shadow-on-gradient);
 }
 
 .nav-trade-btn:hover {
@@ -11395,13 +11395,13 @@ body {
 }
 
 .ticker-price-val.flash-up {
-  background-color: rgba(16, 185, 129, 0.28);
+  background-color: var(--color-success-subtle);
   color: var(--color-success);
   animation: tickFlashGreen 0.75s ease-out;
 }
 
 .ticker-price-val.flash-down {
-  background-color: rgba(239, 68, 68, 0.28);
+  background-color: var(--color-danger-subtle);
   color: var(--color-sentiment-very-bearish);
   animation: tickFlashRed 0.75s ease-out;
 }
@@ -11409,13 +11409,13 @@ body {
 @keyframes tickFlashGreen {
   0% {
     background-color: rgba(16, 185, 129, 0.65);
-    color: #34d399;
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    color: var(--color-success-text);
+    box-shadow: var(--shadow-glow-primary);
     transform: scale(1.04);
   }
   100% {
     background-color: transparent;
-    color: #f8fafc;
+    color: var(--color-text-primary);
     box-shadow: none;
     transform: scale(1);
   }
@@ -11424,13 +11424,13 @@ body {
 @keyframes tickFlashRed {
   0% {
     background-color: rgba(239, 68, 68, 0.65);
-    color: #f87171;
-    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+    color: var(--color-danger-text);
+    box-shadow: var(--shadow-glow-danger);
     transform: scale(1.04);
   }
   100% {
     background-color: transparent;
-    color: #f8fafc;
+    color: var(--color-text-primary);
     box-shadow: none;
     transform: scale(1);
   }
@@ -11562,7 +11562,7 @@ body {
   background: var(--color-primary);
   color: var(--color-primary-foreground);
   border: 1px solid var(--color-success-border);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-card), var(--shadow-glow-primary);
   font-weight: 700;
   font-size: 0.85rem;
   cursor: pointer;
@@ -11571,16 +11571,16 @@ body {
 }
 
 .ask-agent-pill-btn:hover {
-  background: #047857;
+  background: var(--color-success-hover);
   border-color: var(--color-success);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.5);
+  box-shadow: var(--shadow-lg), var(--shadow-glow-primary);
 }
 
 .ask-agent-pill-btn.active {
   background: var(--color-primary);
   border-color: var(--color-success);
-  box-shadow: 0 0 22px rgba(16, 185, 129, 0.6);
+  box-shadow: var(--shadow-glow-primary);
 }
 
 .ask-agent-icon {
@@ -11631,7 +11631,7 @@ body {
   border-radius: 50%;
   justify-content: center;
   position: relative;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 10px rgba(16, 185, 129, 0.25);
+  box-shadow: var(--shadow-card), var(--shadow-glow-primary);
 }
 
 .ask-agent-pill-btn.minimized .ask-agent-status-dot {
@@ -11698,7 +11698,7 @@ body {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-medium);
   border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(16, 185, 129, 0.2);
+  box-shadow: var(--shadow-drawer);
   z-index: 99995;
   display: flex;
   flex-direction: column;
@@ -11858,7 +11858,7 @@ body {
   background: var(--color-success);
   color: var(--color-success-foreground);
   border-radius: 12px 12px 2px 12px;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-glow-primary);
 }
 
 .ask-agent-msg-bubble.agent {
@@ -13469,16 +13469,16 @@ body {
 .strat-action-chip.trade-fast {
   background: var(--gradient-trade) !important;
   color: var(--color-on-gradient) !important;
-  border: 1px solid #c2410c !important;
+  border: 1px solid var(--color-trade-deep) !important;
   font-weight: 700 !important;
   box-shadow: var(--shadow-glow-trade) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+  text-shadow: var(--text-shadow-on-gradient) !important;
 }
 
 .strat-action-chip.trade-fast:hover {
   background: var(--gradient-trade-hover) !important;
   color: var(--color-on-gradient) !important;
-  border-color: #ea580c !important;
+  border-color: var(--color-trade) !important;
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow-trade) !important;
 }
@@ -13753,7 +13753,7 @@ body {
 }
 
 .omnichannel-btn-submit.slack {
-  background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+  background: var(--brand-slack-gradient);
 }
 
 .omnichannel-result-box {
