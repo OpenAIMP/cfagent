@@ -40,6 +40,7 @@ export * from "./screenerConfig";
 export * from "./screenerPipeline";
 export * from "./screenerReportPdf";
 export * from "./optionsReportPdf";
+export * from "./setupCatalog";
 export * from "./researchReportPdf";
 export * from "./options";
 export * from "./options/flows";
