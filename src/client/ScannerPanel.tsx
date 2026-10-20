@@ -1027,7 +1027,7 @@ function StrategyCatalogBrowser() {
   const theses = ["all", "bullish", "bearish", "range_bound", "large_move"];
 
   return (
-    <div style={{ margin: "1rem 0", border: "1px solid var(--theme-border)", borderRadius: 6, padding: "0.75rem" }}>
+    <div style={{ margin: "1rem 0", border: "1px solid var(--color-border-medium)", borderRadius: 6, padding: "0.75rem" }}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -1047,8 +1047,8 @@ function StrategyCatalogBrowser() {
                   marginRight: "0.4rem",
                   padding: "0.2rem 0.6rem",
                   borderRadius: 12,
-                  border: "1px solid var(--theme-border)",
-                  background: filter === t ? "var(--theme-hover)" : "none",
+                  border: "1px solid var(--color-border-medium)",
+                  background: filter === t ? "var(--color-surface-hover)" : "none",
                   fontWeight: filter === t ? 700 : 400,
                   fontSize: "0.8rem",
                   cursor: "pointer",
@@ -1060,9 +1060,9 @@ function StrategyCatalogBrowser() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem" }}>
             {filtered.map((st) => (
-              <div key={st.id} style={{ border: "1px solid var(--theme-border)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
+              <div key={st.id} style={{ border: "1px solid var(--color-border-medium)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
                 <div style={{ fontWeight: 700 }}>{st.label}</div>
-                <div style={{ color: "var(--theme-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
+                <div style={{ color: "var(--color-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
                 <div>
                   {st.theses.map((th) => (
                     <span
@@ -1074,8 +1074,8 @@ function StrategyCatalogBrowser() {
                         borderRadius: 10,
                         fontSize: "0.7rem",
                         fontWeight: 600,
-                        color: THESIS_COLORS[th] ?? "var(--theme-text-muted)",
-                        border: `1px solid ${THESIS_COLORS[th] ?? "var(--theme-border)"}`,
+                        color: THESIS_COLORS[th] ?? "var(--color-text-muted)",
+                        border: `1px solid ${THESIS_COLORS[th] ?? "var(--color-border-medium)"}`,
                       }}
                     >
                       {th.replace("_", " ")}

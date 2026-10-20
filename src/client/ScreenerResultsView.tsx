@@ -217,7 +217,7 @@ function SortTh({
 }
 
 function gradeColor(g: string | null | undefined): string {
-  if (!g) return "var(--theme-text-muted)";
+  if (!g) return "var(--color-text-muted)";
   const top = g[0];
   if (top === "A") return "var(--color-success)";
   if (top === "B") return "var(--color-sentiment-bullish)";
@@ -236,7 +236,7 @@ function GradeBadge({
     return (
       <span
         title={withheldReason ?? "Insufficient data — grade withheld, not estimated"}
-        style={{ color: "var(--theme-text-muted)", cursor: "help" }}
+        style={{ color: "var(--color-text-muted)", cursor: "help" }}
       >
         —
       </span>
@@ -262,7 +262,7 @@ function GradeBadge({
 }
 
 function quantRatingColor(r: string | null | undefined): string {
-  if (!r) return "var(--theme-text-muted)";
+  if (!r) return "var(--color-text-muted)";
   if (r === "Strong Buy") return "var(--color-success)";
   if (r === "Buy") return "var(--color-sentiment-bullish)";
   if (r === "Hold") return "var(--color-warning)";
@@ -272,7 +272,7 @@ function quantRatingColor(r: string | null | undefined): string {
 
 function GapCell({ t }: { t?: StockTechnicalsData }) {
   if (t?.gapPercent == null) {
-    return <td style={{ color: "var(--theme-text-muted)" }} title="No history — gap unavailable">—</td>;
+    return <td style={{ color: "var(--color-text-muted)" }} title="No history — gap unavailable">—</td>;
   }
   const arrow = t.gapDirection === "up" ? "▲" : t.gapDirection === "down" ? "▼" : "•";
   const color =
@@ -280,7 +280,7 @@ function GapCell({ t }: { t?: StockTechnicalsData }) {
       ? "var(--color-success)"
       : t.gapDirection === "down"
         ? "var(--color-danger)"
-        : "var(--theme-text-muted)";
+        : "var(--color-text-muted)";
   return (
     <td style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
       {arrow} {t.gapPercent >= 0 ? "+" : ""}{t.gapPercent.toFixed(2)}%
@@ -316,7 +316,7 @@ function sentimentColor(s?: string): string {
     case "bearish":
       return "var(--color-danger)";
     default:
-      return "var(--theme-text-muted)";
+      return "var(--color-text-muted)";
   }
 }
 
@@ -408,7 +408,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           <> • <strong>{result.sector}</strong> sector</>
         )}{" "}
         • {result.totalScanned.toLocaleString()} scanned • {result.matchedCount} matched •{" "}
-        <span style={{ color: "var(--theme-text-muted)" }}>
+        <span style={{ color: "var(--color-text-muted)" }}>
           {new Date(result.timestamp).toLocaleString()}
         </span>
         {!result.success && (
@@ -502,7 +502,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
               </table>
             </div>
           ) : (
-            <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
               No standout opportunities in this run.
             </div>
           )}
@@ -580,7 +580,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                             ? "—"
                             : `${s.technicals.macdHistogram >= 0 ? "+" : ""}${s.technicals.macdHistogram.toFixed(2)}`}
                         </td>
-                        <td style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)" }}>
+                        <td style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
                           {s.source}
                         </td>
                       </tr>

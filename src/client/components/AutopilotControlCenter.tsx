@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState } from "./ui";
+import { EmptyState, Table } from "./ui";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
@@ -764,43 +764,22 @@ export function AutopilotControlCenter({
         </div>
 
         {/* Actions Table / Empty State */}
-        {filteredActions.length === 0 ? (
-          <EmptyState
-            framed
-            icon="🛡️"
-            title="No autonomous actions recorded"
-            description="As the NextGenTP autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time."
-            action={
-              <button
-                type="button"
-                className="btn-simulate-action secondary"
-                onClick={handleSimulateAutonomousAction}
-              >
-                Trigger Policy Evaluation
-              </button>
-            }
-          />
-        ) : (
-          <div className="autopilot-table-container">
-            <table className="autopilot-actions-table">
-              <thead>
-                <tr>
-                  <th>TIME</th>
-                  <th>ACTION &amp; TRIGGER</th>
-                  <th>ASSET</th>
-                  <th>POLICY CHECK</th>
-                  <th>STATUS</th>
-                  <th>DID ATTESTATION</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredActions.map((action) => {
-                  const isCopied = copiedDidId === action.id;
-                  return (
-                    <tr key={action.id} className="action-table-row">
-                      <td className="time-cell">{action.timestamp}</td>
-                      <td className="summary-cell">
-                        <span className={`action-type-pill type-${action.actionType}`}>
+        <Table
+          columns={[
+            {
+              key: "time",
+              header: "TIME",
+              cellClassName: "time-cell",
+              render: (action) => (
+              <>{action.timestamp}</>
+            ),
+            },
+            {
+              key: "action",
+              header: "ACTION & TRIGGER",
+              cellClassName: "summary-cell",
+              render: (action) => (
+              <><span className={`action-type-pill type-${action.actionType}`}>
                           {action.actionType.replace("_", " ").toUpperCase()}
                         </span>
                         <span className="action-summary-text">{action.summary}</span>
@@ -815,27 +794,47 @@ export function AutopilotControlCenter({
                           >
                             {action.source === "live" ? "📡 Live" : "🧪 Sim"}
                           </span>
-                        )}
-                      </td>
-                      <td className="symbol-cell">
-                        <span className="symbol-pill">{action.symbol}</span>
-                      </td>
-                      <td className="policy-cell">
-                        <span
+                        )}</>
+            ),
+            },
+            {
+              key: "asset",
+              header: "ASSET",
+              cellClassName: "symbol-cell",
+              render: (action) => (
+              <><span className="symbol-pill">{action.symbol}</span></>
+            ),
+            },
+            {
+              key: "policy",
+              header: "POLICY CHECK",
+              cellClassName: "policy-cell",
+              render: (action) => (
+              <><span
                           className={`policy-check-badge ${
                             action.policyCheckPassed ? "passed" : "failed"
                           }`}
                         >
                           {action.policyCheckPassed ? "✓" : "✕"} {action.policyCheckRule}
-                        </span>
-                      </td>
-                      <td className="status-cell">
-                        <span className={`action-status-pill status-${action.status}`}>
+                        </span></>
+            ),
+            },
+            {
+              key: "status",
+              header: "STATUS",
+              cellClassName: "status-cell",
+              render: (action) => (
+              <><span className={`action-status-pill status-${action.status}`}>
                           {action.status.replace(/_/g, " ").toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="attestation-cell">
-                        <button
+                        </span></>
+            ),
+            },
+            {
+              key: "attestation",
+              header: "DID ATTESTATION",
+              cellClassName: "attestation-cell",
+              render: (action) => (
+              <><button
                           type="button"
                           className="did-signature-badge"
                           onClick={() =>
@@ -846,20 +845,38 @@ export function AutopilotControlCenter({
                           }
                           title="Click to copy cryptographic DID signature"
                         >
-                          {isCopied
+                          {(copiedDidId === action.id)
                             ? "✓ Copied"
                             : action.didAttestation.signature
                             ? action.didAttestation.signature.slice(0, 14) + "…"
                             : "UNSIGNED"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                        </button></>
+            ),
+            },
+          ]}
+          rows={filteredActions}
+          rowKey={(action) => action.id}
+          rowClassName="action-table-row"
+          className="autopilot-actions-table"
+          containerClassName="autopilot-table-container"
+          empty={(
+            <EmptyState
+            framed
+            icon="🛡️"
+            title="No autonomous actions recorded"
+            description="As the NextGenTP autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time."
+            action={
+            <button
+            type="button"
+            className="btn-simulate-action secondary"
+            onClick={handleSimulateAutonomousAction}
+            >
+            Trigger Policy Evaluation
+            </button>
+            }
+            />
+          )}
+        />
       </div>
 
       {/* Edit Policy Limits Modal */}

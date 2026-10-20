@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -134,6 +134,8 @@ describe("Primitive styles (primitives.css)", () => {
       ".ui-modal",
       ".ui-modal-body",
       ".ui-modal-actions",
+      ".ui-table",
+      ".ui-skeleton",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -284,5 +286,26 @@ describe("Modal (#492)", () => {
     expect(element.props.title).toBe("Partner Deals");
     expect(element.props.size).toBe("lg");
     expect(element.props.footer).toBe("actions");
+  });
+});
+
+describe("Table + Skeleton (#492)", () => {
+  it("Table carries the column-config contract", () => {
+    const columns = [{ key: "sym", header: "SYMBOL", render: (r: { s: string }) => r.s }];
+    const element = React.createElement(Table, {
+      columns,
+      rows: [{ s: "AAPL" }],
+      rowKey: (r: { s: string }) => r.s,
+      empty: "none",
+    });
+    expect(element.props.columns).toHaveLength(1);
+    expect(element.props.rows).toHaveLength(1);
+    expect(element.props.columns[0].render({ s: "MSFT" })).toBe("MSFT");
+  });
+
+  it("Skeleton supports variants and multi-line text", () => {
+    const element = React.createElement(Skeleton, { variant: "text", lines: 3 });
+    expect(element.props.variant).toBe("text");
+    expect(element.props.lines).toBe(3);
   });
 });

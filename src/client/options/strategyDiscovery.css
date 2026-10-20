@@ -5121,7 +5121,7 @@
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-medium);
   text-transform: capitalize;
 }
 .strat-library-card.selected {
@@ -5133,7 +5133,7 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-medium);
 }
 .strat-modal-footer .primary {
   background: var(--color-accent);
