@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const css = readFileSync(join(ROOT, "src", "client", "tokens.css"), "utf8");
+const css = readFileSync(join(ROOT, "src", "client", "tokens.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 function extractBlock(selectorRe) {
   const m = css.match(selectorRe);
