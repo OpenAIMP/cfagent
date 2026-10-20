@@ -270,7 +270,18 @@ async function renderView(result: unknown, storedRun: unknown, mode: string) {
 
 describe("ScanResultsView result-set downloads (#126 PR-C)", () => {
   it("a viewed stored run shows CSV/JSON controls beside the PDF link", async () => {
-    await renderView(olderRun.result, olderRun, "strategy_fit");
+    // Fixture adapted for #126 PR-D: this scenario is about the
+    // controls coexisting with the run's OWN PDF link, so the result
+    // carries its keyed reportUrl (as the server builds it). The
+    // shared olderRun fixture has no reportUrl; before PR-D the PDF
+    // label rendered anyway via the keyless latest-PDF fallback,
+    // which PR-D removes — a run without a reportUrl now shows no
+    // PDF link (pinned in tests/pdf_report_link_honesty.test.tsx).
+    await renderView(
+      { ...olderRun.result, reportUrl: "/api/options/report.pdf?key=options:pdf:scan-20261015.pdf" },
+      olderRun,
+      "strategy_fit",
+    );
     const { csv, json } = exportButtons();
     expect(csv?.textContent).toContain("CSV results");
     expect(json?.textContent).toContain("JSON run");
