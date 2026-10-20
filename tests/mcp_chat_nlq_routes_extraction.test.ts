@@ -124,7 +124,7 @@ describe("handleMcpChatNlqRoutes behavior", () => {
       ["GET", "/api/chat"],
       ["GET", "/nlq"], // nlq is POST-only
       ["POST", "/mcp2"],
-      ["POST", "/schema/query"], // stays in orchestrator (future schema slice)
+      ["POST", "/schema/query"], // owned by routes/schema.ts since slice #359-17
     ];
     for (const [method, path] of cases) {
       const url = new URL(`https://agent.internal${path}`);
