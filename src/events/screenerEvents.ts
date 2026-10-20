@@ -48,6 +48,12 @@ export interface ScreenerCompletedEvent {
     failedSymbols: string[];
     failureReasons: Record<string, number>;
   };
+  /**
+   * Issue #728: per-symbol rejection reasons. The Slack publisher groups
+   * these into a breakdown (e.g. "42 downtrend, 31 negative-EV") so a
+   * 0-match screen explains itself instead of just reporting the count.
+   */
+  rejections?: { symbol: string; reason: string }[];
 }
 
 export interface ScreenerFailedEvent {

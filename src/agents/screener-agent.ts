@@ -92,6 +92,8 @@ export interface ScreenerRunResult {
    * a failure. Zero quotes still fails honestly (success:false + error).
    */
   partial?: PartialQuoteQualification;
+  /** Issue #728: per-symbol rejection reasons for the Slack breakdown. */
+  rejections?: { symbol: string; reason: string }[];
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
   error?: string;
@@ -468,6 +470,10 @@ export class ScreenerAgent extends Agent<Env> {
         allStocks,
         discoveryMessage: acquired.discovery.message,
         ...(acquired.partial ? { partial: acquired.partial } : {}),
+        // Issue #728: rejection reasons for the Slack breakdown.
+        ...(screenResult.ledger?.rejections?.length
+          ? { rejections: screenResult.ledger.rejections }
+          : {}),
       };
       if (taskId) result.taskId = taskId;
       // Issue #706: record which learnings were applied.
