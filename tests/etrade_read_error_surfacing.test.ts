@@ -248,11 +248,15 @@ describe("fetchQuote — lastError contract (#168)", () => {
     expect(client.getLastError()).toContain("no quote data");
   });
 
-  it("HTTP 200 with a quote but no usable price sets lastError", async () => {
+  it("HTTP 200 with a quote but no usable price returns the quote as-is (#809)", async () => {
     const client = await makeAuthedClient();
     okJson({ QuoteResponse: { QuoteData: [{ Product: { symbol: "AAPL" } }] } });
-    expect(await client.fetchQuote("AAPL")).toBeNull();
-    expect(client.getLastError()).toContain("no positive trade or bid price");
+    // Issue #809: price gate removed — present data as-is, don't reject zero prices.
+    const quote = await client.fetchQuote("AAPL");
+    expect(quote).not.toBeNull();
+    expect(quote?.symbol).toBe("AAPL");
+    // No error set — zero price is valid data, not a failure.
+    expect(client.getLastError()).toBeFalsy();
   });
 
   it("success returns the quote with NO error, and clears a prior failure", async () => {
