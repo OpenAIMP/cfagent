@@ -1,0 +1,1865 @@
+import { resolveEnvironmentConfig } from "../../config/environment";
+import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
+import { ETradeBrowserService } from "../../services/browserAgent";
+import { ETradeService } from "../../services/etrade";
+import { FossResearchService, weakestFossProvenance } from "../../services/fossResearch";
+import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
+import { DynamicOptionsScreener, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
+import { runOptionsStrategyAction, type OptionsStrategyIntent } from "../nlqOptionsStrategy";
+import type { DatabaseORM } from "../../orm";
+import type { ScanRunStore, StrategyProfileStore } from "../../trading";
+import type { AgentScheduleItem, Env } from "../../types";
+import { formatMarketCap, formatTradingQuoteBidAsk, formatTradingQuoteHeadline } from "./formatting";
+import { planNLQ, validateNLQPlanWithLLM } from "./llmPlanning";
+import { STOP_WORDS_REGEX } from "./orderParams";
+import { NLQPlan, isNlqTableAllowed } from "./schema";
+import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort } from "./types";
+function auditNlqExecution(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  result: NLQQueryResult | null,
+  durationMs: number,
+  error?: unknown
+): void {
+  if (!orm?.events) return;
+  try {
+    const payload: Record<string, unknown> = {
+      domain: plan.domain,
+      status: result?.status ?? "ok",
+      count: typeof result?.count === "number" ? result.count : 0,
+      durationMs: Math.max(0, Math.round(durationMs)),
+    };
+    if (typeof result?.targetTable === "string") payload.targetTable = result.targetTable;
+    if (typeof plan.planSource === "string") payload.planSource = plan.planSource;
+    if (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      payload.error = message.slice(0, 200);
+    }
+    orm.events.create({
+      id: crypto.randomUUID(),
+      sessionId,
+      type: error ? "nlq.error" : "nlq.executed",
+      agent: "nlq",
+      payload,
+      createdAt: new Date().toISOString(),
+    });
+  } catch {
+    // Audit is best-effort; never fail the execution for a logging write.
+  }
+}
+
+/** Issue #257: the original synchronous executor (renamed); the exported
+ *  executeNLQQuery below wraps it with the mas_events audit write. */
+function executeNLQQueryCore(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userDid?: string
+): NLQQueryResult {
+  const executedAt = new Date().toISOString();
+
+  // 1. List Tables & Schema
+  if (plan.domain === "tables") {
+    const tables = orm.listTables();
+    return {
+      plan,
+      domain: "tables",
+      count: tables.length,
+      summary: `Found ${tables.length} tables in SQLite database schema.`,
+      rows: tables.map((t) => ({
+        tableName: t.name,
+        rowCount: t.rowCount,
+        description: t.description,
+        columnCount: t.columns.length,
+        columns: t.columns.map((c) => `${c.name} (${c.type}${c.isPrimary ? ", PK" : ""})`).join(", "),
+      })),
+      executedAt,
+    };
+  }
+
+  // 1b. Task Scheduling Operations (Cloudflare Agents Schedule API)
+  // Issue #109: scheduling actions arm REAL Agent schedules through the
+  // injected NLQSchedulingPort, which only the asynchronous executor
+  // (executeNLQQueryAsync) can call. The sync executor must never
+  // fabricate a schedule — it previously invented `sched_<type>_<ts>`
+  // ids, wrote a schedule.created audit event against a nonexistent
+  // mas_schedules table, and reported success for schedules that did
+  // not exist. Direct sync calls now get an honest refusal, matching
+  // the guard pattern used for async-only trading actions below.
+  if (plan.domain === "scheduling") {
+    const action = plan.scheduleData?.action || "list";
+    return {
+      plan,
+      domain: "scheduling",
+      targetTable: "cf_agent_schedules",
+      count: 0,
+      status: "error",
+      summary: `Scheduling (${action}): this action requires the asynchronous NLQ executor (executeNLQQueryAsync) with a live agent scheduling port. Nothing was created, cancelled, or listed by this call.`,
+      rows: [],
+      executedAt,
+    };
+  }
+
+  // 1c. Cloudflare Agentic Payments Operations (x402 & MPP)
+  if (plan.domain === "agentic_payments") {
+    const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
+    const action = plan.agenticPaymentsData?.action || "wallet_status";
+
+    if (action === "wallet_status") {
+      // Issue #122: delegate to the payment service (single source of truth)
+      // and disclose that the balance is a simulated local-ledger figure —
+      // a $50.00 local starting credit plus/minus locally recorded entries,
+      // NOT an on-chain wallet balance.
+      const wallet = paymentService.getWalletStatusSync();
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_agentic_wallet",
+        count: 1,
+        summary: `Cloudflare Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
+        rows: [
+          {
+            network: wallet.network,
+            balanceUSD: `$${wallet.balanceUSD.toFixed(2)}`,
+            autoApproveLimitUSD: `$${wallet.autoApproveLimitUSD.toFixed(2)}`,
+            totalSpentUSD: `$${wallet.totalSpentUSD.toFixed(2)}`,
+            totalEarnedUSD: `$${wallet.totalEarnedUSD.toFixed(2)}`,
+            micropaymentCount: wallet.transactionCount,
+            status: "SIMULATED",
+            simulated: true,
+            source: wallet.source,
+            startingCreditUSD: `$${wallet.startingCreditUSD.toFixed(2)}`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "set_limit") {
+      const limit = plan.agenticPaymentsData?.limitUSD ?? 0.05;
+      paymentService.setAutoApproveLimit(limit);
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_agentic_wallet",
+        count: 1,
+        summary: `Agentic micropayment auto-approval limit updated to $${limit.toFixed(2)} USD (HITL safeguard active).`,
+        rows: [
+          {
+            action: "SET_LIMIT",
+            limitUSD: `$${limit.toFixed(2)}`,
+            status: "SUCCESS",
+            updatedAt: executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "micropayments_list") {
+      const allTx = orm.transactions ? orm.transactions.findMany({ limit: plan.limit || 25, orderBy: "created_at DESC" }) : [];
+      const micropayments = allTx.filter((t) => t.gateway === "x402" || t.gateway === "mpp");
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "mas_transactions",
+        count: micropayments.length,
+        summary: `Found ${micropayments.length} micropayment transaction(s) in durable financial ledger.`,
+        rows: micropayments.map((t) => ({
+          id: t.id,
+          action: t.action,
+          amount: `$${t.amount.toFixed(2)} ${t.currency}`,
+          customer: t.customer,
+          gateway: t.gateway,
+          status: t.status,
+          proposerDid: t.proposerDid,
+          proofSignature: t.proofSignature,
+          createdAt: t.createdAt,
+        })),
+        executedAt,
+      };
+    }
+  }
+
+  // 2. Add or Update Referral Categories via ORM
+  if (plan.domain === "category_mutation") {
+    const catName = plan.categoryData?.name || plan.terms || "New Category";
+    const slug = catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const now = new Date().toISOString();
+    const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
+
+    const created = orm.categories.create({
+      id,
+      name: catName,
+      slug,
+      description: plan.categoryData?.description || `Category for ${catName} referrals`,
+      icon: plan.categoryData?.icon || "🏷️",
+      isActive: true,
+      sortOrder: (orm.categories.count() || 0) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const allCategories = orm.categories.findMany({ orderBy: "sort_order ASC" });
+
+    return {
+      plan,
+      domain: "category_mutation",
+      targetTable: "mas_categories",
+      count: allCategories.length,
+      summary: `Category "${created.name}" created successfully via ORM. Total active categories: ${allCategories.length}.`,
+      rows: allCategories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        slug: c.slug,
+        description: c.description,
+        status: c.isActive ? "ACTIVE" : "INACTIVE",
+        sortOrder: c.sortOrder,
+      })),
+      executedAt,
+    };
+  }
+
+  // 3. Query Specific Table Data via ORM
+  if (plan.domain === "table_data") {
+    const table = plan.targetTable || "mas_categories";
+    // Assessment P0 (#143): a prompt-injected planner could previously name
+    // any table here (e.g. sqlite_master) because targetTable was a free
+    // string. Refuse anything off the explicit allowlist — clean refusal,
+    // never partial data.
+    if (!isNlqTableAllowed(table)) {
+      return {
+        plan,
+        domain: "table_data",
+        targetTable: table,
+        count: 0,
+        status: "error",
+        summary: `Refused: table "${table}" is not readable through natural language queries. Nothing was read.`,
+        rows: [],
+        executedAt,
+      };
+    }
+    const data = orm.getTableData(table, { search: plan.terms, limit: plan.limit });
+    return {
+      plan,
+      domain: "table_data",
+      targetTable: table,
+      count: data.rows.length,
+      summary: `Retrieved ${data.rows.length} rows from ${table} (Total: ${data.total}).`,
+      rows: data.rows,
+      executedAt,
+    };
+  }
+
+  // 4. Trading Domain (E*TRADE stock screening, quotes, order previews, positions)
+  if (plan.domain === "trading") {
+    const etrade = new ETradeService(orm, env, sessionId);
+    const action = plan.tradingData?.action || "screen";
+
+    if (action === "capabilities") {
+      const caps = getPlatformCapabilitiesDeskSummary();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "platform_capabilities",
+        count: caps.workflows.length,
+        status: "matches_found",
+        summary: caps.spokenSummary,
+        displayMarkdown: caps.markdownOverview,
+        rows: caps.workflows as any,
+        executedAt,
+      };
+    }
+
+    if (action === "screen") {
+      const screenRes = etrade.screenStocks(plan.tradingData?.filters);
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
+      let summary = "";
+
+      const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
+        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
+        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        return false;
+      });
+
+      if (hasMismatch) {
+        scannerState = "SCAN_INVALID_DATA_MISMATCH";
+        summary = `🚨 SCAN INVALID — DATA MISMATCH: Screened candidates contradict requested filter criteria (${screenRes.filterSummary}). Action shortcuts disabled.`;
+      } else if (screenRes.totalScreened === 0) {
+        scannerState = "no_universe";
+        summary = "⚠️ Scanner State: [No universe processed] (0 equities configured or retrieved). Data unavailable or scan not run.";
+      } else if (screenRes.stocks.length === 0) {
+        scannerState = "no_matches";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
+      } else {
+        scannerState = "matches_found";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} passed criteria] (${screenRes.filterSummary}).`;
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_market_screener",
+        count: screenRes.stocks.length,
+        status: scannerState,
+        summary,
+        scanLedger: screenRes.ledger,
+        movers: screenRes.movers,
+        provenance: {
+          scannerState,
+          universeCount: screenRes.totalScreened,
+          passedCount: screenRes.stocks.length,
+          rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
+          rsiLookback: "14-Period Daily RSI",
+          macdSettings: "12, 26, 9 EMA",
+          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+          executedAt,
+        },
+        rows: screenRes.stocks.map((s) => {
+          const rowMismatch =
+            (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) ||
+            (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0);
+          return {
+            symbol: s.symbol,
+            companyName: s.companyName,
+            sector: s.sector,
+            exchange: s.listingExchange || (s as any).exchange || "N/A",
+            price: `$${s.price.toFixed(2)}`,
+            rawPrice: s.price,
+            change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePercent: s.changePercent,
+            changePeriod: s.changePeriod || "1D (Regular Trading Day)",
+            priorClose: `$${(s.previousClose ?? (s.price - s.change)).toFixed(2)}`,
+            rsi14: s.rsi14,
+            rsiLookback: s.rsiLookback || "14-Period Daily RSI",
+            macdSignal: s.macdSignal,
+            calculationVersion: s.macdIndicatorVersion || "MACD (12, 26, 9 EMA)",
+            marketCap: formatMarketCap(s.marketCap),
+            peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
+            signal: s.signal,
+            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+            quoteTimestamp: s.timestamp || executedAt,
+            validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
+            actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
+          };
+        }),
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const sym = plan.tradingData?.symbol || plan.terms || "NVDA";
+      const q = etrade.getQuote(sym);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_market_quotes",
+        count: 1,
+        summary: formatTradingQuoteHeadline(q),
+        rows: [
+          {
+            symbol: q.symbol,
+            company: q.companyName,
+            lastPrice: `$${q.lastPrice.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            changePeriod: "1D (Regular Trading Day)",
+            priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
+            bidAsk: formatTradingQuoteBidAsk(q),
+            volume: q.volume.toLocaleString(),
+            range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
+            peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
+            marketCap: formatMarketCap(q.marketCap),
+            source: q.source,
+            quoteStatus: q.quoteStatus || "UNKNOWN",
+            quoteTimestamp: q.timestamp || executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "preview_order") {
+      const sym = (plan.tradingData?.symbol || "").trim().toUpperCase();
+      if (!sym) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: "E*TRADE order preview requires a valid stock symbol (e.g. 'buy 10 shares of NVDA').",
+          rows: [],
+          executedAt,
+        };
+      }
+      const qty = plan.tradingData?.quantity || 1;
+      const orderAction = plan.tradingData?.orderAction || "BUY";
+      const quote = etrade.getQuote(sym);
+      const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
+      const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      let limitPrice = plan.tradingData?.limitPrice;
+      let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
+
+      if (relativeOffset !== undefined && quote.lastPrice > 0) {
+        orderType = "LIMIT";
+        limitPrice = Number((quote.lastPrice * (1 + relativeOffset / 100)).toFixed(2));
+      } else if (limitPrice !== undefined) {
+        orderType = "LIMIT";
+      }
+
+      const draft = etrade.previewOrder({
+        sessionId,
+        symbol: sym,
+        orderAction,
+        quantity: qty,
+        orderType,
+        limitPrice,
+      });
+
+      const shareWord = draft.quantity === 1 ? "share" : "shares";
+      const marketPriceStr = quote.lastPrice > 0 ? `$${quote.lastPrice.toFixed(2)}` : "Market";
+
+      let pricingSummary = `at ~$${draft.estimatedPrice.toFixed(2)}`;
+      if (draft.orderType === "LIMIT") {
+        if (relativeDesc && quote.lastPrice > 0) {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)} (${relativeDesc} prevailing quote ${marketPriceStr})`;
+        } else {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)}`;
+        }
+      }
+
+      // Dispatch Pre-Trade Approval Ticket to Slack (Strict HITL Gate)
+      if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
+        try {
+          const slackService = new ETradeSlackTradingService(env, orm, sessionId);
+          slackService.sendPreTradeApprovalTicket({
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            limitPrice: draft.limitPrice,
+            estimatedPrice: draft.estimatedPrice,
+            estimatedTotal: draft.estimatedTotal,
+            commission: draft.estimatedCommission,
+            proposerDid: draft.proposerDid,
+            expiresAt: draft.expiresAt,
+          }).catch(console.warn);
+        } catch {
+          // Non-blocking dispatch
+        }
+      }
+
+      // Issue #118: if the preview was priced from a static fallback quote,
+      // the summary (read verbatim by chat/voice) must say so.
+      const pricingQuoteStatus = draft.pricingQuoteStatus ?? quote.quoteStatus;
+      const nonLivePricingNote = isNonLivePricingQuoteStatus(pricingQuoteStatus)
+        ? ` ${nonLivePricingNotice(pricingQuoteStatus)}`
+        : "";
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.${nonLivePricingNote}`,
+        rows: [
+          {
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
+            prevailingMarketPrice: marketPriceStr,
+            pricingQuoteStatus: pricingQuoteStatus || "UNKNOWN",
+            relativePricing: relativeDesc,
+            estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
+            estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
+            commission: `$${draft.estimatedCommission.toFixed(2)}`,
+            proposerDid: draft.proposerDid,
+            status: draft.status.toUpperCase(),
+            safetyGuarantee: "No live trade submitted. Human approval required.",
+            authorizationPrompt: `Reply 'approve ${draft.orderId}' or execute via Trading Hub.`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "execute_order" || action === "approve_order") {
+      const orderId = (plan.tradingData?.symbol || "").trim();
+      const existingTrade = orm.trades?.findById(orderId.toLowerCase()) || orm.trades?.findById(orderId);
+
+      if (!existingTrade) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Order draft '${orderId}' was not found. Orders must be previewed and drafted before authorization.`,
+          rows: [],
+          executedAt,
+        };
+      }
+
+      if (existingTrade.status !== "previewed") {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 1,
+          summary: `Order '${orderId}' cannot be executed. Current status is '${existingTrade.status.toUpperCase()}'. Only 'previewed' drafts may be authorized.`,
+          rows: [{ ...existingTrade }],
+          executedAt,
+        };
+      }
+
+      const effectiveAuthorizer = userDid || `did:user:slack:approver`;
+      const execRes = etrade.executeOrder(existingTrade.id, effectiveAuthorizer, "approved");
+
+      // Auto-dispatch visual snap receipt to Slack
+      if (execRes.status === "executed" || (execRes as any).success) {
+        if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
+          try {
+            const browserService = new ETradeBrowserService(env);
+            browserService.sendTransactionSnapToSlack({
+              transactionId: existingTrade.id,
+              symbol: existingTrade.symbol,
+              action: existingTrade.action,
+              quantity: existingTrade.quantity,
+              price: existingTrade.price,
+              orderType: existingTrade.orderType,
+              status: "EXECUTED",
+              totalValue: existingTrade.totalValue,
+              environment: (env?.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+              timestamp: executedAt,
+              // This dispatch runs inside the authorize_order action — the
+              // user's explicit approval of a previewed draft (issue #120).
+              humanApproved: true,
+            }).catch(console.warn);
+          } catch {
+            // Non-blocking snap dispatch
+          }
+        }
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `✅ E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) APPROVED & EXECUTED. Broker Ref: ${execRes.executionId || "et_fill_confirmed"}. Stamped by ${effectiveAuthorizer}.`,
+        rows: [
+          {
+            orderId: existingTrade.id,
+            symbol: existingTrade.symbol,
+            action: existingTrade.action,
+            quantity: existingTrade.quantity,
+            status: "EXECUTED",
+            executionId: execRes.executionId,
+            authorizerDid: effectiveAuthorizer,
+            totalValue: `$${Number(existingTrade.totalValue || 0).toFixed(2)}`,
+            executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "cancel_order") {
+      const orderId = (plan.tradingData?.symbol || "").trim();
+      const existingTrade = orm.trades?.findById(orderId.toLowerCase()) || orm.trades?.findById(orderId);
+      const effectiveAuthorizer = userDid || `did:user:slack:canceller`;
+
+      if (existingTrade && orm.trades) {
+        orm.trades.update(existingTrade.id, {
+          status: "rejected",
+          authorizerDid: effectiveAuthorizer,
+          updatedAt: executedAt,
+        });
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `❌ Order draft '${orderId}' CANCELLED by ${effectiveAuthorizer}. No broker order submitted.`,
+        rows: [
+          {
+            orderId,
+            status: "REJECTED",
+            authorizerDid: effectiveAuthorizer,
+            cancelledAt: executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "positions") {
+      const posRes = etrade.getPositions();
+      const posTotal = Number(posRes.positions.reduce((sum, p) => sum + (p.marketValue || 0), 0).toFixed(2));
+      const statedCash = Number((posRes.account.cashAvailableForInvestment || 0).toFixed(2));
+      const calculatedTotal = Number((posTotal + statedCash).toFixed(2));
+      const statedTotal = Number((posRes.account.totalAccountValue || posRes.account.netAccountValue || calculatedTotal).toFixed(2));
+      const variance = Math.abs(Number((statedTotal - calculatedTotal).toFixed(2)));
+      const isReconciled = variance <= 1.00;
+
+      if (!isReconciled) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_portfolio_live",
+          count: posRes.positions.length,
+          status: "RECONCILIATION_FAILED",
+          reconciled: false,
+          summary: `⚠️ UNVERIFIED / POSSIBLE DEMO DATA: Portfolio result cannot be reconciled ($${variance.toFixed(2)} unexplained variance between stated total $${statedTotal.toFixed(2)} and positions+cash $${calculatedTotal.toFixed(2)})—no account conclusion shown.`,
+          discrepancy: {
+            statedAccountTotal: `$${statedTotal.toFixed(2)}`,
+            positionsMarketValue: `$${posTotal.toFixed(2)}`,
+            statedCash: `$${statedCash.toFixed(2)}`,
+            calculatedTotal: `$${calculatedTotal.toFixed(2)}`,
+            unexplainedVariance: `$${variance.toFixed(2)}`,
+          },
+          provenance: {
+            dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+            environment: resolveEnvironmentConfig(env).name,
+            accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+            reconciliationStatus: "FAIL_CLOSED",
+            pricesObservedAt: executedAt,
+            evaluatedAt: executedAt,
+          },
+          rows: [],
+          executedAt,
+        };
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_portfolio_live",
+        count: posRes.positions.length,
+        status: "RECONCILED",
+        reconciled: true,
+        summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
+        provenance: {
+          dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+          environment: resolveEnvironmentConfig(env).name,
+          accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+          reconciliationStatus: "VERIFIED_EXACT",
+          pricesObservedAt: executedAt,
+          evaluatedAt: executedAt,
+        },
+        rows: posRes.positions.map((p) => ({
+          symbol: p.symbol,
+          description: p.description,
+          shares: p.quantity,
+          costBasis: `$${p.costBasis.toFixed(2)}`,
+          lastPrice: `$${p.marketPrice.toFixed(2)}`,
+          marketValue: `$${p.marketValue.toFixed(2)}`,
+          unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_screen") {
+      // Live chain screening requires upstream E*TRADE fetches and is handled by
+      // executeNLQQueryAsync; the sync executor only guards against direct calls.
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_options_screener",
+        count: 0,
+        status: "error",
+        summary: "Options Screener: this action requires the asynchronous NLQ executor (executeNLQQueryAsync).",
+        rows: [],
+        executedAt,
+      };
+    }
+
+    if (action === "options_flow") {
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "options_flows",
+        count: 0,
+        status: "info",
+        summary: "Options Flow: this action requires the asynchronous NLQ executor (executeNLQQueryAsync).",
+        rows: [],
+        executedAt,
+        planSource: plan.planSource || "fastpath",
+      };
+    }
+
+    if (action === "watchlist_save") {
+      const name = plan.tradingData?.watchlistName || "My Watchlist";
+      let symbols = plan.tradingData?.symbols || [];
+      if (symbols.length === 0) {
+        const screened = etrade.screenStocks(plan.tradingData?.filters);
+        symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+      }
+      if (symbols.length === 0) {
+        symbols = ["NVDA", "AAPL", "MSFT", "AMD"];
+      }
+
+      const saved = orm.saveWatchlist({
+        name,
+        userLogin: sessionId,
+        symbols,
+        source: "local_durable_sqlite",
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: symbols.length,
+        summary: `Successfully saved ${symbols.length} symbol(s) into watchlist "${name}" (ID: ${saved.id}). Tickers: [${symbols.join(", ")}].`,
+        rows: [
+          {
+            watchlistId: saved.id,
+            name: saved.name,
+            symbolCount: symbols.length,
+            symbols: symbols.join(", "),
+            source: saved.source,
+            status: "SAVED",
+            createdAt: saved.createdAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_list") {
+      const all = orm.getWatchlists(sessionId);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: all.length,
+        summary: `Found ${all.length} saved watchlist(s) in durable storage.`,
+        rows: all.map((w) => {
+          let syms: string[] = [];
+          try {
+            syms = JSON.parse(w.symbolsJson);
+          } catch {}
+          return {
+            watchlistId: w.id,
+            name: w.name,
+            symbolCount: syms.length,
+            symbols: syms.join(", "),
+            source: w.source,
+            updatedAt: w.updatedAt,
+          };
+        }),
+        executedAt,
+      };
+    }
+  }
+
+  // Handle FOSS Market Research & Quoting Domain (Yahoo Finance & Alpaca)
+  if (plan.domain === "research") {
+    const foss = new FossResearchService(env);
+    const sym = plan.researchData?.symbol || plan.terms || "NVDA";
+    const action = plan.researchData?.action || "report";
+    const provider = plan.researchData?.provider || "hybrid";
+
+    if (action === "fundamentals") {
+      const f = foss.getFundamentalsSync(sym);
+      // Issue #117: a non-live target is a profile estimate, never "consensus".
+      const targetClause = f.provenance === "live"
+        ? `Consensus Target: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}).`
+        : `Profile Target Estimate: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}) — from ${f.provenance} FOSS data, not live analyst consensus.`;
+      return {
+        plan,
+        domain: "research",
+        targetTable: "yfinance_fundamentals",
+        count: 1,
+        summary: `FOSS Fundamental Analysis for ${f.companyName} (${f.symbol}) via Yahoo Finance: Market Cap $${(f.marketCap / 1e9).toFixed(1)}B, Trailing P/E ${f.peTrailing || "N/A"}, Forward P/E ${f.peForward || "N/A"}, PEG ${f.pegRatio || "N/A"}. ${targetClause}`,
+        rows: [
+          {
+            symbol: f.symbol,
+            company: f.companyName,
+            sector: f.sector,
+            marketCap: `$${(f.marketCap / 1e9).toFixed(1)}B`,
+            peTrailing: f.peTrailing || "N/A",
+            peForward: f.peForward || "N/A",
+            pegRatio: f.pegRatio || "N/A",
+            beta: f.beta || "N/A",
+            range52Week: `$${f.fiftyTwoWeekLow.toFixed(2)} - $${f.fiftyTwoWeekHigh.toFixed(2)}`,
+            targetPrice: `$${f.targetMeanPrice?.toFixed(2) || "N/A"}`,
+            analystRating: f.recommendationKey?.toUpperCase() || "BUY",
+            provenance: f.provenance,
+            dataNote: f.note,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "snapshot") {
+      const s = foss.getAlpacaSnapshotSync(sym);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "alpaca_snapshot",
+        count: 1,
+        // Issue #117: the sync snapshot comes from the FOSS profile — only
+        // call it real-time when it was actually fetched live.
+        summary: `Alpaca ${s.provenance === "live" ? "Real-time" : "FOSS Profile (non-live)"} Market Snapshot for ${s.symbol}: Latest Trade $${s.latestTrade.price.toFixed(2)} (${s.latestTrade.size} shs). Best Bid $${s.latestQuote.bidPrice.toFixed(2)} / Ask $${s.latestQuote.askPrice.toFixed(2)}. Daily High $${s.dailyBar.high.toFixed(2)} / Low $${s.dailyBar.low.toFixed(2)}.`,
+        rows: [
+          {
+            symbol: s.symbol,
+            assetClass: s.assetClass,
+            lastPrice: `$${s.latestTrade.price.toFixed(2)}`,
+            bidAskSpread: `$${s.latestQuote.bidPrice.toFixed(2)} / $${s.latestQuote.askPrice.toFixed(2)}`,
+            dayRange: `$${s.dailyBar.low.toFixed(2)} - $${s.dailyBar.high.toFixed(2)}`,
+            volume: s.dailyBar.volume.toLocaleString(),
+            vwap: s.dailyBar.vwap ? `$${s.dailyBar.vwap.toFixed(2)}` : "N/A",
+            provenance: s.provenance,
+            dataNote: s.note,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const q = foss.getQuoteSync(sym, provider);
+      return {
+        plan,
+        domain: "research",
+        targetTable: "foss_quote",
+        count: 1,
+        // Issue #117: the sync quote path serves the FOSS profile — a
+        // generated/static price must never be announced as real-time.
+        summary: `${q.provenance === "live" ? "Real-time" : `Non-live FOSS profile (${q.provenance})`} quote for ${q.symbol} (${q.companyName || sym}) via ${q.provider}: $${q.price.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.${q.provenance === "live" ? "" : " This price is not live market data."}`,
+        rows: [
+          {
+            symbol: q.symbol,
+            provider: q.provider,
+            price: `$${q.price.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
+            volume: q.volume.toLocaleString(),
+            provenance: q.provenance,
+            dataNote: q.note,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "compare") {
+      const syms = plan.researchData?.symbols || [sym, "AMD"];
+      const comp = foss.compareStocksSync(syms);
+      const anyNonLive = comp.some(
+        (c) => weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance) !== "live"
+      );
+      return {
+        plan,
+        domain: "research",
+        targetTable: "foss_stock_comparison",
+        count: comp.length,
+        summary: `FOSS Multi-Stock Valuation Comparison across ${comp.map((c) => c.symbol).join(", ")}.${anyNonLive ? " Values include non-live FOSS profile data (see provenance per row) — targets are profile estimates, not analyst consensus." : ""}`,
+        rows: comp.map((c) => ({
+          symbol: c.symbol,
+          company: c.fundamentals.companyName,
+          price: `$${c.quote.price.toFixed(2)}`,
+          peTrailing: c.fundamentals.peTrailing || "N/A",
+          marketCap: `$${(c.fundamentals.marketCap / 1e9).toFixed(1)}B`,
+          analystRating: c.fundamentals.recommendationKey?.toUpperCase() || "BUY",
+          targetPrice: `$${c.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
+          provenance: weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance),
+        })),
+        executedAt,
+      };
+    }
+
+    // Default: full research report
+    const rep = foss.generateResearchReportSync(sym);
+    return {
+      plan,
+      domain: "research",
+      targetTable: "foss_research_report",
+      count: 1,
+      // Issue #117: the rating comes from the FOSS profile on this sync path —
+      // label it "Rating", never "Consensus"; the report's aiAnalysis carries
+      // the full data notice for non-live inputs.
+      summary: `Autonomous Research Synthesis for ${rep.fundamentals.companyName} (${rep.symbol}): Target: $${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}, Rating: ${rep.analystRating}. ${rep.aiAnalysis}`,
+      rows: [
+        {
+          symbol: rep.symbol,
+          company: rep.fundamentals.companyName,
+          price: `$${rep.quote.price.toFixed(2)}`,
+          peRatio: rep.fundamentals.peTrailing || "N/A",
+          marketCap: `$${(rep.fundamentals.marketCap / 1e9).toFixed(1)}B`,
+          analystRating: rep.analystRating,
+          targetPrice: `$${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
+          rsi14: rep.technicalSummary.rsi14,
+          technicalTrend: rep.technicalSummary.trend50vs200SMA,
+          agentAttestationDid: rep.agentAttestation.did,
+          provenance: rep.provenance,
+        },
+      ],
+      executedAt,
+    };
+  }
+
+  // 5. Default: Query Conversation History
+  const messages = orm.messages.findMany({
+    where: { sessionId },
+    orderBy: "created_at DESC",
+    limit: 100,
+  });
+
+  const cleanTerms = (plan.terms || "").replace(STOP_WORDS_REGEX, " ").trim().toLowerCase();
+  const keywords = cleanTerms
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 1);
+
+  let filtered = messages;
+  if (plan.role && plan.role !== "any") {
+    filtered = filtered.filter((m) => m.role === plan.role);
+  }
+
+  if (keywords.length > 0) {
+    filtered = filtered.filter((m) => {
+      const content = (m.content || "").toLowerCase();
+      const agent = (m.agent || "").toLowerCase();
+      return keywords.some((kw) => content.includes(kw) || agent.includes(kw));
+    });
+  }
+
+  filtered = filtered.slice(0, plan.limit);
+
+  return {
+    plan,
+    domain: "conversation",
+    targetTable: "mas_messages",
+    count: filtered.length,
+    summary: `Found ${filtered.length} conversation records matching query.`,
+    rows: filtered.map((m) => ({
+      role: m.role,
+      agent: m.agent,
+      content: m.content,
+      created_at: m.createdAt,
+    })),
+    executedAt,
+  };
+}
+
+/**
+ * Issue #257 (Assessment P1, part of #143): the exported NLQ execution entry.
+ * Same contract as the original executor; records one mas_events audit row
+ * per execution (success or failure) via auditNlqExecution above.
+ */
+export function executeNLQQuery(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userDid?: string
+): NLQQueryResult {
+  const startedAt = Date.now();
+  try {
+    const result = executeNLQQueryCore(orm, sessionId, plan, env, userDid);
+    auditNlqExecution(orm, sessionId, plan, result, Date.now() - startedAt);
+    return result;
+  } catch (err) {
+    auditNlqExecution(orm, sessionId, plan, null, Date.now() - startedAt, err);
+    throw err;
+  }
+}
+
+/**
+ * Asynchronous NLQ execution pipeline for real-time live quoting and market screening
+ */
+/** Human-readable description for a real SDK schedule, used by the
+ *  scheduling list action. Reminder schedules describe themselves via
+ *  their payload message; the baseline system callbacks get stable
+ *  labels so listings stay informative without hardcoding schedules
+ *  that may not exist (issue #109). */
+function describeScheduleItem(item: AgentScheduleItem): string {
+  const payload: any = item.payload || {};
+  if (typeof payload.message === "string" && payload.message) return payload.message;
+  switch (item.callback) {
+    case "autoRenewETradeTokens":
+      return "Proactive E*TRADE OAuth token renewal";
+    case "autonomousMarketScreen":
+      return "Autonomous market screener";
+    case "collectIvHistory":
+      return "Daily IV history collection";
+    case "autonomousOptionsAnalysis":
+      return "Autonomous options analysis";
+    case "expireStaleOrderDraft":
+      return "Order draft auto-expiry (15-minute HITL window)";
+    case "sendScheduledReminder":
+      return "Scheduled reminder";
+    default:
+      return item.callback;
+  }
+}
+
+/**
+ * Issue #109: executes scheduling plans against the REAL Cloudflare
+ * Agents scheduling API via the injected port. Every outcome is
+ * truthful: creation returns the SDK-issued schedule id, cancellation
+ * reports the SDK's actual verdict, listing reflects the Scheduler's
+ * live rows (including the baseline system schedules), and any
+ * missing port or API failure produces an explicit failure result —
+ * never a fabricated success.
+ */
+async function executeSchedulingAction(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  port: NLQSchedulingPort | undefined,
+  userLogin: string,
+  executedAt: string
+): Promise<NLQQueryResult> {
+  const action = plan.scheduleData?.action || "list";
+  const base = { plan, domain: "scheduling", targetTable: "cf_agent_schedules", executedAt };
+
+  const failure = (summary: string): NLQQueryResult => ({
+    ...base,
+    count: 0,
+    status: "error",
+    summary,
+    rows: [],
+  });
+
+  if (!port) {
+    return failure(
+      `Scheduling (${action}) unavailable: no live agent scheduling port is wired in this context, so the request was NOT executed. No schedule was created, cancelled, or listed.`
+    );
+  }
+
+  const audit = (type: string, payload: Record<string, unknown>) => {
+    if (!orm.events) return;
+    try {
+      orm.events.create({
+        id: crypto.randomUUID(),
+        sessionId,
+        type,
+        agent: "orchestrator",
+        payload,
+        createdAt: executedAt,
+      });
+    } catch {
+      // Audit is best-effort; the Scheduler itself is the source of truth.
+    }
+  };
+
+  if (action === "list") {
+    let schedules: AgentScheduleItem[];
+    try {
+      schedules = await port.listSchedules();
+    } catch (err) {
+      return failure(
+        `Failed to list schedules: ${err instanceof Error ? err.message : String(err)}. No schedule data could be read.`
+      );
+    }
+    const rows = schedules.slice(0, plan.limit || 25).map((s) => ({
+      id: s.id,
+      callback: s.callback,
+      type: s.type,
+      ...(s.cron ? { cron: s.cron } : {}),
+      ...(s.intervalSeconds ? { intervalSeconds: s.intervalSeconds } : {}),
+      ...(s.delayInSeconds ? { delayInSeconds: s.delayInSeconds } : {}),
+      description: describeScheduleItem(s),
+      status: "ACTIVE",
+      ...(s.time ? { nextRunAt: new Date(s.time * 1000).toISOString() } : {}),
+    }));
+    return {
+      ...base,
+      count: rows.length,
+      status: rows.length > 0 ? "matches_found" : "no_matches",
+      summary:
+        rows.length > 0
+          ? `Found ${rows.length} active scheduled task(s) registered with the Cloudflare Agent scheduler.`
+          : "No active scheduled tasks are registered with the Cloudflare Agent scheduler.",
+      rows,
+    };
+  }
+
+  if (action === "cancel") {
+    const scheduleId = plan.scheduleData?.scheduleId || "";
+    if (!scheduleId) {
+      return failure("Schedule cancellation failed: no schedule ID was provided, so nothing was cancelled.");
+    }
+    let cancelled: boolean;
+    try {
+      cancelled = await port.cancelSchedule(scheduleId);
+    } catch (err) {
+      return failure(
+        `Failed to cancel schedule '${scheduleId}': ${err instanceof Error ? err.message : String(err)}. The schedule was NOT cancelled.`
+      );
+    }
+    if (!cancelled) {
+      return {
+        ...base,
+        count: 0,
+        status: "not_found",
+        summary: `Schedule '${scheduleId}' was not found among the agent's active schedules, so nothing was cancelled. It may have already fired or been cancelled.`,
+        rows: [{ scheduleId, status: "NOT_FOUND", cancelledAt: executedAt }],
+      };
+    }
+    audit("schedule.cancelled", { scheduleId, cancelledAt: executedAt });
+    return {
+      ...base,
+      count: 1,
+      status: "cancelled",
+      summary: `Task schedule '${scheduleId}' cancelled successfully.`,
+      rows: [{ scheduleId, status: "CANCELLED", cancelledAt: executedAt }],
+    };
+  }
+
+  // action === "create"
+  const sd: NonNullable<NLQPlan["scheduleData"]> = plan.scheduleData ?? { action: "create" };
+  const callback = sd.callback || "sendScheduledReminder";
+  const description = sd.description || "Scheduled task";
+  const scheduleType =
+    sd.scheduleType ||
+    (sd.cron ? "cron" : sd.intervalSeconds ? "interval" : sd.date ? "scheduled" : "delayed");
+
+  // Payload contracts are owned by the orchestrator callbacks:
+  // sendScheduledReminder expects { reminderId, message, userLogin? }
+  // (its reminderId is the dispatch/audit identifier, distinct from
+  // the schedule id the SDK returns); autonomousMarketScreen takes the
+  // same sector payload the onStart baseline registration uses.
+  const payload: Record<string, unknown> =
+    callback === "sendScheduledReminder"
+      ? { reminderId: crypto.randomUUID(), message: description, userLogin }
+      : callback === "autonomousMarketScreen"
+        ? { sector: "Technology", maxItems: 5 }
+        : { userLogin, description };
+
+  let created: AgentScheduleItem;
+  try {
+    if (scheduleType === "interval") {
+      if (!sd.intervalSeconds || sd.intervalSeconds <= 0) {
+        return failure("Schedule creation failed: an interval schedule requires a positive intervalSeconds. The schedule was NOT created.");
+      }
+      created = await port.scheduleEvery(sd.intervalSeconds, callback, payload);
+    } else if (scheduleType === "cron") {
+      if (!sd.cron) {
+        return failure("Schedule creation failed: a cron schedule requires a cron expression. The schedule was NOT created.");
+      }
+      created = await port.schedule(sd.cron, callback, payload, { idempotent: true });
+    } else if (scheduleType === "scheduled") {
+      if (!sd.date) {
+        return failure("Schedule creation failed: a one-time schedule requires a date. The schedule was NOT created.");
+      }
+      const when = new Date(sd.date);
+      if (Number.isNaN(when.getTime())) {
+        return failure(`Schedule creation failed: '${sd.date}' is not a valid date. The schedule was NOT created.`);
+      }
+      created = await port.schedule(when, callback, payload);
+    } else {
+      // delayed
+      if (!sd.delayInSeconds || sd.delayInSeconds <= 0) {
+        return failure("Schedule creation failed: a delayed schedule requires a positive delayInSeconds. The schedule was NOT created.");
+      }
+      created = await port.schedule(sd.delayInSeconds, callback, payload);
+    }
+  } catch (err) {
+    return failure(
+      `Failed to create schedule: ${err instanceof Error ? err.message : String(err)}. The schedule was NOT created.`
+    );
+  }
+
+  audit("schedule.created", {
+    scheduleId: created.id,
+    scheduleType: created.type,
+    callback: created.callback,
+    delayInSeconds: created.delayInSeconds,
+    intervalSeconds: created.intervalSeconds,
+    cron: created.cron,
+    description,
+    createdAt: executedAt,
+  });
+
+  return {
+    ...base,
+    count: 1,
+    status: "scheduled",
+    summary: `Task scheduled successfully [ID: ${created.id}]. Type: ${created.type}. Callback: ${created.callback}${description ? ` ("${description}")` : ""}.`,
+    rows: [
+      {
+        id: created.id,
+        callback: created.callback,
+        type: created.type,
+        ...(created.delayInSeconds ? { delayInSeconds: created.delayInSeconds } : {}),
+        ...(created.intervalSeconds ? { intervalSeconds: created.intervalSeconds } : {}),
+        ...(created.cron ? { cron: created.cron } : {}),
+        description,
+        status: "SCHEDULED",
+        ...(created.time ? { nextRunAt: new Date(created.time * 1000).toISOString() } : {}),
+        scheduledAt: executedAt,
+      },
+    ],
+  };
+}
+
+/** Issue #257: the original asynchronous executor (renamed); the exported
+ *  executeNLQQueryAsync below wraps it with the mas_events audit write. */
+async function executeNLQQueryAsyncCore(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userLogin?: string,
+  userDid?: string,
+  deps?: NLQExecutionDeps
+): Promise<NLQQueryResult> {
+  const executedAt = new Date().toISOString();
+  const loginStr = typeof userLogin === "string" ? userLogin : undefined;
+  const effectiveUserDid = userDid || (loginStr?.startsWith("did:") ? loginStr : undefined);
+
+  if (plan.domain === "trading") {
+    const login = userLogin || sessionId || "default_trader";
+    const etrade = new ETradeService(orm, env, login);
+    const action = plan.tradingData?.action || "screen";
+
+    if (action === "capabilities") {
+      const caps = getPlatformCapabilitiesDeskSummary();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "platform_capabilities",
+        count: caps.workflows.length,
+        status: "matches_found",
+        summary: caps.spokenSummary,
+        displayMarkdown: caps.markdownOverview,
+        rows: caps.workflows as any,
+        executedAt,
+      };
+    }
+
+    if (action === "screen") {
+      const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+      let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
+      let summary = "";
+
+      const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
+        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
+        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        return false;
+      });
+
+      if (screenRes.validationError) {
+        scannerState = "data_unavailable";
+        summary = screenRes.validationError;
+      } else if (hasMismatch) {
+        scannerState = "SCAN_INVALID_DATA_MISMATCH";
+        summary = `🚨 SCAN INVALID — DATA MISMATCH: One or more returned rows contradicted requested screen filter (${screenRes.filterSummary}). Action shortcuts disabled.`;
+      } else if (screenRes.totalScreened === 0) {
+        scannerState = "no_universe";
+        summary = screenRes.discovery?.message || "Dynamic all-exchange listings returned no equities.";
+      } else if (screenRes.stocks.length === 0) {
+        scannerState = "no_matches";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; 0 matched criteria] (${screenRes.filterSummary}).`;
+      } else {
+        scannerState = "matches_found";
+        summary = `Market Scanner: [Scanned ${screenRes.totalScreened} equities; ${screenRes.stocks.length} passed criteria] (${screenRes.filterSummary}).`;
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_market_screener",
+        count: screenRes.stocks.length,
+        status: scannerState,
+        summary,
+        validationError: screenRes.validationError,
+        discovery: screenRes.discovery,
+        scanLedger: screenRes.ledger,
+        movers: screenRes.movers,
+        provenance: {
+          scannerState,
+          universeCount: screenRes.totalScreened,
+          passedCount: screenRes.stocks.length,
+          rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
+          dataSource: "Dynamic Nasdaq / NYSE / AMEX stock listings",
+          quoteTimestamp: "Not provided by the listing endpoint",
+          executedAt,
+        },
+        rows: screenRes.stocks.map((s) => {
+          const rowMismatch =
+            (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) ||
+            (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0);
+          return {
+            symbol: s.symbol,
+            companyName: s.companyName,
+            sector: s.sector,
+            exchange: s.listingExchange || (s as any).exchange || "N/A",
+            price: `$${s.price.toFixed(2)}`,
+            rawPrice: s.price,
+            change: `${s.change >= 0 ? "+" : ""}${s.change.toFixed(2)} (${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%)`,
+            changePercent: s.changePercent,
+            marketCap: formatMarketCap(s.marketCap),
+            source: s.source || "Dynamic stock listing",
+            quoteTimestamp: s.timestamp || executedAt,
+            validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
+            actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
+          };
+        }),
+        executedAt,
+      };
+    }
+
+    if (action === "quote") {
+      const sym = plan.tradingData?.symbol || plan.terms || "NVDA";
+      const q = await etrade.fetchQuoteRemote(sym);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_market_quotes",
+        count: 1,
+        summary: formatTradingQuoteHeadline(q),
+        rows: [
+          {
+            symbol: q.symbol,
+            company: q.companyName,
+            lastPrice: `$${q.lastPrice.toFixed(2)}`,
+            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
+            changePeriod: "1D (Regular Trading Day)",
+            priorClose: `$${(q.previousClose || (q.lastPrice - q.change)).toFixed(2)}`,
+            bidAsk: formatTradingQuoteBidAsk(q),
+            volume: q.volume.toLocaleString(),
+            range52Week: `$${((q.low52 ?? q.week52Low) || 0).toFixed(2)} - ${((q.high52 ?? q.week52High) || 0).toFixed(2)}`,
+            peRatio: q.peRatio ? q.peRatio.toFixed(1) : "N/A",
+            marketCap: formatMarketCap(q.marketCap),
+            source: q.source,
+            quoteStatus: q.quoteStatus || "UNKNOWN",
+            quoteTimestamp: q.timestamp || executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "preview_order") {
+      const sym = (plan.tradingData?.symbol || "").trim().toUpperCase();
+      if (!sym) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: "E*TRADE order preview requires a valid stock symbol (e.g. 'buy 10 shares of NVDA').",
+          rows: [],
+          executedAt,
+        };
+      }
+      const qty = plan.tradingData?.quantity || 1;
+      const orderAction = plan.tradingData?.orderAction || "BUY";
+      const quote = await etrade.fetchQuoteRemote(sym);
+      const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
+      const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      let limitPrice = plan.tradingData?.limitPrice;
+      let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
+
+      if (relativeOffset !== undefined && quote.lastPrice > 0) {
+        orderType = "LIMIT";
+        limitPrice = Number((quote.lastPrice * (1 + relativeOffset / 100)).toFixed(2));
+      } else if (limitPrice !== undefined) {
+        orderType = "LIMIT";
+      }
+
+      const draft = await etrade.previewOrderRemote({
+        sessionId,
+        symbol: sym,
+        orderAction,
+        quantity: qty,
+        orderType,
+        limitPrice,
+      });
+
+      const shareWord = draft.quantity === 1 ? "share" : "shares";
+      const marketPriceStr = quote.lastPrice > 0 ? `$${quote.lastPrice.toFixed(2)}` : "Market";
+
+      let pricingSummary = `at ~$${draft.estimatedPrice.toFixed(2)}`;
+      if (draft.orderType === "LIMIT") {
+        if (relativeDesc && quote.lastPrice > 0) {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)} (${relativeDesc} prevailing quote ${marketPriceStr})`;
+        } else {
+          pricingSummary = `at limit price $${draft.estimatedPrice.toFixed(2)}`;
+        }
+      }
+
+      // Issue #118: same non-live pricing disclosure as the sync executor.
+      const pricingQuoteStatus = draft.pricingQuoteStatus ?? quote.quoteStatus;
+      const nonLivePricingNote = isNonLivePricingQuoteStatus(pricingQuoteStatus)
+        ? ` ${nonLivePricingNotice(pricingQuoteStatus)}`
+        : "";
+
+      const summary = `E*TRADE order preview drafted for ${draft.orderAction} ${draft.quantity} ${shareWord} of ${draft.symbol} ${pricingSummary}. Total: $${draft.estimatedTotal.toFixed(2)}. Attested by ${draft.proposerDid}. Awaiting Human Authorization.${nonLivePricingNote}`;
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary,
+        rows: [
+          {
+            orderId: draft.orderId,
+            symbol: draft.symbol,
+            action: draft.orderAction,
+            quantity: draft.quantity,
+            orderType: draft.orderType,
+            limitPrice: draft.limitPrice !== undefined ? `$${draft.limitPrice.toFixed(2)}` : "N/A (Market Order)",
+            prevailingMarketPrice: marketPriceStr,
+            pricingQuoteStatus: pricingQuoteStatus || "UNKNOWN",
+            relativePricing: relativeDesc,
+            estimatedPrice: `$${draft.estimatedPrice.toFixed(2)}`,
+            estimatedTotal: `$${draft.estimatedTotal.toFixed(2)}`,
+            commission: `$${draft.estimatedCommission.toFixed(2)}`,
+            proposerDid: draft.proposerDid,
+            status: draft.status.toUpperCase(),
+            safetyGuarantee: "No live trade submitted. Human approval required.",
+            authorizationPrompt: `Reply 'approve ${draft.orderId}' or execute via Trading Hub.`,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "positions") {
+      const posRes = await etrade.fetchPortfolioRemote();
+      const posTotal = Number(posRes.positions.reduce((sum, p) => sum + (p.marketValue || 0), 0).toFixed(2));
+      const statedCash = Number((posRes.account.cashAvailableForInvestment || 0).toFixed(2));
+      const calculatedTotal = Number((posTotal + statedCash).toFixed(2));
+      const statedTotal = Number((posRes.account.totalAccountValue || posRes.account.netAccountValue || calculatedTotal).toFixed(2));
+      const variance = Math.abs(Number((statedTotal - calculatedTotal).toFixed(2)));
+      const isReconciled = variance <= 1.00;
+
+      if (!isReconciled) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_portfolio_live",
+          count: posRes.positions.length,
+          status: "RECONCILIATION_FAILED",
+          reconciled: false,
+          summary: `⚠️ UNVERIFIED / POSSIBLE DEMO DATA: Portfolio result cannot be reconciled ($${variance.toFixed(2)} unexplained variance between stated total $${statedTotal.toFixed(2)} and positions+cash $${calculatedTotal.toFixed(2)})—no account conclusion shown.`,
+          discrepancy: {
+            statedAccountTotal: `$${statedTotal.toFixed(2)}`,
+            positionsMarketValue: `$${posTotal.toFixed(2)}`,
+            statedCash: `$${statedCash.toFixed(2)}`,
+            calculatedTotal: `$${calculatedTotal.toFixed(2)}`,
+            unexplainedVariance: `$${variance.toFixed(2)}`,
+          },
+          provenance: {
+            dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+            environment: resolveEnvironmentConfig(env).name,
+            accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+            reconciliationStatus: "FAIL_CLOSED",
+            pricesObservedAt: executedAt,
+            evaluatedAt: executedAt,
+          },
+          rows: [],
+          executedAt,
+        };
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_portfolio_live",
+        count: posRes.positions.length,
+        status: "RECONCILED",
+        reconciled: true,
+        summary: `E*TRADE Account ••••${posRes.account.accountId.slice(-4)}: Reconciled Total Value $${statedTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })} (Holdings: $${posTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}, Cash: $${statedCash.toLocaleString("en-US", { minimumFractionDigits: 2 })}), Open Positions: ${posRes.positions.length}.`,
+        provenance: {
+          dataSource: resolveEnvironmentConfig(env).isLive ? "E*TRADE Live REST API (/v1/accounts/portfolio.json)" : "E*TRADE Sandbox REST API (/v1/accounts/portfolio.json)",
+          environment: resolveEnvironmentConfig(env).name,
+          accountKey: `••••${posRes.account.accountId.slice(-4)}`,
+          reconciliationStatus: "VERIFIED_EXACT",
+          pricesObservedAt: executedAt,
+          evaluatedAt: executedAt,
+        },
+        rows: posRes.positions.map((p) => ({
+          symbol: p.symbol,
+          description: p.description,
+          shares: p.quantity,
+          costBasis: `$${p.costBasis.toFixed(2)}`,
+          lastPrice: `$${p.marketPrice.toFixed(2)}`,
+          marketValue: `$${p.marketValue.toFixed(2)}`,
+          unrealizedGainLoss: `${p.unrealizedGainLoss >= 0 ? "+" : ""}$${p.unrealizedGainLoss.toFixed(2)} (${p.unrealizedGainLossPercent.toFixed(2)}%)`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
+      const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
+        scanRunStore: deps?.scanRunStore,
+        profileStore: deps?.profileStore,
+        // Issue #28: profile resolution is scoped to the session's
+        // login — the same fallback chain the ETradeService above uses.
+        userLogin: deps?.userLogin ?? login,
+      });
+      return {
+        plan,
+        domain: "trading",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : "etrade_options_strategies",
+        count: res.count,
+        status: res.status,
+        summary: res.summary,
+        validationError: res.validationError,
+        quoteQuality: res.quoteQuality as NLQQueryResult["quoteQuality"],
+        rejections: res.rejections as NLQQueryResult["rejections"],
+        provenance: res.bestTrade ? { bestTrade: res.bestTrade } : undefined,
+        // Issue #27: surface the persisted scan run id (opportunities
+        // scans only; undefined everywhere else).
+        scanRunId: res.scanRunId,
+        persisted: res.persisted,
+        // Issue #28: surface the applied profile's provenance stamp.
+        profileRef: res.profileRef,
+        rows: res.rows,
+        executedAt,
+      };
+    }
+
+    if (action === "options_screen") {
+      const rawFilters = plan.tradingData?.filters || {};
+      const hasUniverse = (rawFilters.underlyingSymbols?.length ?? 0) > 0 || rawFilters.maxUnderlyings !== undefined;
+      // Broad screens without an explicit universe get a visible, capped discovery limit so a
+      // live scan never fans out over every U.S. listing (sanitize clamps it to MAX_SCAN_SYMBOLS).
+      const DEFAULT_BROAD_SCAN_UNDERLYINGS = 10;
+      const filters = hasUniverse ? rawFilters : { ...rawFilters, maxUnderlyings: DEFAULT_BROAD_SCAN_UNDERLYINGS };
+      const screener = new DynamicOptionsScreener(etrade.client);
+      const res = await screener.screenOptions(filters);
+      const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
+        ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.referenceAgeSeconds ?? res.quoteQuality.maxAgeSeconds ?? 60}s).`
+        : "";
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "etrade_options_screener",
+        count: res.contracts.length,
+        status: res.status,
+        summary: res.status === "error" && res.validationError
+          ? `Options Screener: ${res.validationError}`
+          : `Options Screener: [Evaluated ${res.totalContractsEvaluated} contracts across ${res.totalUnderlyingsScanned} symbols; ${res.contracts.length} matched criteria${typeof res.totalMatches === "number" && res.totalMatches > res.contracts.length ? ` (${res.totalMatches} total matches before limit)` : ""}] (${res.filterSummary}).${freshnessNote}`,
+        validationError: res.validationError,
+        quoteQuality: res.quoteQuality,
+        rejections: (res.rejections || []).slice(0, 15),
+        ...(res.fetchErrors && res.fetchErrors.length > 0 ? { fetchErrors: res.fetchErrors } : {}),
+        ...(res.warnings && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
+        rows: res.contracts.map((c) => ({
+          contractSymbol: c.osiKey || c.symbol,
+          underlying: c.underlyingSymbol,
+          underlyingPrice: `$${c.underlyingPrice.toFixed(2)}`,
+          type: c.optionType,
+          strike: `$${c.strikePrice.toFixed(2)}`,
+          bidAsk: `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`,
+          spreadPercent: `${c.spreadPct.toFixed(2)}%`,
+          quoteAgeSeconds: c.quoteAgeSeconds !== undefined ? `${c.quoteAgeSeconds.toFixed(1)}s` : "N/A",
+          quoteFreshness: c.quoteFreshness || "UNKNOWN",
+          delta: c.delta !== undefined ? c.delta.toFixed(2) : "N/A",
+          iv: c.impliedVolatility !== undefined ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
+          volume: (c.volume || 0).toLocaleString(),
+          openInterest: (c.openInterest || 0).toLocaleString(),
+          volOiRatio: c.volumeOiRatio !== undefined ? `${c.volumeOiRatio.toFixed(2)}x` : "N/A",
+          dte: `${c.daysToExpiration}d (${c.expirationDate})`,
+          moneyness: c.moneyness,
+          technicalSignal: c.technicalSignal,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "options_flow") {
+      const sym = plan.tradingData?.symbol;
+      const flows = await getDynamicLiveFlowItems(env, { tickers: sym ? [sym] : undefined });
+      const filtered = flows.filter((f) => {
+        if (plan.tradingData?.filters?.bullishOnly && f.sentiment !== "bullish") return false;
+        if (plan.tradingData?.filters?.bearishOnly && f.sentiment !== "bearish") return false;
+        if (plan.tradingData?.filters?.sweepsOnly && f.type !== "SWEEP") return false;
+        if (plan.tradingData?.filters?.unusualOnly && !f.volOverOi) return false;
+        return true;
+      });
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "options_flows",
+        count: filtered.length,
+        summary: sym
+          ? `Options Flow: Found ${filtered.length} modelled flow estimates for ${sym} (${describeFlowProvenance(filtered)}). This product has no live options trade tape, so these are not real-time executed prints.`
+          : `Options Flow: Found ${filtered.length} modelled flow estimates across the market universe (${describeFlowProvenance(filtered)}). This product has no live options trade tape, so these are not real-time executed prints.`,
+        rows: filtered.slice(0, plan.limit || 25).map((f) => ({
+          time: f.time,
+          provenance: f.provenance,
+          symbol: f.symbol,
+          underlyingPrice: `$${f.underlyingPrice.toFixed(2)}`,
+          strategy: f.strategy,
+          type: f.type,
+          side: f.side,
+          sentiment: f.sentiment.toUpperCase(),
+          premium: f.premiumFormatted,
+          volume: f.volume.toLocaleString(),
+          openInterest: f.openInterest.toLocaleString(),
+          volOverOi: f.volOverOi ? "YES" : "NO",
+          dte: `${f.dte}d`,
+          reasoning: f.sentimentReasoning,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_save") {
+      const name = plan.tradingData?.watchlistName || "My Watchlist";
+      let symbols = plan.tradingData?.symbols || [];
+      if (symbols.length === 0) {
+        const screened = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+        symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+      }
+      if (symbols.length === 0) {
+        symbols = ["NVDA", "AAPL", "MSFT", "AMD"];
+      }
+
+      const res = await etrade.saveScanAsWatchlist(name, symbols);
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: res.symbolCount,
+        summary: res.message,
+        rows: [
+          {
+            watchlistId: res.watchlistId,
+            name: res.name,
+            symbolCount: res.symbolCount,
+            symbols: res.symbols.join(", "),
+            source: res.source === "etrade_api" ? "E*TRADE Live API" : "Local Durable SQLite",
+            status: "SAVED",
+            timestamp: res.timestamp,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "watchlist_list") {
+      const all = await etrade.getWatchlists();
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_watchlists",
+        count: all.length,
+        summary: `Found ${all.length} saved watchlist(s) across E*TRADE and local storage.`,
+        rows: all.map((w) => ({
+          watchlistId: w.watchlistId,
+          name: w.name,
+          symbolCount: w.symbols.length,
+          symbols: w.symbols.join(", "),
+          source: w.source || "etrade_api",
+        })),
+        executedAt,
+      };
+    }
+  }
+
+  if (plan.domain === "agentic_payments") {
+    const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
+    const action = plan.agenticPaymentsData?.action || "wallet_status";
+
+    if (action === "paid_scan") {
+      const sym = plan.agenticPaymentsData?.symbol;
+      const login = userLogin || sessionId || "default_trader";
+      const etrade = new ETradeService(orm, env, login);
+      const screener = new DynamicOptionsScreener(etrade.client);
+      const res = await screener.screenOptions({
+        underlyingSymbols: sym ? [sym] : undefined,
+        maxUnderlyings: plan.agenticPaymentsData?.maxUnderlyings,
+        contractType: plan.agenticPaymentsData?.contractType,
+      });
+
+      const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
+      // Issue #122: no payment is collected or verified on this path — the
+      // receipt is a simulated local record and must say so (never
+      // status "verified", never a fabricated txHash).
+      const receipt: any = {
+        receiptId: `rcpt_${Date.now()}`,
+        protocol: "x402",
+        resource: tier.resource,
+        amount: tier.priceUSD,
+        currency: "USDC",
+        network: env?.X402_NETWORK || "base-sepolia",
+        payer: login,
+        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
+        status: "simulated",
+        simulated: true,
+        timestamp: executedAt,
+        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
+      };
+      await paymentService.recordPaymentTransaction(receipt, "inbound");
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "etrade_premium_options",
+        count: res.contracts.length,
+        summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).`,
+        rows: res.contracts.slice(0, 10).map((c) => ({
+          contract: c.osiKey || c.displaySymbol || c.symbol,
+          strike: `$${c.strikePrice.toFixed(2)}`,
+          type: c.optionType,
+          delta: c.delta?.toFixed(2) || "N/A",
+          iv: c.impliedVolatility ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
+          dte: c.daysToExpiration,
+          lastPrice: `$${c.lastPrice.toFixed(2)}`,
+        })),
+        executedAt,
+      };
+    }
+
+    if (action === "paid_research") {
+      const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
+      const foss = new FossResearchService(env);
+      const report = await foss.generateResearchReport(sym);
+
+      const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
+      // Issue #122: same rule as paid_scan — a simulated local record, never
+      // a "verified" receipt with a fabricated txHash.
+      const receipt: any = {
+        receiptId: `rcpt_${Date.now()}`,
+        protocol: "x402",
+        resource: tier.resource,
+        amount: tier.priceUSD,
+        currency: "USDC",
+        network: env?.X402_NETWORK || "base-sepolia",
+        payer: userLogin || sessionId || "default_trader",
+        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
+        status: "simulated",
+        simulated: true,
+        timestamp: executedAt,
+        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
+      };
+      await paymentService.recordPaymentTransaction(receipt, "inbound");
+
+      const companyName = report.quote.companyName || report.fundamentals.companyName || report.symbol;
+      const targetPrice = report.fundamentals.targetMeanPrice ? `$${report.fundamentals.targetMeanPrice.toFixed(2)}` : "N/A";
+      const currentPrice = `$${report.quote.price.toFixed(2)}`;
+
+      return {
+        plan,
+        domain: "agentic_payments",
+        targetTable: "etrade_premium_research",
+        count: 1,
+        // Issue #117: a paid report built on non-live inputs must say so —
+        // the buyer is told what the data actually is.
+        // Issue #122: and the "payment" is a simulated local record — the
+        // summary must say no real payment was collected or verified.
+        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live FOSS data, and its target is a profile estimate, not analyst consensus.` : ""}`,
+        rows: [
+          {
+            symbol: report.symbol,
+            companyName,
+            analystRating: report.analystRating,
+            targetPrice,
+            currentPrice,
+            receiptId: receipt.receiptId,
+            paymentSimulated: true,
+            provenance: report.provenance,
+          },
+        ],
+        executedAt,
+      };
+    }
+  }
+
+  if (plan.domain === "scheduling") {
+    // Issue #109: real Agent schedules via the injected port (see
+    // executeSchedulingAction). Handled here, never by the sync
+    // executor, which can only refuse honestly.
+    return executeSchedulingAction(
+      orm,
+      sessionId,
+      plan,
+      deps?.schedulingPort,
+      loginStr || sessionId || "default_trader",
+      executedAt
+    );
+  }
+
+  return executeNLQQueryCore(orm, sessionId, plan, env, effectiveUserDid);
+}
+
+/**
+ * Issue #257 (Assessment P1, part of #143): the exported asynchronous NLQ
+ * execution entry. Same contract as the original; records one mas_events
+ * audit row per execution. The fall-through inside the core calls
+ * executeNLQQueryCore directly, so an execution is audited exactly once.
+ */
+export async function executeNLQQueryAsync(
+  orm: DatabaseORM,
+  sessionId: string,
+  plan: NLQPlan,
+  env?: Env,
+  userLogin?: string,
+  userDid?: string,
+  deps?: NLQExecutionDeps
+): Promise<NLQQueryResult> {
+  const startedAt = Date.now();
+  try {
+    const result = await executeNLQQueryAsyncCore(orm, sessionId, plan, env, userLogin, userDid, deps);
+    auditNlqExecution(orm, sessionId, plan, result, Date.now() - startedAt);
+    return result;
+  } catch (err) {
+    auditNlqExecution(orm, sessionId, plan, null, Date.now() - startedAt, err);
+    throw err;
+  }
+}
+
+export async function executeNaturalLanguageQuery(
+  orm: DatabaseORM,
+  sessionId: string,
+  query: string,
+  env: Env,
+  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
+  userDid?: string,
+  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort }
+): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
+  let userLogin: string | undefined;
+  let resolvedOptions = options;
+  if (typeof userLoginOrOptions === "object" && userLoginOrOptions !== null) {
+    resolvedOptions = userLoginOrOptions;
+    userLogin = undefined;
+  } else {
+    userLogin = userLoginOrOptions;
+  }
+
+  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM });
+  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context);
+  const result = await executeNLQQueryAsync(
+    orm,
+    sessionId,
+    plan,
+    env,
+    userLogin,
+    userDid,
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort }
+      : undefined,
+  );
+  if (!result.planSource && plan.planSource) {
+    result.planSource = plan.planSource;
+  }
+  result.llmValidation = validation;
+  return { plan, result };
+}
