@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
-// module graph pulls in `cloudflare:` protocol imports the node test loader
-// cannot resolve. Mock it with a plain base class (same pattern as
-// tests/audit-event-endpoint.test.ts); the route only needs ctx.storage,
-// ctx.id and env, all stubbed per-test.
+// The orchestrator's routes graph reaches BrowserAgent/SlackAgent,
+// which extend AIChatAgent from @cloudflare/ai-chat — whose real
+// module graph pulls in `cloudflare:` protocol imports the node test
+// loader cannot resolve. Mock it with a plain base class (same
+// pattern as tests/audit-event-endpoint.test.ts). The orchestrator
+// itself extends Think since the step-4 cutover (issue #686);
+// @cloudflare/think is aliased to the node stub by vite.config.
 vi.mock("@cloudflare/ai-chat", () => {
   return {
     AIChatAgent: class MockAIChatAgent {
@@ -56,8 +58,8 @@ describe("POST /api/chat (#312) — orchestrator route", () => {
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
     agent.env = { APP_ENV: "TEST" } as any;
-    agent.messages = [];
-    agent.persistMessages = async () => {};
+    // Issue #686: session state lives behind the Think stub's async
+    // accessors (lazy in-memory store); nothing to stub per-test.
     const turnCalls: any[] = [];
     agent.runAgenticChatTurn = async (opts: any) => {
       turnCalls.push(opts);
@@ -113,10 +115,11 @@ describe("POST /api/chat (#312) — orchestrator route", () => {
     const body = { messages: [{ role: "user", content: "same question" }] };
     await postChat(agent, body);
     await postChat(agent, body);
+    // Both posts run the pipeline; the session-level dedupe on a
+    // re-send is the turn driver's contract since #686 (the adapter
+    // no longer appends messages itself) and is pinned against the
+    // real driver in tests/orchestrator-think-cutover.test.ts.
     expect(turnCalls).toHaveLength(2);
-    // user + assistant per turn, no duplicate user append on the re-send.
-    expect(agent.messages.filter((m: any) => m.role === "user")).toHaveLength(1);
-    expect(agent.messages.filter((m: any) => m.role === "assistant")).toHaveLength(2);
   });
 
   it("maps pipeline errors to the degraded fallback JSON (same content the WS chat streams)", async () => {

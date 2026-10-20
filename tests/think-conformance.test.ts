@@ -59,11 +59,12 @@ describe("Think conformance (issue #542)", () => {
     const adopters = listTsFiles(path.join(ROOT, "src"))
       .filter((f) => read(path.relative(ROOT, f)).includes('from "@cloudflare/think"'))
       .map((f) => path.relative(ROOT, f));
-    // ResearchAgent (the designated Think role) + OrchestratorThinkAgent
-    // (the inert step-3 shadow, issue #668 — unexported and unbound
-    // until the step-4 cutover). Updated deliberately for #668.
+    // ResearchAgent (the designated Think role) + OrchestratorAgent
+    // itself since the step-4 cutover (issue #686 — the step-3 shadow
+    // in orchestrator-think.ts was absorbed and deleted). Updated
+    // deliberately for #686.
     expect(adopters).toEqual([
-      "src/agents/orchestrator-think.ts",
+      "src/agents/orchestrator.ts",
       "src/agents/research-agent.ts",
     ]);
   });

@@ -145,6 +145,30 @@ export class MockSqlStorage implements SqlStorage {
       return [];
     }
 
+    // DROP TABLE [IF EXISTS] name (Issue #686: the legacy-session
+    // lift drops cf_ai_chat_agent_messages on a clean import; real
+    // SQLite removes the table and its rows)
+    const dropMatch = q.match(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)/i);
+    if (dropMatch) {
+      this.tables.delete(dropMatch[1]);
+      this.schema.delete(dropMatch[1]);
+      return [];
+    }
+
+    // SELECT name FROM sqlite_master WHERE type = 'table' AND
+    // name = 'x' (Issue #686: table-existence probes — answered from
+    // the mock's schema/table maps, like real SQLite's catalog)
+    if (/FROM\s+sqlite_master/i.test(q)) {
+      const nameArg =
+        typeof args[0] === "string"
+          ? args[0]
+          : q.match(/name\s*=\s*'([^']+)'/i)?.[1];
+      if (nameArg && (this.tables.has(nameArg) || this.schema.has(nameArg))) {
+        return [{ name: nameArg }];
+      }
+      return [];
+    }
+
     // PRAGMA table_info(tableName)
     const pragmaMatch = q.match(/PRAGMA\s+table_info\((\w+)\)/i);
     if (pragmaMatch) {

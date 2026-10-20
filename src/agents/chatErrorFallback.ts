@@ -2,11 +2,12 @@
  * Issue #669 (Think migration step 3b) — shared chat error fallback.
  *
  * Extracted verbatim from OrchestratorAgent.buildChatErrorFallback
- * (issue #312) so the live class and the Think shadow
- * (orchestrator-think.ts) build the same deterministic degraded
- * answer from one implementation. Callers pass a this-bound context
- * (the #359 routes idiom): their own orm, session id, audit sink,
- * NLQ stores and scheduling port.
+ * (issue #312) so the live class and the Think shadow built the same
+ * deterministic degraded answer from one implementation. Since the
+ * step-4 cutover (issue #686) the production class is the only
+ * caller. Callers pass a this-bound context (the #359 routes
+ * idiom): their own orm, session id, audit sink, NLQ stores and
+ * scheduling port.
  */
 import { executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
 import { resolveErrorAspect } from "../aspects/errorCodes";

@@ -2,11 +2,12 @@
  * Issue #668 (Think migration step 3a) — the orchestrator chat turn's
  * shared prompt builder and step clamp, extracted verbatim from
  * OrchestratorAgent.runAgenticChatTurn so the live class and the Think
- * shadow (orchestrator-think.ts) assemble identical prompts.
+ * shadow assembled identical prompts. Since the step-4 cutover
+ * (issue #686) the production class is the only consumer.
  *
  * Byte-identity with the pre-extraction template is pinned by
- * tests/orchestrator-think-core.test.ts against fixtures captured from
- * the original source (tests/orchestrator-prompt-fixtures.ts).
+ * tests/orchestrator-think-cutover.test.ts against fixtures captured
+ * from the original source (tests/orchestrator-prompt-fixtures.ts).
  */
 import type { Env } from "../types";
 
@@ -103,8 +104,9 @@ export function resolveMasMaxSteps(env: Partial<Env>): number {
 
 /**
  * Issue #668 R2 decision: the Think shadow sanitizes the clamp's NaN
- * case to the default (6). Deliberate, shadow-only behavior difference,
- * flagged for step-4 parity review.
+ * case to the default (6). Issue #686 (step-4 cutover, R8) adopted
+ * the sanitized clamp as the production behavior — the program's one
+ * deliberate behavior delta.
  */
 export function resolveShadowMaxSteps(env: Partial<Env>): number {
   const n = resolveMasMaxSteps(env);

@@ -66,14 +66,13 @@ export interface McpChatNlqRouteContext {
   getAsyncJob(jobId: string): AsyncJobRecord | undefined;
   listAsyncJobs(): AsyncJobRecord[];
   extractMessageText(message: unknown): string;
-  getMessages(): any[] | undefined;
-  setMessages(messages: any[]): void;
+  /** Issue #686: the Think session's async message read. */
+  getMessages(): Promise<any[]>;
   recordMessage(
     role: "user" | "assistant" | "system",
     content: string,
     agent: AgentName | "orchestrator"
   ): void;
-  persistMessages(messages: any[]): Promise<void>;
   runAgenticChatTurn(opts: {
     userText: string;
     recentTurns: Array<{ role?: string; content: string }>;
@@ -169,28 +168,27 @@ export async function handleMcpChatNlqRoutes(
     }
     const chatUserLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
     try {
-      // Merge this turn into the per-user conversation state (deduped by
-      // tail so a re-sent history is not duplicated), then run the pipeline.
-      const tailUser = [...(ctx.getMessages() || [])]
+      // Run the pipeline against the per-user conversation state.
+      // Issue #686: conversation state is the Think session. The turn
+      // driver owns session appends (the user message enters through
+      // runTurn's factory input, delta-by-id, so a re-sent history is
+      // not duplicated; Think persists the assistant reply), and
+      // beforeTurn is the single writer of the user mas_messages
+      // record. This adapter only reads history for the judge's
+      // recent-turns context.
+      const existingMessages = await ctx.getMessages();
+      const tailUser = [...existingMessages]
         .reverse()
         .find((m: any) => m?.role === "user");
-      if (ctx.extractMessageText(tailUser) !== chatUserText) {
-        ctx.setMessages([
-          ...(ctx.getMessages() || []),
-          {
-            id: crypto.randomUUID(),
-            role: "user",
-            content: chatUserText,
-            parts: [{ type: "text", text: chatUserText }],
-          } as any,
-        ]);
-        ctx.recordMessage("user", chatUserText, "orchestrator");
-        await ctx.persistMessages(ctx.getMessages() as any);
-      }
-      const chatRecentTurns = (ctx.getMessages() || []).slice(-6).map((m: any) => ({
-        role: m?.role,
-        content: ctx.extractMessageText(m),
-      }));
+      const chatRecentTurns = [
+        ...existingMessages.slice(-6).map((m: any) => ({
+          role: m?.role,
+          content: ctx.extractMessageText(m),
+        })),
+        ...(ctx.extractMessageText(tailUser) !== chatUserText
+          ? [{ role: "user", content: chatUserText }]
+          : []),
+      ].slice(-6);
 
       const { result: chatResult, route: chatRoute } = await ctx.runAgenticChatTurn({
         userText: chatUserText,
@@ -199,16 +197,6 @@ export async function handleMcpChatNlqRoutes(
         isAutoOptionsResearchRequest: false,
       });
       const chatText = await chatResult.text;
-      ctx.setMessages([
-        ...(ctx.getMessages() || []),
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: chatText,
-          parts: [{ type: "text", text: chatText }],
-        } as any,
-      ]);
-      await ctx.persistMessages(ctx.getMessages() as any);
       ctx.audit("chat.http_turn", "orchestrator", {
         route: chatRoute.agent,
         confidence: chatRoute.confidence,
