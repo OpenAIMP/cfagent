@@ -967,7 +967,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
       // Issue #223: persist the run so GET /api/options/latest can report what
-      // the scheduler produced. History is auxiliary - a storage failure must
+      // the scheduler produced. History is auxiliary — a storage failure must
       // not turn a completed analysis into a failed one.
       try {
         await recordOptionsRun(this.ctx.storage, {
