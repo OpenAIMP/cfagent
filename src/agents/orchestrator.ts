@@ -1088,7 +1088,11 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         // the slot keys on the derived identity (input model, symbol
         // source, profile) instead, so two different derived
         // schedules in the same minute never suppress each other.
-        // Saved-request payloads hash exactly as before.
+        // Saved-request payloads hash exactly as before. Issue #534:
+        // no-view payloads carry no requests either — their
+        // constraint sets join the key the same way (absent on the
+        // other models, where JSON.stringify drops the key and the
+        // hash is unchanged).
         const slot = new Date().toISOString().slice(0, 16);
         const requestsJson = JSON.stringify(
           payload?.requests ?? {
@@ -1096,6 +1100,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
             symbols: payload?.symbols,
             watchlistName: payload?.watchlistName,
             profileId: payload?.profileId,
+            constraintSets: payload?.constraintSets,
           }
         );
         let hash = 0;
@@ -1151,7 +1156,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
                 success: false,
                 symbols: payload?.requests?.length
                   ? payload.requests.map((r) => r?.symbol)
-                  : (payload?.symbols ?? []),
+                  : (payload?.symbols ?? (payload?.constraintSets ?? []).map((s) => s?.symbol)),
                 error: res.error,
                 timestamp: res.timestamp,
               })
