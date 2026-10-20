@@ -1069,56 +1069,22 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       )
     `);
 
-    // Seed default transactions if table is empty
+    // Issue #175: this store previously seeded two fabricated "default"
+    // transactions on first use — completed charges carrying invented
+    // proof signatures and live-shaped gateway references, stamped with
+    // the user's own DID as authorizer and rendered by the payments
+    // ledger (including its volume/completed summary) as real payments.
+    // They are removed, not relabelled: nothing depends on them (wallet
+    // status counts only x402/mpp rows; the confirm flow requires a
+    // "previewed" draft, which these never were). Real draft ids are
+    // `pay_` + 8 random hex characters, so the two seed ids can only
+    // ever have come from that seeding — purge exactly those rows from
+    // stores seeded before this fix.
     try {
-      const txCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_transactions")) as Array<{ count: number }>;
-      if ((txCount[0]?.count ?? 0) === 0) {
-        const now = new Date().toISOString();
-        const sessionId = this.sessionKey();
-        const userDid = getUserDid(sessionId);
-
-        sql.exec(
-          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          "pay_init_stripe",
-          sessionId,
-          "charge",
-          25.00,
-          "USD",
-          "Enterprise Team",
-          "stripe",
-          "cs_live_seed_compute_tokens",
-          "completed",
-          "https://checkout.stripe.com/c/pay/cs_live_seed",
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          "sig_0x4b78a9c2e1f40d89e5a1b3c7d6e8f2a4",
-          "500,000 AI Inference Token Credits Bundle",
-          now,
-          now
-        );
-
-        sql.exec(
-          "INSERT OR IGNORE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          "pay_init_paypal",
-          sessionId,
-          "charge",
-          15.00,
-          "USD",
-          "Acme Partner Corp",
-          "paypal",
-          "ORDER-789012345",
-          "completed",
-          "https://www.paypal.com/checkoutnow?token=ORDER-789012345",
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          "sig_0x8f2d1e4c9b3a7f0e6d5c2a1b4e9f8a7d",
-          "Developer Sandbox Token Allowance",
-          now,
-          now
-        );
-      }
+      sql.exec("DELETE FROM mas_transactions WHERE id = ?", "pay_init_stripe");
+      sql.exec("DELETE FROM mas_transactions WHERE id = ?", "pay_init_paypal");
     } catch {
-      // Ignore if seeding fails
+      // Ignore if the purge fails
     }
 
     return sql;

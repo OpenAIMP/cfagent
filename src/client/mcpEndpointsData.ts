@@ -80,7 +80,7 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
       },
       required: ["draftId", "decision"],
     },
-    sampleArgs: { draftId: "pay_init_stripe", decision: "approved", note: "Approved by finance manager via MCP" },
+    sampleArgs: { draftId: "pay_1a2b3c4d", decision: "approved", note: "Approved by finance manager via MCP" },
   },
   {
     name: "get_payment_gateways",
@@ -682,10 +682,10 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     title: "HITL Payment Confirmation",
     description: "Authorizes and executes a pending payment draft, updating SQLite ledger and gateway status.",
     authRequired: true,
-    sampleBody: { draftId: "pay_init_stripe", decision: "approved", note: "Approved via REST API" },
+    sampleBody: { draftId: "pay_1a2b3c4d", decision: "approved", note: "Approved via REST API" },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/payments/confirm \\
   -H "Content-Type: application/json" \\
-  -d '{"draftId":"pay_init_stripe","decision":"approved","note":"Approved"}'`,
+  -d '{"draftId":"pay_1a2b3c4d","decision":"approved","note":"Approved"}'`,
   },
   {
     id: "api_mcp_jsonrpc",
