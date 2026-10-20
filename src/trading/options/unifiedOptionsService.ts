@@ -281,12 +281,17 @@ export class UnifiedOptionsService {
       executionData = { error: profileError };
       summary = profileError;
     } else {
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        this.userLogin,
-        this.overrideEnv
-      );
+      // Issue #781: forward the injected ORM as-is. This service only
+      // uses ETradeService's REST client; the ORM reaches only its
+      // trading platform, whose contract is explicitly optional with
+      // every access guarded — so without an ORM, platform persistence
+      // is honestly absent. The former stub fallback made the platform
+      // believe persistence existed while discarding every write. When
+      // no ORM is present, construct env-first: ETradeService's
+      // orm-first overload would otherwise drop the env argument.
+      const etrade = this.orm
+        ? new ETradeService(this.orm, this.env, this.userLogin, this.overrideEnv)
+        : new ETradeService(this.env, undefined, this.userLogin, this.overrideEnv);
       const screener = new DynamicOptionsScreener(etrade.client);
 
       switch (req.action) {
