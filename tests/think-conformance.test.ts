@@ -55,11 +55,17 @@ describe("Think conformance (issue #542)", () => {
     expect(src).toContain("run_options_research");
   });
 
-  it("ResearchAgent is the only Think adopter in src (new adopters update this pin deliberately)", () => {
+  it("Think adopters in src are exactly the designated roles (new adopters update this pin deliberately)", () => {
     const adopters = listTsFiles(path.join(ROOT, "src"))
       .filter((f) => read(path.relative(ROOT, f)).includes('from "@cloudflare/think"'))
       .map((f) => path.relative(ROOT, f));
-    expect(adopters).toEqual(["src/agents/research-agent.ts"]);
+    // ResearchAgent (the designated Think role) + OrchestratorThinkAgent
+    // (the inert step-3 shadow, issue #668 — unexported and unbound
+    // until the step-4 cutover). Updated deliberately for #668.
+    expect(adopters).toEqual([
+      "src/agents/orchestrator-think.ts",
+      "src/agents/research-agent.ts",
+    ]);
   });
 
   it("the Worker exports ResearchAgent as a Durable Object class", () => {

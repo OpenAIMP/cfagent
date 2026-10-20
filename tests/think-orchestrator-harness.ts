@@ -24,15 +24,13 @@ import { getWorkersAIModel } from "../src/agents/model";
 import type { Env } from "../src/types";
 
 /**
- * The manual loop's step clamp, verbatim
- * (src/agents/orchestrator.ts: Math.max(1, Math.min(10,
- * Number(this.env.MAS_MAX_STEPS || 6)))). Extracted here as a pure
- * function so both sides of the parity claim use the same expression;
- * production extraction is step-3 work.
+ * The manual loop's step clamp — since step 3a (#668) this is the
+ * production resolver from src/agents/chatPrompt.ts, imported here
+ * (and re-exported for the parity suite) so the harness keeps
+ * guarding the real expression.
  */
-export function resolveMasMaxSteps(env: Partial<Env>): number {
-  return Math.max(1, Math.min(10, Number(env.MAS_MAX_STEPS || 6)));
-}
+import { resolveMasMaxSteps } from "../src/agents/chatPrompt";
+export { resolveMasMaxSteps };
 
 /** Stub context for tool-set construction/enumeration (execute paths
  * are never invoked by the parity tests). */
