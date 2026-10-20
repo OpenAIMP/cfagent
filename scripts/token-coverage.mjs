@@ -42,10 +42,18 @@ let totalFn = 0;
 const distinctHex = new Set();
 let inlineStyleFiles = 0;
 
+// Comments are prose, not styles: without stripping, an issue reference
+// like "#450" inside a JSDoc block counts as a hex color literal.
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[\s;{}(])\/\/[^\n]*/g, "$1 ");
+}
+
 for (const file of walk(CLIENT_DIR)) {
   const rel = relative(ROOT, file);
   if (TOKEN_SOURCES.has(rel)) continue;
-  const text = readFileSync(file, "utf8");
+  const text = stripComments(readFileSync(file, "utf8"));
   const hex = [...text.matchAll(HEX_RE)].map((m) => m[0].toLowerCase());
   const fn = [...text.matchAll(FN_RE)];
   const inlineStyles = rel.endsWith(".tsx") ? (text.match(/style=\{\{/g) ?? []).length : 0;
