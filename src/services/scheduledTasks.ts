@@ -32,6 +32,7 @@ import {
   type StrategyRequest,
 } from "../trading";
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
+import { tagOpportunitiesWithDirection } from "../trading";
 import type { ScanRunStore } from "../trading";
 import type {
   DiscoveryConstraintSet,
@@ -672,6 +673,14 @@ export class ScheduledTasksService {
           `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
           `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. No partial report published.`
         );
+      }
+
+      // Issue #275: tag each opportunity with its strategy's direction
+      // tags (the catalog theses) before the PDF, the canonical report
+      // and the channel payloads are built from this data — every
+      // published copy carries the tags.
+      if (Array.isArray(scanData?.opportunities)) {
+        scanData.opportunities = tagOpportunitiesWithDirection(scanData.opportunities);
       }
 
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};

@@ -5124,6 +5124,29 @@
   border: 1px solid var(--color-border-medium);
   text-transform: capitalize;
 }
+/* Issue #275: direction tags are color-coded by direction. */
+.strat-thesis-tag.dir-bullish {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.strat-thesis-tag.dir-bearish {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.strat-thesis-tag.dir-range_bound {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.strat-thesis-tag.dir-large_move {
+  color: var(--color-info);
+  border-color: var(--color-info);
+}
+.strat-library-directions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
 .strat-library-card.selected {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
