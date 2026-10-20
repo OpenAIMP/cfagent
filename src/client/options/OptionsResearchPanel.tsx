@@ -22,6 +22,7 @@ import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEval
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
+import { AutonomousOptionsRuns } from "./AutonomousOptionsRuns";
 import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
@@ -1083,12 +1084,18 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       />
 
       {researchMode === "schedules" && (
-        <ScheduledOptionsManager
-          activeEnv={activeEnv}
-          userLogin={userLogin}
-          onPreviewTrade={(cand) => previewTrade?.(cand)}
-          onSendPrompt={onSendPrompt}
-        />
+        <>
+          <ScheduledOptionsManager
+            activeEnv={activeEnv}
+            userLogin={userLogin}
+            onPreviewTrade={(cand) => previewTrade?.(cand)}
+            onSendPrompt={onSendPrompt}
+          />
+          {/* Issue #223: the persisted autonomous runs (hourly scheduled
+              scans + manual runs) below the schedule manager — the record
+              of what the scheduler actually produced. */}
+          <AutonomousOptionsRuns />
+        </>
       )}
 
       {researchMode === "discovery" && (
