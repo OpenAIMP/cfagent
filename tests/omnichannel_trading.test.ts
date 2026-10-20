@@ -330,6 +330,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("handles Slack app_mention quote command returning Block Kit card", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",
@@ -359,6 +362,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("handles Slack app_mention market screener command returning Block Kit card", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",
@@ -419,6 +425,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("drafts order and sends Slack Block Kit card with interactive approval buttons", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",

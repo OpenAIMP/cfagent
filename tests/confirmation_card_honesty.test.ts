@@ -114,7 +114,7 @@ describe("#141 — confirmationCardPresentation", () => {
   });
 
   it("source pins: the Chat card derives from the helper and the execution-claim pill is gone", () => {
-    const chat = src("client/Chat.tsx");
+    const chat = src("client/chat/ToolResultView.tsx");
     expect(chat).toContain("confirmationCardPresentation(data)");
     expect(chat).not.toContain('isApproved ? "EXECUTED" : "CANCELLED"');
     expect(chat).not.toContain('"Draft confirmed by human reviewer."');
