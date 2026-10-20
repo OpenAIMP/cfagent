@@ -395,6 +395,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         summary: report.summary,
         body: report as unknown as Record<string, unknown>,
       });
+      // #337: index the canonical report for semantic search (best-effort).
+      if (stored?.reportId) {
+        try {
+          const { indexReport } = await import("../services/reportSemanticIndex");
+          const ideaText = report.ideas
+            .slice(0, 5)
+            .map((i) => `${i.symbol} ${i.outlook} ${i.structure}: ${i.thesis}`)
+            .join("\n");
+          void indexReport(this.env, {
+            reportId: stored.reportId,
+            title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+            source: "options_research",
+            text: `${report.summary}\n${ideaText}`,
+          });
+        } catch {
+          // Indexing never fails the run.
+        }
+      }
       // #335: render the run PDF from the canonical stored report (best-effort;
       // the PDF is a delivery artifact, never a second copy).
       let pdfKey: string | null = null;
