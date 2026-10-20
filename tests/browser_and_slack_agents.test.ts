@@ -668,6 +668,16 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     });
 
     it("safely rejects conversational approval when order is already in executed status", async () => {
+      // Issue #523: the rejection path posts a Slack message via real fetch;
+      // without a mock, a hanging connection burns the whole test timeout
+      // (observed 25009ms). Mock it like the sibling tests do.
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "ok",
+        json: async () => ({ ok: true }),
+      } as any);
+
       orm.trades.create({
         id: "ord_already_executed",
         sessionId: `slack_${teamId}`,
