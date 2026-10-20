@@ -241,10 +241,12 @@ export function buildDiscoveryRequests(
 
 export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
 
-/** The two input models a discovery schedule can carry (issues
- *  #126/#533): complete saved views re-run verbatim, or a symbol set
- *  + Strategy Profile whose targets are derived at run time. */
-export type DiscoveryInputModel = "saved-request" | "profile-derived";
+/** The three input models a discovery schedule can carry (issues
+ *  #126/#533/#534): complete saved views re-run verbatim; a symbol
+ *  set + Strategy Profile whose targets are derived at run time; or
+ *  no-view constraint sets — symbols + constraints only, no thesis
+ *  and no target anywhere. */
+export type DiscoveryInputModel = "saved-request" | "profile-derived" | "no-view";
 
 /** Parse the profile-derived symbols field: comma- or
  *  newline-separated, trimmed, uppercased, blanks dropped (order
@@ -315,6 +317,195 @@ export function profileDerivationBlockReason(
     return "missing max planned loss or min reward/risk — cannot derive targets";
   }
   return null;
+}
+
+/** The no-view discovery editor's state (issue #534): one symbol
+ *  list plus the constraints every symbol shares. Numeric fields
+ *  stay strings while editing and are converted by
+ *  buildNoViewPayload on submit. The mode has NO thesis or target
+ *  fields — none exist here, none are ever sent. */
+export interface NoViewConstraintsDraft {
+  symbolsText: string;
+  maxPlannedLoss: string;
+  minRewardRisk: string;
+  /** "" applies the mode's default floor (0.35) on submit. */
+  minProbabilityOfProfit: string;
+  /** "" omits the bound. */
+  minDte: string;
+  /** "" omits the bound. */
+  maxDte: string;
+  riskProfile: "conservative" | "balanced" | "aggressive";
+}
+
+/** The mode's default POP floor (NO_VIEW_DEFAULT_MIN_PROBABILITY_OF_PROFIT,
+ *  src/trading/options/strategyEngine.ts — the scanner fit-gate precedent). */
+export const NO_VIEW_DEFAULT_MIN_POP = 0.35;
+
+export function blankNoViewConstraintsDraft(): NoViewConstraintsDraft {
+  return {
+    symbolsText: "",
+    maxPlannedLoss: "",
+    minRewardRisk: "",
+    minProbabilityOfProfit: String(NO_VIEW_DEFAULT_MIN_POP),
+    minDte: "",
+    maxDte: "",
+    riskProfile: "balanced",
+  };
+}
+
+/**
+ * Build the no-view schedule payload (issue #534) from the form
+ * state: one constraint set per symbol, every set sharing the edited
+ * constraints — the exact shape the create route validates at arm
+ * time (payload.constraintSets, each entry a NoViewStrategyRequest).
+ * The route's rules are mirrored client-side (symbol cap + ticker
+ * shape from the derived model; the numeric rules from
+ * validateNoViewRequest) so a bad value fails in the form; the
+ * route remains the backstop and its 400 surfaces verbatim. A
+ * constraint set carries NO thesis/target fields, ever — the
+ * builder has no way to emit one.
+ */
+export function buildNoViewPayload(
+  draft: NoViewConstraintsDraft
+): { payload: Record<string, any> } | { error: string } {
+  const symbols = parseDerivedSymbols(draft.symbolsText);
+  if (symbols.length === 0) {
+    return { error: "Enter at least one symbol for the no-view constraint sets." };
+  }
+  if (symbols.length > DISCOVERY_REQUEST_LIMIT) {
+    return {
+      error: `No-view discovery schedules are capped at ${DISCOVERY_REQUEST_LIMIT} symbols per schedule.`,
+    };
+  }
+  const bad = symbols.find((s) => !DERIVED_SYMBOL_RE.test(s));
+  if (bad) return { error: `"${bad}" is not a valid ticker symbol.` };
+  const maxPlannedLoss = Number(draft.maxPlannedLoss);
+  if (!Number.isFinite(maxPlannedLoss) || maxPlannedLoss <= 0) {
+    return { error: "Max planned loss must be a positive number." };
+  }
+  const minRewardRisk = Number(draft.minRewardRisk);
+  if (!Number.isFinite(minRewardRisk) || minRewardRisk < 0) {
+    return { error: "Minimum reward/risk must be zero or more." };
+  }
+  const minProbabilityOfProfit =
+    draft.minProbabilityOfProfit.trim() === ""
+      ? NO_VIEW_DEFAULT_MIN_POP
+      : Number(draft.minProbabilityOfProfit);
+  if (
+    !Number.isFinite(minProbabilityOfProfit) ||
+    minProbabilityOfProfit <= 0 ||
+    minProbabilityOfProfit > 1
+  ) {
+    return { error: "Minimum probability of profit must be more than 0 and at most 1 (e.g. 0.35)." };
+  }
+  let minDte: number | undefined;
+  if (draft.minDte.trim() !== "") {
+    minDte = Number(draft.minDte);
+    if (!Number.isInteger(minDte) || minDte < 1) {
+      return { error: "Min DTE must be a whole number of at least 1." };
+    }
+  }
+  let maxDte: number | undefined;
+  if (draft.maxDte.trim() !== "") {
+    maxDte = Number(draft.maxDte);
+    if (!Number.isInteger(maxDte) || maxDte < 1) {
+      return { error: "Max DTE must be a whole number of at least 1." };
+    }
+  }
+  if (minDte !== undefined && maxDte !== undefined && maxDte < minDte) {
+    return { error: "Max DTE must be at least the min DTE." };
+  }
+  const constraintSets = symbols.map((symbol) => ({
+    symbol,
+    maxPlannedLoss,
+    minRewardRisk,
+    minProbabilityOfProfit,
+    riskProfile: draft.riskProfile,
+    ...(minDte !== undefined ? { minDte } : {}),
+    ...(maxDte !== undefined ? { maxDte } : {}),
+  }));
+  return { payload: { inputModel: "no-view", constraintSets } };
+}
+
+/** The constraint fields the no-view editor edits once for all
+ *  symbols — the fields hydration compares across a stored
+ *  schedule's sets to decide whether they still share one editor
+ *  state. Absent optionals normalize to the mode's defaults (POP
+ *  floor 0.35, risk profile "balanced", no DTE bound). */
+function noViewSharedFields(set: any): Record<string, unknown> {
+  return {
+    maxPlannedLoss: typeof set?.maxPlannedLoss === "number" ? set.maxPlannedLoss : null,
+    minRewardRisk: typeof set?.minRewardRisk === "number" ? set.minRewardRisk : null,
+    minProbabilityOfProfit:
+      typeof set?.minProbabilityOfProfit === "number"
+        ? set.minProbabilityOfProfit
+        : NO_VIEW_DEFAULT_MIN_POP,
+    minDte: typeof set?.minDte === "number" ? set.minDte : null,
+    maxDte: typeof set?.maxDte === "number" ? set.maxDte : null,
+    riskProfile:
+      set?.riskProfile === "conservative" || set?.riskProfile === "aggressive"
+        ? set.riskProfile
+        : "balanced",
+  };
+}
+
+/**
+ * Hydrate the no-view editor from a stored schedule's constraint
+ * sets (issue #534). The form edits ONE shared constraint set, so
+ * the draft takes the first set's constraints and the symbol list;
+ * `shared` reports whether every set carries those same constraints.
+ * When it doesn't, the form says so (the schedule was armed with
+ * per-symbol constraints) and saving re-arms every symbol with the
+ * values shown — the divergence is surfaced, never silently
+ * flattened.
+ */
+export function noViewDraftFromConstraintSets(
+  sets: any[]
+): { draft: NoViewConstraintsDraft; shared: boolean } {
+  const list = Array.isArray(sets) ? sets.filter((s) => s && typeof s === "object") : [];
+  const draft = blankNoViewConstraintsDraft();
+  draft.symbolsText = list
+    .map((s) => (typeof s.symbol === "string" ? s.symbol : ""))
+    .filter(Boolean)
+    .join(", ");
+  if (list.length === 0) return { draft, shared: true };
+  const first = noViewSharedFields(list[0]);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? String(v) : "");
+  draft.maxPlannedLoss = num(first.maxPlannedLoss);
+  draft.minRewardRisk = num(first.minRewardRisk);
+  draft.minProbabilityOfProfit = num(first.minProbabilityOfProfit);
+  draft.minDte = num(first.minDte);
+  draft.maxDte = num(first.maxDte);
+  draft.riskProfile = first.riskProfile as NoViewConstraintsDraft["riskProfile"];
+  const shared = list.every((s) => {
+    const f = noViewSharedFields(s);
+    return (Object.keys(first) as Array<keyof typeof first>).every((k) => f[k] === first[k]);
+  });
+  return { draft, shared };
+}
+
+/** One-line summary of a stored constraint set for schedule cards:
+ *  caps, floors, DTE window, risk profile — constraints only, there
+ *  is no view to summarize. */
+export function formatNoViewConstraints(set: any): string {
+  if (!set || typeof set !== "object") return "—";
+  const parts: string[] = [];
+  if (typeof set.maxPlannedLoss === "number") parts.push(`max loss $${set.maxPlannedLoss}`);
+  if (typeof set.minRewardRisk === "number") parts.push(`min R/R ${set.minRewardRisk}×`);
+  const pop =
+    typeof set.minProbabilityOfProfit === "number"
+      ? set.minProbabilityOfProfit
+      : NO_VIEW_DEFAULT_MIN_POP;
+  parts.push(`POP ≥ ${Math.round(pop * 100)}%`);
+  if (typeof set.minDte === "number" && typeof set.maxDte === "number") {
+    parts.push(`DTE ${set.minDte}–${set.maxDte}`);
+  } else if (typeof set.maxDte === "number") {
+    parts.push(`DTE ≤${set.maxDte}`);
+  } else if (typeof set.minDte === "number") {
+    parts.push(`DTE ≥${set.minDte}`);
+  }
+  if (typeof set.riskProfile === "string") parts.push(set.riskProfile);
+  return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
 const INTERVAL_PRESETS = [
@@ -438,6 +629,15 @@ export function ScheduledOptionsManager({
   const [derivedProfileId, setDerivedProfileId] = useState("");
   const [profiles, setProfiles] = useState<StrategyProfile[]>([]);
   const [profilesError, setProfilesError] = useState<string | null>(null);
+  // No-view discovery form state (issue #534): the shared constraint
+  // editor, plus whether the schedule being edited was armed with
+  // per-symbol constraints the shared editor cannot represent
+  // verbatim (surfaced in the form when true).
+  const [noViewDraft, setNoViewDraft] = useState<NoViewConstraintsDraft>(blankNoViewConstraintsDraft());
+  const [noViewDivergent, setNoViewDivergent] = useState(false);
+
+  const updateNoViewDraft = (patch: Partial<NoViewConstraintsDraft>) =>
+    setNoViewDraft((prev) => ({ ...prev, ...patch }));
 
   const updateDiscoveryRequest = (idx: number, patch: Partial<DiscoveryRequestDraft>) =>
     setDiscoveryRequests((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
@@ -583,6 +783,8 @@ export function ScheduledOptionsManager({
     setDerivedSymbolsText("");
     setDerivedWatchlistName("");
     setDerivedProfileId("");
+    setNoViewDraft(blankNoViewConstraintsDraft());
+    setNoViewDivergent(false);
     setModalOpen(true);
   };
 
@@ -592,7 +794,19 @@ export function ScheduledOptionsManager({
     const payload = payloadOf(item);
     if (item.callback === "autonomousStrategyDiscovery") {
       setJobType("strategyDiscovery");
-      if (payload.inputModel === "profile-derived") {
+      if (payload.inputModel === "no-view") {
+        // Hydrate the no-view editor from the payload's constraint
+        // sets (issue #534): the model switch, the symbol list, and
+        // the shared constraints (with the divergence flag when the
+        // sets were armed per-symbol).
+        setDiscoveryInputModel("no-view");
+        const { draft, shared } = noViewDraftFromConstraintSets(
+          Array.isArray(payload.constraintSets) ? payload.constraintSets : []
+        );
+        setNoViewDraft(draft);
+        setNoViewDivergent(!shared);
+        setDiscoveryRequests([blankDiscoveryRequestDraft()]);
+      } else if (payload.inputModel === "profile-derived") {
         // Hydrate the profile-derived editor from the payload
         // (issue #533): the model switch, the one symbol source the
         // payload carries, and the profile it derives under.
@@ -648,7 +862,25 @@ export function ScheduledOptionsManager({
 
     let callback: string;
     let payload: Record<string, any>;
-    if (jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived") {
+    if (jobType === "strategyDiscovery" && discoveryInputModel === "no-view") {
+      // No-view discovery (issue #534): the payload carries
+      // constraint sets only — no thesis, no target, nothing that
+      // could be read as a view. The create route validates each
+      // set at arm time; its 400 surfaces below exactly as the
+      // other models' do.
+      const built = buildNoViewPayload(noViewDraft);
+      if ("error" in built) {
+        setError(built.error);
+        setSubmitting(false);
+        return;
+      }
+      callback = JOB_CALLBACKS.strategyDiscovery;
+      payload = {
+        ...built.payload,
+        environment: activeEnv,
+        trigger: "scheduled",
+      };
+    } else if (jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived") {
       // Profile-derived discovery (issue #533): the payload names a
       // symbol set + a Strategy Profile and stores NO target — each
       // target is derived at run time. The create route's arm-time
@@ -846,8 +1078,13 @@ export function ScheduledOptionsManager({
                     ? `: ${d.failures.map((f: any) => `${f.symbol} (${f.error})`).join("; ")}`
                     : ""}.`
                 : "";
+            // The unit the run counted: saved views, or constraint
+            // sets for a no-view schedule (issue #534) — a no-view
+            // run is never reported as views.
+            const unitLabel =
+              payloadOf(item).inputModel === "no-view" ? "constraint sets" : "saved views";
             setSuccessMsg(
-              `✓ ${label} executed! ${d.completedCount ?? 0} of ${d.requestCount ?? 0} saved views produced results.${failedNote}`
+              `✓ ${label} executed! ${d.completedCount ?? 0} of ${d.requestCount ?? 0} ${unitLabel} produced results.${failedNote}`
             );
           } else {
             setSuccessMsg(`✓ ${label} executed.${data.message ? ` ${data.message}` : ""}`);
@@ -1187,10 +1424,37 @@ export function ScheduledOptionsManager({
               const derivedProfile = isDerivedDiscovery
                 ? profiles.find((p) => p.id === payload.profileId)
                 : undefined;
-              const cardTitle = isDerivedDiscovery
-                ? "Strategy Discovery · Profile-derived"
-                : title;
-              const payloadRows: Array<[string, unknown]> = isDerivedDiscovery
+              // Issue #534: a no-view discovery schedule likewise —
+              // labelled No-view, with its symbols and the shared
+              // constraints (there is no view to show).
+              const isNoViewDiscovery = isDiscovery && payload.inputModel === "no-view";
+              const noViewSets = isNoViewDiscovery && Array.isArray(payload.constraintSets)
+                ? payload.constraintSets
+                : [];
+              const noViewSymbols = noViewSets
+                .map((s: any) => (typeof s?.symbol === "string" ? s.symbol : ""))
+                .filter(Boolean);
+              const cardTitle = isNoViewDiscovery
+                ? "Strategy Discovery · No-view"
+                : isDerivedDiscovery
+                  ? "Strategy Discovery · Profile-derived"
+                  : title;
+              const payloadRows: Array<[string, unknown]> = isNoViewDiscovery
+                ? [
+                    ["userLogin", payload.userLogin || userLogin || "—"],
+                    ["environment", payload.environment || activeEnv || "—"],
+                    ["input model", "No-view"],
+                    ["symbols", noViewSymbols.length > 0 ? noViewSymbols.join(", ") : "—"],
+                    ["constraints", noViewSets.length > 0 ? formatNoViewConstraints(noViewSets[0]) : "—"],
+                    ...(noViewSets.length > 1 &&
+                    noViewSets.some(
+                      (s: any) => formatNoViewConstraints(s) !== formatNoViewConstraints(noViewSets[0])
+                    )
+                      ? [["note", "constraint sets differ per symbol — see Details"] as [string, unknown]]
+                      : []),
+                    ["trigger", payload.trigger || "scheduled"],
+                  ]
+                : isDerivedDiscovery
                 ? [
                     ["userLogin", payload.userLogin || userLogin || "—"],
                     ["environment", payload.environment || activeEnv || "—"],
@@ -1240,9 +1504,11 @@ export function ScheduledOptionsManager({
                     <div className="schedule-cadence">{cadenceText(item)}</div>
                     {systemJob && (
                       <p className="schedule-system-note">
-                        {isDerivedDiscovery
-                          ? "Derives each symbol's target at run time from its live chain under a saved Strategy Profile — no target is stored on this schedule."
-                          : systemJob.description}
+                        {isNoViewDiscovery
+                          ? "Ranks each symbol's live chain under the stored constraints only — no thesis, no target, and no view is stored on this schedule or set when it fires."
+                          : isDerivedDiscovery
+                            ? "Derives each symbol's target at run time from its live chain under a saved Strategy Profile — no target is stored on this schedule."
+                            : systemJob.description}
                       </p>
                     )}
                   </div>
@@ -1365,6 +1631,31 @@ export function ScheduledOptionsManager({
                                   chain under this profile when the schedule fires, and a symbol
                                   whose target cannot be derived honestly abstains, with the
                                   reason recorded on the run.
+                                </p>
+                              </>
+                            )}
+                          {detail.callback === "autonomousStrategyDiscovery" &&
+                            payloadOf(detail).inputModel === "no-view" && (
+                              <>
+                                <div className="payload-row">
+                                  <span className="payload-label">Input model:</span>
+                                  <span className="payload-value">No-view</span>
+                                </div>
+                                <div className="payload-row">
+                                  <span className="payload-label">Constraint sets:</span>
+                                  <span className="payload-value">
+                                    {Array.isArray(payloadOf(detail).constraintSets)
+                                      ? payloadOf(detail).constraintSets.length
+                                      : 0}
+                                  </span>
+                                </div>
+                                <p className="sched-preset-note">
+                                  No view on this schedule: it stores constraint sets only —
+                                  no thesis and no target exists to run with. When it fires,
+                                  each symbol&apos;s chain is ranked by the target-free
+                                  no-view-v1 score model under its constraints, and a symbol
+                                  where nothing qualifies abstains, with the gate reasons
+                                  recorded on the run.
                                 </p>
                               </>
                             )}
@@ -1618,7 +1909,7 @@ export function ScheduledOptionsManager({
                 </div>
               )}
 
-              {/* Discovery input model (issues #126/#533) */}
+              {/* Discovery input model (issues #126/#533/#534) */}
               {jobType === "strategyDiscovery" && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
@@ -1627,6 +1918,8 @@ export function ScheduledOptionsManager({
                       Saved views re-run complete strategy requests verbatim. Symbol set + profile
                       stores no targets — each symbol&apos;s target is derived from its live chain
                       at run time under a saved Strategy Profile and labelled DERIVED on the run.
+                      No-view stores constraints only — no thesis and no target exist in that mode,
+                      and structures are ranked by the target-free no-view-v1 score model.
                     </span>
                   </label>
                   <Select
@@ -1636,6 +1929,7 @@ export function ScheduledOptionsManager({
                   >
                     <option value="saved-request">Saved views</option>
                     <option value="profile-derived">Symbol set + profile (derived targets)</option>
+                    <option value="no-view">No-view (constraints only)</option>
                   </Select>
                 </div>
               )}
@@ -1918,6 +2212,124 @@ export function ScheduledOptionsManager({
                       </p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* No-view discovery (issue #534) */}
+              {jobType === "strategyDiscovery" && discoveryInputModel === "no-view" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    No-View Constraint Sets
+                    <span className="hint">
+                      This mode sets NO thesis and NO target — targets are never set in this mode,
+                      and no view is derived or assumed when the schedule fires. Each symbol below
+                      gets a constraint set with the shared constraints; at run time its live chain
+                      is ranked by the target-free score model (no-view-v1), the best-supported
+                      structure is reported as research only (never a recommendation), and a
+                      symbol where nothing qualifies abstains with its gate reasons recorded. The
+                      IV assumption is fixed to &quot;unchanged&quot; and stamped on every run.
+                    </span>
+                  </label>
+                  <div className="sched-form-group">
+                    <label htmlFor="sched-discovery-noview-symbols" className="sched-form-label">
+                      Symbols
+                      <span className="hint">Comma- or newline-separated tickers, up to {DISCOVERY_REQUEST_LIMIT} — one constraint set per symbol</span>
+                    </label>
+                    <TextInput id="sched-discovery-noview-symbols"
+                      multiline
+                      rows={3}
+                      value={noViewDraft.symbolsText}
+                      onChange={(e) => updateNoViewDraft({ symbolsText: e.target.value })}
+                      placeholder="e.g. NVDA, AAPL, MSFT"
+                      aria-label="No-view symbols"
+                    />
+                  </div>
+                  <div className="discovery-request-grid">
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-max-planned-loss" className="sched-form-label">Max Planned Loss ($)</label>
+                      <TextInput id="sched-discovery-noview-max-planned-loss"
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={noViewDraft.maxPlannedLoss}
+                        onChange={(e) => updateNoViewDraft({ maxPlannedLoss: e.target.value })}
+                        placeholder="e.g. 500"
+                        aria-label="No-view max planned loss"
+                        required
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-min-reward-risk" className="sched-form-label">Min Structure Reward / Risk</label>
+                      <TextInput id="sched-discovery-noview-min-reward-risk"
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={noViewDraft.minRewardRisk}
+                        onChange={(e) => updateNoViewDraft({ minRewardRisk: e.target.value })}
+                        placeholder="e.g. 1"
+                        aria-label="No-view min reward risk"
+                        required
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-min-pop" className="sched-form-label">Min Probability of Profit (0–1)</label>
+                      <TextInput id="sched-discovery-noview-min-pop"
+                        type="number"
+                        min={0}
+                        max={1}
+                        step="0.05"
+                        value={noViewDraft.minProbabilityOfProfit}
+                        onChange={(e) => updateNoViewDraft({ minProbabilityOfProfit: e.target.value })}
+                        placeholder="0.35"
+                        aria-label="No-view min probability of profit"
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-risk-profile" className="sched-form-label">Risk Profile</label>
+                      <Select id="sched-discovery-noview-risk-profile"
+                        value={noViewDraft.riskProfile}
+                        onChange={(e) =>
+                          updateNoViewDraft({ riskProfile: e.target.value as NoViewConstraintsDraft["riskProfile"] })
+                        }
+                        aria-label="No-view risk profile"
+                      >
+                        <option value="conservative">Conservative</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="aggressive">Aggressive</option>
+                      </Select>
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-min-dte" className="sched-form-label">Min DTE (optional)</label>
+                      <TextInput id="sched-discovery-noview-min-dte"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={noViewDraft.minDte}
+                        onChange={(e) => updateNoViewDraft({ minDte: e.target.value })}
+                        placeholder="e.g. 7"
+                        aria-label="No-view min DTE"
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-discovery-noview-max-dte" className="sched-form-label">Max DTE (optional)</label>
+                      <TextInput id="sched-discovery-noview-max-dte"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={noViewDraft.maxDte}
+                        onChange={(e) => updateNoViewDraft({ maxDte: e.target.value })}
+                        placeholder="e.g. 45"
+                        aria-label="No-view max DTE"
+                      />
+                    </div>
+                  </div>
+                  {noViewDivergent && (
+                    <p className="sched-preset-note" role="note">
+                      This schedule was armed with different constraints per symbol. The editor
+                      shows the first symbol&apos;s constraints; saving re-arms every symbol with
+                      the values above.
+                    </p>
+                  )}
                 </div>
               )}
 

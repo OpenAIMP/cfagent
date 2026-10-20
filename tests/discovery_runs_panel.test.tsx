@@ -29,7 +29,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { DiscoveryRunsPanel, formatDerivationLine } from "../src/client/options/DiscoveryRunsPanel";
+import { DiscoveryRunsPanel, formatConstraintSetLine, formatDerivationLine } from "../src/client/options/DiscoveryRunsPanel";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -636,5 +636,309 @@ describe("formatDerivationLine (#533)", () => {
         targetPrice: 130,
       } as any),
     ).toContain("DERIVED target $130.00 = spot $130.00 × (1 + 0 × EM 13.11%)");
+  });
+});
+
+// No-view runs (issue #534, PR-534-C) --------------------------------------
+// Shapes mirror what PR-534-B's service persists: every outcome
+// carries its constraint set; NVDA ranked structures under it; MSFT
+// COMPLETED with the abstained flag (chain loaded, nothing
+// qualified); AAPL failed. The best pick is capped at research_only
+// and carries the pinned no-view rationale verbatim.
+
+const NO_VIEW_RATIONALE_534 =
+  "No user view was supplied; this is the best-supported structure under the stated constraints, not a recommendation.";
+
+const noViewCandidate = (over: Record<string, unknown> = {}) => ({
+  id: "nv-1",
+  rank: 1,
+  type: "long_call",
+  label: "NVDA Long Call",
+  symbol: "NVDA",
+  underlyingPrice: 180,
+  expirationDate: "2026-11-20",
+  dataFreshness: "FRESH",
+  legs: [],
+  netDebit: 4.25,
+  estimatedFees: 1.3,
+  maxProfit: null,
+  maxProfitUnbounded: true,
+  maxLoss: 425,
+  breakevens: [184.25],
+  modelImpliedProbabilityOfProfit: 0.42,
+  netGreeks: { delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.1 },
+  liquidityScore: 80,
+  score: 74,
+  structureRewardRisk: null,
+  scoreModel: "no-view-v1",
+  payoffCurve: [],
+  scenarios: [],
+  explanations: [],
+  warnings: [],
+  assumptions: [],
+  ...over,
+});
+
+const noViewRankedEntry = (cand: Record<string, unknown>, rank: number, compositeScore: number) => ({
+  candidate: cand,
+  rank,
+  compositeScore,
+  components: { engineScore: 1, probability: 1, rewardRisk: 1, capitalSafety: 1, liquidity: 1 },
+});
+
+const CONSTRAINT_NVDA_534 = {
+  symbol: "NVDA",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  minProbabilityOfProfit: 0.35,
+  minDte: 7,
+  maxDte: 45,
+  riskProfile: "balanced",
+};
+const CONSTRAINT_MSFT_534 = { ...CONSTRAINT_NVDA_534, symbol: "MSFT" };
+const CONSTRAINT_AAPL_534 = { symbol: "AAPL", maxPlannedLoss: 250, minRewardRisk: 2, riskProfile: "conservative" };
+
+const csNv = (request: Record<string, unknown>) => ({
+  source: "no-view",
+  request,
+  expectedIvDirection: "unchanged",
+});
+
+const NVDA_NOVIEW_RANKED = [
+  noViewRankedEntry(noViewCandidate(), 1, 82.5),
+  noViewRankedEntry(
+    noViewCandidate({
+      id: "nv-2",
+      type: "bull_put_spread",
+      label: "NVDA Bull Put Spread",
+      netDebit: -1.8,
+      maxProfit: 180,
+      maxProfitUnbounded: false,
+      maxLoss: 320,
+      structureRewardRisk: 0.56,
+    }),
+    2,
+    64,
+  ),
+];
+
+const RUN_NOVIEW = {
+  id: "run-noview",
+  createdAt: "2026-10-20T14:15:00.000Z",
+  trigger: "scheduled",
+  scheduleId: "sched-noview",
+  inputModel: "no-view",
+  status: "partial",
+  requestCount: 3,
+  completedCount: 1,
+  failedCount: 1,
+  abstainedCount: 1,
+  symbols: ["NVDA", "MSFT", "AAPL"],
+  requests: [],
+  constraintSets: [csNv(CONSTRAINT_NVDA_534), csNv(CONSTRAINT_MSFT_534), csNv(CONSTRAINT_AAPL_534)],
+  outcomes: [
+    {
+      symbol: "NVDA",
+      status: "completed",
+      constraintSet: csNv(CONSTRAINT_NVDA_534),
+      rankedNoView: NVDA_NOVIEW_RANKED,
+      excluded: [{ reason: "max planned loss exceeded", count: 2 }],
+      bestNoViewTrade: {
+        status: "research_only",
+        riskProfile: "balanced",
+        confidence: "MEDIUM",
+        best: NVDA_NOVIEW_RANKED[0],
+        alternatives: [NVDA_NOVIEW_RANKED[1]],
+        rationale: [NO_VIEW_RATIONALE_534, "NVDA Long Call ranks #1 for a balanced profile."],
+        blockers: [],
+        humanApprovalRequired: true,
+        disclaimer: "research only",
+      },
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 1200, contractsMatched: 45 } },
+    },
+    {
+      symbol: "MSFT",
+      status: "completed",
+      abstained: true,
+      constraintSet: csNv(CONSTRAINT_MSFT_534),
+      rankedNoView: [],
+      excluded: [
+        { reason: "insufficient liquidity", count: 3 },
+        { reason: "probability of profit below the floor", count: 2 },
+      ],
+      bestNoViewTrade: {
+        status: "no_trade",
+        riskProfile: "balanced",
+        confidence: "LOW",
+        alternatives: [],
+        rationale: [
+          "No user view was supplied and no MSFT structure cleared the stated constraints (max planned loss, structure reward/risk, probability-of-profit floor); the mode abstains rather than manufacturing a pick.",
+        ],
+        blockers: ["No qualifying candidates"],
+        humanApprovalRequired: true,
+        disclaimer: "research only",
+      },
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 800, contractsMatched: 0 } },
+    },
+    {
+      symbol: "AAPL",
+      status: "failed",
+      constraintSet: csNv(CONSTRAINT_AAPL_534),
+      error: "E*TRADE chain unavailable: session expired",
+    },
+  ],
+};
+
+const RUN_NOVIEW_SUMMARY = (() => {
+  const { requests: _r, outcomes: _o, constraintSets: _c, ...summary } = RUN_NOVIEW;
+  return summary;
+})();
+
+describe("DiscoveryRunsPanel — no-view runs (#534)", () => {
+  beforeEach(() => {
+    listPayload = { count: 1, runs: [RUN_NOVIEW_SUMMARY] };
+    DETAILS["run-noview"] = RUN_NOVIEW;
+  });
+
+  afterEach(() => {
+    delete DETAILS["run-noview"];
+  });
+
+  function outcomeBlock(symbol: string): HTMLElement {
+    const block = Array.from(container.querySelectorAll<HTMLElement>(".discovery-outcome")).find(
+      (el) => el.querySelector("strong")?.textContent === symbol,
+    );
+    if (!block) throw new Error(`outcome block for ${symbol} not found`);
+    return block;
+  }
+
+  it("labels the run No-view · constraints only (never Saved requests) with per-symbol counts", async () => {
+    await renderPanel();
+    const items = runItems();
+    expect(items).toHaveLength(1);
+    const text = items[0].textContent || "";
+    expect(text).toContain("No-view · constraints only");
+    expect(text).not.toContain("Saved requests");
+    expect(text).toContain("NVDA, MSFT, AAPL");
+    expect(text).toContain("1 of 3 symbols completed");
+    expect(text).toContain("1 failed");
+    expect(text).toContain("1 abstained");
+  });
+
+  it("renders the NO-VIEW run note and each outcome's stored constraint set in place of a view line", async () => {
+    await renderPanel();
+    const text = container.textContent || "";
+    expect(text).toContain("No-view · constraints only — no thesis or target was supplied, derived, or assumed");
+    expect(text).toContain("no-view-v1 score model");
+    expect(text).toContain("2 ranked candidates across 1 completed symbol");
+    expect(text).toContain("Failed: AAPL");
+    expect(text).toContain("Abstained: MSFT");
+    // No outcome in a no-view run renders a saved or derived view line.
+    expect(text).not.toContain("Saved view:");
+    expect(text).not.toContain("Derived view");
+    // The constraint line: caps, floors, DTE window, the fixed IV assumption.
+    const nvda = outcomeBlock("NVDA");
+    expect(nvda.textContent).toContain("Constraints (no-view — no thesis, no target)");
+    expect(nvda.textContent).toContain("max planned loss $500.00");
+    expect(nvda.textContent).toContain("min reward/risk 1×");
+    expect(nvda.textContent).toContain("min POP 35%");
+    expect(nvda.textContent).toContain("DTE 7–45");
+    expect(nvda.textContent).toContain("risk profile balanced");
+    expect(nvda.textContent).toContain("IV expected unchanged");
+    // Even the failed outcome shows the constraints it ran under.
+    expect(outcomeBlock("AAPL").textContent).toContain("max planned loss $250.00");
+  });
+
+  it("renders ranked structures with the no-view-v1 model and structure R/R, and the pick as research only", async () => {
+    await renderPanel();
+    const nvda = outcomeBlock("NVDA");
+    const text = nvda.textContent || "";
+    expect(text).toContain("NVDA Long Call");
+    expect(text).toContain("Composite 82.5");
+    expect(text).toContain("score model no-view-v1");
+    expect(text).toContain("POP 42%");
+    expect(text).toContain("Structure R/R");
+    expect(text).not.toContain("Target R/R");
+    // The best-supported structure: research only, capped confidence,
+    // the pinned rationale verbatim — never "Recommended".
+    expect(text).toContain("Best-supported structure (no-view)");
+    expect(text).toContain("Research only");
+    expect(text).toContain("confidence MEDIUM");
+    expect(text).toContain(NO_VIEW_RATIONALE_534);
+    expect(text).toContain("Excluded: 2");
+    expect(text).toContain("max planned loss exceeded ×2");
+    expect(container.textContent || "").not.toContain("Recommended");
+  });
+
+  it("renders a flag abstention off the flag — as an abstention with gate reasons, not a failure", async () => {
+    await renderPanel();
+    const msft = outcomeBlock("MSFT");
+    const text = msft.textContent || "";
+    // Status badge stays Completed (the outcome completed) and the
+    // abstention is badged separately off the flag.
+    expect(text).toContain("Completed");
+    expect(text).toContain("Abstained");
+    // The abstention box (not the failure box) names the gate reasons.
+    expect(msft.querySelector(".discovery-outcome-abstained")).not.toBeNull();
+    expect(msft.querySelector(".discovery-outcome-error")).toBeNull();
+    expect(text).toContain("Abstained — the chain loaded, but no structure qualified under the stated constraints");
+    expect(text).toContain("insufficient liquidity ×3");
+    expect(text).toContain("probability of profit below the floor ×2");
+    expect(text).toContain("No pick was manufactured.");
+    // No best-pick box and no ranked rows for an abstention.
+    expect(text).not.toContain("Best-supported");
+    expect(msft.querySelector(".discovery-ranked-row")).toBeNull();
+  });
+
+  it("renders the failed symbol with its reason and the constraints it ran under", async () => {
+    await renderPanel();
+    const aapl = outcomeBlock("AAPL");
+    expect(aapl.querySelector(".discovery-outcome-error")).not.toBeNull();
+    expect(aapl.textContent).toContain("E*TRADE chain unavailable: session expired");
+    expect(aapl.textContent).toContain("Constraints (no-view");
+  });
+
+  it("downloads for a no-view run carry the NO-VIEW labelling, constraints and abstentions", async () => {
+    await renderPanel();
+    await act(async () => {
+      buttonByText("Candidates CSV")?.click();
+    });
+    await flush(1);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].filename).toBe("discovery-20261020-141500.csv");
+    const csv = await blobText(downloads[0].blob);
+    expect(csv).toContain("NO-VIEW (constraints only)");
+    expect(csv).toContain("input model: no-view");
+    expect(csv).toContain("# CONSTRAINTS: NVDA — max planned loss $500.00");
+    expect(csv).toContain("# ABSTAINED: MSFT — no structure qualified under the stated constraints");
+    expect(csv).toContain("scoreModel");
+    expect(csv).toContain("no-view-v1");
+
+    downloads.length = 0;
+    await act(async () => {
+      buttonByText("Run JSON")?.click();
+    });
+    await flush(1);
+    expect(downloads).toHaveLength(1);
+    const parsed = JSON.parse(await blobText(downloads[0].blob));
+    expect(parsed.inputModel).toBe("no-view");
+    expect(parsed.constraintSets).toHaveLength(3);
+    expect(parsed.outcomes[1].abstained).toBe(true);
+    expect(parsed.outcomes[0].bestNoViewTrade.status).toBe("research_only");
+    expect("thesis" in parsed.constraintSets[0].request).toBe(false);
+  });
+});
+
+describe("formatConstraintSetLine (#534)", () => {
+  it("renders caps, floors, DTE window, risk profile and the fixed IV assumption", () => {
+    expect(formatConstraintSetLine(csNv(CONSTRAINT_NVDA_534) as any)).toBe(
+      "Constraints (no-view — no thesis, no target) · max planned loss $500.00 · min reward/risk 1× · min POP 35% · DTE 7–45 · risk profile balanced · IV expected unchanged",
+    );
+  });
+
+  it("renders the default POP floor and no DTE part when the set omits them", () => {
+    expect(formatConstraintSetLine(csNv(CONSTRAINT_AAPL_534) as any)).toBe(
+      "Constraints (no-view — no thesis, no target) · max planned loss $250.00 · min reward/risk 2× · min POP 35% · risk profile conservative · IV expected unchanged",
+    );
   });
 });

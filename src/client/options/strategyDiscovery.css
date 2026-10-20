@@ -5331,7 +5331,27 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* Issue #534: the constraint line — the stored constraint set shown
+   in place of a view line on every no-view outcome, so what
+   constrained the run (and that no view did) is always visible. A
+   neutral record box, distinct from the DERIVED block. */
+.discovery-constraint-line {
+  margin: 0;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
 .discovery-run-detail-head p.discovery-run-profile {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Issue #534: the run-level NO-VIEW note in the detail head. */
+.discovery-run-detail-head p.discovery-run-noview {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-semibold);
 }
