@@ -37,6 +37,13 @@ import {
   type StoredIdeaRecord,
 } from "../services/researchPipeline";
 import { EtradeResearchDataProvider } from "../services/researchProviders";
+import {
+  ResearchTaskLedger,
+  type ResearchTask,
+  type ResearchTaskEvaluation,
+  type ResearchExecutionPath,
+  type ResearchTaskStore,
+} from "../services/researchTaskLedger";
 
 const LATEST_KEY = "research:latest";
 const HISTORY_KEY = "research:history";
@@ -128,6 +135,11 @@ export class ResearchAgent extends Think<Env> {
       id TEXT PRIMARY KEY, run_id TEXT NOT NULL, evaluated_at TEXT NOT NULL,
       evaluation_json TEXT NOT NULL
     )`);
+    // Issue #577: durable task ledger store (key/value, same idiom as
+    // research_settings — table is created in code, no wrangler migration).
+    sql.exec(`CREATE TABLE IF NOT EXISTS research_task_store (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
   }
 
   /** mas_settings-idiom store over this agent's research_settings table. */
@@ -162,6 +174,105 @@ export class ResearchAgent extends Think<Env> {
   private configService(): ResearchConfigService {
     this.ensureTables();
     return new ResearchConfigService(this.settingsStore());
+  }
+
+  /** Issue #577: ledger store over this agent's research_task_store table. */
+  private taskStore(): ResearchTaskStore {
+    const sql = this.storageSql();
+    return {
+      get: (key: string): string | null => {
+        try {
+          const rows = Array.from(
+            sql.exec("SELECT value FROM research_task_store WHERE key = ?", key)
+          ) as Array<{ value?: unknown }>;
+          const v = rows[0]?.value;
+          return typeof v === "string" ? v : null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key: string, value: string): void => {
+        const now = new Date().toISOString();
+        // DELETE+INSERT (not INSERT OR REPLACE) keeps MockSqlStorage compatible.
+        sql.exec("DELETE FROM research_task_store WHERE key = ?", key);
+        sql.exec(
+          "INSERT INTO research_task_store (key, value, updated_at) VALUES (?, ?, ?)",
+          key,
+          value,
+          now
+        );
+      },
+      list: (prefix: string): Array<{ key: string; value: string }> => {
+        try {
+          const rows = Array.from(
+            sql.exec(
+              "SELECT key, value FROM research_task_store WHERE key LIKE ?",
+              `${prefix}%`
+            )
+          ) as Array<{ key?: unknown; value?: unknown }>;
+          return rows
+            .filter((r) => typeof r.key === "string" && typeof r.value === "string")
+            .map((r) => ({ key: r.key as string, value: r.value as string }));
+        } catch {
+          return [];
+        }
+      },
+    };
+  }
+
+  private taskLedger(): ResearchTaskLedger {
+    this.ensureTables();
+    return new ResearchTaskLedger(this.taskStore());
+  }
+
+  /**
+   * Issue #577 — durable task record for a delegated research run.
+   * The orchestrator creates + begins a task before dispatch and
+   * completes/fails it afterwards; the record lives with the work.
+   */
+  async createResearchTask(input: {
+    trigger: "manual" | "scheduled";
+    userLogin: string;
+    idempotencyKey: string;
+  }): Promise<{ task: ResearchTask; created: boolean }> {
+    return this.taskLedger().create(input);
+  }
+
+  /** Claim + start a queued task (the coordinator begins the work). */
+  async beginResearchTask(id: string): Promise<ResearchTask> {
+    const ledger = this.taskLedger();
+    ledger.claim(id);
+    return ledger.start(id);
+  }
+
+  async completeResearchTask(
+    id: string,
+    outcome: {
+      path: ResearchExecutionPath;
+      reportRunId: string;
+      evaluation: ResearchTaskEvaluation;
+    }
+  ): Promise<ResearchTask> {
+    return this.taskLedger().complete(id, outcome);
+  }
+
+  /** Fail a task; escalate=true leaves it in `escalated` for a human. */
+  async failResearchTask(
+    id: string,
+    error: string,
+    escalate: boolean
+  ): Promise<ResearchTask> {
+    const ledger = this.taskLedger();
+    const failed = ledger.fail(id, error);
+    return escalate ? ledger.escalate(id, "research run failed; awaiting human review") : failed;
+  }
+
+  async getResearchTask(id: string): Promise<ResearchTask | null> {
+    return this.taskLedger().get(id);
+  }
+
+  async listResearchTasks(limit = 50): Promise<ResearchTask[]> {
+    return this.taskLedger().list(limit);
   }
 
   /** Typed config read (amendment 1: the single config owner). */
