@@ -8,7 +8,7 @@
  * - PillGroup — selection pill group (sizes sm/md; tone variants
  *   default/cyan/emerald/amber/purple).
  * - Badge — status/label pill (tones neutral/accent/success/warning/
- *   danger/info/purple/trade; sizes sm/md; optional status dot).
+ *   danger/info/purple/trade; sizes xs/sm/md; optional status dot).
  * - Button — action button (variants primary/secondary/ghost/danger/
  *   trade; sizes sm/md/lg; loading state with aria-busy).
  * - Spinner — loading indicator (sizes sm/md/lg; role="status" label).

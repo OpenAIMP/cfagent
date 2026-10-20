@@ -137,6 +137,7 @@
   white-space: nowrap;
 }
 
+.ui-badge.size-xs { font-size: 0.58rem; padding: 0.05rem 0.35rem; }
 .ui-badge.size-sm { font-size: 0.66rem; padding: 0.1rem 0.45rem; }
 .ui-badge.size-md { font-size: 0.72rem; padding: 0.2rem 0.6rem; }
 
