@@ -10,7 +10,7 @@
  * - Badge — status/label pill (tones neutral/accent/success/warning/
  *   danger/info/purple/trade; sizes xs/sm/md; optional status dot).
  * - Button — action button (variants primary/secondary/ghost/danger/
- *   trade; sizes sm/md/lg; loading state with aria-busy).
+ *   trade/accent; sizes sm/md/lg; loading state with aria-busy).
  * - Spinner — loading indicator (sizes sm/md/lg; role="status" label).
  * - EmptyState — icon/title/description/action empty block (optional
  *   framed panel variant).

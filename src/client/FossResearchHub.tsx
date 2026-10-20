@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { EmptyState, Spinner } from "./components/ui";
+import { EmptyState, Spinner, Button } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -584,15 +584,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 </p>
               </div>
               <div className="section-intro-actions">
-                <button
+                <Button variant="secondary"
                   type="button"
-                  className="btn-refresh"
                   onClick={() => fetchScreener()}
                   disabled={screenerLoading}
                 >
                   <span className={screenerLoading ? "strat-spin" : ""}>🔄</span>
                   {screenerLoading ? "Scanning…" : "Refresh Screener"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -768,14 +767,13 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 📈 Candlestick Bars →
               </button>
               {onTradeSymbol && (
-                <button
+                <Button variant="trade"
                   type="button"
-                  className="btn-primary"
                   onClick={() => onTradeSymbol(activeSymbol)}
                   style={{ marginLeft: "auto" }}
                 >
                   ⚡ Trade {activeSymbol} on E*TRADE
-                </button>
+                </Button>
               )}
             </div>
 
@@ -1565,16 +1563,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 <option value={60}>60 Bars</option>
                 <option value={90}>90 Bars</option>
               </select>
-              <button
+              <Button variant="secondary" size="sm"
                 type="button"
-                className="btn-compact btn-secondary"
                 disabled={barsLoading}
                 onClick={() => loadHistoricalBars(activeSymbol, barTimeframe, barLimit, barProvider)}
-                title="Refresh live market bars"
-                style={{ marginLeft: "0.25rem", padding: "0.25rem 0.65rem", fontSize: "0.78rem" }}
+                title="Refresh live market bars" style={{ marginLeft: "0.25rem" }}
               >
                 {barsLoading ? "Refreshing…" : "↻ Refresh"}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1706,14 +1702,13 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   W3C DID ATTESTED
                 </span>
               </div>
-              <button
+              <Button variant="secondary"
                 type="button"
-                className="btn-refresh"
                 onClick={loadAlpacaTraces}
                 disabled={tracesLoading}
               >
                 {tracesLoading ? "Refreshing Traces…" : "🔄 Refresh Audit Traces"}
-              </button>
+              </Button>
             </div>
 
             <p className="section-intro-desc" style={{ marginBottom: "1rem" }}>
@@ -1750,9 +1745,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
                 </span>
-                <button
+                <Button variant="accent"
                   type="button"
-                  className="btn-primary"
                   onClick={() => {
                     const cfg = JSON.stringify({
                       mcpServers: {
@@ -1772,7 +1766,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   }}
                 >
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
-                </button>
+                </Button>
               </div>
               <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
 {`{

@@ -176,6 +176,9 @@
 .ui-btn.variant-primary { background: var(--color-primary); color: var(--color-primary-foreground); }
 .ui-btn.variant-primary:hover:not(:disabled) { background: var(--color-primary-hover); }
 
+.ui-btn.variant-accent { background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); }
+.ui-btn.variant-accent:hover:not(:disabled) { filter: brightness(1.1); }
+
 .ui-btn.variant-secondary {
   background: var(--color-card-elevated);
   color: var(--color-text-primary);

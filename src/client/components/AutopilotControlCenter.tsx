@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table, Badge, type BadgeTone } from "./ui";
+import { EmptyState, Table, Badge, Button, type BadgeTone } from "./ui";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
@@ -754,15 +754,14 @@ export function AutopilotControlCenter({
             </div>
 
             {/* Refresh Live Data Button */}
-            <button
+            <Button variant="secondary" size="sm"
               type="button"
-              className="btn-refresh-feed"
               onClick={() => fetchLiveAutonomousActions(true)}
               disabled={isLoadingLive}
               title="Refresh autonomous actions and audit trail from backend"
             >
               {isLoadingLive ? "🔄 Syncing…" : "↻ Refresh Feed"}
-            </button>
+            </Button>
 
             {/* Test Simulation Button */}
             <button
@@ -1030,9 +1029,9 @@ export function AutopilotControlCenter({
               </div>
 
               <div className="modal-actions-row">
-                <button type="button" className="btn-secondary" onClick={handleResetLimits}>
+                <Button variant="secondary" type="button" onClick={handleResetLimits}>
                   Reset to Defaults
-                </button>
+                </Button>
                 <div className="modal-right-actions">
                   <button
                     type="button"

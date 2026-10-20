@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card, Badge, TextInput } from "./components/ui";
+import { Card, Badge, TextInput, Button } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -1473,9 +1473,8 @@ export function ETradeTradingHub({
                   {executingDraft ? "Executing on E*TRADE…" : "✅ Approve & Submit Trade to E*TRADE"}
                 </button>
               )}
-              <button
+              <Button variant="primary"
                 type="button"
-                className="btn-universal-risk btn-risk-analysis"
                 style={{ padding: "0.6rem 1.1rem", fontSize: "0.85rem" }}
                 onClick={() => {
                   const price = activeDraft.limitPrice || activeDraft.estimatedPrice || 100;
@@ -1496,7 +1495,7 @@ export function ETradeTradingHub({
               >
                 <span className="risk-shield-icon" aria-hidden="true">🛡️</span>
                 <span>Risk Analysis</span>
-              </button>
+              </Button>
               <button
                 type="button"
                 className="btn-reject-order"
@@ -1523,14 +1522,13 @@ export function ETradeTradingHub({
             </div>
             {(!lastExecutionResult.success && (lastExecutionResult.message?.includes("timed out") || lastExecutionResult.message?.includes("resubmit"))) && activeDraft && (
               <div style={{ marginTop: "8px" }}>
-                <button
+                <Button variant="trade"
                   type="button"
-                  className="btn-primary"
                   disabled={executingDraft}
                   onClick={handleRefreshAndExecuteDraft}
                 >
                   {executingDraft ? "Refreshing & Executing…" : "⚡ Re-preview & Submit Fresh Order to E*TRADE"}
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -2014,9 +2012,8 @@ export function ETradeTradingHub({
                       </>
                     )}
                   </button>
-                  <button
+                  <Button variant="primary"
                     type="button"
-                    className="btn-universal-risk btn-risk-analysis"
                     style={{ padding: "0.75rem 1rem", fontSize: "0.85rem" }}
                     disabled={!orderSymbol.trim()}
                     onClick={() => {
@@ -2051,7 +2048,7 @@ export function ETradeTradingHub({
                   >
                     <span className="risk-shield-icon" aria-hidden="true">🛡️</span>
                     <span>Risk Analysis</span>
-                  </button>
+                  </Button>
                 </div>
               </form>
             </div>
@@ -2148,22 +2145,20 @@ export function ETradeTradingHub({
                 <span className={positionsLoading ? "strat-spin" : ""}>↻</span>
                 <span>{positionsLoading ? "Refreshing…" : "Refresh Positions"}</span>
               </button>
-              <button
+              <Button variant="trade"
                 type="button"
-                className="btn-primary"
                 onClick={() => handleNavigateSubTab("order")}
                 title="Open Fast Order Ticket to execute a trade"
               >
                 ⚡ Fast Order Ticket
-              </button>
-              <button
+              </Button>
+              <Button variant="secondary"
                 type="button"
-                className="btn-secondary"
                 onClick={handleSeedDemoPortfolio}
                 title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
               >
                 🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -2236,20 +2231,18 @@ export function ETradeTradingHub({
                         </p>
                         {!positionsLoading && (
                           <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
-                            <button
+                            <Button variant="trade"
                               type="button"
-                              className="btn-primary"
                               onClick={() => handleNavigateSubTab("order")}
                             >
                               ⚡ Build Order Ticket
-                            </button>
-                            <button
+                            </Button>
+                            <Button variant="secondary"
                               type="button"
-                              className="btn-secondary"
                               onClick={handleSeedDemoPortfolio}
                             >
                               🌱 Load Curated Demo Positions
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -2407,14 +2400,13 @@ export function ETradeTradingHub({
         <Card className="trading-section">
           <div className="ledger-header-row">
             <h4>📜 E*TRADE Orders Ledger (SQLite mas_trades)</h4>
-            <button
-              type="button"
-              className="btn-refresh-orders"
+            <Button
+              variant="secondary"
               disabled={ordersLoading}
               onClick={fetchOrders}
             >
               {ordersLoading ? "Refreshing…" : "🔄 Refresh Ledger"}
-            </button>
+            </Button>
           </div>
 
           <div className="ledger-table-wrap">
@@ -2659,16 +2651,14 @@ export function ETradeTradingHub({
                                         ⛔ {String(val)}
                                       </span>
                                     ) : (
-                                      <button
+                                      <Button variant="secondary" size="sm"
                                         type="button"
-                                        className="btn-card-quote"
-                                        style={{ fontSize: "0.75rem", padding: "2px 8px" }}
                                         onClick={() => {
                                           if (row.symbol) handleOpenInspectQuote(row.symbol);
                                         }}
                                       >
                                         ⚡ {String(val)}
-                                      </button>
+                                      </Button>
                                     )}
                                   </td>
                                 );
@@ -2732,8 +2722,8 @@ export function ETradeTradingHub({
                             <td><span className="signal-badge">{stock.technicalSignal}</span></td>
                             <td>{stock.highlightReason}</td>
                             <td>
-                              <button type="button" className="btn-card-quote" onClick={() => handleOpenInspectQuote(stock.symbol, stock)}>Quote</button>{" "}
-                              <button type="button" className="btn-card-trade" onClick={() => handleQuickTrade(stock, "BUY")}>⚡ Trade</button>
+                              <Button variant="secondary" size="sm" type="button" onClick={() => handleOpenInspectQuote(stock.symbol, stock)}>Quote</Button>{" "}
+                              <Button variant="trade" size="sm" type="button" onClick={() => handleQuickTrade(stock, "BUY")}>⚡ Trade</Button>
                             </td>
                           </tr>
                         ))}

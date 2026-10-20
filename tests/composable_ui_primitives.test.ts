@@ -319,3 +319,10 @@ describe("TextInput multiline (#594)", () => {
     expect(element.props.rows).toBe(3);
   });
 });
+
+describe("Button accent variant (#594)", () => {
+  it("carries the accent variant", () => {
+    const element = React.createElement(Button, { variant: "accent" }, "Copy config");
+    expect(element.props.variant).toBe("accent");
+  });
+});
