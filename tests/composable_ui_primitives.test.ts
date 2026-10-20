@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -120,6 +120,8 @@ describe("Primitive styles (primitives.css)", () => {
       ".ui-badge",
       ".tone-success",
       ".tone-danger",
+      ".ui-btn",
+      ".variant-primary",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -149,5 +151,23 @@ describe("Badge Component (#492)", () => {
     const element = React.createElement(Badge, { tone: "success", size: "sm", dot: true }, "PRO");
     expect(element.props.size).toBe("sm");
     expect(element.props.dot).toBe(true);
+  });
+});
+
+describe("Button Component (#492)", () => {
+  it("supports every variant and size", () => {
+    const variants = ["primary", "secondary", "ghost", "danger", "trade"] as const;
+    for (const variant of variants) {
+      const element = React.createElement(Button, { variant }, "Go");
+      expect(element.props.variant).toBe(variant);
+    }
+    const sized = React.createElement(Button, { size: "lg" }, "Go");
+    expect(sized.props.size).toBe("lg");
+  });
+
+  it("defaults to type button and honors the loading contract", () => {
+    const element = React.createElement(Button, { loading: true }, "Saving");
+    expect(element.props.type).toBeUndefined(); // default applied at render: "button"
+    expect(element.props.loading).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 import { adAccentPalette } from "./designTokens";
+import { Button } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
@@ -1349,14 +1350,13 @@ export function Chat({ user }: { user: User }) {
                 className="orm-search-input"
               />
 
-              <button
-                type="button"
-                className="orm-browse-btn"
+              <Button
+                variant="primary"
                 onClick={() => browseTable(selectedBrowseTable, browseSearch)}
-                disabled={browsingLoading}
+                loading={browsingLoading}
               >
                 {browsingLoading ? "Querying ORM…" : "🔍 Browse Records"}
-              </button>
+              </Button>
             </div>
 
             {/* Direct Table Browsing Results (if opened) */}
