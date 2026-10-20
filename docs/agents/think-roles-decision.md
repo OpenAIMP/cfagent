@@ -129,3 +129,39 @@ sequentially, one at a time, beginning with the step-1 spike.
 `ResearchAgent` was marked **Required** the same day (already
 conformant; the designation makes the #542 conformance suite a
 standing requirement).
+
+## Program outcome (2026-10-20)
+
+The five-step migration is **complete**:
+
+| Step | Issue | PR | Merge |
+|---|---|---|---|
+| 1 — Spike | #646 | — (throwaway branch, deleted) | — |
+| 2 — Parity harness | #658 | #662 | 60086c3 |
+| 3a — Extraction + shadow core | #668 | #673 | da29cde |
+| 3b — Shadow turn lifecycle | #669 | #683 | e02c496 |
+| 4 — Cutover | #686 | #701 | f7a0efc |
+| 5 — Post-cutover verification | #721 | #724 | — |
+
+`OrchestratorAgent` runs on `Think<Env>` in production with its class
+name, `SearchAgent` export alias, `SEARCH_AGENT` binding, and
+wrangler migration chain unchanged; existing Durable Object instances
+carried over without a new migration. The post-merge gate failure
+trail for step 4 and its remediation (#714 / PR #716, merge 8250179 —
+main restored fully green) is recorded on #686 and tracker #571.
+
+Accepted outcomes of the migration (deliberate deltas, #686):
+
+1. **Sanitized step clamp.** A non-numeric `MAS_MAX_STEPS` now falls
+   back to the default 6 instead of propagating NaN into the turn's
+   stop condition.
+2. **Native `submitMessages`.** The AIChatAgent-era emulation wrapper
+   is removed; admissions use Think's durable-submissions API
+   (verified in the #721 audit).
+
+Step 5's runtime-assumption audit (#721) verified the five Think
+behaviors the cutover rests on against the shipped
+`@cloudflare/think@0.19.0` dist; no assumption failed verification.
+The updated conformance matrix is the post-cutover addendum in
+`think-conformance.md`. The five unmarked role rows above remain the
+owner's to mark; their recommendations stand.

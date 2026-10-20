@@ -64,6 +64,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Think migration step 5 — post-cutover verification and program close-out (#721):** the five Think behaviors the step-4 cutover rests on were audited against the shipped `@cloudflare/think@0.19.0` dist and the `agents` sessions store — factory-form `runTurn` input (its delta effect comes from the store's idempotent-on-id append), `addMessages` append semantics (cutover call sites need nothing more), `activeTurnMetadata` (server-turn metadata; the client stamps ride in the message's own persisted metadata, as `deriveTurn` reads them), `onChatResponse` firing for both entry points after persistence, and the native durable `submitMessages` queue. No assumption failed verification. `docs/agents/think-conformance.md` gains a post-cutover addendum re-scoring the §8 verdicts (both Required roles now PASS on adoption/loop ownership), and `docs/agents/think-roles-decision.md` records the program outcome — all five steps complete, with the two deliberate deltas (sanitized `MAS_MAX_STEPS` clamp; native `submitMessages`) as accepted outcomes. Docs only; no behavior change.
 - **GitHub Releases now carry the curated changelog (#321 follow-up):** every
   successful `main` deploy tagged `v0.1.<patch>` and then stopped, so `/releases`
   never showed what changed and the only description of a deploy lived in this
