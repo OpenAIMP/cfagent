@@ -21,10 +21,13 @@ import {
   type RealizedUnrealizedPnl,
 } from "./strategyDiscoveryEngine";
 import {
+  buildStrategyRequest,
   fetchServerDiscovery,
   fetchServerCatalog,
   type ServerCatalogResult,
+  type ServerDiscoveryInputs,
 } from "./serverDiscovery";
+import { etToUtcCron } from "./cronTime";
 import {
   STRATEGY_LIBRARY,
   type StrategyDefinition,
@@ -659,21 +662,99 @@ export function StrategyDiscoveryPanel({
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [discoveryDataSource, setDiscoveryDataSource] = useState<"live" | "calibrated-demo" | "unavailable">("unavailable");
 
+  // The inputs an interactive discovery run sends RIGHT NOW (issue #29).
+  // The scheduled-discovery capture (issue #126) builds its saved request
+  // from this exact same object, so a schedule re-runs the view on screen
+  // verbatim — never a re-derived approximation of it.
+  const currentDiscoveryInputs = (): ServerDiscoveryInputs => ({
+    symbol: activeSymbol,
+    currentPrice: quote.price,
+    sentiment,
+    targetPrice,
+    budget: budget ?? 100000,
+    minRewardRisk: minRewardRiskRatio ?? 0,
+    expiration: selectedExpiration,
+    bias: optimizationBias,
+    dataMode: dataTab === "demo" ? "calibrated-demo" : "live",
+  });
+
+  // Issue #126: "Schedule this discovery" — capture the current view as a
+  // saved request on a durable schedule (backend: POST /api/schedules/create
+  // with the autonomousStrategyDiscovery callback). The cadence is chosen
+  // here, at capture time; the request itself is snapshotted when the
+  // confirm strip opens and its symbol/thesis/target are shown before
+  // anything is created, so nobody schedules a view they cannot see.
+  const [scheduleCaptureOpen, setScheduleCaptureOpen] = useState(false);
+  const [capturedRequest, setCapturedRequest] = useState<ReturnType<typeof buildStrategyRequest> | null>(null);
+  const [captureScheduleType, setCaptureScheduleType] = useState<"interval" | "cron" | "delayed" | "scheduled">("interval");
+  const [captureIntervalSeconds, setCaptureIntervalSeconds] = useState(3600);
+  const [captureCron, setCaptureCron] = useState(() =>
+    etToUtcCron({ hour: 9, minute: 30, daysOfWeek: "1-5" })
+  );
+  const [captureDelaySeconds, setCaptureDelaySeconds] = useState(1800);
+  const [captureDate, setCaptureDate] = useState("");
+  const [captureSubmitting, setCaptureSubmitting] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+
+  const openScheduleCapture = () => {
+    setCapturedRequest(buildStrategyRequest(currentDiscoveryInputs()));
+    setCaptureError("");
+    setScheduleCaptureOpen(true);
+  };
+
+  const handleCreateDiscoverySchedule = async () => {
+    if (!capturedRequest) return;
+    setCaptureError("");
+    const body: Record<string, any> = {
+      callback: "autonomousStrategyDiscovery",
+      scheduleType: captureScheduleType,
+      payload: { requests: [capturedRequest], environment: activeEnv },
+    };
+    if (captureScheduleType === "interval") {
+      body.intervalSeconds = Number(captureIntervalSeconds);
+    } else if (captureScheduleType === "cron") {
+      body.cron = captureCron.trim();
+    } else if (captureScheduleType === "delayed") {
+      body.delayInSeconds = Number(captureDelaySeconds);
+    } else {
+      if (!captureDate) {
+        setCaptureError("Pick a date and time for the one-shot run.");
+        return;
+      }
+      body.date = new Date(captureDate).toISOString();
+    }
+    setCaptureSubmitting(true);
+    try {
+      const res = await fetch("/api/schedules/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success) {
+        setScheduleCaptureOpen(false);
+        showToast(
+          `🗓 Scheduled this discovery view (${capturedRequest.symbol} · ${capturedRequest.thesis} · target $${capturedRequest.targetPrice}) — manage it under Schedules.`
+        );
+      } else {
+        setCaptureError(data.error || `Failed to create schedule (${res.status})`);
+      }
+    } catch (err: any) {
+      setCaptureError(err?.message || "Failed to create schedule");
+    } finally {
+      setCaptureSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setIsDiscovering(true);
     setDiscoveryError("");
-    fetchServerDiscovery({
-      symbol: activeSymbol,
-      currentPrice: quote.price,
-      sentiment,
-      targetPrice,
-      budget: budget ?? 100000,
-      minRewardRisk: minRewardRiskRatio ?? 0,
-      expiration: selectedExpiration,
-      bias: optimizationBias,
-      dataMode: dataTab === "demo" ? "calibrated-demo" : "live",
-    })
+    fetchServerDiscovery(currentDiscoveryInputs())
       .then((res) => {
         if (!cancelled) {
           setDiscoveredStrategies(res.strategies);
@@ -1742,6 +1823,120 @@ export function StrategyDiscoveryPanel({
                 ›
               </button>
             </div>
+          </div>
+
+          {/* Issue #126: schedule this exact view as a saved-request discovery schedule */}
+          <div className="strat-schedule-capture">
+            {!scheduleCaptureOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="strat-action-chip"
+                  onClick={openScheduleCapture}
+                  title="Create a durable schedule that re-runs this exact discovery view and stores the results"
+                >
+                  🗓 Schedule this discovery
+                </button>
+                <span className="strat-schedule-capture-hint">
+                  Re-runs the view above (symbol, sentiment, target, budget) on a schedule; results land in Discovery runs.
+                </span>
+              </>
+            ) : capturedRequest ? (
+              <div className="strat-schedule-confirm" role="group" aria-label="Confirm scheduled discovery">
+                <p className="strat-schedule-confirm-summary">
+                  Schedule THIS view: <strong>{capturedRequest.symbol}</strong> — {capturedRequest.thesis} · target{" "}
+                  <strong>${capturedRequest.targetPrice.toFixed(2)}</strong> by {capturedRequest.targetDate} · max loss{" "}
+                  ${capturedRequest.maxPlannedLoss.toLocaleString()} · min R:R {capturedRequest.minRewardRisk} ·{" "}
+                  {capturedRequest.dataMode === "calibrated-demo" ? "calibrated-demo chains" : "live chains"}
+                </p>
+                <div className="strat-schedule-confirm-controls">
+                  <label>
+                    Cadence
+                    <select
+                      value={captureScheduleType}
+                      onChange={(e) => setCaptureScheduleType(e.target.value as typeof captureScheduleType)}
+                      aria-label="Schedule cadence type"
+                    >
+                      <option value="interval">Interval</option>
+                      <option value="cron">Cron (UTC)</option>
+                      <option value="delayed">Delayed (once)</option>
+                      <option value="scheduled">One-shot date</option>
+                    </select>
+                  </label>
+                  {captureScheduleType === "interval" && (
+                    <label>
+                      Every (seconds)
+                      <input
+                        type="number"
+                        min={60}
+                        step={60}
+                        value={captureIntervalSeconds}
+                        onChange={(e) => setCaptureIntervalSeconds(Number(e.target.value))}
+                        aria-label="Interval seconds"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "cron" && (
+                    <label>
+                      Cron (UTC)
+                      <input
+                        type="text"
+                        value={captureCron}
+                        onChange={(e) => setCaptureCron(e.target.value)}
+                        aria-label="Cron expression"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "delayed" && (
+                    <label>
+                      Delay (seconds)
+                      <input
+                        type="number"
+                        min={1}
+                        step={60}
+                        value={captureDelaySeconds}
+                        onChange={(e) => setCaptureDelaySeconds(Number(e.target.value))}
+                        aria-label="Delay seconds"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "scheduled" && (
+                    <label>
+                      Run at
+                      <input
+                        type="datetime-local"
+                        value={captureDate}
+                        onChange={(e) => setCaptureDate(e.target.value)}
+                        aria-label="One-shot date and time"
+                      />
+                    </label>
+                  )}
+                </div>
+                {captureError && (
+                  <div className="strat-discovery-message error" role="alert">
+                    {captureError}
+                  </div>
+                )}
+                <div className="strat-schedule-confirm-actions">
+                  <button
+                    type="button"
+                    className="strat-action-chip highlight"
+                    onClick={handleCreateDiscoverySchedule}
+                    disabled={captureSubmitting}
+                  >
+                    {captureSubmitting ? "Scheduling…" : "✓ Create schedule"}
+                  </button>
+                  <button
+                    type="button"
+                    className="strat-action-chip"
+                    onClick={() => setScheduleCaptureOpen(false)}
+                    disabled={captureSubmitting}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* Discovered Strategies Grid */}

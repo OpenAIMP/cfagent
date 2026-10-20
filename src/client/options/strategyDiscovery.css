@@ -5368,3 +5368,67 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-body-sm);
 }
+
+/* Issue #126: "Schedule this discovery" capture strip — the confirm
+   panel snapshots the exact view (symbol, thesis, target) before a
+   saved-request discovery schedule is created from it. */
+.strat-schedule-capture {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.strat-schedule-capture-hint {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm, 0.8125rem);
+}
+
+.strat-schedule-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 0.75rem);
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md, 10px);
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+}
+
+.strat-schedule-confirm-summary {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body, 0.9rem);
+}
+
+.strat-schedule-confirm-controls {
+  display: flex;
+  gap: var(--space-4, 1rem);
+  flex-wrap: wrap;
+}
+
+.strat-schedule-confirm-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption, 0.78rem);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.strat-schedule-confirm-controls input,
+.strat-schedule-confirm-controls select {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body-sm, 0.8125rem);
+  padding: var(--space-1-5, 0.375rem) var(--space-2, 0.5rem);
+}
+
+.strat-schedule-confirm-actions {
+  display: flex;
+  gap: var(--space-2-5, 0.625rem);
+}
