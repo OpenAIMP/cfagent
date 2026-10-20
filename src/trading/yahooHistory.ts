@@ -165,7 +165,8 @@ export function computeTechnicals(
 export async function fetchTechnicalsBatch(
   symbols: string[],
   concurrency?: number,
-  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG,
+  onBatch?: (completed: number, total: number) => void | Promise<void>
 ): Promise<Map<string, YahooTechnicals>> {
   const out = new Map<string, YahooTechnicals>();
   const conc = concurrency ?? config.yahoo.fetchConcurrency;
@@ -178,6 +179,9 @@ export async function fetchTechnicalsBatch(
       })
     );
     for (const t of results) out.set(t.symbol, t);
+    // Issue #624: optional progress hook (e.g. task heartbeats during
+    // long batches); absent for existing callers.
+    if (onBatch) await onBatch(Math.min(i + conc, symbols.length), symbols.length);
   }
   return out;
 }

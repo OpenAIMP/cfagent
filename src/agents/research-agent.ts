@@ -248,6 +248,11 @@ export class ResearchAgent extends Think<Env> {
     return ledger.start(id);
   }
 
+  /** Issue #624: refresh a task's heartbeat during a long run. */
+  async heartbeatResearchTask(id: string): Promise<ResearchTask> {
+    return this.taskLedger().heartbeat(id);
+  }
+
   async completeResearchTask(
     id: string,
     outcome: {
