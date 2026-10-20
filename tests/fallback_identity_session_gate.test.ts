@@ -93,13 +93,36 @@ interface ForwardedCall {
 
 function makeEnv() {
   const forwarded: ForwardedCall[] = [];
+  // #604: sessions live in the SessionStore DO. Fake speaks the store
+  // protocol (POST {op,ns,key,value} → {value|ok}).
   const kv = new Map<string, string>();
-  kv.set(SESSION_ID, JSON.stringify({ githubLogin: LOGIN, userId: "154", login: LOGIN }));
+  kv.set(`sessions:${SESSION_ID}`, JSON.stringify({ githubLogin: LOGIN, userId: "154", login: LOGIN }));
   const env: any = {
-    SESSIONS: {
-      get: async (k: string) => kv.get(k) ?? null,
-      put: async (k: string, v: string) => void kv.set(k, v),
-      delete: async (k: string) => void kv.delete(k),
+    SESSION_STORE: {
+      idFromName: (name: string) => name,
+      get: (_id: unknown) => ({
+        fetch: async (req: Request) => {
+          const body = (await req.json()) as {
+            op: string;
+            ns: string;
+            key: string;
+            value?: string;
+          };
+          const k = `${body.ns}:${body.key}`;
+          if (body.op === "get") {
+            return Response.json({ value: kv.get(k) ?? null });
+          }
+          if (body.op === "put") {
+            kv.set(k, body.value ?? "");
+            return Response.json({ ok: true });
+          }
+          if (body.op === "delete") {
+            kv.delete(k);
+            return Response.json({ ok: true });
+          }
+          return Response.json({ error: "unknown op" }, { status: 400 });
+        },
+      }),
     },
     SEARCH_AGENT: {
       idFromName: (name: string) => name,

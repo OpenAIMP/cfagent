@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { getValidTokens, revokeStoredTokens, storeAccessTokens } from "../src/security/etradeOAuth";
 import { __resetTokenCache } from "../src/security/etradeTokenCache";
+import { makeFakeSessionStore } from "./fake-session-store";
 import type { Env } from "../src/types";
 
 /**
@@ -36,12 +37,33 @@ function makeEnv() {
     },
   };
 
+  // Tokens now live in the SessionStore DO (#604); count the DO "get" ops
+  // the same way the old KV mock did, so the cache tests measure the real
+  // read path. The legacy `kv` above stays only for the dead ETRADE_KV
+  // binding shape.
+  const { namespace } = makeFakeSessionStore();
+  const sessionStoreNs = {
+    ...namespace,
+    get: (id: unknown) => {
+      const stub = namespace.get(id);
+      return {
+        fetch: async (req: Request) => {
+          const body = (await req.clone().json().catch(() => ({}))) as {
+            op?: string;
+          };
+          if (body.op === "get") getCalls += 1;
+          return stub.fetch(req);
+        },
+      };
+    },
+  };
+
   // Signing credentials are irrelevant to the read path under test, so the
   // environment config's own defaults apply here.
   const env = {
     APP_ENV: "TEST",
     ETRADE_KV: kv,
-    SESSIONS: kv,
+    SESSION_STORE: sessionStoreNs,
   } as unknown as Env;
 
   return { env, countGets: () => getCalls };

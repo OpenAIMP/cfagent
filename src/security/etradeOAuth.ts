@@ -16,7 +16,7 @@ import {
   writeTokenCache,
 } from "./etradeTokenCache";
 import { createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
-import { createResilientKv, type KvLike } from "./kvResilience";
+import { type KvLike } from "./kvResilience";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { ETradeError, ETradeErrorCode } from "../aspects/errorCodes";
@@ -57,15 +57,15 @@ const KV_REQUEST_TOKEN_KEY = (userLogin: string, envName?: string) =>
  * Token storage, moved off KV (issue #329).
  *
  * Same reasoning as sessions: a KV quota throw here surfaced as a 1101 on any
- * E*TRADE route. Tokens now live in the SessionStore DO; the legacy KV is read
- * once per key to migrate what is already stored there.
+ * E*TRADE route. Tokens live in the SessionStore DO; the legacy KV fallback
+ * was removed in #604 (migration window passed). Auth material stays in the
+ * DO — never moves back to KV.
  */
 function getKv(env: Env): KvLike {
   return createStoreKv({
     namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
-    legacy: createResilientKv((env as any).ETRADE_KV || env.SESSIONS || env.KV, "etrade"),
     namespaceName: "etrade",
-    legacyFallback: env.SESSIONS_KV_FALLBACK !== "off",
+    legacyFallback: false,
   });
 }
 

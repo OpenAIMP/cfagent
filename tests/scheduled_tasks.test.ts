@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
@@ -44,6 +45,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
     mockKv = new MockKVNamespace();
+    const { namespace: sessionStoreNs } = makeFakeSessionStore();
 
     env = {
       APP_ENV: "TEST",
@@ -54,7 +56,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       ET_API_SECRET: "sandbox_consumer_secret_456",
       ET_BASE_URL: "https://apisb.etrade.com/v1",
       ETRADE_KV: mockKv as any,
-      SESSIONS: mockKv as any,
+      SESSION_STORE: sessionStoreNs,
       SEARCH_AGENT: {} as any,
       // Issue #261: mock ScreenerAgent — the service delegates screening to it.
       SCREENER_AGENT: {

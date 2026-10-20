@@ -14,41 +14,51 @@ import { ETradeService } from "../src/services/etrade";
 import type { Env } from "../src/types";
 import { __resetTokenCache } from "../src/security/etradeTokenCache";
 
-// In-memory KV mock for testing token storage
-class MockKVNamespace {
-  private store = new Map<string, { value: string; expiration?: number }>();
-
-  async get(key: string): Promise<string | null> {
-    const item = this.store.get(key);
-    if (!item) return null;
-    return item.value;
-  }
-
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
-    this.store.set(key, { value });
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-}
-
 describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
-  let mockKv: MockKVNamespace;
   let env: Env;
   const userLogin = "trader_alice";
+
+  /**
+   * #604: tokens live in the SessionStore DO, not KV. This fake speaks the
+   * store protocol (POST {op,key,value} → {value|ok}) over an in-memory map.
+   */
+  function makeSessionStore() {
+    const store = new Map<string, string>();
+    return {
+      idFromName: (name: string) => name,
+      get: (_id: unknown) => ({
+        fetch: async (req: Request) => {
+          const body = (await req.json()) as {
+            op: string;
+            key: string;
+            value?: string;
+          };
+          if (body.op === "get") {
+            return Response.json({ value: store.get(body.key) ?? null });
+          }
+          if (body.op === "put") {
+            store.set(body.key, body.value ?? "");
+            return Response.json({ ok: true });
+          }
+          if (body.op === "delete") {
+            store.delete(body.key);
+            return Response.json({ ok: true });
+          }
+          return Response.json({ error: "unknown op" }, { status: 400 });
+        },
+      }),
+    };
+  }
 
   beforeEach(() => {
     vi.restoreAllMocks();
     __resetTokenCache();
-    mockKv = new MockKVNamespace();
     env = {
       APP_ENV: "TEST",
       ET_API_KEY: "sandbox_consumer_key_123",
       ET_API_SECRET: "sandbox_consumer_secret_456",
       ET_BASE_URL: "https://apisb.etrade.com/v1",
-      ETRADE_KV: mockKv as any,
-      SESSIONS: mockKv as any,
+      SESSION_STORE: makeSessionStore() as any,
     } as Env;
   });
 
@@ -104,7 +114,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
   });
 
   describe("Step 3: Exchange Verifier PIN for Access Token", () => {
-    it("exchanges verifier code for access token and stores in KV", async () => {
+    it("exchanges verifier code for access token and stores in the SessionStore DO", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
         new Response("oauth_token=access_tok_xyz&oauth_token_secret=access_sec_999", {
           status: 200,
@@ -129,7 +139,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
       expect(tokenSet.accessTokenSecret).toBe("access_sec_999");
       expect(tokenSet.userLogin).toBe(userLogin);
 
-      // Verify token persisted in KV
+      // Verify token persisted in the SessionStore DO
       const stored = await getValidTokens(env, userLogin);
       expect(stored?.accessToken).toBe("access_tok_xyz");
       expect(stored?.accessTokenSecret).toBe("access_sec_999");

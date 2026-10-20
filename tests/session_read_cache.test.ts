@@ -4,13 +4,17 @@ import {
   invalidateSessionCache,
   __resetSessionCache,
 } from "../src/security/sessionCache";
-import type { Env, SessionData } from "../src/types";
+import type { SessionData } from "../src/types";
 
 /**
  * Issue #329 — the session read cache exists to stop every `/api/*` request
- * from spending one Workers KV read. These tests pin the three properties the
- * auth path depends on: it serves repeats without touching KV, it expires, and
- * an explicit invalidation is honoured immediately.
+ * from spending one backing-store read. These tests pin the three properties
+ * the auth path depends on: it serves repeats without touching the store, it
+ * expires, and an explicit invalidation is honoured immediately.
+ *
+ * #604: the backing store moved from KV to the SessionStore DO, so the probe
+ * now sits behind `getSession` (the boundary the cache actually fronts)
+ * instead of `env.SESSIONS`.
  */
 const SESSION_ID = "test-session-329";
 
@@ -21,28 +25,25 @@ const SESSION: SessionData = {
   createdAt: 1_760_000_000_000,
 };
 
-interface KvProbe {
+interface StoreProbe {
   getCalls: number;
   store: Map<string, string>;
 }
 
-function makeEnv(): { env: Env; probe: KvProbe } {
-  const probe: KvProbe = { getCalls: 0, store: new Map() };
-  const env = {
-    SESSIONS: {
-      get: async (key: string) => {
-        probe.getCalls += 1;
-        return probe.store.get(key) ?? null;
-      },
-      put: async (key: string, value: string) => {
-        probe.store.set(key, value);
-      },
-      delete: async (key: string) => {
-        probe.store.delete(key);
-      },
-    },
-  } as unknown as Env;
-  return { env, probe };
+const probe: StoreProbe = { getCalls: 0, store: new Map() };
+
+vi.mock("../src/security/session", () => ({
+  getSession: async (_env: unknown, sessionId: string) => {
+    probe.getCalls += 1;
+    const raw = probe.store.get(sessionId) ?? null;
+    return raw ? (JSON.parse(raw) as SessionData) : null;
+  },
+}));
+
+function makeEnv(): { env: Record<string, unknown>; probe: StoreProbe } {
+  probe.getCalls = 0;
+  probe.store.clear();
+  return { env: {}, probe };
 }
 
 describe("session read cache (#329)", () => {
@@ -65,11 +66,11 @@ describe("session read cache (#329)", () => {
 
     expect(first).toEqual(SESSION);
     expect(second).toEqual(SESSION);
-    // The whole point: two requests, one KV read.
+    // The whole point: two requests, one backing-store read.
     expect(probe.getCalls).toBe(1);
   });
 
-  it("refetches from KV once the TTL lapses", async () => {
+  it("refetches from the store once the TTL lapses", async () => {
     const { env, probe } = makeEnv();
     probe.store.set(SESSION_ID, JSON.stringify(SESSION));
 
@@ -81,7 +82,7 @@ describe("session read cache (#329)", () => {
     expect(probe.getCalls).toBe(2);
   });
 
-  it("caches a miss briefly, then trusts KV again", async () => {
+  it("caches a miss briefly, then trusts the store again", async () => {
     const { env, probe } = makeEnv();
 
     expect(await getSessionCached(env, SESSION_ID)).toBeNull();
