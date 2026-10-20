@@ -480,25 +480,40 @@ export type ExpectedMoveContract = Pick<
   "strikePrice" | "impliedVolatility" | "expirationDate" | "symbol"
 >;
 
+/** A resolved expected-move estimate (issue #25; the window fields
+ *  added for issue #533): the pct the scanner has always computed,
+ *  plus the chosen contract's IV and expiry and the window length, so
+ *  a consumer that derives a target from the estimate can disclose
+ *  exactly which horizon and IV produced it. */
+export interface ExpectedMoveEstimate {
+  /** IV × sqrt(windowDays/365) — the 1-sigma move to the window expiry, as a fraction of spot. */
+  pct: number;
+  /** Implied volatility of the chosen most-ATM contract. */
+  atmIv: number;
+  /** Expiration date of the chosen contract (the window's end). */
+  windowExpiry: string;
+  /** Days from `now` to the window expiry (ceil, UTC). */
+  windowDays: number;
+}
+
 /**
- * Estimate a symbol's expected move to expiry as a fraction of spot
- * (issue #25): IV × sqrt(days/365) from the most at-the-money contract
- * in the chain — the 1-sigma move the chain itself implies. Pure and
- * exported for direct unit testing.
+ * Estimate a symbol's expected move to expiry (issue #25): IV ×
+ * sqrt(days/365) from the most at-the-money contract in the chain —
+ * the 1-sigma move the chain itself implies. Pure and exported for
+ * direct unit testing.
  *
  * Only contracts with a usable IV (> 0) and a parseable expirationDate
  * qualify. The most-ATM contract wins (min |strike − spot|); ties break
  * deterministically by earliest expirationDate, then lowest strike,
  * then symbol. Days are counted from `now` to the chosen expiry (UTC
  * midnight). Returns null when no contract qualifies or the chosen
- * expiry is today/past — callers then fall back to legacy percentage
- * targets for the symbol and disclose that they did.
+ * expiry is today/past.
  */
-export function estimateExpectedMovePct(
+export function estimateExpectedMove(
   contracts: ReadonlyArray<ExpectedMoveContract>,
   spotPrice: number,
   now: Date,
-): number | null {
+): ExpectedMoveEstimate | null {
   if (!Number.isFinite(spotPrice) || spotPrice <= 0) return null;
   let best: { contract: ExpectedMoveContract; distance: number; expiryMs: number } | null = null;
   for (const contract of contracts) {
@@ -524,8 +539,26 @@ export function estimateExpectedMovePct(
   if (best === null) return null;
   const days = Math.ceil((best.expiryMs - now.getTime()) / 86_400_000);
   if (days <= 0) return null;
-  const pct = (best.contract.impliedVolatility as number) * Math.sqrt(days / 365);
-  return Number.isFinite(pct) && pct > 0 ? pct : null;
+  const atmIv = best.contract.impliedVolatility as number;
+  const pct = atmIv * Math.sqrt(days / 365);
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+  return { pct, atmIv, windowExpiry: best.contract.expirationDate, windowDays: days };
+}
+
+/**
+ * The expected-move percentage alone (issue #25) — delegates to
+ * estimateExpectedMove so there is exactly one selection algorithm.
+ * Scanner callers that get null fall back to legacy percentage targets
+ * for the symbol and disclose that they did; discovery derivation
+ * (issue #533) consumes estimateExpectedMove directly and abstains on
+ * null instead — it never takes the legacy fallback.
+ */
+export function estimateExpectedMovePct(
+  contracts: ReadonlyArray<ExpectedMoveContract>,
+  spotPrice: number,
+  now: Date,
+): number | null {
+  return estimateExpectedMove(contracts, spotPrice, now)?.pct ?? null;
 }
 
 /**
