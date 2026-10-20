@@ -44,6 +44,12 @@ export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
     description: "Screens the selected live universe against E*TRADE option chains and generates a report.",
     triggerRoute: "/api/schedules/trigger-options-analysis",
   },
+  autonomousStrategyDiscovery: {
+    label: "Strategy Discovery",
+    description:
+      "Re-runs saved discovery views (symbol, thesis, target) captured from the discovery panel against the live E*TRADE chain and stores the ranked results.",
+    triggerRoute: "/api/schedules/trigger-discovery",
+  },
 };
 
 /**
@@ -55,6 +61,7 @@ export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
 export const TRIGGER_ROUTES: Record<string, string> = {
   autonomousOptionsAnalysis: "/api/schedules/trigger-options-analysis",
   autonomousMarketScreen: SYSTEM_JOBS.autonomousMarketScreen.triggerRoute,
+  autonomousStrategyDiscovery: SYSTEM_JOBS.autonomousStrategyDiscovery.triggerRoute,
 };
 
 export function systemJobFor(callback: unknown): SystemJobInfo | undefined {
@@ -66,12 +73,157 @@ export function triggerRouteFor(callback: unknown): string | undefined {
 }
 
 /** Jobs the create form can register. Anything else stays API-only. */
-export type CreatableJob = "optionsAnalysis" | "marketScreen";
+export type CreatableJob = "optionsAnalysis" | "marketScreen" | "strategyDiscovery";
 
 export const JOB_CALLBACKS: Record<CreatableJob, string> = {
   optionsAnalysis: "autonomousOptionsAnalysis",
   marketScreen: "autonomousMarketScreen",
+  strategyDiscovery: "autonomousStrategyDiscovery",
 };
+
+/**
+ * One saved discovery view as edited in the create form (issue #126).
+ * A discovery schedule re-runs complete StrategyRequests verbatim, so
+ * the form edits the request itself; numeric fields stay strings while
+ * editing and are converted by buildDiscoveryRequests on submit.
+ */
+export interface DiscoveryRequestDraft {
+  symbol: string;
+  thesis: "bullish" | "bearish" | "range_bound" | "large_move";
+  targetPrice: string;
+  targetDate: string;
+  expectedIvDirection: "rise" | "unchanged" | "fall";
+  maxPlannedLoss: string;
+  minRewardRisk: string;
+  /** "" omits the field (the server then applies its balanced default weights). */
+  optimizationBias: string;
+  dataMode: "live" | "calibrated-demo";
+  /** Comma-separated registry ids; "all" is the discovery panel's own default. */
+  allowedStrategies: string;
+  /** "" omits the field. */
+  maxDte: string;
+}
+
+/** Server cap: MAX_SAVED_REQUESTS_PER_RUN (src/trading/options/discoveryRunStore.ts). */
+export const DISCOVERY_REQUEST_LIMIT = 25;
+
+const DISCOVERY_THESES = ["bullish", "bearish", "range_bound", "large_move"] as const;
+const DISCOVERY_IV_DIRECTIONS = ["rise", "unchanged", "fall"] as const;
+
+export function blankDiscoveryRequestDraft(): DiscoveryRequestDraft {
+  return {
+    symbol: "",
+    thesis: "bullish",
+    targetPrice: "",
+    targetDate: "",
+    expectedIvDirection: "unchanged",
+    maxPlannedLoss: "",
+    minRewardRisk: "",
+    optimizationBias: "",
+    dataMode: "live",
+    allowedStrategies: "all",
+    maxDte: "",
+  };
+}
+
+/** Map a stored StrategyRequest (a schedule's payload) back into a form draft. */
+export function discoveryDraftFromRequest(req: any): DiscoveryRequestDraft {
+  const base = blankDiscoveryRequestDraft();
+  if (!req || typeof req !== "object") return base;
+  const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? String(v) : "");
+  return {
+    symbol: typeof req.symbol === "string" ? req.symbol : "",
+    thesis: DISCOVERY_THESES.includes(req.thesis) ? req.thesis : "bullish",
+    targetPrice: num(req.targetPrice),
+    targetDate: typeof req.targetDate === "string" ? req.targetDate : "",
+    expectedIvDirection: DISCOVERY_IV_DIRECTIONS.includes(req.expectedIvDirection)
+      ? req.expectedIvDirection
+      : "unchanged",
+    maxPlannedLoss: num(req.maxPlannedLoss),
+    minRewardRisk: num(req.minRewardRisk),
+    optimizationBias: num(req.optimizationBias),
+    dataMode: req.dataMode === "calibrated-demo" ? "calibrated-demo" : "live",
+    allowedStrategies:
+      Array.isArray(req.allowedStrategies) && req.allowedStrategies.length > 0
+        ? req.allowedStrategies.join(", ")
+        : "all",
+    maxDte: num(req.maxDte),
+  };
+}
+
+/**
+ * Convert form drafts into the payload.requests array, mirroring the
+ * required-field checks of the server's validateStrategyRequest
+ * (src/trading/options/strategyRiskAgent.ts). That validator is
+ * server-only — it resolves strategy ids against the server registry —
+ * so an unknown strategy id passes here and is rejected by the create
+ * route's 400, whose message the form surfaces verbatim. Returns
+ * { error } with a user-facing message for the first problem found.
+ */
+export function buildDiscoveryRequests(
+  drafts: DiscoveryRequestDraft[]
+): { requests: Array<Record<string, any>> } | { error: string } {
+  if (!Array.isArray(drafts) || drafts.length === 0) {
+    return { error: "Add at least one saved discovery view." };
+  }
+  if (drafts.length > DISCOVERY_REQUEST_LIMIT) {
+    return { error: `Discovery schedules are capped at ${DISCOVERY_REQUEST_LIMIT} saved views per schedule.` };
+  }
+  const requests: Array<Record<string, any>> = [];
+  for (let i = 0; i < drafts.length; i++) {
+    const d = drafts[i];
+    const label = `Saved view ${i + 1}${d.symbol.trim() ? ` (${d.symbol.trim().toUpperCase()})` : ""}`;
+    const symbol = d.symbol.trim().toUpperCase();
+    if (!symbol) return { error: `${label}: a symbol is required.` };
+    const targetPrice = Number(d.targetPrice);
+    if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
+      return { error: `${label}: target price must be a positive number.` };
+    }
+    if (!d.targetDate.trim()) return { error: `${label}: a target date is required.` };
+    const maxPlannedLoss = Number(d.maxPlannedLoss);
+    if (!Number.isFinite(maxPlannedLoss) || maxPlannedLoss <= 0) {
+      return { error: `${label}: max planned loss must be a positive number.` };
+    }
+    const minRewardRisk = Number(d.minRewardRisk);
+    if (!Number.isFinite(minRewardRisk) || minRewardRisk < 0) {
+      return { error: `${label}: minimum reward/risk must be zero or more.` };
+    }
+    const allowedStrategies = d.allowedStrategies
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowedStrategies.length === 0) {
+      return { error: `${label}: name at least one allowed strategy (or "all").` };
+    }
+    const request: Record<string, any> = {
+      symbol,
+      thesis: d.thesis,
+      targetPrice,
+      targetDate: d.targetDate.trim(),
+      expectedIvDirection: d.expectedIvDirection,
+      maxPlannedLoss,
+      minRewardRisk,
+      allowedStrategies,
+      dataMode: d.dataMode,
+    };
+    if (d.optimizationBias.trim() !== "") {
+      const bias = Number(d.optimizationBias);
+      if (!Number.isInteger(bias) || bias < 0 || bias > 100) {
+        return { error: `${label}: optimization bias must be a whole number from 0 to 100.` };
+      }
+      request.optimizationBias = bias;
+    }
+    if (d.maxDte.trim() !== "") {
+      const maxDte = Number(d.maxDte);
+      if (!Number.isInteger(maxDte) || maxDte < 1) {
+        return { error: `${label}: max DTE must be a whole number of at least 1.` };
+      }
+      request.maxDte = maxDte;
+    }
+    requests.push(request);
+  }
+  return { requests };
+}
 
 export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
 
@@ -177,6 +329,13 @@ export function ScheduledOptionsManager({
   const [slackChannel, setSlackChannel] = useState("#options-alerts");
   const [emailTo, setEmailTo] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+  // Saved discovery views edited by the create form (issue #126).
+  const [discoveryRequests, setDiscoveryRequests] = useState<DiscoveryRequestDraft[]>([
+    blankDiscoveryRequestDraft(),
+  ]);
+
+  const updateDiscoveryRequest = (idx: number, patch: Partial<DiscoveryRequestDraft>) =>
+    setDiscoveryRequests((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
 
   // On-Demand Execution State: which trigger is in flight — "hero" for
   // the banner Run Now button, otherwise the schedule's id.
@@ -215,7 +374,8 @@ export function ScheduledOptionsManager({
         // malformed row must never crash the panel.
         setSchedules(rawList.filter((s: any) =>
           s && typeof s === "object" && typeof s.id === "string" &&
-          (s.callback === "autonomousMarketScreen" || s.callback === "autonomousOptionsAnalysis")
+          (s.callback === "autonomousMarketScreen" || s.callback === "autonomousOptionsAnalysis" ||
+            s.callback === "autonomousStrategyDiscovery")
         ));
       } else {
         setSchedules([]);
@@ -263,34 +423,43 @@ export function ScheduledOptionsManager({
     setTargetUniverse("NASDAQ100");
     setTargetSymbols("");
     setMaxItems(100);
+    setDiscoveryRequests([blankDiscoveryRequestDraft()]);
     setModalOpen(true);
   };
 
-  // Edit a user-created stock or options screen schedule.
+  // Edit a user-created stock screen, options screen, or discovery schedule.
   const handleEditSchedule = (item: ScheduledTaskItem) => {
     setEditingScheduleId(item.id);
-    setJobType(item.callback === "autonomousMarketScreen" ? "marketScreen" : "optionsAnalysis");
     const payload = payloadOf(item);
-    const syms = payload.symbols;
-    setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "");
-    setMaxItems(Number.isSafeInteger(payload.maxItems) ? payload.maxItems : 100);
-    setTargetUniverse(
-      typeof payload.universe === "string"
-        ? payload.universe
-        : item.callback === "autonomousMarketScreen" ? "NASDAQ100" : ""
-    );
-    setThesis(payload.thesis || "bullish");
-    setRiskProfile(payload.riskProfile || "balanced");
+    if (item.callback === "autonomousStrategyDiscovery") {
+      setJobType("strategyDiscovery");
+      const saved = Array.isArray(payload.requests) ? payload.requests : [];
+      setDiscoveryRequests(
+        saved.length > 0 ? saved.map(discoveryDraftFromRequest) : [blankDiscoveryRequestDraft()]
+      );
+    } else {
+      setJobType(item.callback === "autonomousMarketScreen" ? "marketScreen" : "optionsAnalysis");
+      const syms = payload.symbols;
+      setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "");
+      setMaxItems(Number.isSafeInteger(payload.maxItems) ? payload.maxItems : 100);
+      setTargetUniverse(
+        typeof payload.universe === "string"
+          ? payload.universe
+          : item.callback === "autonomousMarketScreen" ? "NASDAQ100" : ""
+      );
+      setThesis(payload.thesis || "bullish");
+      setRiskProfile(payload.riskProfile || "balanced");
+      setPushToSlack(payload.pushToSlack !== false);
+      if (payload.slackChannel) setSlackChannel(payload.slackChannel);
+      if (payload.emailTo) setEmailTo(payload.emailTo);
+      if (payload.webhookUrl) setWebhookUrl(payload.webhookUrl);
+    }
     setScheduleType(
       item.type === "cron" || item.type === "delayed" || item.type === "scheduled" ? item.type : "interval"
     );
     if (item.intervalSeconds) setIntervalSeconds(item.intervalSeconds);
     if (item.cron) setCronExpression(item.cron);
     if (item.delayInSeconds) setDelaySeconds(item.delayInSeconds);
-    setPushToSlack(payload.pushToSlack !== false);
-    if (payload.slackChannel) setSlackChannel(payload.slackChannel);
-    if (payload.emailTo) setEmailTo(payload.emailTo);
-    if (payload.webhookUrl) setWebhookUrl(payload.webhookUrl);
     setModalOpen(true);
   };
 
@@ -301,47 +470,65 @@ export function ScheduledOptionsManager({
     setError(null);
     setSuccessMsg(null);
 
-    const symbols = targetSymbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-    if (!Number.isInteger(maxItems) || maxItems < 0) {
-      setError("Max items must be a whole number greater than or equal to zero.");
-      setSubmitting(false);
-      return;
-    }
-    if (!targetUniverse && symbols.length === 0) {
-      setError("Choose a universe or enter at least one symbol.");
-      setSubmitting(false);
-      return;
-    }
-    if (jobType === "marketScreen" && !targetUniverse) {
-      setError("Stock screens require one live universe.");
-      setSubmitting(false);
-      return;
-    }
-
     let callback: string;
     let payload: Record<string, any>;
-    if (jobType === "marketScreen") {
-      callback = JOB_CALLBACKS.marketScreen;
+    if (jobType === "strategyDiscovery") {
+      // Discovery schedules carry complete saved StrategyRequests; the
+      // create route validates each one and its 400 is the backstop for
+      // anything this form cannot check (e.g. unknown strategy ids).
+      const built = buildDiscoveryRequests(discoveryRequests);
+      if ("error" in built) {
+        setError(built.error);
+        setSubmitting(false);
+        return;
+      }
+      callback = JOB_CALLBACKS.strategyDiscovery;
       payload = {
-        ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
-        maxItems,
-        sector: "Technology",
-        trigger: "scheduled",
-      };
-    } else {
-      callback = JOB_CALLBACKS.optionsAnalysis;
-      payload = {
-        ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
-        maxItems,
-        thesis,
-        riskProfile,
-        pushToSlack,
-        slackChannel: pushToSlack ? slackChannel : undefined,
-        emailTo: emailTo.trim() || undefined,
-        webhookUrl: webhookUrl.trim() || undefined,
+        requests: built.requests,
         environment: activeEnv,
         trigger: "scheduled",
       };
+    } else {
+      const symbols = targetSymbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      if (!Number.isInteger(maxItems) || maxItems < 0) {
+        setError("Max items must be a whole number greater than or equal to zero.");
+        setSubmitting(false);
+        return;
+      }
+      if (!targetUniverse && symbols.length === 0) {
+        setError("Choose a universe or enter at least one symbol.");
+        setSubmitting(false);
+        return;
+      }
+      if (jobType === "marketScreen" && !targetUniverse) {
+        setError("Stock screens require one live universe.");
+        setSubmitting(false);
+        return;
+      }
+
+      if (jobType === "marketScreen") {
+        callback = JOB_CALLBACKS.marketScreen;
+        payload = {
+          ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+          maxItems,
+          sector: "Technology",
+          trigger: "scheduled",
+        };
+      } else {
+        callback = JOB_CALLBACKS.optionsAnalysis;
+        payload = {
+          ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+          maxItems,
+          thesis,
+          riskProfile,
+          pushToSlack,
+          slackChannel: pushToSlack ? slackChannel : undefined,
+          emailTo: emailTo.trim() || undefined,
+          webhookUrl: webhookUrl.trim() || undefined,
+          environment: activeEnv,
+          trigger: "scheduled",
+        };
+      }
     }
 
     const requestBody: any = {
@@ -451,6 +638,21 @@ export function ScheduledOptionsManager({
         if (item.callback === "autonomousOptionsAnalysis") {
           if (data.data) setLiveResult(data.data);
           setSuccessMsg(`✓ ${label} executed! Found ${data.data?.withTrades ?? 0} actionable setups.`);
+        } else if (item.callback === "autonomousStrategyDiscovery") {
+          const d = data.data;
+          if (d && typeof d === "object") {
+            const failedNote =
+              (d.failedCount ?? 0) > 0
+                ? ` ${d.failedCount} failed${Array.isArray(d.failures) && d.failures.length > 0
+                    ? `: ${d.failures.map((f: any) => `${f.symbol} (${f.error})`).join("; ")}`
+                    : ""}.`
+                : "";
+            setSuccessMsg(
+              `✓ ${label} executed! ${d.completedCount ?? 0} of ${d.requestCount ?? 0} saved views produced results.${failedNote}`
+            );
+          } else {
+            setSuccessMsg(`✓ ${label} executed.${data.message ? ` ${data.message}` : ""}`);
+          }
         } else if (item.callback === "collectIvHistory" && data.data && typeof data.data === "object") {
           const d = data.data;
           setSuccessMsg(
@@ -688,7 +890,7 @@ export function ScheduledOptionsManager({
         {schedules.length === 0 && !loading ? (
           <div className="schedules-empty-state">
             <span style={{ fontSize: "2.5rem" }}>📅</span>
-            <p>No active stock or options schedules. Create a screen schedule to see it here; legacy app-created jobs are not recreated automatically.</p>
+            <p>No active schedules. Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically.</p>
             <button
               type="button"
               className="btn-sched-primary"
@@ -702,24 +904,26 @@ export function ScheduledOptionsManager({
             {schedules.map((item) => {
               const systemJob = systemJobFor(item.callback);
               const isOptions = item.callback === "autonomousOptionsAnalysis";
+              const isDiscovery = item.callback === "autonomousStrategyDiscovery";
               const payload = payloadOf(item);
               const triggerRoute = triggerRouteFor(item.callback);
               const title = systemJob?.label || (isOptions ? "Autonomous Options Intelligence" : item.callback);
               const symbols = Array.isArray(payload.symbols)
                 ? payload.symbols.filter((s: any) => typeof s === "string")
                 : [];
+              const savedRequests = Array.isArray(payload.requests) ? payload.requests : [];
 
               return (
                 <div
                   key={item.id}
-                  className={`schedule-item-card ${isOptions ? "is-options" : "is-stock"}`}
+                  className={`schedule-item-card ${isOptions ? "is-options" : isDiscovery ? "is-discovery" : "is-stock"}`}
                 >
                   <div className="schedule-card-top">
                     <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                       <span className={`schedule-type-badge ${item.type}`}>
                         {item.type}
                       </span>
-                      <span className="schedule-system-badge">{isOptions ? "Options" : "Stock"}</span>
+                      <span className="schedule-system-badge">{isOptions ? "Options" : isDiscovery ? "Discovery" : "Stock"}</span>
                     </div>
                     <span className="schedule-id-snippet" title={item.id}>
                       {item.id.slice(0, 16)}…
@@ -737,19 +941,47 @@ export function ScheduledOptionsManager({
                   </div>
 
                   <div className="schedule-payload-details">
-                    {[
-                      ["userLogin", payload.userLogin || userLogin || "—"],
-                      ["environment", payload.environment || activeEnv || "—"],
-                      ["universe", payload.universe || (Array.isArray(payload.symbols) ? "Custom symbols" : "—")],
-                      ["maxItems", payload.maxItems ?? (Array.isArray(payload.symbols) ? payload.symbols.length : "all")],
-                      ["trigger", payload.trigger || "scheduled"],
-                    ].map(([key, value]) => (
+                    {(isDiscovery
+                      ? [
+                          ["userLogin", payload.userLogin || userLogin || "—"],
+                          ["environment", payload.environment || activeEnv || "—"],
+                          ["saved views", savedRequests.length],
+                          ["trigger", payload.trigger || "scheduled"],
+                        ]
+                      : [
+                          ["userLogin", payload.userLogin || userLogin || "—"],
+                          ["environment", payload.environment || activeEnv || "—"],
+                          ["universe", payload.universe || (Array.isArray(payload.symbols) ? "Custom symbols" : "—")],
+                          ["maxItems", payload.maxItems ?? (Array.isArray(payload.symbols) ? payload.symbols.length : "all")],
+                          ["trigger", payload.trigger || "scheduled"],
+                        ]
+                    ).map(([key, value]) => (
                       <div className="payload-row" key={String(key)}>
                         <span className="payload-label">{key}:</span>
                         <span className="payload-value">{formatPayloadValue(value)}</span>
                       </div>
                     ))}
                   </div>
+
+                  {isDiscovery && savedRequests.length > 0 && (
+                    <div className="schedule-payload-details">
+                      {savedRequests.slice(0, 5).map((req: any, idx: number) => (
+                        <div className="payload-row" key={idx}>
+                          <span className="payload-label">{typeof req?.symbol === "string" ? req.symbol : "?"}:</span>
+                          <span className="payload-value">
+                            {typeof req?.thesis === "string" ? req.thesis : "—"} · target{" "}
+                            {typeof req?.targetPrice === "number" ? `$${req.targetPrice}` : "—"} by{" "}
+                            {typeof req?.targetDate === "string" ? req.targetDate : "—"}
+                          </span>
+                        </div>
+                      ))}
+                      {savedRequests.length > 5 && (
+                        <div className="payload-row">
+                          <span className="payload-value">…and {savedRequests.length - 5} more saved views</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {isOptions ? (
                     <div className="schedule-payload-details">
@@ -1009,12 +1241,13 @@ export function ScheduledOptionsManager({
                   >
                     <option value="optionsAnalysis">Autonomous Options Analysis</option>
                     <option value="marketScreen">Autonomous Market Screen (Stocks)</option>
+                    <option value="strategyDiscovery">Saved-View Strategy Discovery</option>
                   </Select>
                 </div>
               )}
 
               {/* Target Universe or Symbols */}
-              {(editingScheduleId || jobType === "optionsAnalysis" || jobType === "marketScreen") && (
+              {jobType !== "strategyDiscovery" && (editingScheduleId || jobType === "optionsAnalysis" || jobType === "marketScreen") && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
                     Target Universe
@@ -1051,20 +1284,212 @@ export function ScheduledOptionsManager({
                 </div>
               )}
 
-              <div className="sched-form-group">
-                <label className="sched-form-label">
-                  Max items
-                  <span className="hint">Maximum live symbols scanned per run; 0 means all selected symbols.</span>
-                </label>
-                <TextInput
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={maxItems}
-                  onChange={(e) => setMaxItems(Number(e.target.value))}
-                  required
-                />
-              </div>
+              {jobType !== "strategyDiscovery" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Max items
+                    <span className="hint">Maximum live symbols scanned per run; 0 means all selected symbols.</span>
+                  </label>
+                  <TextInput
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={maxItems}
+                    onChange={(e) => setMaxItems(Number(e.target.value))}
+                    required
+                  />
+                </div>
+              )}
+
+              {/* Saved discovery views (issue #126) */}
+              {jobType === "strategyDiscovery" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Saved Discovery Views
+                    <span className="hint">
+                      Each view is a complete strategy request, re-run verbatim when this schedule
+                      fires — the same view the discovery panel runs interactively. Strategy ids are
+                      validated by the server against the registry when you save.
+                    </span>
+                  </label>
+                  {discoveryRequests.map((draft, idx) => (
+                    <div className="discovery-request-card" key={idx}>
+                      <div className="discovery-request-card-head">
+                        <strong>
+                          View {idx + 1}
+                          {draft.symbol.trim() ? ` — ${draft.symbol.trim().toUpperCase()}` : ""}
+                        </strong>
+                        {discoveryRequests.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn-sched-action-sm"
+                            onClick={() =>
+                              setDiscoveryRequests((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                          >
+                            ✕ Remove
+                          </button>
+                        )}
+                      </div>
+                      <div className="discovery-request-grid">
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Symbol</label>
+                          <TextInput
+                            type="text"
+                            value={draft.symbol}
+                            onChange={(e) => updateDiscoveryRequest(idx, { symbol: e.target.value })}
+                            placeholder="e.g. NVDA"
+                            aria-label={`View ${idx + 1} symbol`}
+                            required
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Thesis</label>
+                          <Select
+                            value={draft.thesis}
+                            onChange={(e) =>
+                              updateDiscoveryRequest(idx, { thesis: e.target.value as DiscoveryRequestDraft["thesis"] })
+                            }
+                            aria-label={`View ${idx + 1} thesis`}
+                          >
+                            <option value="bullish">Bullish</option>
+                            <option value="bearish">Bearish</option>
+                            <option value="range_bound">Range-bound</option>
+                            <option value="large_move">Large move</option>
+                          </Select>
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Target Price ($)</label>
+                          <TextInput
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={draft.targetPrice}
+                            onChange={(e) => updateDiscoveryRequest(idx, { targetPrice: e.target.value })}
+                            placeholder="e.g. 200"
+                            aria-label={`View ${idx + 1} target price`}
+                            required
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Target Date</label>
+                          <TextInput
+                            type="date"
+                            value={draft.targetDate}
+                            onChange={(e) => updateDiscoveryRequest(idx, { targetDate: e.target.value })}
+                            aria-label={`View ${idx + 1} target date`}
+                            required
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Expected IV Direction</label>
+                          <Select
+                            value={draft.expectedIvDirection}
+                            onChange={(e) =>
+                              updateDiscoveryRequest(idx, {
+                                expectedIvDirection: e.target.value as DiscoveryRequestDraft["expectedIvDirection"],
+                              })
+                            }
+                            aria-label={`View ${idx + 1} expected IV direction`}
+                          >
+                            <option value="rise">Rise</option>
+                            <option value="unchanged">Unchanged</option>
+                            <option value="fall">Fall</option>
+                          </Select>
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Data Mode</label>
+                          <Select
+                            value={draft.dataMode}
+                            onChange={(e) =>
+                              updateDiscoveryRequest(idx, { dataMode: e.target.value as DiscoveryRequestDraft["dataMode"] })
+                            }
+                            aria-label={`View ${idx + 1} data mode`}
+                          >
+                            <option value="live">Live chain</option>
+                            <option value="calibrated-demo">Calibrated demo (gate permitting)</option>
+                          </Select>
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Max Planned Loss ($)</label>
+                          <TextInput
+                            type="number"
+                            min={0}
+                            step="1"
+                            value={draft.maxPlannedLoss}
+                            onChange={(e) => updateDiscoveryRequest(idx, { maxPlannedLoss: e.target.value })}
+                            placeholder="e.g. 500"
+                            aria-label={`View ${idx + 1} max planned loss`}
+                            required
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Min Reward / Risk</label>
+                          <TextInput
+                            type="number"
+                            min={0}
+                            step="0.1"
+                            value={draft.minRewardRisk}
+                            onChange={(e) => updateDiscoveryRequest(idx, { minRewardRisk: e.target.value })}
+                            placeholder="e.g. 1"
+                            aria-label={`View ${idx + 1} minimum reward risk`}
+                            required
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Optimization Bias (0–100, optional)</label>
+                          <TextInput
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={draft.optimizationBias}
+                            onChange={(e) => updateDiscoveryRequest(idx, { optimizationBias: e.target.value })}
+                            placeholder="Blank = balanced"
+                            aria-label={`View ${idx + 1} optimization bias`}
+                          />
+                        </div>
+                        <div className="sched-form-group">
+                          <label className="sched-form-label">Max DTE (optional)</label>
+                          <TextInput
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={draft.maxDte}
+                            onChange={(e) => updateDiscoveryRequest(idx, { maxDte: e.target.value })}
+                            placeholder="e.g. 45"
+                            aria-label={`View ${idx + 1} max DTE`}
+                          />
+                        </div>
+                      </div>
+                      <div className="sched-form-group" style={{ marginTop: "0.7rem" }}>
+                        <label className="sched-form-label">
+                          Allowed Strategies
+                          <span className="hint">Comma-separated registry ids, or "all" for the full registry (the panel default)</span>
+                        </label>
+                        <TextInput
+                          type="text"
+                          value={draft.allowedStrategies}
+                          onChange={(e) => updateDiscoveryRequest(idx, { allowedStrategies: e.target.value })}
+                          placeholder="all"
+                          aria-label={`View ${idx + 1} allowed strategies`}
+                          required
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn-sched-secondary"
+                    onClick={() =>
+                      setDiscoveryRequests((prev) => [...prev, blankDiscoveryRequestDraft()])
+                    }
+                    disabled={discoveryRequests.length >= DISCOVERY_REQUEST_LIMIT}
+                  >
+                    + Add another saved view
+                  </button>
+                </div>
+              )}
 
               {/* Schedule Cadence / Type */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
@@ -1175,7 +1600,7 @@ export function ScheduledOptionsManager({
               </div>
 
               {/* Thesis & Risk Profile + Dispatch (options analysis only) */}
-              {(editingScheduleId || jobType === "optionsAnalysis") && (
+              {jobType !== "strategyDiscovery" && (editingScheduleId || jobType === "optionsAnalysis") && (
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                     <div className="sched-form-group">
