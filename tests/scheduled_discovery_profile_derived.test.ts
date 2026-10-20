@@ -41,6 +41,7 @@ import {
 import type { OptionsDataSnapshot } from "../src/trading/options/optionsDataAgent";
 import { __resetTokenCache } from "../src/security/etradeTokenCache";
 import { MockSqlStorage } from "./mock-sql";
+import { makeFakeSessionStore } from "./fake-session-store";
 import type { Env, ETradeOptionChain } from "../src/types";
 import type { StrategyRequest } from "../src/trading/options/strategyEngine";
 
@@ -1092,14 +1093,18 @@ describe("POST /api/schedules/create with a profile-derived discovery payload (#
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
+    // #604: tokens live in the SessionStore DO (ns "etrade"), not KV —
+    // same seeding pattern as tests/schedules_create_route.test.ts.
+    const { namespace: sessionStoreNs, seed: seedSession } =
+      makeFakeSessionStore();
+    seedSession(
+      "etrade",
+      `etrade:token:TEST:${authenticatedLogin}`,
+      storedTestTokens
+    );
     agent.env = {
       APP_ENV: "TEST",
-      KV: {
-        get: async (key: string) =>
-          key === `etrade:token:TEST:${authenticatedLogin}` ? storedTestTokens : null,
-        put: async () => undefined,
-        delete: async () => undefined,
-      },
+      SESSION_STORE: sessionStoreNs,
     } as any;
     agent.schedule = async (when: any, callback: string, payload: any) => {
       return { id: "real-schedule-1", callback, payload };
