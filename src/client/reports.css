@@ -305,12 +305,12 @@
   gap: 6px;
   align-items: center;
   color: var(--color-text-muted);
-  font-size: var(--type-caption-size);
+  font-size: var(--font-size-caption);
 }
 
 .research-detail-summary {
   margin: 0;
-  color: var(--color-text-body);
+  color: var(--color-text-secondary);
 }
 
 .research-detail-loading {
@@ -330,7 +330,7 @@
 .research-detail-dl-row {
   display: flex;
   gap: 10px;
-  font-size: var(--type-caption-size);
+  font-size: var(--font-size-caption);
 }
 
 .research-detail-dl-row dt {
@@ -341,14 +341,14 @@
 
 .research-detail-dl-row dd {
   margin: 0;
-  color: var(--color-text-body);
+  color: var(--color-text-secondary);
 }
 
 .research-detail-list {
   margin: 4px 0;
   padding-left: 18px;
-  color: var(--color-text-body);
-  font-size: var(--type-caption-size);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -376,12 +376,12 @@
 
 .research-trade-structure {
   color: var(--color-text-muted);
-  font-size: var(--type-caption-size);
+  font-size: var(--font-size-caption);
 }
 
 .research-trade-thesis {
   margin: 0;
-  color: var(--color-text-body);
+  color: var(--color-text-secondary);
 }
 
 .research-sheet {
