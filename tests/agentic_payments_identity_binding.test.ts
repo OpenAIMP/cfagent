@@ -325,7 +325,7 @@ const mockEnv = {
   X402_RECIPIENT_ADDRESS: "0x71C8363837918a211797E3c76A8B3C4258759550",
   X402_FACILITATOR_URL: "https://x402.org/facilitator",
   X402_AUTO_APPROVE_LIMIT: "0.05",
-  X402_AGENT_WALLET_KEY: "0x1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B",
+  X402_AGENT_WALLET_KEY: "test-agent-wallet-183",
 } as unknown as Env;
 
 const receipt = (overrides: Record<string, unknown> = {}) => ({
