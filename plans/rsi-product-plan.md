@@ -78,6 +78,18 @@ Every product capability should make the product better at getting better. This 
 
 This is the third question the platform answers: with no view from the user, what is setting up right now, in which names, and what view does the evidence support. It feeds the Tier 2 daily loop from the other direction — autonomous detection instead of user-initiated screening.
 
+## Tier 7 — Actuation (the loop actually closes)
+
+Tiers 0–6 built the instrumentation — the product can see itself. Tier 7 is the actuation: the product changes its own behavior based on what it sees.
+
+| # | Issue | Status |
+|---|-------|--------|
+| #705 | Scheduled reflection job — reads track record, proposes adjustments via HITL | Open |
+| #706 | Remember — persistent learning store (`mas_learnings`), pipeline consumes it | Open |
+| #707 | Approval feedback into ranking — human decisions become a ranking feature | Open |
+
+The recursive loop: **reflect → remember → adjust → run → record → reflect.** Each cycle starts from the learnings of the last one. The agent proposes changes; the human approves them; the next run behaves differently.
+
 ## The flywheel
 
 **#13 (discovery) → #340 (track record) → #654 (calibration) → #653 (strategy review) → #232 (self-improvement).**
