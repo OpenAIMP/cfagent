@@ -6,3 +6,6 @@ node_modules
 dist
 EtradeNodeClient.zip
 etrade_node_client/
+
+# Local scratch work (Assessment #237: scratch is not source)
+scratch/
