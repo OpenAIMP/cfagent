@@ -30,6 +30,7 @@ import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
+import { evaluateResearchOutcome, type ResearchExecutionPath } from "../services/researchTaskLedger";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import { SqlScanRunStore, diffScanRuns } from "../trading";
@@ -300,6 +301,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     created?: boolean;
     emailed?: boolean;
     report?: unknown;
+    taskId?: string | null;
+    executionPath?: ResearchExecutionPath;
   }> {
     const login = userLogin || "default";
     const agent = this.getResearchAgent(login);
@@ -311,6 +314,29 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     // typed report before returning its summary.
     const { ResearchAgent } = await import("./research-agent");
     const previousRunId = (await agent.getLatest())?.runId;
+    // Issue #577: durable task record for this delegated run (mandate §6;
+    // design in docs/agents/agentic-architecture.md §5/§7). The ledger
+    // dedups the *record* for duplicate dispatches after the same
+    // predecessor report; execution suppression is deliberately not
+    // implied. Ledger failures never break research — warn, continue.
+    let taskId: string | null = null;
+    try {
+      const created = await agent.createResearchTask({
+        trigger,
+        userLogin: login,
+        idempotencyKey: `research:${trigger}:${login}:${previousRunId ?? "none"}`,
+      });
+      taskId = created.task.id;
+      if (created.task.status === "queued") {
+        await agent.beginResearchTask(taskId);
+      }
+    } catch (err) {
+      console.warn(
+        `[OrchestratorAgent] Research task ledger unavailable (create/begin): ${err instanceof Error ? err.message : String(err)}`
+      );
+      taskId = null;
+    }
+    let executionPath: ResearchExecutionPath = "think";
     const child = await this.runAgentTool(ResearchAgent, {
       input: { trigger, userLogin: login },
     });
@@ -327,8 +353,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       );
       const fallback = await agent.runResearch({ trigger, userLogin: login });
       if (!fallback.success || !fallback.report) {
-        return { success: false, error: fallback.error || child.error || `Research agent finished with status ${child.status}.` };
+        const failure = fallback.error || child.error || `Research agent finished with status ${child.status}.`;
+        // Issue #577: a total failure escalates the task for a human
+        // instead of vanishing into this error return.
+        if (taskId) {
+          try {
+            await agent.failResearchTask(taskId, failure, true);
+          } catch {
+            // Ledger is best-effort; the error return stands either way.
+          }
+        }
+        return { success: false, error: failure, taskId };
       }
+      executionPath = "fallback";
       report = fallback.report;
     }
     const sql = this.ensureTables();
@@ -356,12 +393,45 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch {
       // Delivery never fails the run.
     }
+    // Issue #577: complete the task with the path actually taken and a
+    // deterministic evaluation of the outcome (never a model grading
+    // itself). Best-effort — the published result stands either way.
+    if (taskId) {
+      try {
+        const evaluation = evaluateResearchOutcome(
+          {
+            reportRunId: report.runId,
+            previousRunId: previousRunId ?? null,
+            expectedTrigger: trigger,
+            expectedUserLogin: login,
+            reportTrigger: report.trigger,
+            reportUserLogin: report.userLogin,
+            summary: report.summary,
+            ideas: report.ideas.length,
+            watchlist: report.watchlist.length,
+            rejected: report.rejected.length,
+          },
+          new Date().toISOString()
+        );
+        await agent.completeResearchTask(taskId, {
+          path: executionPath,
+          reportRunId: report.runId,
+          evaluation,
+        });
+      } catch (err) {
+        console.warn(
+          `[OrchestratorAgent] Research task ledger unavailable (complete): ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
     return {
       success: true,
       reportId: stored?.reportId ?? null,
       created: stored?.created ?? false,
       emailed,
       report,
+      taskId,
+      executionPath,
     };
   }
 

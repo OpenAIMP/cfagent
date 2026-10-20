@@ -1,0 +1,304 @@
+/**
+ * Issue #577 — durable research task ledger (transformation mandate §6;
+ * design: docs/agents/agentic-architecture.md §5, §7).
+ *
+ * One record per delegated research run, owned by the ResearchAgent's
+ * Durable Object store, tracking the run independently of conversation
+ * history: explicit state transitions, idempotency deduplication,
+ * heartbeat, the execution path actually taken (Think vs deterministic
+ * fallback), an immutable report reference (runId), and a deterministic
+ * outcome evaluation. A failed run ends in `escalated` — visible to a
+ * human — instead of vanishing into an error return.
+ *
+ * SDK-free, following the ResearchConfigService idiom: storage is an
+ * injected key/value store, so the agent (DO SQLite) and tests
+ * (in-memory) share this exact code. Claiming is safe because the
+ * owning DO instance is serialized per tenant: check-and-set inside a
+ * DO method is atomic for that tenant's tasks.
+ */
+
+export type ResearchTaskStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "completed"
+  | "failed"
+  | "escalated"
+  | "cancelled";
+
+export type ResearchExecutionPath = "think" | "fallback";
+
+export interface ResearchTaskTransition {
+  status: ResearchTaskStatus;
+  at: string;
+  note?: string;
+}
+
+export interface ResearchTaskEvaluationCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface ResearchTaskEvaluation {
+  /** Deterministic verdict — never a model's self-assessment. */
+  verdict: "pass" | "fail";
+  evaluatedAt: string;
+  checks: ResearchTaskEvaluationCheck[];
+}
+
+export interface ResearchTask {
+  id: string;
+  idempotencyKey: string;
+  trigger: "manual" | "scheduled";
+  userLogin: string;
+  status: ResearchTaskStatus;
+  createdAt: string;
+  updatedAt: string;
+  heartbeatAt: string;
+  /** Set on completion: which execution path actually produced the report. */
+  path?: ResearchExecutionPath;
+  /** Set on completion: immutable reference to the published report. */
+  reportRunId?: string;
+  /** Set on failure/escalation. */
+  error?: string;
+  /** Set on completion: deterministic outcome evaluation. */
+  evaluation?: ResearchTaskEvaluation;
+  history: ResearchTaskTransition[];
+}
+
+export interface ResearchTaskStore {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  list(prefix: string): Array<{ key: string; value: string }>;
+}
+
+export interface ResearchOutcomeFacts {
+  reportRunId?: string | null;
+  previousRunId?: string | null;
+  expectedTrigger: string;
+  expectedUserLogin: string;
+  reportTrigger?: string | null;
+  reportUserLogin?: string | null;
+  summary?: string | null;
+  ideas?: number | null;
+  watchlist?: number | null;
+  rejected?: number | null;
+}
+
+const TASK_PREFIX = "task:";
+const IDEM_PREFIX = "idem:";
+const ACTIVE: ReadonlySet<ResearchTaskStatus> = new Set(["queued", "claimed", "running"]);
+
+/**
+ * Deterministic outcome evaluation for a finished research run.
+ * Every check is independently verifiable from the report's own
+ * fields — this is the slice's evaluator, and it is deliberately not
+ * a model call (mandate §9/§14).
+ */
+export function evaluateResearchOutcome(
+  facts: ResearchOutcomeFacts,
+  evaluatedAt: string
+): ResearchTaskEvaluation {
+  const counts = [facts.ideas, facts.watchlist, facts.rejected];
+  const checks: ResearchTaskEvaluationCheck[] = [
+    {
+      name: "report_present",
+      ok: typeof facts.reportRunId === "string" && facts.reportRunId.length > 0,
+      detail: facts.reportRunId ? `runId ${facts.reportRunId}` : "no report runId",
+    },
+    {
+      name: "run_id_fresh",
+      ok:
+        typeof facts.reportRunId === "string" &&
+        facts.reportRunId.length > 0 &&
+        facts.reportRunId !== (facts.previousRunId ?? null),
+      detail:
+        facts.reportRunId && facts.reportRunId === facts.previousRunId
+          ? `runId ${facts.reportRunId} is the previous run's, not a fresh report`
+          : "runId differs from the previous run",
+    },
+    {
+      name: "trigger_match",
+      ok: facts.reportTrigger === facts.expectedTrigger,
+      detail: `report trigger ${facts.reportTrigger ?? "none"} vs expected ${facts.expectedTrigger}`,
+    },
+    {
+      name: "login_match",
+      ok: facts.reportUserLogin === facts.expectedUserLogin,
+      detail: `report login ${facts.reportUserLogin ?? "none"} vs expected ${facts.expectedUserLogin}`,
+    },
+    {
+      name: "summary_present",
+      ok: typeof facts.summary === "string" && facts.summary.trim().length > 0,
+      detail: facts.summary ? "summary is non-empty" : "summary missing or empty",
+    },
+    {
+      name: "counts_sane",
+      ok: counts.every((c) => typeof c === "number" && Number.isFinite(c) && c >= 0),
+      detail: `ideas=${facts.ideas ?? "?"} watchlist=${facts.watchlist ?? "?"} rejected=${facts.rejected ?? "?"}`,
+    },
+  ];
+  return {
+    verdict: checks.every((c) => c.ok) ? "pass" : "fail",
+    evaluatedAt,
+    checks,
+  };
+}
+
+export class ResearchTaskLedger {
+  private readonly now: () => string;
+  private readonly newId: () => string;
+
+  constructor(
+    private readonly store: ResearchTaskStore,
+    opts?: { now?: () => string; newId?: () => string }
+  ) {
+    this.now = opts?.now ?? (() => new Date().toISOString());
+    this.newId =
+      opts?.newId ??
+      (() =>
+        `task-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`);
+  }
+
+  /**
+   * Create a task, or return the existing *active* task for the same
+   * idempotency key (created: false) so duplicate dispatches to
+   * produce the successor of the same report share one record.
+   */
+  create(input: {
+    trigger: "manual" | "scheduled";
+    userLogin: string;
+    idempotencyKey: string;
+  }): { task: ResearchTask; created: boolean } {
+    const existingId = this.store.get(IDEM_PREFIX + input.idempotencyKey);
+    if (existingId) {
+      const existing = this.get(existingId);
+      if (existing && ACTIVE.has(existing.status)) {
+        return { task: existing, created: false };
+      }
+    }
+    const at = this.now();
+    const task: ResearchTask = {
+      id: this.newId(),
+      idempotencyKey: input.idempotencyKey,
+      trigger: input.trigger,
+      userLogin: input.userLogin,
+      status: "queued",
+      createdAt: at,
+      updatedAt: at,
+      heartbeatAt: at,
+      history: [{ status: "queued", at }],
+    };
+    this.save(task);
+    this.store.set(IDEM_PREFIX + input.idempotencyKey, task.id);
+    return { task, created: true };
+  }
+
+  get(id: string): ResearchTask | null {
+    const raw = this.store.get(TASK_PREFIX + id);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ResearchTask;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Most recent first. */
+  list(limit = 50): ResearchTask[] {
+    const out: ResearchTask[] = [];
+    for (const { value } of this.store.list(TASK_PREFIX)) {
+      try {
+        out.push(JSON.parse(value) as ResearchTask);
+      } catch {
+        // Skip a corrupt record rather than failing the whole listing.
+      }
+    }
+    return out
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+      .slice(0, limit);
+  }
+
+  claim(id: string): ResearchTask {
+    return this.transition(id, ["queued"], "claimed");
+  }
+
+  start(id: string): ResearchTask {
+    return this.transition(id, ["claimed"], "running");
+  }
+
+  heartbeat(id: string): ResearchTask {
+    const task = this.load(id);
+    if (task.status !== "claimed" && task.status !== "running") {
+      throw new Error(`Research task ${id} cannot heartbeat from status ${task.status}`);
+    }
+    task.heartbeatAt = this.now();
+    task.updatedAt = task.heartbeatAt;
+    this.save(task);
+    return task;
+  }
+
+  complete(
+    id: string,
+    outcome: {
+      path: ResearchExecutionPath;
+      reportRunId: string;
+      evaluation: ResearchTaskEvaluation;
+    }
+  ): ResearchTask {
+    const task = this.transition(id, ["running"], "completed");
+    task.path = outcome.path;
+    task.reportRunId = outcome.reportRunId;
+    task.evaluation = outcome.evaluation;
+    this.save(task);
+    return task;
+  }
+
+  fail(id: string, error: string): ResearchTask {
+    const task = this.transition(id, ["claimed", "running"], "failed", error);
+    task.error = error;
+    this.save(task);
+    return task;
+  }
+
+  escalate(id: string, reason: string): ResearchTask {
+    const task = this.transition(id, ["failed"], "escalated", reason);
+    task.error = task.error ? `${task.error} | escalated: ${reason}` : reason;
+    this.save(task);
+    return task;
+  }
+
+  cancel(id: string): ResearchTask {
+    return this.transition(id, ["queued", "claimed"], "cancelled");
+  }
+
+  private load(id: string): ResearchTask {
+    const task = this.get(id);
+    if (!task) throw new Error(`Research task ${id} not found`);
+    return task;
+  }
+
+  private transition(
+    id: string,
+    from: ResearchTaskStatus[],
+    to: ResearchTaskStatus,
+    note?: string
+  ): ResearchTask {
+    const task = this.load(id);
+    if (!from.includes(task.status)) {
+      throw new Error(`Research task ${id} cannot move from ${task.status} to ${to}`);
+    }
+    const at = this.now();
+    task.status = to;
+    task.updatedAt = at;
+    task.heartbeatAt = at;
+    task.history.push(note ? { status: to, at, note } : { status: to, at });
+    this.save(task);
+    return task;
+  }
+
+  private save(task: ResearchTask): void {
+    this.store.set(TASK_PREFIX + task.id, JSON.stringify(task));
+  }
+}
