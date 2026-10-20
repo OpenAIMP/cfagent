@@ -219,10 +219,10 @@ function SortTh({
 function gradeColor(g: string | null | undefined): string {
   if (!g) return "var(--theme-text-muted)";
   const top = g[0];
-  if (top === "A") return "var(--color-success, #30a46c)";
-  if (top === "B") return "#8fc76f";
-  if (top === "C") return "var(--color-warning, #d4a017)";
-  return "var(--color-danger, #e5484d)";
+  if (top === "A") return "var(--color-success)";
+  if (top === "B") return "var(--color-sentiment-bullish)";
+  if (top === "C") return "var(--color-warning)";
+  return "var(--color-danger)";
 }
 
 function GradeBadge({
@@ -263,11 +263,11 @@ function GradeBadge({
 
 function quantRatingColor(r: string | null | undefined): string {
   if (!r) return "var(--theme-text-muted)";
-  if (r === "Strong Buy") return "var(--color-success, #30a46c)";
-  if (r === "Buy") return "#8fc76f";
-  if (r === "Hold") return "var(--color-warning, #d4a017)";
-  if (r === "Sell") return "#e08080";
-  return "var(--color-danger, #e5484d)";
+  if (r === "Strong Buy") return "var(--color-success)";
+  if (r === "Buy") return "var(--color-sentiment-bullish)";
+  if (r === "Hold") return "var(--color-warning)";
+  if (r === "Sell") return "var(--color-sentiment-bearish)";
+  return "var(--color-danger)";
 }
 
 function GapCell({ t }: { t?: StockTechnicalsData }) {
@@ -277,9 +277,9 @@ function GapCell({ t }: { t?: StockTechnicalsData }) {
   const arrow = t.gapDirection === "up" ? "▲" : t.gapDirection === "down" ? "▼" : "•";
   const color =
     t.gapDirection === "up"
-      ? "var(--color-success, #30a46c)"
+      ? "var(--color-success)"
       : t.gapDirection === "down"
-        ? "var(--color-danger, #e5484d)"
+        ? "var(--color-danger)"
         : "var(--theme-text-muted)";
   return (
     <td style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
@@ -292,7 +292,7 @@ function ChangeCell({ value }: { value: number }) {
   return (
     <td
       style={{
-        color: value >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)",
+        color: value >= 0 ? "var(--color-success)" : "var(--color-danger)",
       }}
     >
       {value >= 0 ? "+" : ""}
@@ -308,13 +308,13 @@ function sentimentLabel(s?: string): string {
 function sentimentColor(s?: string): string {
   switch (s) {
     case "very_bullish":
-      return "var(--color-success, #30a46c)";
+      return "var(--color-success)";
     case "bullish":
-      return "var(--color-success, #30a46c)";
+      return "var(--color-success)";
     case "very_bearish":
-      return "var(--color-danger, #e5484d)";
+      return "var(--color-danger)";
     case "bearish":
-      return "var(--color-danger, #e5484d)";
+      return "var(--color-danger)";
     default:
       return "var(--theme-text-muted)";
   }
@@ -404,7 +404,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           {new Date(result.timestamp).toLocaleString()}
         </span>
         {!result.success && (
-          <span style={{ color: "var(--color-danger, #e5484d)", marginLeft: "0.5rem" }}>
+          <span style={{ color: "var(--color-danger)", marginLeft: "0.5rem" }}>
             ⚠️ Failed: {result.error || "E*TRADE unavailable"}
           </span>
         )}
@@ -414,9 +414,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
         <div
           style={{
             fontSize: "0.85rem",
-            color: "var(--theme-text-warning, #b45309)",
+            color: "var(--color-warning-text)",
             padding: "0.75rem",
-            border: "1px solid var(--theme-text-warning, #b45309)",
+            border: "1px solid var(--color-warning-border)",
             borderRadius: "4px",
             marginBottom: "0.5rem",
           }}
@@ -431,9 +431,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
         <div
           style={{
             fontSize: "0.85rem",
-            color: "var(--color-danger, #e5484d)",
+            color: "var(--color-danger)",
             padding: "0.75rem",
-            border: "1px solid var(--color-danger, #e5484d)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "4px",
           }}
         >

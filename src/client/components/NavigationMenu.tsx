@@ -678,7 +678,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -712,7 +712,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -746,7 +746,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -780,7 +780,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}

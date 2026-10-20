@@ -108,8 +108,8 @@ function hdrs(userLogin?: string): HeadersInit {
 function TriggerChip({ trigger }: { trigger: TriggerSource }) {
   const style =
     trigger === "scheduled"
-      ? { background: "#1d3a5f", color: "#9ec5ff" }
-      : { background: "#3a2f1d", color: "#ffd699" };
+      ? { background: "var(--color-info-subtle)", color: "var(--color-info-text)" }
+      : { background: "var(--color-warning-subtle)", color: "var(--color-warning-text)" };
   return (
     <span style={{ ...style, borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
       {trigger}
@@ -123,7 +123,7 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
   const debitCredit =
     econ.netDebit > 0 ? `debit $${econ.netDebit.toFixed(2)}` : `credit $${econ.netCredit.toFixed(2)}`;
   return (
-    <div style={{ border: "1px solid #333", borderRadius: 8, margin: "8px 0", padding: 12 }}>
+    <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, margin: "8px 0", padding: 12 }}>
       <div
         style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
         onClick={() => setOpen(!open)}
@@ -133,7 +133,7 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
         </strong>
         <span>{open ? "▾" : "▸"}</span>
       </div>
-      <div style={{ fontSize: 13, color: "#bbb", marginTop: 4 }}>{card.thesis}</div>
+      <div style={{ fontSize: 13, color: "var(--color-text-secondary)", marginTop: 4 }}>{card.thesis}</div>
       {open && (
         <div style={{ marginTop: 8, fontSize: 13 }}>
           <h5>Legs (exact contracts)</h5>
@@ -174,13 +174,13 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
                 <tr key={i}>
                   <td>{s.label}</td>
                   <td>{s.underlying.toFixed(2)}</td>
-                  <td style={{ color: s.pnlPerUnit >= 0 ? "#7fd67f" : "#e07f7f" }}>{s.pnlPerUnit.toFixed(2)}</td>
-                  <td style={{ color: s.pnlTotal >= 0 ? "#7fd67f" : "#e07f7f" }}>{s.pnlTotal.toFixed(2)}</td>
+                  <td style={{ color: s.pnlPerUnit >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>{s.pnlPerUnit.toFixed(2)}</td>
+                  <td style={{ color: s.pnlTotal >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>{s.pnlTotal.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div style={{ color: "#999", fontSize: 12 }}>{card.feesNote}</div>
+          <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>{card.feesNote}</div>
           <h5>Falsification (§4)</h5>
           <ul>
             <li><b>Why the market may be wrong:</b> {card.falsification.whyMarketWrong}</li>
@@ -192,10 +192,10 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
             ))}
           </ul>
           {card.falsificationWarnings.map((w, i) => (
-            <div key={i} style={{ color: "#e0a75f", fontSize: 12 }}>⚠ {w}</div>
+            <div key={i} style={{ color: "var(--color-warning-text)", fontSize: 12 }}>⚠ {w}</div>
           ))}
           <h5>Pre-mortem (§7)</h5>
-          <div style={{ fontSize: 12, color: "#bbb", marginBottom: 4 }}>{card.premortem.assumedFailure}</div>
+          <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>{card.premortem.assumedFailure}</div>
           <ul>
             {card.premortem.causes.map((c, i) => (
               <li key={i}><b>{c.category}:</b> {c.description}</li>
@@ -205,10 +205,10 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
           <div>{card.entryCondition}</div>
           <ul>
             {card.limitations.map((l, i) => (
-              <li key={i} style={{ color: "#999" }}>{l}</li>
+              <li key={i} style={{ color: "var(--color-text-muted)" }}>{l}</li>
             ))}
           </ul>
-          <div style={{ color: "#777", fontSize: 11 }}>Sources: {card.sources.join(", ")}</div>
+          <div style={{ color: "var(--color-text-dim)", fontSize: 11 }}>Sources: {card.sources.join(", ")}</div>
         </div>
       )}
     </div>
@@ -345,7 +345,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
     <div style={{ padding: 12 }}>
       <h3>
         Autonomous Options Research{" "}
-        <span style={{ fontSize: 12, color: "#888" }}>(read-only — no order entry from this panel)</span>
+        <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>(read-only — no order entry from this panel)</span>
       </h3>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -360,10 +360,10 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
           </button>
         )}
       </div>
-      {runMsg && <div style={{ fontSize: 13, color: "#9ec5ff", marginBottom: 8 }}>{runMsg}</div>}
+      {runMsg && <div style={{ fontSize: 13, color: "var(--color-info-text)", marginBottom: 8 }}>{runMsg}</div>}
 
       {showFilters && config && (
-        <div style={{ border: "1px solid #333", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <h4>Filters & thresholds — every run embeds the effective snapshot</h4>
           {CONFIG_FIELDS.map((f) => (
             <div key={f.key} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
@@ -381,7 +381,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
                   onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
                 />
               )}
-              <span style={{ fontSize: 11, color: "#777" }}>{f.hint}</span>
+              <span style={{ fontSize: 11, color: "var(--color-text-dim)" }}>{f.hint}</span>
             </div>
           ))}
           <button onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save filters"}</button>
@@ -393,7 +393,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
         <div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
             <TriggerChip trigger={report.trigger} />
-            <span style={{ fontSize: 13, color: "#999" }}>
+            <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
               {new Date(report.createdAt).toLocaleString()} · rules {report.rulesVersion} · {report.stats.durationMs}ms
             </span>
           </div>
@@ -401,7 +401,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
 
           <h4>Qualified ideas ({report.ideas.length})</h4>
           {report.ideas.length === 0 && (
-            <div style={{ color: "#999" }}>
+            <div style={{ color: "var(--color-text-muted)" }}>
               No qualifying opportunities — no candidate passed the evidence and risk gates. This is a valid outcome.
             </div>
           )}
@@ -411,32 +411,32 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
 
           <h4>Watchlist ({report.watchlist.length})</h4>
           {report.watchlist.map((w, i) => (
-            <div key={i} style={{ fontSize: 13, borderLeft: "3px solid #e0a75f", paddingLeft: 8, marginBottom: 6 }}>
+            <div key={i} style={{ fontSize: 13, borderLeft: "3px solid var(--color-warning)", paddingLeft: 8, marginBottom: 6 }}>
               <b>{w.symbol}</b> ({w.outlook}, {w.structure}) — {w.reason}
-              <div style={{ color: "#888" }}>Trigger: {w.triggerCondition}</div>
+              <div style={{ color: "var(--color-text-muted)" }}>Trigger: {w.triggerCondition}</div>
             </div>
           ))}
 
           <h4>Rejected ({report.rejected.length})</h4>
           {report.rejected.slice(0, 10).map((r, i) => (
-            <div key={i} style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>
+            <div key={i} style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 4 }}>
               <b>{r.symbol}</b> [{r.gate}] {r.reason}
             </div>
           ))}
           {report.rejected.length > 10 && (
-            <div style={{ fontSize: 12, color: "#777" }}>…and {report.rejected.length - 10} more.</div>
+            <div style={{ fontSize: 12, color: "var(--color-text-dim)" }}>…and {report.rejected.length - 10} more.</div>
           )}
 
           <h4>Run history — manual + scheduled, one view</h4>
           {history.map((h) => (
-            <div key={h.runId} style={{ fontSize: 12, color: "#aaa", marginBottom: 4, display: "flex", gap: 8, alignItems: "center" }}>
+            <div key={h.runId} style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 4, display: "flex", gap: 8, alignItems: "center" }}>
               <TriggerChip trigger={h.trigger} />
               <span>{new Date(h.createdAt).toLocaleString()} — {h.summary}</span>
             </div>
           ))}
         </div>
       ) : (
-        <div style={{ color: "#888" }}>
+        <div style={{ color: "var(--color-text-muted)" }}>
           No research run yet. Run one manually, or wait for the scheduled after-close run (21:00 UTC weekdays).
         </div>
       )}
