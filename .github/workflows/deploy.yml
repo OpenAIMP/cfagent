@@ -42,6 +42,9 @@ jobs:
   # ── Step 2: build & deploy using secrets from the GitHub Environment ──
   deploy:
     runs-on: ubuntu-latest
+    # Backstop for the secret-push steps: a hung Cloudflare API call is bounded
+    # per attempt (see put_secret) and the whole job must never sit for hours.
+    timeout-minutes: 30
     name: Build & Deploy [${{ needs.load-environment.outputs.target_env }}]
     needs: load-environment
     environment: ${{ needs.load-environment.outputs.target_env }}
@@ -155,16 +158,22 @@ jobs:
             # already-drained pipe.
             payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
+              # Bound each attempt: a hung Cloudflare API call must fail and
+              # retry, not sit until the job timeout.
+              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
               if [ "$attempts" -lt "$max" ]; then
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
-                sleep 10
+                backoff=$((attempts * 10))
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
+                sleep "$backoff"
               fi
             done
-            echo "put_secret: '$name' failed after $max attempts" >&2
+            # Name the failed secret in the check annotation: a secret push
+            # that exhausts its retries is a pipeline failure, not a flake to
+            # be waved through.
+            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
             return 1
           }
           GH_ID="$S_GH_CLIENT_ID"
@@ -210,16 +219,22 @@ jobs:
             # already-drained pipe.
             payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
+              # Bound each attempt: a hung Cloudflare API call must fail and
+              # retry, not sit until the job timeout.
+              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
               if [ "$attempts" -lt "$max" ]; then
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
-                sleep 10
+                backoff=$((attempts * 10))
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
+                sleep "$backoff"
               fi
             done
-            echo "put_secret: '$name' failed after $max attempts" >&2
+            # Name the failed secret in the check annotation: a secret push
+            # that exhausts its retries is a pipeline failure, not a flake to
+            # be waved through.
+            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
             return 1
           }
           TARGET_KEY="$S_ET_API_KEY"
@@ -298,16 +313,22 @@ jobs:
             # already-drained pipe.
             payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
+              # Bound each attempt: a hung Cloudflare API call must fail and
+              # retry, not sit until the job timeout.
+              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
               if [ "$attempts" -lt "$max" ]; then
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
-                sleep 10
+                backoff=$((attempts * 10))
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
+                sleep "$backoff"
               fi
             done
-            echo "put_secret: '$name' failed after $max attempts" >&2
+            # Name the failed secret in the check annotation: a secret push
+            # that exhausts its retries is a pipeline failure, not a flake to
+            # be waved through.
+            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
             return 1
           }
           if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | put_secret STRIPE_SECRET_KEY; fi
