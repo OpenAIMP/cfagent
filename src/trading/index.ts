@@ -47,6 +47,7 @@ export * from "./options/strategyEngine";
 export * from "./options/strategyProfile";
 export * from "./options/strategyProfileStore";
 export * from "./options/scanRunStore";
+export * from "./options/discoveryRunStore";
 export * from "./options/ivHistoryStore";
 export * from "./options/ivCollector";
 export * from "./options/optionsDataAgent";
