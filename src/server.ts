@@ -649,12 +649,23 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         });
       }
 
-      // Each unique scanner session gets its own DO instance.
-      const scannerSessionId =
+      // Session AFFINITY, not identity (issue #700): this value only
+      // picks which OptionsScannerMCP instance serves the client, so a
+      // client's queued scans stay on one instance. No identity
+      // propagates downstream on this route — the scanner DO never reads
+      // either header and forwards under its own context — so a
+      // login-shaped value asserts nothing (contrast the #154/#180/#183
+      // routes, where the established identity selects the caller's own
+      // agent instance). The honest header is `x-scanner-session`;
+      // `x-user-id` is a DEPRECATED alias retained only for instance
+      // continuity: dropping it would strand in-flight clients on a
+      // different instance and orphan their queued scan jobs. With
+      // neither header, traffic shares the "public_scanner" instance.
+      const scannerAffinityId =
         request.headers.get("x-scanner-session") ||
         request.headers.get("x-user-id") ||
         "public_scanner";
-      const scannerId = (env as any).OPTIONS_SCANNER_MCP.idFromName(scannerSessionId);
+      const scannerId = (env as any).OPTIONS_SCANNER_MCP.idFromName(scannerAffinityId);
       const scannerUrl = new URL(
         path.replace("/mcp/scanner", "") || "/" + url.search,
         "https://scanner.internal",
@@ -677,7 +688,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-environment",
           "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt",
         },
       });
