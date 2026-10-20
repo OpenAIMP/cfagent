@@ -98,12 +98,19 @@ function OutcomeView({ outcome }: { outcome: DiscoverySymbolOutcome }) {
         )}
       </div>
 
-      <p className="discovery-view-line">
-        Saved view: {humanizeThesis(request.thesis)} · target {fmtUsd(request.targetPrice)} by{" "}
-        {request.targetDate} · IV expected {request.expectedIvDirection} · max planned loss{" "}
-        {fmtUsd(request.maxPlannedLoss)} · min reward/risk {request.minRewardRisk}×
-        {request.dataMode === "calibrated-demo" ? " · calibrated-demo data" : ""}
-      </p>
+      {/* Issue #533 (PR-533A): outcome.request is optional in the
+          store's shape — an abstained outcome carries none. Saved-
+          model outcomes always carry one, so this guard changes no
+          rendering for existing runs; the derived/abstained outcome
+          presentation itself is PR-533B's surface work. */}
+      {request && (
+        <p className="discovery-view-line">
+          Saved view: {humanizeThesis(request.thesis)} · target {fmtUsd(request.targetPrice)} by{" "}
+          {request.targetDate} · IV expected {request.expectedIvDirection} · max planned loss{" "}
+          {fmtUsd(request.maxPlannedLoss)} · min reward/risk {request.minRewardRisk}×
+          {request.dataMode === "calibrated-demo" ? " · calibrated-demo data" : ""}
+        </p>
+      )}
 
       {outcome.status === "failed" ? (
         <div className="discovery-outcome-error" role="alert">
