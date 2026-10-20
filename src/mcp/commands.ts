@@ -221,7 +221,12 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const amount = Number(input.amount) || 10;
+    // #524: an omitted or unparseable amount is a validation error, never
+    // a silent $10 charge.
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("amount is required and must be a positive number");
+    }
     const currency = (input.currency || "USD").toUpperCase();
     // No invented customer name (issue #514), matching the create route.
     const customer = (input.customer || "").trim();
