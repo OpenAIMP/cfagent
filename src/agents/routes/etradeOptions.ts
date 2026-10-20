@@ -52,6 +52,7 @@
 import type { AgentContext } from "agents";
 import { readOptionsRuns } from "../optionsRuns";
 import { ETradeService } from "../../services/etrade";
+import { recordStrategyCandidates } from "../../services/strategyReviews";
 import {
   DynamicOptionsScreener,
   recommendOptionStrategies,
@@ -739,6 +740,16 @@ export async function handleEtradeOptionsRoutes(
           groupInputs: [] as unknown[],
           finalRanking: { systemPrompt: "", userPrompt: question },
         };
+        // Issue #653: record candidates for the review UI (best-effort).
+        try {
+          recordStrategyCandidates(ctx.getOrm(), symbol, topRanked.map((r, idx) => ({
+            id: r.candidate.id,
+            label: r.candidate.label,
+            rank: idx + 1,
+            rationale: rationaleByCandidate.get(r.candidate.id) ?? "",
+            quantStatus: "verified",
+          })));
+        } catch {}
         const dataCoverage = {
           expirationCount: retrievedExpirations.length,
           chainCount: retrievedChains.length,
@@ -1268,6 +1279,31 @@ export async function handleEtradeOptionsRoutes(
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to access options configuration" }, { status: 500 });
+      }
+    }
+
+    // Issue #653: strategy candidate review endpoints.
+    if (path.endsWith("/options/strategy-reviews") && request.method === "GET") {
+      try {
+        const { listStrategyReviews } = await import("../../services/strategyReviews");
+        const decision = url.searchParams.get("decision") || undefined;
+        return Response.json({ reviews: listStrategyReviews(ctx.getOrm(), decision) });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to list reviews" }, { status: 500 });
+      }
+    }
+    if (path.endsWith("/options/strategy-reviews/decide") && request.method === "POST") {
+      try {
+        const { decideStrategyReview } = await import("../../services/strategyReviews");
+        const body = (await request.json().catch(() => ({}))) as any;
+        const { id, decision } = body;
+        if (!id || (decision !== "approved" && decision !== "rejected")) {
+          return Response.json({ error: "id and decision (approved|rejected) required" }, { status: 400 });
+        }
+        const ok = decideStrategyReview(ctx.getOrm(), id, decision);
+        return Response.json({ success: ok });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to record decision" }, { status: 500 });
       }
     }
 
