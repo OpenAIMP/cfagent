@@ -326,3 +326,17 @@ describe("Button accent variant (#594)", () => {
     expect(element.props.variant).toBe("accent");
   });
 });
+
+describe("Button subtle tone + warning variant (#628)", () => {
+  it("defaults to the solid tone and carries the subtle tone", () => {
+    const solid = React.createElement(Button, { variant: "accent" }, "Report");
+    expect(solid.props.tone).toBeUndefined();
+    const subtle = React.createElement(Button, { variant: "accent", tone: "subtle" }, "Report");
+    expect(subtle.props.tone).toBe("subtle");
+  });
+
+  it("carries the warning variant", () => {
+    const element = React.createElement(Button, { variant: "warning", tone: "subtle" }, "Risk Analysis");
+    expect(element.props.variant).toBe("warning");
+  });
+});

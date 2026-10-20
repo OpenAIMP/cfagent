@@ -5327,41 +5327,15 @@ body {
 }
 
 .btn-act-quote,
-.btn-act-buy,
-.btn-act-sell {
-  border: none;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.3rem 0.6rem;
-  cursor: pointer;
-  transition: all 0.15s;
-}
 
 .btn-act-quote {
   background: var(--color-muted);
   color: var(--color-text-primary);
 }
 
-.btn-act-buy {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-}
 
-.btn-act-buy:hover {
-  background: var(--color-success);
-  color: var(--color-success-foreground);
-}
 
-.btn-act-sell {
-  background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
-}
 
-.btn-act-sell:hover {
-  background: var(--color-danger);
-  color: var(--color-danger-foreground);
-}
 
 /* Order Ticket Layout */
 .order-ticket-layout {
@@ -14124,19 +14098,7 @@ body {
 .status-dot.green { background: var(--color-success); }
 .status-dot.amber { background: var(--color-warning); }
 
-.dual-card-refresh-btn {
-  font-size: 0.75rem;
-  padding: 0.3rem 0.65rem;
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 600;
-}
-.dual-card-refresh-btn:hover {
-  background: var(--color-accent-subtle);
-}
+
 
 .dual-feed-columns-grid {
   display: grid;

@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "../components/ui";
 import "./strategyDiscovery.css";
 
 export interface StrategyInfo {
@@ -192,10 +193,8 @@ export function StrategyLibraryModal({
                   )}
                   <div style={{ display: "flex", gap: "0.4rem" }}>
                     {onAnalyzeRisk && (
-                      <button
+                      <Button variant="warning" tone="subtle" size="sm"
                         type="button"
-                        className="strat-card-btn-risk"
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onAnalyzeRisk(s.id);
@@ -203,7 +202,7 @@ export function StrategyLibraryModal({
                         title="Analyze Strategy Risk & Management Playbook"
                       >
                         Risk
-                      </button>
+                      </Button>
                     )}
                     {!multiSelect && (
                       <button type="button" className="strat-lib-select-btn">
