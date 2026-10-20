@@ -253,6 +253,10 @@ function runInput(overrides: Partial<DiscoveryRunInput> = {}): DiscoveryRunInput
     createdAt: "2026-10-20T12:00:00.000Z",
     trigger: "scheduled",
     userLogin: USER,
+    // Issue #533: DiscoveryRunInput.inputModel is required — saved-
+    // request runs are stamped explicitly (the only change to this
+    // pre-existing helper; no assertion in this file changes).
+    inputModel: "saved-request",
     requests: [VALID_REQUEST],
     outcomes: [
       {
