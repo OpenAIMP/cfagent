@@ -215,3 +215,25 @@ export function buildHumanFeedbackContext(
   if (rejected.length > 0) lines.push(`Rejected (${rejected.length}): ${rejected.slice(0, 5).join("; ")}`);
   return lines.join("\n");
 }
+
+/**
+ * Issue #775: build reflection feedback context from learnings.
+ * The weekly reflection job proposes adjustments like "Boost X in LLM ranking
+ * priors" — this surfaces them to the LLM so the Act step actually acts.
+ */
+export function buildReflectionFeedbackContext(
+  learnings: Array<{ observation: string; confidence: number }>
+): string | null {
+  const reflectionLearnings = learnings.filter((l) =>
+    l.observation.includes("Proposed:")
+  );
+  if (reflectionLearnings.length === 0) return null;
+  const lines = reflectionLearnings
+    .filter((l) => l.confidence >= 0.6)
+    .map((l) => {
+      const proposed = l.observation.split("Proposed:")[1]?.trim() || l.observation;
+      return `- ${proposed} (confidence ${(l.confidence * 100).toFixed(0)}%)`;
+    });
+  if (lines.length === 0) return null;
+  return `Weekly reflection adjustments (apply alongside quant signals):\n${lines.join("\n")}`;
+}
