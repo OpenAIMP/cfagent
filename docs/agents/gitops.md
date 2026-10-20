@@ -864,6 +864,39 @@ After merging, before starting the next issue:
 
 If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm. The post-merge verification in §17.2 becomes MORE important, not less — it is the only safety net when CI is bypassed.
 
+## 18. Regression-prevention discipline
+
+Detection is not prevention. The gate (§10), the pins (§7), and post-merge verification (§11, §17) prevent regressions only when the disciplines below hold. Each is written from a failure observed in this repository.
+
+### 18.1 The gate tests a merge, and the result expires
+
+The required PR check runs against the branch's merge with current `main`, not the branch head alone. A green result is valid only for the merge it tested:
+
+- If `main` advances after the gate run in a way that touches the PR's surfaces — or the branch is updated for any reason — the gate MUST run again on the new merge before merging.
+- A pull request MUST NOT merge over a red required check. The only exception is an emergency merge explicitly authorized by the owner, and it creates a restore-green issue in the same action (§18.2).
+
+### 18.2 Post-merge red is the merger's first job
+
+If the post-merge run on your merge is red:
+
+1. Classify every failure per §10 and record the classification, with its evidence, on the PR and the issue. Never silently, and never by matching failure totals alone — totals can coincide while the failing tests differ.
+2. Restoring `main` to green takes precedence over starting the next issue (§10 freeze), and the remediation is its own issue → PR → merge, however small.
+3. A baseline failure (reproduced on the merge's first parent) is recorded and flagged to its owning workstream. "Not mine" is a classification, not a dismissal.
+
+### 18.3 Flake discipline
+
+- A failure may be classified **flaky** only with evidence: the same suite passes standalone on the same tree, and — for merge-time failures — the failure set has been compared against the merge's first parent or a run on unmodified `main`. Without that evidence the failure is unclassified and blocks like any other.
+- A CI rerun is a diagnostic, performed once, with the outcome recorded. Rerunning until chance produces a pass is prohibited (§10).
+- Suites known to be load-flaky are tracked by name in the issue tracker, each with an owner. The list is a remediation backlog — fix, or quarantine with a tracked issue — never a permanent exemption, and a new flake signature is classified and filed rather than absorbed into the list by habit.
+
+### 18.4 Stub honesty
+
+Suites that alias the real runtime (framework or SDK stubs, mocked storage) verify contracts, not runtime behavior. A pull request whose behavior exists only against the real runtime MUST state in its test evidence what covers the runtime behavior — post-deploy QA, the §17 production checks, or a source-level audit of the shipped dependency — and MUST NOT claim runtime verification from stubbed tests alone.
+
+### 18.5 Merge promptly, and verify the merge
+
+Per §11's sequential execution: after each PR, merge it before starting the next fix, then verify the branch's merged state (zero commits ahead of `main`, or ancestry) instead of assuming it. A merge is not complete until the branch is verified in `main` and post-merge checks are green — or red and classified under §18.2. Long-lived branches are how unpinned drift accumulates (§7, the pin rule).
+
 ## Instruction to add to `AGENTS.md`
 
 > Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before starting the next issue. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
