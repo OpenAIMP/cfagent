@@ -21,9 +21,12 @@ import {
   UnifiedOptionsService,
   OptionsAgentPipeline,
   validateStrategyRequest,
+  validateNoViewRequest,
+  NO_VIEW_EXPECTED_IV_DIRECTION,
   deriveDiscoveryRequest,
   toProfileRef,
   MAX_SAVED_REQUESTS_PER_RUN,
+  type NoViewStrategyRequest,
   type OptionThesis,
   type OptionStrategyType,
   type StrategyRequest,
@@ -31,6 +34,7 @@ import {
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import type { ScanRunStore } from "../trading";
 import type {
+  DiscoveryConstraintSet,
   DiscoveryRunStatus,
   DiscoveryRunStore,
   DiscoverySymbolOutcome,
@@ -80,8 +84,10 @@ export interface AutonomousStrategyDiscoveryOptions {
   requests?: StrategyRequest[];
   /** Input model discriminator (issue #533). Absent or "saved-request"
    *  is the #126 model above; "profile-derived" arms the fields
-   *  below instead — the service branches on it. */
-  inputModel?: "saved-request" | "profile-derived";
+   *  below instead; "no-view" (issue #534) arms constraintSets —
+   *  the service branches on it. The three shapes are mutually
+   *  exclusive: a payload mixing them fails pre-execution. */
+  inputModel?: "saved-request" | "profile-derived" | "no-view";
   /** Profile-derived model: the explicit symbol set (exactly one of
    *  symbols / watchlistName). */
   symbols?: string[];
@@ -91,6 +97,10 @@ export interface AutonomousStrategyDiscoveryOptions {
   /** Profile-derived model: the Strategy Profile id, resolved at
    *  fire time under the schedule owner's identity. */
   profileId?: string;
+  /** No-view model (issue #534): constraint sets — one symbol each,
+   *  constraints only. No thesis, target, or IV direction exists on
+   *  the type; validateNoViewRequest rejects smuggled view fields. */
+  constraintSets?: NoViewStrategyRequest[];
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
@@ -923,6 +933,14 @@ export class ScheduledTasksService {
     abstained?: Array<{ symbol: string; reason: string }>;
   }>> {
     const timestamp = new Date().toISOString();
+    // Issue #534: the no-view input model has its own validation +
+    // ranking flow. A payload carrying constraintSets under any other
+    // (or no) discriminator routes here too, so the shape is judged
+    // — and rejected as mixed — instead of being silently ignored by
+    // a sibling model.
+    if (options.inputModel === "no-view" || options.constraintSets !== undefined) {
+      return this.autonomousStrategyDiscoveryNoView(options, timestamp);
+    }
     // Issue #533: the profile-derived input model has its own
     // resolution + derivation flow; the saved-request path below is
     // untouched for every other payload.
@@ -1500,6 +1518,363 @@ export class ScheduledTasksService {
       };
     } catch (err: any) {
       return fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * The no-view discovery fire (issue #534). The schedule armed
+   * constraint sets — a symbol plus constraints per set, with NO
+   * thesis and NO target anywhere — and each symbol's live chain is
+   * ranked once by the target-free score model (no-view-v1). Nothing
+   * in this path constructs, derives, or defaults a StrategyRequest:
+   * the question is "which structures does this symbol's chain
+   * support best under these constraints", and where the honest
+   * answer is "none" the symbol ABSTAINS — a completed outcome with
+   * the gate reasons recorded and a no_trade pick — rather than
+   * failing or crowning a best-of-garbage. Status semantics mirror
+   * the sibling models with the plan's one deliberate difference:
+   * all-failed takes the #112 failure path, an all-abstained fire is
+   * a COMPLETED run (an honest "nothing qualifies"), and any other
+   * mix is partial. Shape/validation failures before execution
+   * (identity, store, mixed or empty payload, an invalid or
+   * view-smuggling constraint set) persist NOTHING.
+   */
+  private async autonomousStrategyDiscoveryNoView(
+    options: AutonomousStrategyDiscoveryOptions,
+    timestamp: string
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
+  }>> {
+    const constraintSets = Array.isArray(options.constraintSets) ? options.constraintSets : [];
+    const symbols = constraintSets.map((s) =>
+      typeof s?.symbol === "string" ? s.symbol.toUpperCase().trim() : "?"
+    );
+
+    const fail = (
+      error: string,
+      runId?: string,
+      status?: DiscoveryRunStatus,
+      failures: Array<{ symbol: string; error: string }> = [],
+      abstentions: Array<{ symbol: string; reason: string }> = []
+    ) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols,
+        inputModel: "no-view",
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
+        error,
+      });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery (no-view) failed for ${symbols.join(", ") || "no constraint sets"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId ? {
+          data: {
+            runId,
+            status: status ?? "failed",
+            requestCount: constraintSets.length,
+            completedCount: constraintSets.length - failures.length - abstentions.length,
+            failedCount: failures.length,
+            symbols,
+            failures,
+            abstained: abstentions,
+          },
+        } : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return fail(
+          "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
+        );
+      }
+      if (!this.discoveryRunStore) {
+        return fail("Discovery run store not configured for this service instance");
+      }
+      if (options.inputModel !== "no-view") {
+        return fail(
+          `No-view constraint sets require inputModel "no-view"; this payload carries ${options.inputModel ? `"${options.inputModel}"` : "no inputModel"}. The discovery input models are mutually exclusive — no run was recorded.`
+        );
+      }
+      if (
+        options.requests !== undefined ||
+        options.symbols !== undefined ||
+        options.watchlistName !== undefined ||
+        options.profileId !== undefined
+      ) {
+        return fail(
+          "No-view discovery payloads carry constraintSets only — requests, symbols, watchlistName and profileId belong to the other discovery input models. Mixed payload shapes are rejected, never partially honoured; no run was recorded."
+        );
+      }
+      if (!Array.isArray(options.constraintSets) || options.constraintSets.length === 0) {
+        return fail(
+          "No-view discovery requires at least one constraint set in payload.constraintSets; none was supplied. A constraint set names a symbol and its constraints only — no view is invented for a schedule."
+        );
+      }
+      if (options.constraintSets.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return fail(
+          `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${options.constraintSets.length} constraint sets were supplied.`
+        );
+      }
+      // Every set is validated BEFORE any chain loads: an invalid
+      // set — including one smuggling a thesis/target past the type
+      // (validateNoViewRequest rejects view fields outright) — fails
+      // the whole payload pre-execution, the saved-path precedent.
+      for (let i = 0; i < options.constraintSets.length; i++) {
+        const validationError = validateNoViewRequest(
+          options.constraintSets[i] as Parameters<typeof validateNoViewRequest>[0]
+        );
+        if (validationError) {
+          return fail(
+            `No-view constraint set ${i + 1} of ${options.constraintSets.length} (${symbols[i]}) is invalid: ${validationError}`
+          );
+        }
+      }
+
+      // One client/pipeline for the whole execution — the saved
+      // path's construction, under the schedule owner's identity and
+      // environment (#447/#461).
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        userLogin,
+        options.environment
+      );
+      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      for (const constraintSet of options.constraintSets) {
+        outcomes.push(await this.runNoViewDiscoveryRequest(pipeline, etrade, constraintSet));
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const abstentions = outcomes
+        .filter((o) => o.abstained === true)
+        .map((o) => ({
+          symbol: o.symbol,
+          reason:
+            o.excluded && o.excluded.length > 0
+              ? o.excluded.map((e) => `${e.reason} (${e.count})`).join("; ")
+              : "No structure cleared the stated constraints",
+        }));
+      const completedCount = outcomes.filter(
+        (o) => o.status === "completed" && o.abstained !== true
+      ).length;
+      const status: DiscoveryRunStatus =
+        failures.length === outcomes.length
+          ? "failed"
+          : completedCount === outcomes.length
+            ? "completed"
+            : completedCount === 0 && failures.length === 0
+              ? "completed"
+              : "partial";
+
+      // The run is persisted BEFORE the status is judged — an
+      // all-failed fire's record is exactly what makes the failure
+      // diagnosable (and the run id joins the failure data).
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        inputModel: "no-view",
+        requests: [],
+        constraintSets: outcomes.flatMap((o) => (o.constraintSet ? [o.constraintSet] : [])),
+        outcomes,
+        status,
+      });
+
+      if (status === "failed") {
+        const parts = [
+          ...failures.map((f) => `${f.symbol}: ${f.error}`),
+          ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
+        ];
+        return fail(
+          `No no-view discovery symbol produced a result (${parts.join("; ")})`,
+          run.id,
+          status,
+          failures,
+          abstentions
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        inputModel: "no-view",
+        requestCount: constraintSets.length,
+        completedCount,
+        failedCount: failures.length,
+        abstained: abstentions,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+
+      if (this.orm?.messages) {
+        try {
+          const failureNote = failures.length > 0
+            ? `; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}`
+            : "";
+          const abstainNote = abstentions.length > 0
+            ? `; abstained: ${abstentions.map((a) => `${a.symbol} (${a.reason})`).join("; ")}`
+            : "";
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed" && abstentions.length === 0
+                ? `🔭 Scheduled Strategy Discovery (no-view) completed for ${symbols.join(", ")}: all ${constraintSets.length} constraint sets produced ranked structures under their constraints. No view was supplied, derived, or assumed.`
+                : status === "completed"
+                  ? `🔭 Scheduled Strategy Discovery (no-view) completed for ${symbols.join(", ")}: no structure qualified under the stated constraints — every symbol abstained${abstainNote}. No pick was manufactured.`
+                  : `🔭 Scheduled Strategy Discovery (no-view) partially completed for ${symbols.join(", ")}: ${completedCount} of ${constraintSets.length} constraint sets produced ranked structures${failureNote}${abstainNote}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: constraintSets.length,
+          completedCount,
+          failedCount: failures.length,
+          symbols,
+          failures,
+          abstained: abstentions,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * Runs ONE no-view constraint set (issue #534) and shapes its
+   * outcome: the symbol's snapshot loads through the same data agent
+   * the sibling models use, chain failure is judged exactly as in
+   * runDiscoveryRequest, and qualifying structures are ranked by the
+   * target-free model. A loaded chain with zero qualifying
+   * structures is a completed ABSTENTION — flagged, gate reasons in
+   * `excluded`, empty ranked set, no_trade pick — never a failure
+   * and never a manufactured pick.
+   */
+  private async runNoViewDiscoveryRequest(
+    pipeline: OptionsAgentPipeline,
+    etrade: ETradeService,
+    constraintSet: NoViewStrategyRequest
+  ): Promise<DiscoverySymbolOutcome> {
+    const symbol = constraintSet.symbol.toUpperCase().trim();
+    const record: DiscoveryConstraintSet = {
+      source: "no-view",
+      request: constraintSet,
+      expectedIvDirection: NO_VIEW_EXPECTED_IV_DIRECTION,
+    };
+    try {
+      const snapshot = await pipeline.data.loadSnapshot(constraintSet);
+      // A snapshot that never loaded its chain is a failure, not an
+      // abstention: the screen records why (validation error,
+      // per-symbol fetch errors, or the client's recorded upstream
+      // cause). Zero contracts with NO failure signal means the
+      // chain loaded empty — the gates then abstain honestly below.
+      const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+        .filter((e) => e.symbol === symbol)
+        .map((e) => e.reason);
+      let failure: string | undefined;
+      if (snapshot.validationError) {
+        failure = snapshot.validationError;
+      } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
+        failure = fetchReasons.join("; ");
+      } else if (snapshot.contracts.length === 0) {
+        failure = etrade.getLastError() || undefined;
+      }
+      if (failure) {
+        return { symbol, status: "failed", constraintSet: record, error: failure };
+      }
+      const strategies = pipeline.risk.buildNoViewStrategies(snapshot.contracts, constraintSet);
+      const ranked = pipeline.recommender.rankNoView(
+        strategies.candidates,
+        constraintSet,
+        constraintSet.riskProfile ?? "balanced"
+      );
+      const limit = constraintSet.candidateLimit ?? ranked.length;
+      const bestTrade = pipeline.recommender.pickBestNoViewTrade(strategies.candidates, constraintSet);
+      const snapshotBlock = {
+        dataSource: snapshot.dataSource,
+        screen: snapshot.screen,
+        ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
+      };
+      if (strategies.candidates.length === 0) {
+        return {
+          symbol,
+          status: "completed",
+          abstained: true,
+          constraintSet: record,
+          rankedNoView: [],
+          excluded: strategies.excluded,
+          bestNoViewTrade: bestTrade,
+          snapshot: snapshotBlock,
+        };
+      }
+      return {
+        symbol,
+        status: "completed",
+        constraintSet: record,
+        rankedNoView: ranked.slice(0, limit),
+        excluded: strategies.excluded,
+        bestNoViewTrade: bestTrade,
+        snapshot: snapshotBlock,
+      };
+    } catch (err: any) {
+      return {
+        symbol,
+        status: "failed",
+        constraintSet: record,
+        error: err?.message || "Strategy discovery pipeline failed",
+      };
     }
   }
 
