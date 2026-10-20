@@ -187,3 +187,17 @@ _Rule for all future work in this repo (per Venus): `git pull --rebase` / merge 
 | Phase 6 — collapse alias vocabularies; ratchet to zero | #476 |
 | Related existing slice: sector info hard-coded colors | #422 |
 | Related sequencing: unify strategy catalog (before 3b options slice) | #450 |
+
+## Phase 3a chunking notes (from literal analysis, 2026-10-20)
+
+styles.css: 1,984 literals — 99 distinct hex, 239 distinct functional values.
+Top hexes are palette copies with clear roles: #38bdf8 (108, accent), #94a3b8
+(103, text-muted), #cbd5e1 (51, text-secondary), #f8fafc (41), #f59e0b (19,
+warning), #f87171 (34, sentiment-bearish), #ef4444 (15, sentiment-very-bearish).
+Several are STALE pre-Phase-0 token values (#059669 x16 = old light primary;
+#64748b x30 = old dark text-dim) — drift made visible. #ffffff (137) and
+black-alpha shadows (rgba(0,0,0,*) ~100+) are the ambiguous tail: role depends
+on the rule. --shadow-sm/md/lg/card tokens already exist in tokens.css.
+=> Migrate per component family with per-rule role checks (never a global
+find/replace): nav/chrome -> tables -> badges -> buttons -> inputs -> cards.
+Each chunk: replace, run coverage + ratchet, eyeball both themes.
