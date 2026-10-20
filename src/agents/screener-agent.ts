@@ -102,6 +102,8 @@ export interface ScreenerRunResult {
 }
 
 const LATEST_KEY = "screener:latest";
+/** Issue #624: minimum interval between task heartbeat writes during a run. */
+const SCREENER_HEARTBEAT_MIN_MS = 60_000;
 const HISTORY_KEY = "screener:history";
 // Issue #297: Per-run PDF storage (not a single shared key).
 // Each run gets its own key to prevent franken-PDFs.
@@ -211,6 +213,11 @@ export class ScreenerAgent extends Agent<Env> {
     return ledger.start(id);
   }
 
+  /** Issue #624: refresh a task's heartbeat during a long run. */
+  async heartbeatScreenerTask(id: string): Promise<ScreenerTask> {
+    return this.taskLedger().heartbeat(id);
+  }
+
   async completeScreenerTask(
     id: string,
     outcome: {
@@ -311,6 +318,22 @@ export class ScreenerAgent extends Agent<Env> {
       taskId = null;
     }
 
+    // Issue #624: phase-checkpoint heartbeats for this run's task,
+    // throttled to at most one ledger write per minute, so a long run
+    // never looks stale (#615) without amplifying storage writes.
+    let lastHeartbeatMs = Date.now();
+    const beat = async (): Promise<void> => {
+      if (!taskId) return;
+      const nowMs = Date.now();
+      if (nowMs - lastHeartbeatMs < SCREENER_HEARTBEAT_MIN_MS) return;
+      lastHeartbeatMs = nowMs;
+      try {
+        await this.heartbeatScreenerTask(taskId);
+      } catch {
+        // Ledger is best-effort; a missed heartbeat never breaks a screen.
+      }
+    };
+
     try {
       if (req.trigger === "scheduled" && !(await this.claimScheduledExecution(`stock:${universe}`, req.environment))) {
         const dupResult: ScreenerRunResult = {
@@ -378,6 +401,7 @@ export class ScreenerAgent extends Agent<Env> {
           fetchETradeQuotes: (syms) => etrade.fetchQuotesRemote(syms),
         },
       });
+      await beat();
       const screenResult = screenUniverse(screener, acquired, {
         ...(req.filters ?? {}),
         sector,
@@ -387,7 +411,10 @@ export class ScreenerAgent extends Agent<Env> {
       // E*TRADE stays the primary quote source; Yahoo fills only the
       // history-shaped hole. Per-symbol failures → honest nulls.
       const technicalsBySymbol = await fetchTechnicalsBatch(
-        acquired.quotes.map((q) => q.symbol)
+        acquired.quotes.map((q) => q.symbol),
+        undefined,
+        undefined,
+        () => beat()
       );
 
       // Issue #266: SA-style factor grades, computed percentile-relative
@@ -424,6 +451,7 @@ export class ScreenerAgent extends Agent<Env> {
       };
       if (taskId) result.taskId = taskId;
 
+      await beat();
       await this.persistRun(result);
       // Issue #607: complete the task with a deterministic honesty
       // evaluation of the outcome. Best-effort — the run stands either way.
