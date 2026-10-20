@@ -2,9 +2,9 @@
 .awp-panel {
   margin: 1.25rem 0;
   padding: 1rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-muted);
 }
 .awp-header {
   display: flex;
@@ -20,7 +20,7 @@
   margin-left: auto;
   padding: 0.3rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -35,9 +35,9 @@
   display: inline-block;
   padding: 0.12rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid #d97706;
-  background: rgba(217, 119, 6, 0.16);
-  color: #fbbf24;
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -48,7 +48,7 @@
   margin-top: 0.9rem;
   padding: 0.85rem 1rem;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
 }
 .awp-balance-row {
   display: flex;
@@ -60,7 +60,7 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-balance-amount {
   font-size: 1.7rem;
@@ -70,12 +70,12 @@
 .awp-disclosure {
   margin: 0.5rem 0 0;
   font-size: 0.83rem;
-  color: #fbbf24;
+  color: var(--color-warning-text);
 }
 .awp-source-line {
   margin: 0.3rem 0 0;
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-grid {
   display: grid;
@@ -89,13 +89,13 @@
   gap: 0.15rem;
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
 }
 .awp-card span {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-card strong {
   font-size: 1.05rem;
@@ -104,7 +104,7 @@
 .awp-meta {
   margin-top: 0.8rem;
   font-size: 0.8rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
 .awp-meta code {
@@ -113,16 +113,16 @@
 .awp-error {
   margin-top: 0.9rem;
   padding: 0.7rem 0.9rem;
-  border: 1px solid #e5484d;
+  border: 1px solid var(--color-danger);
   border-radius: 10px;
-  background: rgba(229, 72, 77, 0.08);
+  background: var(--color-danger-subtle);
   font-size: 0.88rem;
 }
 .awp-loading,
 .awp-empty {
   margin-top: 0.9rem;
   font-size: 0.88rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-ledger {
   margin-top: 1.1rem;
@@ -134,7 +134,7 @@
 .awp-ledger-sub {
   margin: 0 0 0.7rem;
   font-size: 0.8rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-ledger-list {
   display: flex;
@@ -144,7 +144,7 @@
 .awp-entry {
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
 }
 .awp-entry-row {
   display: flex;
@@ -157,7 +157,7 @@
 }
 .awp-entry-direction {
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -165,24 +165,24 @@
   display: inline-block;
   padding: 0.08rem 0.5rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--color-border-strong);
   font-size: 0.72rem;
   font-weight: 600;
   white-space: nowrap;
 }
 .awp-status-chip.simulated {
-  border-color: #d97706;
-  background: rgba(217, 119, 6, 0.16);
-  color: #fbbf24;
+  border-color: var(--color-warning);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
 }
 .awp-entry-time {
   margin-left: auto;
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .awp-entry-meta {
   margin-top: 0.3rem;
   font-size: 0.8rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
