@@ -179,6 +179,35 @@ export class Repository<T extends Record<string, any>> {
   }
 }
 
+/**
+ * Issue #781: thrown when a persistence-backed flow runs without an
+ * injected DatabaseORM. This replaces the former stub-ORM fallback —
+ * a DatabaseORM built on an exec stub that returns an empty array for
+ * every query — under which reads silently came back empty and writes
+ * silently vanished (the persistAudit failure class). Failing loud at
+ * the point of use is the contract: a caller that cannot persist must
+ * say so, never fabricate answers from an empty ledger.
+ */
+export class MissingOrmError extends Error {
+  constructor(context: string) {
+    super(
+      `${context} requires a DatabaseORM, but none was injected. ` +
+        `Refusing to run against a no-op ORM: reads would silently return empty and writes would silently vanish (issue #781).`
+    );
+    this.name = "MissingOrmError";
+  }
+}
+
+/**
+ * Issue #781: return the injected ORM or throw {@link MissingOrmError}.
+ * `context` names the calling flow (e.g. "ETradeSlackTradingService.processSlackEvent")
+ * so the failure identifies which wiring is missing.
+ */
+export function requireOrm(orm: DatabaseORM | undefined, context: string): DatabaseORM {
+  if (!orm) throw new MissingOrmError(context);
+  return orm;
+}
+
 export class DatabaseORM {
   public categories: Repository<CategoryRecord>;
   public referrals: Repository<ReferralRecord>;
