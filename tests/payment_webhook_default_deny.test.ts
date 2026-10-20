@@ -428,6 +428,111 @@ describe("Gateway resolution — no silent sandbox substitution (#148 sibling)",
   });
 });
 
+describe("executeRefund — gateway normalization for stored rows (#185)", () => {
+  // The refund path receives its gateway from a stored transaction row
+  // (mas.ts confirmDraft passes existingTx's gateway through). Rows written
+  // before the create route validated its input (#156) can carry
+  // un-normalized values; createCheckout/capturePayment already normalized
+  // theirs, executeRefund did not — and since the factory became
+  // default-deny in #148, a legacy " Stripe " row threw instead of
+  // refunding. These tests pin the normalized behaviour end to end against
+  // a stubbed Stripe refunds endpoint (no real network).
+  let fetchCalls: { url: string; body?: string }[] = [];
+
+  const stripeRefundFetch = async (input: any, init?: any) => {
+    const url = String(input?.url ?? input);
+    fetchCalls.push({ url, body: init?.body ? String(init.body) : undefined });
+    if (url === "https://api.stripe.com/v1/refunds") {
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ id: "re_185_legacy", amount: 500 }),
+        text: async () => JSON.stringify({ id: "re_185_legacy", amount: 500 }),
+      } as Response;
+    }
+    throw new Error(`unexpected fetch in #185 tests: ${url}`);
+  };
+
+  beforeEach(() => {
+    fetchCalls = [];
+    vi.stubGlobal("fetch", vi.fn(stripeRefundFetch));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const refundParams = (gateway: string) => ({
+    transactionId: "pay_legacy_185",
+    amount: 5,
+    gateway: gateway as SupportedGateway,
+    gatewayRef: "pi_185_legacy",
+    userLogin: "tester",
+  });
+
+  it("a legacy row stored as ' Stripe ' refunds through the stripe strategy", async () => {
+    const service = new PaymentGatewayService(makeEnv());
+    const result = await service.executeRefund(refundParams(" Stripe "));
+    expect(result.success).toBe(true);
+    expect(result.gateway).toBe("stripe");
+    expect(result.refundId).toBe("re_185_legacy");
+    expect(result.amountRefunded).toBe(5);
+    expect(result.status).toBe("refunded");
+    // The attestation is minted for the normalized gateway, as in createCheckout.
+    expect(result.didAttestation.gateway).toBe("stripe");
+    expect(fetchCalls.map((c) => c.url)).toEqual(["https://api.stripe.com/v1/refunds"]);
+    expect(fetchCalls[0].body).toContain("payment_intent=pi_185_legacy");
+  });
+
+  it("an un-normalized row behaves identically to the normalized row", async () => {
+    const service = new PaymentGatewayService(makeEnv());
+    const legacy = await service.executeRefund(refundParams(" Stripe "));
+    const upper = await service.executeRefund(refundParams("STRIPE"));
+    const normalized = await service.executeRefund(refundParams("stripe"));
+    const shape = (r: typeof legacy) => ({
+      success: r.success,
+      gateway: r.gateway,
+      refundId: r.refundId,
+      amountRefunded: r.amountRefunded,
+      status: r.status,
+      message: r.message,
+      attestedGateway: r.didAttestation.gateway,
+    });
+    expect(shape(legacy)).toEqual(shape(normalized));
+    expect(shape(upper)).toEqual(shape(normalized));
+    expect(fetchCalls).toHaveLength(3);
+    expect(new Set(fetchCalls.map((c) => c.body)).size).toBe(1);
+  });
+
+  it("an unknown gateway still throws — normalization resurrects no fallback", async () => {
+    const service = new PaymentGatewayService(makeEnv());
+    await expect(service.executeRefund(refundParams(" BogusPay "))).rejects.toThrow(
+      /Unsupported payment gateway: boguspay/
+    );
+    // The factory threw before any strategy ran: no gateway API was called.
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  it("the explicitly named sandbox harness still refunds (normalized lookup, #148 contract)", async () => {
+    const service = new PaymentGatewayService(makeEnv());
+    const result = await service.executeRefund(refundParams(" Sandbox "));
+    expect(result.success).toBe(true);
+    expect(result.gateway).toBe("sandbox");
+  });
+
+  it("source pin: executeRefund normalizes before the factory lookup", () => {
+    const payments = src("services/payments.ts");
+    const body = payments.slice(payments.indexOf("async executeRefund"));
+    const methodBody = body.slice(0, body.indexOf("\n  }"));
+    expect(methodBody).toContain("normalizeGateway(params.gateway)");
+    expect(methodBody.indexOf("normalizeGateway(params.gateway)")).toBeLessThan(
+      methodBody.indexOf("PaymentStrategyFactory.getStrategy(gateway)")
+    );
+    expect(methodBody).not.toContain("getStrategy(params.gateway)");
+  });
+});
+
 describe("/payments/webhook route — an unverifiable provider cannot settle a transaction (#148)", () => {
   const DRAFT_ID = "pay_route_148";
   // Seeded with a sentinel timestamp: the settle UPDATE writes a real
