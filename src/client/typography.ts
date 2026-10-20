@@ -13,10 +13,10 @@ export const FONT_STYLE_OPTIONS: FontStyleOption[] = [{
 }];
 export interface FontScalePreset { id: string; label: string; scale: number; pct: string; }
 export const FONT_SCALE_PRESETS: FontScalePreset[] = [
-  { id: "compact", label: "Small text", scale: 0.85, pct: "85%" },
+  { id: "compact", label: "Small", scale: 0.85, pct: "85%" },
   { id: "normal", label: "Default", scale: 1, pct: "100%" },
-  { id: "comfortable", label: "Larger text", scale: 1.15, pct: "115%" },
-  { id: "large", label: "Large", scale: 1.3, pct: "130%" },
+  { id: "comfortable", label: "Large", scale: 1.15, pct: "115%" },
+  { id: "large", label: "Extra large", scale: 1.3, pct: "130%" },
 ];
 export const FONT_SCALE_STORAGE_KEY = "nextgentp_font_scale";
 export const FONT_STYLE_STORAGE_KEY = "nextgentp_font_style";
