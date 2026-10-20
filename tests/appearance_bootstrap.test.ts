@@ -46,7 +46,8 @@ describe('pre-paint appearance bootstrap', () => {
         expect(result.attrs.get('data-theme-preference')).toBe(preference);
         expect(result.attrs.get('data-theme')).toBe(effective);
         expect(result.style.colorScheme).toBe(effective);
-        expect(result.classes.get('dark')).toBe(effective === 'dark');
+        expect(result.classes.get('dark')).toBeUndefined();
+        expect(result.classes.get('light')).toBeUndefined();
       }
     }
   });

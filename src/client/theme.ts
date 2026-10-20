@@ -24,7 +24,9 @@ export function getStoredTheme(): ThemeMode {
   }
 }
 
-/** Root attributes are canonical; body/classes are temporary legacy adapters. */
+/** Root data-theme attributes are the single canonical theme signal (#474):
+ *  the legacy root .dark/.light classes, body .theme-* classes and body
+ *  data-theme adapters were removed once every consumer keyed off tokens. */
 export function applyThemeToDocument(mode: ThemeMode): void {
   if (typeof document === "undefined") return;
   const preference = normalizeTheme(mode);
@@ -32,14 +34,7 @@ export function applyThemeToDocument(mode: ThemeMode): void {
   const root = document.documentElement;
   root.setAttribute("data-theme", effective);
   root.setAttribute("data-theme-preference", preference);
-  root.classList.toggle("dark", effective === "dark");
-  root.classList.toggle("light", effective === "light");
   root.style.colorScheme = effective;
-  if (document.body) {
-    document.body.classList.toggle("theme-light", effective === "light");
-    document.body.classList.toggle("theme-dark", effective === "dark");
-    document.body.setAttribute("data-theme", effective);
-  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("theme-changed", { detail: { theme: effective, preference } }));
   }

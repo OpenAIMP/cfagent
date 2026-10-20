@@ -5,8 +5,8 @@
  * 1. Primitives (:root): palette-independent foundation values
  *    (typography, radius, spacing) + the legacy alias shims (deprecated).
  * 2. Semantic theme maps: a theme is a TOKEN MAP, nothing more.
- *    - Dark map: `:root, [data-theme="dark"], ...` — also the default.
- *    - Light map: `[data-theme="light"], ...` — a complete map over the
+ *    - Dark map: `:root, [data-theme="dark"]` — also the default.
+ *    - Light map: `[data-theme="light"]` — a complete map over the
  *      SAME semantic roles.
  *    `system` is a resolution rule in theme.ts (OS preference + live
  *    listener), not a third map.
@@ -198,9 +198,7 @@
 }
 
 :root,
-[data-theme="dark"],
-body.theme-dark,
-.dark {
+[data-theme="dark"] {
   /* Surfaces & Backgrounds (with explicit paired foregrounds) */
   --color-surface: #060913;
   --color-surface-foreground: #f8fafc;
@@ -370,9 +368,7 @@ body.theme-dark,
    2. SEMANTIC TOKENS — LIGHT THEME (EXPLICIT RESOLUTION)
    ========================================================================== */
 
-[data-theme="light"],
-body.theme-light,
-.light {
+[data-theme="light"] {
   /* Surfaces & Backgrounds (with explicit paired foregrounds) */
   --color-surface: #f8fafc;
   --color-surface-foreground: #0f172a;
