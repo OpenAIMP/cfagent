@@ -19,6 +19,8 @@ export interface ReportItem {
   source: string;
   summary: string;
   createdAt: string;
+  /** Download URL of the generated PDF, when this report has one (#638). */
+  reportUrl?: string;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -132,6 +134,11 @@ export function ReportsPanel() {
               <span className="run-id" title={r.runId}>
                 Run: {r.runId.slice(0, 12)}…
               </span>
+              {r.reportUrl && (
+                <a className="report-pdf-link" href={r.reportUrl} download>
+                  📄 Download PDF
+                </a>
+              )}
             </div>
           </div>
         ))}

@@ -547,3 +547,27 @@ export function listUsageEvents(
     return [];
   }
 }
+
+/**
+ * #638: resolve the generated PDF download URL for a stored report.
+ * The PDF bytes live in ScreenerAgent storage behind the report.pdf
+ * endpoints (#269/#361); the canonical body carries either a ready
+ * reportUrl or the pdfKey it was stored under. Prefers a relative
+ * key-based URL (valid on any host) and falls back to the stored
+ * absolute reportUrl. Returns undefined when the report has no PDF.
+ * Never throws — a malformed body simply has no PDF.
+ */
+export function scheduledReportPdfUrl(source: string, body: unknown): string | undefined {
+  try {
+    const parsed: any = typeof body === "string" ? JSON.parse(body || "{}") : (body ?? {});
+    const pdfKey = parsed?.pdfKey ?? parsed?.result?.pdfKey;
+    if (typeof pdfKey === "string" && pdfKey) {
+      if (source === "screener") return `/api/screener/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+      if (source === "options_scanner") return `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+    }
+    const stored = parsed?.reportUrl ?? parsed?.result?.reportUrl;
+    return typeof stored === "string" && stored ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
