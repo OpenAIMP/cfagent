@@ -237,6 +237,26 @@ These commands are examples. Adapt remote and branch names to the repository.
 
 If fast-forward update fails, inspect the divergence. Do not reset away local commits.
 
+### Verified base (hard stop)
+
+Before creating the issue branch, print both revisions and verify they are equal:
+
+```bash
+git rev-parse HEAD
+git rev-parse origin/main
+```
+
+A failed fetch, pull, or fast-forward is a **hard stop**: do not branch from an unverified or stale base, and do not proceed on the assumption that the divergence is harmless. Branching from a stale base is how merged work gets silently overwritten — in the #137 Phase 3a stack, a slice branched after a failed pull and its merge wiped the previous slice's `styles.css` changes from `main`; the loss was found two slices later and restored. The equality check costs seconds; the incident cost a repair slice.
+
+### Claim the issue before starting
+
+Parallel lanes work this repository concurrently. Before starting an issue:
+
+1. Read the issue and its recent comments for an existing claim or an open PR addressing it.
+2. Post a short claim comment naming the slice you are starting and the branch you will use.
+
+Two lanes working the same issue silently produce duplicate PRs (the #672 fix was built twice in parallel; one PR landed and the other closed as superseded). A claim does not reserve the issue forever — it makes the collision visible before the work is duplicated.
+
 ### Updating an issue branch
 
 Fetch first:
@@ -394,6 +414,15 @@ git diff
 ```
 
 Run the repository’s applicable validation commands.
+
+For this repository the applicable battery is:
+
+- `npx tsc --noEmit -p tsconfig.json` — typecheck clean.
+- `npm run test:ci` — the full test suite, not only the touched files.
+- The production build.
+- The repository gates the change touches (see §7, the pin rule): `node scripts/token-coverage.mjs` reports TOTAL raw = 0 for client changes, the dangling-var() ratchet suite passes, `npm run tokens:gen -- --check` reports the token mirror in sync, and every pin the change alters is updated in the same change.
+
+A battery failure is classified under §10 before pushing. Never push a red battery "to let CI sort it out" — CI is the confirmation of a green local run, not a substitute for one.
 
 Check for:
 
@@ -573,6 +602,16 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 8. Begin the next issue only after the gate is satisfied.
 
 If the PR cannot merge, the issue is blocked—not finished.
+
+### Duplicate and superseded pull requests
+
+When the same change lands on `main` through another PR first (parallel lanes, §6 claim rule notwithstanding):
+
+1. Verify the landed change actually covers your PR's scope — compare content or markers on `main`, do not assume equivalence from the title.
+2. Close your PR as superseded with a comment carrying that verification evidence and linking the landed PR.
+3. Reconcile the issue from the landed PR (completion report, checklist state).
+
+Never force-merge a colliding duplicate, and never leave a PR open and unexplained once its change is on `main`. A dangling PR misstates the state of the work to every other lane.
 
 ***
 
@@ -803,6 +842,9 @@ Do not report `PASS` when:
 - Required review is missing.
 - Delivery is unexpectedly broken.
 - Material acceptance criteria remain unverified.
+- A known test-coverage gap for the changed behavior is undisclosed.
+
+The Risks and limitations section MUST state known test-coverage gaps for the changed behavior explicitly — behavior that shipped without dedicated tests, paths exercised only in production, suites known to be load-flaky. A gap disclosed in the report is a tracked limitation; a gap discovered later is a misreport. (Standing example: #218's digest behavior shipped without dedicated tests; the gap belonged in its completion report, not in a verification pass weeks later. See also §18.4 on stub honesty.)
 
 ***
 
