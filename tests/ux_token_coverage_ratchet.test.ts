@@ -76,3 +76,40 @@ describe("UX token coverage gate (#470, #476)", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("no dangling var() references (#492 follow-up)", () => {
+  it("every var(--x) used in src/client names a defined custom property", () => {
+    // A var() pointing at an undefined custom property silently invalidates
+    // the declaration in every theme (the legacy --theme-* family and
+    // --color-border/--shadow-xl strays purged in the #492 Table slice).
+    // Definitions are collected from CSS files and from TS/TSX inline
+    // style objects ("--x": value). Names ending in "-" are dynamic
+    // template prefixes (var(--color-${tone})) and are skipped.
+    const defined = new Set<string>();
+    const used = new Map<string, string[]>();
+    const DEF_RE = /(--[a-z0-9-]+)\s*:/g;
+    const USE_RE = /var\((--[a-z0-9-]+)/g;
+    for (const file of walk(CLIENT_DIR)) {
+      const rel = relative(ROOT, file).split("\\").join("/");
+      const raw = readFileSync(file, "utf8");
+      if (rel.endsWith(".css")) {
+        for (const m of raw.matchAll(DEF_RE)) defined.add(m[1]);
+      } else {
+        for (const m of raw.matchAll(/["'](--[a-z0-9-]+)["']\s*:/g)) defined.add(m[1]);
+      }
+      const text = stripComments(raw);
+      for (const m of text.matchAll(USE_RE)) {
+        const name = m[1];
+        if (name.endsWith("-")) continue;
+        const list = used.get(name) ?? [];
+        list.push(rel);
+        used.set(name, list);
+      }
+    }
+    const dangling: string[] = [];
+    for (const [name, files] of used) {
+      if (!defined.has(name)) dangling.push(`${name} (used in ${[...new Set(files)].slice(0, 3).join(", ")})`);
+    }
+    expect(dangling).toEqual([]);
+  });
+});
