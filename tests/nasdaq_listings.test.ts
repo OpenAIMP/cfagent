@@ -29,7 +29,7 @@ describe("dynamic all-exchange stock listings", () => {
     expect(listings[0].marketCap).toBe(25_000_000_000);
   });
 
-  it("skips rows without a usable symbol or positive last sale", async () => {
+  it("skips invalid symbols but retains valid membership rows without a last sale", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       data: {
         totalrecords: 2,
@@ -41,6 +41,7 @@ describe("dynamic all-exchange stock listings", () => {
     }), { status: 200 }));
 
     const listings = await fetchAllUsStockListings(fetcher as typeof fetch);
-    expect(listings).toEqual([]);
+    expect(listings.map((listing) => listing.symbol)).toEqual(["ZERO"]);
+    expect(listings[0].lastPrice).toBeUndefined();
   });
 });

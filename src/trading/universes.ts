@@ -121,7 +121,7 @@ function isEtfListing(l: NasdaqStockListing): boolean {
 function isLeveragedEtfListing(l: NasdaqStockListing): boolean {
   if (!isEtfListing(l)) return false;
   const metadata = `${l.companyName} ${l.industry || ""} ${l.sector || ""}`;
-  return /\b(?:1\.5|2|3|4|5|-1|-2|-3)x\b|\bleveraged?\b|\bultra\b|\binverse\b|\bdaily\s+(?:bull|bear)\b/i.test(metadata);
+  return /\b(?:1\.5|2|3|4|5|-1|-2|-3)x\b|\bleveraged?\b|\bultra(?:pro)?\b|\binverse\b|\bdaily\s+(?:bull|bear)\b/i.test(metadata);
 }
 
 /**
