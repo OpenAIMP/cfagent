@@ -139,7 +139,10 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
         const body = new URLSearchParams({
           "payment_method_types[0]": "card",
           "line_items[0][price_data][currency]": params.currency.toLowerCase(),
-          "line_items[0][price_data][product_data][name]": params.description || `AI Compute Tokens for ${params.customer}`,
+          // Stripe requires a product name; with no caller description
+          // use the neutral label "Payment", never an invented product
+          // line (issue #514).
+          "line_items[0][price_data][product_data][name]": params.description || "Payment",
           "line_items[0][price_data][unit_amount]": String(Math.round(params.amount * 100)),
           "line_items[0][quantity]": "1",
           mode: "payment",
@@ -501,7 +504,10 @@ export class PayPalPaymentStrategy implements IPaymentGatewayStrategy {
             purchase_units: [
               {
                 reference_id: params.draftId,
-                description: params.description || `AI Compute Credits for ${params.customer}`,
+                // PayPal's purchase-unit description is optional: omit it
+                // entirely when the caller supplied none instead of
+                // inventing a product line (issue #514).
+                ...(params.description ? { description: params.description } : {}),
                 amount: {
                   currency_code: params.currency.toUpperCase(),
                   value: params.amount.toFixed(2),
@@ -789,8 +795,13 @@ export class LemonSqueezyPaymentStrategy implements IPaymentGatewayStrategy {
               attributes: {
                 custom_price: Math.round(params.amount * 100),
                 product_options: {
-                  name: params.description || `AI Token Credits for ${params.customer}`,
-                  description: `Autonomous agent credit deposit requested by ${params.customer}`,
+                  // Lemon Squeezy requires a product name; with no caller
+                  // description use the neutral label "Payment", and carry
+                  // the caller's description (or "") as the product
+                  // description — never an invented deposit narrative
+                  // (issue #514).
+                  name: params.description || "Payment",
+                  description: params.description || "",
                 },
                 checkout_data: {
                   custom: {
