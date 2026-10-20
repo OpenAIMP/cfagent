@@ -1,10 +1,23 @@
 # RSI Product Plan — Recursive Self-Improvement of Product Capabilities
 
-_Issue: [#688](https://github.com/OpenAIMP/cfagent/issues/688). Status: COMPLETE 2026-10-20._
+_Issue: [#688](https://github.com/OpenAIMP/cfagent/issues/688). Status: IN PROGRESS — extended 2026-10-20 with governance and discovery tiers._
 
 ## Vision
 
 Every product capability should make the product better at getting better. This plan orders the product backlog so each tier compounds the one before it.
+
+## Tier 0 — Governance (the audits that keep the foundation honest)
+
+| # | Issue | Status |
+|---|-------|--------|
+| #1 | Architecture and design principles audit | Open |
+| #2 | Tests and CI/CD coverage audit | Open |
+| #3 | APIs, MCP, and agent tools audit | Open |
+| #4 | Agent harness and safeguards assessment | Open |
+| #5 | Logging and error handling audit | Open |
+| #6 | SDD and agentic product engineering assessment | Open |
+| #7 | Reverse-engineer and plan | Open |
+| #8 | Product lifecycle traceability | Open |
 
 ## Tier 1 — Trust (nothing compounds without it)
 
@@ -52,18 +65,24 @@ Every product capability should make the product better at getting better. This 
 | #651 | Autopilot status and controls | Blocked on #79 merge |
 | #652 | Agent task queue view | Superseded by #78, closed |
 | #656 | Surface newly implemented routes | PR #699 |
+| #571 | Agentic architecture transformation (phase 2) | Open |
+
+## Tier 6 — Autonomous discovery (the "no view from me" question)
+
+| # | Issue | Status |
+|---|-------|--------|
+| #13 | [Epic] Discovery Capability — Detect → Infer → Express → Remember | Open |
+| #14 | [Discovery][Phase 1] Deterministic discovery MVP | Open |
+| #16 | [Discovery][Data] Earnings/dividend event calendar | Open |
+| #18 | [Discovery][Phase 2] Event + flow signals, alerts | Open |
+
+This is the third question the platform answers: with no view from the user, what is setting up right now, in which names, and what view does the evidence support. It feeds the Tier 2 daily loop from the other direction — autonomous detection instead of user-initiated screening.
 
 ## The flywheel
 
-**#340 (track record) → #654 (calibration) → #653 (strategy review) → #232 (self-improvement).**
+**#13 (discovery) → #340 (track record) → #654 (calibration) → #653 (strategy review) → #232 (self-improvement).**
 
-Every run becomes training data for the next one. The track-record surface records what was published before outcomes; calibration measures predicted vs realized; strategy review feeds human judgment back into ranking; the self-improvement loop closes when the agent adjusts from the accumulated evidence.
-
-## Stale (recommended close)
-
-- #1–#8 — old architecture notes
-- #13, #14, #16, #18 — Q3 discovery epic, superseded
-- #571 — agentic transformation tracking
+Discovery finds what's setting up with no view from the user; the track-record surface records what was published before outcomes; calibration measures predicted vs realized; strategy review feeds human judgment back into ranking; the self-improvement loop closes when the agent adjusts from the accumulated evidence. Tier 0 governance audits keep every layer honest.
 
 ## Rules
 
