@@ -346,17 +346,31 @@ export async function handleEtradeBrokerRoutes(
           })),
         });
       }
-      const result = await agent.runScreen({
-        trigger: "manual",
-        filters,
-        universe: universe as any,
-        userLogin,
-        // The screener runs in its own Durable Object, so it cannot infer the
-        // environment selected on this orchestrator request. Carry the same
-        // authenticated account context into the shared manual/scheduled
-        // screening pipeline.
-        environment: requestedEnv,
-      });
+      // Issue #424: if runScreen throws (instead of returning a failed
+      // result), publish the failure notification before propagating.
+      let result;
+      try {
+        result = await agent.runScreen({
+          trigger: "manual",
+          filters,
+          universe: universe as any,
+          userLogin,
+          // The screener runs in its own Durable Object, so it cannot infer the
+          // environment selected on this orchestrator request. Carry the same
+          // authenticated account context into the shared manual/scheduled
+          // screening pipeline.
+          environment: requestedEnv,
+        });
+      } catch (screenErr) {
+        const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
+        await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, {
+          success: false,
+          error,
+          timestamp: new Date().toISOString(),
+          universe: universe as any,
+        } as any);
+        throw screenErr;
+      }
       ctx.audit("etrade.screened", "trading", {
         filterSummary: result.discoveryMessage,
         count: result.allStocks.length,
