@@ -23,15 +23,24 @@ type ScreenRow = Record<string, unknown>;
 // Issue #212: a persisted autonomous screener run.
 // Issue #253: allStocks carries the full scanned set (not just standouts).
 // Issue #261: trigger identifies the source for the unified UI.
+// Issue #125: universe + partial mirror ScreenerRunResult so retained runs
+// can be listed with their scope and status (see screenRunStatus).
 interface ScreenRun {
   timestamp: string;
   pdfKey?: string;
   reportUrl?: string;
   trigger?: "manual" | "scheduled";
+  universe?: string;
   sector: string;
   success: boolean;
   totalScanned: number;
   matchedCount: number;
+  partial?: {
+    quotedCount: number;
+    requestedCount: number;
+    failedSymbols: string[];
+    failureReasons: Record<string, number>;
+  };
   opportunities: Array<{
     symbol: string;
     companyName: string;
@@ -51,6 +60,40 @@ interface ScreenRun {
     source: string;
   }>;
   error?: string;
+}
+
+// Issue #125: run status, derived from the fields ScreenerRunResult
+// actually carries — a failed run has success:false (+ error); a partial
+// run is a success that ran on an incomplete quote set (#462 qualification);
+// anything else is a clean success. Quiet runs (success, zero standouts)
+// are ordinary successes — they are history, not alerts.
+export type ScreenRunStatus = "success" | "partial" | "failed";
+
+export function screenRunStatus(run: Pick<ScreenRun, "success" | "partial">): ScreenRunStatus {
+  if (!run.success) return "failed";
+  if (run.partial) return "partial";
+  return "success";
+}
+
+export const SCREEN_RUN_STATUS_LABELS: Record<ScreenRunStatus, string> = {
+  success: "Success",
+  partial: "Partial",
+  failed: "Failed",
+};
+
+// Issue #125: the viewed run is tracked by timestamp so a polling refresh
+// that prepends a newer run never silently re-points the view at a
+// different run; a selection that has aged out of the retained history
+// (or no selection yet) falls back to the latest run.
+export function resolveSelectedRun<T extends { timestamp: string }>(
+  runs: T[],
+  selectedTimestamp: string | null,
+): T | undefined {
+  if (selectedTimestamp) {
+    const found = runs.find((run) => run.timestamp === selectedTimestamp);
+    if (found) return found;
+  }
+  return runs[0];
 }
 
 function numberFilter(value: string): number | undefined {
@@ -120,6 +163,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   // Issue #212: latest autonomous screener runs (from the 5-min schedule).
   const [autoRuns, setAutoRuns] = useState<ScreenRun[]>([]);
   const [autoLoading, setAutoLoading] = useState(true);
+  // Issue #125: which retained run the results view shows (null = latest).
+  const [selectedAutoTs, setSelectedAutoTs] = useState<string | null>(null);
+  const selectedAutoRun = resolveSelectedRun(autoRuns, selectedAutoTs) ?? autoRuns[0];
 
   const loadAuto = useCallback(async () => {
     try {
@@ -395,16 +441,86 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               </div>
             ) : (
               <>
-                {/* Issue #261: unified results UI — same component as manual. */}
-                <ScreenerResultsView
-                  result={{ ...autoRuns[0], trigger: autoRuns[0].trigger ?? "scheduled" }}
-                />
+                {/* Issue #125: retained runs are reviewable — select any run
+                    (quiet and failed runs included; they are history) to
+                    view its full results below. */}
                 {autoRuns.length > 1 && (
-                  <div style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)", marginTop: "0.5rem" }}>
-                    {autoRuns.length - 1} earlier run{autoRuns.length > 2 ? "s" : ""} retained
-                    (latest: {new Date(autoRuns[autoRuns.length - 1].timestamp).toLocaleString()}).
+                  <div
+                    className="screener-run-list"
+                    aria-label="Retained autonomous screen runs"
+                    style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.75rem" }}
+                  >
+                    {autoRuns.map((run, index) => {
+                      const status = screenRunStatus(run);
+                      const selected = selectedAutoRun?.timestamp === run.timestamp;
+                      const badgeColors = {
+                        success: { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" },
+                        partial: { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" },
+                        failed: { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" },
+                      }[status];
+                      return (
+                        <button
+                          key={`${run.timestamp}:${index}`}
+                          type="button"
+                          className="screener-run-item"
+                          aria-pressed={selected}
+                          aria-label={`Review screen run from ${new Date(run.timestamp).toLocaleString()}`}
+                          onClick={() => setSelectedAutoTs(run.timestamp)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            flexWrap: "wrap",
+                            textAlign: "left",
+                            padding: "0.4rem 0.6rem",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "0.78rem",
+                            color: "var(--color-text-primary)",
+                            background: selected ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+                            border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
+                          }}
+                        >
+                          <strong>{new Date(run.timestamp).toLocaleString()}</strong>
+                          <span style={{ color: "var(--theme-text-muted)" }}>
+                            {[run.universe, run.sector && run.sector !== "ALL" ? `${run.sector} sector` : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                            {" · "}
+                            {run.trigger === "manual" ? "Manual" : "Scheduled"}
+                          </span>
+                          <span>
+                            {run.totalScanned.toLocaleString()} scanned · {run.matchedCount} matched ·{" "}
+                            {run.opportunities.length} standout{run.opportunities.length === 1 ? "" : "s"}
+                          </span>
+                          <span
+                            className="screener-run-status"
+                            style={{
+                              padding: "0.1rem 0.5rem",
+                              borderRadius: "9999px",
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                              ...badgeColors,
+                            }}
+                          >
+                            {SCREEN_RUN_STATUS_LABELS[status]}
+                          </span>
+                          {selected && (
+                            <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--color-accent)" }}>
+                              ● Viewing
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
+                {/* Issue #261: unified results UI — same component as manual.
+                    Issue #125: shows the selected retained run (default:
+                    latest); its PDF link keys off that run's own pdfKey. */}
+                <ScreenerResultsView
+                  result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
+                />
               </>
             )}
           </div>
