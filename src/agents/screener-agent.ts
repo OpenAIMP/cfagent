@@ -38,6 +38,13 @@ import {
   type UniverseId,
 } from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
+import {
+  ScreenerTaskLedger,
+  evaluateScreenerOutcome,
+  type ScreenerTask,
+  type ScreenerTaskEvaluation,
+  type ScreenerTaskStore,
+} from "../services/screenerTaskLedger";
 import { DEFAULT_SCREENER_CONFIG } from "../trading";
 import type { StockScreenerFilter } from "../types";
 
@@ -89,6 +96,8 @@ export interface ScreenerRunResult {
   error?: string;
   /** Duplicate scheduled delivery was suppressed by the shared per-user DO. */
   skippedDuplicate?: boolean;
+  /** Issue #607: durable task record id for this run (screener task ledger). */
+  taskId?: string;
 }
 
 const LATEST_KEY = "screener:latest";
@@ -139,6 +148,109 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
+   * Issue #607: task-ledger store over this agent's DO KV storage.
+   * Ledger keys live under screener:task: / screener:idem: — alongside
+   * the run blobs, in the same per-account Durable Object.
+   */
+  private taskStore(): ScreenerTaskStore {
+    const storage = this.ctx.storage as any;
+    return {
+      get: async (key: string): Promise<string | null> => {
+        try {
+          const v = await storage.get(`screener:${key}`);
+          return typeof v === "string" ? v : null;
+        } catch {
+          return null;
+        }
+      },
+      set: async (key: string, value: string): Promise<void> => {
+        await storage.put(`screener:${key}`, value);
+      },
+      list: async (
+        prefix: string
+      ): Promise<Array<{ key: string; value: string }>> => {
+        try {
+          const map = (await storage.list({ prefix: `screener:${prefix}` })) as Map<
+            string,
+            unknown
+          >;
+          return [...map.entries()]
+            .filter(([, v]) => typeof v === "string")
+            .map(([key, value]) => ({ key, value: value as string }));
+        } catch {
+          return [];
+        }
+      },
+    };
+  }
+
+  private taskLedger(): ScreenerTaskLedger {
+    return new ScreenerTaskLedger(this.taskStore());
+  }
+
+  /**
+   * Issue #607 — durable task record for a screener run. runScreen
+   * creates + begins a task before screening and resolves it on every
+   * exit path; the record lives with the work in this DO.
+   */
+  async createScreenerTask(input: {
+    trigger: "manual" | "scheduled";
+    universe: string;
+    sector: string;
+    userLogin?: string;
+    idempotencyKey: string;
+  }): Promise<{ task: ScreenerTask; created: boolean }> {
+    return this.taskLedger().create(input);
+  }
+
+  /** Claim + start a queued task (the run begins). */
+  async beginScreenerTask(id: string): Promise<ScreenerTask> {
+    const ledger = this.taskLedger();
+    await ledger.claim(id);
+    return ledger.start(id);
+  }
+
+  async completeScreenerTask(
+    id: string,
+    outcome: {
+      runTimestamp: string;
+      totalScanned: number;
+      matchedCount: number;
+      opportunitiesCount: number;
+      partial: boolean;
+      evaluation: ScreenerTaskEvaluation;
+    }
+  ): Promise<ScreenerTask> {
+    return this.taskLedger().complete(id, outcome);
+  }
+
+  /** Fail a task; escalate=true leaves it in `escalated` for a human. */
+  async failScreenerTask(
+    id: string,
+    error: string,
+    escalate: boolean
+  ): Promise<ScreenerTask> {
+    const ledger = this.taskLedger();
+    const failed = await ledger.fail(id, error);
+    return escalate
+      ? ledger.escalate(id, "screener run failed; awaiting human review")
+      : failed;
+  }
+
+  /** Close a task that will not run (e.g. a suppressed duplicate). */
+  async cancelScreenerTask(id: string, note?: string): Promise<ScreenerTask> {
+    return this.taskLedger().cancel(id, note);
+  }
+
+  async getScreenerTask(id: string): Promise<ScreenerTask | null> {
+    return this.taskLedger().get(id);
+  }
+
+  async listScreenerTasks(limit = 50): Promise<ScreenerTask[]> {
+    return this.taskLedger().list(limit);
+  }
+
+  /**
    * Run a screen. E*TRADE-only market data — throws honestly when
    * E*TRADE is unavailable (no fallback substitution).
    */
@@ -155,9 +267,38 @@ export class ScreenerAgent extends Agent<Env> {
     const universe: UniverseId = req.universe ?? "TECH";
     let expectedCount = 0;
 
+    // Issue #607: durable task record for this run (mandate §6; design
+    // in docs/agents/agentic-architecture.md §5/§7). Scheduled runs key
+    // on their minute slot — the same identity claimScheduledExecution
+    // dedups on — so duplicate deliveries share one record; manual
+    // runs key on their own timestamp. Ledger failures never break a
+    // screen: warn and continue untracked.
+    let taskId: string | null = null;
+    try {
+      const created = await this.createScreenerTask({
+        trigger: req.trigger,
+        universe,
+        sector,
+        userLogin,
+        idempotencyKey:
+          req.trigger === "scheduled"
+            ? `screener:scheduled:${universe}:${sector}:${timestamp.slice(0, 16)}`
+            : `screener:manual:${universe}:${sector}:${timestamp}`,
+      });
+      taskId = created.task.id;
+      if (created.task.status === "queued") {
+        await this.beginScreenerTask(taskId);
+      }
+    } catch (err) {
+      console.warn(
+        `[ScreenerAgent] Screener task ledger unavailable (create/begin): ${err instanceof Error ? err.message : String(err)}`
+      );
+      taskId = null;
+    }
+
     try {
       if (req.trigger === "scheduled" && !(await this.claimScheduledExecution(`stock:${universe}`, req.environment))) {
-        return {
+        const dupResult: ScreenerRunResult = {
           timestamp,
           trigger: req.trigger,
           universe,
@@ -170,7 +311,21 @@ export class ScreenerAgent extends Agent<Env> {
           allStocks: [],
           discoveryMessage: "Duplicate scheduled delivery suppressed for this account, environment, universe, and minute.",
           skippedDuplicate: true,
+          ...(taskId ? { taskId } : {}),
         };
+        // Issue #607: a suppressed duplicate closes as cancelled —
+        // it never ran, so it must not read as completed or failed.
+        if (taskId) {
+          try {
+            await this.cancelScreenerTask(
+              taskId,
+              "duplicate scheduled delivery suppressed"
+            );
+          } catch {
+            // Ledger is best-effort; the suppression result stands.
+          }
+        }
+        return dupResult;
       }
       const etrade = new ETradeService(
         this.getOrm(),
@@ -252,8 +407,40 @@ export class ScreenerAgent extends Agent<Env> {
         discoveryMessage: acquired.discovery.message,
         ...(acquired.partial ? { partial: acquired.partial } : {}),
       };
+      if (taskId) result.taskId = taskId;
 
       await this.persistRun(result);
+      // Issue #607: complete the task with a deterministic honesty
+      // evaluation of the outcome. Best-effort — the run stands either way.
+      if (taskId) {
+        try {
+          const evaluation = evaluateScreenerOutcome(
+            {
+              success: result.success,
+              runTimestamp: result.timestamp,
+              totalScanned: result.totalScanned,
+              matchedCount: result.matchedCount,
+              opportunities: result.opportunities.length,
+              partial: !!result.partial,
+              qualificationPresent: !!result.partial,
+              error: result.error ?? null,
+            },
+            new Date().toISOString()
+          );
+          await this.completeScreenerTask(taskId, {
+            runTimestamp: result.timestamp,
+            totalScanned: result.totalScanned,
+            matchedCount: result.matchedCount,
+            opportunitiesCount: result.opportunities.length,
+            partial: !!result.partial,
+            evaluation,
+          });
+        } catch (err) {
+          console.warn(
+            `[ScreenerAgent] Screener task ledger unavailable (complete): ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       return result;
     } catch (err) {
       const message =
@@ -271,8 +458,18 @@ export class ScreenerAgent extends Agent<Env> {
         allStocks: [],
         discoveryMessage: "",
         error: message,
+        ...(taskId ? { taskId } : {}),
       };
       await this.persistRun(result);
+      // Issue #607: a failed screen escalates its task for a human
+      // instead of existing only as a result blob nobody may open.
+      if (taskId) {
+        try {
+          await this.failScreenerTask(taskId, message, true);
+        } catch {
+          // Ledger is best-effort; the failure result stands either way.
+        }
+      }
       return result;
     }
   }
