@@ -210,6 +210,7 @@ body.theme-dark,
 
   /* Semantic Status & Accents (Surface & Foreground Paired) */
   --color-primary: #10b981;
+  --color-primary-alpha: rgba(99, 102, 241, 0.15); /* indigo wash — proof/inspect hover accents */
   --color-primary-foreground: #04241c;
   --color-accent: #38bdf8;
   --color-accent-contrast: #060913;
@@ -218,6 +219,7 @@ body.theme-dark,
   --color-success: #10b981;
   --color-success-foreground: #04241c;
   --color-success-subtle: rgba(16, 185, 129, 0.14);
+  --color-success-hover: #059669;
 
   --color-danger: #f43f5e;
   --color-danger-foreground: #2e0a10;
@@ -337,6 +339,7 @@ body.theme-light,
 
   /* Semantic Status & Accents (Surface & Foreground Paired) */
   --color-primary: #047857;
+  --color-primary-alpha: rgba(79, 70, 229, 0.12); /* indigo wash — proof/inspect hover accents */
   --color-primary-foreground: #ffffff;
   --color-accent: #0369a1;
   --color-accent-contrast: #ffffff;
@@ -345,6 +348,7 @@ body.theme-light,
   --color-success: #15803d;
   --color-success-foreground: #ffffff;
   --color-success-subtle: rgba(21, 128, 61, 0.12);
+  --color-success-hover: #166534;
 
   --color-danger: #dc2626;
   --color-danger-foreground: #ffffff;
