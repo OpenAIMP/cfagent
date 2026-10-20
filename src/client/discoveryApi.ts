@@ -22,6 +22,7 @@
 
 import { apiFetch } from "./apiFetch";
 import type {
+  DiscoveryConstraintSet,
   DiscoveryRunSummary,
   DiscoverySymbolOutcome,
   DiscoveryTargetDerivation,
@@ -29,6 +30,7 @@ import type {
 } from "../trading";
 
 export type {
+  DiscoveryConstraintSet,
   DiscoveryRunSummary,
   DiscoverySymbolOutcome,
   DiscoveryTargetDerivation,
