@@ -227,3 +227,147 @@ describe("discovery export filenames and candidate presence (#126 PR-F)", () => 
     expect(discoveryRunHasCandidates(RUN_FAILED)).toBe(false);
   });
 });
+
+// Profile-derived runs (issue #533, PR-533B) ------------------------------
+
+const PROFILE_REF = { id: "prof-1", name: "Income", version: 3 };
+
+const DERIVATION_NVDA = {
+  source: "profile-derived",
+  spot: 130,
+  spotSource: "chain",
+  atmIv: 0.45,
+  expectedMovePct: 0.1311,
+  windowExpiry: "2026-11-20",
+  windowDays: 31,
+  emMultiple: 0.6,
+  thesis: "bullish",
+  targetPrice: 140.23,
+  profileRef: PROFILE_REF,
+};
+
+const DERIVATION_AAPL = {
+  ...DERIVATION_NVDA,
+  spot: 260,
+  atmIv: 0.3,
+  expectedMovePct: 0.0875,
+  emMultiple: -0.6,
+  thesis: "bearish",
+  targetPrice: 246.35,
+};
+
+const REQUEST_NVDA_DERIVED = {
+  symbol: "NVDA",
+  thesis: "bullish",
+  targetPrice: 140.23,
+  targetDate: "2026-11-20",
+  expectedIvDirection: "unchanged",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  allowedStrategies: ["long_call", "long_put"],
+};
+
+const REQUEST_AAPL_DERIVED = {
+  ...REQUEST_NVDA_DERIVED,
+  symbol: "AAPL",
+  thesis: "bearish",
+  targetPrice: 246.35,
+};
+
+const RUN_DERIVED = {
+  id: "run-derived",
+  createdAt: "2026-10-20T14:05:00.000Z",
+  userLogin: "tester",
+  trigger: "scheduled",
+  scheduleId: "sched-derived",
+  inputModel: "profile-derived",
+  profileRef: PROFILE_REF,
+  status: "partial",
+  requestCount: 2,
+  completedCount: 1,
+  failedCount: 1,
+  abstainedCount: 1,
+  symbols: ["NVDA", "MSFT", "AAPL"],
+  requests: [REQUEST_NVDA_DERIVED, REQUEST_AAPL_DERIVED],
+  outcomes: [
+    {
+      symbol: "NVDA",
+      status: "completed",
+      request: REQUEST_NVDA_DERIVED,
+      derivation: DERIVATION_NVDA,
+      ranked: [rankedEntry(candidate(), 1, 87.5)],
+      riskReports: [],
+      screenedOut: [],
+      excluded: [],
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 1200, contractsMatched: 45 } },
+    },
+    {
+      symbol: "MSFT",
+      status: "abstained",
+      error: "no usable IV in the live chain for MSFT — no expected move can be derived",
+    },
+    {
+      symbol: "AAPL",
+      status: "failed",
+      request: REQUEST_AAPL_DERIVED,
+      derivation: DERIVATION_AAPL,
+      error: "chain fetch failed",
+    },
+  ],
+} as unknown as StoredDiscoveryRun;
+
+describe("discoveryCandidatesCsv — profile-derived runs (#533)", () => {
+  const csv = discoveryCandidatesCsv(RUN_DERIVED);
+  const lines = csv.split("\r\n");
+
+  it("stamps the input model in the metadata header", () => {
+    expect(lines[1]).toContain("input model: profile-derived");
+    expect(lines[1]).toContain("status: partial");
+    expect(lines[2]).toContain("symbols: NVDA, MSFT, AAPL");
+  });
+
+  it("adds one # DERIVED line per derived symbol with the full derivation", () => {
+    expect(lines).toContain(
+      "# DERIVED: NVDA target $140.23 = spot $130.00 × (1 + 0.6 × EM 13.11%) · window 2026-11-20 (31d) · profile Income v3"
+    );
+    // A failed outcome that got far enough to derive still shows its
+    // derivation, ahead of its FAILED line.
+    expect(lines).toContain(
+      "# DERIVED: AAPL target $246.35 = spot $260.00 × (1 + -0.6 × EM 8.75%) · window 2026-11-20 (31d) · profile Income v3"
+    );
+    expect(lines).toContain("# FAILED: AAPL — chain fetch failed");
+  });
+
+  it("adds one # ABSTAINED line per abstention, with its reason and no target", () => {
+    expect(lines).toContain(
+      "# ABSTAINED: MSFT — no usable IV in the live chain for MSFT — no expected move can be derived"
+    );
+  });
+
+  it("still emits the completed symbol's candidate rows under its constructed view", () => {
+    expect(csv).toContain("NVDA,bullish,140.23,2026-11-20,1,NVDA Long Call");
+    expect(discoveryRunHasCandidates(RUN_DERIVED)).toBe(true);
+  });
+
+  it("saved-request CSVs gain no DERIVED/ABSTAINED lines (byte-identical headers)", () => {
+    const savedCsv = discoveryCandidatesCsv(RUN_PARTIAL);
+    expect(savedCsv).not.toContain("# DERIVED:");
+    expect(savedCsv).not.toContain("# ABSTAINED:");
+    expect(savedCsv.split("\r\n")[3]).toBe("# FAILED: MSFT — E*TRADE chain unavailable: session expired");
+  });
+});
+
+describe("discoveryRunJson — profile-derived runs (#533)", () => {
+  it("carries the derivation records and abstentions verbatim, minus the scoping stamp", () => {
+    const parsed = JSON.parse(discoveryRunJson(RUN_DERIVED));
+    expect(parsed.inputModel).toBe("profile-derived");
+    expect(parsed.profileRef).toEqual(PROFILE_REF);
+    expect(parsed.outcomes[0].derivation).toEqual(DERIVATION_NVDA);
+    expect(parsed.outcomes[2].derivation).toEqual(DERIVATION_AAPL);
+    expect(parsed.outcomes[1].status).toBe("abstained");
+    expect(parsed.outcomes[1].error).toContain("no usable IV");
+    // An abstention produced no request and no target — none is exported.
+    expect("request" in parsed.outcomes[1]).toBe(false);
+    expect("userLogin" in parsed).toBe(false);
+  });
+});
