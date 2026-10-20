@@ -409,6 +409,36 @@
 
 .ui-input:disabled, .ui-select:disabled { opacity: 0.55; cursor: not-allowed; }
 
+
+/* ---------- Modal ---------- */
+/* Chrome (backdrop, dialog surface, header, close button) comes from the
+   Universal Modal System classes in tokens.css; only sizing + body/footer
+   layout live here. */
+.ui-modal { width: calc(100% - 2rem); max-height: 90vh; }
+.ui-modal.size-sm { max-width: 420px; }
+.ui-modal.size-md { max-width: 560px; }
+.ui-modal.size-lg { max-width: 720px; }
+.ui-modal.size-xl { max-width: 920px; }
+
+.ui-modal:focus { outline: none; }
+
+.ui-modal-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
+div.ui-modal-title { font-size: inherit; font-weight: inherit; }
+
+.ui-modal-body { padding: 1.25rem 1.5rem; overflow-y: auto; }
+
+/* Footer nodes own their chrome (Modal renders the footer bare as the
+   dialog's last region); this helper is the standard action-bar look. */
+.ui-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .segmented-btn, .pill-btn, .ui-btn, .ui-tab, .ui-input, .ui-select { transition: none; }
   .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }

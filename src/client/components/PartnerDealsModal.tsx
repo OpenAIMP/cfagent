@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Notice } from "./ui";
+import { Notice, Modal } from "./ui";
 
 export interface PartnerDeal {
   id: string;
@@ -90,8 +90,6 @@ export function PartnerDealsModal({
 }: PartnerDealsModalProps) {
   const [filterCategory, setFilterCategory] = useState<string>("All");
 
-  if (!isOpen) return null;
-
   // Merge runtime ads with defaults to present comprehensive external deals showcase
   const combinedDeals: PartnerDeal[] = [
     ...ads.map((a) => ({
@@ -114,29 +112,31 @@ export function PartnerDealsModal({
     : combinedDeals.filter((d) => d.category === filterCategory);
 
   return (
-    <div className="partner-deals-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="partner-deals-modal-card" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="partner-deals-header">
-          <div className="partner-deals-title-area">
-            <span className="partner-deals-icon">⭐</span>
-            <div>
-              <h3 className="partner-deals-title">Partner Deals &amp; Developer Ecosystem</h3>
-              <p className="partner-deals-subtitle">
-                Externalized partner offers, sponsored developer credits, and tooling integrations.
-              </p>
-            </div>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      size="none"
+      panelClassName="partner-deals-modal-card"
+  footer={
+    <div className="partner-deals-footer">
+      <span className="deals-counter">Showing {filteredDeals.length} partner offer{filteredDeals.length === 1 ? "" : "s"}</span>
+      <button type="button" className="partner-deals-dismiss-btn" onClick={onClose}>
+        Back to Workspace
+      </button>
+    </div>
+  }
+      title={
+        <div className="partner-deals-title-area">
+          <span className="partner-deals-icon">⭐</span>
+          <div>
+            <h3 className="partner-deals-title">Partner Deals &amp; Developer Ecosystem</h3>
+            <p className="partner-deals-subtitle">
+              Externalized partner offers, sponsored developer credits, and tooling integrations.
+            </p>
           </div>
-          <button
-            type="button"
-            className="partner-deals-close-btn"
-            onClick={onClose}
-            aria-label="Close partner deals modal"
-          >
-            ✕
-          </button>
         </div>
-
+      }
+    >
         {/* Notice explaining clean UI guarantee */}
         <Notice tone="success" variant="strip" density="compact" icon="🛡️" title="Clean Workspace Guarantee:">
           Ads and promotional banners have been externalized from all trading tabs. You can browse offers here on-demand without cluttering your workspace.
@@ -228,14 +228,6 @@ export function PartnerDealsModal({
           </div>
         )}
 
-        {/* Footer */}
-        <div className="partner-deals-footer">
-          <span className="deals-counter">Showing {filteredDeals.length} partner offer{filteredDeals.length === 1 ? "" : "s"}</span>
-          <button type="button" className="partner-deals-dismiss-btn" onClick={onClose}>
-            Back to Workspace
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
