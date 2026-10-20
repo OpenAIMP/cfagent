@@ -24,10 +24,16 @@ import { apiFetch } from "./apiFetch";
 import type {
   DiscoveryRunSummary,
   DiscoverySymbolOutcome,
+  DiscoveryTargetDerivation,
   StoredDiscoveryRun,
 } from "../trading";
 
-export type { DiscoveryRunSummary, DiscoverySymbolOutcome, StoredDiscoveryRun };
+export type {
+  DiscoveryRunSummary,
+  DiscoverySymbolOutcome,
+  DiscoveryTargetDerivation,
+  StoredDiscoveryRun,
+};
 
 const DISCOVERY_RUNS_PATH = "/api/etrade/options/discovery-runs";
 
@@ -63,6 +69,9 @@ export function coerceDiscoveryRunSummary(data: unknown): DiscoveryRunSummary {
     requestCount: asFiniteNumber(raw.requestCount, 0),
     completedCount: asFiniteNumber(raw.completedCount, 0),
     failedCount: asFiniteNumber(raw.failedCount, 0),
+    // Runs persisted before issue #533 carry no abstention count;
+    // coerce to 0 so the panel never renders "undefined abstained".
+    abstainedCount: asFiniteNumber(raw.abstainedCount, 0),
   };
 }
 
