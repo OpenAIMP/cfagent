@@ -160,7 +160,9 @@ export async function handlePaymentsRoutes(
 
       const amount = Number(body.amount) || 10;
       const currency = (body.currency || "USD").toUpperCase();
-      const customer = (body.customer || "Enterprise Client").trim();
+      // No invented customer name (issue #514): a create that supplies no
+      // customer stores "" rather than a fabricated organization.
+      const customer = (body.customer || "").trim();
       const action = body.action || "charge";
       // Validate the gateway where caller input enters (issue #156): an
       // unsupported value is rejected with a 400 BEFORE any checkout is
@@ -178,7 +180,10 @@ export async function handlePaymentsRoutes(
         }, { status: 400 });
       }
       const gateway = normalizeGateway(gatewayInput) as SupportedGateway;
-      const description = (body.description || `AI Compute Tokens for ${customer}`).trim();
+      // No invented product description (issue #514): a create that
+      // supplies no description stores "" — the caller's text or nothing,
+      // never a product line for a product that does not exist.
+      const description = (body.description || "").trim();
 
       const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
       const userDid = getUserDid(sessionId);
