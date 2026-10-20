@@ -25,6 +25,9 @@ import {
 import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
+import { runWithRouting } from "../models/router";
+import { getWorkersAIModel } from "../agents/model";
+import { generateText } from "ai";
 import type { ScreenerAgent } from "../agents/screener-agent";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
@@ -200,6 +203,36 @@ export function registerScreenerPublishers(
   );
 }
 
+/**
+ * Issue #218: LLM-generated digest of screener opportunities.
+ * Best-effort — returns null if the model is unavailable. The structured
+ * delivery path stays deterministic; this only adds a human-readable lead.
+ */
+export async function generateScreenerDigest(
+  env: Env,
+  event: ScreenerCompletedEvent
+): Promise<string | null> {
+  if (event.opportunities.length === 0) return null;
+  const summary = event.opportunities.slice(0, 5).map(
+    (o) => `${o.symbol} (${o.companyName}) — ${o.signal}, momentum ${o.momentumScore.toFixed(0)}, $${o.lastPrice.toFixed(2)} (${o.changePercent >= 0 ? "+" : ""}${o.changePercent.toFixed(2)}%)`
+  ).join("\n");
+  const prompt = `Summarize these screener results in one sentence for a trader. ` +
+    `Lead with the count and the top names. Be specific, no hype.\n\n` +
+    `Universe: ${event.universe || "TECH"}\n${summary}`;
+  try {
+    const { result } = await runWithRouting("summarize", async (modelName) => {
+      const { text } = await generateText({
+        model: getWorkersAIModel(env, modelName),
+        prompt,
+      });
+      return text.trim();
+    });
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
 function formatOpportunities(
   event: ScreenerCompletedEvent
 ): { text: string; html: string } {
@@ -261,6 +294,10 @@ async function publishCompleted(
   const { text, html } = formatOpportunities(event);
   const plainText = text.replace(/\*/g, "");
 
+  // Issue #218: prepend an LLM-generated digest (best-effort).
+  const digest = await generateScreenerDigest(deps.env, event);
+  const textWithDigest = digest ? `💡 ${digest}\n\n${text}` : text;
+
   // 1. Resolve the exact run's PDF before sending one A2A Slack file
   // notification. Sending a separate summary and then a file generated a
   // duplicate pair of Slack messages for each screen.
@@ -268,12 +305,13 @@ async function publishCompleted(
   const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
   const pdf = await fetchScreenerPdf(deps, event.pdfKey);
   const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+  const plainTextWithDigest = digest ? `💡 ${digest}\n\n${plainText}` : plainText;
   const slackBody = pdf || cfpay
-    ? plainText
-    : `${plainText}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
+    ? plainTextWithDigest
+    : `${plainTextWithDigest}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
   if (cfpay) {
     const delivery = await deliverScreenerToSlackA2A(deps.env, {
-      text: plainText,
+      text: plainTextWithDigest,
       channel: slackChannel,
       ...(pdf ? {
         pdf: {
