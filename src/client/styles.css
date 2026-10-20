@@ -6563,7 +6563,7 @@ body {
 
 .symbol-search-input:focus {
   border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  box-shadow: 0 0 0 3px var(--color-border-focus);
   background: var(--color-surface);
 }
 

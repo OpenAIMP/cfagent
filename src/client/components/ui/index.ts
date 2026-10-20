@@ -25,6 +25,9 @@
  * - Modal — dialog on the tokens.css Universal Modal System classes:
  *   portal, Escape/backdrop close, focus trap + restore, scroll lock
  *   (sizes sm/md/lg/xl, optional footer).
+ * - Table — semantic data table from a column config, with an empty
+ *   slot (usually EmptyState).
+ * - Skeleton — decorative loading placeholder (text/block/circle).
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -41,3 +44,5 @@ export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } fr
 export { TextInput, type TextInputProps } from "./TextInput";
 export { Select, type SelectProps } from "./Select";
 export { Modal, type ModalProps } from "./Modal";
+export { Table, type TableProps, type TableColumn } from "./Table";
+export { Skeleton, type SkeletonProps } from "./Skeleton";

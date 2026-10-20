@@ -366,7 +366,7 @@ export function EtapiConfigModal({
           backgroundColor: "var(--color-card)",
           border: "1px solid var(--color-border-subtle)",
           borderRadius: "12px",
-          boxShadow: "var(--shadow-xl)",
+          boxShadow: "var(--shadow-lg)",
           color: "var(--color-text-primary)",
           display: "flex",
           flexDirection: "column",

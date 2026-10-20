@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
+import { Skeleton } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -398,11 +399,11 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         activeTabId={assetClass}
         onTabChange={(id) => setAssetClass(id as ScreeningAssetClass)}
         rightContent={
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
             {scannedAt && (
               <span>
-                Last scan: <strong style={{ color: "var(--theme-text-main)" }}>{scannedAt}</strong>
+                Last scan: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt}</strong>
               </span>
             )}
             {rows.length > 0 && (
@@ -410,10 +411,10 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 style={{
                   padding: "0.15rem 0.5rem",
                   borderRadius: "4px",
-                  background: "var(--theme-card-bg)",
-                  border: "1px solid var(--theme-border-subtle)",
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border-subtle)",
                   fontWeight: 600,
-                  color: "var(--theme-accent)",
+                  color: "var(--color-accent)",
                 }}
               >
                 {rows.length} matched
@@ -429,14 +430,17 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
-              <span style={{ fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                 Runs every 5 min via the scheduled job — latest results below (refreshes automatically).
               </span>
             </div>
             {autoLoading ? (
-              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>Loading latest autonomous run…</div>
+              <div role="status" aria-label="Loading latest autonomous run">
+                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>Loading latest autonomous run…</div>
+                <Skeleton lines={3} />
+              </div>
             ) : autoRuns.length === 0 ? (
-              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
                 No autonomous runs recorded yet. The next 5-minute tick will populate this panel.
               </div>
             ) : (
@@ -482,7 +486,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                           }}
                         >
                           <strong>{new Date(run.timestamp).toLocaleString()}</strong>
-                          <span style={{ color: "var(--theme-text-muted)" }}>
+                          <span style={{ color: "var(--color-text-muted)" }}>
                             {[run.universe, run.sector && run.sector !== "ALL" ? `${run.sector} sector` : null]
                               .filter(Boolean)
                               .join(" · ")}
