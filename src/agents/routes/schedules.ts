@@ -40,6 +40,7 @@ import {
   SqlDiscoveryRunStore,
   SqlIvHistoryStore,
   SqlScanRunStore,
+  SqlStrategyProfileStore,
   UNIVERSES,
   validateStrategyRequest,
   MAX_SAVED_REQUESTS_PER_RUN,
@@ -256,18 +257,63 @@ export async function handleSchedulesRoutes(
           // StrategyRequests at creation time — an empty or malformed
           // list is rejected here rather than armed to fail honestly
           // on every fire. The service re-validates at execution.
-          const savedRequests = (safePayload as any).requests;
-          if (!Array.isArray(savedRequests) || savedRequests.length === 0) {
-            return Response.json({ success: false, error: "Discovery schedules require at least one saved strategy request in payload.requests." }, { status: 400 });
+          // Issue #533 adds the profile-derived input model: the
+          // payload names a Strategy Profile plus ONE symbol source
+          // (explicit symbols, or a watchlist name resolved at fire
+          // time). Arm-time validation there is SHAPE ONLY — the
+          // profile may be edited or deleted after arming, and both
+          // are honest fire-time outcomes, so existence is
+          // deliberately NOT checked here.
+          const inputModel = (safePayload as any).inputModel;
+          if (
+            inputModel !== undefined &&
+            inputModel !== "saved-request" &&
+            inputModel !== "profile-derived"
+          ) {
+            return Response.json({ success: false, error: `Unknown discovery inputModel '${inputModel}'. Use "saved-request" or "profile-derived".` }, { status: 400 });
           }
-          if (savedRequests.length > MAX_SAVED_REQUESTS_PER_RUN) {
-            return Response.json({ success: false, error: `Discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per schedule.` }, { status: 400 });
-          }
-          for (let i = 0; i < savedRequests.length; i++) {
-            const requestError = validateStrategyRequest(savedRequests[i]);
-            if (requestError) {
-              const symbol = typeof savedRequests[i]?.symbol === "string" ? savedRequests[i].symbol : "?";
-              return Response.json({ success: false, error: `Saved discovery request ${i + 1} (${symbol}) is invalid: ${requestError}` }, { status: 400 });
+          if (inputModel === "profile-derived") {
+            const profileId = (safePayload as any).profileId;
+            if (typeof profileId !== "string" || !profileId.trim()) {
+              return Response.json({ success: false, error: "Profile-derived discovery schedules require payload.profileId (the Strategy Profile to derive targets under)." }, { status: 400 });
+            }
+            const hasSymbols = (safePayload as any).symbols !== undefined;
+            const hasWatchlist = (safePayload as any).watchlistName !== undefined;
+            if (hasSymbols === hasWatchlist) {
+              return Response.json({ success: false, error: "Profile-derived discovery schedules require exactly one symbol source: payload.symbols or payload.watchlistName." }, { status: 400 });
+            }
+            if (hasSymbols) {
+              const derivedSymbols = (safePayload as any).symbols;
+              if (!Array.isArray(derivedSymbols) || derivedSymbols.length === 0) {
+                return Response.json({ success: false, error: "payload.symbols must name at least one symbol for a profile-derived discovery schedule." }, { status: 400 });
+              }
+              if (derivedSymbols.length > MAX_SAVED_REQUESTS_PER_RUN) {
+                return Response.json({ success: false, error: `Profile-derived discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per schedule.` }, { status: 400 });
+              }
+              // Ticker shape itself is enforced by the generic
+              // payload.symbols check above, which runs for every
+              // callback.
+            }
+            if (hasWatchlist) {
+              const watchlistName = (safePayload as any).watchlistName;
+              if (typeof watchlistName !== "string" || !watchlistName.trim()) {
+                return Response.json({ success: false, error: "payload.watchlistName must be a non-empty watchlist name." }, { status: 400 });
+              }
+            }
+          } else {
+            const savedRequests = (safePayload as any).requests;
+            if (!Array.isArray(savedRequests) || savedRequests.length === 0) {
+              return Response.json({ success: false, error: "Discovery schedules require at least one saved strategy request in payload.requests." }, { status: 400 });
+            }
+            if (savedRequests.length > MAX_SAVED_REQUESTS_PER_RUN) {
+              return Response.json({ success: false, error: `Discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per schedule.` }, { status: 400 });
+            }
+            for (let i = 0; i < savedRequests.length; i++) {
+              const requestError = validateStrategyRequest(savedRequests[i]);
+              if (requestError) {
+                const symbol = typeof savedRequests[i]?.symbol === "string" ? savedRequests[i].symbol : "?";
+                return Response.json({ success: false, error: `Saved discovery request ${i + 1} (${symbol}) is invalid: ${requestError}` }, { status: 400 });
+              }
             }
           }
         }
@@ -418,7 +464,11 @@ export async function handleSchedulesRoutes(
     // through the discovery pipeline and persists the run as a
     // "manual-trigger" discovery run. An account identity is required:
     // runs are per-user records and execute under the owner's E*TRADE
-    // session (mirrors trigger-iv-collection's 401).
+    // session (mirrors trigger-iv-collection's 401). Issue #533: a body
+    // carrying inputModel "profile-derived" (+ profileId and symbols
+    // or watchlistName) flows through the same call — the service
+    // branches on the discriminator — and abstentions ride back in the
+    // result data alongside failures.
     if (path.endsWith("/schedules/trigger-discovery") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
@@ -435,7 +485,8 @@ export async function handleSchedulesRoutes(
           userLogin,
           new SqlScanRunStore(ctx.agentCtx.storage.sql),
           undefined,
-          new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql)
+          new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
+          new SqlStrategyProfileStore(ctx.agentCtx.storage.sql)
         );
         const result = await service.autonomousStrategyDiscovery({ ...body, userLogin, environment, trigger: "manual" });
         return Response.json(result);
