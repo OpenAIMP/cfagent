@@ -781,8 +781,20 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         // (not a thesis): the same schedule re-firing inside one
         // minute slot is a platform duplicate; a different request
         // set in the same minute is a different run and proceeds.
+        // Issue #533: profile-derived payloads carry no requests —
+        // the slot keys on the derived identity (input model, symbol
+        // source, profile) instead, so two different derived
+        // schedules in the same minute never suppress each other.
+        // Saved-request payloads hash exactly as before.
         const slot = new Date().toISOString().slice(0, 16);
-        const requestsJson = JSON.stringify(payload?.requests ?? []);
+        const requestsJson = JSON.stringify(
+          payload?.requests ?? {
+            inputModel: payload?.inputModel,
+            symbols: payload?.symbols,
+            watchlistName: payload?.watchlistName,
+            profileId: payload?.profileId,
+          }
+        );
         let hash = 0;
         for (let i = 0; i < requestsJson.length; i++) {
           hash = ((hash << 5) - hash + requestsJson.charCodeAt(i)) | 0;
@@ -806,7 +818,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         userLogin,
         new SqlScanRunStore(this.ctx.storage.sql),
         undefined,
-        new SqlDiscoveryRunStore(this.ctx.storage.sql)
+        new SqlDiscoveryRunStore(this.ctx.storage.sql),
+        new SqlStrategyProfileStore(this.ctx.storage.sql)
       );
       const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
@@ -833,7 +846,9 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
                 type: "discovery_alert",
                 title: "Scheduled Strategy Discovery Failed",
                 success: false,
-                symbols: (payload?.requests ?? []).map((r) => r?.symbol),
+                symbols: payload?.requests?.length
+                  ? payload.requests.map((r) => r?.symbol)
+                  : (payload?.symbols ?? []),
                 error: res.error,
                 timestamp: res.timestamp,
               })
