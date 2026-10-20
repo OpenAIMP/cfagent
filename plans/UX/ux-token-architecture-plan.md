@@ -34,6 +34,11 @@ Object (Workers AI, RAG, NLQ analytics) with E*TRADE / options / screener toolin
   pairing rule, WCAG 2.1 AA, density awareness. **The design intent is documented; the codebase
   just hasn't converged on it.**
 
+## Standing directives (Venus, 2026-10-20)
+
+1. **Dark / light / system, everywhere.** The system follows all three theme modes, implemented consistently across ALL UX elements and components — no dark-only or light-only corners. Enforced mechanically by the Phase 2 ratchet (#470) reaching zero (Phase 6, #476) and proven surface-by-surface by the verification gate **#491**.
+2. **Fully composable, component-oriented UX.** Surfaces are assembled from shared components and primitives (`src/client/components/ui/` — seeded with `PillGroup` + `SegmentedControl`, pinned by `tests/composable_ui_primitives.test.ts`), not hand-built per page. Tracked in **#492**, with the Chat.tsx split (#400) and the Strategy Library extraction (#450) as its decomposition slices. New repeated elements become primitives (token-only styling, tests included), not page-local copies.
+
 ## Token architecture — measured current state (2026-10-20 audit)
 
 Foundation exists, applied inconsistently — exactly as issue **#137** says, and slightly worse
@@ -187,6 +192,8 @@ _Rule for all future work in this repo (per Venus): `git pull --rebase` / merge 
 | Phase 6 — collapse alias vocabularies; ratchet to zero | #476 |
 | Related existing slice: sector info hard-coded colors | #422 |
 | Related sequencing: unify strategy catalog (before 3b options slice) | #450 |
+| **Gate (directive): theme-consistency verification — EVERY element follows dark/light/system** | **#491** |
+| **Direction (directive): composable, component-oriented UX** | **#492** |
 
 ## Phase 3a chunking notes (from literal analysis, 2026-10-20)
 
