@@ -687,7 +687,7 @@ export function ScheduledOptionsManager({
         {schedules.length === 0 && !loading ? (
           <div className="schedules-empty-state">
             <span style={{ fontSize: "2.5rem" }}>📅</span>
-            <p>No active scheduled tasks currently running.</p>
+            <p>No active stock or options schedules. Create a screen schedule to see it here; legacy app-created jobs are not recreated automatically.</p>
             <button
               type="button"
               className="btn-sched-primary"

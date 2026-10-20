@@ -119,6 +119,30 @@ describe("POST /api/schedules/create (#111)", () => {
     expect(scheduleEveryCalls).toHaveLength(0);
   });
 
+  it("preserves account-owned stock/options screens while retiring only legacy maintenance schedules", async () => {
+    const agent = makeAgent();
+    const stored = new Map<string, unknown>();
+    agent.ctx.storage.get = async (key: string) => stored.get(key);
+    agent.ctx.storage.put = async (key: string, value: unknown) => { stored.set(key, value); };
+    const schedules = [
+      { id: "legacy-stock-screen", callback: "autonomousMarketScreen", cron: "5 * * * *", payload: { userLogin: authenticatedLogin, trigger: "scheduled", universe: "NASDAQ100", maxItems: 100 } },
+      { id: "legacy-options-screen", callback: "autonomousOptionsAnalysis", cron: "35 * * * *", payload: { userLogin: authenticatedLogin, trigger: "scheduled", pushToSlack: true } },
+      { id: "legacy-token-renewal", callback: "autoRenewETradeTokens", payload: { userLogin: authenticatedLogin } },
+      { id: "legacy-iv-collection", callback: "collectIvHistory", cron: "15 22 * * 1-5", payload: { userLogin: authenticatedLogin } },
+    ];
+    const cancelled = new Set<string>();
+    agent.listSchedules = async () => schedules.filter((schedule) => !cancelled.has(schedule.id));
+    agent.cancelSchedule = async (id: string) => { cancelled.add(id); return true; };
+
+    const response = await agent.onRequest(new Request("https://agent.test/api/schedules", {
+      headers: { "x-user-login": authenticatedLogin, "x-environment": "TEST" },
+    }));
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.schedules.map((schedule: any) => schedule.id)).toEqual(["legacy-stock-screen", "legacy-options-screen"]);
+  });
+
   it.each(["executeAsyncJob", "expireStaleOrderDraft"])(
     "rejects the internal-only callback %s with 400 and creates no schedule",
     async (callback) => {

@@ -198,7 +198,7 @@ export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[nu
 type ETradeEnvironment = "TEST" | "PROD";
 type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
 const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
-const LEGACY_SCHEDULE_MIGRATION_KEY = "screener:legacy-baseline-migration:v2";
+const LEGACY_SCHEDULE_MIGRATION_KEY = "screener:legacy-baseline-migration:v3";
 
 function screenerAgentName(userLogin: string): string {
   // Preserve the original shared agent for the legacy system identity.
@@ -226,7 +226,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return storage.get<ScreenerExecutionContext>(SCREENER_EXECUTION_CONTEXT_KEY);
   }
 
-  /** Remove the old app-created cron set once; future jobs are user-created. */
+  /** Retire old internal maintenance jobs while preserving account screening schedules. */
   private async migrateLegacyScreenSchedules(context: ScreenerExecutionContext): Promise<void> {
     const storage = this.ctx?.storage;
     if (!storage || typeof storage.get !== "function" || typeof storage.put !== "function") return;
@@ -239,24 +239,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const item = schedule as any;
       const payload = item.payload || {};
       const callback = item.callback;
-      const isLegacyScreen =
-        callback === "autonomousMarketScreen" &&
-        payload.userLogin === context.userLogin &&
-        payload.trigger === "scheduled" &&
-        /^(5|15|25|35|45|55) \* \* \* \*$/.test(item.cron || "") &&
-        typeof payload.universe === "string" &&
-        typeof payload.maxItems === "number" &&
-        !payload.sector &&
-        !Array.isArray(payload.symbols);
-      const isLegacyOptionsScreen =
-        callback === "autonomousOptionsAnalysis" &&
-        payload.userLogin === context.userLogin &&
-        payload.trigger === "scheduled" &&
-        item.cron === "35 * * * *" && !payload.universe && !payload.symbols && payload.pushToSlack === true;
       const isLegacyTokenRenewal = callback === "autoRenewETradeTokens" && payload.userLogin === context.userLogin;
       const isLegacyIvCollection =
         callback === "collectIvHistory" && payload.userLogin === context.userLogin && item.cron === "15 22 * * 1-5";
-      if (isLegacyScreen || isLegacyOptionsScreen || isLegacyTokenRenewal || isLegacyIvCollection) {
+      if (isLegacyTokenRenewal || isLegacyIvCollection) {
         console.warn(`[OrchestratorAgent] Removing app-created legacy schedule ${item.id} (${callback})`);
         try {
           await this.cancelSchedule(item.id);
@@ -416,7 +402,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       if (context?.userLogin) await this.migrateLegacyScreenSchedules(context);
       else await this.removeUnownedBaselineSchedules();
     } catch (schedErr) {
-      console.warn("[OrchestratorAgent][onStart] Baseline schedule reconciliation failed:", schedErr);
+      console.warn("[OrchestratorAgent][onStart] Legacy maintenance schedule reconciliation failed:", schedErr);
     }
   }
 
