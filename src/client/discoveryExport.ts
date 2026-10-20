@@ -53,7 +53,7 @@ interface DiscoveryCandidateRow {
 function candidateRows(run: StoredDiscoveryRun): DiscoveryCandidateRow[] {
   const rows: DiscoveryCandidateRow[] = [];
   for (const outcome of run.outcomes) {
-    if (outcome.status !== "completed" || !outcome.ranked) continue;
+    if (outcome.status !== "completed" || !outcome.ranked || !outcome.request) continue;
     const bestId = outcome.bestTrade?.best?.candidate.id;
     for (const entry of outcome.ranked) {
       const c = entry.candidate;
