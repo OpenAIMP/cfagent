@@ -39,6 +39,7 @@ function extractBlock(selectorRe) {
 const themes = {
   dark: extractBlock(/\[data-theme="dark"\]/),
   light: extractBlock(/\[data-theme="light"\]/),
+  "high-contrast": extractBlock(/\[data-theme="high-contrast"\]/),
 };
 
 function resolve(vars, name, seen = new Set()) {

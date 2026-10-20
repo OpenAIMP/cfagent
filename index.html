@@ -16,7 +16,7 @@
       }
       // Kept in parity with runtime validators by bootstrap tests.
       var savedTheme = read('nextgentp_theme');
-      var theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'system';
+      var theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' || savedTheme === 'high-contrast' ? savedTheme : 'system';
       var systemDark = false;
       try { systemDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
       var effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;

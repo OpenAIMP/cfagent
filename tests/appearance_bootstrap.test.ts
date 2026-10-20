@@ -38,7 +38,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('pre-paint appearance bootstrap', () => {
   it('matches theme validation and system resolution', () => {
-    for (const saved of ['', 'invalid', 'light', 'dark', 'system']) {
+    for (const saved of ['', 'invalid', 'light', 'dark', 'system', 'high-contrast']) {
       for (const dark of [false, true]) {
         const result = bootstrap({ nextgentp_theme: saved }, dark);
         const preference = normalizeTheme(saved);

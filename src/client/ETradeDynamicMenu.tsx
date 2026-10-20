@@ -661,7 +661,15 @@ export function SettingsMenu({
                     </button>
                     <button
                       type="button"
-                      className={`btn-pref-pill ${theme !== "light" && theme !== "dark" ? "active" : ""}`}
+                      className={`btn-pref-pill ${theme === "high-contrast" ? "active" : ""}`}
+                      onClick={() => onCycleTheme()}
+                      title="High Contrast Theme"
+                    >
+                      ◐ Contrast
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-pref-pill ${theme === "system" ? "active" : ""}`}
                       onClick={() => onCycleTheme()}
                       title="System / Auto Theme"
                     >
