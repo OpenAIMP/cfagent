@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import type { IFossMarketDataProvider } from "../patterns/interfaces";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
+import { getCachedQuote, setCachedQuote } from "./quoteCache";
 
 export interface StockMarketProfile {
   symbol: string;
@@ -1867,6 +1868,9 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 
   async getQuote(symbol: string): Promise<FossQuote> {
     const cleanSym = symbol.toUpperCase().trim();
+    // #411: serve repeat quotes from the 5-minute in-memory cache.
+    const cachedQuote = getCachedQuote<FossQuote>(`yahoo:${cleanSym}`);
+    if (cachedQuote) return cachedQuote;
     const urls = [
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
       `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
@@ -1932,7 +1936,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               // Ignore enrichment error
             }
 
-            return {
+            const liveQuote: FossQuote = {
               symbol: meta.symbol || cleanSym,
               provider: "yfinance",
               provenance: "live",
@@ -1956,6 +1960,9 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               timestamp: new Date().toISOString(),
               currency: meta.currency || "USD",
             };
+            // #411: only live results are cached — never the fallback below.
+            setCachedQuote(`yahoo:${cleanSym}`, liveQuote);
+            return liveQuote;
           }
         }
       } catch {

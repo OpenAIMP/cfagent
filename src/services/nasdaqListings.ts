@@ -58,8 +58,12 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
 }
 
 import { getExternalApisConfig } from "../config/etapiConfig";
+import { getCachedQuote, setCachedQuote } from "./quoteCache";
 
 export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Promise<NasdaqStockListing[]> {
+  // #411: the full-universe sweep is cached for 5 minutes in memory.
+  const cachedListings = getCachedQuote<NasdaqStockListing[]>("nasdaq:listings:all");
+  if (cachedListings) return cachedListings;
   const extConfig = getExternalApisConfig();
   const exchanges: NasdaqExchange[] = (extConfig?.nasdaqListings?.exchanges as NasdaqExchange[]) || ["nasdaq", "nyse", "amex"];
   const pageSize = extConfig?.nasdaqListings?.pageSize || 5000;
@@ -117,5 +121,7 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       if (!unique.has(listing.symbol)) unique.set(listing.symbol, listing);
     }
   }
-  return Array.from(unique.values());
+  const listings = Array.from(unique.values());
+  setCachedQuote("nasdaq:listings:all", listings);
+  return listings;
 }
