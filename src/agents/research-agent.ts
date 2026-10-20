@@ -205,6 +205,9 @@ export class ResearchAgent extends Think<Env> {
           now
         );
       },
+      delete: (key: string): void => {
+        sql.exec("DELETE FROM research_task_store WHERE key = ?", key);
+      },
       list: (prefix: string): Array<{ key: string; value: string }> => {
         try {
           const rows = Array.from(
@@ -295,6 +298,11 @@ export class ResearchAgent extends Think<Env> {
     staleAfterMs: number = DEFAULT_STALE_AFTER_MS
   ): Promise<ResearchTask[]> {
     return this.taskLedger().sweepStale(staleAfterMs);
+  }
+
+  /** Issue #635: delete terminal task records past the retention tiers. */
+  async pruneExpiredResearchTasks(): Promise<string[]> {
+    return this.taskLedger().pruneExpired();
   }
 
   /** Typed config read (amendment 1: the single config owner). */

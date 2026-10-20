@@ -727,12 +727,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    * failure cannot block the other; swept tasks end escalated, never
    * auto-rerun.
    */
-  async sweepStaleLedgerTasks(payload?: { userLogin?: string }): Promise<{ userLogin: string | null; researchSwept: number; screenerSwept: number }> {
+  async sweepStaleLedgerTasks(payload?: { userLogin?: string }): Promise<{ userLogin: string | null; researchSwept: number; screenerSwept: number; researchPruned: number; screenerPruned: number }> {
     const context = await this.getScreenerExecutionContext();
     const userLogin = context?.userLogin || payload?.userLogin;
     if (!userLogin) {
       console.warn("[OrchestratorAgent] Skipping stale-task sweep without an authenticated account owner.");
-      return { userLogin: null, researchSwept: 0, screenerSwept: 0 };
+      return { userLogin: null, researchSwept: 0, screenerSwept: 0, researchPruned: 0, screenerPruned: 0 };
     }
     let researchSwept = 0;
     try {
@@ -747,10 +747,25 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch (error) {
       console.warn(`[OrchestratorAgent] Stale screener sweep failed for ${userLogin}:`, error);
     }
-    if (researchSwept > 0 || screenerSwept > 0) {
-      console.info(`[OrchestratorAgent] Stale-task sweep for ${userLogin}: research=${researchSwept} screener=${screenerSwept} closed as escalated.`);
+    // Issue #635: retention pruning rides the same maintenance path,
+    // in its own isolated legs — a prune failure never affects sweeps.
+    let researchPruned = 0;
+    try {
+      const research = this.getResearchAgent(userLogin);
+      if (research) researchPruned = (await research.pruneExpiredResearchTasks()).length;
+    } catch (error) {
+      console.warn(`[OrchestratorAgent] Research retention prune failed for ${userLogin}:`, error);
     }
-    return { userLogin, researchSwept, screenerSwept };
+    let screenerPruned = 0;
+    try {
+      screenerPruned = (await this.getScreenerAgent(userLogin).pruneExpiredScreenerTasks()).length;
+    } catch (error) {
+      console.warn(`[OrchestratorAgent] Screener retention prune failed for ${userLogin}:`, error);
+    }
+    if (researchSwept > 0 || screenerSwept > 0 || researchPruned > 0 || screenerPruned > 0) {
+      console.info(`[OrchestratorAgent] Task maintenance for ${userLogin}: research swept=${researchSwept} pruned=${researchPruned}; screener swept=${screenerSwept} pruned=${screenerPruned}.`);
+    }
+    return { userLogin, researchSwept, screenerSwept, researchPruned, screenerPruned };
   }
 
   /** Issue #618: arm the recurring stale-sweep interval once per user. */

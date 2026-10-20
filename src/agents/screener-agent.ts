@@ -169,6 +169,9 @@ export class ScreenerAgent extends Agent<Env> {
       set: async (key: string, value: string): Promise<void> => {
         await storage.put(`screener:${key}`, value);
       },
+      delete: async (key: string): Promise<void> => {
+        await storage.delete(`screener:${key}`);
+      },
       list: async (
         prefix: string
       ): Promise<Array<{ key: string; value: string }>> => {
@@ -270,6 +273,11 @@ export class ScreenerAgent extends Agent<Env> {
     staleAfterMs: number = DEFAULT_STALE_AFTER_MS
   ): Promise<ScreenerTask[]> {
     return this.taskLedger().sweepStale(staleAfterMs);
+  }
+
+  /** Issue #635: delete terminal task records past the retention tiers. */
+  async pruneExpiredScreenerTasks(): Promise<string[]> {
+    return this.taskLedger().pruneExpired();
   }
 
   /**

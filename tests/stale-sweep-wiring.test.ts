@@ -65,3 +65,11 @@ describe("stale sweep wiring (#618)", () => {
     expect(start).toContain("ensureStaleSweepSchedule");
   });
 });
+
+describe("retention pruning rides the sweep callback (#635)", () => {
+  it("the callback also prunes both ledgers", () => {
+    const cb = region("async sweepStaleLedgerTasks(");
+    expect(cb).toContain("pruneExpiredResearchTasks(");
+    expect(cb).toContain("pruneExpiredScreenerTasks(");
+  });
+});

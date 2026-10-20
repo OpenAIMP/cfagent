@@ -71,6 +71,7 @@ export interface ResearchTaskStore {
   get(key: string): string | null;
   set(key: string, value: string): void;
   list(prefix: string): Array<{ key: string; value: string }>;
+  delete(key: string): void;
 }
 
 export interface ResearchOutcomeFacts {
@@ -89,6 +90,12 @@ export interface ResearchOutcomeFacts {
 /** Issue #615 (R4): default staleness threshold — 30 minutes, far
  * above observed research run durations (minutes-scale). */
 export const DEFAULT_STALE_AFTER_MS = 30 * 60 * 1000;
+
+/** Issue #635: retention tiers for terminal task records — 90 days
+ * for completed/cancelled, 365 days for failed/escalated (human-review
+ * items). Active records are never pruned. */
+export const DEFAULT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+export const DEFAULT_ESCALATED_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 
 const TASK_PREFIX = "task:";
 const IDEM_PREFIX = "idem:";
@@ -303,6 +310,36 @@ export class ResearchTaskLedger {
         `stale: no heartbeat for ${ageMs}ms (threshold ${staleAfterMs}ms)`
       );
     });
+  }
+
+  /**
+   * Issue #635: delete terminal records older than their retention
+   * tier (by updatedAt), plus their idempotency entry when it still
+   * points at the task. Active records are never pruned — the stale
+   * sweep owns those. Returns the pruned task ids.
+   */
+  pruneExpired(
+    opts?: { retentionMs?: number; escalatedRetentionMs?: number },
+    at?: string
+  ): string[] {
+    const retentionMs = opts?.retentionMs ?? DEFAULT_RETENTION_MS;
+    const escalatedRetentionMs =
+      opts?.escalatedRetentionMs ?? DEFAULT_ESCALATED_RETENTION_MS;
+    const nowMs = Date.parse(at ?? this.now());
+    const pruned: string[] = [];
+    for (const task of this.list(Number.MAX_SAFE_INTEGER)) {
+      if (ACTIVE.has(task.status)) continue;
+      const tierMs =
+        task.status === "failed" || task.status === "escalated"
+          ? escalatedRetentionMs
+          : retentionMs;
+      if (nowMs - Date.parse(task.updatedAt) <= tierMs) continue;
+      this.store.delete(TASK_PREFIX + task.id);
+      const idemKey = IDEM_PREFIX + task.idempotencyKey;
+      if (this.store.get(idemKey) === task.id) this.store.delete(idemKey);
+      pruned.push(task.id);
+    }
+    return pruned;
   }
 
   /** Fail + escalate a task abandoned in any active state. */

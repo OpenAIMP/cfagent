@@ -24,6 +24,7 @@ function memStore(): ScreenerTaskStore {
   return {
     get: async (k) => (raw.has(k) ? raw.get(k)! : null),
     set: async (k, v) => void raw.set(k, v),
+    delete: async (k) => void raw.delete(k),
     list: async (prefix) =>
       [...raw.entries()]
         .filter(([k]) => k.startsWith(prefix))
@@ -427,5 +428,116 @@ describe("stale detection and sweep (#615, R4)", () => {
     expect(agent).toContain("sweepStaleScreenerTasks");
     expect(agent).toContain(".findStale(");
     expect(agent).toContain(".sweepStale(");
+  });
+});
+
+describe("record retention / pruneExpired (#635)", () => {
+  const T0 = Date.parse("2026-10-20T12:00:00.000Z");
+  const DAY = 24 * 60 * 60_000;
+
+  function clockLedger(store: ScreenerTaskStore) {
+    let nowMs = T0;
+    let n = 0;
+    const l = new ScreenerTaskLedger(store, {
+      now: () => new Date(nowMs).toISOString(),
+      newId: () => `stask-${++n}`,
+    });
+    return { l, advance: (ms: number) => { nowMs += ms; } };
+  }
+
+  const GOOD = evaluateScreenerOutcome(
+    {
+      success: true,
+      runTimestamp: "2026-10-20T12:01:00.000Z",
+      totalScanned: 10,
+      matchedCount: 3,
+      opportunities: 1,
+      partial: false,
+      qualificationPresent: false,
+    },
+    "2026-10-20T12:01:00.000Z"
+  );
+
+  async function completedTask(l: ScreenerTaskLedger, key: string) {
+    const { task } = await l.create({ ...SCHEDULED, idempotencyKey: key });
+    await l.claim(task.id);
+    await l.start(task.id);
+    await l.complete(task.id, {
+      runTimestamp: "2026-10-20T12:01:00.000Z",
+      totalScanned: 10,
+      matchedCount: 3,
+      opportunitiesCount: 1,
+      partial: false,
+      evaluation: GOOD,
+    });
+    return task.id;
+  }
+
+  it("keeps terminal records younger than the retention window", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = await completedTask(l, "k-young");
+    advance(89 * DAY);
+    expect(await l.pruneExpired()).toEqual([]);
+    expect(await l.get(id)).not.toBeNull();
+  });
+
+  it("prunes completed and cancelled records older than 90 days", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const done = await completedTask(l, "k-done");
+    const cancelled = (await l.create({ ...SCHEDULED, idempotencyKey: "k-cx" })).task.id;
+    await l.cancel(cancelled, "suppressed duplicate");
+    advance(91 * DAY);
+    expect((await l.pruneExpired()).sort()).toEqual([cancelled, done].sort());
+    expect(await l.get(done)).toBeNull();
+    expect(await l.get(cancelled)).toBeNull();
+  });
+
+  it("keeps failed/escalated records at 100 days but prunes them after 365", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const { task } = await l.create({ ...SCHEDULED, idempotencyKey: "k-esc" });
+    await l.claim(task.id);
+    await l.start(task.id);
+    await l.fail(task.id, "boom");
+    await l.escalate(task.id, "needs a human");
+    advance(100 * DAY);
+    expect(await l.pruneExpired()).toEqual([]);
+    advance(300 * DAY);
+    expect(await l.pruneExpired()).toEqual([task.id]);
+  });
+
+  it("never prunes active records, however old", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const { task } = await l.create({ ...SCHEDULED, idempotencyKey: "k-live" });
+    await l.claim(task.id);
+    await l.start(task.id);
+    advance(400 * DAY);
+    expect(await l.pruneExpired()).toEqual([]);
+    expect((await l.get(task.id))?.status).toBe("running");
+  });
+
+  it("cleans the idempotency entry so the same key creates fresh after a prune", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const first = await completedTask(l, "k-reuse");
+    advance(91 * DAY);
+    expect(await l.pruneExpired()).toEqual([first]);
+    const again = await l.create({ ...SCHEDULED, idempotencyKey: "k-reuse" });
+    expect(again.created).toBe(true);
+    expect(again.task.id).not.toBe(first);
+  });
+
+  it("respects custom retention values", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = await completedTask(l, "k-custom");
+    advance(10 * DAY);
+    expect(await l.pruneExpired({ retentionMs: 5 * DAY })).toEqual([id]);
+  });
+
+  it("exposes pruning on ScreenerAgent (source evidence)", () => {
+    const agent = fs.readFileSync(
+      path.join(process.cwd(), "src/agents/screener-agent.ts"),
+      "utf8"
+    );
+    expect(agent).toContain("async pruneExpiredScreenerTasks(");
+    expect(agent).toContain(".pruneExpired(");
   });
 });

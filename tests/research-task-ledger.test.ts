@@ -24,6 +24,7 @@ function memStore(): ResearchTaskStore {
   return {
     get: (k) => (raw.has(k) ? raw.get(k)! : null),
     set: (k, v) => void raw.set(k, v),
+    delete: (k) => void raw.delete(k),
     list: (prefix) =>
       [...raw.entries()]
         .filter(([k]) => k.startsWith(prefix))
@@ -337,5 +338,96 @@ describe("stale detection and sweep (#615, R4)", () => {
     expect(agent).toContain("sweepStaleResearchTasks");
     expect(agent).toContain(".findStale(");
     expect(agent).toContain(".sweepStale(");
+  });
+});
+
+describe("record retention / pruneExpired (#635)", () => {
+  const T0 = Date.parse("2026-10-20T10:00:00.000Z");
+  const DAY = 24 * 60 * 60_000;
+
+  function clockLedger(store: ResearchTaskStore) {
+    let nowMs = T0;
+    let n = 0;
+    const l = new ResearchTaskLedger(store, {
+      now: () => new Date(nowMs).toISOString(),
+      newId: () => `task-${++n}`,
+    });
+    return { l, advance: (ms: number) => { nowMs += ms; } };
+  }
+
+  function completedTask(l: ResearchTaskLedger, key: string) {
+    const { task } = l.create({ ...INPUT, idempotencyKey: key });
+    l.claim(task.id);
+    l.start(task.id);
+    l.complete(task.id, { path: "think", reportRunId: "run-1", evaluation: GOOD_EVAL });
+    return task.id;
+  }
+
+  it("keeps terminal records younger than the retention window", () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = completedTask(l, "k-young");
+    advance(89 * DAY);
+    expect(l.pruneExpired()).toEqual([]);
+    expect(l.get(id)).not.toBeNull();
+  });
+
+  it("prunes completed and cancelled records older than 90 days", () => {
+    const { l, advance } = clockLedger(memStore());
+    const done = completedTask(l, "k-done");
+    const cancelled = l.create({ ...INPUT, idempotencyKey: "k-cx" }).task.id;
+    l.cancel(cancelled);
+    advance(91 * DAY);
+    expect(l.pruneExpired().sort()).toEqual([cancelled, done].sort());
+    expect(l.get(done)).toBeNull();
+    expect(l.get(cancelled)).toBeNull();
+  });
+
+  it("keeps failed/escalated records at 100 days but prunes them after 365", () => {
+    const { l, advance } = clockLedger(memStore());
+    const { task } = l.create({ ...INPUT, idempotencyKey: "k-esc" });
+    l.claim(task.id);
+    l.start(task.id);
+    l.fail(task.id, "boom");
+    l.escalate(task.id, "needs a human");
+    advance(100 * DAY);
+    expect(l.pruneExpired()).toEqual([]);
+    advance(300 * DAY);
+    expect(l.pruneExpired()).toEqual([task.id]);
+  });
+
+  it("never prunes active records, however old", () => {
+    const { l, advance } = clockLedger(memStore());
+    const { task } = l.create({ ...INPUT, idempotencyKey: "k-live" });
+    l.claim(task.id);
+    l.start(task.id);
+    advance(400 * DAY);
+    expect(l.pruneExpired()).toEqual([]);
+    expect(l.get(task.id)?.status).toBe("running");
+  });
+
+  it("cleans the idempotency entry so the same key creates fresh after a prune", () => {
+    const { l, advance } = clockLedger(memStore());
+    const first = completedTask(l, "k-reuse");
+    advance(91 * DAY);
+    expect(l.pruneExpired()).toEqual([first]);
+    const again = l.create({ ...INPUT, idempotencyKey: "k-reuse" });
+    expect(again.created).toBe(true);
+    expect(again.task.id).not.toBe(first);
+  });
+
+  it("respects custom retention values", () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = completedTask(l, "k-custom");
+    advance(10 * DAY);
+    expect(l.pruneExpired({ retentionMs: 5 * DAY })).toEqual([id]);
+  });
+
+  it("exposes pruning on ResearchAgent (source evidence)", () => {
+    const agent = fs.readFileSync(
+      path.join(process.cwd(), "src/agents/research-agent.ts"),
+      "utf8"
+    );
+    expect(agent).toContain("async pruneExpiredResearchTasks(");
+    expect(agent).toContain(".pruneExpired(");
   });
 });
