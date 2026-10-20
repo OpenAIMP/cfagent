@@ -201,8 +201,8 @@ export function RawContractsScreener({
       {/* Top Banner & Quick Underlying Chips */}
       <div
         style={{
-          background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.8))",
-          border: "1px solid rgba(56, 189, 248, 0.25)",
+          background: "var(--color-card)",
+          border: "1px solid var(--color-accent-border)",
           borderRadius: "10px",
           padding: "1rem 1.25rem",
           display: "flex",
@@ -418,7 +418,7 @@ export function RawContractsScreener({
                     padding: "0.25rem 0.6rem",
                     fontSize: "0.75rem",
                     border: "none",
-                    background: typeFilter === t ? "rgba(56, 189, 248, 0.25)" : "transparent",
+                    background: typeFilter === t ? "var(--color-info-subtle)" : "transparent",
                     color: typeFilter === t ? "var(--color-accent)" : "var(--color-text-muted)",
                     cursor: "pointer",
                   }}

@@ -97,7 +97,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       {goals.map((g) => (
         <div
           key={g.id}
-          style={{ border: "1px solid #ddd", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
+          style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
         >
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <strong>{g.name}</strong>
@@ -108,7 +108,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
                 marginLeft: "auto",
                 fontSize: 12,
                 fontWeight: 700,
-                color: g.enabled ? "#1a7f37" : "#888",
+                color: g.enabled ? "var(--color-success)" : "var(--color-text-muted)",
               }}
             >
               {g.enabled ? "ENABLED" : "DISABLED"}
@@ -162,7 +162,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       <h3 style={{ margin: "20px 0 12px" }}>Recent ticks</h3>
       {ticks.length === 0 && <div style={{ opacity: 0.7 }}>No ticks recorded yet.</div>}
       {ticks.map((t, i) => (
-        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid #eee", paddingBottom: 8 }}>
+        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid var(--color-border-subtle)", paddingBottom: 8 }}>
           <div>
             <strong>{new Date(t.timestamp).toLocaleString()}</strong> — evaluated {t.goalsEvaluated},
             created {t.jobsCreated}, skipped {t.jobsSkipped}

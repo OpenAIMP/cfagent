@@ -2383,7 +2383,7 @@ export function ETradeTradingHub({
               <button
                 key={id}
                 type="button"
-                style={{ padding: "0.35rem 0.75rem", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.05)", color: "inherit", cursor: "pointer", fontSize: "0.82rem" }}
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 999, border: "1px solid var(--color-border-medium)", background: "var(--color-muted)", color: "inherit", cursor: "pointer", fontSize: "0.82rem" }}
                 onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
               >
                 {label}

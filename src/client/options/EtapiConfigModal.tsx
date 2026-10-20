@@ -347,7 +347,7 @@ export function EtapiConfigModal({
       style={{
         position: "fixed",
         inset: 0,
-        backgroundColor: "rgba(3, 7, 18, 0.8)",
+        backgroundColor: "var(--color-overlay)",
         backdropFilter: "blur(6px)",
         zIndex: 1000,
         display: "flex",
@@ -418,8 +418,8 @@ export function EtapiConfigModal({
             display: "flex",
             gap: "0.5rem",
             padding: "0.75rem 1.5rem",
-            background: "rgba(15, 23, 42, 0.4)",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+            background: "var(--color-surface-sunken)",
+            borderBottom: "1px solid var(--color-border-subtle)",
           }}
         >
           <button

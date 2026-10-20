@@ -1507,7 +1507,7 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           {dataTab === "demo" && (
-            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "rgba(240,180,41,0.13)", border: "1px solid rgba(240,180,41,0.45)", color: "#f5cf6b", fontSize: "0.85rem", fontWeight: 600 }}>
+            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "0.85rem", fontWeight: 600 }}>
               ⚠ DEMO DATA — the strategies below are built on calibrated (generated) option chains for development/demo. This is not live market data.
             </div>
           )}
@@ -3019,13 +3019,13 @@ export function StrategyDiscoveryPanel({
                           }
 
                           // Heatmap color shading
-                          let cellBg = "rgba(255, 255, 255, 0.03)";
+                          let cellBg = "var(--color-muted)";
                           if (cell.pnlDollar > 0) {
                             const intensity = Math.min(0.7, 0.12 + (cell.pnlDollar / (matrix2dData.maxPnl || 1)) * 0.58);
-                            cellBg = `rgba(16, 185, 129, ${intensity})`;
+                            cellBg = `color-mix(in srgb, var(--color-success) ${Math.round(intensity * 100)}%, transparent)`;
                           } else if (cell.pnlDollar < 0) {
                             const intensity = Math.min(0.7, 0.12 + (Math.abs(cell.pnlDollar) / (Math.abs(matrix2dData.minPnl) || 1)) * 0.58);
-                            cellBg = `rgba(239, 68, 68, ${intensity})`;
+                            cellBg = `color-mix(in srgb, var(--color-danger) ${Math.round(intensity * 100)}%, transparent)`;
                           }
 
                           return (
