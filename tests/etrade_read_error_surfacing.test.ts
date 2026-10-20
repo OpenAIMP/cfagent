@@ -118,8 +118,37 @@ function okJson(payload: unknown) {
     .mockImplementation(async () => new Response(JSON.stringify(payload), { status: 200 }));
 }
 
+// resolveEnvironmentConfig() falls back to process.env for E*TRADE
+// credentials (a deliberate cascade for Node/local dev), reading every
+// alias below. CI injects the real ET_API_KEY / ET_API_SECRET secrets
+// into the test job's environment, so without scrubbing, the ambient
+// values leak into the "missing credentials" fixtures and those tests
+// fail in CI while passing locally (#490). Stub every alias to "" —
+// the resolver's sanitize step treats "" as unset — for each test.
+const AMBIENT_ET_CREDENTIAL_VARS = [
+  "ET_API_KEY",
+  "ET_API_SECRET",
+  "ETRADE_API_KEY",
+  "ETRADE_API_SECRET",
+  "ETRADE_CONSUMER_KEY",
+  "ETRADE_CONSUMER_SECRET",
+  "ET_PROD_API_KEY",
+  "ET_PROD_API_SECRET",
+  "PROD_ET_API_KEY",
+  "PROD_ET_API_SECRET",
+  "ETRADE_PROD_CONSUMER_KEY",
+  "ETRADE_PROD_CONSUMER_SECRET",
+  "ET_SANDBOX_API_KEY",
+  "ET_SANDBOX_API_SECRET",
+  "SANDBOX_ET_API_KEY",
+  "SANDBOX_ET_API_SECRET",
+  "ETRADE_SANDBOX_CONSUMER_KEY",
+  "ETRADE_SANDBOX_CONSUMER_SECRET",
+];
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  for (const name of AMBIENT_ET_CREDENTIAL_VARS) vi.stubEnv(name, "");
   // getValidTokens serves repeats from an isolate-level cache (#329);
   // reset it so a token stored by an earlier test cannot leak into a
   // missing-token scenario (the pattern main's own OAuth tests use).
@@ -127,6 +156,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
