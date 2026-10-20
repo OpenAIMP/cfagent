@@ -872,4 +872,44 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     authRequired: true,
     sampleCurl: `curl -X GET "https://agent.openaimp.com/api/jobs/00000000-0000-4000-8000-000000000000"`,
   },
+  // Issue #656: surface the #314/#313 routes.
+  {
+    id: "api_environment",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/environment",
+    title: "Switch E*TRADE Environment",
+    description: "Switches between sandbox and production E*TRADE environments (both spellings supported).",
+    authRequired: true,
+    sampleBody: { environment: "sandbox" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/environment \\
+  -H "Content-Type: application/json" \\
+  -d '{"environment":"sandbox"}'`,
+  },
+  {
+    id: "api_options_strategy",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/options/strategy",
+    title: "Options Strategy Analysis",
+    description: "Runs the quant pipeline + LLM ranking for options strategies on a symbol.",
+    authRequired: true,
+    sampleBody: { symbol: "AAPL", question: "Best bullish defined-risk strategy?" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/options/strategy \\
+  -H "Content-Type: application/json" \\
+  -d '{"symbol":"AAPL"}'`,
+  },
+  {
+    id: "api_nlq_webhook",
+    category: "Agents & NLQ",
+    method: "POST",
+    path: "/api/nlq/webhook",
+    title: "NLQ Webhook",
+    description: "Natural-language query webhook (all three spellings supported).",
+    authRequired: true,
+    sampleBody: { text: "Screen NASDAQ100 for momentum" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/nlq/webhook \\
+  -H "Content-Type: application/json" \\
+  -d '{"text":"Screen NASDAQ100"}'`,
+  },
 ];
