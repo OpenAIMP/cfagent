@@ -3226,6 +3226,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,
       accountScopedScheduleCallbacks: ACCOUNT_SCOPED_SCHEDULE_CALLBACKS,
+      runScheduleCallback: async (callback: string, payload: unknown) => {
+        const fn = (this as unknown as Record<string, unknown>)[callback];
+        if (typeof fn !== "function") {
+          throw new Error(`Schedule callback '${callback}' is not callable on the orchestrator.`);
+        }
+        await (fn as (p: unknown) => Promise<void>).call(this, payload);
+      },
     });
     if (schedulesResponse) return schedulesResponse;
 

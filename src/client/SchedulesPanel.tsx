@@ -1,15 +1,20 @@
 /**
  * Issue #309: Schedules Panel with tabbed grouping.
+ * Issue #273: full schedules management UI — pause/resume, inline
+ * frequency editing, per-job trigger, delete, and a create form fed by
+ * the server's callback allow-list (GET /api/schedules returns
+ * `creatableCallbacks`).
  *
  * Displays all durable schedules grouped by category:
  * - All | Stocks | Options | System | Queued
  *
  * Each schedule card shows:
  * - Human-readable schedule description (cron → English)
- * - Universe/thesis, job ID
- * - Trigger Now, Pause/Resume, Cancel actions
+ * - Universe/thesis/payload summary, job ID, next run, status
+ * - Trigger Now, Pause/Resume, Edit frequency, Delete actions
  *
- * Also supports creating new schedules.
+ * Paused jobs stay listed with a Paused badge (the backend keeps their
+ * definition in the paused store; see services/scheduleManagement.ts).
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -23,12 +28,30 @@ export interface ScheduleItem {
   payload?: any;
   intervalSeconds?: number;
   cron?: string;
+  /** Unix seconds of the next run (SDK schedules). */
   time?: number;
   createdAt?: string;
   nextRun?: string;
+  /** Issue #273: paused jobs are merged into the list by the backend. */
+  paused?: boolean;
+  pausedAt?: string;
 }
 
 type ScheduleGroup = "all" | "stocks" | "options" | "system" | "queued";
+
+/** Frequency presets shared by the inline editor and the create form. */
+export const FREQUENCY_PRESETS: {
+  id: string;
+  label: string;
+  body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string };
+}[] = [
+  { id: "5m", label: "5m", body: { scheduleType: "interval", intervalSeconds: 300 } },
+  { id: "15m", label: "15m", body: { scheduleType: "interval", intervalSeconds: 900 } },
+  { id: "30m", label: "30m", body: { scheduleType: "interval", intervalSeconds: 1800 } },
+  { id: "hourly", label: "Hourly", body: { scheduleType: "cron", cron: "0 * * * *" } },
+  { id: "2h", label: "2h", body: { scheduleType: "interval", intervalSeconds: 7200 } },
+  { id: "daily", label: "Daily", body: { scheduleType: "cron", cron: "0 13 * * *" } },
+];
 
 /**
  * Translate a cron expression to human-readable English.
@@ -96,6 +119,27 @@ export function categorizeSchedule(s: ScheduleItem): Exclude<ScheduleGroup, "all
   return "system";
 }
 
+/** One-line payload summary for payloads without universe/thesis. */
+export function payloadSummary(payload: any): string {
+  if (!payload || typeof payload !== "object") return "";
+  if (Array.isArray(payload.symbols) && payload.symbols.length) {
+    return `Symbols: ${payload.symbols.slice(0, 6).join(", ")}${payload.symbols.length > 6 ? "…" : ""}`;
+  }
+  const keys = Object.keys(payload).filter(
+    (k) => !["userLogin", "environment", "env", "trigger"].includes(k)
+  );
+  if (!keys.length) return "";
+  const text = keys
+    .slice(0, 4)
+    .map((k) => {
+      const v = payload[k];
+      const rendered = typeof v === "object" ? "…" : String(v);
+      return `${k}: ${rendered}`;
+    })
+    .join(" · ");
+  return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+}
+
 interface SchedulesPanelProps {
   activeEnv?: string;
   userLogin?: string;
@@ -103,55 +147,135 @@ interface SchedulesPanelProps {
 
 export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [creatableCallbacks, setCreatableCallbacks] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ScheduleGroup>("all");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [customCron, setCustomCron] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createCallback, setCreateCallback] = useState("");
+  const [createPreset, setCreatePreset] = useState("hourly");
+  const [createCron, setCreateCron] = useState("");
+  const [createPayload, setCreatePayload] = useState("{}");
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const envHeaders = activeEnv ? { "x-environment": activeEnv } : undefined;
 
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/schedules", {
-        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
+        headers: envHeaders,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as any;
       setSchedules(data.schedules || data || []);
+      if (Array.isArray(data.creatableCallbacks)) {
+        setCreatableCallbacks(data.creatableCallbacks);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load schedules");
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEnv]);
 
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
 
-  const handleCancel = async (id: string) => {
-    if (!confirm("Cancel this schedule?")) return;
+  /** Shared mutating-action helper: run, surface errors, refresh. */
+  const runAction = async (fn: () => Promise<Response>) => {
+    setActionError(null);
     try {
-      const res = await fetch(`/api/schedules/${id}`, {
-        method: "DELETE",
-        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fn();
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       await fetchSchedules();
+      return true;
     } catch (err) {
-      alert(`Failed to cancel: ${err instanceof Error ? err.message : err}`);
+      setActionError(err instanceof Error ? err.message : String(err));
+      return false;
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this schedule? This cannot be undone.")) return;
+    await runAction(() =>
+      fetch(`/api/schedules/${id}`, { method: "DELETE", headers: envHeaders })
+    );
+  };
+
   const handleTriggerNow = async (id: string) => {
-    try {
-      const res = await fetch(`/api/schedules/${id}/trigger`, {
+    const ok = await runAction(() =>
+      fetch(`/api/schedules/${id}/trigger`, { method: "POST", headers: envHeaders })
+    );
+    if (ok) alert("Triggered successfully");
+  };
+
+  const handlePauseResume = async (s: ScheduleItem) => {
+    await runAction(() =>
+      fetch(`/api/schedules/${s.id}/${s.paused ? "resume" : "pause"}`, {
         method: "POST",
-        headers: activeEnv ? { "x-environment": activeEnv } : undefined,
+        headers: envHeaders,
+      })
+    );
+  };
+
+  const applyFrequency = async (s: ScheduleItem, body: Record<string, unknown>) => {
+    const ok = await runAction(() =>
+      fetch(`/api/schedules/${s.id}`, {
+        method: "PUT",
+        headers: { ...envHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+    if (ok) {
+      setEditingId(null);
+      setCustomCron("");
+    }
+  };
+
+  const handleCreate = async () => {
+    setCreateError(null);
+    let payload: unknown;
+    try {
+      payload = createPayload.trim() ? JSON.parse(createPayload) : {};
+    } catch {
+      setCreateError("Payload must be valid JSON.");
+      return;
+    }
+    const callback = createCallback || creatableCallbacks[0] || "";
+    if (!callback) {
+      setCreateError("No creatable callbacks are available.");
+      return;
+    }
+    const preset = FREQUENCY_PRESETS.find((p) => p.id === createPreset);
+    const timing = createCron.trim()
+      ? { scheduleType: "cron", cron: createCron.trim() }
+      : preset?.body || { scheduleType: "cron", cron: "0 * * * *" };
+    try {
+      const res = await fetch("/api/schedules/create", {
+        method: "POST",
+        headers: { ...envHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...timing, callback, payload }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      alert("Triggered successfully");
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setShowCreate(false);
+      setCreateCron("");
+      setCreatePayload("{}");
+      await fetchSchedules();
     } catch (err) {
-      alert(`Failed to trigger: ${err instanceof Error ? err.message : err}`);
+      setCreateError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -202,7 +326,77 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
         <button className="tab refresh" onClick={fetchSchedules} title="Refresh">
           ↻ Refresh
         </button>
+        <button className="tab refresh" onClick={() => setShowCreate((v) => !v)} title="Create a new schedule">
+          ＋ New schedule
+        </button>
       </div>
+
+      {actionError && <div className="schedule-action-error">{actionError}</div>}
+
+      {showCreate && (
+        <div className="schedule-create-form">
+          <div className="schedule-create-row">
+            <label htmlFor="schedule-create-callback">Callback</label>
+            <select
+              id="schedule-create-callback"
+              value={createCallback || creatableCallbacks[0] || ""}
+              onChange={(e) => setCreateCallback(e.target.value)}
+            >
+              {creatableCallbacks.map((cb) => (
+                <option key={cb} value={cb}>
+                  {cb}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="schedule-create-row">
+            <span className="schedule-create-label">Frequency</span>
+            <div className="schedule-presets">
+              {FREQUENCY_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`preset ${createPreset === p.id && !createCron.trim() ? "active" : ""}`}
+                  onClick={() => {
+                    setCreatePreset(p.id);
+                    setCreateCron("");
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="schedule-create-row">
+            <label htmlFor="schedule-create-cron">Custom cron</label>
+            <input
+              id="schedule-create-cron"
+              type="text"
+              placeholder="Cron expression, e.g. 0 9 * * 1-5 (optional)"
+              value={createCron}
+              onChange={(e) => setCreateCron(e.target.value)}
+            />
+          </div>
+          <div className="schedule-create-row">
+            <label htmlFor="schedule-create-payload">Payload (JSON)</label>
+            <textarea
+              id="schedule-create-payload"
+              rows={3}
+              value={createPayload}
+              onChange={(e) => setCreatePayload(e.target.value)}
+            />
+          </div>
+          {createError && <div className="schedule-action-error">{createError}</div>}
+          <div className="schedule-create-actions">
+            <button type="button" onClick={handleCreate}>
+              Create schedule
+            </button>
+            <button type="button" onClick={() => setShowCreate(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="schedules-grid">
         {filtered.length === 0 && (
@@ -218,25 +412,37 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
             : s.type;
           const universe = s.payload?.universe;
           const thesis = s.payload?.thesis;
+          const summary = !universe && !thesis ? payloadSummary(s.payload) : "";
           const accountScoped = ["autonomousmarketscreen", "autonomousoptionsanalysis", "autorenewetradetokens", "collectivhistory"]
             .some((name) => s.callback.toLowerCase().includes(name));
           const owner = s.payload?.userLogin;
           const environment = s.payload?.environment || s.payload?.env;
           const shortId = s.id.slice(0, 8) + "…";
+          const recurring = s.type === "cron" || s.type === "interval";
+          const nextRun = !s.paused && s.time
+            ? new Date(s.time * 1000).toLocaleString()
+            : null;
 
           return (
             <div key={s.id} className="schedule-card">
               <div className="card-header">
                 <span className="schedule-type">{s.type}</span>
                 <span className="schedule-id" title={s.id}>{shortId}</span>
+                {s.paused ? (
+                  <span className="schedule-status paused">Paused</span>
+                ) : (
+                  <span className="schedule-status active">Active</span>
+                )}
               </div>
               <div className="schedule-callback">{s.callback}</div>
               <div className="schedule-when">{scheduleDesc}</div>
               {universe && <div className="schedule-meta">Universe: {universe}</div>}
               {thesis && <div className="schedule-meta">Thesis: {thesis}</div>}
+              {summary && <div className="schedule-meta">{summary}</div>}
               {s.payload?.maxItems != null && (
                 <div className="schedule-meta">Max items: {s.payload.maxItems}</div>
               )}
+              {nextRun && <div className="schedule-meta">Next run: {nextRun}</div>}
               {accountScoped && (
                 <div className={`schedule-meta ${owner ? "schedule-auth-ok" : "schedule-auth-missing"}`}>
                   {owner
@@ -245,17 +451,63 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
                 </div>
               )}
               <div className="card-actions">
-                <button onClick={() => handleTriggerNow(s.id)} title="Run now">
+                <button onClick={() => handleTriggerNow(s.id)} disabled={!!s.paused} title={s.paused ? "Resume before triggering" : "Run now"}>
                   ⚡ Trigger Now
                 </button>
+                <button onClick={() => handlePauseResume(s)} title={s.paused ? "Resume schedule" : "Pause schedule"}>
+                  {s.paused ? "▶ Resume" : "⏸ Pause"}
+                </button>
+                {recurring && (
+                  <button
+                    onClick={() => {
+                      setEditingId(editingId === s.id ? null : s.id);
+                      setCustomCron("");
+                    }}
+                    title="Edit frequency"
+                  >
+                    🕐 Edit frequency
+                  </button>
+                )}
                 <button
-                  onClick={() => handleCancel(s.id)}
+                  onClick={() => handleDelete(s.id)}
                   className="danger"
-                  title="Cancel schedule"
+                  title="Delete schedule"
                 >
-                  ✕ Cancel
+                  ✕ Delete
                 </button>
               </div>
+              {editingId === s.id && (
+                <div className="schedule-editor">
+                  <div className="schedule-presets">
+                    {FREQUENCY_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="preset"
+                        onClick={() => applyFrequency(s, { ...p.body })}
+                        title={`Set frequency to ${p.label}`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="schedule-editor-custom">
+                    <input
+                      type="text"
+                      placeholder="Custom cron, e.g. 0 9 * * 1-5"
+                      value={customCron}
+                      onChange={(e) => setCustomCron(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      disabled={!customCron.trim()}
+                      onClick={() => applyFrequency(s, { scheduleType: "cron", cron: customCron.trim() })}
+                    >
+                      Apply cron
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

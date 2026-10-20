@@ -39,6 +39,10 @@
  * before the reports list) — bringing the inventory to 156.
  * Issue #340 added GET /research/track-record (in
  * handleScreenerResearchRoutes, after /research/history) — 157.
+ * Issue #273 added seven — POST /schedules/:id/pause, /resume and
+ * /trigger plus PUT /schedules/:id (in handleSchedulesRoutes, after
+ * the get-by-id block and before create) — bringing the inventory
+ * to 164.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -247,6 +251,13 @@ const EXPECTED_INVENTORY = [
   "handleSchedulesRoutes :: endsWith(\"/schedules/cancel\")",
   "handleSchedulesRoutes :: includes(\"/schedules/cancel/\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/pause\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/resume\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/trigger\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/create\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
