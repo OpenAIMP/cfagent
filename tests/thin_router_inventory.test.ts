@@ -223,6 +223,7 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screener/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/scheduled-tick\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",

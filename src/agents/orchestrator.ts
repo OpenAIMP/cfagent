@@ -382,7 +382,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     let pdfKey: string | null = null;
     try {
       const { generateResearchPdf, researchPdfFileName } = await import(
-        "../trading/researchReportPdf"
+        "../trading"
       );
       const pdfBytes = await generateResearchPdf(report);
       const fileName = researchPdfFileName(report);
