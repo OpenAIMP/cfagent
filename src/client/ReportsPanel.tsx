@@ -10,6 +10,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { Button } from "./components/ui";
+import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
 import "./reports.css";
 
 export interface ReportItem {
@@ -27,12 +29,14 @@ const SOURCE_LABELS: Record<string, string> = {
   screener: "📊 Stock Screener",
   options_scanner: "📈 Options Scanner",
   iv_collection: "💹 IV Collection",
+  research_report: "🔬 Research",
 };
 
 const SOURCE_COLORS: Record<string, string> = {
   screener: "var(--color-accent)",
   options_scanner: "var(--color-purple)",
   iv_collection: "var(--color-success)",
+  research_report: "var(--color-warning)",
 };
 
 export function ReportsPanel() {
@@ -41,6 +45,7 @@ export function ReportsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
 
   const fetchReports = useCallback(async (query?: string) => {
     setLoading(true);
@@ -69,7 +74,7 @@ export function ReportsPanel() {
     fetchReports(searchQuery);
   };
 
-  const filteredSources = ["all", "screener", "options_scanner", "iv_collection"];
+  const filteredSources = ["all", "screener", "options_scanner", "iv_collection", "research_report"];
 
   return (
     <div className="reports-panel">
@@ -97,14 +102,14 @@ export function ReportsPanel() {
         </div>
       </div>
 
-      {loading && <div className="loading">Loading reports…</div>}
-      {error && (
+      {!selectedReportId && loading && <div className="loading">Loading reports…</div>}
+      {!selectedReportId && error && (
         <div className="error">
           Error: {error} <button onClick={() => fetchReports()}>Retry</button>
         </div>
       )}
 
-      {!loading && !error && reports.length === 0 && (
+      {!selectedReportId && !loading && !error && reports.length === 0 && (
         <div className="empty">
           <p>No reports found.</p>
           <p className="hint">
@@ -114,6 +119,12 @@ export function ReportsPanel() {
         </div>
       )}
 
+      {selectedReportId ? (
+        <ResearchRunDetail
+          reportId={selectedReportId}
+          onBack={() => setSelectedReportId(null)}
+        />
+      ) : (
       <div className="reports-list">
         {reports.map((r) => (
           <div key={r.id} className="report-card">
@@ -131,6 +142,11 @@ export function ReportsPanel() {
             <h3 className="report-title">{r.title}</h3>
             <p className="report-summary">{r.summary}</p>
             <div className="report-actions">
+              {r.source === "research_report" && (
+                <Button variant="secondary" size="sm" onClick={() => setSelectedReportId(r.id)}>
+                  View run
+                </Button>
+              )}
               <span className="run-id" title={r.runId}>
                 Run: {r.runId.slice(0, 12)}…
               </span>
@@ -143,6 +159,7 @@ export function ReportsPanel() {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

@@ -445,6 +445,50 @@ export function listScheduledReports(
   }
 }
 
+/**
+ * Issue #339: fetch one stored report by id for the Reports-tab detail
+ * view. Owner scoping matches the list (#584 EP-003): strict when the
+ * caller login is known, legacy unfiltered when it is not. Returns null
+ * when the report does not exist (or is not the caller's). Never throws.
+ */
+export function getScheduledReportById(
+  sql: SqlStorage,
+  reportId: string,
+  opts?: { userLogin?: string }
+): ScheduledReportHit | null {
+  try {
+    if (!reportId || typeof reportId !== "string") return null;
+    ensureScheduledReportsTable(sql);
+    const owner =
+      opts?.userLogin && typeof opts.userLogin === "string"
+        ? opts.userLogin
+        : undefined;
+    let q = `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
+    const params: unknown[] = [reportId];
+    if (owner) {
+      q += ` AND user_login = ?`;
+      params.push(owner);
+    }
+    q += ` LIMIT 1`;
+    const rows = Array.from(sql.exec(q, ...params)) as Array<
+      Record<string, unknown>
+    >;
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: String(r.id ?? ""),
+      runId: String(r.run_id ?? ""),
+      title: String(r.title ?? ""),
+      source: String(r.source ?? ""),
+      summary: String(r.summary ?? ""),
+      body: String(r.body ?? ""),
+      createdAt: String(r.created_at ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* #584 EP-009: usage metering                                          */
 /* ------------------------------------------------------------------ */
