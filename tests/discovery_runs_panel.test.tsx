@@ -29,7 +29,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { DiscoveryRunsPanel } from "../src/client/options/DiscoveryRunsPanel";
+import { DiscoveryRunsPanel, formatDerivationLine } from "../src/client/options/DiscoveryRunsPanel";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -185,10 +185,103 @@ const RUN_FAILED = {
 
 const ALL_RUNS = [RUN_PARTIAL, RUN_COMPLETED, RUN_FAILED];
 const SUMMARIES = ALL_RUNS.map(({ requests: _r, outcomes: _o, ...summary }) => summary);
+
+// A profile-derived run (issue #533): NVDA derived + completed, MSFT
+// abstained (no usable IV — no request, no target), AAPL derived then
+// failed downstream. Shapes mirror what PR-533A's service persists.
+const PROFILE_REF_533 = { id: "prof-1", name: "Income", version: 3 };
+
+const DERIVATION_NVDA_533 = {
+  source: "profile-derived",
+  spot: 130,
+  spotSource: "chain",
+  atmIv: 0.45,
+  expectedMovePct: 0.1311,
+  windowExpiry: "2026-11-20",
+  windowDays: 31,
+  emMultiple: 0.6,
+  thesis: "bullish",
+  targetPrice: 140.23,
+  profileRef: PROFILE_REF_533,
+};
+
+const REQUEST_NVDA_DERIVED = {
+  symbol: "NVDA",
+  thesis: "bullish",
+  targetPrice: 140.23,
+  targetDate: "2026-11-20",
+  expectedIvDirection: "unchanged",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  allowedStrategies: ["long_call", "long_put"],
+};
+
+const REQUEST_AAPL_DERIVED = {
+  ...REQUEST_NVDA_DERIVED,
+  symbol: "AAPL",
+  thesis: "bearish",
+  targetPrice: 246.35,
+};
+
+const RUN_DERIVED = {
+  id: "run-derived",
+  createdAt: "2026-10-20T14:05:00.000Z",
+  trigger: "scheduled",
+  scheduleId: "sched-derived",
+  inputModel: "profile-derived",
+  profileRef: PROFILE_REF_533,
+  status: "partial",
+  requestCount: 2,
+  completedCount: 1,
+  failedCount: 1,
+  abstainedCount: 1,
+  symbols: ["NVDA", "MSFT", "AAPL"],
+  requests: [REQUEST_NVDA_DERIVED, REQUEST_AAPL_DERIVED],
+  outcomes: [
+    {
+      symbol: "NVDA",
+      status: "completed",
+      request: REQUEST_NVDA_DERIVED,
+      derivation: DERIVATION_NVDA_533,
+      ranked: NVDA_RANKED,
+      riskReports: [],
+      screenedOut: [],
+      excluded: [],
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 1200, contractsMatched: 45 } },
+    },
+    {
+      symbol: "MSFT",
+      status: "abstained",
+      error: "no usable IV in the live chain for MSFT — no expected move can be derived",
+    },
+    {
+      symbol: "AAPL",
+      status: "failed",
+      request: REQUEST_AAPL_DERIVED,
+      derivation: {
+        ...DERIVATION_NVDA_533,
+        spot: 260,
+        atmIv: 0.3,
+        expectedMovePct: 0.0875,
+        emMultiple: -0.6,
+        thesis: "bearish",
+        targetPrice: 246.35,
+      },
+      error: "chain fetch failed",
+    },
+  ],
+};
+
+const RUN_DERIVED_SUMMARY = (() => {
+  const { requests: _r, outcomes: _o, ...summary } = RUN_DERIVED;
+  return summary;
+})();
+
 const DETAILS: Record<string, unknown> = {
   "run-partial": RUN_PARTIAL,
   "run-completed": RUN_COMPLETED,
   "run-failed": RUN_FAILED,
+  "run-derived": RUN_DERIVED,
 };
 
 // Harness ------------------------------------------------------------------
@@ -427,5 +520,121 @@ describe("DiscoveryRunsPanel empty state (#126 PR-F)", () => {
     expect(runItems()).toHaveLength(0);
     expect(container.textContent).toContain("No discovery runs yet");
     expect(container.textContent).not.toContain("NVDA");
+  });
+});
+
+// Profile-derived runs (issue #533, PR-533B) -------------------------------
+
+describe("DiscoveryRunsPanel — profile-derived runs (#533)", () => {
+  beforeEach(() => {
+    listPayload = { count: 1, runs: [RUN_DERIVED_SUMMARY] };
+  });
+
+  function outcomeBlock(symbol: string): HTMLElement {
+    const block = Array.from(container.querySelectorAll<HTMLElement>(".discovery-outcome")).find(
+      (el) => el.querySelector("strong")?.textContent === symbol,
+    );
+    if (!block) throw new Error(`outcome block for ${symbol} not found`);
+    return block;
+  }
+
+  it("labels the run Profile-derived (never Saved requests) with per-symbol counts", async () => {
+    await renderPanel();
+    const items = runItems();
+    expect(items).toHaveLength(1);
+    const text = items[0].textContent || "";
+    expect(text).toContain("Profile-derived");
+    expect(text).not.toContain("Saved requests");
+    expect(text).toContain("NVDA, MSFT, AAPL");
+    expect(text).toContain("1 of 3 symbols completed");
+    expect(text).toContain("1 failed");
+    expect(text).toContain("1 abstained");
+  });
+
+  it("renders the profile stamp and the full DERIVED block beside the constructed view", async () => {
+    await renderPanel();
+    const text = container.textContent || "";
+    // The run's profileRef (name + version) is shown in the detail head.
+    expect(text).toContain("Profile-derived · profile Income v3");
+    expect(text).toContain("targets derived at run time");
+    // The constructed request is labelled a derived view, not a saved one.
+    expect(text).toContain("Derived view: bullish");
+    expect(text).not.toContain("Saved view:");
+    expect(text).toContain("target $140.23 by 2026-11-20");
+    // The DERIVED block, in the spec's format, with spot/EM/IV/window/profile.
+    expect(text).toContain(
+      "DERIVED target $140.23 = spot $130.00 × (1 + 0.6 × EM 13.11%) · IV 45% · window: expiry 2026-11-20 (31 days) · profile Income v3",
+    );
+    // The derived run still renders its ranked candidates.
+    expect(text).toContain("NVDA Long Call");
+    // The failed symbol that derived first shows its derivation AND its failure.
+    const aapl = outcomeBlock("AAPL");
+    expect(aapl.textContent).toContain(
+      "DERIVED target $246.35 = spot $260.00 × (1 + -0.6 × EM 8.75%) · IV 30%",
+    );
+    expect(aapl.textContent).toContain("chain fetch failed");
+  });
+
+  it("renders an abstained outcome as an abstention with its reason — not as a failure", async () => {
+    await renderPanel();
+    const msft = outcomeBlock("MSFT");
+    expect(msft.textContent).toContain(
+      "Abstained — no usable IV in the live chain for MSFT — no expected move can be derived",
+    );
+    // The abstention uses its own alert box, not the failure box, and
+    // the outcome carries no failure badge and no view line.
+    expect(msft.querySelector(".discovery-outcome-abstained")).not.toBeNull();
+    expect(msft.querySelector(".discovery-outcome-error")).toBeNull();
+    expect(msft.textContent).not.toContain("Failed");
+    expect(msft.textContent).not.toContain("Derived view");
+    // The detail head names the abstention alongside the failure.
+    const text = container.textContent || "";
+    expect(text).toContain("Abstained: MSFT");
+    expect(text).toContain("Failed: AAPL");
+  });
+
+  it("downloads for a derived run carry the DERIVED / ABSTAINED labelling", async () => {
+    await renderPanel();
+    await act(async () => {
+      buttonByText("Candidates CSV")?.click();
+    });
+    await flush(1);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].filename).toBe("discovery-20261020-140500.csv");
+    const csv = await blobText(downloads[0].blob);
+    expect(csv).toContain("input model: profile-derived");
+    expect(csv).toContain(
+      "# DERIVED: NVDA target $140.23 = spot $130.00 × (1 + 0.6 × EM 13.11%) · window 2026-11-20 (31d) · profile Income v3",
+    );
+    expect(csv).toContain(
+      "# ABSTAINED: MSFT — no usable IV in the live chain for MSFT — no expected move can be derived",
+    );
+
+    downloads.length = 0;
+    await act(async () => {
+      buttonByText("Run JSON")?.click();
+    });
+    await flush(1);
+    expect(downloads).toHaveLength(1);
+    const parsed = JSON.parse(await blobText(downloads[0].blob));
+    expect(parsed.outcomes[0].derivation.targetPrice).toBe(140.23);
+    expect(parsed.outcomes[1].status).toBe("abstained");
+    expect("request" in parsed.outcomes[1]).toBe(false);
+  });
+});
+
+describe("formatDerivationLine (#533)", () => {
+  it("renders the settled format, including a range-bound k of 0", () => {
+    expect(formatDerivationLine(DERIVATION_NVDA_533 as any)).toBe(
+      "DERIVED target $140.23 = spot $130.00 × (1 + 0.6 × EM 13.11%) · IV 45% · window: expiry 2026-11-20 (31 days) · profile Income v3",
+    );
+    expect(
+      formatDerivationLine({
+        ...DERIVATION_NVDA_533,
+        emMultiple: 0,
+        thesis: "range_bound",
+        targetPrice: 130,
+      } as any),
+    ).toContain("DERIVED target $130.00 = spot $130.00 × (1 + 0 × EM 13.11%)");
   });
 });
