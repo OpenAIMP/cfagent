@@ -31,6 +31,7 @@ import { MarketTickerTape } from "./components/MarketTickerTape";
 import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
+import { adAccentPalette } from "./designTokens";
 
 interface User {
   login: string;
@@ -1721,7 +1722,7 @@ export function Chat({ user }: { user: User }) {
   const [newAdBadge, setNewAdBadge] = useState("PROMOTED");
   const [newAdUrl, setNewAdUrl] = useState("");
   const [newAdCta, setNewAdCta] = useState("Claim Deal →");
-  const [newAdColor, setNewAdColor] = useState("#6366f1");
+  const [newAdColor, setNewAdColor] = useState<string>(adAccentPalette[0].value);
   const [savingAd, setSavingAd] = useState(false);
   const [adFormSuccess, setAdFormSuccess] = useState("");
   const [adFormError, setAdFormError] = useState("");
@@ -3920,12 +3921,9 @@ export function Chat({ user }: { user: User }) {
                       value={newAdColor}
                       onChange={(e) => setNewAdColor(e.target.value)}
                     >
-                      <option value="#6366f1">Indigo (#6366f1)</option>
-                      <option value="#f38020">Cloudflare Orange (#f38020)</option>
-                      <option value="#06b6d4">Cyan (#06b6d4)</option>
-                      <option value="#10b981">Emerald Green (#10b981)</option>
-                      <option value="#a855f7">Purple (#a855f7)</option>
-                      <option value="#f43f5e">Rose (#f43f5e)</option>
+                      {adAccentPalette.map((c) => (
+                        <option key={c.value} value={c.value}>{c.label} ({c.value})</option>
+                      ))}
                     </select>
                   </div>
                 </div>

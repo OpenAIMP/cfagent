@@ -156,6 +156,7 @@
   --color-success: #00e065;
   --color-success-foreground: #000000;
   --color-success-subtle: rgba(0, 224, 101, 0.22);
+  --color-primary-hover: #00c853;
   --color-success-hover: #00c853;
   --color-danger: #ff4d4d;
   --color-danger-foreground: #000000;
@@ -360,6 +361,7 @@
   --color-success: #10b981;
   --color-success-foreground: #04241c;
   --color-success-subtle: rgba(16, 185, 129, 0.14);
+  --color-primary-hover: #059669;
   --color-success-hover: #059669;
 
   --color-danger: #f43f5e;
@@ -530,6 +532,7 @@
   --color-success: #15803d;
   --color-success-foreground: #ffffff;
   --color-success-subtle: rgba(21, 128, 61, 0.12);
+  --color-primary-hover: #166534;
   --color-success-hover: #166534;
 
   --color-danger: #dc2626;

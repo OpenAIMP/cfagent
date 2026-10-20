@@ -806,10 +806,7 @@
   border: 1px solid var(--color-border) !important;
 }
 
-.sched-select option {
-  color: #1f2937 !important;
-  background: #ffffff !important;
-}
+/* Native <option> rendering follows the root color-scheme (set by theme.ts); the old forced-light override was removed in Phase 6 (#476). */
 
 /* Ensure schedule cards are readable */
 .sched-schedule-card,
