@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { ETradeService } from "../src/services/etrade";
 import { AGENT_DIDS } from "../src/agents/did";
 import { storeAccessTokens } from "../src/security/etradeOAuth";
+import { __resetTokenCache } from "../src/security/etradeTokenCache";
 import { McpToolFactory } from "../src/mcp/commands";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import type { TradingOrderLeg } from "../src/trading/interfaces";
@@ -33,6 +34,10 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
     etrade = new ETradeService(orm, mockEnv);
+  });
+
+  afterEach(() => {
+    __resetTokenCache();
   });
 
   // =========================================================================
