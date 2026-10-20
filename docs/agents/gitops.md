@@ -237,6 +237,26 @@ These commands are examples. Adapt remote and branch names to the repository.
 
 If fast-forward update fails, inspect the divergence. Do not reset away local commits.
 
+### Verified base (hard stop)
+
+Before creating the issue branch, print both revisions and verify they are equal:
+
+```bash
+git rev-parse HEAD
+git rev-parse origin/main
+```
+
+A failed fetch, pull, or fast-forward is a **hard stop**: do not branch from an unverified or stale base, and do not proceed on the assumption that the divergence is harmless. Branching from a stale base is how merged work gets silently overwritten — in the #137 Phase 3a stack, a slice branched after a failed pull and its merge wiped the previous slice's `styles.css` changes from `main`; the loss was found two slices later and restored. The equality check costs seconds; the incident cost a repair slice.
+
+### Claim the issue before starting
+
+Parallel lanes work this repository concurrently. Before starting an issue:
+
+1. Read the issue and its recent comments for an existing claim or an open PR addressing it.
+2. Post a short claim comment naming the slice you are starting and the branch you will use.
+
+Two lanes working the same issue silently produce duplicate PRs (the #672 fix was built twice in parallel; one PR landed and the other closed as superseded). A claim does not reserve the issue forever — it makes the collision visible before the work is duplicated.
+
 ### Updating an issue branch
 
 Fetch first:
@@ -395,6 +415,15 @@ git diff
 
 Run the repository’s applicable validation commands.
 
+For this repository the applicable battery is:
+
+- `npx tsc --noEmit -p tsconfig.json` — typecheck clean.
+- `npm run test:ci` — the full test suite, not only the touched files.
+- The production build.
+- The repository gates the change touches (see §7, the pin rule): `node scripts/token-coverage.mjs` reports TOTAL raw = 0 for client changes, the dangling-var() ratchet suite passes, `npm run tokens:gen -- --check` reports the token mirror in sync, and every pin the change alters is updated in the same change.
+
+A battery failure is classified under §10 before pushing. Never push a red battery "to let CI sort it out" — CI is the confirmation of a green local run, not a substitute for one.
+
 Check for:
 
 - Debug statements.
@@ -512,6 +541,16 @@ When a required check fails:
 
 Do not repeatedly rerun a known failure until chance produces a pass.
 
+### Evidence standard for classification
+
+A classification is a claim, and it requires evidence:
+
+- **Names first.** Never classify a failure from the check summary alone (a red X, a job title). Obtain the failing test names — from the job logs or by reproducing locally — before assigning any class.
+- **"Flaky" requires proof.** Classify a failure as flaky only with evidence: the same tests pass in isolation, or pass on a merge-tree reproduction of the branch against current `main`, while the failure mode is consistent with load or timing (e.g. a timeout under parallel load). Without that evidence, treat the failure as change-induced or baseline and investigate.
+- **Baseline requires proof too.** A baseline classification is established by running the same tests on unmodified `main` and observing the same failure.
+
+The standing example: #339's first CI failure was reported as a transient failure. It was a real defect — two design-token references that do not exist — and obtaining the failing test names would have identified it immediately.
+
 ### Main is broken
 
 If `main` is unhealthy:
@@ -573,6 +612,16 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 8. Begin the next issue only after the gate is satisfied.
 
 If the PR cannot merge, the issue is blocked—not finished.
+
+### Duplicate and superseded pull requests
+
+When the same change lands on `main` through another PR first (parallel lanes, §6 claim rule notwithstanding):
+
+1. Verify the landed change actually covers your PR's scope — compare content or markers on `main`, do not assume equivalence from the title.
+2. Close your PR as superseded with a comment carrying that verification evidence and linking the landed PR.
+3. Reconcile the issue from the landed PR (completion report, checklist state).
+
+Never force-merge a colliding duplicate, and never leave a PR open and unexplained once its change is on `main`. A dangling PR misstates the state of the work to every other lane.
 
 ***
 
@@ -803,6 +852,9 @@ Do not report `PASS` when:
 - Required review is missing.
 - Delivery is unexpectedly broken.
 - Material acceptance criteria remain unverified.
+- A known test-coverage gap for the changed behavior is undisclosed.
+
+The Risks and limitations section MUST state known test-coverage gaps for the changed behavior explicitly — behavior that shipped without dedicated tests, paths exercised only in production, suites known to be load-flaky. A gap disclosed in the report is a tracked limitation; a gap discovered later is a misreport. (Standing example: #218's digest behavior shipped without dedicated tests; the gap belonged in its completion report, not in a verification pass weeks later.)
 
 ***
 
@@ -863,39 +915,6 @@ After merging, before starting the next issue:
 ### 17.4. When CI is unavailable
 
 If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm. The post-merge verification in §17.2 becomes MORE important, not less — it is the only safety net when CI is bypassed.
-
-## 18. Regression-prevention discipline
-
-Detection is not prevention. The gate (§10), the pins (§7), and post-merge verification (§11, §17) prevent regressions only when the disciplines below hold. Each is written from a failure observed in this repository.
-
-### 18.1 The gate tests a merge, and the result expires
-
-The required PR check runs against the branch's merge with current `main`, not the branch head alone. A green result is valid only for the merge it tested:
-
-- If `main` advances after the gate run in a way that touches the PR's surfaces — or the branch is updated for any reason — the gate MUST run again on the new merge before merging.
-- A pull request MUST NOT merge over a red required check. The only exception is an emergency merge explicitly authorized by the owner, and it creates a restore-green issue in the same action (§18.2).
-
-### 18.2 Post-merge red is the merger's first job
-
-If the post-merge run on your merge is red:
-
-1. Classify every failure per §10 and record the classification, with its evidence, on the PR and the issue. Never silently, and never by matching failure totals alone — totals can coincide while the failing tests differ.
-2. Restoring `main` to green takes precedence over starting the next issue (§10 freeze), and the remediation is its own issue → PR → merge, however small.
-3. A baseline failure (reproduced on the merge's first parent) is recorded and flagged to its owning workstream. "Not mine" is a classification, not a dismissal.
-
-### 18.3 Flake discipline
-
-- A failure may be classified **flaky** only with evidence: the same suite passes standalone on the same tree, and — for merge-time failures — the failure set has been compared against the merge's first parent or a run on unmodified `main`. Without that evidence the failure is unclassified and blocks like any other.
-- A CI rerun is a diagnostic, performed once, with the outcome recorded. Rerunning until chance produces a pass is prohibited (§10).
-- Suites known to be load-flaky are tracked by name in the issue tracker, each with an owner. The list is a remediation backlog — fix, or quarantine with a tracked issue — never a permanent exemption, and a new flake signature is classified and filed rather than absorbed into the list by habit.
-
-### 18.4 Stub honesty
-
-Suites that alias the real runtime (framework or SDK stubs, mocked storage) verify contracts, not runtime behavior. A pull request whose behavior exists only against the real runtime MUST state in its test evidence what covers the runtime behavior — post-deploy QA, the §17 production checks, or a source-level audit of the shipped dependency — and MUST NOT claim runtime verification from stubbed tests alone.
-
-### 18.5 Merge promptly, and verify the merge
-
-Per §11's sequential execution: after each PR, merge it before starting the next fix, then verify the branch's merged state (zero commits ahead of `main`, or ancestry) instead of assuming it. A merge is not complete until the branch is verified in `main` and post-merge checks are green — or red and classified under §18.2. Long-lived branches are how unpinned drift accumulates (§7, the pin rule).
 
 ## Instruction to add to `AGENTS.md`
 
