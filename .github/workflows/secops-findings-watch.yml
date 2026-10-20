@@ -1,0 +1,160 @@
+name: Security Findings Watch
+
+# RSI-InfoSec plan (#764), issue #766: security findings join the same
+# self-heal loop that workflow failures already use. This watch sweeps the
+# repo's security alert sources and files ONE deduped [SecOps self-heal]
+# issue per open alert into the fixer queue (labels: self-heal, security),
+# and closes a filed issue when its alert is fixed or dismissed — the
+# close-on-pass half of the loop.
+#
+# Triggers: after every CodeQL run completes (fresh analysis → fresh
+# alerts), on a 6-hour sweep (drift + the close pass), and manually.
+#
+# Sources and token reality (stated honestly, per run log):
+# - Code scanning alerts: readable by GITHUB_TOKEN with
+#   `security-events: read` — the primary source.
+# - Secret scanning + Dependabot alerts: the REST list endpoints are NOT
+#   available to a workflow GITHUB_TOKEN (they need a user/App token with
+#   admin/security scopes this repo does not grant automation). Each is
+#   attempted every run inside a guard; when the token cannot read a
+#   source the run log says so explicitly — a skipped source is a named
+#   gap in the log, never a silent one. Wiring a read-capable token is a
+#   follow-up on #766, not a precondition for the code-scanning bridge.
+#
+# Dedupe: every filed issue body carries a marker comment
+#   <!-- secops-alert:<source>:<alert-number> -->
+# and the sweep matches on it, so re-runs file nothing twice.
+
+on:
+  workflow_run:
+    workflows: ["CodeQL"]
+    types: [completed]
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: File and close SecOps self-heal issues from security alerts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const MAX_FILE_PER_RUN = 25;
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: "open", labels: "self-heal", per_page: 100,
+            });
+            const filedMarkers = new Map(); // marker -> issue number
+            for (const i of openIssues) {
+              const m = (i.body || "").match(/<!-- secops-alert:([a-z-]+):(\d+) -->/);
+              if (m) filedMarkers.set(`${m[1]}:${m[2]}`, i.number);
+            }
+
+            let filed = 0;
+            async function fileAlert(source, alert) {
+              const key = `${source}:${alert.number}`;
+              if (filedMarkers.has(key)) {
+                console.log(`Already filed: ${key} -> #${filedMarkers.get(key)}`);
+                return;
+              }
+              if (filed >= MAX_FILE_PER_RUN) {
+                console.log(`Per-run filing cap reached; ${key} deferred to next sweep.`);
+                return;
+              }
+              const loc = alert.most_recent_instance?.location;
+              const where = loc ? `${loc.path}:${loc.start_line}` : "location n/a";
+              const title = `[SecOps self-heal] ${source}: ${alert.rule?.name || alert.rule?.id || "alert"} in ${loc?.path || "?"}`;
+              const body = [
+                `<!-- secops-alert:${key} -->`,
+                "## Security Findings Watch",
+                "",
+                `**Source:** ${source}`,
+                `**Alert:** ${alert.html_url}`,
+                `**Rule:** ${alert.rule?.id || "n/a"} — ${alert.rule?.name || ""}`,
+                `**Severity:** ${alert.rule?.severity || alert.severity || "n/a"}`,
+                `**Location:** ${where}`,
+                `**State at filing:** ${alert.state}`,
+                "",
+                "Auto-filed by the Security Findings Watch (#766). This issue closes",
+                "automatically when the alert is fixed or dismissed. The Muse fixer",
+                "lane may claim it under branch-as-lock like any self-heal item;",
+                "money/secrets/auth surfaces stay owner-gated per the RSI guardrails.",
+                "No secret values or code beyond the alert's own fields are included.",
+              ].join("\n");
+              const { data: issue } = await github.rest.issues.create({
+                owner, repo, title, body, labels: ["self-heal", "security"],
+              });
+              filedMarkers.set(key, issue.number);
+              filed++;
+              console.log(`Filed ${key} as #${issue.number}`);
+            }
+
+            // ---- Source 1: code scanning (primary; token-readable) ----
+            let codeAlerts = [];
+            try {
+              const { data } = await github.rest.codeScanning.listAlertsForRepo({
+                owner, repo, state: "open", per_page: 100,
+              });
+              codeAlerts = data;
+              console.log(`code-scanning: ${data.length} open alert(s)`);
+              const sevRank = { critical: 0, high: 1, error: 1, medium: 2, warning: 2, low: 3, note: 4 };
+              data.sort((a, b) => (sevRank[a.rule?.security_severity_level || a.rule?.severity] ?? 5) - (sevRank[b.rule?.security_severity_level || b.rule?.severity] ?? 5));
+              for (const a of data) await fileAlert("code-scanning", a);
+            } catch (e) {
+              console.log(`code-scanning source unavailable this run: ${e.message}`);
+            }
+
+            // ---- Sources 2/3: attempted; token limits logged honestly ----
+            for (const [source, fn] of [
+              ["secret-scanning", () => github.rest.secretScanning.listAlertsForRepo({ owner, repo, state: "open", per_page: 100 })],
+              ["dependabot", () => github.rest.dependabot.listAlertsForRepo({ owner, repo, state: "open", per_page: 100 })],
+            ]) {
+              try {
+                const { data } = await fn();
+                console.log(`${source}: ${data.length} open alert(s)`);
+                for (const a of data) {
+                  await fileAlert(source, {
+                    number: a.number,
+                    html_url: a.html_url,
+                    state: a.state,
+                    rule: { id: a.security_advisory?.ghsa_id || a.secret_type || "alert", name: a.security_advisory?.summary || a.secret_type_display_name || source },
+                    severity: a.security_advisory?.severity || a.severity,
+                    most_recent_instance: undefined,
+                  });
+                }
+              } catch (e) {
+                console.log(`${source} source not readable by GITHUB_TOKEN (expected without an admin/App token): ${e.message}`);
+              }
+            }
+
+            // ---- Close pass: filed issue whose alert is resolved closes ----
+            const openCode = new Set(codeAlerts.map((a) => `code-scanning:${a.number}`));
+            for (const [key, issueNumber] of filedMarkers) {
+              if (!key.startsWith("code-scanning:")) continue; // only sources swept above can auto-close
+              if (openCode.has(key)) continue;
+              try {
+                const alertNumber = Number(key.split(":")[1]);
+                const { data: alert } = await github.rest.codeScanning.getAlert({ owner, repo, alert_number: alertNumber });
+                if (alert.state === "fixed" || alert.state === "dismissed") {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: issueNumber,
+                    body: `Auto-closed by the Security Findings Watch: alert ${alert.html_url} is now **${alert.state}**.`,
+                  });
+                  await github.rest.issues.update({ owner, repo, issue_number: issueNumber, state: "closed", state_reason: "completed" });
+                  console.log(`Closed #${issueNumber} (${key} -> ${alert.state})`);
+                }
+              } catch (e) {
+                console.log(`Close pass skipped for ${key}: ${e.message}`);
+              }
+            }
+
+            console.log(`Sweep complete. Filed ${filed} new issue(s) this run.`);
