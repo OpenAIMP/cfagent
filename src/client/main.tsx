@@ -6,6 +6,7 @@ import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, init
 import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
 import "./styles.css";
 import "./tokens.css";
+import "./components/ui/primitives.css";
 
 // Startup applies preferences without writing storage.
 applyThemeToDocument(getStoredTheme());
