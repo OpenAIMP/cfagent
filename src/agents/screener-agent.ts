@@ -39,6 +39,7 @@ import {
 } from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
+  DEFAULT_STALE_AFTER_MS,
   ScreenerTaskLedger,
   evaluateScreenerOutcome,
   type ScreenerTask,
@@ -248,6 +249,20 @@ export class ScreenerAgent extends Agent<Env> {
 
   async listScreenerTasks(limit = 50): Promise<ScreenerTask[]> {
     return this.taskLedger().list(limit);
+  }
+
+  /** Issue #615 (R4): active screener tasks whose heartbeat aged out. */
+  async findStaleScreenerTasks(
+    staleAfterMs: number = DEFAULT_STALE_AFTER_MS
+  ): Promise<ScreenerTask[]> {
+    return this.taskLedger().findStale(staleAfterMs);
+  }
+
+  /** Issue #615 (R4): close stale screener tasks as failed → escalated. */
+  async sweepStaleScreenerTasks(
+    staleAfterMs: number = DEFAULT_STALE_AFTER_MS
+  ): Promise<ScreenerTask[]> {
+    return this.taskLedger().sweepStale(staleAfterMs);
   }
 
   /**

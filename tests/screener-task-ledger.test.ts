@@ -299,3 +299,133 @@ describe("screener wiring (source evidence)", () => {
     expect(agent).toContain("this.runScreen({ ...req, universe })");
   });
 });
+
+describe("stale detection and sweep (#615, R4)", () => {
+  const T0 = Date.parse("2026-10-20T12:00:00.000Z");
+  const MIN = 60_000;
+
+  function clockLedger(store: ScreenerTaskStore) {
+    let nowMs = T0;
+    let n = 0;
+    const l = new ScreenerTaskLedger(store, {
+      now: () => new Date(nowMs).toISOString(),
+      newId: () => `stask-${++n}`,
+    });
+    return { l, advance: (ms: number) => { nowMs += ms; } };
+  }
+
+  const GOOD = evaluateScreenerOutcome(
+    {
+      success: true,
+      runTimestamp: "2026-10-20T12:01:00.000Z",
+      totalScanned: 10,
+      matchedCount: 3,
+      opportunities: 1,
+      partial: false,
+      qualificationPresent: false,
+    },
+    "2026-10-20T12:01:00.000Z"
+  );
+
+  async function runningTask(l: ScreenerTaskLedger, key: string) {
+    const { task } = await l.create({ ...SCHEDULED, idempotencyKey: key });
+    await l.claim(task.id);
+    await l.start(task.id);
+    return task.id;
+  }
+
+  async function completeTask(l: ScreenerTaskLedger, id: string) {
+    await l.complete(id, {
+      runTimestamp: "2026-10-20T12:01:00.000Z",
+      totalScanned: 10,
+      matchedCount: 3,
+      opportunitiesCount: 1,
+      partial: false,
+      evaluation: GOOD,
+    });
+  }
+
+  it("does not flag a fresh active task", async () => {
+    const { l } = clockLedger(memStore());
+    await runningTask(l, "k-fresh");
+    expect(await l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("flags queued, claimed and running tasks whose heartbeat aged out", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const q = (await l.create({ ...SCHEDULED, idempotencyKey: "k-q" })).task.id;
+    const c = (await l.create({ ...SCHEDULED, idempotencyKey: "k-c" })).task.id;
+    await l.claim(c);
+    const r = await runningTask(l, "k-r");
+    advance(31 * MIN);
+    expect((await l.findStale(30 * MIN)).map((t) => t.id).sort()).toEqual([c, q, r].sort());
+  });
+
+  it("never flags terminal tasks, however old", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const done = await runningTask(l, "k-done");
+    await completeTask(l, done);
+    const dead = await runningTask(l, "k-dead");
+    await l.fail(dead, "boom");
+    advance(24 * 60 * MIN);
+    expect(await l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("a heartbeat refresh clears staleness", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = await runningTask(l, "k-hb");
+    advance(20 * MIN);
+    await l.heartbeat(id);
+    advance(20 * MIN);
+    expect(await l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("respects a custom threshold and findStale is read-only", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = await runningTask(l, "k-th");
+    advance(10 * MIN);
+    expect((await l.findStale(5 * MIN)).map((t) => t.id)).toEqual([id]);
+    expect(await l.findStale(30 * MIN)).toEqual([]);
+    expect((await l.get(id))?.status).toBe("running");
+  });
+
+  it("sweepStale escalates stale tasks with the stale reason recorded", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = await runningTask(l, "k-sweep");
+    advance(45 * MIN);
+    const swept = await l.sweepStale(30 * MIN);
+    expect(swept.map((t) => t.id)).toEqual([id]);
+    const after = await l.get(id);
+    expect(after?.status).toBe("escalated");
+    expect(after?.error).toContain("stale");
+    expect(after?.error).toContain("1800000");
+    expect(after?.history.map((h) => h.status)).toEqual([
+      "queued", "claimed", "running", "failed", "escalated",
+    ]);
+  });
+
+  it("sweepStale leaves fresh and terminal tasks untouched and does not re-sweep", async () => {
+    const { l, advance } = clockLedger(memStore());
+    const staleId = await runningTask(l, "k-old");
+    advance(31 * MIN);
+    const freshId = await runningTask(l, "k-new");
+    const doneId = await runningTask(l, "k-fin");
+    await completeTask(l, doneId);
+    const swept = await l.sweepStale(30 * MIN);
+    expect(swept.map((t) => t.id)).toEqual([staleId]);
+    expect((await l.get(freshId))?.status).toBe("running");
+    expect((await l.get(doneId))?.status).toBe("completed");
+    expect(await l.sweepStale(30 * MIN)).toEqual([]);
+  });
+
+  it("exposes the operations on ScreenerAgent (source evidence)", () => {
+    const agent = fs.readFileSync(
+      path.join(process.cwd(), "src/agents/screener-agent.ts"),
+      "utf8"
+    );
+    expect(agent).toContain("findStaleScreenerTasks");
+    expect(agent).toContain("sweepStaleScreenerTasks");
+    expect(agent).toContain(".findStale(");
+    expect(agent).toContain(".sweepStale(");
+  });
+});

@@ -233,3 +233,109 @@ describe("slice wiring (source evidence)", () => {
     expect(section).toContain('executionPath = "fallback"');
   });
 });
+
+describe("stale detection and sweep (#615, R4)", () => {
+  const T0 = Date.parse("2026-10-20T10:00:00.000Z");
+  const MIN = 60_000;
+
+  function clockLedger(store: ResearchTaskStore) {
+    let nowMs = T0;
+    let n = 0;
+    const l = new ResearchTaskLedger(store, {
+      now: () => new Date(nowMs).toISOString(),
+      newId: () => `task-${++n}`,
+    });
+    return { l, advance: (ms: number) => { nowMs += ms; } };
+  }
+
+  function runningTask(l: ResearchTaskLedger, key: string) {
+    const { task } = l.create({ ...INPUT, idempotencyKey: key });
+    l.claim(task.id);
+    l.start(task.id);
+    return task.id;
+  }
+
+  it("does not flag a fresh active task", () => {
+    const { l } = clockLedger(memStore());
+    runningTask(l, "k-fresh");
+    expect(l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("flags queued, claimed and running tasks whose heartbeat aged out", () => {
+    const { l, advance } = clockLedger(memStore());
+    const q = l.create({ ...INPUT, idempotencyKey: "k-q" }).task.id;
+    const c = l.create({ ...INPUT, idempotencyKey: "k-c" }).task.id;
+    l.claim(c);
+    const r = runningTask(l, "k-r");
+    advance(31 * MIN);
+    expect(l.findStale(30 * MIN).map((t) => t.id).sort()).toEqual([c, q, r].sort());
+  });
+
+  it("never flags terminal tasks, however old", () => {
+    const { l, advance } = clockLedger(memStore());
+    const done = runningTask(l, "k-done");
+    l.complete(done, { path: "think", reportRunId: "run-1", evaluation: GOOD_EVAL });
+    const dead = runningTask(l, "k-dead");
+    l.fail(dead, "boom");
+    advance(24 * 60 * MIN);
+    expect(l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("a heartbeat refresh clears staleness", () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = runningTask(l, "k-hb");
+    advance(20 * MIN);
+    l.heartbeat(id);
+    advance(20 * MIN);
+    expect(l.findStale(30 * MIN)).toEqual([]);
+  });
+
+  it("respects a custom threshold and findStale is read-only", () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = runningTask(l, "k-th");
+    advance(10 * MIN);
+    expect(l.findStale(5 * MIN).map((t) => t.id)).toEqual([id]);
+    expect(l.findStale(30 * MIN)).toEqual([]);
+    expect(l.get(id)?.status).toBe("running");
+  });
+
+  it("sweepStale escalates stale tasks with the stale reason recorded", () => {
+    const { l, advance } = clockLedger(memStore());
+    const id = runningTask(l, "k-sweep");
+    advance(45 * MIN);
+    const swept = l.sweepStale(30 * MIN);
+    expect(swept.map((t) => t.id)).toEqual([id]);
+    const after = l.get(id);
+    expect(after?.status).toBe("escalated");
+    expect(after?.error).toContain("stale");
+    expect(after?.error).toContain("1800000");
+    expect(after?.history.map((h) => h.status)).toEqual([
+      "queued", "claimed", "running", "failed", "escalated",
+    ]);
+  });
+
+  it("sweepStale leaves fresh and terminal tasks untouched and does not re-sweep", () => {
+    const { l, advance } = clockLedger(memStore());
+    const staleId = runningTask(l, "k-old");
+    advance(31 * MIN);
+    const freshId = runningTask(l, "k-new");
+    const doneId = runningTask(l, "k-fin");
+    l.complete(doneId, { path: "fallback", reportRunId: "run-9", evaluation: GOOD_EVAL });
+    const swept = l.sweepStale(30 * MIN);
+    expect(swept.map((t) => t.id)).toEqual([staleId]);
+    expect(l.get(freshId)?.status).toBe("running");
+    expect(l.get(doneId)?.status).toBe("completed");
+    expect(l.sweepStale(30 * MIN)).toEqual([]);
+  });
+
+  it("exposes the operations on ResearchAgent (source evidence)", () => {
+    const agent = fs.readFileSync(
+      path.join(process.cwd(), "src/agents/research-agent.ts"),
+      "utf8"
+    );
+    expect(agent).toContain("findStaleResearchTasks");
+    expect(agent).toContain("sweepStaleResearchTasks");
+    expect(agent).toContain(".findStale(");
+    expect(agent).toContain(".sweepStale(");
+  });
+});
