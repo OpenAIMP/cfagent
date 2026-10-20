@@ -21,16 +21,20 @@ import {
   UnifiedOptionsService,
   OptionsAgentPipeline,
   validateStrategyRequest,
+  deriveDiscoveryRequest,
+  toProfileRef,
   MAX_SAVED_REQUESTS_PER_RUN,
   type OptionThesis,
   type OptionStrategyType,
   type StrategyRequest,
 } from "../trading";
+import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import type { ScanRunStore } from "../trading";
 import type {
   DiscoveryRunStatus,
   DiscoveryRunStore,
   DiscoverySymbolOutcome,
+  StrategyProfileStore,
 } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
@@ -74,6 +78,19 @@ export interface AutonomousStrategyDiscoveryOptions {
    *  panel and re-run verbatim (issue #126 decision — the system
    *  never derives a target or invents a view for a schedule). */
   requests?: StrategyRequest[];
+  /** Input model discriminator (issue #533). Absent or "saved-request"
+   *  is the #126 model above; "profile-derived" arms the fields
+   *  below instead — the service branches on it. */
+  inputModel?: "saved-request" | "profile-derived";
+  /** Profile-derived model: the explicit symbol set (exactly one of
+   *  symbols / watchlistName). */
+  symbols?: string[];
+  /** Profile-derived model: a watchlist name resolved at fire time
+   *  against the schedule owner's stored watchlists. */
+  watchlistName?: string;
+  /** Profile-derived model: the Strategy Profile id, resolved at
+   *  fire time under the schedule owner's identity. */
+  profileId?: string;
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
@@ -108,7 +125,8 @@ export class ScheduledTasksService {
     private userLogin: string = "default_trader",
     private scanRunStore?: ScanRunStore,
     private ivHistoryStore?: IvHistoryStore,
-    private discoveryRunStore?: DiscoveryRunStore
+    private discoveryRunStore?: DiscoveryRunStore,
+    private strategyProfileStore?: StrategyProfileStore
   ) {}
 
   /**
@@ -902,8 +920,15 @@ export class ScheduledTasksService {
     failedCount: number;
     symbols: string[];
     failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
   }>> {
     const timestamp = new Date().toISOString();
+    // Issue #533: the profile-derived input model has its own
+    // resolution + derivation flow; the saved-request path below is
+    // untouched for every other payload.
+    if (options.inputModel === "profile-derived") {
+      return this.autonomousStrategyDiscoveryDerived(options, timestamp);
+    }
     const requests = options.requests ?? [];
     const symbols = requests.map((r) => (typeof r?.symbol === "string" ? r.symbol.toUpperCase().trim() : "?"));
 
@@ -954,6 +979,7 @@ export class ScheduledTasksService {
         failedCount: number;
         symbols: string[];
         failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
       }>;
     };
 
@@ -991,53 +1017,7 @@ export class ScheduledTasksService {
 
       const outcomes: DiscoverySymbolOutcome[] = [];
       for (const request of requests) {
-        const symbol = request.symbol.toUpperCase().trim();
-        try {
-          const result = await pipeline.run(request);
-          const snapshot = result.snapshot;
-          // A snapshot that never loaded its chain is a failure, not
-          // an empty success: the screen records why (validation
-          // error, per-symbol fetch errors, or the client's recorded
-          // upstream cause). Zero contracts with NO failure signal is
-          // a genuine no-candidates outcome and completes honestly.
-          const fetchReasons = (snapshot.screen.fetchErrors ?? [])
-            .filter((e) => e.symbol === symbol)
-            .map((e) => e.reason);
-          let failure: string | undefined;
-          if (snapshot.validationError) {
-            failure = snapshot.validationError;
-          } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
-            failure = fetchReasons.join("; ");
-          } else if (snapshot.contracts.length === 0) {
-            failure = etrade.getLastError() || undefined;
-          }
-          if (failure) {
-            outcomes.push({ symbol, status: "failed", request, error: failure });
-          } else {
-            outcomes.push({
-              symbol,
-              status: "completed",
-              request,
-              ranked: result.ranked,
-              riskReports: result.riskReports,
-              screenedOut: result.screenedOut.slice(0, 50),
-              excluded: result.strategies.excluded,
-              bestTrade: result.bestTrade,
-              snapshot: {
-                dataSource: snapshot.dataSource,
-                screen: snapshot.screen,
-                ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
-              },
-            });
-          }
-        } catch (err: any) {
-          outcomes.push({
-            symbol,
-            status: "failed",
-            request,
-            error: err?.message || "Strategy discovery pipeline failed",
-          });
-        }
+        outcomes.push(await this.runDiscoveryRequest(pipeline, etrade, request));
       }
 
       const failures = outcomes
@@ -1051,6 +1031,7 @@ export class ScheduledTasksService {
         trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
         userLogin,
+        inputModel: "saved-request",
         requests,
         outcomes,
         status,
@@ -1105,6 +1086,415 @@ export class ScheduledTasksService {
           failedCount: failures.length,
           symbols,
           failures,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * Runs ONE constructed discovery request through the pipeline and
+   * shapes its outcome. Shared verbatim by the saved-request path
+   * (issue #126) and the profile-derived path (issue #533) — the two
+   * input models differ in where requests come from, never in how a
+   * request is executed or judged.
+   */
+  private async runDiscoveryRequest(
+    pipeline: OptionsAgentPipeline,
+    etrade: ETradeService,
+    request: StrategyRequest
+  ): Promise<DiscoverySymbolOutcome> {
+    const symbol = request.symbol.toUpperCase().trim();
+    try {
+      const result = await pipeline.run(request);
+      const snapshot = result.snapshot;
+      // A snapshot that never loaded its chain is a failure, not
+      // an empty success: the screen records why (validation
+      // error, per-symbol fetch errors, or the client's recorded
+      // upstream cause). Zero contracts with NO failure signal is
+      // a genuine no-candidates outcome and completes honestly.
+      const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+        .filter((e) => e.symbol === symbol)
+        .map((e) => e.reason);
+      let failure: string | undefined;
+      if (snapshot.validationError) {
+        failure = snapshot.validationError;
+      } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
+        failure = fetchReasons.join("; ");
+      } else if (snapshot.contracts.length === 0) {
+        failure = etrade.getLastError() || undefined;
+      }
+      if (failure) {
+        return { symbol, status: "failed", request, error: failure };
+      }
+      return {
+        symbol,
+        status: "completed",
+        request,
+        ranked: result.ranked,
+        riskReports: result.riskReports,
+        screenedOut: result.screenedOut.slice(0, 50),
+        excluded: result.strategies.excluded,
+        bestTrade: result.bestTrade,
+        snapshot: {
+          dataSource: snapshot.dataSource,
+          screen: snapshot.screen,
+          ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
+        },
+      };
+    } catch (err: any) {
+      return {
+        symbol,
+        status: "failed",
+        request,
+        error: err?.message || "Strategy discovery pipeline failed",
+      };
+    }
+  }
+
+  /**
+   * Issue #533 (D4): resolves a watchlist NAME to its symbols from
+   * the owner's stored watchlists — no E*TRADE round-trip, so
+   * watchlist edits between arming and firing are honoured. The name
+   * match is trimmed and case-insensitive. Returns null when no
+   * stored watchlist matches (or the ORM is unavailable); the caller
+   * fails honestly and persists nothing.
+   */
+  private resolveWatchlistSymbols(name: string, userLogin: string): string[] | null {
+    if (!this.orm?.watchlists) return null;
+    try {
+      const rows = this.orm.watchlists.findMany({ where: { userLogin } }) as Array<{
+        name?: string;
+        symbolsJson?: string | null;
+      }>;
+      const key = name.trim().toLowerCase();
+      const match = rows.find(
+        (row) => typeof row?.name === "string" && row.name.trim().toLowerCase() === key
+      );
+      if (!match) return null;
+      const seen = new Set<string>();
+      const symbols: string[] = [];
+      for (const raw of flattenWatchlistSymbols([match])) {
+        const symbol = typeof raw === "string" ? raw.toUpperCase().trim() : "";
+        if (symbol && !seen.has(symbol)) {
+          seen.add(symbol);
+          symbols.push(symbol);
+        }
+      }
+      return symbols;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The profile-derived discovery fire (issue #533). The schedule
+   * armed a symbol set (explicit, or a watchlist name resolved at
+   * fire time) plus a Strategy Profile id; the profile is resolved
+   * NOW, so edits and deletions since arming are honoured as honest
+   * outcomes. Each symbol's target is derived from its own live
+   * chain under the profile (see derivation module), the constructed
+   * request runs through the unchanged pipeline, and the run persists
+   * stamped "profile-derived" with the profile reference and the full
+   * derivation per symbol. A symbol that cannot be derived honestly
+   * ABSTAINS — reason on the record, no request, no target — and an
+   * all-abstained fire persists as a FAILED run on the #112 failure
+   * path. Resolution failures before execution (identity, stores,
+   * profile, symbol set) persist NOTHING, the saved-path precedent.
+   */
+  private async autonomousStrategyDiscoveryDerived(
+    options: AutonomousStrategyDiscoveryOptions,
+    timestamp: string
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
+  }>> {
+    let attemptedSymbols: string[] = Array.isArray(options.symbols)
+      ? options.symbols
+          .map((s) => (typeof s === "string" ? s.toUpperCase().trim() : ""))
+          .filter((s) => s.length > 0)
+      : [];
+
+    const fail = (
+      error: string,
+      runId?: string,
+      status?: DiscoveryRunStatus,
+      failures: Array<{ symbol: string; error: string }> = [],
+      abstentions: Array<{ symbol: string; reason: string }> = [],
+      constructedCount = 0
+    ) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols: attemptedSymbols,
+        inputModel: "profile-derived",
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
+        error,
+      });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery failed for ${attemptedSymbols.join(", ") || "no symbols"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId ? {
+          data: {
+            runId,
+            status: status ?? "failed",
+            requestCount: constructedCount,
+            completedCount: constructedCount - failures.length,
+            failedCount: failures.length,
+            symbols: attemptedSymbols,
+            failures,
+            abstained: abstentions,
+          },
+        } : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return fail(
+          "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
+        );
+      }
+      if (!this.discoveryRunStore) {
+        return fail("Discovery run store not configured for this service instance");
+      }
+      if (!this.strategyProfileStore) {
+        return fail("Strategy profile store not configured for this service instance");
+      }
+      const profileId = typeof options.profileId === "string" ? options.profileId.trim() : "";
+      if (!profileId) {
+        return fail(
+          "Profile-derived discovery requires a profileId; none was supplied. The schedule must name the Strategy Profile its targets are derived under."
+        );
+      }
+      const profile = await this.strategyProfileStore.get(userLogin, profileId);
+      if (!profile) {
+        // Deleted (or never existed) since arming: an honest failure
+        // naming the profile — never a silently substituted view.
+        return fail(
+          `Strategy profile ${profileId} was not found for this account. It may have been deleted after the schedule was armed; no run was recorded.`
+        );
+      }
+
+      const hasSymbols = options.symbols !== undefined;
+      const hasWatchlist = options.watchlistName !== undefined;
+      if (hasSymbols === hasWatchlist) {
+        return fail(
+          "Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName."
+        );
+      }
+      let symbols: string[];
+      if (hasSymbols) {
+        if (!Array.isArray(options.symbols)) {
+          return fail("Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName.");
+        }
+        const seen = new Set<string>();
+        symbols = [];
+        for (const raw of options.symbols) {
+          const symbol = typeof raw === "string" ? raw.toUpperCase().trim() : "";
+          if (symbol && !seen.has(symbol)) {
+            seen.add(symbol);
+            symbols.push(symbol);
+          }
+        }
+      } else {
+        const name = typeof options.watchlistName === "string" ? options.watchlistName : "";
+        const resolved = name.trim() ? this.resolveWatchlistSymbols(name, userLogin) : null;
+        if (!resolved) {
+          return fail(
+            `Watchlist "${options.watchlistName}" was not found among this account's stored watchlists; no run was recorded.`
+          );
+        }
+        symbols = resolved;
+      }
+      attemptedSymbols = symbols;
+      if (symbols.length === 0) {
+        return fail(
+          "Profile-derived discovery resolved to no symbols; there is nothing to derive. No run was recorded."
+        );
+      }
+      if (symbols.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return fail(
+          `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${symbols.length} were resolved.`
+        );
+      }
+
+      const etrade = new ETradeService(this.env);
+      const pipeline = new OptionsAgentPipeline(
+        new DynamicOptionsScreener(etrade.client)
+      );
+      const emMultiples = getOpportunityScannerConfig().targetEmMultiples;
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      const constructed: StrategyRequest[] = [];
+      for (const symbol of symbols) {
+        let derivationSnapshot: Awaited<ReturnType<typeof pipeline.data.loadSnapshot>>;
+        try {
+          derivationSnapshot = await pipeline.data.loadSnapshot({
+            symbol,
+            minDte: profile.minDte,
+            maxDte: profile.maxDte,
+          });
+        } catch (err: any) {
+          // The derivation input itself failed to load: an
+          // abstention (the symbol was never derived), not a
+          // pipeline failure.
+          outcomes.push({
+            symbol,
+            status: "abstained",
+            error: err?.message || "Chain snapshot failed to load",
+          });
+          continue;
+        }
+        const derived = deriveDiscoveryRequest({
+          symbol,
+          snapshot: derivationSnapshot,
+          profile,
+          emMultiples,
+          now: new Date(timestamp),
+        });
+        if (!derived.derived) {
+          outcomes.push({
+            symbol,
+            status: "abstained",
+            error: derived.reason,
+            ...(derived.derivation ? { derivation: derived.derivation } : {}),
+          });
+          continue;
+        }
+        constructed.push(derived.request);
+        const outcome = await this.runDiscoveryRequest(pipeline, etrade, derived.request);
+        outcomes.push({ ...outcome, derivation: derived.derivation });
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const abstentions = outcomes
+        .filter((o) => o.status === "abstained")
+        .map((o) => ({ symbol: o.symbol, reason: o.error || "abstained" }));
+      const completedCount = outcomes.filter((o) => o.status === "completed").length;
+      const status: DiscoveryRunStatus =
+        outcomes.length > 0 && completedCount === outcomes.length
+          ? "completed"
+          : completedCount === 0
+            ? "failed"
+            : "partial";
+
+      const profileRef = toProfileRef(profile);
+      // The run is persisted BEFORE the status is judged — an
+      // all-abstained/failed fire's record is exactly what makes the
+      // honesty inspectable (and the run id joins the failure data).
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        inputModel: "profile-derived",
+        profileRef,
+        requests: constructed,
+        outcomes,
+        status,
+      });
+
+      if (status === "failed") {
+        const parts = [
+          ...failures.map((f) => `${f.symbol}: ${f.error}`),
+          ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
+        ];
+        return fail(
+          `No derived discovery request produced a result (${parts.join("; ")})`,
+          run.id,
+          status,
+          failures,
+          abstentions,
+          constructed.length
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        inputModel: "profile-derived",
+        profileRef,
+        requestCount: constructed.length,
+        completedCount,
+        failedCount: failures.length,
+        abstained: abstentions,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+
+      if (this.orm?.messages) {
+        try {
+          const failureNote = failures.length > 0
+            ? `; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}`
+            : "";
+          const abstainNote = abstentions.length > 0
+            ? `; abstained: ${abstentions.map((a) => `${a.symbol} (${a.reason})`).join("; ")}`
+            : "";
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed"
+                ? `🔭 Scheduled Strategy Discovery (profile-derived) completed for ${symbols.join(", ")}: all ${constructed.length} derived requests produced results.`
+                : `🔭 Scheduled Strategy Discovery (profile-derived) partially completed for ${symbols.join(", ")}: ${completedCount} of ${constructed.length} derived requests produced results${failureNote}${abstainNote}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: constructed.length,
+          completedCount,
+          failedCount: failures.length,
+          symbols: attemptedSymbols,
+          failures,
+          abstained: abstentions,
         },
         timestamp,
       };
