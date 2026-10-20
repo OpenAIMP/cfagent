@@ -75,6 +75,7 @@ export interface ScreenerTaskStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   list(prefix: string): Promise<Array<{ key: string; value: string }>>;
+  delete(key: string): Promise<void>;
 }
 
 export interface ScreenerOutcomeFacts {
@@ -91,6 +92,12 @@ export interface ScreenerOutcomeFacts {
 /** Issue #615 (R4): default staleness threshold — 30 minutes, far
  * above observed screener run durations (minutes-scale). */
 export const DEFAULT_STALE_AFTER_MS = 30 * 60 * 1000;
+
+/** Issue #635: retention tiers for terminal task records — 90 days
+ * for completed/cancelled, 365 days for failed/escalated (human-review
+ * items). Active records are never pruned. */
+export const DEFAULT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+export const DEFAULT_ESCALATED_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 
 const TASK_PREFIX = "task:";
 const IDEM_PREFIX = "idem:";
@@ -337,6 +344,36 @@ export class ScreenerTaskLedger {
       );
     }
     return swept;
+  }
+
+  /**
+   * Issue #635: delete terminal records older than their retention
+   * tier (by updatedAt), plus their idempotency entry when it still
+   * points at the task. Active records are never pruned — the stale
+   * sweep owns those. Returns the pruned task ids.
+   */
+  async pruneExpired(
+    opts?: { retentionMs?: number; escalatedRetentionMs?: number },
+    at?: string
+  ): Promise<string[]> {
+    const retentionMs = opts?.retentionMs ?? DEFAULT_RETENTION_MS;
+    const escalatedRetentionMs =
+      opts?.escalatedRetentionMs ?? DEFAULT_ESCALATED_RETENTION_MS;
+    const nowMs = Date.parse(at ?? this.now());
+    const pruned: string[] = [];
+    for (const task of await this.list(Number.MAX_SAFE_INTEGER)) {
+      if (ACTIVE.has(task.status)) continue;
+      const tierMs =
+        task.status === "failed" || task.status === "escalated"
+          ? escalatedRetentionMs
+          : retentionMs;
+      if (nowMs - Date.parse(task.updatedAt) <= tierMs) continue;
+      await this.store.delete(TASK_PREFIX + task.id);
+      const idemKey = IDEM_PREFIX + task.idempotencyKey;
+      if ((await this.store.get(idemKey)) === task.id) await this.store.delete(idemKey);
+      pruned.push(task.id);
+    }
+    return pruned;
   }
 
   /** Fail + escalate a task abandoned in any active state. */
