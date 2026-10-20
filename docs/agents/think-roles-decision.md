@@ -6,9 +6,10 @@ finding F2 in [`think-conformance.md`](./think-conformance.md):
 *no project document designated which agent roles are required to run
 through Cloudflare Think (`@cloudflare/think`).*
 
-- **Status:** recommendations recorded; owner decisions pending (see the
-  decision table — a recommendation is **not** a requirement until the
-  owner marks it).
+- **Status:** owner decisions recorded 2026-10-20 — `ResearchAgent`
+  and `OrchestratorAgent` are designated **Required** (the migration
+  program below is committed). Remaining rows are still pending an
+  owner mark; a recommendation is **not** a requirement until marked.
 - **Baseline:** inventory taken at main `9c98301` (2026-10-20; the only intervening merge, PR #554, touched client CSS, not the agent inventory), `@cloudflare/think` 0.19.0,
   `agents` 0.24.0.
 - **Tracking:** issue #545, epic #539.
@@ -109,14 +110,22 @@ stays **PARTIAL** by design.
 
 | Role | Recommendation | Owner decision (Required / Optional / Not planned) | Date |
 |---|---|---|---|
-| ResearchAgent | Required | | |
-| OrchestratorAgent | Optional (migration candidate) | | |
+| ResearchAgent | Required | Required | 2026-10-20 |
+| OrchestratorAgent | Optional (migration candidate) | Required — migration program committed | 2026-10-20 |
 | BrowserAgent | Not planned | | |
 | SlackAgent | Not planned | | |
 | PaymentsAgent (DO) | Not planned | | |
 | ScheduledAgent | Not planned | | |
 | ScreenerAgent | Not planned | | |
-| Standalone classes (search/tasks/memory/payments.ts) | Remove or mark prototype | | |
+| Standalone classes (search/tasks/memory/payments.ts) | Remove or mark prototype | Removed — executed by #597 | 2026-10-20 |
 
 Follow-up migration issues are created **only** for roles the owner
 marks Required.
+
+**Decision recorded 2026-10-20 (issue #644):** the owner marked
+`OrchestratorAgent` **Required**. The five-step migration path above
+is now the committed program; its step issues are created
+sequentially, one at a time, beginning with the step-1 spike.
+`ResearchAgent` was marked **Required** the same day (already
+conformant; the designation makes the #542 conformance suite a
+standing requirement).
