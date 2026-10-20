@@ -19,6 +19,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **RSI-AI plan published (#752):** `plans/rsi-ai-plan-2026-10-20.md` prioritizes every AI/ASI/AGI-related issue by recursive leverage in dependency order — P0 measurement integrity (#17 calibration + learned-weighting experiment, #654 dashboard, #488 scorecard), P1 closing the remember→reflect→review loop (#16, #18, and new #753 wiring reflection output into the #653 review queue), P2 bounded adaptation (#158, new #754 weight adjustment within #79 bounds, #755 adaptation budgets + audit trail, #756 kill-switch verification), P3 governed self-modification (new #757–#760: candidate generation, isolated paper evaluation, held-out significance + human-review gate, staged promotion with automatic rollback — gated on P2 producing data), P4 meta-improvement (no issues yet, by design), with the engineering self-heal loop (#219/#231, #745) in parallel and a user offering paired to every stage. The eight gap issues (#753–#760) were filed from the plan; the plan is linked from #232 and #571. Docs only.
+
 ### Security
 
 - **Premium fulfillment bound to the verified payer (#183, shipped via #698; entry recorded with #720):** `/api/payments/agentic/*` now requires a GitHub OAuth session (401 at the worker without one — the #154 pattern); `/api/premium/*` keeps anonymous x402 paid access but no longer trusts caller-asserted identity headers — the worker strips them and routes to the dedicated `premium-gateway` instance, and persisted payment state is scoped by the VERIFIED payer (`x402:<payer>`) from the claim verifier, never the asserted login. Premium fulfillment runs under that payer scope; wallet status counts only the caller's own rows; the auto-approve limit persists per identity.
