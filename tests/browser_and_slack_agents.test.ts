@@ -17,6 +17,7 @@ import { BrowserAgent } from "../src/agents/browserAgent";
 import { SlackAgent } from "../src/agents/slackAgent";
 import { computeHmacSha256Hex } from "../src/services/cryptoUtils";
 import { DatabaseORM } from "../src/orm";
+import { resetRateLimits } from "../src/security/rateLimiter";
 import { MockSqlStorage } from "./mock-sql";
 import { AGENT_DIDS } from "../src/agents/did";
 import type { Env, TransactionSnapData } from "../src/types";
@@ -69,6 +70,9 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
   };
 
   beforeEach(() => {
+    // #411: Slack webhook deliveries are rate-limited per destination;
+    // this suite shares one env webhook URL across cases, so start cold.
+    resetRateLimits();
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(`slack_${teamId}`);

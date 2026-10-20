@@ -22,6 +22,7 @@ import type {
 } from "../types";
 import { AGENT_DIDS } from "../agents/did";
 import { SERVER_PALETTE } from "../theme/serverPalette";
+import { checkSlackWebhookRateLimit } from "./slackWebhookRateLimit";
 
 export class ETradeBrowserService {
   constructor(private env?: Env) {}
@@ -231,6 +232,11 @@ export class ETradeBrowserService {
     };
 
     if (webhookUrl) {
+      // Issue #411: per-destination Slack webhook rate limit (~1/sec, burst 5).
+      const rl = checkSlackWebhookRateLimit(webhookUrl);
+      if (!rl.allowed) {
+        return { success: false, url, error: `Rate limited: Slack webhook calls to this destination are capped at ~1/second; delivery skipped (retry after ${rl.retryAfterMs}ms).`, timestamp };
+      }
       try {
         const resp = await fetch(webhookUrl, {
           method: "POST",
@@ -510,6 +516,11 @@ export class ETradeBrowserService {
 
     // 3. Deliver to Slack
     if (webhookUrl) {
+      // Issue #411: per-destination Slack webhook rate limit (~1/sec, burst 5).
+      const rl = checkSlackWebhookRateLimit(webhookUrl);
+      if (!rl.allowed) {
+        return { success: false, transactionId: tx.transactionId, symbol: tx.symbol, error: `Rate limited: Slack webhook calls to this destination are capped at ~1/second; delivery skipped (retry after ${rl.retryAfterMs}ms).`, timestamp };
+      }
       try {
         const resp = await fetch(webhookUrl, {
           method: "POST",
