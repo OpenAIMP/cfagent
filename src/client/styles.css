@@ -208,7 +208,7 @@ body {
 }
 
 .tab-btn.active {
-  color: #ffffff;
+  color: var(--color-primary-foreground);
   background: var(--accent-primary);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
 }
@@ -533,7 +533,7 @@ body {
 
 .bold-text {
   font-weight: 600;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .inline-code {
@@ -569,7 +569,7 @@ body {
   overflow-x: auto;
   font-size: 0.85rem;
   line-height: 1.5;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
 }
 
 /* Tool Result Cards */
@@ -624,13 +624,13 @@ body {
 
 .tool-status-pill.success {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
 .tool-status-pill.warning {
   background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid var(--color-warning-border);
 }
 
@@ -648,7 +648,7 @@ body {
 
 .tool-status-pill.priority-medium {
   background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid var(--color-warning-border);
 }
 
@@ -797,7 +797,7 @@ body {
 
 .hitl-btn.approve {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border-color: var(--color-success-border);
 }
 
@@ -901,7 +901,7 @@ body {
 
 .send-button {
   background: var(--accent-gradient);
-  color: #ffffff;
+  color: var(--color-accent-contrast);
   border: 0;
   border-radius: 12px;
   padding: 0.85rem 1.5rem;
@@ -1237,10 +1237,10 @@ body {
   border-radius: 9999px;
 }
 
-.event-agent-tag.judge { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
+.event-agent-tag.judge { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 .event-agent-tag.search { background: rgba(6, 182, 212, 0.2); color: #67e8f9; }
 .event-agent-tag.payments { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
-.event-agent-tag.tasks { background: var(--color-success-subtle); color: var(--color-success-text); }
+.event-agent-tag.tasks { background: var(--color-success-subtle); color: #34d399; }
 .event-agent-tag.memory { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
 .event-agent-tag.nlq { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
 
@@ -1283,7 +1283,7 @@ body {
 
 .bot-avatar.error {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .agent-tag.error-tag {
@@ -1362,9 +1362,9 @@ body {
 }
 
 .error-banner-btn.secondary {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--color-surface-hover);
   border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .error-banner-btn.secondary:hover {
@@ -1708,7 +1708,7 @@ body {
 
 .copy-link-btn {
   background: var(--accent-primary);
-  color: #ffffff;
+  color: var(--color-primary-foreground);
   border: 0;
   font-size: 0.82rem;
   font-weight: 700;
@@ -1767,8 +1767,8 @@ body {
 }
 
 .social-btn.x-twitter {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border: 1px solid var(--color-border-medium);
 }
 
@@ -1844,7 +1844,7 @@ body {
 .stat-num {
   font-size: 1.45rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   letter-spacing: -0.01em;
 }
 
@@ -1976,7 +1976,7 @@ body {
   width: 100%;
   background: var(--accent-gradient);
   border: 0;
-  color: #ffffff;
+  color: var(--color-accent-contrast);
   padding: 0.75rem 1.25rem;
   border-radius: 10px;
   font-size: 0.9rem;
@@ -2357,9 +2357,9 @@ body {
   letter-spacing: 0.05em;
 }
 
-.gw-mode-badge.live { background: var(--color-success-subtle); color: var(--color-success-text); }
+.gw-mode-badge.live { background: var(--color-success-subtle); color: #34d399; }
 .gw-mode-badge.sandbox { background: var(--color-accent-subtle); color: var(--color-accent); }
-.gw-mode-badge.simulated { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
+.gw-mode-badge.simulated { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 
 .gw-caps {
   display: flex;
@@ -2421,10 +2421,10 @@ body {
   border-radius: 999px;
 }
 
-.tx-status-pill.completed { background: var(--color-success-subtle); color: var(--color-success-text); }
+.tx-status-pill.completed { background: var(--color-success-subtle); color: #34d399; }
 .tx-status-pill.authorized { background: var(--color-accent-subtle); color: var(--color-accent); }
-.tx-status-pill.awaiting_confirmation { background: rgba(245, 158, 11, 0.25); color: var(--color-warning-text); animation: pulseGlow 1.5s infinite alternate; }
-.tx-status-pill.rejected { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
+.tx-status-pill.awaiting_confirmation { background: rgba(245, 158, 11, 0.25); color: #fbbf24; animation: pulseGlow 1.5s infinite alternate; }
+.tx-status-pill.rejected { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
 
 @keyframes pulseGlow {
   from { opacity: 0.7; }
@@ -2557,7 +2557,7 @@ body {
 .modal-header h4 {
   font-size: 1.15rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
@@ -2571,7 +2571,7 @@ body {
 }
 
 .close-modal-btn:hover {
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .modal-body {
@@ -2675,7 +2675,7 @@ body {
 
 .ext-ad-title {
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .ext-ad-divider {
@@ -2692,7 +2692,7 @@ body {
 .ext-ad-earnings-pill {
   font-family: var(--font-mono);
   font-size: 0.76rem;
-  color: var(--color-success-text);
+  color: #34d399;
   background: var(--color-success-subtle);
   border: 1px solid rgba(16, 185, 129, 0.25);
   padding: 0.25rem 0.65rem;
@@ -2736,8 +2736,8 @@ body {
 }
 
 .ext-ad-next-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 /* ========================================================
@@ -2791,7 +2791,7 @@ body {
 
 .orm-browse-btn {
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-primary-foreground);
   border: 0;
   padding: 0.5rem 1.1rem;
   border-radius: 8px;
@@ -2826,7 +2826,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   font-size: 0.95rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .close-sm-btn {
@@ -2840,8 +2840,8 @@ body {
 }
 
 .close-sm-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.15);
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
 }
 
 .nlq-summary-alert {
@@ -2891,7 +2891,7 @@ body {
   flex: 1;
   margin: 0;
   font-size: 0.95rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .schema-card-top h5 code {
@@ -3093,7 +3093,7 @@ body {
 .danger-sm-btn {
   background: var(--color-sentiment-very-bearish-subtle);
   border: 1px solid var(--color-danger-border);
-  color: var(--color-danger-text);
+  color: #f87171;
   padding: 0.25rem 0.55rem;
   border-radius: 8px;
   font-size: 0.74rem;
@@ -3239,7 +3239,7 @@ body {
   font-size: 0.78rem;
   font-weight: 600;
   text-decoration: none;
-  color: #ffffff;
+  color: var(--color-text-primary);
   border: 1px solid var(--color-border-subtle);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
@@ -3310,8 +3310,8 @@ body {
   border-radius: 6px;
   font-size: 0.82rem;
   text-decoration: none;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+  background: var(--color-muted);
   border: 1px solid var(--color-border-subtle);
   transition: all 0.15s ease;
 }
@@ -3607,7 +3607,7 @@ body {
 .config-form-card h5, .live-ad-preview-card h5 {
   margin: 0;
   font-size: 0.95rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .live-ad-preview-card {
@@ -3640,7 +3640,7 @@ body {
 .toggle-btn.active {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 /* ========================================================
@@ -3684,7 +3684,7 @@ body {
 
 .live-status-pill {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
   padding: 0.25rem 0.65rem;
   border-radius: 20px;
@@ -3782,8 +3782,8 @@ body {
 }
 
 .subnav-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
+  background: var(--color-tag);
+  color: var(--color-text-primary);
 }
 
 .subnav-btn.active {
@@ -3826,7 +3826,7 @@ body {
 .pane-header h4 {
   margin: 0;
   font-size: 1rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .pane-sub {
@@ -3913,7 +3913,7 @@ body {
 .res-title, .rest-title {
   margin: 0.25rem 0;
   font-size: 0.85rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .method-tag {
@@ -3924,9 +3924,9 @@ body {
   text-transform: uppercase;
 }
 
-.method-tag.get, .method-pill.get { background: var(--color-success-subtle); color: var(--color-success-text); }
+.method-tag.get, .method-pill.get { background: var(--color-success-subtle); color: #34d399; }
 .method-tag.post, .method-pill.post { background: var(--color-accent-subtle); color: var(--color-accent); }
-.method-tag.delete, .method-pill.delete { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
+.method-tag.delete, .method-pill.delete { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
 
 .path-text code {
   font-size: 0.8rem;
@@ -3968,7 +3968,7 @@ body {
 .runner-header h4 {
   margin: 0;
   font-size: 1.35rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .runner-header h4 code {
@@ -4138,8 +4138,8 @@ body {
   border-radius: 4px;
 }
 
-.status-code.ok { background: var(--color-success-subtle); color: var(--color-success-text); }
-.status-code.err { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
+.status-code.ok { background: var(--color-success-subtle); color: #34d399; }
+.status-code.err { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
 
 .latency-tag {
   font-size: 0.76rem;
@@ -4208,7 +4208,7 @@ body {
 .config-header h4 {
   margin: 0 0 0.25rem 0;
   font-size: 1.15rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .config-header p {
@@ -4276,7 +4276,7 @@ body {
 
 .etrade-banner-identity > strong {
   font-size: 1.05rem;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .etrade-environment {
@@ -4313,7 +4313,7 @@ body {
 }
 
 .etrade-banner-account b {
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
   font-family: inherit;
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;
@@ -4443,7 +4443,7 @@ body {
 
 .mode-badge.live-pulse {
   background: rgba(16, 185, 129, 0.18);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
@@ -4493,7 +4493,7 @@ body {
 .metric-val {
   font-size: 1.2rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -4544,7 +4544,7 @@ body {
 .oauth-status-info strong {
   display: block;
   font-size: 0.95rem;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .oauth-meta {
@@ -4591,7 +4591,7 @@ body {
 
 .btn-oauth-revoke {
   background: rgba(239, 68, 68, 0.1);
-  color: var(--color-danger-text);
+  color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 8px;
   padding: 0.5rem 0.9rem;
@@ -4733,7 +4733,7 @@ body {
   align-items: center;
   gap: var(--space-2, 0.5rem);
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
   border-radius: 8px;
   padding: 0.65rem 1.1rem;
@@ -4814,7 +4814,7 @@ body {
   border-radius: 8px;
   padding: 0.6rem 0.85rem;
   font-size: 0.78rem;
-  color: var(--color-warning-text);
+  color: #fbbf24;
   margin-top: 0.6rem;
   display: flex;
   justify-content: space-between;
@@ -4949,9 +4949,9 @@ body {
 }
 
 .nlq-chip {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-muted);
   border: 1px solid var(--color-border-subtle);
-  color: #e2e8f0;
+  color: var(--color-text-primary);
   padding: 0.3rem 0.7rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -4995,8 +4995,8 @@ body {
 }
 
 .subnav-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+  background: var(--color-muted);
 }
 
 .subnav-btn.active {
@@ -5052,7 +5052,7 @@ body {
 
 .order-id-tag {
   font-size: 0.8rem;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
 }
 
 .order-id-tag code {
@@ -5084,7 +5084,7 @@ body {
 .stat-value {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .stat-value.ticker-val {
@@ -5106,13 +5106,13 @@ body {
 
 .action-pill.buy {
   background: rgba(16, 185, 129, 0.25);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
 .action-pill.sell {
   background: rgba(239, 68, 68, 0.25);
-  color: var(--color-danger-text);
+  color: #f87171;
   border: 1px solid var(--color-danger-border);
 }
 
@@ -5166,7 +5166,7 @@ body {
 
 .btn-reject-order {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 8px;
   padding: 0.75rem 1.25rem;
@@ -5187,13 +5187,13 @@ body {
 .execution-result-banner.success {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .execution-result-banner.rejected {
   background: var(--color-sentiment-very-bearish-subtle);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .exec-icon {
@@ -5351,12 +5351,12 @@ body {
 
 .change-pill.positive {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .change-pill.negative {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 /* RSI Badge and Gauge */
@@ -5422,13 +5422,13 @@ body {
 }
 
 .btn-act-quote {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .btn-act-buy {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .btn-act-buy:hover {
@@ -5438,7 +5438,7 @@ body {
 
 .btn-act-sell {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .btn-act-sell:hover {
@@ -6016,7 +6016,7 @@ body {
 .nlq-query-meta h4 {
   margin: 0 0 0.25rem 0;
   font-size: 1.1rem;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .nlq-query-meta p {
@@ -6049,13 +6049,13 @@ body {
 }
 
 .plan-badge.domain { background: var(--color-accent-subtle); color: var(--color-accent); }
-.plan-badge.intent { background: var(--color-success-subtle); color: var(--color-success-text); }
-.plan-badge.sql { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
+.plan-badge.intent { background: var(--color-success-subtle); color: #34d399; }
+.plan-badge.sql { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 
 .nlq-summary-text {
   font-size: 0.95rem;
   line-height: 1.6;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .nlq-screener-cards-grid {
@@ -6082,7 +6082,7 @@ body {
 
 .nlq-stock-card .price {
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .nlq-stock-card .card-company {
@@ -6128,8 +6128,8 @@ body {
 }
 
 .btn-card-quote {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .btn-card-trade {
@@ -6199,7 +6199,7 @@ body {
 .big-price {
   font-size: 2.25rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -6235,7 +6235,7 @@ body {
 .quote-grid-3 .val {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .modal-actions-bar {
@@ -6653,7 +6653,7 @@ body {
 
 .btn-trade-etrade {
   background: var(--color-success);
-  color: #ffffff;
+  color: var(--color-success-foreground);
   border: 1px solid var(--color-success);
   font-weight: 700;
   font-size: 0.82rem;
@@ -6697,8 +6697,8 @@ body {
 }
 
 .subnav-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+  background: var(--color-muted);
 }
 
 .subnav-btn.active {
@@ -6764,7 +6764,7 @@ body {
 .heading-meta h4 {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
   margin: 0 0 0.25rem 0;
 }
 
@@ -6783,7 +6783,7 @@ body {
 .report-price {
   font-size: 2.25rem;
   font-weight: 900;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   line-height: 1;
 }
@@ -6861,7 +6861,7 @@ body {
 .metric-pill-item .value {
   font-size: 1.05rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -6895,7 +6895,7 @@ body {
 .stat-num {
   font-size: 1.1rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -6988,7 +6988,7 @@ body {
 
 .rec-buy {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
@@ -7000,7 +7000,7 @@ body {
 
 .rec-hold {
   background: rgba(245, 158, 11, 0.2);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
@@ -7121,7 +7121,7 @@ body {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .provider-tag {
@@ -7148,7 +7148,7 @@ body {
 .big-quote-price {
   font-size: 2.5rem;
   font-weight: 900;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   line-height: 1;
 }
@@ -7162,7 +7162,7 @@ body {
 
 .quote-change-pill.positive {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .quote-change-pill.negative {
@@ -7201,7 +7201,7 @@ body {
 .detail-item .val {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -7235,7 +7235,7 @@ body {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .fund-grid {
@@ -7264,7 +7264,7 @@ body {
 .fund-item .val {
   font-size: 1.05rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -7362,7 +7362,7 @@ body {
   margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .asset-tag {
@@ -7401,14 +7401,14 @@ body {
 .snap-item .val.big {
   font-size: 1.75rem;
   font-weight: 900;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
 .snap-item .val {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -7504,14 +7504,14 @@ body {
 
 .company-title {
   font-weight: 600;
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-size: 0.85rem;
 }
 
 .price-tag {
   font-weight: 800;
   font-family: var(--font-mono);
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-size: 0.9rem;
 }
 
@@ -7534,7 +7534,7 @@ body {
 
 .change-pill.positive {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .change-pill.negative {
@@ -7705,7 +7705,7 @@ body {
 }
 
 .metric-tag strong {
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .foss-summary-text {
@@ -7858,8 +7858,8 @@ body {
 }
 
 .btn-env-toggle:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+  background: var(--color-muted);
 }
 
 .btn-env-toggle.active-env {
@@ -7934,13 +7934,13 @@ body {
 .reconciliation-tag.reconciled {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .reconciliation-tag.unreconciled {
   background: rgba(239, 68, 68, 0.18);
   border: 1px solid var(--color-danger-border);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 /* NLQ Unverified Warning Banner */
@@ -7992,7 +7992,7 @@ body {
 }
 
 .discrepancy-grid strong {
-  color: #ffffff;
+  color: var(--color-text-primary);
 }
 
 .variance-highlight {
@@ -8195,7 +8195,7 @@ body {
 
 .menu-summary-label {
   font-size: 0.8rem;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
@@ -8276,7 +8276,7 @@ body {
   margin: 0;
   font-size: 0.92rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   white-space: nowrap;
 }
 
@@ -8689,8 +8689,8 @@ body {
 }
 
 .btn-pref-pill:hover {
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+  background: var(--color-muted);
 }
 
 .btn-pref-pill.active {
@@ -8784,8 +8784,8 @@ body {
 }
 
 .btn-preset-mini:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -8924,8 +8924,8 @@ body {
 }
 
 .btn-async-mini-refresh:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .async-jobs-empty-hint {
@@ -9001,12 +9001,12 @@ body {
 
 .job-tag-status.completed {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .job-tag-status.failed {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .job-tag-time {
@@ -9056,7 +9056,7 @@ body {
 .btn-async-download {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
   font-size: 0.62rem;
   padding: 1px 5px;
   border-radius: 3px;
@@ -9215,7 +9215,7 @@ body {
 .settings-user-name {
   font-size: 0.76rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -9243,7 +9243,7 @@ body {
 .btn-settings-signout {
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--color-danger-text);
+  color: #f87171;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 5px;
@@ -9612,7 +9612,7 @@ body {
 .tab-hover-title {
   font-size: 0.84rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   display: block;
   line-height: 1.25;
   position: relative;
@@ -9691,7 +9691,7 @@ body {
   padding: 2px 8px;
   border-radius: 6px;
   background: rgba(245, 158, 11, 0.2);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid rgba(245, 158, 11, 0.4);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -9731,7 +9731,7 @@ body {
 .resolution-steps-list {
   margin: 0;
   padding-left: 20px;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
   font-size: 0.82rem;
   line-height: 1.6;
 }
@@ -9777,8 +9777,8 @@ body {
 }
 
 .error-action-btn.secondary {
-  background: rgba(255, 255, 255, 0.07);
-  color: #e2e8f0;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.18);
 }
 
@@ -9953,7 +9953,7 @@ body {
 
 .pill-pro {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   font-size: 0.68rem;
   font-weight: 800;
   padding: 2px 7px;
@@ -10091,13 +10091,13 @@ body {
 
 .item-badge.badge-live {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
   border: 1px solid var(--color-danger-border);
 }
 
 .item-badge.badge-pro {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
@@ -10140,8 +10140,8 @@ body {
 }
 
 .sidebar-theme-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.16);
 }
 
@@ -10163,8 +10163,8 @@ body {
 }
 
 .sidebar-layout-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.16);
 }
 
@@ -10193,7 +10193,7 @@ body {
 .sidebar-user-name {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -10357,8 +10357,8 @@ body {
 }
 
 .layout-switch-badge-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -10470,7 +10470,7 @@ body {
 .top-brand-name {
   font-size: 0.92rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   letter-spacing: -0.01em;
 }
 
@@ -10748,8 +10748,8 @@ body {
 }
 
 .top-icon-action-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.25);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
@@ -10765,7 +10765,7 @@ body {
 }
 
 .top-icon-action-btn.logout-btn:hover {
-  color: var(--color-danger-text);
+  color: #f87171;
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.12);
 }
@@ -10802,8 +10802,8 @@ body {
 }
 
 .sidebar-icon-action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -10818,7 +10818,7 @@ body {
 }
 
 .sidebar-icon-action-btn.logout-btn:hover {
-  color: var(--color-danger-text);
+  color: #f87171;
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.12);
 }
@@ -10867,9 +10867,9 @@ body {
 }
 
 .stock-search-trigger-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--color-muted);
   border-color: rgba(255, 255, 255, 0.18);
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 
 .stock-search-icon {
@@ -11109,7 +11109,7 @@ body {
   border: 0;
   background: transparent;
   font-size: 0.95rem;
-  color: #f8fafc;
+  color: var(--color-input-foreground);
   outline: none;
   font-family: inherit;
 }
@@ -11132,7 +11132,7 @@ body {
 }
 
 .modal-clear-btn:hover {
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .modal-esc-badge {
@@ -11147,8 +11147,8 @@ body {
 }
 
 .modal-esc-badge:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 .stock-search-filter-pills {
@@ -11179,14 +11179,14 @@ body {
 }
 
 .filter-pill:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .filter-pill.active {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
   font-weight: 700;
 }
 
@@ -11214,7 +11214,7 @@ body {
 .no-results-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   margin-bottom: 0.35rem;
 }
 
@@ -11335,7 +11335,7 @@ body {
 
 .ticker-type-pill.type-crypto {
   background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid var(--color-warning-border);
 }
 
@@ -11348,7 +11348,7 @@ body {
 .ticker-symbol-text {
   font-weight: 700;
   font-size: 0.88rem;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .ticker-name-col {
@@ -11387,7 +11387,7 @@ body {
 .ticker-price-val {
   font-weight: 700;
   font-size: 0.86rem;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   padding: 2px 5px;
   border-radius: 4px;
@@ -11446,12 +11446,12 @@ body {
 
 .ticker-change-pill.positive {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .ticker-change-pill.negative {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .ticker-spread-text {
@@ -11485,7 +11485,7 @@ body {
 .action-row-title {
   font-size: 0.82rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .nav-row-category,
@@ -11790,7 +11790,7 @@ body {
 .agent-ai-badge {
   font-size: 0.6rem;
   font-weight: 800;
-  color: var(--color-success-text);
+  color: #34d399;
   background: var(--color-success-subtle);
   padding: 1px 5px;
   border-radius: 4px;
@@ -11863,9 +11863,9 @@ body {
 
 .ask-agent-msg-bubble.agent {
   align-self: flex-start;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-muted);
   border: 1px solid var(--color-border-subtle);
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   border-radius: 12px 12px 12px 2px;
 }
 
@@ -11938,7 +11938,7 @@ body {
 .quick-chip-btn:hover {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .ask-agent-input-form {
@@ -11955,9 +11955,9 @@ body {
   flex: 1;
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-input);
   padding: 0.45rem 0.75rem;
-  color: #f8fafc;
+  color: var(--color-input-foreground);
   font-size: 0.82rem;
   outline: none;
   font-family: inherit;
@@ -12112,7 +12112,7 @@ body {
   font-size: 0.6rem;
   font-weight: 800;
   background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
+  color: #f87171;
   border: 1px solid var(--color-danger-border);
   padding: 2px 6px;
   border-radius: 4px;
@@ -12157,7 +12157,7 @@ body {
 .status-state-text {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   line-height: 1.1;
 }
 
@@ -12212,7 +12212,7 @@ body {
 .btn-kill-switch-trigger {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: var(--color-danger-text);
+  color: #f87171;
   font-size: 0.74rem;
   font-weight: 600;
   padding: 0.5rem 0.85rem;
@@ -12252,7 +12252,7 @@ body {
 .card-section-title {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
@@ -12269,8 +12269,8 @@ body {
 }
 
 .btn-edit-limits:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 .autopilot-limits-grid {
@@ -12301,7 +12301,7 @@ body {
 .policy-limit-value {
   font-size: 1.18rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
@@ -12390,7 +12390,7 @@ body {
 
 .live-feed-badge.live {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
@@ -12428,8 +12428,8 @@ body {
 }
 
 .action-filter-btn.active {
-  background: rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
   font-weight: 600;
 }
 
@@ -12449,15 +12449,15 @@ body {
 }
 
 .btn-refresh-feed:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.25);
 }
 
 .btn-simulate-action {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
+  color: #34d399;
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.35rem 0.85rem;
@@ -12488,7 +12488,7 @@ body {
 
 .action-source-pill.live {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
@@ -12563,13 +12563,13 @@ body {
 
 .action-type-pill.type-policy_check {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border: 1px solid var(--color-success-border);
 }
 
 .action-type-pill.type-risk_guardrail {
   background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
+  color: #fbbf24;
   border: 1px solid var(--color-warning-border);
 }
 
@@ -12587,8 +12587,8 @@ body {
 .symbol-cell .symbol-pill {
   font-family: var(--font-mono);
   font-weight: 700;
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-primary);
+  background: var(--color-tag);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -12605,12 +12605,12 @@ body {
 
 .policy-check-badge.passed {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
 }
 
 .policy-check-badge.failed {
   background: rgba(239, 68, 68, 0.12);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .status-cell .action-status-pill {
@@ -12629,7 +12629,7 @@ body {
 
 .action-status-pill.status-routed_to_approval {
   background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
+  color: #fbbf24;
 }
 
 .action-status-pill.status-verified {
@@ -12656,7 +12656,7 @@ body {
 
 .attestation-cell .did-signature-badge:hover {
   background: var(--color-success-subtle);
-  color: var(--color-success-text);
+  color: #34d399;
   border-color: var(--color-success-border);
 }
 
@@ -12677,7 +12677,7 @@ body {
 .empty-state-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   margin: 0 0 0.35rem 0;
 }
 
@@ -13091,7 +13091,7 @@ body {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   letter-spacing: -0.2px;
 }
 
@@ -13113,15 +13113,15 @@ body {
 }
 
 .partner-deals-close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .partner-deals-notice {
   background: rgba(16, 185, 129, 0.08);
   border-top: 1px solid rgba(16, 185, 129, 0.2);
   border-bottom: 1px solid rgba(16, 185, 129, 0.2);
-  color: var(--color-success-text);
+  color: #34d399;
   padding: 8px 20px;
   font-size: 0.74rem;
   line-height: 1.45;
@@ -13150,8 +13150,8 @@ body {
 }
 
 .partner-deals-cat-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background: var(--color-muted);
+  color: var(--color-text-primary);
 }
 
 .partner-deals-cat-btn.active {
@@ -13317,9 +13317,9 @@ body {
 }
 
 .partner-deals-dismiss-btn {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-muted);
   border: 1px solid var(--color-border-medium);
-  color: #f8fafc;
+  color: var(--color-text-primary);
   padding: 6px 14px;
   border-radius: 6px;
   font-size: 0.78rem;
@@ -13372,7 +13372,7 @@ body {
 .top-nav-logout-btn:hover {
   background: var(--color-sentiment-very-bearish-subtle);
   border-color: var(--color-danger-border);
-  color: var(--color-danger-text);
+  color: #f87171;
   text-decoration: none;
 }
 
@@ -13457,7 +13457,7 @@ body {
 .sidebar-logout-btn:hover {
   background: var(--color-sentiment-very-bearish-subtle);
   border-color: var(--color-danger-border);
-  color: var(--color-danger-text);
+  color: #f87171;
 }
 
 .sidebar-logout-btn svg {
@@ -14651,7 +14651,7 @@ body {
 .dual-feed-price-val {
   font-size: 1.6rem;
   font-weight: 800;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .dual-feed-change-val {
