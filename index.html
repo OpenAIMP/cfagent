@@ -22,8 +22,6 @@
       var effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
       root.setAttribute('data-theme', effective);
       root.setAttribute('data-theme-preference', theme);
-      root.classList.toggle('dark', effective === 'dark');
-      root.classList.toggle('light', effective === 'light');
       root.style.colorScheme = effective;
 
       var savedScale = read('nextgentp_font_scale');
