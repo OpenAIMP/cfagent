@@ -41,6 +41,7 @@ import type { RiskSubject } from "./riskManagementEngine";
 import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
+import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
 import { SegmentedControl, PillGroup } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
@@ -313,8 +314,6 @@ export function StrategyDiscoveryPanel({
 
   // Capability 1: Strategy Library Modal State (50+ Strategies)
   const [showStrategyModal, setShowStrategyModal] = useState<boolean>(false);
-  const [strategyCategoryFilter, setStrategyCategoryFilter] = useState<string>("All");
-  const [strategySearchQuery, setStrategySearchQuery] = useState<string>("");
   const [hoveredStrategyDef, setHoveredStrategyDef] = useState<StrategyDefinition | null>(null);
 
   // Capability 4: Dual Stats Switcher & Side-by-Side View (Default: both active simultaneously)
@@ -1361,17 +1360,25 @@ export function StrategyDiscoveryPanel({
   };
 
   // Filtered Strategy Library (Capability 1)
-  const filteredStrategyLibrary = useMemo(() => {
-    return STRATEGY_LIBRARY.filter((s) => {
-      const matchCat = strategyCategoryFilter === "All" || s.category === strategyCategoryFilter;
-      const matchSearch =
-        strategySearchQuery.trim() === "" ||
-        s.name.toLowerCase().includes(strategySearchQuery.toLowerCase()) ||
-        s.subtitle.toLowerCase().includes(strategySearchQuery.toLowerCase()) ||
-        s.description.toLowerCase().includes(strategySearchQuery.toLowerCase());
-      return matchCat && matchSearch;
-    });
-  }, [strategyCategoryFilter, strategySearchQuery]);
+  // Issue #450: the strategy library renders through the shared
+  // StrategyLibraryModal (single source of truth, multiple representations).
+  // STRATEGY_LIBRARY maps onto StrategyInfo with its rich card fields intact.
+  const strategyInfos = useMemo<StrategyInfo[]>(
+    () =>
+      STRATEGY_LIBRARY.map((d) => ({
+        id: d.id,
+        label: d.name,
+        category: d.category,
+        description: d.description,
+        theses: d.theses as unknown as string[],
+        aliases: [],
+        subtitle: d.subtitle,
+        riskType: d.riskType,
+        legsCount: d.legsCount,
+        pnlSvgPath: d.pnlSvgPath,
+      })),
+    []
+  );
 
   // Autocomplete suggestions for stock search with synchronized live quotes
   const filteredTickers = useMemo(() => {
@@ -3153,124 +3160,32 @@ export function StrategyDiscoveryPanel({
       {/* ====================================================================
           MODAL 1: CHOOSE A STRATEGY (50+ PRE-MADE STRATEGIES - CAPABILITY 1)
           ==================================================================== */}
-      {showStrategyModal && (
-        <div className="strat-modal-backdrop" onClick={() => setShowStrategyModal(false)}>
-          <div className="strat-strategy-picker-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="strat-modal-header">
-              <div className="strat-modal-header-titles">
-                <h3>Options Strategy Library ({catalogCount} Strategies)</h3>
-                <span>Choose a pre-made strategy to evaluate profit/loss characteristics</span>
-              </div>
-              <button
-                type="button"
-                className="strat-modal-close-btn"
-                onClick={() => setShowStrategyModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Filter Tabs & Search Bar */}
-            <div className="strat-library-toolbar">
-              <div className="strat-library-search">
-                <input
-                  type="text"
-                  placeholder="Search by strategy name or description..."
-                  value={strategySearchQuery}
-                  onChange={(e) => setStrategySearchQuery(e.target.value)}
-                  autoFocus
-                />
-              </div>
-
-              <div className="strat-library-categories">
-                {(
-                  [
-                    "All",
-                    "Bullish",
-                    "Bearish",
-                    "Neutral",
-                    "Volatility",
-                    "Synthetics & Spreads",
-                  ] as const
-                ).map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    className={`strat-cat-pill ${strategyCategoryFilter === cat ? "active" : ""}`}
-                    onClick={() => setStrategyCategoryFilter(cat)}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Strategy Cards Grid with SVG Mini P&L Thumbnail Shapes */}
-            <div className="strat-library-grid">
-              {filteredStrategyLibrary.map((stratDef) => {
-                return (
-                  <div
-                    key={stratDef.id}
-                    className="strat-library-card"
-                    onMouseEnter={() => setHoveredStrategyDef(stratDef)}
-                    onClick={() => handleSelectPreMadeStrategy(stratDef)}
-                  >
-                    <div className="strat-lib-card-top">
-                      <div className="strat-lib-card-name-group">
-                        <span className="strat-lib-card-name">{stratDef.name}</span>
-                        <span className="strat-lib-card-sub">{stratDef.subtitle}</span>
-                      </div>
-                      <span className={`strat-lib-risk-badge ${stratDef.riskType.toLowerCase()}`}>
-                        {stratDef.riskType} Risk
-                      </span>
-                    </div>
-
-                    {/* SVG Thumbnail Payoff Curve */}
-                    <div className="strat-lib-svg-wrap">
-                      <svg viewBox="0 0 100 50" className="strat-lib-thumbnail-svg">
-                        {/* Zero baseline */}
-                        <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="2 2" />
-                        {/* Payoff line */}
-                        <path d={stratDef.pnlSvgPath} fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-
-                    <p className="strat-lib-desc">{stratDef.description}</p>
-
-                    <div className="strat-lib-footer">
-                      <span className="strat-lib-legs-tag">{stratDef.legsCount} Leg{stratDef.legsCount > 1 ? "s" : ""}</span>
-                      <div style={{ display: "flex", gap: "0.4rem" }}>
-                        <button
-                          type="button"
-                          className="strat-card-btn-risk"
-                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRiskSubject({
-                              title: stratDef.name,
-                              underlyingSymbol: activeSymbol,
-                              underlyingPrice: spot,
-                              strategyType: stratDef.name,
-                              sentiment: stratDef.theses[0] || "neutral",
-                              dte: selectedExpiration.dte,
-                              legsText: `${stratDef.legsCount} legs (${stratDef.riskType} Risk)`,
-                              breakevenText: stratDef.subtitle,
-                            });
-                          }}
-                          title="Analyze Strategy Risk & Management Playbook"
-                        >
-                          🛡️ Risk
-                        </button>
-                        <button type="button" className="strat-lib-select-btn">Select Strategy →</button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      <StrategyLibraryModal
+        isOpen={showStrategyModal}
+        onClose={() => setShowStrategyModal(false)}
+        strategies={strategyInfos}
+        onSelect={(id) => {
+          const def = STRATEGY_LIBRARY.find((d) => d.id === id);
+          if (def) handleSelectPreMadeStrategy(def);
+        }}
+        onHover={(id) =>
+          setHoveredStrategyDef(id ? STRATEGY_LIBRARY.find((d) => d.id === id) ?? null : null)
+        }
+        onAnalyzeRisk={(id) => {
+          const def = STRATEGY_LIBRARY.find((d) => d.id === id);
+          if (!def) return;
+          setRiskSubject({
+            title: def.name,
+            underlyingSymbol: activeSymbol,
+            underlyingPrice: spot,
+            strategyType: def.name,
+            sentiment: def.theses[0] || "neutral",
+            dte: selectedExpiration.dte,
+            legsText: `${def.legsCount} legs (${def.riskType} Risk)`,
+            breakevenText: def.subtitle,
+          });
+        }}
+      />
 
       {/* ====================================================================
           MODAL 2: ROLL LEG MODAL (CAPABILITY 8 & 11)

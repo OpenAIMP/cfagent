@@ -11,7 +11,8 @@
  * Issue #450: Unify strategy catalog.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import "./strategyDiscovery.css";
 
 export interface StrategyInfo {
   id: string;
@@ -20,6 +21,11 @@ export interface StrategyInfo {
   description: string;
   theses: string[];
   aliases: string[];
+  /** Rich card fields (issue #450: Discovery content preserved) */
+  subtitle?: string;
+  riskType?: string;
+  legsCount?: number;
+  pnlSvgPath?: string;
 }
 
 interface StrategyLibraryModalProps {
@@ -32,6 +38,9 @@ interface StrategyLibraryModalProps {
   multiSelect?: boolean;
   selectedIds?: string[];
   onApply?: (selectedIds: string[]) => void;
+  // Discovery card actions (rendered only when provided)
+  onAnalyzeRisk?: (strategyId: string) => void;
+  onHover?: (strategyId: string | null) => void;
 }
 
 const CATEGORIES = ["All", "Bullish", "Bearish", "Neutral", "Volatility", "Synthetics & Spreads"] as const;
@@ -44,10 +53,18 @@ export function StrategyLibraryModal({
   multiSelect = false,
   selectedIds = [],
   onApply,
+  onAnalyzeRisk,
+  onHover,
 }: StrategyLibraryModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [localSelected, setLocalSelected] = useState<string[]>(selectedIds);
+
+  // Re-sync the working selection each time the modal opens.
+  useEffect(() => {
+    if (isOpen) setLocalSelected(selectedIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const normalize = (t: string) => t.toLowerCase().replace(/_/g, " ");
 
@@ -111,7 +128,7 @@ export function StrategyLibraryModal({
               <button
                 key={cat}
                 type="button"
-                className={`strat-cat-btn ${categoryFilter === cat ? "active" : ""}`}
+                className={`strat-cat-pill ${categoryFilter === cat ? "active" : ""}`}
                 onClick={() => setCategoryFilter(cat)}
               >
                 {cat}
@@ -126,11 +143,21 @@ export function StrategyLibraryModal({
             return (
               <div
                 key={s.id}
-                className={`strat-card ${isSelected ? "selected" : ""}`}
+                className={`strat-library-card ${isSelected ? "selected" : ""}`}
+                onMouseEnter={() => onHover?.(s.id)}
+                onMouseLeave={() => onHover?.(null)}
                 onClick={() => toggleSelect(s.id)}
               >
-                <div className="strat-card-header">
-                  <h4>{s.label}</h4>
+                <div className="strat-lib-card-top">
+                  <div className="strat-lib-card-name-group">
+                    <span className="strat-lib-card-name">{s.label}</span>
+                    {s.subtitle && <span className="strat-lib-card-sub">{s.subtitle}</span>}
+                  </div>
+                  {s.riskType && (
+                    <span className={`strat-lib-risk-badge ${s.riskType.toLowerCase()}`}>
+                      {s.riskType} Risk
+                    </span>
+                  )}
                   {multiSelect && (
                     <input
                       type="checkbox"
@@ -140,19 +167,51 @@ export function StrategyLibraryModal({
                     />
                   )}
                 </div>
+
+                {s.pnlSvgPath && (
+                  <div className="strat-lib-svg-wrap">
+                    <svg viewBox="0 0 100 50" className="strat-lib-thumbnail-svg">
+                      <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="2 2" />
+                      <path d={s.pnlSvgPath} fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+
                 <div className="strat-card-theses">
                   {s.theses.map((t) => (
                     <span key={t} className="strat-thesis-tag">
-                      {t}
+                      {t.replace(/_/g, " ")}
                     </span>
                   ))}
                 </div>
-                <p className="strat-card-desc">{s.description}</p>
-                {!multiSelect && (
-                  <button type="button" className="strat-lib-select-btn">
-                    Select Strategy →
-                  </button>
-                )}
+                <p className="strat-lib-desc">{s.description}</p>
+
+                <div className="strat-lib-footer">
+                  {typeof s.legsCount === "number" && (
+                    <span className="strat-lib-legs-tag">{s.legsCount} Leg{s.legsCount > 1 ? "s" : ""}</span>
+                  )}
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    {onAnalyzeRisk && (
+                      <button
+                        type="button"
+                        className="strat-card-btn-risk"
+                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAnalyzeRisk(s.id);
+                        }}
+                        title="Analyze Strategy Risk & Management Playbook"
+                      >
+                        Risk
+                      </button>
+                    )}
+                    {!multiSelect && (
+                      <button type="button" className="strat-lib-select-btn">
+                        Select Strategy →
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })}
