@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -122,6 +122,8 @@ describe("Primitive styles (primitives.css)", () => {
       ".tone-danger",
       ".ui-btn",
       ".variant-primary",
+      ".ui-spinner",
+      ".ui-empty",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -169,5 +171,24 @@ describe("Button Component (#492)", () => {
     const element = React.createElement(Button, { loading: true }, "Saving");
     expect(element.props.type).toBeUndefined(); // default applied at render: "button"
     expect(element.props.loading).toBe(true);
+  });
+});
+
+describe("Spinner + EmptyState (#492)", () => {
+  it("Spinner supports sizes and an accessible label", () => {
+    const element = React.createElement(Spinner, { size: "lg", label: "Loading quote" });
+    expect(element.props.size).toBe("lg");
+    expect(element.props.label).toBe("Loading quote");
+  });
+
+  it("EmptyState carries title, description, and framing", () => {
+    const element = React.createElement(EmptyState, {
+      icon: "🛡️",
+      title: "Nothing here",
+      description: "Yet.",
+      framed: true,
+    });
+    expect(element.props.title).toBe("Nothing here");
+    expect(element.props.framed).toBe(true);
   });
 });

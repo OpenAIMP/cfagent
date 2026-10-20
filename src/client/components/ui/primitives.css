@@ -211,7 +211,58 @@
 
 @keyframes ui-spin { to { transform: rotate(360deg); } }
 
+
+/* ---------- Spinner ---------- */
+.ui-spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--color-border-medium);
+  border-top-color: var(--color-accent);
+  animation: ui-spin 0.8s linear infinite;
+  flex: none;
+}
+
+.ui-spinner.size-sm { width: 14px; height: 14px; border-width: 2px; }
+.ui-spinner.size-md { width: 20px; height: 20px; border-width: 2px; }
+.ui-spinner.size-lg { width: 36px; height: 36px; border-width: 3px; }
+
+/* ---------- EmptyState ---------- */
+.ui-empty {
+  text-align: center;
+  padding: 2.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.ui-empty.framed {
+  padding: 3rem 1.5rem;
+  background: var(--color-muted);
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+.ui-empty-icon { font-size: 2.2rem; margin-bottom: 0.65rem; }
+
+.ui-empty-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.35rem 0;
+}
+
+.ui-empty-text {
+  font-size: 0.82rem;
+  color: var(--color-text-dim);
+  max-width: 480px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.ui-empty .ui-btn, .ui-empty .ui-empty-action { margin-top: 1rem; }
+
 @media (prefers-reduced-motion: reduce) {
   .segmented-btn, .pill-btn, .ui-btn { transition: none; }
   .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }
+  .ui-spinner { animation-duration: 1.6s; }
 }
