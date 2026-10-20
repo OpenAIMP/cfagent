@@ -47,6 +47,19 @@ function loadMppxServer(): Promise<MppxServer> {
   if (!mppxServerPromise) mppxServerPromise = import("mppx/server");
   return mppxServerPromise;
 }
+type MppxRoot = typeof import("mppx");
+let mppxRootPromise: Promise<MppxRoot> | undefined;
+function loadMppxRoot(): Promise<MppxRoot> {
+  // Issue #700: the mppx ROOT module is loaded lazily for the same #290
+  // reason — Credential.fromRequest lives only on the root (mppx/server
+  // does not re-export it), and a static import would drag the root's
+  // module graph into browser bundles through the same transitive path.
+  // "mppx" is marked external in vite.config.ts alongside "mppx/server";
+  // the worker build bundles it normally. This executes only inside MPP
+  // payment flows, which are server-side.
+  if (!mppxRootPromise) mppxRootPromise = import("mppx");
+  return mppxRootPromise;
+}
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
@@ -537,6 +550,47 @@ export class ETradeAgenticPaymentService {
     return result.status === 402 ? result.challenge.headers.get("WWW-Authenticate") : null;
   }
 
+  /**
+   * Issue #700 (point 3): the payer identity of a VERIFIED MPP payment.
+   *
+   * The typed mppx.charge result does not expose the credential, but the
+   * credential charge just verified is recoverable from the request via
+   * Credential.fromRequest (mppx root). Its `source` is the payer DID
+   * (did:pkh:eip155:<chain>:<address>), and it is safe to trust HERE:
+   * this runs only after charge succeeded, and the tempo verifier binds
+   * source to the payment cryptographically — proof credentials must
+   * carry a source and their signature is checked against it, and
+   * transaction credentials have their source cross-checked against the
+   * on-chain sender. A forged source cannot reach this code.
+   *
+   * The receipt's payer is the parsed bare address, so MPP rows use the
+   * same vocabulary as x402 rows (whose payer is a bare address) and the
+   * #183 payer-bound machinery scopes them per payer; authorizerDid is
+   * the source DID itself.
+   *
+   * FALLBACK — the pooled identity ("mpp-credential") now applies ONLY
+   * where no payer is exposed: credentials that carry no parseable
+   * source (transaction credentials may omit it; for those the payer is
+   * genuinely not visible to the app). It also covers a credential that
+   * fails to deserialize, because an already-verified payment must
+   * never fail on identity extraction.
+   */
+  private async verifiedMppPayer(
+    req: Request
+  ): Promise<{ payer: string; authorizerDid: string }> {
+    const pooled = { payer: "mpp-credential", authorizerDid: "did:mpp:credential" };
+    try {
+      const { Credential } = await loadMppxRoot();
+      const source = Credential.fromRequest(req)?.source;
+      if (!source) return pooled;
+      const match = /^did:pkh:eip155:\d+:(0x[0-9a-fA-F]{40})$/.exec(source);
+      if (!match) return pooled;
+      return { payer: match[1], authorizerDid: source };
+    } catch {
+      return pooled;
+    }
+  }
+
   /** Verify an MPP credential with mppx, fulfill the request and attach the MPP receipt. */
   private async handleMppRequest(
     req: Request,
@@ -555,6 +609,12 @@ export class ETradeAgenticPaymentService {
     const result = await mppx.charge({ amount: priceUSD.toFixed(2), description })(req.clone() as unknown as Request);
     if (result.status === 402) return result.challenge;
 
+    // Issue #700: bind the receipt to the VERIFIED payer (see
+    // verifiedMppPayer) instead of pooling every MPP payer into one
+    // scope. txHash stays "" — the mppx receipt is not exposed on the
+    // typed charge result either; that gap is tracked separately.
+    const { payer, authorizerDid } = await this.verifiedMppPayer(req);
+
     const receipt: AgenticPaymentReceipt = {
       receiptId: `rcpt_mpp_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
       protocol: "mpp",
@@ -562,13 +622,13 @@ export class ETradeAgenticPaymentService {
       amount: priceUSD,
       currency: "USDC",
       network: this.network,
-      payer: "mpp-credential",
+      payer,
       recipient: this.recipient,
       status: "verified",
       txHash: "",
       timestamp: new Date().toISOString(),
       proposerDid: AGENT_DIDS.TRADING,
-      authorizerDid: "did:mpp:credential",
+      authorizerDid,
       note: "Verified by the mppx SDK (Machine Payments Protocol).",
     };
     await this.recordPaymentTransaction(receipt, "inbound");

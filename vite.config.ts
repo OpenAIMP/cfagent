@@ -13,7 +13,9 @@ export default defineConfig({
       // the worker build (wrangler/esbuild) ignores this config and bundles
       // it normally. (Issue #290: the trading boundary index is imported by
       // client code, which would otherwise drag mppx into the client graph.)
-      external: ["mppx/server"],
+      // The mppx root is external for the same reason: Credential.fromRequest
+      // is loaded lazily from it in the same flows (issue #700).
+      external: ["mppx/server", "mppx"],
     },
   },
   resolve: {
