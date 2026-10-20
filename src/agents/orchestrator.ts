@@ -379,6 +379,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       summary: report.summary,
       body: report as unknown as Record<string, unknown>,
     });
+    // #335: render the run PDF from the canonical stored report (best-effort;
+    // the PDF is a delivery artifact, never a second copy).
+    let pdfKey: string | null = null;
+    try {
+      const { generateResearchPdf, researchPdfFileName } = await import(
+        "../trading/researchReportPdf"
+      );
+      const pdfBytes = await generateResearchPdf(report);
+      const fileName = researchPdfFileName(report);
+      pdfKey = await agent.storeResearchPdf(fileName, pdfBytes);
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
+    }
     // Delivery: email the stored summary when explicitly configured.
     let emailed = false;
     try {

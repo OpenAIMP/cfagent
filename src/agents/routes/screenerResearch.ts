@@ -150,6 +150,44 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #335: research-run PDF download (mirrors screener/options PDFs).
+    if (path.endsWith("/research/report.pdf") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key") || "latest";
+        const userLogin =
+          request.headers.get("x-user-login") ||
+          (await ctx.getScreenerExecutionContext())?.userLogin ||
+          "default_trader";
+        const agent = ctx.getResearchAgent(userLogin);
+        if (!agent) {
+          return Response.json(
+            { error: "ResearchAgent binding not configured." },
+            { status: 503 }
+          );
+        }
+        const pdf = await agent.getResearchPdfByKey(key);
+        if (!pdf) {
+          return Response.json(
+            { error: "No research report PDF available yet" },
+            { status: 404 }
+          );
+        }
+        return new Response(pdf.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${pdf.fileName}"`,
+            "Content-Length": String(pdf.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json(
+          { error: err.message || "Failed to load research report" },
+          { status: 500 }
+        );
+      }
+    }
+
     // ==========================================
     // Issue #319: autonomous options research.
     // The manual route and the scheduled tick are thin triggers over the
