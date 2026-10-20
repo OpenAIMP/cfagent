@@ -77,9 +77,37 @@ describe("session read cache (#329)", () => {
     await getSessionCached(env, SESSION_ID);
     expect(probe.getCalls).toBe(1);
 
-    vi.advanceTimersByTime(31_000);
+    // #411: the positive TTL is 60s — at 45s the entry is still served
+    // from the cache (under the old 30s TTL this read hit the store).
+    vi.advanceTimersByTime(45_000);
+    await getSessionCached(env, SESSION_ID);
+    expect(probe.getCalls).toBe(1);
+
+    vi.advanceTimersByTime(16_000);
     await getSessionCached(env, SESSION_ID);
     expect(probe.getCalls).toBe(2);
+  });
+
+  it("holds 2000 entries before evicting the oldest (#411 cap)", async () => {
+    const { env, probe } = makeEnv();
+    for (let i = 0; i < 2000; i++) {
+      probe.store.set(`s-${i}`, JSON.stringify(SESSION));
+      await getSessionCached(env as any, `s-${i}`);
+    }
+    expect(probe.getCalls).toBe(2000);
+
+    // The first entry survives at exactly the cap.
+    await getSessionCached(env as any, "s-0");
+    expect(probe.getCalls).toBe(2000);
+
+    // One more distinct session evicts the oldest entry only.
+    probe.store.set("s-2000", JSON.stringify(SESSION));
+    await getSessionCached(env as any, "s-2000");
+    expect(probe.getCalls).toBe(2001);
+    await getSessionCached(env as any, "s-0");
+    expect(probe.getCalls).toBe(2002);
+    await getSessionCached(env as any, "s-2000");
+    expect(probe.getCalls).toBe(2002);
   });
 
   it("caches a miss briefly, then trusts the store again", async () => {
