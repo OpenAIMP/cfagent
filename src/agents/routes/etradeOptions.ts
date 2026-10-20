@@ -680,7 +680,18 @@ export async function handleEtradeOptionsRoutes(
         let llmError: string | null = null;
         if (candidates.length > 0) {
           try {
-            llmJudgment = await rankCandidatesWithLlm(ctx.env, strategyRequest, "balanced", pipelineResult.snapshot.contracts, candidates);
+            // Issue #707: inject recent human review decisions as ranking context.
+            let humanFeedback: string | undefined;
+            try {
+              const { listStrategyReviews } = await import("../../services/strategyReviews");
+              const { buildHumanFeedbackContext } = await import("../../trading/options/llmComparison");
+              const recent = listStrategyReviews(ctx.getOrm()).slice(0, 20);
+              humanFeedback = buildHumanFeedbackContext(recent) || undefined;
+              if (humanFeedback) {
+                console.log(`[Options] Ranking with human feedback context (${recent.length} recent decisions)`);
+              }
+            } catch {}
+            llmJudgment = await rankCandidatesWithLlm(ctx.env, strategyRequest, "balanced", pipelineResult.snapshot.contracts, candidates, humanFeedback);
           } catch (err) {
             llmError = err instanceof Error ? err.message : "LLM evaluation failed.";
           }
