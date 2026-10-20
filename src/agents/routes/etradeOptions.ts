@@ -684,7 +684,7 @@ export async function handleEtradeOptionsRoutes(
             let humanFeedback: string | undefined;
             try {
               const { listStrategyReviews } = await import("../../services/strategyReviews");
-              const { buildHumanFeedbackContext } = await import("../../trading/options/llmComparison");
+              const { buildHumanFeedbackContext } = await import("../../trading");
               const recent = listStrategyReviews(ctx.getOrm()).slice(0, 20);
               humanFeedback = buildHumanFeedbackContext(recent) || undefined;
               if (humanFeedback) {

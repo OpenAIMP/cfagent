@@ -43,6 +43,18 @@
  * /trigger plus PUT /schedules/:id (in handleSchedulesRoutes, after
  * the get-by-id block and before create) — bringing the inventory
  * to 164.
+ * Issue #649 added one more — POST /reports/semantic-search (in
+ * handleReportsRoutes, after the /api/reports list) — bringing the
+ * inventory to 165; the pin update landed with #714 after the route
+ * was found unpinned during #686 post-merge verification.
+ * #714 also pinned five more routes that had landed unpinned:
+ * /trading/setup-catalog and /learnings ×2 (handleEtradeBroker-
+ * ActivityRoutes, after /etrade/lookup; #650, #706) and
+ * /options/strategy-reviews + /options/strategy-reviews/decide
+ * (handleEtradeOptionsRoutes, after /trading/options/config; #653)
+ * — bringing the inventory to 170. Issue #705 added one more —
+ * POST /reflection/run (handleEtradeBrokerActivityRoutes, last) —
+ * 171, pinned by #714 as well.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.

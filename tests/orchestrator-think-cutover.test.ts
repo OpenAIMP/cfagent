@@ -119,7 +119,12 @@ describe("#686 R1 — identity stability under the cutover", () => {
     const wrangler = read("wrangler.jsonc");
     expect(wrangler).toContain('{ "name": "SEARCH_AGENT", "class_name": "SearchAgent" }');
     expect(wrangler).toContain('{ "tag": "v1", "new_sqlite_classes": ["SearchAgent"] }');
-    expect(wrangler).not.toContain('"tag": "v7"');
+    // Scoped to the cutover's own facts (#714): later migrations for
+    // OTHER classes are legitimate and must not trip this pin — the
+    // invariant is that SearchAgent's v1 migration stays the sole
+    // migration creating it.
+    const searchAgentMigrations = wrangler.match(/"new_sqlite_classes": \[[^\]]*"SearchAgent"[^\]]*\]/g) ?? [];
+    expect(searchAgentMigrations).toEqual(['"new_sqlite_classes": ["SearchAgent"]']);
   });
 
   it("the routes ctx bag exposes Think session accessors, not AIChatAgent ones", () => {
