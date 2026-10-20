@@ -2,9 +2,9 @@
 .prp-panel {
   margin-top: 1.25rem;
   padding: 1rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-card-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-card);
 }
 .prp-header {
   display: flex;
@@ -16,14 +16,14 @@
   font-size: 1.05rem;
 }
 .prp-asof {
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-size: 0.8rem;
 }
 .prp-refresh {
   margin-left: auto;
   padding: 0.3rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -40,13 +40,13 @@
   gap: 0.15rem;
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-surface-sunken);
 }
 .prp-card span {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .prp-card strong {
   font-size: 1.05rem;
@@ -54,27 +54,27 @@
 .prp-card em {
   font-style: normal;
   font-size: 0.75rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .prp-note {
   margin-top: 0.7rem;
   font-size: 0.85rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .prp-warn {
-  color: #f0b429;
+  color: var(--color-warning);
 }
 .prp-error {
   margin-top: 0.7rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  background: rgba(240, 82, 82, 0.12);
-  color: #ff9c9c;
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
   font-size: 0.85rem;
 }
 .prp-muted {
   margin-top: 0.7rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
 }
 .prp-table {
@@ -87,41 +87,41 @@
 .prp-table td {
   padding: 0.35rem 0.5rem;
   text-align: left;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .prp-table th {
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 .prp-binding {
-  background: rgba(240, 180, 41, 0.1);
+  background: var(--color-warning-subtle);
   font-weight: 600;
 }
 .prp-badge {
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   font-size: 0.7rem;
-  background: rgba(255, 255, 255, 0.1);
-  color: #c6cdd6;
+  background: var(--color-tag);
+  color: var(--color-tag-foreground);
 }
 .prp-badge-computed-live,
 .prp-badge-measured {
-  background: rgba(46, 204, 113, 0.18);
-  color: #7be2a8;
+  background: var(--color-success-subtle);
+  color: var(--color-success);
 }
 .prp-badge-static-fallback,
 .prp-badge-proxy-sector {
-  background: rgba(240, 180, 41, 0.18);
-  color: #f0b429;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
 }
 .prp-badge-unavailable,
 .prp-badge-unknown {
-  background: rgba(240, 82, 82, 0.16);
-  color: #ff9c9c;
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
 }
 .prp-badge-draft {
-  background: rgba(88, 166, 255, 0.18);
-  color: #8db9ff;
+  background: var(--color-info-subtle);
+  color: var(--color-info);
 }
 .prp-subhead {
   margin-top: 1.4rem;
@@ -137,9 +137,9 @@
   align-items: flex-start;
   margin-top: 0.7rem;
   padding: 0.75rem;
-  border: 1px solid rgba(88, 166, 255, 0.25);
+  border: 1px solid var(--color-border-focus);
   border-radius: 10px;
-  background: rgba(88, 166, 255, 0.05);
+  background: var(--color-info-subtle);
 }
 .prp-hedge-main {
   display: flex;
@@ -148,12 +148,12 @@
 }
 .prp-hedge-main span {
   font-size: 0.83rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .prp-hedge-main p {
   margin: 0;
   font-size: 0.8rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .prp-preview-btn {
   margin-left: auto;
@@ -161,8 +161,8 @@
   padding: 0.45rem 0.8rem;
   border: none;
   border-radius: 8px;
-  background: #2f6fed;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
   cursor: pointer;
 }
 .prp-form-row {
@@ -174,16 +174,16 @@
   flex: 1;
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-input);
   color: inherit;
 }
 .prp-form-row button,
 .prp-size-btn {
   padding: 0.45rem 0.9rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
   cursor: pointer;
 }
@@ -203,19 +203,19 @@
 .prp-bar {
   height: 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
   overflow: hidden;
 }
 .prp-bar > div {
   height: 100%;
-  background: #2f6fed;
+  background: var(--color-accent);
 }
 .prp-flag {
   margin-top: 0.5rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  background: rgba(240, 180, 41, 0.1);
-  color: #f5cf6b;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
   font-size: 0.85rem;
 }
 .prp-form-grid {
@@ -229,13 +229,13 @@
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .prp-form-grid input {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-input);
   color: inherit;
 }
 .prp-size-btn {
@@ -243,7 +243,7 @@
 }
 .prp-rationale {
   font-size: 0.85rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .prp-collapse {
   padding: 0;
@@ -258,8 +258,8 @@
 .prp-mini-btn {
   padding: 0.2rem 0.5rem;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
   font-size: 0.72rem;
   cursor: pointer;
@@ -268,7 +268,7 @@
 .prp-form-grid select {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-input);
   color: inherit;
 }
