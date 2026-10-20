@@ -179,6 +179,19 @@
 .ui-btn.variant-accent { background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); }
 .ui-btn.variant-accent:hover:not(:disabled) { filter: brightness(1.1); }
 
+.ui-btn.variant-warning { background: var(--color-warning); color: var(--color-warning-foreground); border-color: var(--color-warning); }
+.ui-btn.variant-warning:hover:not(:disabled) { filter: brightness(1.05); }
+
+/* Subtle tone (#628): tinted background + tone text/border, for dense
+   table actions and toolbar chips (the old .btn-table-action family). */
+.ui-btn.tone-subtle.variant-primary { background: var(--color-primary-alpha); color: var(--color-primary); border-color: var(--color-primary-border); }
+.ui-btn.tone-subtle.variant-accent { background: var(--color-accent-subtle); color: var(--color-accent); border-color: var(--color-border-focus); }
+.ui-btn.tone-subtle.variant-trade { background: var(--color-trade-subtle); color: var(--color-trade); border-color: var(--color-trade); }
+.ui-btn.tone-subtle.variant-danger { background: var(--color-danger-subtle); color: var(--color-danger); border-color: var(--color-danger); }
+.ui-btn.tone-subtle.variant-warning { background: var(--color-warning-subtle); color: var(--color-warning); border-color: var(--color-warning); }
+.ui-btn.tone-subtle.variant-secondary { background: var(--color-surface); color: var(--color-text-secondary); border-color: var(--color-border-subtle); }
+.ui-btn.tone-subtle:hover:not(:disabled) { filter: brightness(1.05); }
+
 .ui-btn.variant-secondary {
   background: var(--color-card-elevated);
   color: var(--color-text-primary);

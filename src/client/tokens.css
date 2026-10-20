@@ -852,7 +852,6 @@ pre code,
 .dual-feed-card,
 .workflows-cat-chip,
 .workflows-search-input,
-.dual-card-refresh-btn,
 .pill-badge,
 pre,
 code:not(.did-pill code) {
@@ -983,50 +982,6 @@ code:not(.did-pill code) {
   color: var(--color-text-secondary);
 }
 
-/* Table Inline Actions */
-.btn-table-action {
-  padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
-  font-size: var(--font-size-caption, 0.75rem);
-  border-radius: var(--radius-xs, 4px);
-  cursor: pointer;
-  font-weight: var(--font-weight-semibold, 600);
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-table-action.primary {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-border-focus);
-}
-
-.btn-table-action.secondary {
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-subtle);
-}
-
-.btn-table-action.success {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-  border: 1px solid var(--color-success);
-}
-
-.btn-table-action.warning {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-  border: 1px solid var(--color-warning);
-}
-
-.btn-table-action.warning.active {
-  background: var(--color-warning);
-  color: var(--color-warning-foreground, #000000);
-}
-
-.btn-table-action:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
-}
 
 /* ==========================================================================
    5. UNIVERSAL MODAL SYSTEM (CANONICAL TOKEN ARCHITECTURE)

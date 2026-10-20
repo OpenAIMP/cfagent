@@ -619,14 +619,13 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="status-dot amber" />
                   Alpaca Market Data v2 (On-Page)
                 </span>
-                <button
+                <Button variant="accent" tone="subtle" size="sm"
                   type="button"
-                  className="dual-card-refresh-btn"
                   onClick={() => loadAllSymbolData(activeSymbol)}
                   disabled={quoteLoading || snapshotLoading}
                 >
                   {quoteLoading || snapshotLoading ? "Refreshing…" : "🔄 Refresh Dual Feeds"}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -738,34 +737,30 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {/* Quick Action Navigation & Drawer Toggle */}
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingTop: "0.25rem" }}>
               <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
-              <button
+              <Button variant="accent" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action primary"
                 onClick={() => setSubTab("report")}
               >
                 🔬 In-Depth AI Research Report →
-              </button>
-              <button
+              </Button>
+              <Button variant="warning" size="sm" tone={showAlpacaDrawerOnScreener ? "solid" : "subtle"} aria-pressed={showAlpacaDrawerOnScreener}
                 type="button"
-                className={`btn-table-action warning ${showAlpacaDrawerOnScreener ? "active" : ""}`}
                 onClick={() => setShowAlpacaDrawerOnScreener(!showAlpacaDrawerOnScreener)}
               >
                 {showAlpacaDrawerOnScreener ? "▲ Hide Alpaca Snapshot Drawer" : "▼ Expand Alpaca Snapshot Drawer (On-Page)"}
-              </button>
-              <button
+              </Button>
+              <Button variant="secondary" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action secondary"
                 onClick={() => setSubTab("fundamentals")}
               >
                 ⚖️ Fundamentals &amp; Multiples →
-              </button>
-              <button
+              </Button>
+              <Button variant="trade" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action success"
                 onClick={() => setSubTab("bars")}
               >
                 📈 Candlestick Bars →
-              </button>
+              </Button>
               {onTradeSymbol && (
                 <Button variant="trade"
                   type="button"
@@ -988,9 +983,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         </div>
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        <button
+                        <Button variant="warning" size="sm" tone={activeSymbol === stock.symbol ? "solid" : "subtle"} aria-pressed={activeSymbol === stock.symbol}
                           type="button"
-                          className={`btn-table-action warning ${activeSymbol === stock.symbol ? "active" : ""}`}
                           title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
                           onClick={() => {
                             setSymbolInput(stock.symbol);
@@ -1000,13 +994,12 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                           {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
                             ? `🦙 $${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || 0).toFixed(2)}`
                             : "🦙 Alpaca Quote"}
-                        </button>
+                        </Button>
                       </td>
                       <td style={{ textAlign: "center" }}>
                         <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>
-                          <button
+                          <Button variant="accent" tone="subtle" size="sm"
                             type="button"
-                            className="btn-table-action primary"
                             title="Generate AI Research Report with Yahoo Finance & Alpaca"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
@@ -1015,10 +1008,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                             }}
                           >
                             🔬 Report
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="secondary" tone="subtle" size="sm"
                             type="button"
-                            className="btn-table-action secondary"
                             title="Inspect Fundamentals & Valuations via Yahoo Finance"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
@@ -1027,16 +1019,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                             }}
                           >
                             ⚖️ Ratios
-                          </button>
+                          </Button>
                           {onTradeSymbol && (
-                            <button
+                            <Button variant="trade" tone="subtle" size="sm"
                               type="button"
-                              className="btn-table-action success"
                               title="Send to E*TRADE Order Ticket for Execution"
                               onClick={() => onTradeSymbol(stock.symbol)}
                             >
                               ⚡ Trade on E*TRADE
-                            </button>
+                            </Button>
                           )}
                         </div>
                       </td>

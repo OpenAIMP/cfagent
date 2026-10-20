@@ -663,29 +663,5 @@
 }
 
 /* Universal "Risk Analysis" trigger button across tables and cards */
-.strat-card-btn-risk,
-.btn-risk-analysis,
-.flow-btn-risk-analysis {
-  background: var(--color-warning-subtle);
-  border: 1px solid var(--color-warning-border);
-  color: var(--color-warning);
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  transition: all 0.15s ease;
-}
 
-.strat-card-btn-risk:hover,
-.btn-risk-analysis:hover,
-.flow-btn-risk-analysis:hover {
-  background: var(--color-warning-subtle);
-  border-color: var(--color-warning);
-  color: var(--color-warning-subtle);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow-warning);
-}
+

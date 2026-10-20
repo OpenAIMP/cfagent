@@ -1,9 +1,11 @@
 import React from "react";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "trade" | "accent";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "trade" | "accent" | "warning";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  /** solid = filled; subtle = tinted background + tone text/border (dense chips, table actions). */
+  tone?: "solid" | "subtle";
   size?: "sm" | "md" | "lg";
   /** Shows a spinner and sets aria-busy; the button is disabled while loading. */
   loading?: boolean;
@@ -17,6 +19,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  */
 export function Button({
   variant = "secondary",
+  tone = "solid",
   size = "md",
   loading = false,
   disabled,
@@ -28,7 +31,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`ui-btn variant-${variant} size-${size} ${className}`}
+      className={`ui-btn variant-${variant} tone-${tone} size-${size} ${className}`}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...rest}

@@ -2292,38 +2292,33 @@ export function ETradeTradingHub({
                         <td>
                           <div className="table-actions-cell">
                             {pos.securityType === "OPTN" && pos.optionType && pos.strikePrice && pos.expirationDate ? (
-                              <button
+                              <Button variant="danger" tone="subtle" size="sm"
                                 type="button"
-                                className="btn-act-sell"
                                 onClick={() => handleCloseOptionPosition(pos)}
                                 title="Build a broker-priced closing order for this option position"
                               >
                                 - Close Option
-                              </button>
+                              </Button>
                             ) : pos.securityType === "OPTN" ? (
                               <span className="position-action-unavailable" title="The broker did not return enough contract details to build a closing order.">Contract details unavailable</span>
                             ) : <>
-                              <button
+                              <Button variant="trade" tone="subtle" size="sm"
                                 type="button"
-                                className="btn-act-buy"
                                 onClick={() => handleQuickTrade(pos, "BUY")}
                                 title="Add more shares"
                               >
                                 + Buy
-                              </button>
-                              <button
+                              </Button>
+                              <Button variant="danger" tone="subtle" size="sm"
                                 type="button"
-                                className="btn-act-sell"
                                 onClick={() => handleQuickTrade(pos, "SELL")}
                                 title="Sell to close position"
                               >
                                 - Close
-                              </button>
+                              </Button>
                             </>}
-                            <button
+                            <Button variant="warning" tone="subtle" size="sm"
                               type="button"
-                              className="btn-risk-analysis"
-                              style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
                               onClick={() => {
                                 setRiskSubject({
                                   title: `${pos.quantity}x ${pos.symbol} (${pos.description || "Long Equity"})`,
@@ -2344,7 +2339,7 @@ export function ETradeTradingHub({
                               title="Analyze position risk profile and hedging strategies"
                             >
                               🛡️ Risk
-                            </button>
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -2459,10 +2454,8 @@ export function ETradeTradingHub({
                         <span className="time-snippet">{new Date(ord.createdAt).toLocaleString()}</span>
                       </td>
                       <td>
-                        <button
+                        <Button variant="warning" tone="subtle" size="sm"
                           type="button"
-                          className="btn-risk-analysis"
-                          style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem" }}
                           onClick={() => {
                             setRiskSubject({
                               title: `${ord.action} ${ord.quantity}x ${ord.symbol}`,
@@ -2480,7 +2473,7 @@ export function ETradeTradingHub({
                           title="Analyze risk profile for this ledger trade"
                         >
                           🛡️ Risk
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))

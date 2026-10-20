@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useState, createContext, useRef } from "react";
+import { Button } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import type {
   ExpectedIvDirection,
@@ -238,14 +239,13 @@ function BestTradeCard({
             </button>
           )}
           {pick.best && onRiskAnalysis && (
-            <button
+            <Button variant="warning" tone="subtle" size="sm"
               type="button"
-              className="strat-card-btn-risk"
               onClick={() => onRiskAnalysis(candidateToRiskSubject(pick.best!.candidate))}
               title="Analyze Risk and Defense Playbook for Top Trade"
             >
               🛡️ Risk Analysis
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -293,10 +293,8 @@ function BestTradeCard({
                         </button>
                       )}
                       {onRiskAnalysis && (
-                        <button
+                        <Button variant="warning" tone="subtle" size="sm"
                           type="button"
-                          className="strat-card-btn-risk"
-                          style={{ padding: "0.15rem 0.4rem", fontSize: "0.68rem" }}
                           onClick={(e) => {
                             e.stopPropagation();
                             onRiskAnalysis(candidateToRiskSubject(alt.candidate));
@@ -304,7 +302,7 @@ function BestTradeCard({
                           title="Analyze risk for this trade"
                         >
                           🛡️ Risk
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>
@@ -630,14 +628,13 @@ function StrategyCard({
             </button>
           )}
           {onRiskAnalysis && (
-            <button
+            <Button variant="warning" tone="subtle" size="sm"
               type="button"
-              className="strat-card-btn-risk"
               onClick={() => onRiskAnalysis(candidateToRiskSubject(candidate))}
               title="Institutional Risk Management & Defense Playbook"
             >
               🛡️ Risk Analysis
-            </button>
+            </Button>
           )}
           {chain && (
             <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
