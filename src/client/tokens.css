@@ -3,7 +3,7 @@
  *
  * Layers:
  * 1. Primitives (:root): palette-independent foundation values
- *    (typography, radius, spacing) + the legacy alias shims (deprecated).
+ *    (typography, radius, spacing, brand constants).
  * 2. Semantic theme maps: a theme is a TOKEN MAP, nothing more.
  *    - Dark map: `:root, [data-theme="dark"]` — also the default.
  *    - Light map: `[data-theme="light"]` — a complete map over the
@@ -104,37 +104,7 @@
   --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* Legacy aliases — DEPRECATED shims (Phase 6, #476 removes them).
-     Do not add new usages; consume the --color-* semantic tokens. */
-  --bg-base: var(--color-surface);
-  --bg-surface: var(--color-surface-raised);
-  --bg-card: var(--color-card);
-  --bg-card-solid: var(--color-card);
-  --bg-card-hover: var(--color-card-hover);
-  --bg-card-elevated: var(--color-card-elevated);
-  --bg-subtle: var(--color-surface-sunken);
-  --bg-input: var(--color-input);
-  --bg-muted: var(--color-muted);
-  --bg-tag: var(--color-tag);
-
-  --border-subtle: var(--color-border-subtle);
-  --border-medium: var(--color-border-medium);
-  --border-focus: var(--color-border-focus);
-
-  --text-main: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-muted: var(--color-text-muted);
-  --text-dim: var(--color-text-dim);
-  --text-inverse: var(--color-text-inverse);
-
-  --accent-primary: var(--color-primary);
-  --accent-cyan: var(--color-accent);
-  --accent-emerald: var(--color-success);
-  --accent-amber: var(--color-warning);
-  --accent-rose: var(--color-danger);
-  --accent-purple: #7c3aed;
-  --accent-orange: #ea580c;
-  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
+  /* Legacy aliases removed in Phase 6 (#476): all usages rewritten to the --color-* semantic tokens. */
 }
 
 /* ==========================================================================
