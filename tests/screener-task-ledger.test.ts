@@ -2,7 +2,7 @@
  * Issue #607 (phase-2 P2-3.1) — durable task records for screener runs.
  *
  * Mirrors the research ledger contract (#577) for the screener's
- * async KV storage world. Unit tests run the real ScreenerTaskLedger
+ * async Durable Object storage world. Unit tests run the real ScreenerTaskLedger
  * over an in-memory async store; the wiring tests pin the agent
  * integration by source evidence (the repo idiom for DO code, which
  * vitest cannot instantiate): task creation precedes screening inside
