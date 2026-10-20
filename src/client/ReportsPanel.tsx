@@ -10,8 +10,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { Button } from "./components/ui";
+import { Button, SegmentedControl } from "./components/ui";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
+import { ResearchIdeasBrowser } from "./chat/tabs/ResearchIdeasBrowser";
 import "./reports.css";
 
 export interface ReportItem {
@@ -46,6 +47,7 @@ export function ReportsPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [panelMode, setPanelMode] = useState<"reports" | "ideas">("reports");
 
   const fetchReports = useCallback(async (query?: string) => {
     setLoading(true);
@@ -78,6 +80,27 @@ export function ReportsPanel() {
 
   return (
     <div className="reports-panel">
+      <SegmentedControl
+        ariaLabel="Reports view"
+        value={panelMode}
+        onChange={(v) => {
+          setPanelMode(v);
+          setSelectedReportId(null);
+        }}
+        options={[
+          { id: "reports", label: "Reports" },
+          { id: "ideas", label: "Watchlist & Rejected" },
+        ]}
+      />
+      {panelMode === "ideas" ? (
+        <ResearchIdeasBrowser
+          onOpenReport={(id) => {
+            setPanelMode("reports");
+            setSelectedReportId(id);
+          }}
+        />
+      ) : (
+      <>
       <div className="reports-toolbar">
         <form onSubmit={handleSearch} className="reports-search">
           <input
@@ -159,6 +182,8 @@ export function ReportsPanel() {
           </div>
         ))}
       </div>
+      )}
+      </>
       )}
     </div>
   );
