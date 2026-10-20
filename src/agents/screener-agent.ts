@@ -201,7 +201,12 @@ export class ScreenerAgent extends Agent<Env> {
         mode: "etrade-only",
         symbols: selectedSymbols,
         maxSymbols: selectedSymbols.length,
-        liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
+        liveDeps: {
+          fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym),
+          // Issue #495: quote the universe in batch requests (2 calls for
+          // NASDAQ100) instead of one request per symbol.
+          fetchETradeQuotes: (syms) => etrade.fetchQuotesRemote(syms),
+        },
       });
       const screenResult = screenUniverse(screener, acquired, {
         ...(req.filters ?? {}),

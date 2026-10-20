@@ -15,6 +15,14 @@ import type { ETradeQuote } from "../types";
 export interface LiveScreenerDeps {
   /** Fetch a live E*TRADE quote for a symbol. Throws on failure. */
   fetchETradeQuote: (symbol: string) => Promise<ETradeQuote>;
+  /**
+   * Issue #495: fetch quotes for many symbols in one authenticated request
+   * (E*TRADE's documented `/market/quote/{symbols}` endpoint). Optional:
+   * callers that cannot batch keep the per-symbol path. Returns the quotes
+   * the broker actually returned; the caller diffs against the request to
+   * see which symbols are missing.
+   */
+  fetchETradeQuotes?: (symbols: string[]) => Promise<ETradeQuote[]>;
 }
 
 const MAX_RETRIES = 3;

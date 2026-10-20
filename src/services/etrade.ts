@@ -437,6 +437,30 @@ export class ETradeService {
   }
 
   /**
+   * Real E*TRADE REST API: Fetch live market quotes for many symbols with
+   * one authenticated request per broker batch (issue #495).
+   *
+   * The screener quotes an entire universe (NASDAQ100 = 100 symbols). One
+   * HTTP request per symbol exhausts the Worker subrequest budget and trips
+   * E*TRADE's quote rate limit — that is how a 100-symbol screen ended up
+   * with 47 quotes. The documented quote endpoint takes a comma-separated
+   * symbol list, so a universe goes out in a handful of requests.
+   *
+   * Returns the quotes E*TRADE actually returned; callers diff against the
+   * request to find symbols the broker omitted (no substitute data).
+   */
+  async fetchQuotesRemote(symbols: string[]): Promise<ETradeQuote[]> {
+    const clean = Array.from(
+      new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))
+    );
+    if (clean.length === 0) return [];
+    // Sandbox keeps its explicit per-symbol mock behaviour: the batch
+    // endpoint has no sandbox fixture, so do not pretend it quoted anything.
+    if (!this.client.getEnvConfig().isLive) return [];
+    return this.client.fetchQuotes(clean);
+  }
+
+  /**
    * Real E*TRADE REST API: Remote Preview Order with OAuth 1.0a
    */
   async previewOrderRemote(params: OrderPreviewParams): Promise<ETradeOrderDraft> {

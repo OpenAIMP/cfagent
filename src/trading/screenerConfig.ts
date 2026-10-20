@@ -14,6 +14,16 @@ export interface ScreenerAcquisitionConfig {
   defaultMaxSymbols: number;
   /** Concurrent E*TRADE quote fetches. */
   quoteConcurrency: number;
+  /**
+   * Issue #495: symbols per E*TRADE batch quote request. The broker's quote
+   * endpoint accepts a symbol list; 50 is the documented per-call cap.
+   */
+  quoteBatchSize: number;
+  /**
+   * Issue #495: cap on per-symbol retries after a batch quote pass, so a
+   * broker-wide outage cannot turn one screen into hundreds of requests.
+   */
+  maxIndividualQuoteRetries: number;
   /** ms pause between quote batches (rate-limit pacing). */
   batchPauseMs: number;
   /** Default max standout opportunities per run. */
@@ -96,6 +106,8 @@ export const DEFAULT_SCREENER_CONFIG: ScreenerConfig = {
   acquisition: {
     defaultMaxSymbols: 50,
     quoteConcurrency: 10,
+    quoteBatchSize: 50,
+    maxIndividualQuoteRetries: 10,
     batchPauseMs: 0,
     defaultMaxItems: 5,
     historyLimit: 20,

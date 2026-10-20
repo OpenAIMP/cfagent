@@ -210,6 +210,12 @@ export async function acquireUniverse(
     if (lower.includes("rate") || lower.includes("429") || lower.includes("throttl")) {
       return "rate-limited";
     }
+    // Cloudflare Workers cap subrequests per invocation. Batch acquisition
+    // exists to stay under that cap; a run that still exceeds it must say so
+    // instead of reporting a broker outage.
+    if (lower.includes("too many subrequests") || lower.includes("subrequest")) {
+      return "request-budget";
+    }
     if (
       lower.includes("auth") ||
       lower.includes("oauth") ||
@@ -244,6 +250,9 @@ export async function acquireUniverse(
     }
     if (lower.includes("symbol mismatch") || lower.includes("mismatched sandbox quote")) {
       return "symbol-mismatch";
+    }
+    if (lower.includes("batch quote omitted")) {
+      return "batch-omitted";
     }
     if (
       lower.includes("no live quote") ||
@@ -285,58 +294,143 @@ export async function acquireUniverse(
       throw new Error("The selected live universe contains no listings; no static symbols were substituted.");
     }
     const quotes: ETradeQuote[] = [];
+    const quotedSymbols = new Set<string>();
     const failed: string[] = [];
     // Categorized failure reasons for diagnostics (issue: stuck-at-6).
     const failureReasons: Record<string, number> = {};
     const failureSamples: string[] = [];
+    // Last error seen for a symbol: batch-pass omission first, then the
+    // per-symbol retry result (which is the more specific one).
+    const quoteErrors = new Map<string, unknown>();
+    const listingsBySymbol = new Map(
+      limited.map((listing) => [listing.symbol.toUpperCase(), listing])
+    );
     // Lower concurrency + pacing: E*TRADE rate-limits rapid quote bursts.
     const CONCURRENCY = Math.min(cfg.acquisition.quoteConcurrency, 5);
     const BATCH_PAUSE_MS = 500;
-    for (let i = 0; i < limited.length; i += CONCURRENCY) {
-      const batch = limited.slice(i, i + CONCURRENCY);
+
+    const acceptQuote = (
+      listing: NasdaqStockListing,
+      live: ETradeQuote | null
+    ): boolean => {
+      if (!live || !(live.lastPrice > 0)) return false;
+      if (quotedSymbols.has(listing.symbol.toUpperCase())) return true;
+      quotes.push({
+        ...live,
+        symbol: listing.symbol,
+        companyName: live.companyName || listing.companyName,
+        // E*TRADE quote payloads do not reliably include sector. The
+        // dynamically fetched Nasdaq listing row does, so preserve that
+        // classification for sector filtering without a static symbol map.
+        sector: live.sector || listing.sector,
+        source: "E*TRADE live",
+        quoteStatus: "LIVE",
+      } as ETradeQuote);
+      quotedSymbols.add(listing.symbol.toUpperCase());
+      return true;
+    };
+
+    // Issue #495: ask E*TRADE for the universe in batches. One request per
+    // symbol (100 calls for NASDAQ100, each retried) exhausted the Worker
+    // subrequest budget and E*TRADE's quote rate limit, so 53 of 100 symbols
+    // failed with a generic "no live quote" and the run died with 47 quotes.
+    // The quote endpoint takes a symbol list: a 100-symbol screen is two
+    // requests, and per-symbol calls are kept for the stragglers only.
+    const batchSize = Math.max(1, cfg.acquisition.quoteBatchSize);
+    if (opts.liveDeps.fetchETradeQuotes) {
+      const requestedSymbols = limited.map((listing) => listing.symbol);
+      for (let i = 0; i < requestedSymbols.length; i += batchSize) {
+        const chunk = requestedSymbols.slice(i, i + batchSize);
+        try {
+          const batchQuotes = await withRetries(
+            () => opts.liveDeps!.fetchETradeQuotes!(chunk),
+            "E*TRADE batch quote"
+          );
+          const bySymbol = new Map(
+            batchQuotes.map((quote) => [
+              String(quote.symbol || "").toUpperCase(),
+              quote,
+            ])
+          );
+          for (const symbol of chunk) {
+            const listing = listingsBySymbol.get(symbol.toUpperCase());
+            const live = bySymbol.get(symbol.toUpperCase());
+            if (!listing) continue;
+            if (!live) {
+              quoteErrors.set(
+                symbol,
+                new Error(`E*TRADE batch quote omitted ${symbol}`)
+              );
+            } else if (!acceptQuote(listing, live)) {
+              quoteErrors.set(
+                symbol,
+                new Error(`E*TRADE returned zero-price quote for ${symbol}`)
+              );
+            }
+          }
+        } catch (err) {
+          // Whole-batch failure: remember it per symbol, then let the
+          // per-symbol pass produce the specific error where affordable.
+          for (const symbol of chunk) quoteErrors.set(symbol, err);
+        }
+        // Pace batches to stay under E*TRADE rate limits.
+        if (i + batchSize < requestedSymbols.length) {
+          await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+        }
+      }
+    }
+
+    // Per-symbol pass: covers brokers without a batch fetcher and symbols a
+    // successful batch omitted. Bounded by maxIndividualQuoteRetries so a
+    // broker-wide outage cannot turn one screen into hundreds of requests.
+    const missingSymbols = limited
+      .map((listing) => listing.symbol)
+      .filter((symbol) => !quotedSymbols.has(symbol.toUpperCase()));
+    const retryBudget = Math.max(0, cfg.acquisition.maxIndividualQuoteRetries);
+    const retrySymbols = missingSymbols.slice(0, retryBudget);
+    for (let i = 0; i < retrySymbols.length; i += CONCURRENCY) {
+      const batch = retrySymbols.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(
-        batch.map(async (listing) => {
+        batch.map(async (symbol) => {
           const live = await withRetries(
-            () => opts.liveDeps!.fetchETradeQuote(listing.symbol),
+            () => opts.liveDeps!.fetchETradeQuote(symbol),
             "E*TRADE",
-            listing.symbol
+            symbol
           );
           if (!live || !(live.lastPrice > 0)) {
             // Preserve the underlying state for diagnostics: distinguish
             // null (API returned nothing) from zero-price (empty quote).
             const detail = !live ? "null-response" : `zero-price(lastPrice=${live.lastPrice})`;
-            throw new Error(`E*TRADE returned no quote for ${listing.symbol} [${detail}]`);
+            throw new Error(`E*TRADE returned no quote for ${symbol} [${detail}]`);
           }
-          return {
-            ...live,
-            symbol: listing.symbol,
-            companyName: live.companyName || listing.companyName,
-            // E*TRADE quote payloads do not reliably include sector. The
-            // dynamically fetched Nasdaq listing row does, so preserve that
-            // classification for sector filtering without a static symbol map.
-            sector: live.sector || listing.sector,
-            source: "E*TRADE live",
-            quoteStatus: "LIVE",
-          } as ETradeQuote;
+          return { symbol, live };
         })
       );
       for (let j = 0; j < results.length; j++) {
         const r = results[j];
         if (r.status === "fulfilled") {
-          quotes.push(r.value);
+          const listing = listingsBySymbol.get(batch[j].toUpperCase());
+          if (listing) acceptQuote(listing, r.value.live);
         } else {
-          const symbol = batch[j].symbol;
-          failed.push(symbol);
-          const reason = categorizeQuoteFailure(r.reason);
-          failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
-          if (failureSamples.length < 3) {
-            failureSamples.push(`${symbol}: ${reason} (${safeQuoteFailure(r.reason)})`);
-          }
+          quoteErrors.set(batch[j], r.reason);
         }
       }
       // Pace batches to stay under E*TRADE rate limits.
-      if (i + CONCURRENCY < limited.length) {
+      if (i + CONCURRENCY < retrySymbols.length) {
         await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+      }
+    }
+
+    for (const symbol of limited.map((listing) => listing.symbol)) {
+      if (quotedSymbols.has(symbol.toUpperCase())) continue;
+      failed.push(symbol);
+      const reason =
+        quoteErrors.get(symbol) ??
+        new Error(`E*TRADE returned no quote for ${symbol} [null-response]`);
+      const category = categorizeQuoteFailure(reason);
+      failureReasons[category] = (failureReasons[category] ?? 0) + 1;
+      if (failureSamples.length < 3) {
+        failureSamples.push(`${symbol}: ${category} (${safeQuoteFailure(reason)})`);
       }
     }
     if (failed.length > 0) {

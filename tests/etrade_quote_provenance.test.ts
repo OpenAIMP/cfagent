@@ -264,3 +264,29 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     });
   });
 });
+
+describe("ETradeService.fetchQuotesRemote — batch acquisition (#495)", () => {
+  it("normalises and delegates a live batch to the client in one call", async () => {
+    const service = new ETradeService(liveEnv);
+    const fetchQuotes = vi.fn(async (symbols: string[]) =>
+      symbols.map((symbol) => liveQuote(symbol))
+    );
+    service.client = { getEnvConfig: () => ({ isLive: true }), fetchQuotes } as any;
+
+    const quotes = await service.fetchQuotesRemote(["aapl", "NVDA", "AAPL"]);
+
+    // One request for the whole set: duplicates dropped, symbols uppercased.
+    expect(fetchQuotes).toHaveBeenCalledTimes(1);
+    expect(fetchQuotes).toHaveBeenCalledWith(["AAPL", "NVDA"]);
+    expect(quotes.map((q) => q.symbol)).toEqual(["AAPL", "NVDA"]);
+  });
+
+  it("does not pretend a sandbox batch quoted anything", async () => {
+    const service = new ETradeService(sandboxEnv);
+    const fetchQuotes = vi.fn();
+    service.client = { getEnvConfig: () => ({ isLive: false }), fetchQuotes } as any;
+
+    await expect(service.fetchQuotesRemote(["NVDA"])).resolves.toEqual([]);
+    expect(fetchQuotes).not.toHaveBeenCalled();
+  });
+});
