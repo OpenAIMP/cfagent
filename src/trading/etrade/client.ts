@@ -59,6 +59,12 @@ export interface ETradeQuoteResult {
 }
 
 export class ETradeRestClient {
+  // Issue #155/#168: lastError is the failure signal for read calls.
+  // Read methods clear it on entry, set it on EVERY failure return
+  // (missing credentials/params, HTTP error, exception, payload-less
+  // 200), and leave it unset after success or a genuine empty — so an
+  // empty result WITH lastError set means "upstream failure" and an
+  // empty result without one means "genuinely nothing there".
   public lastError?: string;
 
   constructor(public env: Env, public userLogin: string = "default_trader", public overrideEnv?: string) {}
@@ -146,6 +152,9 @@ export class ETradeRestClient {
     const fail = (error: string): ETradeQuoteResult => ({ quote: null, error });
     const envConfig = this.getEnvConfig();
 
+    if (!sym) {
+      return fail("E*TRADE quote request is missing a symbol.");
+    }
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       return fail("E*TRADE consumer credentials are not configured for live quote requests.");
     }
@@ -318,6 +327,7 @@ export class ETradeRestClient {
    * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
    */
   async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean }): Promise<ETradeQuote[]> {
+    this.lastError = undefined;
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
@@ -354,6 +364,7 @@ export class ETradeRestClient {
       batches.push(uniqueSyms.slice(i, i + batchSize));
     }
 
+    let batchFailed = false;
     const fetchBatch = async (batchSyms: string[]): Promise<ETradeQuote[]> => {
       const qs = batchSyms.length > 25 || options?.overrideSymbolCount ? "?overrideSymbolCount=true" : "";
       const symList = batchSyms.map((s) => encodeURIComponent(s)).join(",");
@@ -389,13 +400,19 @@ export class ETradeRestClient {
         if (!res.ok) {
           const errorText = await res.text().catch(() => "");
           this.handleUpstreamAuthError(res.status, "market/quote", errorText);
+          batchFailed = true;
           this.lastError = `E*TRADE quote request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
           return [];
         }
 
         const data = (await res.json().catch(() => ({}))) as any;
         const rawQuoteData = data?.QuoteResponse?.QuoteData;
-        const rawList = Array.isArray(rawQuoteData) ? rawQuoteData : rawQuoteData ? [rawQuoteData] : [];
+        if (rawQuoteData == null) {
+          batchFailed = true;
+          this.lastError = "E*TRADE Quote API returned an unexpected empty response.";
+          return [];
+        }
+        const rawList = Array.isArray(rawQuoteData) ? rawQuoteData : [rawQuoteData];
         if (rawList.length === 0) return [];
 
         return rawList
@@ -449,16 +466,22 @@ export class ETradeRestClient {
             }
             return true;
           });
-      } catch {
+      } catch (err) {
+        batchFailed = true;
+        if (!this.lastError) {
+          this.lastError = `E*TRADE quote request failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
         return [];
       }
     };
 
     const results = await Promise.all(batches.map((b) => fetchBatch(b)));
+    if (!batchFailed) this.lastError = undefined;
     return results.flat();
   }
 
   async getMarketMovers(category: ETradeMarketMoverCategory): Promise<string[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       this.lastError = "E*TRADE consumer credentials are not configured for market-mover discovery.";
@@ -494,7 +517,12 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       let movers = data?.MarketMoversResponse?.MarketMover || data?.MarketMoversResponse?.Mover || data?.MarketMover;
-      if (!movers) return [];
+      if (!movers) {
+        if (!data?.MarketMoversResponse && !data?.MarketMover) {
+          this.lastError = "E*TRADE market-movers request returned an unexpected empty response.";
+        }
+        return [];
+      }
       if (!Array.isArray(movers)) movers = [movers];
       return Array.from(new Set(movers
         .map((mover: any) => String(mover?.Product?.symbol || mover?.symbol || "").toUpperCase().trim())
@@ -1252,8 +1280,10 @@ export class ETradeRestClient {
    * Fetches authentic accounts list
    */
   async fetchAccounts(): Promise<ETradeAccount[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for account requests.";
       return [];
     }
 
@@ -1295,10 +1325,17 @@ export class ETradeRestClient {
       }
 
       const data = (await res.json().catch(() => ({}))) as any;
+      if (!data?.AccountListResponse) {
+        // HTTP 200 with no payload wrapper at all: an upstream error
+        // body, not a genuine zero-account response.
+        this.lastError = "E*TRADE Accounts API returned an unexpected empty response.";
+        return [];
+      }
       let rawAccounts = data?.AccountListResponse?.Accounts?.Account;
       if (!rawAccounts) return [];
       if (!Array.isArray(rawAccounts)) rawAccounts = [rawAccounts];
 
+      this.lastError = undefined;
       return rawAccounts.map((a: any) => ({
         accountId: String(a.accountId || ""),
         accountKey: String(a.accountIdKey || a.accountKey || a.accountId || ""),
@@ -1321,6 +1358,9 @@ export class ETradeRestClient {
       }));
     } catch (err) {
       console.warn("[ETradeClient] fetchAccounts error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE accounts request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -1333,8 +1373,10 @@ export class ETradeRestClient {
     includeBalance: boolean = false,
     options?: { view?: "QUICK" | "COMPLETE" | "PERFORMANCE" | "FUNDAMENTAL" | "OPTIONSWATCH"; totalsRequired?: boolean; count?: number; sortBy?: string; sortOrder?: "ASC" | "DESC" }
   ): Promise<{ account: ETradeAccount; positions: ETradePosition[] } | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for portfolio requests.";
       return null;
     }
 
@@ -1349,7 +1391,10 @@ export class ETradeRestClient {
       if (!accounts.length) return null;
       accountMeta = accounts[0];
       key = accountMeta.accountKey || accountMeta.accountId || "";
-      if (!key) return null;
+      if (!key) {
+        this.lastError = "E*TRADE portfolio request could not resolve an account key from the account list.";
+        return null;
+      }
     }
 
     const query = new URLSearchParams();
@@ -1415,6 +1460,12 @@ export class ETradeRestClient {
 
       if (res.ok && res.status !== 204) {
         const data = (await res.json().catch(() => ({}))) as any;
+        if (!data?.PortfolioResponse) {
+          // HTTP 200 with no payload wrapper at all: an upstream error
+          // body, not a genuinely empty portfolio.
+          this.lastError = "E*TRADE Portfolio API returned an unexpected empty response.";
+          return null;
+        }
         const portfolioTotals = data?.PortfolioResponse?.Totals || data?.PortfolioResponse?.totals;
         if (portfolioTotals) {
           if (portfolioTotals.totalMarketValue !== undefined) totalsNetVal = Number(portfolioTotals.totalMarketValue);
@@ -1495,6 +1546,9 @@ export class ETradeRestClient {
       return { account, positions };
     } catch (err) {
       console.warn("[ETradeClient] fetchPortfolio error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE portfolio request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
@@ -1504,8 +1558,16 @@ export class ETradeRestClient {
    * GET /v1/accounts/{accountIdKey}/portfolio/{positionId}
    */
   async fetchPositionLots(accountKey: string, positionId: string): Promise<ETradePositionLot[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey || !positionId) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for position-lot requests.";
+      return [];
+    }
+    if (!accountKey || !positionId) {
+      this.lastError = "E*TRADE position-lots request is missing an account key or position id.";
+      return [];
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/portfolio/${encodeURIComponent(positionId)}`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/portfolio/${encodeURIComponent(positionId)}.json`;
@@ -1545,9 +1607,15 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       let rawLots = data?.PositionLotsResponse?.PositionLot || data?.PositionLot;
-      if (!rawLots) return [];
+      if (!rawLots) {
+        if (!data?.PositionLotsResponse && !data?.PositionLot) {
+          this.lastError = "E*TRADE Position Lots API returned an unexpected empty response.";
+        }
+        return [];
+      }
       if (!Array.isArray(rawLots)) rawLots = [rawLots];
 
+      this.lastError = undefined;
       return rawLots.map((lot: any) => ({
         positionId: lot.positionId !== undefined ? lot.positionId : positionId,
         positionLotId: lot.positionLotId !== undefined ? lot.positionLotId : lot.lotId,
@@ -1578,6 +1646,9 @@ export class ETradeRestClient {
       }));
     } catch (err) {
       console.warn("[ETradeClient] fetchPositionLots error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE position lots request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -1586,8 +1657,16 @@ export class ETradeRestClient {
    * Fetches real account balance (cash buying power, margin buying power, net account value)
    */
   async fetchBalance(accountKey: string): Promise<{ netAccountValue?: number; cashBuyingPower?: number; marginBuyingPower?: number; cashBalance?: number } | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for balance requests.";
+      return null;
+    }
+    if (!accountKey) {
+      this.lastError = "E*TRADE balance request is missing an account key.";
+      return null;
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance?instType=BROKERAGE&realTimeNAV=true`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/balance.json?instType=BROKERAGE&realTimeNAV=true`;
@@ -1640,7 +1719,11 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const balanceResp = data?.BalanceResponse;
-      if (!balanceResp) return null;
+      if (!balanceResp) {
+        this.lastError = "E*TRADE Balance API returned an unexpected empty response.";
+        return null;
+      }
+      this.lastError = undefined;
 
       const computed = balanceResp.Computed;
       const cashObj = balanceResp.Cash;
@@ -1686,6 +1769,9 @@ export class ETradeRestClient {
       };
     } catch (err) {
       console.warn("[ETradeClient] fetchBalance error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE balance request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
@@ -1698,8 +1784,12 @@ export class ETradeRestClient {
     accountKey?: string,
     params?: { startDate?: string; endDate?: string; sortOrder?: "ASC" | "DESC"; marker?: string; count?: number }
   ): Promise<ETradeTransaction[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for transaction requests.";
+      return [];
+    }
 
     let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
     if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
@@ -1707,7 +1797,10 @@ export class ETradeRestClient {
       const accounts = await this.fetchAccounts();
       if (!accounts.length) return [];
       key = accounts[0].accountKey || accounts[0].accountId;
-      if (!key) return [];
+      if (!key) {
+        this.lastError = "E*TRADE transactions request could not resolve an account key from the account list.";
+        return [];
+      }
     }
 
     const query = new URLSearchParams();
@@ -1755,10 +1848,15 @@ export class ETradeRestClient {
       }
 
       const data = (await res.json().catch(() => ({}))) as any;
+      if (!data?.TransactionListResponse) {
+        this.lastError = "E*TRADE Transactions API returned an unexpected empty response.";
+        return [];
+      }
       let rawList = data?.TransactionListResponse?.Transaction;
       if (!rawList) return [];
       if (!Array.isArray(rawList)) rawList = [rawList];
 
+      this.lastError = undefined;
       return rawList.map((t: any) => ({
         transactionId: String(t.transactionId || ""),
         accountId: String(t.accountId || key),
@@ -1774,6 +1872,9 @@ export class ETradeRestClient {
       }));
     } catch (err) {
       console.warn("[ETradeClient] fetchTransactions error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE transactions request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -1787,8 +1888,16 @@ export class ETradeRestClient {
     transactionId: string,
     storeId?: string
   ): Promise<ETradeTransactionDetails | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !accountKey || !transactionId) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for transaction-detail requests.";
+      return null;
+    }
+    if (!accountKey || !transactionId) {
+      this.lastError = "E*TRADE transaction-details request is missing an account key or transaction id.";
+      return null;
+    }
 
     const qs = storeId ? `?storeId=${encodeURIComponent(storeId)}` : "";
     const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(accountKey)}/transactions/${encodeURIComponent(transactionId)}${qs}`;
@@ -1829,7 +1938,11 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.TransactionDetailsResponse;
-      if (!resp) return null;
+      if (!resp) {
+        this.lastError = "E*TRADE Transaction Details API returned an unexpected empty response.";
+        return null;
+      }
+      this.lastError = undefined;
 
       return {
         transactionId: String(resp.transactionId || transactionId),
@@ -1856,6 +1969,9 @@ export class ETradeRestClient {
       };
     } catch (err) {
       console.warn("[ETradeClient] fetchTransactionDetails error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE transaction details request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
@@ -1872,8 +1988,12 @@ export class ETradeRestClient {
     search?: string;
     unfiltered?: boolean;
   }): Promise<ETradeAlert[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for alert requests.";
+      return [];
+    }
 
     const query = new URLSearchParams();
     if (params?.count) query.set("count", String(params.count));
@@ -1921,10 +2041,15 @@ export class ETradeRestClient {
       }
 
       const data = (await res.json().catch(() => ({}))) as any;
+      if (!data?.AlertsResponse) {
+        this.lastError = "E*TRADE Alerts API returned an unexpected empty response.";
+        return [];
+      }
       let rawAlerts = data?.AlertsResponse?.Alert;
       if (!rawAlerts) return [];
       if (!Array.isArray(rawAlerts)) rawAlerts = [rawAlerts];
 
+      this.lastError = undefined;
       return rawAlerts.map((a: any) => ({
         id: a.id,
         createTime: Number(a.createTime || 0),
@@ -1936,6 +2061,9 @@ export class ETradeRestClient {
       }));
     } catch (err) {
       console.warn("[ETradeClient] fetchAlerts error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE alerts request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -1945,8 +2073,16 @@ export class ETradeRestClient {
    * GET /v1/user/alerts/{alertId}
    */
   async fetchAlertDetails(alertId: string | number): Promise<ETradeAlertDetails | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !alertId) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for alert-detail requests.";
+      return null;
+    }
+    if (!alertId) {
+      this.lastError = "E*TRADE alert-details request is missing an alert id.";
+      return null;
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/user/alerts/${encodeURIComponent(String(alertId))}.json`;
@@ -1986,7 +2122,11 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.AlertDetailsResponse;
-      if (!resp) return null;
+      if (!resp) {
+        this.lastError = "E*TRADE Alert Details API returned an unexpected empty response.";
+        return null;
+      }
+      this.lastError = undefined;
 
       return {
         id: resp.id || alertId,
@@ -2001,6 +2141,9 @@ export class ETradeRestClient {
       };
     } catch (err) {
       console.warn("[ETradeClient] fetchAlertDetails error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE alert details request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
@@ -2063,8 +2206,16 @@ export class ETradeRestClient {
    * GET /v1/market/lookup/{search}
    */
   async lookupProduct(search: string): Promise<ETradeProductLookup[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !search.trim()) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for product lookup requests.";
+      return [];
+    }
+    if (!search.trim()) {
+      this.lastError = "E*TRADE product lookup request is missing a search term.";
+      return [];
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/market/lookup/${encodeURIComponent(search.trim())}`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/market/lookup/${encodeURIComponent(search.trim())}.json`;
@@ -2095,18 +2246,32 @@ export class ETradeRestClient {
         });
       }
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Lookup API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] lookupProduct HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "lookup", errorText);
+        return [];
+      }
       const data = (await res.json().catch(() => ({}))) as any;
+      if (!data?.LookupResponse) {
+        this.lastError = `E*TRADE Lookup API returned an unexpected empty response for ${search.trim()}.`;
+        return [];
+      }
       let list = data?.LookupResponse?.Data;
       if (!list) return [];
       if (!Array.isArray(list)) list = [list];
 
+      this.lastError = undefined;
       return list.map((item: any) => ({
         symbol: String(item.symbol || ""),
         description: String(item.description || ""),
         type: String(item.type || "EQ"),
       }));
-    } catch {
+    } catch (err) {
+      if (!this.lastError) {
+        this.lastError = `E*TRADE product lookup request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -2358,8 +2523,12 @@ export class ETradeRestClient {
     accountKey?: string,
     params?: { marker?: string; count?: number; status?: string; fromDate?: string; toDate?: string; symbol?: string }
   ): Promise<ETradeRemoteOrder[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) return [];
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for order requests.";
+      return [];
+    }
 
     let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
     if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
@@ -2367,7 +2536,10 @@ export class ETradeRestClient {
       const accounts = await this.fetchAccounts();
       if (!accounts.length) return [];
       key = accounts[0].accountKey || accounts[0].accountId;
-      if (!key) return [];
+      if (!key) {
+        this.lastError = "E*TRADE orders request could not resolve an account key from the account list.";
+        return [];
+      }
     }
 
     const query = new URLSearchParams();
@@ -2416,10 +2588,15 @@ export class ETradeRestClient {
       }
 
       const data = (await res.json().catch(() => ({}))) as any;
+      if (!data?.OrdersResponse) {
+        this.lastError = "E*TRADE Orders API returned an unexpected empty response.";
+        return [];
+      }
       let rawOrders = data?.OrdersResponse?.Order;
       if (!rawOrders) return [];
       if (!Array.isArray(rawOrders)) rawOrders = [rawOrders];
 
+      this.lastError = undefined;
       return rawOrders.map((o: any) => {
         const orderDetail = o.OrderDetail?.[0] || o.OrderDetail || {};
         const instrument = orderDetail.Instrument?.[0] || orderDetail.Instrument || {};
@@ -2442,6 +2619,9 @@ export class ETradeRestClient {
       });
     } catch (err) {
       console.warn("[ETradeClient] fetchOrders error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE orders request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return [];
     }
   }
@@ -2454,8 +2634,16 @@ export class ETradeRestClient {
     accountKey: string | undefined,
     orderId: string | number
   ): Promise<ETradeRemoteOrder | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !orderId) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for order-detail requests.";
+      return null;
+    }
+    if (!orderId) {
+      this.lastError = "E*TRADE order-details request is missing an order id.";
+      return null;
+    }
 
     let key = accountKey || this.env.ETRADE_ACCOUNT_ID_KEY || "";
     if (key.includes("{accountIdKey}") || key.includes("%7BaccountIdKey%7D")) key = "";
@@ -2463,7 +2651,10 @@ export class ETradeRestClient {
       const accounts = await this.fetchAccounts();
       if (!accounts.length) return null;
       key = accounts[0].accountKey || accounts[0].accountId;
-      if (!key) return null;
+      if (!key) {
+        this.lastError = "E*TRADE order-details request could not resolve an account key from the account list.";
+        return null;
+      }
     }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/accounts/${encodeURIComponent(key)}/orders/${encodeURIComponent(String(orderId))}`;
@@ -2504,7 +2695,11 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const orderData = data?.OrdersResponse?.Order?.[0] || data?.Order?.[0] || data?.Order;
-      if (!orderData) return null;
+      if (!orderData) {
+        this.lastError = "E*TRADE Order Details API returned an unexpected empty response.";
+        return null;
+      }
+      this.lastError = undefined;
 
       const orderDetail = orderData?.OrderDetail?.[0] || {};
       const instrument = orderDetail?.Instrument?.[0] || {};
@@ -2527,6 +2722,9 @@ export class ETradeRestClient {
       };
     } catch (err) {
       console.warn("[ETradeClient] fetchOrderDetails error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE order details request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
@@ -2751,6 +2949,7 @@ export class ETradeRestClient {
    * GET /v1/user/watchlist
    */
   async getWatchlists(): Promise<ETradeWatchlist[]> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
       this.lastError = "E*TRADE consumer credentials are not configured for watchlist discovery.";
@@ -2795,10 +2994,15 @@ export class ETradeRestClient {
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.WatchlistResponse || data?.WatchlistDetailResponse;
+      if (!resp) {
+        this.lastError = "E*TRADE watchlist request returned an unexpected empty response.";
+        return [];
+      }
       let rawWatchlists = resp?.watchlist || resp?.Watchlist;
       if (!rawWatchlists) return [];
       if (!Array.isArray(rawWatchlists)) rawWatchlists = [rawWatchlists];
 
+      this.lastError = undefined;
       return rawWatchlists.map((w: any) => {
         let items = w.items?.item || w.item || [];
         if (!Array.isArray(items)) items = items ? [items] : [];
@@ -2823,8 +3027,16 @@ export class ETradeRestClient {
    * GET /v1/user/watchlist/{watchlistId}
    */
   async getWatchlistDetails(watchlistId: string | number): Promise<ETradeWatchlist | null> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !watchlistId) return null;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for watchlist detail requests.";
+      return null;
+    }
+    if (!watchlistId) {
+      this.lastError = "E*TRADE watchlist-details request is missing a watchlist id.";
+      return null;
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/${encodeURIComponent(String(watchlistId))}`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/${encodeURIComponent(String(watchlistId))}.json`;
@@ -2855,12 +3067,22 @@ export class ETradeRestClient {
         });
       }
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Watchlist Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        console.warn(`[ETradeClient] getWatchlistDetails HTTP ${res.status}: ${errorText}`);
+        this.handleUpstreamAuthError(res.status, "watchlistDetails", errorText);
+        return null;
+      }
 
       const data = (await res.json().catch(() => ({}))) as any;
       const resp = data?.WatchlistDetailResponse || data?.WatchlistResponse;
       const w = resp?.watchlist || resp?.Watchlist || resp;
-      if (!w) return null;
+      if (!w) {
+        this.lastError = "E*TRADE watchlist detail request returned an unexpected empty response.";
+        return null;
+      }
+      this.lastError = undefined;
 
       let items = w.items?.item || w.item || [];
       if (!Array.isArray(items)) items = items ? [items] : [];
@@ -2881,6 +3103,9 @@ export class ETradeRestClient {
       };
     } catch (err) {
       console.warn("[ETradeClient] getWatchlistDetails error:", err);
+      if (!this.lastError) {
+        this.lastError = `E*TRADE watchlist detail request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return null;
     }
   }
