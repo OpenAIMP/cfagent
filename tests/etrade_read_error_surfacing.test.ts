@@ -248,14 +248,17 @@ describe("fetchQuote — lastError contract (#168)", () => {
     expect(client.getLastError()).toContain("no quote data");
   });
 
-  it("HTTP 200 with a quote but no usable price returns the quote as-is (#809)", async () => {
+  it("HTTP 200 with a quote but zero price returns the quote as-is with NO error (#809)", async () => {
     const client = await makeAuthedClient();
     okJson({ QuoteResponse: { QuoteData: [{ Product: { symbol: "AAPL" } }] } });
-    // Issue #809: price gate removed — present data as-is, don't reject zero prices.
+    // #809 (commit ad6534e) removed the price>0 gate: E*TRADE data is
+    // presented as-is — zero prices are real when the market is closed, and
+    // the caller decides how to handle them. This supersedes the #168-era
+    // rejection this test pinned before ("no positive trade or bid price").
     const quote = await client.fetchQuote("AAPL");
     expect(quote).not.toBeNull();
-    expect(quote?.symbol).toBe("AAPL");
-    // No error set — zero price is valid data, not a failure.
+    expect(quote!.symbol).toBe("AAPL");
+    expect(quote!.lastPrice).toBe(0);
     expect(client.getLastError()).toBeFalsy();
   });
 
