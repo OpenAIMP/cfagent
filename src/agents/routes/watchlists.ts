@@ -60,6 +60,19 @@ export async function handleWatchlistsRoutes(
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const watchlists = await etrade.getWatchlists();
+        if (watchlists.length === 0) {
+          // Issue #243: the merged remote+local list is empty AND the
+          // client recorded an error — that is an upstream failure, not
+          // "you have no watchlists": 502 naming the cause (#155
+          // pattern). A genuine empty (no recorded error) keeps the
+          // exact previous 200 payload; a non-empty merged list (e.g.
+          // local durable watchlists while the remote read failed) is
+          // real data and is served exactly as before.
+          const upstreamError = etrade.getLastError();
+          if (upstreamError) {
+            return Response.json({ error: upstreamError }, { status: 502 });
+          }
+        }
         return Response.json({ count: watchlists.length, watchlists });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to retrieve watchlists" }, { status: 500 });
@@ -74,6 +87,14 @@ export async function handleWatchlistsRoutes(
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const details = await etrade.getWatchlistDetails(id);
         if (!details) {
+          // Issue #243: a null with a recorded client error is an
+          // upstream failure (expired session, missing credentials),
+          // not a missing watchlist — 502 naming the cause. Only a
+          // genuine not-found (no recorded error) keeps the 404.
+          const upstreamError = etrade.getLastError();
+          if (upstreamError) {
+            return Response.json({ error: upstreamError }, { status: 502 });
+          }
           return Response.json({ error: `Watchlist '${id}' not found` }, { status: 404 });
         }
         return Response.json(details);
