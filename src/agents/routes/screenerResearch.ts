@@ -280,6 +280,16 @@ export async function handleScreenerResearchRoutes(
       const history = await agent.getHistory();
       return Response.json({ history });
     }
+    // Issue #340: track record — published ideas joined to evaluations.
+    if (path.endsWith("/research/track-record") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const trackRecord = await agent.getTrackRecord();
+      return Response.json({ trackRecord });
+    }
 
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
     if (path.endsWith("/research/settings") && request.method === "GET") {

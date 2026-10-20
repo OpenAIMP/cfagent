@@ -37,6 +37,8 @@
  * Issue #341 added one more — GET /api/reports/research/browse (in
  * handleReportsRoutes, after the trading/reports webhook handler and
  * before the reports list) — bringing the inventory to 156.
+ * Issue #340 added GET /research/track-record (in
+ * handleScreenerResearchRoutes, after /research/history) — 157.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -234,6 +236,7 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/research/scheduled-tick\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/history\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/track-record\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/evaluate\")",
