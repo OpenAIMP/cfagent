@@ -612,20 +612,19 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #269: generate + store the report PDF for download/delivery.
     // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
     // Issue #605: blobs go to R2 when bound, else legacy DO storage.
+    // Issue #680: generation is owned by ReportAssetAgent.
     try {
-      const { generateScreenerPdf, screenerPdfFileName } = await import(
-        "../trading"
-      );
-      const { putReportPdf } = await import("../services/reportBlobStore");
-      const pdfBytes = await generateScreenerPdf(result);
-      const fileName = screenerPdfFileName(result);
-      // Store with per-run unique key
-      const perRunKey = `${PDF_KEY_PREFIX}${fileName}`;
-      await putReportPdf(this.env, this.ctx.storage, perRunKey, fileName, pdfBytes);
-      // Also update the "latest" pointer for backward compatibility
-      await putReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY, fileName, pdfBytes);
-      // Store the key on the result for the UI to fetch the specific PDF
-      result.pdfKey = perRunKey;
+      const { generatePdfAsset } = await import("./report-asset-agent");
+      const asset = await generatePdfAsset(this.env, this.userLogin(), "screener", result);
+      if (asset) {
+        // Keep the "latest" pointer for backward compatibility.
+        const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
+        const stored = await getReportPdf(this.env, this.ctx.storage as any, asset.key);
+        if (stored) {
+          await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
+        }
+        result.pdfKey = asset.key;
+      }
     } catch (err) {
       console.warn("[ScreenerAgent] PDF generation failed:", err);
     }

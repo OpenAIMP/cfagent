@@ -425,14 +425,13 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       }
       // #335: render the run PDF from the canonical stored report (best-effort;
       // the PDF is a delivery artifact, never a second copy).
+      // #680: PDF generation is owned by ReportAssetAgent (single owner for
+      // the Generate step). Best-effort; never fails the run.
       let pdfKey: string | null = null;
       try {
-        const { generateResearchPdf, researchPdfFileName } = await import(
-          "../trading"
-        );
-        const pdfBytes = await generateResearchPdf(report);
-        const fileName = researchPdfFileName(report);
-        pdfKey = await agent.storeResearchPdf(fileName, pdfBytes);
+        const { generatePdfAsset } = await import("./report-asset-agent");
+        const asset = await generatePdfAsset(this.env, login, "research", report);
+        pdfKey = asset?.key ?? null;
       } catch (err) {
         console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
       }
