@@ -1,13 +1,28 @@
 /**
- * NEXTGEN TP — CENTRAL DESIGN TOKEN SYSTEM
- * 
- * Architecture:
- * 1. Primitives: Raw, reusable foundation values (palette, typography, radius, spacing).
- * 2. Semantic Tokens: Theme-dependent semantic roles (--color-surface, --color-text-primary, --color-border-subtle).
- *    Always paired: Surface and Foreground (surface/surface-foreground, card/card-foreground, muted/muted-foreground).
- * 3. Density Tokens: UI density spacing & sizing (--control-height, --input-padding, --table-row-height).
- * 4. Component Utilities: Standardized utility classes consuming semantic tokens.
- * 5. Backwards Compatibility: Direct aliases for legacy variable names.
+ * NEXTGEN TP — CENTRAL DESIGN TOKEN SYSTEM (single source of truth, #137)
+ *
+ * Layers:
+ * 1. Primitives (:root): palette-independent foundation values
+ *    (typography, radius, spacing) + the legacy alias shims (deprecated).
+ * 2. Semantic theme maps: a theme is a TOKEN MAP, nothing more.
+ *    - Dark map: `:root, [data-theme="dark"], ...` — also the default.
+ *    - Light map: `[data-theme="light"], ...` — a complete map over the
+ *      SAME semantic roles.
+ *    `system` is a resolution rule in theme.ts (OS preference + live
+ *    listener), not a third map.
+ * 3. Density blocks ([data-density=...]): sizing/spacing per density mode.
+ *
+ * HOW TO ADD A THEME: add ONE new map block whose selector is
+ * `[data-theme="<name>"]` (plus the theme.ts registry/UI option) defining
+ * every semantic --color-* role with a value. No component CSS changes.
+ * Every foreground token has a paired surface token (DESIGN.md S2.1);
+ * pairs must meet WCAG AA 4.5:1 — check with scripts/token-contrast.mjs.
+ *
+ * designTokens.ts is GENERATED from this file by
+ * scripts/gen-design-tokens.mjs (`npm run tokens:gen`); `npm run check`
+ * fails on drift. Never hand-edit the generated section.
+ * Raw color values belong ONLY in this file (enforced by the Phase 2
+ * ratchet pin, #470).
  */
 
 :root {
@@ -17,7 +32,7 @@
 
   /* Typography Families — Enforced Universal Single Font (Inter) */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --app-font-scale: 1;
 
   /* Spacing Scale */
@@ -86,7 +101,42 @@
   --strike-ruler-center-zone-height: 1.25rem;
   --strike-ruler-badge-padding-y: 0.0625rem;
   --strike-ruler-badge-padding-x: 0.3rem;
+  --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Legacy aliases — DEPRECATED shims (Phase 6, #476 removes them).
+     Do not add new usages; consume the --color-* semantic tokens. */
+  --bg-base: var(--color-surface);
+  --bg-surface: var(--color-surface-raised);
+  --bg-card: var(--color-card);
+  --bg-card-solid: var(--color-card);
+  --bg-card-hover: var(--color-card-hover);
+  --bg-card-elevated: var(--color-card-elevated);
+  --bg-subtle: var(--color-surface-sunken);
+  --bg-input: var(--color-input);
+  --bg-muted: var(--color-muted);
+  --bg-tag: var(--color-tag);
+
+  --border-subtle: var(--color-border-subtle);
+  --border-medium: var(--color-border-medium);
+  --border-focus: var(--color-border-focus);
+
+  --text-main: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-dim: var(--color-text-dim);
+  --text-inverse: var(--color-text-inverse);
+
+  --accent-primary: var(--color-primary);
+  --accent-cyan: var(--color-accent);
+  --accent-emerald: var(--color-success);
+  --accent-amber: var(--color-warning);
+  --accent-rose: var(--color-danger);
+  --accent-purple: #7c3aed;
+  --accent-orange: #ea580c;
+  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
 }
+
 
 /* ==========================================================================
    DENSITY PRESETS
@@ -106,88 +156,6 @@
   --table-row-height: 3rem;
   --card-padding: 1.35rem;
   --space-card: 1.25rem;
-}
-
-/* ==========================================================================
-   PERMANENT UNIVERSAL SINGLE FONT ENFORCEMENT ('Inter')
-   ========================================================================== */
-
-:root,
-html,
-body,
-[data-font-style] {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-/* Strict universal single font enforcement across all HTML elements, inputs, buttons, headings, tables, and text */
-*,
-*::before,
-*::after,
-html,
-body,
-button,
-input,
-select,
-textarea,
-optgroup,
-label,
-p,
-span,
-div,
-a,
-li,
-ul,
-ol,
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-th,
-td,
-table,
-section,
-header,
-footer,
-nav,
-aside,
-main,
-code,
-kbd,
-samp {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Enforce crisp tabular numbers alignment across all financial numbers, metrics, badges, and table cells without font discrepancy */
-.stat-value,
-.metric-val,
-.rev-val,
-.calc-total-val,
-.summary-amount,
-.price-tag,
-.ticker-badge,
-.balance-amount,
-.crypto-price,
-.ad-metric-value,
-.order-id-tag,
-th,
-td {
-  font-variant-numeric: tabular-nums !important;
-  font-feature-settings: "tnum" 1, "cv05" 1 !important;
-}
-
-/* Raw multi-line code blocks and terminal logs only */
-pre,
-pre code,
-.code-block,
-.raw-terminal-log {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
 /* ==========================================================================
@@ -432,41 +400,72 @@ body.theme-light,
   --scrollbar-thumb: #cbd5e1;
   --scrollbar-thumb-hover: #94a3b8;
 }
+/* Strict universal single font enforcement across all HTML elements, inputs, buttons, headings, tables, and text */
+*,
+*::before,
+*::after,
+html,
+body,
+button,
+input,
+select,
+textarea,
+optgroup,
+label,
+p,
+span,
+div,
+a,
+li,
+ul,
+ol,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+th,
+td,
+table,
+section,
+header,
+footer,
+nav,
+aside,
+main,
+code,
+kbd,
+samp {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-/* ==========================================================================
-   3. LEGACY TOKEN ALIASES (ZERO-BREAKAGE COMPATIBILITY LAYER)
-   ========================================================================== */
+/* Enforce crisp tabular numbers alignment across all financial numbers, metrics, badges, and table cells without font discrepancy */
+.stat-value,
+.metric-val,
+.rev-val,
+.calc-total-val,
+.summary-amount,
+.price-tag,
+.ticker-badge,
+.balance-amount,
+.crypto-price,
+.ad-metric-value,
+.order-id-tag,
+th,
+td {
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: "tnum" 1, "cv05" 1 !important;
+}
 
-:root {
-  --bg-base: var(--color-surface);
-  --bg-surface: var(--color-surface-raised);
-  --bg-card: var(--color-card);
-  --bg-card-solid: var(--color-card);
-  --bg-card-hover: var(--color-card-hover);
-  --bg-card-elevated: var(--color-card-elevated);
-  --bg-subtle: var(--color-surface-sunken);
-  --bg-input: var(--color-input);
-  --bg-muted: var(--color-muted);
-  --bg-tag: var(--color-tag);
-
-  --border-subtle: var(--color-border-subtle);
-  --border-medium: var(--color-border-medium);
-  --border-focus: var(--color-border-focus);
-
-  --text-main: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-muted: var(--color-text-muted);
-  --text-dim: var(--color-text-dim);
-  --text-inverse: var(--color-text-inverse);
-
-  --accent-primary: var(--color-primary);
-  --accent-cyan: var(--color-accent);
-  --accent-emerald: var(--color-success);
-  --accent-amber: var(--color-warning);
-  --accent-rose: var(--color-danger);
-  --accent-purple: #7c3aed;
-  --accent-orange: #ea580c;
-  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
+/* Raw multi-line code blocks and terminal logs only */
+pre,
+pre code,
+.code-block,
+.raw-terminal-log {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
 /* ==========================================================================

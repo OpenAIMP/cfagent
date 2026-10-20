@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:ci": "vitest run --reporter=verbose",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test:ci && npm run build"
+    "check": "node scripts/gen-design-tokens.mjs --check && npm run typecheck && npm run test:ci && npm run build",
+    "tokens:gen": "node scripts/gen-design-tokens.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "latest",
