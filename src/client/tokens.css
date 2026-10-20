@@ -234,6 +234,9 @@ body.theme-dark,
   --color-info-subtle: rgba(56, 189, 248, 0.14);
 
   /* Semantic borders (colored-alpha) — added in Phase 3a (#471) for badge/chip/callout outlines */
+  --color-primary-border: rgba(99, 102, 241, 0.35);
+  --color-purple-subtle: rgba(168, 85, 247, 0.15);
+  --color-purple-border: rgba(168, 85, 247, 0.35);
   --color-accent-border: rgba(56, 189, 248, 0.35);
   --color-success-border: rgba(16, 185, 129, 0.35);
   --color-danger-border: rgba(239, 68, 68, 0.35);
@@ -363,6 +366,9 @@ body.theme-light,
   --color-info-subtle: rgba(3, 105, 161, 0.12);
 
   /* Semantic borders (colored-alpha) — added in Phase 3a (#471) for badge/chip/callout outlines */
+  --color-primary-border: rgba(79, 70, 229, 0.4);
+  --color-purple-subtle: rgba(124, 58, 237, 0.1);
+  --color-purple-border: rgba(124, 58, 237, 0.4);
   --color-accent-border: rgba(2, 132, 199, 0.4);
   --color-success-border: rgba(22, 163, 74, 0.4);
   --color-danger-border: rgba(220, 38, 38, 0.4);
