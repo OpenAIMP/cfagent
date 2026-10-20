@@ -223,7 +223,8 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
   async execute(input: any, context: McpToolContext) {
     const amount = Number(input.amount) || 10;
     const currency = (input.currency || "USD").toUpperCase();
-    const customer = (input.customer || "Enterprise Client").trim();
+    // No invented customer name (issue #514), matching the create route.
+    const customer = (input.customer || "").trim();
     const action = (input.action || "charge") as "charge" | "refund" | "invoice";
     const gateway = (input.gateway || "stripe") as SupportedGateway;
     const description = (input.description || `Payment intent for ${customer}`).trim();
