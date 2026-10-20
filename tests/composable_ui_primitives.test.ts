@@ -75,6 +75,8 @@ describe("Composable UI Primitives (Design System)", () => {
       expect(element.props.options).toHaveLength(4);
       expect(element.props.variant).toBe("cyan");
       expect(element.props.size).toBe("sm");
+    const xs = React.createElement(Badge, { size: "xs" }, "tiny");
+    expect(xs.props.size).toBe("xs");
     });
 
     it("supports multiple color variants for theming", () => {

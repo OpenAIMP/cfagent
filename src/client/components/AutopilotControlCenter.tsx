@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table } from "./ui";
+import { EmptyState, Table, Badge, type BadgeTone } from "./ui";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
@@ -271,6 +271,20 @@ export const INITIAL_ACTIONS: AutonomousActionItem[] = [
     source: "simulated",
   },
 ];
+
+const ACTION_TYPE_TONES: Record<string, BadgeTone> = {
+  order: "info",
+  policy_check: "success",
+  risk_guardrail: "warning",
+  rebalance: "purple",
+};
+
+const ACTION_STATUS_TONES: Record<string, BadgeTone> = {
+  executed: "success",
+  routed_to_approval: "warning",
+  verified: "info",
+  blocked: "danger",
+};
 
 export function AutopilotControlCenter({
   user,
@@ -779,21 +793,19 @@ export function AutopilotControlCenter({
               header: "ACTION & TRIGGER",
               cellClassName: "summary-cell",
               render: (action) => (
-              <><span className={`action-type-pill type-${action.actionType}`}>
+              <><Badge size="xs" uppercase tone={ACTION_TYPE_TONES[action.actionType] ?? "neutral"}>
                           {action.actionType.replace("_", " ").toUpperCase()}
-                        </span>
+                        </Badge>
                         <span className="action-summary-text">{action.summary}</span>
                         {action.source && (
-                          <span
-                            className={`action-source-pill ${action.source}`}
-                            title={`Action origin: ${
+                          <Badge size="xs" tone={action.source === "live" ? "success" : "purple"} title={`Action origin: ${
                               action.source === "live"
                                 ? "Live SQLite Audit Ledger / Brokerage"
                                 : "Local Policy Simulation"
                             }`}
                           >
                             {action.source === "live" ? "📡 Live" : "🧪 Sim"}
-                          </span>
+                          </Badge>
                         )}</>
             ),
             },
@@ -802,7 +814,7 @@ export function AutopilotControlCenter({
               header: "ASSET",
               cellClassName: "symbol-cell",
               render: (action) => (
-              <><span className="symbol-pill">{action.symbol}</span></>
+              <><Badge size="md" tone="neutral" className="symbol-pill">{action.symbol}</Badge></>
             ),
             },
             {
@@ -810,13 +822,9 @@ export function AutopilotControlCenter({
               header: "POLICY CHECK",
               cellClassName: "policy-cell",
               render: (action) => (
-              <><span
-                          className={`policy-check-badge ${
-                            action.policyCheckPassed ? "passed" : "failed"
-                          }`}
-                        >
+              <><Badge size="xs" tone={action.policyCheckPassed ? "success" : "danger"}>
                           {action.policyCheckPassed ? "✓" : "✕"} {action.policyCheckRule}
-                        </span></>
+                        </Badge></>
             ),
             },
             {
@@ -824,9 +832,9 @@ export function AutopilotControlCenter({
               header: "STATUS",
               cellClassName: "status-cell",
               render: (action) => (
-              <><span className={`action-status-pill status-${action.status}`}>
+              <><Badge size="xs" tone={ACTION_STATUS_TONES[action.status] ?? "neutral"}>
                           {action.status.replace(/_/g, " ").toUpperCase()}
-                        </span></>
+                        </Badge></>
             ),
             },
             {

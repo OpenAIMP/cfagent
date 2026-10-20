@@ -983,26 +983,8 @@ body {
   margin-bottom: 1.25rem;
 }
 
-.plan-badge {
-  background: var(--color-muted);
-  border: 1px solid var(--color-border-subtle);
-  padding: 0.35rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-}
-
-.plan-badge strong {
+.plan-badge-group .ui-badge strong {
   color: var(--color-accent);
-}
-
-.plan-badge.count-badge {
-  background: var(--color-primary-alpha);
-  border-color: var(--color-primary-border);
-}
-
-.plan-badge.count-badge strong {
-  color: var(--color-indigo-text);
 }
 
 .results-table-container {
@@ -5976,16 +5958,6 @@ body {
   gap: 0.5rem;
 }
 
-.plan-badge {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-}
-
-.plan-badge.domain { background: var(--color-accent-subtle); color: var(--color-accent); }
-.plan-badge.intent { background: var(--color-success-subtle); color: var(--color-success-text); }
-.plan-badge.sql { background: var(--color-warning-subtle); color: var(--color-warning-text); }
 
 .nlq-summary-text {
   font-size: 0.95rem;
@@ -11208,32 +11180,6 @@ body {
   min-width: 120px;
 }
 
-.ticker-type-pill {
-  font-size: 0.6rem;
-  font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 4px;
-  letter-spacing: 0.04em;
-}
-
-.ticker-type-pill.type-stock {
-  background: var(--color-info-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
-}
-
-.ticker-type-pill.type-crypto {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
-  border: 1px solid var(--color-warning-border);
-}
-
-.ticker-type-pill.type-etf {
-  background: var(--color-purple-subtle);
-  color: var(--color-purple-text);
-  border: 1px solid var(--color-purple-border);
-}
-
 .ticker-symbol-text {
   font-weight: 700;
   font-size: 0.88rem;
@@ -12364,29 +12310,6 @@ body {
   margin-top: 1rem;
 }
 
-.action-source-pill {
-  font-size: 0.58rem;
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 3px;
-  letter-spacing: 0.03em;
-  margin-left: 0.35rem;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.action-source-pill.live {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-  border: 1px solid var(--color-success-border);
-}
-
-.action-source-pill.simulated {
-  background: var(--color-purple-subtle);
-  color: var(--color-purple-text);
-  border: 1px solid var(--color-purple-border);
-}
-
 /* Actions Table */
 .autopilot-table-container {
   overflow-x: auto;
@@ -12435,39 +12358,6 @@ body {
   gap: 0.5rem;
 }
 
-.action-type-pill {
-  font-size: 0.58rem;
-  font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.action-type-pill.type-order {
-  background: var(--color-info-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
-}
-
-.action-type-pill.type-policy_check {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-  border: 1px solid var(--color-success-border);
-}
-
-.action-type-pill.type-risk_guardrail {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
-  border: 1px solid var(--color-warning-border);
-}
-
-.action-type-pill.type-rebalance {
-  background: var(--color-purple-subtle);
-  color: var(--color-purple-text);
-  border: 1px solid var(--color-purple-border);
-}
-
 .action-summary-text {
   color: var(--color-text-secondary);
   font-weight: 500;
@@ -12475,60 +12365,6 @@ body {
 
 .symbol-cell .symbol-pill {
   font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--color-text-primary);
-  background: var(--color-tag);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-}
-
-.policy-cell .policy-check-badge {
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-  padding: 2px 6px;
-  border-radius: 4px;
-  display: inline-block;
-  white-space: nowrap;
-}
-
-.policy-check-badge.passed {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-}
-
-.policy-check-badge.failed {
-  background: var(--color-danger-subtle);
-  color: var(--color-danger-text);
-}
-
-.status-cell .action-status-pill {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 9999px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.action-status-pill.status-executed {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-}
-
-.action-status-pill.status-routed_to_approval {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
-}
-
-.action-status-pill.status-verified {
-  background: var(--color-info-subtle);
-  color: var(--color-accent);
-}
-
-.action-status-pill.status-blocked {
-  background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-sentiment-very-bearish);
 }
 
 .attestation-cell .did-signature-badge {

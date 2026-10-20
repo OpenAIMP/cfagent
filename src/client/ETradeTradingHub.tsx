@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card } from "./components/ui";
+import { Card, Badge } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -2529,10 +2529,10 @@ export function ETradeTradingHub({
                 {/* Plan Overview */}
                 {nlqResult.plan && (
                   <div className="nlq-plan-pill-group">
-                    <span className="plan-badge domain">Domain: {nlqResult.plan.domain}</span>
-                    <span className="plan-badge intent">Intent: {nlqResult.plan.tradingData?.intent || "market_query"}</span>
+                    <Badge size="md" tone="accent">Domain: {nlqResult.plan.domain}</Badge>
+                    <Badge size="md" tone="success">Intent: {nlqResult.plan.tradingData?.intent || "market_query"}</Badge>
                     {nlqResult.plan.sql && (
-                      <span className="plan-badge sql">Deterministic SQL</span>
+                      <Badge size="md" tone="warning">Deterministic SQL</Badge>
                     )}
                   </div>
                 )}

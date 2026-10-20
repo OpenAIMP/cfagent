@@ -12,7 +12,7 @@ export type BadgeTone =
 
 export interface BadgeProps {
   tone?: BadgeTone;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
   /** Show a leading status dot in the badge's tone color. */
   dot?: boolean;
   /** Render the label in tracked uppercase (nav/status-label style). */

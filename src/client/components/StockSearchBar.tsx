@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
+import { Badge, type BadgeTone } from "./ui";
 
 export interface StockTickerItem {
   symbol: string;
@@ -67,6 +68,8 @@ const NAV_SHORTCUTS: NavShortcut[] = [
   { id: "ads", label: "Sponsored Marketplace Deals", category: "Platform", icon: "📢" },
   { id: "revenue", label: "Platform Revenue Analytics", category: "Platform", icon: "📈" },
 ];
+
+const TICKER_TYPE_TONES: Record<string, BadgeTone> = { stock: "info", crypto: "warning", etf: "purple" };
 
 export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: StockSearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -545,9 +548,9 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                           onMouseEnter={() => setSelectedIndex(idx)}
                         >
                           <div className="ticker-badge-col">
-                            <span className={`ticker-type-pill type-${ticker.type}`}>
+                            <Badge size="xs" uppercase tone={TICKER_TYPE_TONES[ticker.type] ?? "neutral"}>
                               {ticker.type.toUpperCase()}
-                            </span>
+                            </Badge>
                             <span className="ticker-symbol-text">{ticker.symbol}</span>
                           </div>
                           <div className="ticker-name-col">

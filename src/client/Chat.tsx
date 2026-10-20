@@ -19,7 +19,7 @@ import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 import { adAccentPalette } from "./designTokens";
-import { Button, TextInput } from "./components/ui";
+import { Button, TextInput, Badge } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
@@ -1413,10 +1413,10 @@ export function Chat({ user }: { user: User }) {
               <div className="nlq-results-card">
                 {nlqResult.plan && (
                   <div className="plan-badge-group">
-                    <span className="plan-badge">Domain: <strong>{nlqResult.domain || nlqResult.plan.domain}</strong></span>
-                    <span className="plan-badge">Operation: <strong>{nlqResult.plan.operation}</strong></span>
-                    {nlqResult.plan.terms && <span className="plan-badge">Terms: <strong>"{nlqResult.plan.terms}"</strong></span>}
-                    <span className="plan-badge count-badge">Matched: <strong>{nlqResult.count}</strong></span>
+                    <Badge size="md" tone="neutral">Domain: <strong>{nlqResult.domain || nlqResult.plan.domain}</strong></Badge>
+                    <Badge size="md" tone="neutral">Operation: <strong>{nlqResult.plan.operation}</strong></Badge>
+                    {nlqResult.plan.terms && <Badge size="md" tone="neutral">Terms: <strong>"{nlqResult.plan.terms}"</strong></Badge>}
+                    <Badge size="md" tone="trade">Matched: <strong>{nlqResult.count}</strong></Badge>
                   </div>
                 )}
 
