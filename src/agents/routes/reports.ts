@@ -519,5 +519,32 @@ export async function handleReportsRoutes(
     }
   }
 
+  // Issue #649: semantic search over reports (Vectorize).
+  // Note: the route context doesn't expose env, so semantic search degrades
+  // to lexical-only when the bindings are unavailable.
+  if (path.endsWith("/reports/semantic-search") && request.method === "GET") {
+    try {
+      const { semanticSearchReports, mergeSearchHits } = await import("../../services/reportSemanticIndex");
+      const { searchScheduledReports, ensureScheduledReportsTable } = await import("../../services/scheduledReports");
+      const query = url.searchParams.get("q") || "";
+      if (!query.trim()) {
+        return Response.json({ hits: [], semantic: false });
+      }
+      const env = (ctx as any).env || {};
+      const semantic = await semanticSearchReports(env, query, 8);
+      // Merge with lexical for the hybrid ranking.
+      const lexical = searchScheduledReports(ctx.ensureTables(), query, 20).map((r: any) => String(r.id));
+      const merged = mergeSearchHits(lexical, semantic);
+      ensureScheduledReportsTable(ctx.ensureTables());
+      return Response.json({
+        hits: merged,
+        semantic: semantic.length > 0,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Semantic search failed", hits: [] }, { status: 500 });
+    }
+  }
+
   return null;
 }
