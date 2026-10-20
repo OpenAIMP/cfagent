@@ -5309,6 +5309,33 @@
   font-size: var(--font-size-body-sm);
 }
 
+/* Issue #533: an abstention is an honest non-result, not a failure —
+   same alert-box idiom as the failure box, warning tokens. */
+.discovery-outcome-abstained {
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Issue #533: the DERIVED block — the full derivation travels with
+   every derived target so it is never read as a configured view. */
+.discovery-derived-line {
+  margin: 0;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.discovery-run-detail-head p.discovery-run-profile {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
 .discovery-best {
   display: flex;
   flex-direction: column;

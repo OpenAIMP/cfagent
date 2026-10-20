@@ -21,6 +21,14 @@
  * candidate rows by definition — its JSON (the diagnostic record)
  * is the export; the panel offers no CSV for it.
  *
+ * Profile-derived runs (issue #533) add, in the same `#` metadata
+ * block: one DERIVED line per symbol whose target was derived —
+ * the full derivation (spot, multiple, expected move, window,
+ * profile) so a derived target in the file can never be mistaken
+ * for a configured view — and one ABSTAINED line per symbol that
+ * abstained, with its recorded reason. The JSON export carries the
+ * derivation records verbatim (they are part of the stored run).
+ *
  * Like scannerExport.ts (PR-C), the JSON omits the run's per-user
  * scoping stamp (userLogin, issue #103): an export file is data
  * about the run, not about the account that saved it.
@@ -116,17 +124,45 @@ export function discoveryTriggerLabel(run: Pick<StoredDiscoveryRun, "trigger" | 
   return run.scheduleId ? `${base} · schedule ${run.scheduleId}` : base;
 }
 
+/** Money in a `#` metadata line: fixed 2dp, no thousands separators
+ *  (the line is a comment, but a stable format pins cleanly). */
+function metaUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+/** A fraction (0.1311) rendered as a trimmed percent number (13.11). */
+function metaPctNumber(fraction: number): string {
+  return String(Number((fraction * 100).toFixed(2)));
+}
+
+/** An EM multiple rendered without trailing zeros (0.6, -0.6, 1.2, 0). */
+function metaMultiple(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
 function csvHeaderLines(run: StoredDiscoveryRun, rowCount: number): string[] {
   const lines = [
     `# cfagent discovery run results — ranked candidates`,
     `# run: ${run.createdAt} · trigger: ${discoveryTriggerLabel(run)} · input model: ${run.inputModel} · status: ${run.status}`,
     `# symbols: ${run.symbols.join(", ")} · requests: ${run.requestCount} · completed: ${run.completedCount} · failed: ${run.failedCount} · rows in this file: ${rowCount}`,
   ];
-  // Partial / failed runs name what failed, with the recorded reason —
-  // the file never presents a subset as the whole result.
+  // Per-symbol outcome lines, in outcome order. Partial / failed runs
+  // name what failed, with the recorded reason — the file never
+  // presents a subset as the whole result. A derived symbol's target
+  // is labelled DERIVED with its full derivation (issue #533); an
+  // abstention names its reason and carries no target, ever.
   for (const outcome of run.outcomes) {
+    const derivation = outcome.derivation;
+    if (derivation) {
+      lines.push(
+        `# DERIVED: ${outcome.symbol} target ${metaUsd(derivation.targetPrice)} = spot ${metaUsd(derivation.spot)} × (1 + ${metaMultiple(derivation.emMultiple)} × EM ${metaPctNumber(derivation.expectedMovePct)}%) · window ${derivation.windowExpiry} (${derivation.windowDays}d) · profile ${derivation.profileRef.name} v${derivation.profileRef.version}`,
+      );
+    }
     if (outcome.status === "failed") {
       lines.push(`# FAILED: ${outcome.symbol} — ${outcome.error ?? "no reason recorded"}`);
+    }
+    if (outcome.status === "abstained") {
+      lines.push(`# ABSTAINED: ${outcome.symbol} — ${outcome.error ?? "no reason recorded"}`);
     }
   }
   return lines;

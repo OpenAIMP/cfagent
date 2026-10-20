@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "../apiFetch";
+import { listProfiles } from "../scannerApi";
 import { TextInput, Select, EmptyState } from "../components/ui";
+import type { StrategyProfile } from "../../trading";
 import { etToUtcCron } from "./cronTime";
 import "./scheduledOptions.css";
 
@@ -239,6 +241,82 @@ export function buildDiscoveryRequests(
 
 export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
 
+/** The two input models a discovery schedule can carry (issues
+ *  #126/#533): complete saved views re-run verbatim, or a symbol set
+ *  + Strategy Profile whose targets are derived at run time. */
+export type DiscoveryInputModel = "saved-request" | "profile-derived";
+
+/** Parse the profile-derived symbols field: comma- or
+ *  newline-separated, trimmed, uppercased, blanks dropped (order
+ *  preserved). */
+export function parseDerivedSymbols(text: string): string[] {
+  return text
+    .split(/[\n,]/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+// Mirrors the create route's ticker check (src/agents/routes/
+// schedules.ts) so an invalid ticker fails in the form, not at the
+// route; the route remains the backstop.
+const DERIVED_SYMBOL_RE = /^[A-Z0-9./-]{1,16}$/;
+
+/**
+ * Build the profile-derived schedule payload (issue #533, spec R1)
+ * from the form state, with the route's arm-time rules mirrored
+ * client-side: a profile is required, and exactly ONE symbol source
+ * is emitted — explicit symbols XOR a watchlist name — so the payload
+ * can never carry both (the route 400s on both/neither). Returns
+ * { error } with a user-facing message for the first problem found.
+ */
+export function buildProfileDerivedPayload(input: {
+  source: "symbols" | "watchlist";
+  symbolsText: string;
+  watchlistName: string;
+  profileId: string;
+}): { payload: Record<string, any> } | { error: string } {
+  const profileId = input.profileId.trim();
+  if (!profileId) {
+    return { error: "Choose a Strategy Profile to derive targets under." };
+  }
+  if (input.source === "watchlist") {
+    const watchlistName = input.watchlistName.trim();
+    if (!watchlistName) {
+      return { error: "Enter the name of a watchlist to derive targets for." };
+    }
+    return { payload: { inputModel: "profile-derived", watchlistName, profileId } };
+  }
+  const symbols = parseDerivedSymbols(input.symbolsText);
+  if (symbols.length === 0) {
+    return { error: "Enter at least one symbol to derive targets for." };
+  }
+  if (symbols.length > DISCOVERY_REQUEST_LIMIT) {
+    return {
+      error: `Profile-derived discovery schedules are capped at ${DISCOVERY_REQUEST_LIMIT} symbols per schedule.`,
+    };
+  }
+  const bad = symbols.find((s) => !DERIVED_SYMBOL_RE.test(s));
+  if (bad) return { error: `"${bad}" is not a valid ticker symbol.` };
+  return { payload: { inputModel: "profile-derived", symbols, profileId } };
+}
+
+/**
+ * Why a Strategy Profile cannot support target derivation, or null
+ * when it can (issue #533 decisions D1/D3, mirrored client-side so
+ * the picker can disable the profile with the reason shown): no
+ * thesis → no direction to derive toward; missing risk caps → no
+ * honest values exist to construct the request with.
+ */
+export function profileDerivationBlockReason(
+  profile: Pick<StrategyProfile, "thesis" | "maxPlannedLoss" | "minRewardRisk">
+): string | null {
+  if (!profile.thesis) return "no thesis — cannot derive direction";
+  if (profile.maxPlannedLoss === undefined || profile.minRewardRisk === undefined) {
+    return "missing max planned loss or min reward/risk — cannot derive targets";
+  }
+  return null;
+}
+
 const INTERVAL_PRESETS = [
   { label: "Every 15 min", seconds: 900 },
   { label: "Every 30 min", seconds: 1800 },
@@ -350,6 +428,16 @@ export function ScheduledOptionsManager({
   const [discoveryRequests, setDiscoveryRequests] = useState<DiscoveryRequestDraft[]>([
     blankDiscoveryRequestDraft(),
   ]);
+  // Profile-derived discovery form state (issue #533): the input
+  // model switch, the symbol source (symbols XOR watchlist name),
+  // and the Strategy Profile picker.
+  const [discoveryInputModel, setDiscoveryInputModel] = useState<DiscoveryInputModel>("saved-request");
+  const [derivedSource, setDerivedSource] = useState<"symbols" | "watchlist">("symbols");
+  const [derivedSymbolsText, setDerivedSymbolsText] = useState("");
+  const [derivedWatchlistName, setDerivedWatchlistName] = useState("");
+  const [derivedProfileId, setDerivedProfileId] = useState("");
+  const [profiles, setProfiles] = useState<StrategyProfile[]>([]);
+  const [profilesError, setProfilesError] = useState<string | null>(null);
 
   const updateDiscoveryRequest = (idx: number, patch: Partial<DiscoveryRequestDraft>) =>
     setDiscoveryRequests((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
@@ -433,6 +521,32 @@ export function ScheduledOptionsManager({
     fetchAudit();
   }, [fetchSchedules, fetchAudit]);
 
+  // Strategy Profiles for the profile-derived discovery form and
+  // for resolving profile names on schedule cards (issue #533).
+  // Best-effort: a failed load leaves the picker empty with the
+  // error shown in the form, and cards fall back to the stored
+  // profile id — the client never invents a profile name.
+  useEffect(() => {
+    let cancelled = false;
+    listProfiles(activeEnv, userLogin)
+      .then((list) => {
+        if (!cancelled) {
+          setProfiles(list);
+          setProfilesError(null);
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setProfiles([]);
+          setProfilesError(err?.message || "Failed to load strategy profiles");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnv, userLogin]);
+
+
   // Issue #223: latest autonomous options runs. Polls so a scheduled fire
   // shows up without a manual refresh; failure is reported, never faked.
   const fetchLatestRuns = useCallback(async () => {
@@ -464,6 +578,11 @@ export function ScheduledOptionsManager({
     setTargetSymbols("");
     setMaxItems(100);
     setDiscoveryRequests([blankDiscoveryRequestDraft()]);
+    setDiscoveryInputModel("saved-request");
+    setDerivedSource("symbols");
+    setDerivedSymbolsText("");
+    setDerivedWatchlistName("");
+    setDerivedProfileId("");
     setModalOpen(true);
   };
 
@@ -473,10 +592,27 @@ export function ScheduledOptionsManager({
     const payload = payloadOf(item);
     if (item.callback === "autonomousStrategyDiscovery") {
       setJobType("strategyDiscovery");
-      const saved = Array.isArray(payload.requests) ? payload.requests : [];
-      setDiscoveryRequests(
-        saved.length > 0 ? saved.map(discoveryDraftFromRequest) : [blankDiscoveryRequestDraft()]
-      );
+      if (payload.inputModel === "profile-derived") {
+        // Hydrate the profile-derived editor from the payload
+        // (issue #533): the model switch, the one symbol source the
+        // payload carries, and the profile it derives under.
+        setDiscoveryInputModel("profile-derived");
+        const syms = Array.isArray(payload.symbols)
+          ? payload.symbols.filter((s: any) => typeof s === "string")
+          : [];
+        setDerivedSymbolsText(syms.join(", "));
+        const watchlistName = typeof payload.watchlistName === "string" ? payload.watchlistName : "";
+        setDerivedWatchlistName(watchlistName);
+        setDerivedSource(watchlistName ? "watchlist" : "symbols");
+        setDerivedProfileId(typeof payload.profileId === "string" ? payload.profileId : "");
+        setDiscoveryRequests([blankDiscoveryRequestDraft()]);
+      } else {
+        setDiscoveryInputModel("saved-request");
+        const saved = Array.isArray(payload.requests) ? payload.requests : [];
+        setDiscoveryRequests(
+          saved.length > 0 ? saved.map(discoveryDraftFromRequest) : [blankDiscoveryRequestDraft()]
+        );
+      }
     } else {
       setJobType(item.callback === "autonomousMarketScreen" ? "marketScreen" : "optionsAnalysis");
       const syms = payload.symbols;
@@ -512,7 +648,30 @@ export function ScheduledOptionsManager({
 
     let callback: string;
     let payload: Record<string, any>;
-    if (jobType === "strategyDiscovery") {
+    if (jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived") {
+      // Profile-derived discovery (issue #533): the payload names a
+      // symbol set + a Strategy Profile and stores NO target — each
+      // target is derived at run time. The create route's arm-time
+      // validation is the backstop; its 400 surfaces below exactly
+      // as the saved-view path's does.
+      const built = buildProfileDerivedPayload({
+        source: derivedSource,
+        symbolsText: derivedSymbolsText,
+        watchlistName: derivedWatchlistName,
+        profileId: derivedProfileId,
+      });
+      if ("error" in built) {
+        setError(built.error);
+        setSubmitting(false);
+        return;
+      }
+      callback = JOB_CALLBACKS.strategyDiscovery;
+      payload = {
+        ...built.payload,
+        environment: activeEnv,
+        trigger: "scheduled",
+      };
+    } else if (jobType === "strategyDiscovery") {
       // Discovery schedules carry complete saved StrategyRequests; the
       // create route validates each one and its 400 is the backstop for
       // anything this form cannot check (e.g. unknown strategy ids).
@@ -793,6 +952,11 @@ export function ScheduledOptionsManager({
     }
   };
 
+  const selectedDerivedProfile = profiles.find((p) => p.id === derivedProfileId);
+  const selectedDerivedProfileReason = selectedDerivedProfile
+    ? profileDerivationBlockReason(selectedDerivedProfile)
+    : null;
+
   return (
     <div className="scheduled-options-manager">
       {/* Top Hero Banner */}
@@ -1016,6 +1180,43 @@ export function ScheduledOptionsManager({
                 ? payload.symbols.filter((s: any) => typeof s === "string")
                 : [];
               const savedRequests = Array.isArray(payload.requests) ? payload.requests : [];
+              // Issue #533: a profile-derived discovery schedule is
+              // labelled as its own model on the card — never as a
+              // saved-view schedule — with its symbols and profile.
+              const isDerivedDiscovery = isDiscovery && payload.inputModel === "profile-derived";
+              const derivedProfile = isDerivedDiscovery
+                ? profiles.find((p) => p.id === payload.profileId)
+                : undefined;
+              const cardTitle = isDerivedDiscovery
+                ? "Strategy Discovery · Profile-derived"
+                : title;
+              const payloadRows: Array<[string, unknown]> = isDerivedDiscovery
+                ? [
+                    ["userLogin", payload.userLogin || userLogin || "—"],
+                    ["environment", payload.environment || activeEnv || "—"],
+                    ["input model", "Profile-derived"],
+                    ...(symbols.length > 0
+                      ? [["symbols", symbols.join(", ")] as [string, unknown]]
+                      : [["watchlist", typeof payload.watchlistName === "string" ? payload.watchlistName : "—"] as [string, unknown]]),
+                    ["profile", derivedProfile
+                      ? `${derivedProfile.name} (v${derivedProfile.version})`
+                      : typeof payload.profileId === "string" ? payload.profileId : "—"],
+                    ["trigger", payload.trigger || "scheduled"],
+                  ]
+                : isDiscovery
+                  ? [
+                      ["userLogin", payload.userLogin || userLogin || "—"],
+                      ["environment", payload.environment || activeEnv || "—"],
+                      ["saved views", savedRequests.length],
+                      ["trigger", payload.trigger || "scheduled"],
+                    ]
+                  : [
+                      ["userLogin", payload.userLogin || userLogin || "—"],
+                      ["environment", payload.environment || activeEnv || "—"],
+                      ["universe", payload.universe || (Array.isArray(payload.symbols) ? "Custom symbols" : "—")],
+                      ["maxItems", payload.maxItems ?? (Array.isArray(payload.symbols) ? payload.symbols.length : "all")],
+                      ["trigger", payload.trigger || "scheduled"],
+                    ];
 
               return (
                 <div
@@ -1035,31 +1236,19 @@ export function ScheduledOptionsManager({
                   </div>
 
                   <div>
-                    <h5 className="schedule-title">{title}</h5>
+                    <h5 className="schedule-title">{cardTitle}</h5>
                     <div className="schedule-cadence">{cadenceText(item)}</div>
                     {systemJob && (
                       <p className="schedule-system-note">
-                        {systemJob.description}
+                        {isDerivedDiscovery
+                          ? "Derives each symbol's target at run time from its live chain under a saved Strategy Profile — no target is stored on this schedule."
+                          : systemJob.description}
                       </p>
                     )}
                   </div>
 
                   <div className="schedule-payload-details">
-                    {(isDiscovery
-                      ? [
-                          ["userLogin", payload.userLogin || userLogin || "—"],
-                          ["environment", payload.environment || activeEnv || "—"],
-                          ["saved views", savedRequests.length],
-                          ["trigger", payload.trigger || "scheduled"],
-                        ]
-                      : [
-                          ["userLogin", payload.userLogin || userLogin || "—"],
-                          ["environment", payload.environment || activeEnv || "—"],
-                          ["universe", payload.universe || (Array.isArray(payload.symbols) ? "Custom symbols" : "—")],
-                          ["maxItems", payload.maxItems ?? (Array.isArray(payload.symbols) ? payload.symbols.length : "all")],
-                          ["trigger", payload.trigger || "scheduled"],
-                        ]
-                    ).map(([key, value]) => (
+                    {payloadRows.map(([key, value]) => (
                       <div className="payload-row" key={String(key)}>
                         <span className="payload-label">{key}:</span>
                         <span className="payload-value">{formatPayloadValue(value)}</span>
@@ -1155,6 +1344,30 @@ export function ScheduledOptionsManager({
                             <span className="payload-label">Callback:</span>
                             <span className="payload-value">{detail.callback || item.callback}</span>
                           </div>
+                          {detail.callback === "autonomousStrategyDiscovery" &&
+                            payloadOf(detail).inputModel === "profile-derived" && (
+                              <>
+                                <div className="payload-row">
+                                  <span className="payload-label">Input model:</span>
+                                  <span className="payload-value">Profile-derived</span>
+                                </div>
+                                <div className="payload-row">
+                                  <span className="payload-label">Profile ID:</span>
+                                  <span className="payload-value">
+                                    {typeof payloadOf(detail).profileId === "string"
+                                      ? payloadOf(detail).profileId
+                                      : "—"}
+                                  </span>
+                                </div>
+                                <p className="sched-preset-note">
+                                  Targets derived at run time: no target is stored on this
+                                  schedule — each symbol&apos;s target is derived from its live
+                                  chain under this profile when the schedule fires, and a symbol
+                                  whose target cannot be derived honestly abstains, with the
+                                  reason recorded on the run.
+                                </p>
+                              </>
+                            )}
                           <div className="payload-row">
                             <span className="payload-label">Next run:</span>
                             <span className="payload-value">{formatNextRun(detail)}</span>
@@ -1209,7 +1422,7 @@ export function ScheduledOptionsManager({
                         className="btn-sched-action-sm"
                         onClick={() => handleTriggerCard(item)}
                         disabled={triggeringKey !== null}
-                        title={`Run ${title} immediately, on demand`}
+                        title={`Run ${cardTitle} immediately, on demand`}
                       >
                         {triggeringKey === item.id ? "⚡ Running…" : "⚡ Trigger Now"}
                       </button>
@@ -1405,8 +1618,30 @@ export function ScheduledOptionsManager({
                 </div>
               )}
 
-              {/* Saved discovery views (issue #126) */}
+              {/* Discovery input model (issues #126/#533) */}
               {jobType === "strategyDiscovery" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Input Model
+                    <span className="hint">
+                      Saved views re-run complete strategy requests verbatim. Symbol set + profile
+                      stores no targets — each symbol&apos;s target is derived from its live chain
+                      at run time under a saved Strategy Profile and labelled DERIVED on the run.
+                    </span>
+                  </label>
+                  <Select
+                    value={discoveryInputModel}
+                    onChange={(e) => setDiscoveryInputModel(e.target.value as DiscoveryInputModel)}
+                    aria-label="Discovery input model"
+                  >
+                    <option value="saved-request">Saved views</option>
+                    <option value="profile-derived">Symbol set + profile (derived targets)</option>
+                  </Select>
+                </div>
+              )}
+
+              {/* Saved discovery views (issue #126) */}
+              {jobType === "strategyDiscovery" && discoveryInputModel === "saved-request" && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
                     Saved Discovery Views
@@ -1592,6 +1827,97 @@ export function ScheduledOptionsManager({
                   >
                     + Add another saved view
                   </button>
+                </div>
+              )}
+
+              {/* Profile-derived discovery (issue #533) */}
+              {jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Symbol Set + Strategy Profile
+                    <span className="hint">
+                      No target is stored on this schedule. When it fires, each symbol&apos;s
+                      target is derived from its live chain — spot ± the expected move under the
+                      profile&apos;s thesis — and recorded as DERIVED on the run. A symbol whose
+                      target cannot be derived honestly abstains, with the reason recorded.
+                    </span>
+                  </label>
+                  <div className="sched-form-group">
+                    <label className="sched-form-label">Symbol Source</label>
+                    <Select
+                      value={derivedSource}
+                      onChange={(e) => setDerivedSource(e.target.value as "symbols" | "watchlist")}
+                      aria-label="Derived symbol source"
+                    >
+                      <option value="symbols">Symbols</option>
+                      <option value="watchlist">Watchlist name</option>
+                    </Select>
+                  </div>
+                  {derivedSource === "symbols" ? (
+                    <div className="sched-form-group">
+                      <label className="sched-form-label">
+                        Symbols
+                        <span className="hint">Comma- or newline-separated tickers, up to {DISCOVERY_REQUEST_LIMIT}</span>
+                      </label>
+                      <TextInput
+                        multiline
+                        rows={3}
+                        value={derivedSymbolsText}
+                        onChange={(e) => setDerivedSymbolsText(e.target.value)}
+                        placeholder="e.g. NVDA, AAPL, MSFT"
+                        aria-label="Derived symbols"
+                      />
+                    </div>
+                  ) : (
+                    <div className="sched-form-group">
+                      <label className="sched-form-label">
+                        Watchlist Name
+                        <span className="hint">Resolved against your stored watchlists when the schedule fires</span>
+                      </label>
+                      <TextInput
+                        type="text"
+                        value={derivedWatchlistName}
+                        onChange={(e) => setDerivedWatchlistName(e.target.value)}
+                        placeholder="e.g. My List"
+                        aria-label="Derived watchlist name"
+                      />
+                    </div>
+                  )}
+                  <div className="sched-form-group">
+                    <label className="sched-form-label">Strategy Profile</label>
+                    <Select
+                      value={derivedProfileId}
+                      onChange={(e) => setDerivedProfileId(e.target.value)}
+                      aria-label="Derived strategy profile"
+                    >
+                      <option value="">Select a profile…</option>
+                      {profiles.map((profile) => {
+                        const reason = profileDerivationBlockReason(profile);
+                        return (
+                          <option key={profile.id} value={profile.id} disabled={reason !== null}>
+                            {profile.name} (v{profile.version}){reason ? ` — ${reason}` : ""}
+                          </option>
+                        );
+                      })}
+                    </Select>
+                    {profilesError && (
+                      <p className="sched-preset-note" role="alert">
+                        Could not load your strategy profiles: {profilesError}
+                      </p>
+                    )}
+                    {!profilesError && profiles.length === 0 && (
+                      <p className="sched-preset-note">
+                        No saved strategy profiles found — create one in the opportunity scanner
+                        first, then arm it here.
+                      </p>
+                    )}
+                    {selectedDerivedProfileReason && (
+                      <p className="sched-preset-note">
+                        This profile cannot derive targets ({selectedDerivedProfileReason}) — pick
+                        another profile, or update the profile first.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 

@@ -2,8 +2,14 @@
  * Discovery runs (issue #126, PR-F): the review surface for the
  * PERSISTED discovery runs the scheduled-discovery backend (PR-E)
  * stores — scheduled fires and manual triggers of
- * autonomousStrategyDiscovery, which re-run saved StrategyRequests
- * verbatim (the "saved-request" input model).
+ * autonomousStrategyDiscovery. Two input models produce runs and
+ * are labelled distinctly everywhere (issue #533): "saved-request"
+ * runs re-run saved StrategyRequests verbatim; "profile-derived"
+ * runs derive each symbol's target at fire time from its own live
+ * chain under a Strategy Profile — the derivation is shown in full
+ * beside the target, and a symbol whose target could not be derived
+ * honestly renders as an abstention, never as a failure or a
+ * fabricated result.
  *
  * This section is deliberately separate from the interactive
  * StrategyDiscoveryPanel above it: those results are computed live
@@ -26,6 +32,7 @@ import {
   listDiscoveryRuns,
   type DiscoveryRunSummary,
   type DiscoverySymbolOutcome,
+  type DiscoveryTargetDerivation,
   type StoredDiscoveryRun,
 } from "../discoveryApi";
 import { discoveryTriggerLabel, downloadDiscoveryExport } from "../discoveryExport";
@@ -75,6 +82,45 @@ export function failedOutcomes(run: StoredDiscoveryRun): DiscoverySymbolOutcome[
   return run.outcomes.filter((outcome) => outcome.status === "failed");
 }
 
+/** The symbols that abstained in a profile-derived run (issue #533):
+ *  no target could be derived honestly, so no request ran. */
+export function abstainedOutcomes(run: StoredDiscoveryRun): DiscoverySymbolOutcome[] {
+  return run.outcomes.filter((outcome) => outcome.status === "abstained");
+}
+
+const OUTCOME_BADGES: Record<
+  DiscoverySymbolOutcome["status"],
+  { tone: BadgeTone; label: string }
+> = {
+  completed: { tone: "success", label: "Completed" },
+  failed: { tone: "danger", label: "Failed" },
+  abstained: { tone: "warning", label: "Abstained" },
+};
+
+/** A fraction (0.1311) as a trimmed percent number (13.11). */
+function pctNumber(fraction: number): string {
+  return String(Number((fraction * 100).toFixed(2)));
+}
+
+/** An EM multiple without trailing zeros (0.6, -0.6, 1.2, 0). */
+function multipleLabel(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
+/**
+ * The DERIVED block for one outcome (issue #533, spec R10): the full
+ * derivation beside the target, in the settled format — a derived
+ * target is never presented as a configured view.
+ */
+export function formatDerivationLine(derivation: DiscoveryTargetDerivation): string {
+  return (
+    `DERIVED target ${fmtUsd(derivation.targetPrice)} = spot ${fmtUsd(derivation.spot)} ` +
+    `× (1 + ${multipleLabel(derivation.emMultiple)} × EM ${pctNumber(derivation.expectedMovePct)}%) ` +
+    `· IV ${pctNumber(derivation.atmIv)}% · window: expiry ${derivation.windowExpiry} ` +
+    `(${derivation.windowDays} days) · profile ${derivation.profileRef.name} v${derivation.profileRef.version}`
+  );
+}
+
 function OutcomeView({ outcome }: { outcome: DiscoverySymbolOutcome }) {
   const request = outcome.request;
   const best = outcome.bestTrade;
@@ -88,8 +134,8 @@ function OutcomeView({ outcome }: { outcome: DiscoverySymbolOutcome }) {
     <div className="discovery-outcome">
       <div className="discovery-outcome-head">
         <strong>{outcome.symbol}</strong>
-        <Badge tone={outcome.status === "completed" ? "success" : "danger"} size="sm" dot>
-          {outcome.status === "completed" ? "Completed" : "Failed"}
+        <Badge tone={OUTCOME_BADGES[outcome.status].tone} size="sm" dot>
+          {OUTCOME_BADGES[outcome.status].label}
         </Badge>
         {outcome.snapshot && (
           <span className="discovery-outcome-source">
@@ -105,16 +151,27 @@ function OutcomeView({ outcome }: { outcome: DiscoverySymbolOutcome }) {
           presentation itself is PR-533B's surface work. */}
       {request && (
         <p className="discovery-view-line">
-          Saved view: {humanizeThesis(request.thesis)} · target {fmtUsd(request.targetPrice)} by{" "}
+          {outcome.derivation ? "Derived view" : "Saved view"}: {humanizeThesis(request.thesis)} ·
+          target {fmtUsd(request.targetPrice)} by{" "}
           {request.targetDate} · IV expected {request.expectedIvDirection} · max planned loss{" "}
           {fmtUsd(request.maxPlannedLoss)} · min reward/risk {request.minRewardRisk}×
           {request.dataMode === "calibrated-demo" ? " · calibrated-demo data" : ""}
         </p>
       )}
 
+      {/* Issue #533: the derivation, in full, beside the view line —
+          a derived target always travels with how it was derived. */}
+      {outcome.derivation && (
+        <p className="discovery-derived-line">{formatDerivationLine(outcome.derivation)}</p>
+      )}
+
       {outcome.status === "failed" ? (
         <div className="discovery-outcome-error" role="alert">
           ⚠️ {outcome.error ?? "Discovery failed for this symbol; no reason was recorded."}
+        </div>
+      ) : outcome.status === "abstained" ? (
+        <div className="discovery-outcome-abstained" role="alert">
+          Abstained — {outcome.error ?? "no reason was recorded."}
         </div>
       ) : (
         <>
@@ -248,6 +305,7 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
   }, [activeEnv, userLogin, selectedId]);
 
   const failed = detail ? failedOutcomes(detail) : [];
+  const abstained = detail ? abstainedOutcomes(detail) : [];
   // CSV carries candidate rows: offered for completed and partial runs
   // (a completed run with no candidates exports the honest header-only
   // file). A failed run's export is its JSON diagnostic record only.
@@ -305,15 +363,25 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
               >
                 <strong>{new Date(run.createdAt).toLocaleString()}</strong>
                 <span className="discovery-run-meta">{discoveryTriggerLabel(run)}</span>
-                <span className="discovery-run-meta">Saved requests</span>
+                <span className="discovery-run-meta">
+                  {run.inputModel === "profile-derived" ? "Profile-derived" : "Saved requests"}
+                </span>
                 <Badge tone={RUN_STATUS_TONES[run.status]} size="sm" dot>
                   {DISCOVERY_RUN_STATUS_LABELS[run.status]}
                 </Badge>
                 <span className="discovery-run-meta">{run.symbols.join(", ")}</span>
-                <span>
-                  {run.completedCount} of {run.requestCount} requests completed
-                  {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ""}
-                </span>
+                {run.inputModel === "profile-derived" ? (
+                  <span>
+                    {run.completedCount} of {run.symbols.length} symbols completed
+                    {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ""}
+                    {(run.abstainedCount ?? 0) > 0 ? ` · ${run.abstainedCount} abstained` : ""}
+                  </span>
+                ) : (
+                  <span>
+                    {run.completedCount} of {run.requestCount} requests completed
+                    {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ""}
+                  </span>
+                )}
                 {selected && <span className="discovery-run-viewing">● Viewing</span>}
               </button>
             );
@@ -342,12 +410,23 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
                   </h4>
                   <p>
                     {countRankedCandidates(detail)} ranked candidates across{" "}
-                    {detail.completedCount} completed request
+                    {detail.completedCount} completed{" "}
+                    {detail.inputModel === "profile-derived" ? "symbol" : "request"}
                     {detail.completedCount === 1 ? "" : "s"}
                     {failed.length > 0
                       ? ` · Failed: ${failed.map((o) => o.symbol).join(", ")}`
                       : ""}
+                    {abstained.length > 0
+                      ? ` · Abstained: ${abstained.map((o) => o.symbol).join(", ")}`
+                      : ""}
                   </p>
+                  {detail.profileRef && (
+                    <p className="discovery-run-profile">
+                      Profile-derived · profile {detail.profileRef.name} v{detail.profileRef.version}{" "}
+                      — targets derived at run time from each symbol&apos;s live chain, never
+                      configured views.
+                    </p>
+                  )}
                 </div>
                 <Badge tone={RUN_STATUS_TONES[detail.status]} size="sm" dot>
                   {DISCOVERY_RUN_STATUS_LABELS[detail.status]}
@@ -380,8 +459,9 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
 
               {detail.status === "failed" && (
                 <div className="discovery-runs-error" role="alert">
-                  This run failed — every saved request failed. The reasons are recorded per
-                  symbol below; the run is kept as a diagnostic record, never as a result.
+                  {detail.inputModel === "profile-derived"
+                    ? "This run failed — no symbol produced a result. Abstentions and failures are recorded per symbol below; the run is kept as a diagnostic record, never as a result."
+                    : "This run failed — every saved request failed. The reasons are recorded per symbol below; the run is kept as a diagnostic record, never as a result."}
                 </div>
               )}
 
