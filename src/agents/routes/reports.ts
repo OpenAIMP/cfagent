@@ -385,7 +385,7 @@ export async function handleReportsRoutes(
   // Supports ?q=search query and ?source=screener|options_scanner|iv_collection
   if ((path.endsWith("/reports") || path === "/reports" || path === "/api/reports") && request.method === "GET") {
     try {
-      const { searchScheduledReports, listScheduledReports, ensureScheduledReportsTable } = await import("../../services/scheduledReports");
+      const { searchScheduledReports, listScheduledReports, ensureScheduledReportsTable, scheduledReportPdfUrl } = await import("../../services/scheduledReports");
       const query = url.searchParams.get("q") || "";
       const sourceFilter = url.searchParams.get("source") || undefined;
       const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100));
@@ -413,6 +413,10 @@ export async function handleReportsRoutes(
         reports = reports.filter((r: any) => r.source === sourceFilter);
       }
 
+      // #638: surface the generated PDF's download URL when the stored
+      // canonical body carries one. The PDF itself stays in
+      // ScreenerAgent storage behind the report.pdf endpoints
+      // (#269/#361); mas_reports has no URL column (#307).
       return Response.json({
         count: reports.length,
         reports: reports.map((r: any) => ({
@@ -422,6 +426,7 @@ export async function handleReportsRoutes(
           source: r.source,
           summary: r.summary,
           createdAt: r.createdAt,
+          reportUrl: scheduledReportPdfUrl(r.source, r.body),
         })),
         timestamp: new Date().toISOString(),
       });
