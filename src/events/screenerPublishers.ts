@@ -49,15 +49,21 @@ interface ScreenerPdf {
   fileName: string;
 }
 
-/** Fetch this run's PDF, never another concurrent run's latest PDF. */
-async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): Promise<ScreenerPdf | null> {
+/** Fetch this run's PDF, never another concurrent run's latest PDF.
+ * #333: errors are logged, not swallowed — a null return means "no PDF
+ * stored", never "something broke silently". */
+export async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): Promise<ScreenerPdf | null> {
   try {
     const ns = (deps.env as any).SCREENER_AGENT;
-    if (!ns) return null;
+    if (!ns) {
+      console.warn("[ScreenerPublishers] SCREENER_AGENT binding missing — cannot fetch PDF.");
+      return null;
+    }
     const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
     const agent = ns.get(ns.idFromName(agentName)) as unknown as ScreenerAgent;
     return pdfKey ? await agent.getPdfByKey(pdfKey) : await agent.getLatestPdf();
-  } catch {
+  } catch (err) {
+    console.warn("[ScreenerPublishers] fetchScreenerPdf failed:", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
