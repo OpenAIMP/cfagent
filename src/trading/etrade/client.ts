@@ -326,7 +326,7 @@ export class ETradeRestClient {
   /**
    * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
    */
-  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean }): Promise<ETradeQuote[]> {
+  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean; trace?: import("./quoteTrace").QuoteTrace }): Promise<ETradeQuote[]> {
     this.lastError = undefined;
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
@@ -334,6 +334,10 @@ export class ETradeRestClient {
       this.lastError = "E*TRADE consumer credentials are not configured for live quote requests.";
       return [];
     }
+    // Issue #812: structured trace for observability.
+    const { QuoteTrace } = await import("./quoteTrace");
+    const trace = options?.trace || new QuoteTrace();
+    trace.setNasdaqSymbols(symbols);
 
     let token = "";
     let tokenSecret = "";
@@ -482,10 +486,45 @@ export class ETradeRestClient {
     const results: ETradeQuote[][] = [];
     // Issue #802: sequential loop, not Promise.all. 10 requests in flight
     // at once risks E*TRADE rate limiting; sequential with a small gap is safer.
-    for (const b of batches) {
-      results.push(await fetchBatch(b));
+    // Issue #812: trace each batch.
+    for (let bi = 0; bi < batches.length; bi++) {
+      const b = batches[bi];
+      const handle = trace.startBatch(bi, batches.length, b);
+      try {
+        const batchQuotes = await fetchBatch(b);
+        handle.addQuotes(batchQuotes.length);
+        // Track which symbols didn't get quotes.
+        const receivedSyms = new Set(batchQuotes.map((q) => q.symbol));
+        for (const s of b) {
+          if (!receivedSyms.has(s)) {
+            const { category, detail } = QuoteTrace.categorizeError(
+              this.lastError || "No quote returned for symbol"
+            );
+            handle.addFailure(s, category, detail);
+          }
+        }
+        results.push(batchQuotes);
+      } catch (err) {
+        // Issue #812: never swallow — capture with context.
+        const { category, detail } = QuoteTrace.categorizeError(err);
+        handle.setError(detail);
+        for (const s of b) handle.addFailure(s, category, detail);
+        results.push([]);
+        console.error(JSON.stringify({
+          traceId: trace.traceId,
+          component: "quote-pipeline",
+          event: "batch_exception",
+          batchIndex: bi,
+          symbols: b,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined,
+          timestamp: new Date().toISOString(),
+        }));
+      } finally {
+        handle.complete();
+      }
       // 100ms gap between batches to stay under rate limits.
-      if (batches.indexOf(b) < batches.length - 1) {
+      if (bi < batches.length - 1) {
         await new Promise((r) => setTimeout(r, 100));
       }
     }
@@ -515,6 +554,8 @@ export class ETradeRestClient {
     }
 
     if (!batchFailed) this.lastError = undefined;
+    // Issue #812: log the complete trace.
+    trace.complete();
     return quotes;
   }
 
