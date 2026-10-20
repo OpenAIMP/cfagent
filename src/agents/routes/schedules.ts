@@ -18,6 +18,7 @@
  *   POST        /schedules/trigger-options-analysis
  *   POST        /schedules/trigger-retention      (issue #255)
  *   POST        /schedules/trigger-iv-collection  (issue #15)
+ *   POST        /schedules/trigger-discovery      (issue #126)
  *
  * The handler ends with an explicit `return null` - never undefined.
  *
@@ -35,7 +36,14 @@ import type { AgentContext, Schedule, ScheduleCriteria } from "agents";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
 import { runStorageRetention } from "../../security/storageRetention";
-import { SqlIvHistoryStore, SqlScanRunStore, UNIVERSES } from "../../trading";
+import {
+  SqlDiscoveryRunStore,
+  SqlIvHistoryStore,
+  SqlScanRunStore,
+  UNIVERSES,
+  validateStrategyRequest,
+  MAX_SAVED_REQUESTS_PER_RUN,
+} from "../../trading";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
@@ -242,6 +250,27 @@ export async function handleSchedulesRoutes(
             (!Array.isArray(safePayload.symbols) || safePayload.symbols.some((symbol: unknown) => typeof symbol !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(symbol)))) {
           return Response.json({ success: false, error: "symbols must be an array of valid ticker strings." }, { status: 400 });
         }
+        if (callback === "autonomousStrategyDiscovery") {
+          // Issue #126: a discovery schedule re-runs SAVED requests
+          // verbatim, so the payload must carry complete, valid
+          // StrategyRequests at creation time — an empty or malformed
+          // list is rejected here rather than armed to fail honestly
+          // on every fire. The service re-validates at execution.
+          const savedRequests = (safePayload as any).requests;
+          if (!Array.isArray(savedRequests) || savedRequests.length === 0) {
+            return Response.json({ success: false, error: "Discovery schedules require at least one saved strategy request in payload.requests." }, { status: 400 });
+          }
+          if (savedRequests.length > MAX_SAVED_REQUESTS_PER_RUN) {
+            return Response.json({ success: false, error: `Discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per schedule.` }, { status: 400 });
+          }
+          for (let i = 0; i < savedRequests.length; i++) {
+            const requestError = validateStrategyRequest(savedRequests[i]);
+            if (requestError) {
+              const symbol = typeof savedRequests[i]?.symbol === "string" ? savedRequests[i].symbol : "?";
+              return Response.json({ success: false, error: `Saved discovery request ${i + 1} (${symbol}) is invalid: ${requestError}` }, { status: 400 });
+            }
+          }
+        }
         if (ctx.accountScopedScheduleCallbacks.has(callback) && safePayload.maxItems !== undefined &&
             (!Number.isSafeInteger(safePayload.maxItems) || safePayload.maxItems < 0 || safePayload.maxItems > 10000)) {
           return Response.json({ success: false, error: "maxItems must be a whole number from 0 to 10000." }, { status: 400 });
@@ -381,6 +410,37 @@ export async function handleSchedulesRoutes(
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger IV collection" }, { status: 500 });
+      }
+    }
+
+    // Trigger scheduled strategy discovery immediately on demand
+    // (issue #126) — re-runs the body's SAVED StrategyRequests verbatim
+    // through the discovery pipeline and persists the run as a
+    // "manual-trigger" discovery run. An account identity is required:
+    // runs are per-user records and execute under the owner's E*TRADE
+    // session (mirrors trigger-iv-collection's 401).
+    if (path.endsWith("/schedules/trigger-discovery") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const context = await ctx.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
+        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
+          ? rawEnvironment
+          : context?.environment;
+        const service = new ScheduledTasksService(
+          ctx.env,
+          ctx.getOrm(),
+          userLogin,
+          new SqlScanRunStore(ctx.agentCtx.storage.sql),
+          undefined,
+          new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql)
+        );
+        const result = await service.autonomousStrategyDiscovery({ ...body, userLogin, environment, trigger: "manual" });
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger strategy discovery" }, { status: 500 });
       }
     }
   return null;
