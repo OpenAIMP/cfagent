@@ -28,6 +28,13 @@
  *      14-15 (schema) and 44-47 (agentic payments), now attributed to
  *      their handlers).
  *
+ * Post-#359 growth, recorded deliberately: issue #126 (PR-E) added
+ * two route conditions — GET /etrade/options/discovery-runs (in
+ * handleEtradeOptionsRoutes, after scans/diff) and POST
+ * /schedules/trigger-discovery (in handleSchedulesRoutes, last) —
+ * bringing the inventory to 152. New routes update this pin; the
+ * pin's purpose (no UNINTENTIONAL route-surface change) is unchanged.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -175,6 +182,7 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/expire-dates\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans/diff\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/discovery-runs\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/iv-history\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",
@@ -236,7 +244,8 @@ const EXPECTED_INVENTORY = [
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-renew\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-options-analysis\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-retention\")",
-  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-iv-collection\")"
+  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-iv-collection\")",
+  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-discovery\")"
 ];
 
 function routeRequestBody(orchSrc: string): string {
