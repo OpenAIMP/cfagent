@@ -37,6 +37,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Think conformance assessment (#541):** `docs/agents/think-conformance.md` publishes the `docs/agents/cloudflare.md` §14 assessment for this repo — separate verdicts (Think adoption PARTIAL: only ResearchAgent is Think-based), the §4 baseline at main `f063104` (declared == resolved versions after #540), architecture/identity map, conformance matrix, and findings F1–F6 in §13 format with the remediation sequence (#540 done, #542, #543, #545) and acceptance criteria. It also records that `ResearchAgent.getModel()` returning a string was verified as a valid `ThinkModel` against the installed `@cloudflare/think` 0.19.0 types.
 - **cfpay email-with-attachments A2A helper** (#384): `cfpaySendEmailWithAttachments()` in cfpayA2A.ts wraps cfpay's `email.sendWithAttachments` A2A op, enabling options-report PDF delivery by email (wiring into the scheduled options analysis follows).
 
 ### Changed
