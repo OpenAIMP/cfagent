@@ -912,64 +912,6 @@ code:not(.did-pill code) {
   line-height: 1.45;
 }
 
-/* Universal Button Utilities */
-.btn-refresh,
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1-5, 0.35rem);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-secondary);
-  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-  border-radius: var(--radius-sm, 6px);
-  font-size: var(--font-size-body-sm, 0.82rem);
-  font-weight: var(--font-weight-semibold, 600);
-  cursor: pointer;
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-refresh:hover:not(:disabled),
-.btn-secondary:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-focus);
-}
-
-.btn-refresh:disabled,
-.btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1-5, 0.35rem);
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent-contrast, #ffffff);
-  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-  border-radius: var(--radius-sm, 6px);
-  font-size: var(--font-size-body-sm, 0.82rem);
-  font-weight: var(--font-weight-bold, 700);
-  cursor: pointer;
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Filter Preset Pills */
 .btn-filter-pill {
   display: inline-flex;
