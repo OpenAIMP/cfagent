@@ -1,0 +1,129 @@
+/*
+ * UI primitives stylesheet (#492) — styles for src/client/components/ui/.
+ *
+ * Rules here belong to the shared primitives ONLY. Every value comes from
+ * the semantic token layer in tokens.css: no raw colors (the #476 zero
+ * gate covers this file), so every primitive follows dark / light /
+ * system / high-contrast by construction. Imported once from main.tsx
+ * after styles.css. Accessibility notes (docs/agents/ux-architecture.md
+ * section 13): focus is always visible via --shadow-focus-ring +
+ * border-focus, targets meet the size scale below, and motion honors
+ * prefers-reduced-motion.
+ */
+
+/* ---------- SegmentedControl ---------- */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+.segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.segmented-control.size-sm .segmented-btn { font-size: 0.72rem; padding: 0.28rem 0.55rem; min-height: 28px; }
+.segmented-control.size-md .segmented-btn { font-size: 0.8rem; padding: 0.4rem 0.75rem; min-height: 34px; }
+.segmented-control.size-lg .segmented-btn { font-size: 0.88rem; padding: 0.55rem 1rem; min-height: 40px; }
+
+.segmented-btn:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-surface-hover); }
+
+.segmented-btn.selected {
+  background: var(--color-card-elevated);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.segmented-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.segmented-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.14rem 0.34rem;
+  border-radius: 999px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* ---------- PillGroup ---------- */
+.pill-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.pill-group.size-sm .pill-btn { font-size: 0.7rem; padding: 0.24rem 0.55rem; min-height: 26px; }
+.pill-group.size-md .pill-btn { font-size: 0.78rem; padding: 0.38rem 0.8rem; min-height: 32px; }
+
+.pill-btn:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-muted); }
+.pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.pill-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* Selected tone per variant — subtle bg + strong text + family border. */
+.pill-group.variant-default .pill-btn.selected,
+.pill-group.variant-cyan .pill-btn.selected {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: var(--color-accent-border);
+}
+.pill-group.variant-emerald .pill-btn.selected {
+  background: var(--color-success-subtle);
+  color: var(--color-success-text);
+  border-color: var(--color-success-border);
+}
+.pill-group.variant-amber .pill-btn.selected {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-border);
+}
+.pill-group.variant-purple .pill-btn.selected {
+  background: var(--color-purple-subtle);
+  color: var(--color-purple-text);
+  border-color: var(--color-purple-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented-btn, .pill-btn { transition: none; }
+}

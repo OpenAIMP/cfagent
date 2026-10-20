@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { SegmentedControl, PillGroup } from "../src/client/components/ui";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 describe("Composable UI Primitives (Design System)", () => {
   describe("SegmentedControl Component", () => {
@@ -92,5 +94,41 @@ describe("Composable UI Primitives (Design System)", () => {
         expect(element.props.variant).toBe(variant);
       }
     });
+  });
+});
+
+describe("Primitive styles (primitives.css)", () => {
+  const css = readFileSync(
+    join(process.cwd(), "src/client/components/ui/primitives.css"),
+    "utf8",
+  );
+
+  it("defines every class hook the components emit", () => {
+    for (const hook of [
+      ".segmented-control",
+      ".segmented-btn",
+      ".segmented-badge",
+      ".size-sm",
+      ".size-md",
+      ".size-lg",
+      ".pill-group",
+      ".pill-btn",
+      ".variant-cyan",
+      ".variant-emerald",
+      ".variant-amber",
+      ".variant-purple",
+    ]) {
+      expect(css, hook).toContain(hook);
+    }
+  });
+
+  it("contains no raw color literals (token-only styling)", () => {
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, " ");
+    expect(stripped).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  });
+
+  it("keeps focus visible and honors reduced motion", () => {
+    expect(css).toContain(":focus-visible");
+    expect(css).toContain("prefers-reduced-motion");
   });
 });
