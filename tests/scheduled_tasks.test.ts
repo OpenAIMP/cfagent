@@ -374,7 +374,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       expect(messages.some(m => m.content.includes("Review AAPL quarterly earnings"))).toBe(true);
     });
 
-    it("runs autonomous options analysis across symbols and records audit events", async () => {
+    it("blocks options reports when E*TRADE cannot cover every requested underlying", async () => {
       const service = new ScheduledTasksService(env, orm, sessionId);
       const res = await service.autonomousOptionsAnalysis({
         symbols: ["AAPL", "MSFT"],
@@ -382,18 +382,18 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
         pushToSlack: false,
       });
 
-      expect(res.success).toBe(true);
+      expect(res.success).toBe(false);
       expect(res.taskType).toBe("options_analysis");
-      expect(res.data?.symbols).toEqual(["AAPL", "MSFT"]);
-      expect(res.data?.summary).toBeTruthy();
+      expect(res.error).toContain("Incomplete options universe");
 
-      // Verify audit event
-      const auditEvents = orm.events.findMany({ where: { type: "options.scheduled_analysis_completed" } });
+      // A partial/auth-failed run must never become a completed report.
+      const auditEvents = orm.events.findMany({ where: { type: "options.scheduled_analysis_failed" } });
       expect(auditEvents.length).toBe(1);
+      expect(orm.events.findMany({ where: { type: "options.scheduled_analysis_completed" } })).toHaveLength(0);
 
-      // Verify assistant message record
+      // The failure remains visible to the user.
       const messages = orm.messages.findMany({ where: { sessionId } });
-      expect(messages.some(m => m.content.includes("Scheduled Options Intelligence"))).toBe(true);
+      expect(messages.some(m => m.content.includes("Scheduled Options Intelligence failed"))).toBe(true);
     });
   });
 

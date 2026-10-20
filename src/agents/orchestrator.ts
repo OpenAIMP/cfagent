@@ -3130,7 +3130,9 @@ Agentic Best Practices & Workflow Rules:
         const trustedUserLogin = context?.userLogin || (/^[A-Za-z0-9._-]{1,80}$/.test(headerUserLogin) ? headerUserLogin : "");
         const headerEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
         const trustedEnvironment = context?.environment ||
-          (headerEnvironment === "TEST" || headerEnvironment === "PROD" ? headerEnvironment : "PROD");
+          (headerEnvironment === "TEST" || headerEnvironment === "PROD"
+            ? headerEnvironment
+            : resolveEnvironmentConfig(this.env).name as ETradeEnvironment);
         if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback) && !trustedUserLogin) {
           return Response.json({ success: false, error: "An authenticated E*TRADE account is required to create screening schedules." }, { status: 401 });
         }

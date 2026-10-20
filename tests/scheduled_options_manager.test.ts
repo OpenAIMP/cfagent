@@ -38,30 +38,12 @@ import { etToUtcCron } from "../src/client/options/cronTime";
 
 const NEXT_RUN_S = Math.floor(Date.UTC(2026, 9, 19, 14, 30, 0) / 1000);
 
-const ivSystem = {
-  id: "sys-iv-collection",
-  type: "cron",
-  callback: "collectIvHistory",
-  cron: "15 22 * * 1-5",
-  payload: { userLogin: "trader1" },
-  time: NEXT_RUN_S,
-};
-
-const renewSystem = {
-  id: "sys-token-renewal",
-  type: "cron",
-  callback: "autoRenewETradeTokens",
-  cron: "0 3 * * *",
-  payload: { userLogin: "trader1" },
-  time: NEXT_RUN_S,
-};
-
 const screenSystem = {
   id: "sys-market-screen",
-  type: "interval",
+  type: "cron",
   callback: "autonomousMarketScreen",
-  intervalSeconds: 300,
-  payload: { sector: "Technology", maxItems: 5 },
+  cron: "0 14 * * 1-5",
+  payload: { userLogin: "trader1", environment: "TEST", universe: "LEV_ETF", maxItems: 29, sector: "Technology", trigger: "scheduled" },
   time: NEXT_RUN_S,
 };
 
@@ -74,22 +56,18 @@ const userAnalysis = {
     symbols: ["NVDA", "AAPL"],
     thesis: "bullish",
     riskProfile: "balanced",
+    userLogin: "trader1",
+    environment: "TEST",
+    universe: "NASDAQ100",
+    maxItems: 100,
+    trigger: "scheduled",
     pushToSlack: true,
     slackChannel: "#options-alerts",
   },
   time: NEXT_RUN_S,
 };
 
-const reminder = {
-  id: "user-reminder-1",
-  type: "delayed",
-  callback: "sendScheduledReminder",
-  delayInSeconds: 900,
-  payload: { message: "Check the earnings calendar" },
-  time: NEXT_RUN_S,
-};
-
-const ALL_SCHEDULES = [ivSystem, renewSystem, screenSystem, userAnalysis, reminder];
+const ALL_SCHEDULES = [screenSystem, userAnalysis];
 
 interface StubState {
   schedules: any[];
@@ -316,86 +294,43 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-// System schedule recognition & protection -----------------------------------
-
-describe("ScheduledOptionsManager — system schedules", () => {
-  it("labels the baseline system jobs, explains them, and renders their payloads faithfully", async () => {
+// Only account-owned stock and options screens are surfaced.
+describe("ScheduledOptionsManager — stock/options schedules", () => {
+  it("renders identical account and run metadata for both screen types", async () => {
     installFetch(freshState());
     await renderManager();
-    await waitForText("IV History Collection (System)");
-
-    expect(container.textContent).toContain("E*TRADE Token Renewal (System)");
-    expect(container.textContent).toContain("Autonomous Market Screen (System)");
-    expect(container.textContent).toContain("Registered by the app at startup");
-
-    // The IV payload ({userLogin}) renders generically — the old card
-    // stamped analysis defaults ("Sector Scanner" / "BULLISH") on it.
-    const ivCard = cardByTitle("IV History Collection (System)");
-    expect(ivCard.textContent).toContain("userLogin");
-    expect(ivCard.textContent).toContain("trader1");
-    expect(ivCard.textContent).not.toContain("Sector Scanner");
-    expect(ivCard.textContent).not.toContain("BULLISH");
-
-    // The screen payload renders its own fields, not analysis defaults.
-    const screenCard = cardByTitle("Autonomous Market Screen (System)");
-    expect(screenCard.textContent).toContain("Technology");
-    expect(screenCard.textContent).toContain("maxItems");
-    expect(screenCard.textContent).not.toContain("BULLISH");
-
-    // The registry itself: exactly the three baseline callbacks.
-    expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(
-      ["autoRenewETradeTokens", "autonomousMarketScreen", "autonomousOptionsAnalysis", "collectIvHistory"].sort()
-    );
+    await waitForText("Stock Market Screen");
+    const stockCard = cardByTitle("Stock Market Screen");
+    const optionsCard = cardByTitle("Options Market Screen");
+    for (const field of ["userLogin", "trader1", "environment", "TEST", "universe", "maxItems", "trigger", "scheduled"]) {
+      expect(stockCard.textContent).toContain(field);
+      expect(optionsCard.textContent).toContain(field);
+    }
+    expect(stockCard.textContent).toContain("LEV_ETF");
+    expect(stockCard.textContent).toContain("29");
+    expect(optionsCard.textContent).toContain("NASDAQ100");
+    expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(["autonomousMarketScreen", "autonomousOptionsAnalysis"].sort());
+    expect(container.textContent).not.toContain("Token Renewal");
+    expect(container.textContent).not.toContain("IV History Collection");
   });
 
-  it("gives system cards no Edit control, while user analysis cards keep theirs", async () => {
+  it("keeps edit and cancel controls on account-owned screening jobs", async () => {
     installFetch(freshState());
     await renderManager();
-    await waitForText("IV History Collection (System)");
-
-    for (const title of [
-      "IV History Collection (System)",
-      "E*TRADE Token Renewal (System)",
-      "Autonomous Market Screen (System)",
-      "Strategy/Symbol Scanner — Scheduled (System)",
-    ]) {
+    await waitForText("Stock Market Screen");
+    for (const title of ["Stock Market Screen", "Options Market Screen"]) {
       const card = cardByTitle(title);
-      const editBtn = [...card.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("Edit")
-      );
-      expect(editBtn, `${title} must not offer Edit`).toBeUndefined();
+      expect([...card.querySelectorAll("button")].some((b) => b.textContent?.includes("Edit"))).toBe(true);
+      expect([...card.querySelectorAll("button")].some((b) => b.textContent?.includes("Cancel"))).toBe(true);
     }
   });
 
-  it("guards a system cancel behind an inline confirm naming the consequence, and only then calls the cancel route", async () => {
-    const calls = installFetch(freshState());
+  it("ignores legacy and malformed schedule rows", async () => {
+    installFetch(freshState({ schedules: [screenSystem, userAnalysis, null, { id: 42 }, { callback: "autoRenewETradeTokens" }, { callback: "collectIvHistory" }] as any }));
     await renderManager();
-    await waitForText("IV History Collection (System)");
-
-    const ivCard = cardByTitle("IV History Collection (System)");
-    await click(buttonByText(ivCard, "Cancel"));
-
-    // Nothing has been cancelled yet — the confirm names what happens.
-    expect(callsTo(calls, "/api/schedules/cancel", "POST")).toHaveLength(0);
-    expect(ivCard.textContent).toContain("stays off only until the");
-    expect(ivCard.textContent).toContain("agent restarts");
-
-    await click(buttonByText(ivCard, "Yes, cancel it"));
-    const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
-    expect(cancelCalls).toHaveLength(1);
-    expect(cancelCalls[0].body).toEqual({ id: "sys-iv-collection" });
-
-    // And the card is gone after the refresh.
-    await waitForNoText("IV History Collection (System)");
-  });
-
-  it("never crashes on malformed schedule rows", async () => {
-    installFetch(
-      freshState({ schedules: [ivSystem, null, { id: 42 }, { callback: "x" }, userAnalysis] as any })
-    );
-    await renderManager();
-    await waitForText("IV History Collection (System)");
-    expect(container.textContent).toContain("Strategy/Symbol Scanner — Scheduled (System)");
+    await waitForText("Stock Market Screen");
+    expect(container.textContent).toContain("Options Market Screen");
+    expect(container.textContent).not.toContain("Token Renewal");
     expect(container.textContent).toContain("2 Active");
   });
 });
@@ -406,56 +341,32 @@ describe("ScheduledOptionsManager — per-card triggers", () => {
   it("maps every triggerable callback to its own route and no further", () => {
     expect(triggerRouteFor("autonomousOptionsAnalysis")).toBe("/api/schedules/trigger-options-analysis");
     expect(triggerRouteFor("autonomousMarketScreen")).toBe("/api/schedules/trigger-screen");
-    expect(triggerRouteFor("autoRenewETradeTokens")).toBe("/api/schedules/trigger-renew");
-    expect(triggerRouteFor("collectIvHistory")).toBe("/api/schedules/trigger-iv-collection");
+    expect(triggerRouteFor("autoRenewETradeTokens")).toBeUndefined();
+    expect(triggerRouteFor("collectIvHistory")).toBeUndefined();
     expect(triggerRouteFor("sendScheduledReminder")).toBeUndefined();
     expect(triggerRouteFor("expireStaleOrderDraft")).toBeUndefined();
     expect(triggerRouteFor("executeAsyncJob")).toBeUndefined();
   });
 
-  it("Trigger Now on the IV card calls trigger-iv-collection — never trigger-options-analysis", async () => {
-    const calls = installFetch(freshState());
-    await renderManager();
-    await waitForText("IV History Collection (System)");
-
-    await click(buttonByText(cardByTitle("IV History Collection (System)"), "Trigger Now"));
-
-    expect(callsTo(calls, "/api/schedules/trigger-iv-collection", "POST")).toHaveLength(1);
-    expect(callsTo(calls, "/api/schedules/trigger-options-analysis", "POST")).toHaveLength(0);
-    await waitForText("3 recorded");
-    expect(container.textContent).toContain("40 already recorded");
-  });
-
   it("Trigger Now on the screen card calls trigger-screen with the card's payload", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Autonomous Market Screen (System)");
+    await waitForText("Stock Market Screen");
 
-    await click(buttonByText(cardByTitle("Autonomous Market Screen (System)"), "Trigger Now"));
+    await click(buttonByText(cardByTitle("Stock Market Screen"), "Trigger Now"));
 
     const screenCalls = callsTo(calls, "/api/schedules/trigger-screen", "POST");
     expect(screenCalls).toHaveLength(1);
-    expect(screenCalls[0].body).toEqual({ sector: "Technology", maxItems: 5 });
-    expect(callsTo(calls, "/api/schedules/trigger-options-analysis", "POST")).toHaveLength(0);
-  });
-
-  it("Trigger Now on the renewal card calls trigger-renew", async () => {
-    const calls = installFetch(freshState());
-    await renderManager();
-    await waitForText("E*TRADE Token Renewal (System)");
-
-    await click(buttonByText(cardByTitle("E*TRADE Token Renewal (System)"), "Trigger Now"));
-
-    expect(callsTo(calls, "/api/schedules/trigger-renew", "POST")).toHaveLength(1);
+    expect(screenCalls[0].body).toMatchObject({ sector: "Technology", universe: "LEV_ETF", maxItems: 29 });
     expect(callsTo(calls, "/api/schedules/trigger-options-analysis", "POST")).toHaveLength(0);
   });
 
   it("Trigger Now on a user analysis card still runs options analysis with that card's payload", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
+    await waitForText("Options Market Screen");
 
-    await click(buttonByText(cardByTitle("Strategy/Symbol Scanner — Scheduled (System)"), "Trigger Now"));
+    await click(buttonByText(cardByTitle("Options Market Screen"), "Trigger Now"));
 
     const analysisCalls = callsTo(calls, "/api/schedules/trigger-options-analysis", "POST");
     expect(analysisCalls).toHaveLength(1);
@@ -466,55 +377,49 @@ describe("ScheduledOptionsManager — per-card triggers", () => {
   it("shows no Trigger or Edit control on callbacks without a trigger route", async () => {
     installFetch(freshState());
     await renderManager();
-    await waitForText("sendScheduledReminder");
-
-    const card = cardByTitle("sendScheduledReminder");
-    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent || "");
-    expect(labels.some((t) => t.includes("Trigger"))).toBe(false);
-    expect(labels.some((t) => t.includes("Edit"))).toBe(false);
-    // Its payload renders faithfully, not as analysis defaults.
-    expect(card.textContent).toContain("Check the earnings calendar");
+    await waitForText("Stock Market Screen");
+    expect(container.textContent).not.toContain("sendScheduledReminder");
+    expect(triggerRouteFor("sendScheduledReminder")).toBeUndefined();
   });
 });
 
 // Create form -----------------------------------------------------------------
 
 describe("ScheduledOptionsManager — create form", () => {
-  it("creates an IV collection schedule: callback collectIvHistory, login payload, no analysis fields", async () => {
+  it("creates a stock screen schedule with the selected universe, maxItems, and scheduled trigger", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("IV History Collection (System)");
+    await waitForText("Stock Market Screen");
 
     const modal = await openCreateModal();
-    const jobSelect = selectByOptionText(modal, "IV History Collection");
-    setValue(jobSelect, optionValueByText(jobSelect, "IV History Collection"));
-    await flush(40);
-
-    // Analysis-only fields leave the form entirely for the IV job.
-    expect(modal.querySelector('input[placeholder*="NVDA, AAPL, SPY"]')).toBeNull();
-    expect(modal.textContent).toContain("IV history series");
+    const jobSelect = selectByOptionText(modal, "Autonomous Market Screen (Stocks)");
+    setValue(jobSelect, optionValueByText(jobSelect, "Autonomous Market Screen (Stocks)"));
+    const universe = selectByOptionText(modal, "Leveraged ETFs");
+    setValue(universe, optionValueByText(universe, "Leveraged ETFs"));
+    const maxItems = modal.querySelector('input[type="number"]') as HTMLInputElement;
+    setValue(maxItems, "29");
 
     await submitForm(modal.querySelector("form")!);
 
     const createCalls = callsTo(calls, "/api/schedules/create", "POST");
     expect(createCalls).toHaveLength(1);
-    expect(createCalls[0].body.callback).toBe("collectIvHistory");
-    expect(createCalls[0].body.payload).toEqual({ userLogin: "trader1" });
+    expect(createCalls[0].body.callback).toBe("autonomousMarketScreen");
+    expect(createCalls[0].body.payload).toMatchObject({ universe: "LEV_ETF", maxItems: 29, trigger: "scheduled", sector: "Technology" });
     expect(createCalls[0].body.scheduleType).toBe("interval");
-    expect(createCalls[0].body.intervalSeconds).toBe(3600);
+    expect(createCalls[0].body.payload.userLogin).toBeUndefined(); // trusted identity is stamped server-side
   });
 
   it("posts a delayed create body with delayInSeconds and no cron/interval fields", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
+    await waitForText("Options Market Screen");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "Delayed (Once, After a Delay)");
     setValue(cadence, optionValueByText(cadence, "Delayed (Once, After a Delay)"));
     await flush(40);
 
-    const delayInput = modal.querySelector('input[type="number"]') as HTMLInputElement;
+    const delayInput = [...modal.querySelectorAll('input[type="number"]')].at(-1) as HTMLInputElement;
     expect(delayInput).not.toBeNull();
     setValue(delayInput, "7200");
     await flush(20);
@@ -533,7 +438,7 @@ describe("ScheduledOptionsManager — create form", () => {
   it("posts a one-shot create body with an ISO date", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
+    await waitForText("Options Market Screen");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "One-Shot (Specific Date & Time)");
@@ -559,7 +464,7 @@ describe("ScheduledOptionsManager — create form", () => {
   it("keeps the #107 cron presets: ET intents converted to UTC at pick time, with the DST disclosure", async () => {
     installFetch(freshState());
     await renderManager();
-    await waitForText("Strategy/Symbol Scanner — Scheduled (System)");
+    await waitForText("Options Market Screen");
 
     const modal = await openCreateModal();
     const cadence = selectByOptionText(modal, "Cron Expression (Specific Time/Days)");
@@ -580,27 +485,27 @@ describe("ScheduledOptionsManager — detail view", () => {
   it("fetches GET /api/schedules/:id on demand and renders type, next run, cron and payload", async () => {
     const calls = installFetch(freshState());
     await renderManager();
-    await waitForText("IV History Collection (System)");
+    await waitForText("Stock Market Screen");
 
-    const ivCard = cardByTitle("IV History Collection (System)");
+    const screenCard = cardByTitle("Stock Market Screen");
     // No by-id fetch happens until the user asks for details.
-    expect(callsTo(calls, "/api/schedules/sys-iv-collection", "GET")).toHaveLength(0);
+    expect(callsTo(calls, "/api/schedules/sys-market-screen", "GET")).toHaveLength(0);
 
-    await click(buttonByText(ivCard, "Details"));
+    await click(buttonByText(screenCard, "Details"));
     await waitForText("Next run:");
 
-    const detailCalls = callsTo(calls, "/api/schedules/sys-iv-collection", "GET");
+    const detailCalls = callsTo(calls, "/api/schedules/sys-market-screen", "GET");
     expect(detailCalls).toHaveLength(1);
-    expect(ivCard.textContent).toContain(new Date(NEXT_RUN_S * 1000).toLocaleString());
-    expect(ivCard.textContent).toContain("15 22 * * 1-5");
-    expect(ivCard.textContent).toContain("collectIvHistory");
-    expect(ivCard.textContent).toContain('"userLogin"');
-    expect(ivCard.textContent).toContain("sys-iv-collection");
+    expect(screenCard.textContent).toContain(new Date(NEXT_RUN_S * 1000).toLocaleString());
+    expect(screenCard.textContent).toContain("0 14 * * 1-5");
+    expect(screenCard.textContent).toContain("autonomousMarketScreen");
+    expect(screenCard.textContent).toContain('"userLogin"');
+    expect(screenCard.textContent).toContain("sys-market-screen");
 
     // Toggling again collapses the panel without another fetch.
-    await click(buttonByText(ivCard, "Hide Details"));
-    expect(ivCard.textContent).not.toContain("Next run:");
-    expect(callsTo(calls, "/api/schedules/sys-iv-collection", "GET")).toHaveLength(1);
+    await click(buttonByText(screenCard, "Hide Details"));
+    expect(screenCard.textContent).not.toContain("Next run:");
+    expect(callsTo(calls, "/api/schedules/sys-market-screen", "GET")).toHaveLength(1);
   });
 });
 
@@ -610,8 +515,8 @@ describe("ScheduledOptionsManager — transport (issue #71 contract)", () => {
   it("renders the schedule list delivered through the worker's 202 async-job stub", async () => {
     installFetch(freshState({ listViaJob: true }));
     await renderManager();
-    await waitForText("IV History Collection (System)");
-    expect(container.textContent).toContain("Autonomous Market Screen (System)");
-    expect(container.textContent).toContain("5 Active");
+    await waitForText("Stock Market Screen");
+    expect(container.textContent).toContain("Options Market Screen");
+    expect(container.textContent).toContain("2 Active");
   });
 });

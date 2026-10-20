@@ -415,7 +415,7 @@ export async function acquireUniverse(
       week52Low: 0,
       sector,
       quoteStatus: "AS_OF_UNKNOWN",
-      source: "Nasdaq live listings directory (source quote time unavailable)",
+      source: "Nasdaq all-exchange stock listings (source quote time unavailable)",
       timestamp: "",
     };
   });

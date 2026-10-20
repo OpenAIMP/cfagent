@@ -94,15 +94,9 @@ describe("POST /api/schedules/create (#111)", () => {
     scheduleEveryCalls = [];
   });
 
-  it("exports exactly the five user-creatable callbacks as the allow-list", () => {
+  it("exposes only the stock and options screen callbacks", () => {
     expect([...CREATABLE_SCHEDULE_CALLBACKS].sort()).toEqual(
-      [
-        "autoRenewETradeTokens",
-        "autonomousMarketScreen",
-        "autonomousOptionsAnalysis",
-        "collectIvHistory",
-        "sendScheduledReminder",
-      ].sort()
+      ["autonomousMarketScreen", "autonomousOptionsAnalysis"].sort()
     );
     // Internal-only callbacks are armed by the agent itself, never via the route.
     expect(CREATABLE_SCHEDULE_CALLBACKS as readonly string[]).not.toContain("executeAsyncJob");
@@ -143,23 +137,6 @@ describe("POST /api/schedules/create (#111)", () => {
     }
   );
 
-  it("accepts collectIvHistory on a cron and returns the SDK's real schedule id", async () => {
-    const agent = makeAgent();
-    const payload = { userLogin: "default_trader" };
-    const { status, body } = await postCreate(agent, {
-      scheduleType: "cron",
-      cron: "15 22 * * 1-5",
-      callback: "collectIvHistory",
-      payload,
-    });
-    expect(status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.schedule.id).toBe("real-schedule-1");
-    expect(JSON.stringify(body)).not.toContain("sched_mock_");
-    // Cron keeps the idempotent-by-default option (#111 preserves this).
-    expect(scheduleCalls).toEqual([["15 22 * * 1-5", "collectIvHistory", { userLogin: authenticatedLogin }, { idempotent: true }]]);
-  });
-
   it("accepts autonomousOptionsAnalysis on an interval via scheduleEvery", async () => {
     const agent = makeAgent();
     const payload = { symbols: ["NVDA"], thesis: "bullish" };
@@ -172,45 +149,55 @@ describe("POST /api/schedules/create (#111)", () => {
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.schedule.id).toBe("real-interval-1");
-    expect(scheduleEveryCalls).toEqual([[3600, "autonomousOptionsAnalysis", { ...payload, userLogin: authenticatedLogin }]]);
+    expect(scheduleEveryCalls).toEqual([[3600, "autonomousOptionsAnalysis", {
+      ...payload,
+      maxItems: 1,
+      userLogin: authenticatedLogin,
+      environment: "TEST",
+      trigger: "scheduled",
+    }]]);
     expect(scheduleCalls).toHaveLength(0);
   });
 
-  it("accepts the remaining allow-listed callbacks across the delayed and scheduled modes", async () => {
+  it("creates only account-scoped stock/options schedules across supported modes", async () => {
     const agent = makeAgent();
 
     const delayed = await postCreate(agent, {
       delayInSeconds: 900,
-      callback: "sendScheduledReminder",
-      payload: { message: "check the scan" },
+      callback: "autonomousOptionsAnalysis",
+      payload: { symbols: ["NVDA"], thesis: "bullish" },
     });
     expect(delayed.status).toBe(200);
     expect(delayed.body.success).toBe(true);
     expect(scheduleCalls[0][0]).toBe(900);
-    expect(scheduleCalls[0][1]).toBe("sendScheduledReminder");
+    expect(scheduleCalls[0][1]).toBe("autonomousOptionsAnalysis");
+    expect(scheduleCalls[0][2]).toMatchObject({ symbols: ["NVDA"], maxItems: 1, userLogin: authenticatedLogin, environment: "TEST", trigger: "scheduled" });
 
     const date = "2026-10-20T14:00:00.000Z";
     const scheduled = await postCreate(agent, {
       scheduleType: "scheduled",
       date,
-      callback: "autoRenewETradeTokens",
-      payload: {},
+      callback: "autonomousOptionsAnalysis",
+      payload: { universe: "NASDAQ100", thesis: "bullish", maxItems: 100 },
     });
     expect(scheduled.status).toBe(200);
     expect(scheduled.body.success).toBe(true);
     expect(scheduleCalls[1][0]).toBeInstanceOf(Date);
     expect((scheduleCalls[1][0] as Date).toISOString()).toBe(date);
-    expect(scheduleCalls[1][1]).toBe("autoRenewETradeTokens");
+    expect(scheduleCalls[1][1]).toBe("autonomousOptionsAnalysis");
 
     const screen = await postCreate(agent, {
       scheduleType: "interval",
       intervalSeconds: 300,
       callback: "autonomousMarketScreen",
-      payload: { sector: "Technology", maxItems: 5 },
+      payload: { sector: "Technology", universe: "LEV_ETF", maxItems: 29 },
     });
     expect(screen.status).toBe(200);
     expect(screen.body.success).toBe(true);
-    expect(scheduleEveryCalls).toEqual([[300, "autonomousMarketScreen", { sector: "Technology", maxItems: 5, userLogin: authenticatedLogin }]]);
+    expect(scheduleEveryCalls[0]).toEqual([300, "autonomousMarketScreen", {
+      sector: "Technology", universe: "LEV_ETF", maxItems: 29,
+      userLogin: authenticatedLogin, environment: "TEST", trigger: "scheduled",
+    }]);
   });
 
   it("preserves the cron idempotent opt-out (body.idempotent === false)", async () => {
@@ -218,8 +205,8 @@ describe("POST /api/schedules/create (#111)", () => {
     const { status } = await postCreate(agent, {
       scheduleType: "cron",
       cron: "0 3 * * *",
-      callback: "autoRenewETradeTokens",
-      payload: {},
+      callback: "autonomousMarketScreen",
+      payload: { universe: "NASDAQ100", maxItems: 100 },
       idempotent: false,
     });
     expect(status).toBe(200);
@@ -249,8 +236,8 @@ describe("POST /api/schedules/create (#111)", () => {
       };
       const { status, body } = await postCreate(agent, {
         ...fields,
-        callback: "collectIvHistory",
-        payload: { userLogin: "default_trader" },
+        callback: "autonomousOptionsAnalysis",
+        payload: { symbols: ["NVDA"] },
       });
       expect(status).toBe(503);
       expect(body.success).toBe(false);
@@ -268,8 +255,8 @@ describe("POST /api/schedules/create (#111)", () => {
     const { status, body } = await postCreate(agent, {
       scheduleType: "cron",
       cron: "0 3 * * *",
-      callback: "collectIvHistory",
-      payload: {},
+      callback: "autonomousOptionsAnalysis",
+      payload: { symbols: ["NVDA"] },
     });
     expect(status).toBe(503);
     expect(body.success).toBe(false);

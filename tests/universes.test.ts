@@ -5,7 +5,6 @@
 import { describe, it, expect } from "vitest";
 import {
   UNIVERSES,
-  LEVERAGED_ETF_SYMBOLS,
   shardableUniverses,
   resolveUniverse,
 } from "../src/trading/universes";
@@ -41,10 +40,6 @@ describe("universe registry", () => {
     expect(shards).not.toContain("ALL");
   });
 
-  it("leveraged ETF list has 29 symbols", () => {
-    expect(LEVERAGED_ETF_SYMBOLS).toHaveLength(29);
-    expect(LEVERAGED_ETF_SYMBOLS).toContain("TQQQ");
-  });
 });
 
 describe("resolveUniverse", () => {
@@ -73,10 +68,15 @@ describe("resolveUniverse", () => {
     expect(res[0].marketCap).toBe(2200 * 1_000_000);
   });
 
-  it("LEV_ETF resolves curated symbols even when missing from listings", () => {
-    const res = resolveUniverse("LEV_ETF", []);
-    expect(res).toHaveLength(29);
-    expect(res.map((l) => l.symbol)).toContain("TQQQ");
+  it("LEV_ETF resolves only leveraged ETF listings in the live directory", () => {
+    const listings = [
+      listing("TQQQ", "ProShares UltraPro QQQ"),
+      listing("QQQ", "Invesco QQQ Trust ETF"),
+      listing("AAPL", "Apple Inc"),
+    ];
+    const res = resolveUniverse("LEV_ETF", listings);
+    expect(res.map((l) => l.symbol)).toEqual(["TQQQ"]);
+    expect(resolveUniverse("LEV_ETF", [])).toEqual([]);
   });
 
   it("ALL resolves to empty (sharded by caller)", () => {
