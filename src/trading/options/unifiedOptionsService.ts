@@ -67,6 +67,8 @@ export interface UnifiedOptionsRequest {
   action: UnifiedOptionsAction;
   symbol?: string;
   symbols?: string[];
+  /** Issue #738: max symbols for the scanner to process (overrides the 20-symbol default cap). */
+  maxSymbols?: number;
   thesis?: OptionThesis;
   targetPrice?: number;
   targetDate?: string;
@@ -384,6 +386,9 @@ export class UnifiedOptionsService {
             // caps rows in per-name mode. It was previously dropped,
             // which made a caller's limit a no-op.
             ...(req.limit !== undefined ? { limit: req.limit } : {}),
+            // Issue #738: forward maxSymbols so the scanner respects the
+            // caller's universe size instead of the hardcoded 20-symbol cap.
+            ...(req.maxSymbols !== undefined ? { maxSymbols: req.maxSymbols } : {}),
             // Issue #103: `offset` paginates strategy-fit fits
             // alongside `limit`; forwarded (and cached) the same way.
             ...(req.offset !== undefined ? { offset: req.offset } : {}),

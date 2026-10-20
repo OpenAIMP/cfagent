@@ -662,6 +662,8 @@ export class ScheduledTasksService {
         channel: "ui",
         userLogin,
         overrideEnv: options.environment,
+        // Issue #738: pass the symbol count so the scanner doesn't truncate to 20.
+        maxSymbols: symbols.length,
       });
       if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scanData = response.data as any;
