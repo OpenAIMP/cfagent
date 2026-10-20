@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
+import { Card } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -2403,7 +2404,7 @@ export function ETradeTradingHub({
 
       {/* SUBTAB 4: ORDER HISTORY LEDGER */}
       {effectiveSubTab === "ledger" && (
-        <div className="trading-section ledger-section">
+        <Card className="trading-section">
           <div className="ledger-header-row">
             <h4>📜 E*TRADE Orders Ledger (SQLite mas_trades)</h4>
             <button
@@ -2501,7 +2502,7 @@ export function ETradeTradingHub({
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* SUBTAB 5: NLQ RESULTS */}

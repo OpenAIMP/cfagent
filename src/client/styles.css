@@ -7540,14 +7540,6 @@ body {
   font-size: 0.9rem;
 }
 
-.ledger-section {
-  background: var(--color-card);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  padding: 1.25rem;
-  box-shadow: var(--shadow-card);
-}
-
 .ledger-header-row {
   display: flex;
   align-items: center;
@@ -13024,16 +13016,6 @@ body {
 .partner-deals-close-btn:hover {
   background: var(--color-muted);
   color: var(--color-text-primary);
-}
-
-.partner-deals-notice {
-  background: var(--color-success-subtle);
-  border-top: 1px solid var(--color-success-border);
-  border-bottom: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
-  padding: 8px 20px;
-  font-size: 0.74rem;
-  line-height: 1.45;
 }
 
 .partner-deals-category-bar {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -124,6 +124,8 @@ describe("Primitive styles (primitives.css)", () => {
       ".variant-primary",
       ".ui-spinner",
       ".ui-empty",
+      ".ui-card",
+      ".ui-notice",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -190,5 +192,21 @@ describe("Spinner + EmptyState (#492)", () => {
     });
     expect(element.props.title).toBe("Nothing here");
     expect(element.props.framed).toBe(true);
+  });
+});
+
+describe("Card + Notice (#492)", () => {
+  it("Card supports elevation and the padding scale", () => {
+    const element = React.createElement(Card, { elevated: true, padding: "lg" }, "body");
+    expect(element.props.elevated).toBe(true);
+    expect(element.props.padding).toBe("lg");
+  });
+
+  it("Notice supports tones, strip variant, and dismissal", () => {
+    const onDismiss = () => {};
+    const element = React.createElement(Notice, { tone: "warning", variant: "strip", onDismiss }, "Careful");
+    expect(element.props.tone).toBe("warning");
+    expect(element.props.variant).toBe("strip");
+    expect(element.props.onDismiss).toBe(onDismiss);
   });
 });
