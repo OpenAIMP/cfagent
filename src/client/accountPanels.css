@@ -2,9 +2,9 @@
 .ap-panel {
   margin-top: 1.25rem;
   padding: 1rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-muted);
 }
 .ap-header {
   display: flex;
@@ -19,7 +19,7 @@
   margin-left: auto;
   padding: 0.25rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -29,7 +29,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.45rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .ap-row-main {
   display: flex;
@@ -50,17 +50,17 @@
 }
 .ap-row-main span {
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .ap-unread {
-  color: #8db9ff;
+  color: var(--color-info-text);
 }
 .ap-danger {
   padding: 0.3rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(240, 82, 82, 0.4);
-  background: rgba(240, 82, 82, 0.08);
-  color: #ff9c9c;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-text);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -68,27 +68,27 @@
   margin-top: 0.6rem;
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
   font-size: 0.85rem;
 }
 .ap-detail p {
   margin: 0.3rem 0 0;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
   white-space: pre-wrap;
 }
 .ap-error {
   margin-top: 0.6rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  background: rgba(240, 82, 82, 0.12);
-  color: #ff9c9c;
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-text);
   font-size: 0.85rem;
 }
 .ap-muted,
 .ap-note {
   margin-top: 0.6rem;
   font-size: 0.85rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .ap-form {
   display: flex;
@@ -101,15 +101,15 @@
   min-width: 160px;
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
 }
 .ap-form button {
   padding: 0.45rem 0.8rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
   cursor: pointer;
 }
@@ -125,8 +125,8 @@
   cursor: pointer;
 }
 .ap-danger.armed {
-  background: #e5484d;
-  border-color: #e5484d;
-  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-on-gradient);
   font-weight: 700;
 }

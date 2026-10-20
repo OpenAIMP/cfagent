@@ -16,17 +16,17 @@
 
 .schedules-tabs .tab {
   padding: 0.5rem 1rem;
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
-  background: var(--theme-card-bg, #fff);
+  background: var(--color-card);
   cursor: pointer;
   font-size: 0.875rem;
 }
 
 .schedules-tabs .tab.active {
-  background: var(--theme-accent, #3b82f6);
+  background: var(--color-accent);
   color: white;
-  border-color: var(--theme-accent, #3b82f6);
+  border-color: var(--color-accent);
 }
 
 .schedules-tabs .tab.refresh {
@@ -40,10 +40,10 @@
 }
 
 .schedule-card {
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1rem;
-  background: var(--theme-card-bg, #fff);
+  background: var(--color-card);
 }
 
 .schedule-card .card-header {
@@ -57,8 +57,8 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   font-weight: 600;
-  color: var(--theme-text-muted, #6b7280);
-  background: var(--theme-bg-subtle, #f3f4f6);
+  color: var(--color-text-muted);
+  background: var(--color-muted);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
 }
@@ -66,7 +66,7 @@
 .schedule-id {
   font-family: monospace;
   font-size: 0.75rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
 }
 
 .schedule-callback {
@@ -76,29 +76,29 @@
 }
 
 .schedule-when {
-  color: var(--theme-accent, #3b82f6);
+  color: var(--color-accent);
   font-size: 0.875rem;
   margin-bottom: 0.5rem;
 }
 
 .schedule-meta {
   font-size: 0.8rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
   margin-bottom: 0.25rem;
 }
 
 .schedule-context {
   margin-bottom: 0.75rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
 .schedule-auth-ok {
-  color: var(--theme-success, #16a34a);
+  color: var(--color-success);
 }
 
 .schedule-auth-missing {
-  color: var(--theme-danger, #dc2626);
+  color: var(--color-danger);
   font-weight: 600;
 }
 
@@ -110,20 +110,20 @@
 
 .schedule-card .card-actions button {
   padding: 0.4rem 0.8rem;
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
-  background: var(--theme-card-bg, #fff);
+  background: var(--color-card);
   cursor: pointer;
   font-size: 0.8rem;
 }
 
 .schedule-card .card-actions button.danger {
-  color: #dc2626;
-  border-color: #fecaca;
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
 }
 
 .schedule-card .card-actions button:hover {
-  background: var(--theme-bg-subtle, #f3f4f6);
+  background: var(--color-muted);
 }
 
 /* --- Reports Panel --- */
@@ -144,14 +144,14 @@
 .reports-search .search-input {
   flex: 1;
   padding: 0.6rem 1rem;
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   font-size: 0.9rem;
 }
 
 .reports-search .search-btn {
   padding: 0.6rem 1.2rem;
-  background: var(--theme-accent, #3b82f6);
+  background: var(--color-accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -167,17 +167,17 @@
 
 .filter-chip {
   padding: 0.4rem 0.9rem;
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 20px;
-  background: var(--theme-card-bg, #fff);
+  background: var(--color-card);
   cursor: pointer;
   font-size: 0.8rem;
 }
 
 .filter-chip.active {
-  background: var(--theme-accent, #3b82f6);
+  background: var(--color-accent);
   color: white;
-  border-color: var(--theme-accent, #3b82f6);
+  border-color: var(--color-accent);
 }
 
 .reports-list {
@@ -187,10 +187,10 @@
 }
 
 .report-card {
-  border: 1px solid var(--theme-border-subtle, #e5e7eb);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1rem;
-  background: var(--theme-card-bg, #fff);
+  background: var(--color-card);
 }
 
 .report-header {
@@ -210,7 +210,7 @@
 
 .report-time {
   font-size: 0.8rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
 }
 
 .report-title {
@@ -220,7 +220,7 @@
 
 .report-summary {
   font-size: 0.875rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
   margin: 0 0 0.75rem 0;
   line-height: 1.5;
 }
@@ -232,7 +232,7 @@
 }
 
 .btn-link {
-  color: var(--theme-accent, #3b82f6);
+  color: var(--color-accent);
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 500;
@@ -245,13 +245,13 @@
 .run-id {
   font-family: monospace;
   font-size: 0.75rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
 }
 
 .reports-panel .empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
 }
 
 .reports-panel .empty .hint {
@@ -264,5 +264,5 @@
 .schedules-panel .empty {
   text-align: center;
   padding: 2rem;
-  color: var(--theme-text-muted, #6b7280);
+  color: var(--color-text-muted);
 }
