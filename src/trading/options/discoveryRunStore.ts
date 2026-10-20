@@ -9,12 +9,20 @@
  * lazy table ensure, same per-user visibility rule (issue #103), same
  * retention discipline.
  *
- * The input model is "saved-request" (user decision on issue #126,
- * 2026-10-20): a schedule stores complete StrategyRequests captured
- * from the discovery panel and the task re-runs them verbatim — the
- * store therefore persists the requests themselves next to their
+ * Two input models produce runs. "saved-request" (user decision on
+ * issue #126, 2026-10-20): a schedule stores complete StrategyRequests
+ * captured from the discovery panel and the task re-runs them verbatim
+ * — the store therefore persists the requests themselves next to their
  * outcomes, so a stored run always shows exactly which view produced
- * it. Nothing here invents or derives a request.
+ * it. "profile-derived" (issue #533): a schedule stores a symbol set
+ * plus a Strategy Profile id; at fire time the service DERIVES each
+ * symbol's target from its own live chain (spot ± expected move under
+ * the profile's thesis) and persists the constructed requests, the
+ * profile reference, and the full derivation per symbol — a derived
+ * target is labelled DERIVED on every surface and is never mistaken
+ * for a configured view. Symbols whose inputs cannot be derived
+ * honestly abstain (outcome status "abstained", reason recorded, no
+ * request, no target).
  *
  * One deliberate trim vs the pipeline's inline response: per-symbol
  * outcomes persist the ranked set, risk reports, screened-out list
@@ -25,7 +33,8 @@
  * ranked candidates carry their own legs and prices.
  */
 
-import type { StrategyRequest } from "./strategyEngine";
+import type { OptionThesis, StrategyRequest } from "./strategyEngine";
+import type { ProfileRef } from "./strategyProfile";
 import type { OptionsDataSnapshot } from "./optionsDataAgent";
 import type { BestTradePick, RankedStrategy } from "./recommendationAgent";
 import type { StrategyRiskReport } from "./strategyRiskAgent";
@@ -57,12 +66,53 @@ export type DiscoveryRunTrigger = "scheduled" | "manual-trigger";
  *  never as a success. */
 export type DiscoveryRunStatus = "completed" | "partial" | "failed";
 
-/** The outcome of re-running one saved StrategyRequest. */
+/** How a stored run's inputs were produced. "saved-request": complete
+ *  StrategyRequests captured from the panel, re-run verbatim (issue
+ *  #126). "profile-derived": a symbol set + Strategy Profile, targets
+ *  derived per symbol at fire time (issue #533). Recorded on every run
+ *  so the two can never be confused. */
+export type DiscoveryInputModel = "saved-request" | "profile-derived";
+
+/**
+ * The full derivation of one symbol's target in a profile-derived run
+ * (issue #533): everything a reader needs to see HOW the target was
+ * produced — it is a derived number, not a user view, and it is shown
+ * alongside the target on every surface. `targetPrice` here always
+ * equals the constructed request's targetPrice.
+ */
+export interface DiscoveryTargetDerivation {
+  source: "profile-derived";
+  /** Spot: the underlying price carried by the symbol's own chain fetch. */
+  spot: number;
+  spotSource: "chain";
+  /** Implied volatility of the most-ATM contract in the profile's DTE window. */
+  atmIv: number;
+  /** Expected move to the window expiry as a fraction of spot: atmIv × sqrt(windowDays/365). */
+  expectedMovePct: number;
+  /** Expiry of the contract the expected move was taken from — the derivation window's end. */
+  windowExpiry: string;
+  windowDays: number;
+  /** The resolved scanner-config EM multiple for the profile's thesis. */
+  emMultiple: number;
+  thesis: OptionThesis;
+  /** spot × (1 + emMultiple × expectedMovePct), rounded to 2dp. */
+  targetPrice: number;
+  profileRef: ProfileRef;
+}
+
+/** The outcome of running (or attempting) one symbol of a discovery run. */
 export interface DiscoverySymbolOutcome {
   symbol: string;
-  status: "completed" | "failed";
-  /** The saved request exactly as stored on the run. */
-  request: StrategyRequest;
+  status: "completed" | "failed" | "abstained";
+  /** The request that ran for this symbol: the saved request exactly
+   *  as stored (saved-request runs), or the constructed request
+   *  (profile-derived runs). ABSENT for abstained outcomes — an
+   *  abstention produced no request and no target. */
+  request?: StrategyRequest;
+  /** Profile-derived runs: how this symbol's target was derived.
+   *  Present on completed/failed outcomes, and on abstentions that
+   *  got far enough to compute a target before abstaining. */
+  derivation?: DiscoveryTargetDerivation;
   /** Present when status is "completed": mirrors the strategies
    *  route's response shape for this symbol. */
   ranked?: RankedStrategy[];
@@ -77,9 +127,10 @@ export interface DiscoverySymbolOutcome {
     screen: OptionsDataSnapshot["screen"];
     validationError?: string;
   };
-  /** Present when status is "failed": the honest reason (pipeline
-   *  throw, snapshot validation error, or the recorded upstream
-   *  cause) — never secret material. */
+  /** Present when status is "failed" or "abstained": the honest
+   *  reason (pipeline throw, snapshot validation error, the recorded
+   *  upstream cause, or the abstention reason) — never secret
+   *  material. */
   error?: string;
 }
 
@@ -95,14 +146,21 @@ export interface DiscoveryRunSummary {
   trigger: DiscoveryRunTrigger;
   /** The arming schedule's id when the caller supplied one. */
   scheduleId?: string;
-  /** How the run's inputs were produced. Only "saved-request" exists
-   *  today (issue #126 decision); recorded so a future input model can
-   *  never be confused with this one. */
-  inputModel: "saved-request";
+  /** How the run's inputs were produced (see DiscoveryInputModel). */
+  inputModel: DiscoveryInputModel;
+  /** Profile-derived runs: the profile the targets were derived
+   *  under, stamped with its version at fire time. */
+  profileRef?: ProfileRef;
   status: DiscoveryRunStatus;
+  /** Requests that ran: saved requests (saved-request runs) or
+   *  constructed requests (profile-derived runs — abstained symbols
+   *  contribute none). */
   requestCount: number;
   completedCount: number;
+  /** Failed outcomes only — abstentions are counted separately. */
   failedCount: number;
+  abstainedCount: number;
+  /** Every symbol the run attempted (constructed + abstained), in order. */
   symbols: string[];
 }
 
@@ -119,6 +177,12 @@ export interface DiscoveryRunInput {
   trigger: DiscoveryRunTrigger;
   scheduleId?: string;
   userLogin?: string;
+  /** Required — stamped verbatim onto the run. No default: a caller
+   *  must name its model so a future model can never be silently
+   *  stamped as an existing one. */
+  inputModel: DiscoveryInputModel;
+  /** Profile-derived runs: the resolved profile reference. */
+  profileRef?: ProfileRef;
   requests: StrategyRequest[];
   outcomes: DiscoverySymbolOutcome[];
   status: DiscoveryRunStatus;
@@ -193,18 +257,27 @@ const PRUNE_CAP_SQL =
 
 function summarize(input: DiscoveryRunInput, id: string): DiscoveryRunSummary {
   const completedCount = input.outcomes.filter((o) => o.status === "completed").length;
+  const abstainedCount = input.outcomes.filter((o) => o.status === "abstained").length;
   return {
     id,
     createdAt: input.createdAt,
     ...(input.userLogin !== undefined ? { userLogin: input.userLogin } : {}),
     trigger: input.trigger,
     ...(input.scheduleId !== undefined ? { scheduleId: input.scheduleId } : {}),
-    inputModel: "saved-request",
+    inputModel: input.inputModel,
+    ...(input.profileRef !== undefined ? { profileRef: input.profileRef } : {}),
     status: input.status,
     requestCount: input.requests.length,
     completedCount,
-    failedCount: input.outcomes.length - completedCount,
-    symbols: input.requests.map((r) => r.symbol.toUpperCase().trim()),
+    failedCount: input.outcomes.length - completedCount - abstainedCount,
+    abstainedCount,
+    // Every attempted symbol, in order: the outcomes are the attempt
+    // record (for saved runs their symbols are the requests' own,
+    // normalized identically by the service).
+    symbols:
+      input.outcomes.length > 0
+        ? input.outcomes.map((o) => o.symbol)
+        : input.requests.map((r) => r.symbol.toUpperCase().trim()),
   };
 }
 
