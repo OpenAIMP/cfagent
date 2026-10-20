@@ -19,6 +19,11 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Premium fulfillment bound to the verified payer (#183, shipped via #698; entry recorded with #720):** `/api/payments/agentic/*` now requires a GitHub OAuth session (401 at the worker without one — the #154 pattern); `/api/premium/*` keeps anonymous x402 paid access but no longer trusts caller-asserted identity headers — the worker strips them and routes to the dedicated `premium-gateway` instance, and persisted payment state is scoped by the VERIFIED payer (`x402:<payer>`) from the claim verifier, never the asserted login. Premium fulfillment runs under that payer scope; wallet status counts only the caller's own rows; the auto-approve limit persists per identity.
+- **Hardcoded agent-wallet fallback removed (#720):** `ETradeAgenticPaymentService` no longer falls back to a synthetic wallet-address literal when `X402_AGENT_WALLET_KEY` is unset — the service has no wallet identity in that state, and `signPaymentProof` fails closed (throws) instead of minting a proof under a default address. The literal was the repo's standing gitleaks `generic-api-key` finding on main; the service holds no signing key (proofs are simulated by design), so nothing real was exposed. Pinned by `tests/agentic_payments_identity_binding.test.ts`.
+
 ### Fixed
 
 - **Main Test & Build restored to green (#714):** post-merge verification of the Think cutover (#686) found three suites red on main. The #686 R1 identity pin banned any `"tag": "v7"` in wrangler.jsonc — over-broad once a parallel PR legitimately added a v7 migration; the pin now asserts the SearchAgent facts it exists to protect (SEARCH_AGENT binding and the v1 migration as the sole migration creating SearchAgent). The #359-17 router inventory pin gained six routes that had landed unpinned: /reports/semantic-search (#649), /trading/setup-catalog and /learnings ×2 (#650/#706), /options/strategy-reviews + /decide (#653), /reflection/run (#705). Two trading-boundary (#290) violations fixed by importing through the public `src/trading` index, which already re-exports both modules: `etradeBroker.ts` (setupCatalog) and `etradeOptions.ts` (llmComparison). No behavior change.

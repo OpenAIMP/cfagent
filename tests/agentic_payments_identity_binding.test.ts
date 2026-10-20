@@ -583,3 +583,30 @@ describe("premium routes bind persisted state to the verified payer (#183)", () 
     expect(orm.transactions.findMany()).toHaveLength(0);
   });
 });
+
+describe("agent wallet fails closed without a configured identity (#691)", () => {
+  // Gitleaks gate: the hardcoded synthetic wallet fallback is gone. Without
+  // X402_AGENT_WALLET_KEY the service has no wallet identity and the action
+  // paths refuse instead of minting proofs under a default address.
+  const envWithoutWallet = { ...mockEnv } as unknown as Env;
+  delete (envWithoutWallet as Record<string, unknown>).X402_AGENT_WALLET_KEY;
+
+  it("signPaymentProof without an explicit payer throws when X402_AGENT_WALLET_KEY is unset", async () => {
+    const svc = new ETradeAgenticPaymentService(makeOrm(), envWithoutWallet, "user-a");
+    const challenge = svc.createX402Challenge("/api/premium/options-scan", 0.05);
+    await expect(svc.signPaymentProof(challenge)).rejects.toThrow(/X402_AGENT_WALLET_KEY/);
+  });
+
+  it("signPaymentProof with an explicit payer address does not need the env wallet", async () => {
+    const svc = new ETradeAgenticPaymentService(makeOrm(), envWithoutWallet, "user-a");
+    const challenge = svc.createX402Challenge("/api/premium/options-scan", 0.05);
+    const { x402Proof } = await svc.signPaymentProof(challenge, "0xExplicitPayer");
+    expect(x402Proof?.payer).toBe("0xExplicitPayer");
+  });
+
+  it("wallet status reports an empty address — never a placeholder — when unconfigured", async () => {
+    const svc = new ETradeAgenticPaymentService(makeOrm(), envWithoutWallet, "user-a");
+    const status = await svc.getWalletStatus();
+    expect(status.walletAddress).toBe("");
+  });
+});

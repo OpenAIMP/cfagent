@@ -147,8 +147,13 @@ export class ETradeAgenticPaymentService {
     // where a fresh instance picks the persisted value back up.
     const persistedLimit = this.loadPersistedAutoApproveLimit();
     if (persistedLimit !== undefined) this.autoApproveLimitUSD = persistedLimit;
-    this.agentWalletAddress =
-      this.env?.X402_AGENT_WALLET_KEY || "0x1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B";
+    // Gitleaks gate (#691): no hardcoded wallet fallback. The value below is
+    // an address, not a signing key (this service holds no key — see
+    // signPaymentProof's simulated note), but a synthetic default address
+    // would let the service act under an identity nobody configured, and it
+    // trips secret scans. Unconfigured → "" and the action paths fail
+    // closed (see signPaymentProof).
+    this.agentWalletAddress = this.env?.X402_AGENT_WALLET_KEY || "";
     this.mppSecretKey = this.env?.MPP_SECRET_KEY;
   }
 
@@ -592,14 +597,22 @@ export class ETradeAgenticPaymentService {
    */
   async signPaymentProof(
     challenge: X402PaymentChallenge | MppChallenge,
-    payerAddress: string = this.agentWalletAddress
+    payerAddress?: string
   ): Promise<{ x402Proof?: X402PaymentProof; mppProof?: MppPaymentProof; headers: Record<string, string> }> {
+    // Fail closed: signing as the agent's wallet needs a configured wallet
+    // identity. Never mint a proof under a default address.
+    const payer = payerAddress ?? this.agentWalletAddress;
+    if (!payer) {
+      throw new Error(
+        "Agent wallet not configured: set X402_AGENT_WALLET_KEY before signing payment proofs."
+      );
+    }
     const timestamp = Date.now();
     const nonce = "nonce" in challenge ? challenge.nonce : `n_${timestamp}`;
 
     const x402Proof: X402PaymentProof = {
       signature: SIMULATED_PROOF_SIGNATURE,
-      payer: payerAddress,
+      payer,
       nonce,
       timestamp,
       simulated: true,
