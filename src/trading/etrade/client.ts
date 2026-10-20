@@ -252,10 +252,10 @@ export class ETradeRestClient {
 
       const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
       const rawCompanyName = String(quoteData?.companyName || "").trim();
+      // Issue #808: present E*TRADE data as-is. Do not reject quotes with zero/negative
+      // prices — at 1am the market is closed and live fields are zero. The caller
+      // decides how to handle zero prices, not the quote fetcher.
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.close || quoteData.previousClose || quoteData.bid || 0);
-      if (price <= 0) {
-        return fail(`E*TRADE quote response for ${sym} contained no positive trade or bid price.`);
-      }
 
       // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
       const isGoogleStub =
@@ -458,7 +458,9 @@ export class ETradeRestClient {
             };
           })
           .filter((q: ETradeQuote) => {
-            if (!q.symbol || q.lastPrice <= 0) return false;
+            // Issue #808: do not filter on price. Present data as-is; the caller
+            // decides how to handle zero prices (e.g. market closed at 1am).
+            if (!q.symbol) return false;
             if (!batchSyms.includes(q.symbol)) return false;
             if ((q.companyName.toUpperCase().includes("GOOGLE INC") || q.lastPrice === 577.51) && q.symbol !== "GOOG" && q.symbol !== "GOOGL") {
               return false;
