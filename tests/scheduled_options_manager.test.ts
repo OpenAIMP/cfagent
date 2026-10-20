@@ -120,7 +120,39 @@ function installFetch(state: StubState) {
       return Response.json({ scheduleId: body?.id, cancelled: true });
     }
     if (url === "/api/schedules/create" && method === "POST") {
+      // Mirror the real create route's discovery validation (#126): an
+      // unknown strategy id is rejected at arm time with a 400 naming
+      // the offending saved request.
+      const badRequest = (body?.payload?.requests || []).find((r: any) =>
+        (r?.allowedStrategies || []).some((s: string) => s === "not_a_strategy")
+      );
+      if (body?.callback === "autonomousStrategyDiscovery" && badRequest) {
+        return Response.json(
+          {
+            success: false,
+            error: `Saved discovery request 1 (${badRequest.symbol}) is invalid: Invalid strategy request. Supply a thesis, target, date, risk cap, reward/risk minimum, and allowed strategies.`,
+          },
+          { status: 400 }
+        );
+      }
       return Response.json({ success: true, schedule: { id: "sched-new-1", ...body } });
+    }
+    if (url === "/api/schedules/trigger-discovery" && method === "POST") {
+      const reqs = Array.isArray(body?.requests) ? body.requests : [];
+      return Response.json({
+        success: true,
+        taskType: "strategy_discovery",
+        data: {
+          runId: "run-disc-1",
+          status: "completed",
+          requestCount: reqs.length,
+          completedCount: reqs.length,
+          failedCount: 0,
+          symbols: reqs.map((r: any) => r?.symbol),
+          failures: [],
+        },
+        timestamp: "2026-10-19T14:30:00.000Z",
+      });
     }
     if (url === "/api/schedules/trigger-options-analysis" && method === "POST") {
       return Response.json({
@@ -309,7 +341,11 @@ describe("ScheduledOptionsManager — stock/options schedules", () => {
     expect(stockCard.textContent).toContain("LEV_ETF");
     expect(stockCard.textContent).toContain("29");
     expect(optionsCard.textContent).toContain("NASDAQ100");
-    expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(["autonomousMarketScreen", "autonomousOptionsAnalysis"].sort());
+    // Deliberate registry growth (#126 PR-G): saved-view strategy
+    // discovery joined the two screen jobs as a first-class system job.
+    expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(
+      ["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery"].sort()
+    );
     expect(container.textContent).not.toContain("Token Renewal");
     expect(container.textContent).not.toContain("IV History Collection");
   });
@@ -518,5 +554,235 @@ describe("ScheduledOptionsManager — transport (issue #71 contract)", () => {
     await waitForText("Stock Market Screen");
     expect(container.textContent).toContain("Options Market Screen");
     expect(container.textContent).toContain("2 Active");
+  });
+});
+
+// Strategy discovery schedules (issue #126, PR-G) --------------------------
+
+const discoveryRequestNvda = {
+  symbol: "NVDA",
+  thesis: "bullish",
+  targetPrice: 200,
+  targetDate: "2027-12-18",
+  expectedIvDirection: "unchanged",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  allowedStrategies: ["long_call", "long_put"],
+  dataMode: "live",
+  optimizationBias: 50,
+  maxDte: 45,
+};
+
+const discoveryRequestMsft = {
+  symbol: "MSFT",
+  thesis: "bearish",
+  targetPrice: 380,
+  targetDate: "2027-12-18",
+  expectedIvDirection: "rise",
+  maxPlannedLoss: 250,
+  minRewardRisk: 2,
+  allowedStrategies: ["long_put"],
+  dataMode: "live",
+};
+
+const userDiscovery = {
+  id: "user-discovery-1",
+  type: "interval",
+  callback: "autonomousStrategyDiscovery",
+  intervalSeconds: 14400,
+  payload: {
+    userLogin: "trader1",
+    environment: "TEST",
+    requests: [discoveryRequestNvda, discoveryRequestMsft],
+    maxItems: 0, // the create route's inert account-scoped stamp; the service ignores it
+    trigger: "scheduled",
+  },
+  time: NEXT_RUN_S,
+};
+
+describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)", () => {
+  const withDiscovery = () => freshState({ schedules: [...ALL_SCHEDULES, userDiscovery] });
+
+  it("registers discovery in the system-job registry and trigger map", () => {
+    expect(SYSTEM_JOBS.autonomousStrategyDiscovery.label).toBe("Strategy Discovery");
+    expect(SYSTEM_JOBS.autonomousStrategyDiscovery.triggerRoute).toBe("/api/schedules/trigger-discovery");
+    expect(triggerRouteFor("autonomousStrategyDiscovery")).toBe("/api/schedules/trigger-discovery");
+  });
+
+  it("renders a discovery schedule with its saved views, cadence, and working controls", async () => {
+    installFetch(withDiscovery());
+    await renderManager();
+    await waitForText("Strategy Discovery");
+    expect(container.textContent).toContain("3 Active");
+    const card = cardByTitle("Strategy Discovery");
+    expect(card.textContent).toContain("Every 240 min");
+    expect(card.textContent).toContain("saved views");
+    expect(card.textContent).toContain("NVDA");
+    expect(card.textContent).toContain("bullish");
+    expect(card.textContent).toContain("$200");
+    expect(card.textContent).toContain("2027-12-18");
+    expect(card.textContent).toContain("MSFT");
+    for (const label of ["Trigger Now", "Edit", "Cancel", "Details"]) {
+      expect([...card.querySelectorAll("button")].some((b) => b.textContent?.includes(label))).toBe(true);
+    }
+  });
+
+  it("Trigger Now on a discovery card posts the card's saved requests to trigger-discovery only", async () => {
+    const calls = installFetch(withDiscovery());
+    await renderManager();
+    await waitForText("Strategy Discovery");
+
+    await click(buttonByText(cardByTitle("Strategy Discovery"), "Trigger Now"));
+
+    const discCalls = callsTo(calls, "/api/schedules/trigger-discovery", "POST");
+    expect(discCalls).toHaveLength(1);
+    expect(discCalls[0].body.requests).toHaveLength(2);
+    expect(discCalls[0].body.requests[0].symbol).toBe("NVDA");
+    expect(callsTo(calls, "/api/schedules/trigger-options-analysis", "POST")).toHaveLength(0);
+    expect(callsTo(calls, "/api/schedules/trigger-screen", "POST")).toHaveLength(0);
+    await waitForText("2 of 2 saved views produced results");
+  });
+
+  it("cancels a discovery schedule through the shared cancel route", async () => {
+    const calls = installFetch(withDiscovery());
+    vi.stubGlobal("confirm", () => true);
+    await renderManager();
+    await waitForText("Strategy Discovery");
+
+    await click(buttonByText(cardByTitle("Strategy Discovery"), "Cancel"));
+
+    const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
+    expect(cancelCalls).toHaveLength(1);
+    expect(cancelCalls[0].body.id).toBe("user-discovery-1");
+    await waitForText("Schedule user-discovery-1 cancelled");
+  });
+
+  it("creates a discovery schedule with the exact saved-request payload shape", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    const jobSelect = selectByOptionText(modal, "Saved-View Strategy Discovery");
+    setValue(jobSelect, optionValueByText(jobSelect, "Saved-View Strategy Discovery"));
+    await flush(40);
+
+    const field = (label: string) =>
+      modal.querySelector(`[aria-label="${label}"]`) as HTMLInputElement | HTMLSelectElement;
+    setValue(field("View 1 symbol") as HTMLInputElement, "NVDA");
+    setValue(field("View 1 target price") as HTMLInputElement, "200");
+    setValue(field("View 1 target date") as HTMLInputElement, "2027-12-18");
+    setValue(field("View 1 max planned loss") as HTMLInputElement, "500");
+    setValue(field("View 1 minimum reward risk") as HTMLInputElement, "1");
+
+    await click(buttonByText(modal, "Add another saved view"));
+    setValue(field("View 2 symbol") as HTMLInputElement, "MSFT");
+    setValue(field("View 2 thesis") as HTMLSelectElement, "bearish");
+    setValue(field("View 2 target price") as HTMLInputElement, "380");
+    setValue(field("View 2 target date") as HTMLInputElement, "2027-12-18");
+    setValue(field("View 2 max planned loss") as HTMLInputElement, "250");
+    setValue(field("View 2 minimum reward risk") as HTMLInputElement, "2");
+    setValue(field("View 2 allowed strategies") as HTMLInputElement, "long_put, bull_put_spread");
+
+    await submitForm(modal.querySelector("form")!);
+
+    const createCalls = callsTo(calls, "/api/schedules/create", "POST");
+    expect(createCalls).toHaveLength(1);
+    const body = createCalls[0].body;
+    expect(body.callback).toBe("autonomousStrategyDiscovery");
+    expect(body.scheduleType).toBe("interval");
+    expect(body.intervalSeconds).toBe(3600);
+    expect(body.payload.environment).toBe("TEST");
+    expect(body.payload.trigger).toBe("scheduled");
+    expect(body.payload).not.toHaveProperty("universe");
+    expect(body.payload).not.toHaveProperty("symbols");
+    expect(body.payload).not.toHaveProperty("maxItems");
+    expect(body.payload.requests).toHaveLength(2);
+    expect(body.payload.requests[0]).toEqual({
+      symbol: "NVDA",
+      thesis: "bullish",
+      targetPrice: 200,
+      targetDate: "2027-12-18",
+      expectedIvDirection: "unchanged",
+      maxPlannedLoss: 500,
+      minRewardRisk: 1,
+      allowedStrategies: ["all"],
+      dataMode: "live",
+    });
+    expect(body.payload.requests[1]).toMatchObject({
+      symbol: "MSFT",
+      thesis: "bearish",
+      targetPrice: 380,
+      allowedStrategies: ["long_put", "bull_put_spread"],
+    });
+    await waitForText("Schedule created successfully");
+  });
+
+  it("blocks a discovery create with an incomplete view and posts nothing", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    const jobSelect = selectByOptionText(modal, "Saved-View Strategy Discovery");
+    setValue(jobSelect, optionValueByText(jobSelect, "Saved-View Strategy Discovery"));
+    await flush(40);
+
+    await submitForm(modal.querySelector("form")!);
+
+    expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(0);
+    await waitForText("a symbol is required");
+  });
+
+  it("surfaces the create route's 400 when the server rejects a saved view", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    const jobSelect = selectByOptionText(modal, "Saved-View Strategy Discovery");
+    setValue(jobSelect, optionValueByText(jobSelect, "Saved-View Strategy Discovery"));
+    await flush(40);
+
+    const field = (label: string) =>
+      modal.querySelector(`[aria-label="${label}"]`) as HTMLInputElement;
+    setValue(field("View 1 symbol"), "NVDA");
+    setValue(field("View 1 target price"), "200");
+    setValue(field("View 1 target date"), "2027-12-18");
+    setValue(field("View 1 max planned loss"), "500");
+    setValue(field("View 1 minimum reward risk"), "1");
+    setValue(field("View 1 allowed strategies"), "not_a_strategy");
+
+    await submitForm(modal.querySelector("form")!);
+
+    expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(1);
+    await waitForText("Saved discovery request 1 (NVDA) is invalid");
+    // The modal stays open so the user can fix the view.
+    expect(container.querySelector(".sched-modal-card")).not.toBeNull();
+  });
+
+  it("edits a discovery schedule: the editor round-trips its saved views through cancel + create", async () => {
+    const calls = installFetch(withDiscovery());
+    await renderManager();
+    await waitForText("Strategy Discovery");
+
+    await click(buttonByText(cardByTitle("Strategy Discovery"), "Edit"));
+    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    expect(modal).not.toBeNull();
+    const symbolInput = modal.querySelector('[aria-label="View 1 symbol"]') as HTMLInputElement;
+    expect(symbolInput.value).toBe("NVDA");
+    const biasInput = modal.querySelector('[aria-label="View 1 optimization bias"]') as HTMLInputElement;
+    expect(biasInput.value).toBe("50");
+
+    await submitForm(modal.querySelector("form")!);
+
+    const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
+    expect(cancelCalls.map((c) => c.body.id)).toContain("user-discovery-1");
+    const createCalls = callsTo(calls, "/api/schedules/create", "POST");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].body.callback).toBe("autonomousStrategyDiscovery");
+    expect(createCalls[0].body.payload.requests[0]).toEqual(discoveryRequestNvda);
+    expect(createCalls[0].body.payload.requests[1]).toEqual(discoveryRequestMsft);
+    await waitForText("Schedule updated successfully");
   });
 });
