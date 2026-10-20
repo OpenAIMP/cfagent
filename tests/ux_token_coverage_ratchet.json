@@ -17,13 +17,13 @@
  "src/client/options/ResearchRunsPanel.tsx": 27,
  "src/client/options/StrategyDiscoveryPanel.tsx": 6,
  "src/client/options/flows/optionsFlows.css": 0,
- "src/client/options/optionsResearch.css": 47,
- "src/client/options/riskAnalysis.css": 45,
+ "src/client/options/optionsResearch.css": 0,
+ "src/client/options/riskAnalysis.css": 0,
  "src/client/options/scheduledOptions.css": 2,
  "src/client/options/strategyDiscovery.css": 0,
- "src/client/optionsResearch.css": 60,
+ "src/client/optionsResearch.css": 0,
  "src/client/reports.css": 33,
  "src/client/scannerPanel.css": 0,
  "src/client/styles.css": 10,
- "src/client/workflowsHub.css": 42
+ "src/client/workflowsHub.css": 0
 }

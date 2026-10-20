@@ -9,7 +9,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(10, 15, 29, 0.82);
+  background: var(--color-overlay);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 10000;
@@ -75,7 +75,7 @@
 .risk-modal-icon-shield {
   font-size: 1.8rem;
   line-height: 1;
-  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+  filter: drop-shadow(0 0 8px var(--color-accent-border));
 }
 
 .risk-modal-titles {
@@ -95,9 +95,9 @@
 }
 
 .risk-symbol-badge {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  border: 1px solid var(--color-accent-border);
   font-size: 0.85rem;
   font-weight: 800;
   padding: 0.15rem 0.55rem;
@@ -130,8 +130,8 @@
 }
 
 .risk-modal-close-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   font-size: 1.1rem;
   width: 34px;
@@ -145,9 +145,9 @@
 }
 
 .risk-modal-close-btn:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border-color: rgba(239, 68, 68, 0.4);
+  border-color: var(--color-danger-border);
 }
 
 /* Sub-tabs */
@@ -286,8 +286,8 @@
 }
 
 .risk-greek-item {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 0.85rem;
 }
@@ -352,19 +352,19 @@
 }
 
 .risk-be-buffer.above {
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
 .risk-be-buffer.below {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
 /* Warning & Tail Risk Callout */
 .risk-warning-callout {
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--color-warning-subtle);
+  border: 1px solid var(--color-warning-border);
   border-left: 4px solid var(--color-warning);
   border-radius: 8px;
   padding: 1rem;
@@ -372,8 +372,8 @@
 }
 
 .risk-warning-callout.high {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.35);
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger-border);
   border-left-color: var(--color-danger);
 }
 
@@ -411,24 +411,24 @@
   padding: 0.6rem 0.75rem;
   color: var(--color-text-muted);
   font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
   text-transform: uppercase;
   font-size: 0.74rem;
 }
 
 .risk-scenario-table td {
   padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .risk-scenario-table tr.spot-row {
-  background: rgba(56, 189, 248, 0.08);
+  background: var(--color-accent-subtle);
   font-weight: 700;
 }
 
 .risk-tail-box {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 0.9rem;
 }
@@ -441,8 +441,8 @@
 }
 
 .risk-rule-card {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1.1rem;
   display: flex;
@@ -473,12 +473,12 @@
 }
 
 .risk-rule-tag.profit {
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
 .risk-rule-tag.stop {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
@@ -508,8 +508,8 @@
 }
 
 .risk-adjustment-card {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 1rem;
   display: flex;
@@ -545,8 +545,8 @@
 
 /* Position Sizing Calculator */
 .risk-sizing-calculator {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
   padding: 1.1rem;
   display: flex;
@@ -644,7 +644,7 @@
 
 .risk-btn-ask-ai {
   background: linear-gradient(135deg, var(--color-sentiment-directional) 0%, var(--color-sentiment-directional) 100%);
-  border: 1px solid rgba(192, 132, 252, 0.4);
+  border: 1px solid var(--color-purple-border);
   color: var(--color-text-primary);
   padding: 0.6rem 1.25rem;
   border-radius: 8px;
@@ -655,18 +655,18 @@
   align-items: center;
   gap: 0.5rem;
   transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.35);
+  box-shadow: var(--shadow-glow-purple);
 }
 
 .risk-btn-ask-ai:hover {
   background: linear-gradient(135deg, var(--color-sentiment-directional) 0%, var(--color-sentiment-directional) 100%);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(109, 40, 217, 0.45);
+  box-shadow: var(--shadow-glow-purple);
 }
 
 .risk-btn-copy-prompt {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
   padding: 0.6rem 1rem;
   border-radius: 8px;
@@ -677,7 +677,7 @@
 }
 
 .risk-btn-copy-prompt:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
@@ -689,8 +689,8 @@
 }
 
 .risk-prompt-chip {
-  background: rgba(139, 92, 246, 0.12);
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: var(--color-purple-subtle);
+  border: 1px solid var(--color-purple-border);
   color: var(--color-sentiment-directional);
   font-size: 0.78rem;
   padding: 0.3rem 0.65rem;
@@ -700,8 +700,8 @@
 }
 
 .risk-prompt-chip:hover {
-  background: rgba(139, 92, 246, 0.25);
-  border-color: rgba(139, 92, 246, 0.5);
+  background: var(--color-purple-subtle);
+  border-color: var(--color-purple-border);
   color: var(--color-sentiment-directional);
 }
 
@@ -709,8 +709,8 @@
 .strat-card-btn-risk,
 .btn-risk-analysis,
 .flow-btn-risk-analysis {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.1) 100%);
-  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: var(--color-warning-subtle);
+  border: 1px solid var(--color-warning-border);
   color: var(--color-warning);
   padding: 0.4rem 0.75rem;
   border-radius: 6px;
@@ -726,9 +726,9 @@
 .strat-card-btn-risk:hover,
 .btn-risk-analysis:hover,
 .flow-btn-risk-analysis:hover {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.2) 100%);
+  background: var(--color-warning-subtle);
   border-color: var(--color-warning);
   color: var(--color-warning-subtle);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2);
+  box-shadow: var(--shadow-glow-warning);
 }
