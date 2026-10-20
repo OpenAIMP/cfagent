@@ -1,8 +1,8 @@
-import { AIChatAgent } from "@cloudflare/ai-chat";
-import type { Schedule } from "agents";
-import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import { Think, type ChatResponseResult, type TurnConfig, type TurnContext } from "@cloudflare/think";
+import type { AgentContext, Schedule } from "agents";
+import type { ToolSet } from "ai";
 import { getWorkersAIModel } from "./model";
-import { buildOrchestratorSystemPrompt, resolveMasMaxSteps } from "./chatPrompt";
+import { buildOrchestratorSystemPrompt, resolveShadowMaxSteps } from "./chatPrompt";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, type NLQSchedulingPort } from "./nlq";
@@ -104,73 +104,15 @@ import type {
   AsyncJobStatus,
   TransactionSnapData,
   AgentScheduleItem,
+  RouteDecision,
 } from "../types";
 
 /**
- * Normalizes messages into valid UIMessage structures with populated `parts`.
- * Prevents AI SDK's convertToModelMessages from crashing on undefined `parts`.
- * Discards empty assistant messages from interrupted turns and merges consecutive user turns.
+ * Issue #686: message normalization for the model call now lives
+ * in Think's session assembly (the agents-SDK session store); the
+ * AIChatAgent-era normalizeMessagesForSDK helper was removed with
+ * the cutover.
  */
-function normalizeMessagesForSDK(messages: unknown[]): any[] {
-  if (!Array.isArray(messages)) return [];
-  const valid: any[] = [];
-
-  for (const m of messages) {
-    if (!m || typeof m !== "object") continue;
-    const item = m as any;
-    const role = item.role === "assistant" ? "assistant" : item.role === "system" ? "system" : "user";
-    
-    // Robustly extract text from content, parts, or text property
-    let text = typeof item.content === "string" ? item.content.trim() : "";
-    let parts = Array.isArray(item.parts) ? [...item.parts].filter(Boolean) : [];
-
-    if (!text && parts.length > 0) {
-      text = parts
-        .filter((p: any) => p && p.type === "text" && typeof p.text === "string")
-        .map((p: any) => p.text)
-        .join("")
-        .trim();
-    }
-    if (!text && typeof item.text === "string") {
-      text = item.text.trim();
-    }
-
-    if (parts.length === 0 && text) {
-      parts = [{ type: "text", text }];
-    }
-
-    // Skip empty assistant messages from aborted/interrupted turns
-    if (role === "assistant" && !text && parts.every((p: any) => p.type === "text" && !p.text?.trim())) {
-      continue;
-    }
-
-    if (parts.length === 0) {
-      if (role === "user") {
-        parts = [{ type: "text", text: text || "Hello" }];
-      } else {
-        continue;
-      }
-    }
-
-    // Merge consecutive user messages to maintain strictly alternating conversation flow
-    if (valid.length > 0 && valid[valid.length - 1].role === "user" && role === "user") {
-      const prev = valid[valid.length - 1];
-      const mergedText = [prev.content, text].filter(Boolean).join("\n").trim();
-      prev.content = mergedText || text || prev.content || "Hello";
-      prev.parts = [{ type: "text", text: prev.content }];
-      continue;
-    }
-
-    valid.push({
-      id: item.id || crypto.randomUUID(),
-      role,
-      content: text,
-      parts,
-    });
-  }
-
-  return valid;
-}
 
 /**
  * Callbacks a caller may arm through POST /api/schedules/create (#111).
@@ -219,7 +161,15 @@ function screenerAgentName(userLogin: string): string {
   return userLogin === "default_trader" ? "default" : `screener:${userLogin}`;
 }
 
-export class OrchestratorAgent extends AIChatAgent<Env> {
+export class OrchestratorAgent extends Think<Env> {
+  constructor(ctx: AgentContext, env: Env) {
+    super(ctx, env);
+    // Issue #686 (R8): the sanitized step clamp is the production
+    // bound — a non-numeric MAS_MAX_STEPS falls back to the default
+    // instead of propagating NaN into the turn's stop condition.
+    this.maxSteps = resolveShadowMaxSteps(env);
+  }
+
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
   private scheduledDiscoverySlots = new Set<string>();
@@ -750,6 +700,69 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch (sweepErr) {
       console.warn("[OrchestratorAgent][onStart] Stale-task sweep setup failed:", sweepErr);
     }
+
+    try {
+      // Issue #686: residual legacy-session lift (see
+      // liftLegacyChatMessages). Best-effort: never blocks startup.
+      await this.liftLegacyChatMessages();
+    } catch (liftErr) {
+      console.warn("[OrchestratorAgent][onStart] Legacy session lift failed:", liftErr);
+    }
+  }
+
+  /**
+   * Issue #686 (R6): one-time transform-migration for any residual
+   * pre-SDK `cf_ai_chat_agent_messages` rows. The AIChatAgent base
+   * lifted this table into the agents-SDK session store at every
+   * wake and dropped it on a clean lift, so production instances
+   * are already migrated; Think does not perform the lift, so this
+   * covers an instance whose earlier lift was left incomplete.
+   * Semantics mirror the incumbent migration: existence check,
+   * idempotent import by message id (addMessages upserts by id),
+   * drop the table only on a fully clean lift — otherwise leave it
+   * in place and log, so the rows remain recoverable.
+   */
+  private async liftLegacyChatMessages(): Promise<void> {
+    const sql = this.ctx.storage.sql;
+    const exists =
+      Array.from(
+        sql.exec(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_ai_chat_agent_messages'"
+        )
+      ).length > 0;
+    if (!exists) return;
+    const rows = Array.from(
+      sql.exec(
+        "SELECT id, message, created_at FROM cf_ai_chat_agent_messages ORDER BY created_at ASC, rowid ASC"
+      )
+    ) as Array<{ id: string; message: string; created_at: unknown }>;
+    const valid: any[] = [];
+    let skipped = 0;
+    for (const row of rows) {
+      try {
+        const message = JSON.parse(row.message);
+        if (
+          !message ||
+          typeof message.id !== "string" ||
+          typeof message.role !== "string" ||
+          !Array.isArray(message.parts)
+        ) {
+          skipped++;
+          continue;
+        }
+        valid.push(message);
+      } catch {
+        skipped++;
+      }
+    }
+    if (valid.length > 0) await this.addMessages(valid as any);
+    if (skipped === 0) {
+      sql.exec("DROP TABLE cf_ai_chat_agent_messages");
+      return;
+    }
+    console.error(
+      `[OrchestratorAgent] Legacy lift imported ${valid.length} of ${rows.length} rows (${skipped} skipped); leaving cf_ai_chat_agent_messages in place so they remain recoverable.`
+    );
   }
 
   /**
@@ -1310,28 +1323,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     }
   }
 
-  /**
-   * Cloudflare Autonomous Chat Agents: submitMessages
-   * Conforms to Cloudflare Agents documentation (/autonomous-responses/ and /chat-agents/).
-   * Safely admits external turns (from webhooks, Slack, or cron jobs) into the conversation,
-   * waiting for stability before calling saveMessages to trigger an agent turn.
-   */
-  async submitMessages(
-    messagesOrFactory: any[] | ((messages: any[]) => any[]),
-    options?: { signal?: AbortSignal; timeoutMs?: number }
-  ): Promise<{ requestId?: string; status: "completed" | "skipped" | "aborted" }> {
-    try {
-      await this.waitUntilStable({ timeout: options?.timeoutMs ?? 30_000 });
-    } catch {
-      // Continue if timeout or unhandled
-    }
-    if (typeof (this as any).saveMessages === "function") {
-      return await (this as any).saveMessages(messagesOrFactory, options);
-    }
-    const resolved = typeof messagesOrFactory === "function" ? messagesOrFactory(this.messages as any) : messagesOrFactory;
-    await this.persistMessages(resolved as any);
-    return { status: "completed" };
-  }
+  // Issue #686: the AIChatAgent-era submitMessages wrapper — an
+  // emulation of the documented autonomous-admission API over
+  // saveMessages — is removed. Think provides submitMessages
+  // natively as the durable submissions queue (its own signature
+  // and acceptance result), which is what external admissions
+  // (webhooks, Slack, cron) now use.
 
   /**
    * Cloudflare Agents Scheduled Callback: Auto-expires a stale unconfirmed order draft
@@ -2533,23 +2530,208 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
   }
 
   /**
-   * Issue #312: the single-owner agentic chat turn. Judge routing, sub-agent
-   * tools, memory/vector grounding, and the model call live here and only here.
-   * The WebSocket chat (onChatMessage) streams the result; POST /api/chat awaits
-   * the final text. Never duplicate this pipeline.
+   * Issue #686 (Think migration step 4 — CUTOVER): the turn stash.
+   * runAgenticChatTurn (the HTTP driver) fills it before driving
+   * runTurn; beforeTurn creates it for turns Think itself drives
+   * (WebSocket chat, saveMessages admissions). onChatResponse
+   * consumes it. One in-flight chat turn per DO instance is the live
+   * semantic — the AIChatAgent base serialized turns the same way.
    */
-  private async runAgenticChatTurn(opts: {
+  private pendingTurn?: {
     userText: string;
-    recentTurns: Array<{ role?: string; content: string }>;
     userLogin: string;
-    isAutoOptionsResearchRequest: boolean;
-    /** WS chat only: the originating UI tab, for options-research audit context. */
     sourceTab?: string;
-  }) {
-    const requestId = crypto.randomUUID();
-    const sql = this.ensureTables();
+    isAutoOptionsResearchRequest: boolean;
+    recentTurns: Array<{ role?: string; content: string }>;
+    /** HTTP re-send of the history tail: the user mas_messages
+     * record already exists, so beforeTurn must not write it again. */
+    suppressUserRecord?: boolean;
+    route?: RouteDecision;
+    requestId: string;
+  };
+
+  /** Think configuration: the constructed model arm (step-2 decision). */
+  getModel() {
+    return getWorkersAIModel(this.env);
+  }
+
+  /**
+   * Think configuration: the fallback system prompt for turns that
+   * reach inference without beforeTurn instructions — the shared
+   * builder with a neutral route, mirroring the live prompt's shape.
+   */
+  getSystemPrompt(): string {
+    return buildOrchestratorSystemPrompt({
+      route: { agent: "orchestrator", confidence: 1, reason: "Direct chat turn" },
+      memoryContext: "",
+      vectorContext: "",
+      optionsResearchContext: "",
+      isAutoOptionsResearchRequest: false,
+    });
+  }
+
+  /** Think configuration: the live per-turn tool factory (#312 single owner). */
+  getTools(): ToolSet {
+    return this.createTurnTools(crypto.randomUUID());
+  }
+
+  /**
+   * The per-turn McpToolContext construction the AIChatAgent-era
+   * runAgenticChatTurn performed inline (Facade + async-job ports +
+   * audit), now shared by getTools for every Think-driven turn.
+   */
+  private createTurnTools(requestId: string): ToolSet {
+    const orm = this.getOrm();
     const sessionId = this.sessionKey();
-    const { userText, recentTurns, userLogin, isAutoOptionsResearchRequest, sourceTab } = opts;
+    const facade = new McpSystemFacade(this.env, orm, sessionId);
+    return createAgentMcpTools({
+      env: this.env,
+      orm,
+      sessionId,
+      requestId,
+      facade,
+      submitJob: (job) => this.submitAsyncJob(job),
+      getJob: (jobId) => this.getAsyncJob(jobId),
+      listJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
+      audit: (type: string, agent: any, payload: Record<string, unknown>) =>
+        this.audit(type, agent, payload),
+    });
+  }
+
+  /**
+   * Think configuration: the session-memory context block (top-8
+   * mas_memory facts), refreshed by Think before every turn — the
+   * configureContext form of the grounding the live prompt inlined.
+   */
+  configureContext() {
+    return [
+      {
+        label: "session-memory",
+        description: "Persistent session facts recorded by earlier turns (mas_memory).",
+        resolve: async () => {
+          this.ensureTables();
+          const rows = Array.from(
+            this.ctx.storage.sql.exec(
+              "SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8"
+            )
+          ) as Array<{ key: string; value: string }>;
+          if (rows.length === 0) return null;
+          return rows.map((m) => `- ${m.key}: "${m.value}"`).join("\n");
+        },
+      },
+    ];
+  }
+
+  /**
+   * Issue #686: derive the turn inputs for a turn Think drives
+   * itself (the WebSocket chat protocol, saveMessages admissions) —
+   * the recovery the AIChatAgent-era onChatMessage performed from
+   * its in-memory message array: the user text from the submitted
+   * session message,
+   * sourceTab / userLogin from the client-stamped message metadata
+   * (falling back to Think's persisted turn metadata), and recent
+   * history from the turn's model messages.
+   */
+  private async deriveTurn(ctx: TurnContext): Promise<{
+    userText: string;
+    userLogin: string;
+    sourceTab?: string;
+    isAutoOptionsResearchRequest: boolean;
+    recentTurns: Array<{ role?: string; content: string }>;
+  }> {
+    const sessionId = this.sessionKey();
+    const uiMessages = await this.getMessages();
+    const lastUser = [...uiMessages].reverse().find((m: any) => m?.role === "user");
+    const userText = this.extractMessageText(lastUser);
+    const metadata = ((lastUser as any)?.metadata ?? this.activeTurnMetadata ?? {}) as {
+      sourceTab?: string;
+      userLogin?: string;
+    };
+    const recentTurns = (ctx.messages ?? []).slice(-6).map((m: any) => ({
+      role: m?.role as string | undefined,
+      content:
+        typeof m?.content === "string"
+          ? m.content
+          : Array.isArray(m?.content)
+            ? m.content
+                .filter((p: any) => p && p.type === "text" && typeof p.text === "string")
+                .map((p: any) => p.text)
+                .join("")
+            : "",
+    }));
+    return {
+      userText,
+      userLogin: metadata.userLogin || sessionId,
+      sourceTab: metadata.sourceTab,
+      isAutoOptionsResearchRequest: metadata.sourceTab === "E*TRADE · Auto Options Research",
+      recentTurns,
+    };
+  }
+
+  /** Grounding for the turn prompt: session facts + best-effort vector recall. */
+  private async assembleGrounding(userText: string): Promise<{ memoryContext: string; vectorContext: string }> {
+    const sql = this.ensureTables();
+    const activeMemories = Array.from(
+      sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
+    ) as Array<{ key: string; value: string }>;
+    const memoryContext = activeMemories.length > 0
+      ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map((m) => `- ${m.key}: "${m.value}"`).join("\n")
+      : "";
+    let vectorContext = "";
+    const vectorizeBinding = (this.env as any).VECTOR_MEMORY;
+    if (userText && userText.trim().length > 0 && this.env.AI && vectorizeBinding) {
+      try {
+        const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
+        const chunks = await vm.recallForPlan(userText);
+        if (chunks.length > 0) {
+          vectorContext = `\nRelevant past outcomes (vector memory, most similar first):\n${VectorMemory.brief(chunks)}`;
+        }
+      } catch (err) {
+        console.warn("[VectorMemory] recall failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+    return { memoryContext, vectorContext };
+  }
+
+  /**
+   * Issue #686: Think lifecycle — runs before every chat turn,
+   * whatever entry point drove it. Carries the duties the
+   * AIChatAgent-era onChatMessage + runAgenticChatTurn split between
+   * them: Judge routing (+ route.decided audit), the session-hygiene
+   * purge of empty assistant messages, the user mas_messages record
+   * (single writer for both entry points; suppressed only for an
+   * HTTP re-send whose record already exists), the auto-research
+   * NLQ pre-dispatch, grounding, and the per-turn TurnConfig (shared
+   * prompt builder; tools suppressed on auto-research turns via
+   * activeTools: [] — TurnConfig.tools is additive-only).
+   */
+  async beforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
+    this.ensureTables();
+    const turn: NonNullable<typeof this.pendingTurn> = this.pendingTurn ?? {
+      ...(await this.deriveTurn(ctx)),
+      requestId: crypto.randomUUID(),
+    };
+    this.pendingTurn = turn;
+    const { userText, userLogin, isAutoOptionsResearchRequest, sourceTab } = turn;
+
+    // Session hygiene: delete empty assistant messages left behind
+    // by interrupted turns (the messages the live turn used to
+    // filter out of its model input); activity entries are kept.
+    try {
+      const uiMessages = await this.getMessages();
+      const staleIds = uiMessages
+        .filter((m: any) => {
+          if (!m || m.role !== "assistant" || m.metadata?.activity) return false;
+          const parts = Array.isArray(m.parts) ? m.parts : [];
+          const hasText = parts.some((p: any) => p && p.type === "text" && typeof p.text === "string" && p.text.trim());
+          const hasTool = parts.some((p: any) => p && p.type !== "text");
+          return !hasText && !hasTool;
+        })
+        .map((m: any) => m.id as string);
+      if (staleIds.length > 0) await this.session.deleteMessages(staleIds);
+    } catch {
+      // Best-effort hygiene; never break the turn.
+    }
 
     const judge = new LLMJudge(this.env);
     const route = isAutoOptionsResearchRequest
@@ -2559,7 +2741,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         reason: "Source-tagged Auto Options Research request; executing its options NLQ workflow directly",
         needsConfirmation: false,
       }
-      : await judge.route(userText, recentTurns);
+      : await judge.route(userText, turn.recentTurns);
+    turn.route = route;
     this.audit("route.decided", "judge", {
       route: route.agent,
       confidence: route.confidence,
@@ -2567,9 +2750,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       needsConfirmation: route.needsConfirmation,
     });
 
-    // Instantiate GoF Facade & GRASP Controller
-    const orm = this.getOrm();
-    const facade = new McpSystemFacade(this.env, orm, sessionId);
+    if (userText && !turn.suppressUserRecord) {
+      this.recordMessage("user", userText, "orchestrator");
+    }
+
     let optionsResearchContext = "";
     if (isAutoOptionsResearchRequest) {
       try {
@@ -2603,113 +2787,141 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       }
     }
 
-    // Provide unified toolset adapting all 14 MCP commands directly into the AI SDK agent (GoF Adapter Pattern)
-    const tools = createAgentMcpTools({
-      env: this.env,
-      orm,
-      sessionId,
-      requestId,
-      facade,
-      submitJob: (job) => this.submitAsyncJob(job),
-      getJob: (jobId) => this.getAsyncJob(jobId),
-      listJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
-      audit: (type: string, agent: any, payload: Record<string, unknown>) =>
-        this.audit(type, agent, payload),
+    const { memoryContext, vectorContext } = await this.assembleGrounding(userText);
+    return {
+      instructions: buildOrchestratorSystemPrompt({
+        route,
+        memoryContext,
+        vectorContext,
+        optionsResearchContext,
+        isAutoOptionsResearchRequest,
+      }),
+      maxSteps: this.maxSteps,
+      ...(isAutoOptionsResearchRequest ? { activeTools: [] as string[] } : {}),
+    };
+  }
+
+  /**
+   * Issue #686: Think lifecycle — fires after a chat turn completes
+   * (any entry point) once the assistant message is persisted.
+   * Applies the live streamText onFinish side-effects: the assistant
+   * mas_messages record (route.agent attribution), judge.evaluate →
+   * response.evaluated audit, and best-effort VectorMemory remember.
+   * Consumes the turn stash.
+   */
+  async onChatResponse(result: ChatResponseResult): Promise<void> {
+    const turn = this.pendingTurn;
+    this.pendingTurn = undefined;
+    if (!turn || result.status === "error" || !result.message) return;
+    const text = this.extractMessageText(result.message);
+    if (!text || !turn.route) return;
+    const route = turn.route;
+    this.recordMessage("assistant", text, route.agent);
+    const judge = new LLMJudge(this.env);
+    const quality = await judge.evaluate({ question: turn.userText, answer: text, agent: route.agent });
+    this.audit("response.evaluated", "judge", {
+      score: quality.score,
+      grounded: quality.grounded,
+      safe: quality.safe,
+      issues: quality.issues,
     });
-
-    // Fetch active session facts directly from SQLite to ground every turn
-    const activeMemories = Array.from(
-      sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
-    ) as Array<{ key: string; value: string }>;
-    const memoryContext = activeMemories.length > 0
-      ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map(m => `- ${m.key}: "${m.value}"`).join("\n")
-      : "";
-
-    // VectorMemory recall (issue #201): past job outcomes relevant to this
-    // request, so the response is grounded in what worked/failed before.
-    // Best-effort: a memory failure must never break the chat turn.
-    let vectorContext = "";
     const vectorizeBinding = (this.env as any).VECTOR_MEMORY;
-    if (userText && userText.trim().length > 0 && this.env.AI && vectorizeBinding) {
-      try {
-        const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
-        const chunks = await vm.recallForPlan(userText);
-        if (chunks.length > 0) {
-          vectorContext = `\nRelevant past outcomes (vector memory, most similar first):\n${VectorMemory.brief(chunks)}`;
-        }
-      } catch (err) {
-        console.warn("[VectorMemory] recall failed:", err instanceof Error ? err.message : String(err));
-      }
-    }
-
-    const model = getWorkersAIModel(this.env);
-    const maxSteps = resolveMasMaxSteps(this.env);
-
-    // Safely normalize messages to prevent AI SDK convertToModelMessages crashes
-    let modelMessages: any[];
     try {
-      const cleanMessages = normalizeMessagesForSDK(this.messages.filter((m: any) => !m?.metadata?.activity));
-      modelMessages = await convertToModelMessages(cleanMessages);
-      if (!modelMessages || modelMessages.length === 0) {
-        modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
+      if (this.env.AI && vectorizeBinding) {
+        const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
+        await vm.remember({
+          jobId: turn.requestId,
+          operation: `chat:${route.agent}`,
+          summary: `Q: ${turn.userText.slice(0, 300)}\nA: ${text.slice(0, 500)}`,
+          success: quality.safe !== false && quality.grounded !== false,
+          timestamp: new Date().toISOString(),
+        });
       }
-    } catch {
-      modelMessages = [{ role: "user", content: [{ type: "text", text: userText || "Hello" }] }];
+    } catch (err) {
+      console.warn("[VectorMemory] remember failed:", err instanceof Error ? err.message : String(err));
     }
+  }
 
-      const result = streamText({
-        model,
-        system: buildOrchestratorSystemPrompt({ route, memoryContext, vectorContext, optionsResearchContext, isAutoOptionsResearchRequest }),
-        messages: modelMessages,
-        tools: isAutoOptionsResearchRequest ? {} : tools,
-        stopWhen: stepCountIs(maxSteps),
-        onFinish: async ({ text }: { text?: string }) => {
-          if (text) {
-            this.recordMessage("assistant", text, route.agent);
-            // Run background quality evaluation
-            const quality = await judge.evaluate({ question: userText, answer: text, agent: route.agent });
-            this.audit("response.evaluated", "judge", {
-              score: quality.score,
-              grounded: quality.grounded,
-              safe: quality.safe,
-              issues: quality.issues,
-            });
-            // VectorMemory remember (issue #201): store this turn's outcome
-            // for future recall. Best-effort; never break the turn.
-            try {
-              if (this.env.AI && vectorizeBinding) {
-                const vm = new VectorMemory(this.env.AI, vectorizeBinding, undefined);
-                await vm.remember({
-                  jobId: requestId,
-                  operation: `chat:${route.agent}`,
-                  summary: `Q: ${userText.slice(0, 300)}\nA: ${text.slice(0, 500)}`,
-                  success: quality.safe !== false && quality.grounded !== false,
-                  timestamp: new Date().toISOString(),
-                });
-              }
-            } catch (err) {
-              console.warn("[VectorMemory] remember failed:", err instanceof Error ? err.message : String(err));
-            }
-          }
-        },
-        onError: ({ error }: { error: unknown }) => {
-          const aspect = resolveErrorAspect(error);
-          logAspectEvent({
-            aspect: "ChatStream",
-            operationName: "streamError",
-            code: aspect.code,
-            level: "error",
-            error: aspect.message,
-            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
-          });
-        },
+  /**
+   * Issue #686: Think lifecycle — a chat turn that fails terminally
+   * surfaces the aspect format the AIChatAgent-era UI stream's
+   * onError produced ([code] title: message + remediation steps),
+   * after logging the same aspect event that handler recorded.
+   */
+  onChatError(error: unknown): string {
+    const aspect = resolveErrorAspect(error);
+    logAspectEvent({
+      aspect: "ChatStream",
+      operationName: "uiStreamError",
+      code: aspect.code,
+      level: "error",
+      error: aspect.message,
+      audit: (e, _c, p) => this.audit(e, "orchestrator", p),
+    });
+    return `[${aspect.code}] ${aspect.title}: ${aspect.message}\n\nRemediation:\n${aspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+  }
+
+  /**
+   * Issue #312: the single-owner agentic chat turn. Judge routing, sub-agent
+   * tools, memory/vector grounding, and the model call live here and only here.
+   * The WebSocket chat streams the result (Think's native chat, driven by the
+   * same beforeTurn/onChatResponse lifecycle); POST /api/chat awaits the final
+   * text via this driver. Never duplicate this pipeline.
+   * Issue #686: the driver runs the turn through Think (runTurn, wait
+   * mode) and returns the adapter shape the routes expect, {result,
+   * route}. The user message enters the session through the factory
+   * input (delta-by-id), so an HTTP re-send of the history tail does
+   * not duplicate it.
+   */
+  private async runAgenticChatTurn(opts: {
+    userText: string;
+    recentTurns: Array<{ role?: string; content: string }>;
+    userLogin: string;
+    isAutoOptionsResearchRequest: boolean;
+    /** WS chat only: the originating UI tab, for options-research audit context. */
+    sourceTab?: string;
+  }) {
+    const turn: NonNullable<typeof this.pendingTurn> = {
+      ...opts,
+      requestId: crypto.randomUUID(),
+    };
+    this.pendingTurn = turn;
+    try {
+      const existing = await this.getMessages();
+      const tailUser = [...existing].reverse().find((m: any) => m?.role === "user");
+      const isResend = !!tailUser && this.extractMessageText(tailUser) === opts.userText;
+      if (isResend) turn.suppressUserRecord = true;
+      const result = await this.runTurn({
+        input: (current: any[]) =>
+          isResend
+            ? current
+            : [
+                ...current,
+                {
+                  id: crypto.randomUUID(),
+                  role: "user",
+                  parts: [{ type: "text", text: opts.userText }],
+                } as any,
+              ],
       });
-    return { result, route };
+      const text = result?.message ? this.extractMessageText(result.message) : "";
+      const route = turn.route ?? {
+        agent: "search",
+        confidence: 0,
+        reason: "Turn completed without a recorded route decision.",
+        needsConfirmation: false,
+      };
+      return { result: { text }, route };
+    } finally {
+      if (this.pendingTurn === turn) this.pendingTurn = undefined;
+    }
   }
 
   /** Issue #669: the this-bound context for the shared fallback
    * (src/agents/chatErrorFallback.ts), so the Think shadow builds the
-   * identical degraded answer from the same implementation. */
+   * identical degraded answer from the same implementation.
+   * Issue #686: the shadow is gone; the context now serves the
+   * production class alone. */
   private chatErrorFallbackContext(): ChatErrorFallbackContext {
     return {
       env: this.env,
@@ -2735,82 +2947,6 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     userLogin: string
   ): Promise<string> {
     return buildChatErrorFallback(this.chatErrorFallbackContext(), streamErr, userText, userLogin);
-  }
-
-  async onChatMessage() {
-    const sessionId = this.sessionKey();
-
-    // Purge any empty assistant messages from prior failed turns in session memory
-    this.messages = this.messages.filter((m: any) => {
-      if (!m || typeof m !== "object") return false;
-      if (m.metadata?.activity) return true;
-      if (m.role === "assistant") {
-        const text = typeof m.content === "string" ? m.content.trim() : "";
-        const parts = Array.isArray(m.parts) ? m.parts : [];
-        const hasText = parts.some((p: any) => p && p.type === "text" && typeof p.text === "string" && p.text.trim());
-        const hasTool = parts.some((p: any) => p && p.type !== "text");
-        return Boolean(text || hasText || hasTool);
-      }
-      return true;
-    });
-
-    // Safely retrieve last user question
-    const lastUserMsg = [...this.messages].reverse().find((m: unknown) => (m as { role?: string })?.role === "user");
-    const userText = this.extractMessageText(lastUserMsg);
-    const messageMetadata = (lastUserMsg as { metadata?: { sourceTab?: string; userLogin?: string } } | undefined)?.metadata;
-    const isAutoOptionsResearchRequest = messageMetadata?.sourceTab === "E*TRADE · Auto Options Research";
-    const userLogin = messageMetadata?.userLogin || sessionId;
-
-    if (userText) {
-      this.recordMessage("user", userText, "orchestrator");
-    }
-
-    // Run Judge intent classification with recent conversation history
-    const recentTurns = (this.messages || []).slice(-6).map((m: any) => ({
-      role: m?.role,
-      content: this.extractMessageText(m),
-    }));
-
-    try {
-      const { result } = await this.runAgenticChatTurn({
-        userText,
-        recentTurns,
-        userLogin,
-        isAutoOptionsResearchRequest,
-        sourceTab: messageMetadata?.sourceTab,
-      });
-
-      return result.toUIMessageStreamResponse({
-        onError: (error: unknown) => {
-          const aspect = resolveErrorAspect(error);
-          logAspectEvent({
-            aspect: "ChatStream",
-            operationName: "uiStreamError",
-            code: aspect.code,
-            level: "error",
-            error: aspect.message,
-            audit: (e, _c, p) => this.audit(e, "orchestrator", p),
-          });
-          return `[${aspect.code}] ${aspect.title}: ${aspect.message}\n\nRemediation:\n${aspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
-        },
-      });
-    } catch (streamErr) {
-      const fallbackText = await this.buildChatErrorFallback(streamErr, userText, userLogin);
-
-      this.recordMessage("assistant", fallbackText, "orchestrator");
-
-      // Return a compliant AI SDK v5 UI message stream response
-      const stream = createUIMessageStream({
-        execute: ({ writer }) => {
-          writer.write({ type: "text-start", id: "text-fallback-1" });
-          writer.write({ type: "text-delta", id: "text-fallback-1", delta: fallbackText });
-          writer.write({ type: "text-end", id: "text-fallback-1" });
-        },
-      });
-
-      return createUIMessageStreamResponse({ stream });
-    }
-
   }
 
   async onRequest(request: Request): Promise<Response> {
@@ -2893,11 +3029,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       parts: [{ type: "text" as const, text }],
       metadata: { sourceTab: source, activity: true },
     };
-    const existing = this.messages.findIndex((message: any) => message?.id === entry.id);
-    const next = existing >= 0
-      ? this.messages.map((message: any, index: number) => (index === existing ? entry : message))
-      : [...this.messages, entry];
-    await this.persistMessages(next as typeof this.messages);
+    // Issue #686: Think session upsert by id — an existing activity
+    // entry is replaced, a new one appended (the semantics the
+    // AIChatAgent-era findIndex/persistMessages pair encoded).
+    await this.addMessages([entry] as any);
     this.recordMessage("system", `[${source}] ${text}`, "orchestrator");
     return Response.json({ id });
   }
@@ -2989,10 +3124,8 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       getAsyncJob: (jobId) => this.getAsyncJob(jobId),
       listAsyncJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
       extractMessageText: (message) => this.extractMessageText(message),
-      getMessages: () => this.messages,
-      setMessages: (messages) => { this.messages = messages; },
+      getMessages: () => this.getMessages(),
       recordMessage: (role, content, agent) => this.recordMessage(role, content, agent),
-      persistMessages: (messages) => this.persistMessages(messages),
       runAgenticChatTurn: (opts) => this.runAgenticChatTurn(opts),
       buildChatErrorFallback: (err, userText, userLogin) => this.buildChatErrorFallback(err, userText, userLogin),
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
@@ -3057,11 +3190,10 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     const memoryResetResponse = await handleMemoryResetRoutes(request, url, path, sessionId, {
       ensureTables: () => this.ensureTables(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
-      abortAllRequests: (reason) => this.abortAllRequests(reason),
+      abortAllRequests: (_reason) => this.abortAllRequests(),
       resetTurnState: () => this.resetTurnState(),
       clearConversationMessages: async () => {
-        this.messages = [];
-        await this.persistMessages([]);
+        await this.clearMessages();
       },
     });
     if (memoryResetResponse) return memoryResetResponse;
