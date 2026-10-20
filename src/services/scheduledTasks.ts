@@ -1483,7 +1483,16 @@ export class ScheduledTasksService {
         );
       }
 
-      const etrade = new ETradeService(this.env);
+      // Identity-correct construction, matching the saved/no-view
+      // paths: the service ORM plus the run owner's login and the
+      // run's environment (#447/#461, #672). The bare env-only form
+      // silently resolves tokens for the default trader/environment.
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        userLogin,
+        options.environment
+      );
       const pipeline = new OptionsAgentPipeline(
         new DynamicOptionsScreener(etrade.client)
       );
