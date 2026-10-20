@@ -70,8 +70,14 @@ jobs:
       - name: TypeScript type check
         run: npm run typecheck
 
-      - name: Run unit & integration test suites
-        run: npm run test:ci
+      # Issue #523: the full test suite intentionally does NOT run here.
+      # ci.yml already runs the identical suite (npm run test:ci) on the PR
+      # and again on the push to main, so the code being deployed is tested.
+      # Re-running it in the deploy job doubled exposure to the suite's
+      # low-rate nondeterministic failures and let a test flake block a
+      # production deploy of verified code (2026-10-20, main @ b01142c).
+      # Typecheck + build above/below remain this job's deterministic gates.
+      # Do not re-add a test step here without reading #523.
 
       - name: Build frontend
         run: npm run build
