@@ -198,6 +198,8 @@ type ETradeEnvironment = "TEST" | "PROD";
 type ScreenerExecutionContext = { userLogin: string; environment?: ETradeEnvironment };
 const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
 const LEGACY_SCHEDULE_MIGRATION_KEY = "screener:legacy-baseline-migration:v3";
+/** Issue #618: interval between automatic stale-task sweeps (6 hours). */
+const STALE_SWEEP_INTERVAL_SECONDS = 6 * 60 * 60;
 
 function screenerAgentName(userLogin: string): string {
   // Preserve the original shared agent for the legacy system identity.
@@ -492,6 +494,63 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch (schedErr) {
       console.warn("[OrchestratorAgent][onStart] Legacy maintenance schedule reconciliation failed:", schedErr);
     }
+
+    try {
+      // Issue #618: on the same maintenance path, close any task
+      // records already stale for this user and arm the recurring
+      // sweep. Best-effort: a sweep problem never blocks startup.
+      const context = await this.getScreenerExecutionContext();
+      if (context?.userLogin) {
+        await this.sweepStaleLedgerTasks({ userLogin: context.userLogin });
+        await this.ensureStaleSweepSchedule(context.userLogin);
+      }
+    } catch (sweepErr) {
+      console.warn("[OrchestratorAgent][onStart] Stale-task sweep setup failed:", sweepErr);
+    }
+  }
+
+  /**
+   * Issue #618 (R4 follow-up): Cloudflare Agents Scheduled Callback
+   * that closes stale research and screener task records (#615) for
+   * this instance's user. Each ledger is swept in isolation so one
+   * failure cannot block the other; swept tasks end escalated, never
+   * auto-rerun.
+   */
+  async sweepStaleLedgerTasks(payload?: { userLogin?: string }): Promise<{ userLogin: string | null; researchSwept: number; screenerSwept: number }> {
+    const context = await this.getScreenerExecutionContext();
+    const userLogin = context?.userLogin || payload?.userLogin;
+    if (!userLogin) {
+      console.warn("[OrchestratorAgent] Skipping stale-task sweep without an authenticated account owner.");
+      return { userLogin: null, researchSwept: 0, screenerSwept: 0 };
+    }
+    let researchSwept = 0;
+    try {
+      const research = this.getResearchAgent(userLogin);
+      if (research) researchSwept = (await research.sweepStaleResearchTasks()).length;
+    } catch (error) {
+      console.warn(`[OrchestratorAgent] Stale research sweep failed for ${userLogin}:`, error);
+    }
+    let screenerSwept = 0;
+    try {
+      screenerSwept = (await this.getScreenerAgent(userLogin).sweepStaleScreenerTasks()).length;
+    } catch (error) {
+      console.warn(`[OrchestratorAgent] Stale screener sweep failed for ${userLogin}:`, error);
+    }
+    if (researchSwept > 0 || screenerSwept > 0) {
+      console.info(`[OrchestratorAgent] Stale-task sweep for ${userLogin}: research=${researchSwept} screener=${screenerSwept} closed as escalated.`);
+    }
+    return { userLogin, researchSwept, screenerSwept };
+  }
+
+  /** Issue #618: arm the recurring stale-sweep interval once per user. */
+  private async ensureStaleSweepSchedule(userLogin: string): Promise<void> {
+    const existing = await this.listSchedules().catch(() => [] as Schedule<unknown>[]);
+    const already = existing.some((s) => {
+      const item = s as any;
+      return item.callback === "sweepStaleLedgerTasks" && item.payload?.userLogin === userLogin;
+    });
+    if (already) return;
+    await this.scheduleEvery(STALE_SWEEP_INTERVAL_SECONDS, "sweepStaleLedgerTasks", { userLogin });
   }
 
   /**
