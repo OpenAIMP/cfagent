@@ -184,7 +184,14 @@ export async function acquireUniverse(
     if (lower.includes("rate") || lower.includes("429") || lower.includes("throttl")) {
       return "rate-limited";
     }
-    if (lower.includes("auth") || lower.includes("401") || lower.includes("403") || lower.includes("token")) {
+    if (
+      lower.includes("auth") ||
+      lower.includes("oauth") ||
+      lower.includes("signature") ||
+      lower.includes("401") ||
+      lower.includes("403") ||
+      lower.includes("token")
+    ) {
       return "auth";
     }
     if (lower.includes("null-response")) {
@@ -203,6 +210,18 @@ export async function acquireUniverse(
       return "network";
     }
     return "other";
+  }
+
+  // Keep enough upstream detail to diagnose a failed quote run while
+  // preventing credentials or OAuth signing material from entering logs and
+  // user-visible errors.
+  function safeQuoteFailure(reason: unknown): string {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    return message
+      .replace(/\b(oauth_(?:token|token_secret|signature|consumer_key|consumer_secret))=[^\s&,]+/gi, "$1=[redacted]")
+      .replace(/\b(accessToken|accessTokenSecret|consumerSecret|tokenSecret)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+      .replace(/[\r\n]+/g, " ")
+      .slice(0, 180);
   }
 
   // E*TRADE cannot quote a symbol it is skipped; if it cannot quote
@@ -264,7 +283,7 @@ export async function acquireUniverse(
           const reason = categorizeQuoteFailure(r.reason);
           failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
           if (failureSamples.length < 3) {
-            failureSamples.push(`${symbol}: ${reason}`);
+            failureSamples.push(`${symbol}: ${reason} (${safeQuoteFailure(r.reason)})`);
           }
         }
       }
@@ -287,6 +306,7 @@ export async function acquireUniverse(
         `E*TRADE unavailable: incomplete live quote set (${quotes.length} of ${limited.length} symbols quoted` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
           (reasonSummary ? ` (failure reasons: ${reasonSummary})` : "") +
+          (failureSamples.length > 0 ? ` (diagnostics: ${failureSamples.join("; ")})` : "") +
           `). No partial screen published; no fallback data substituted.`
       );
     }
