@@ -366,8 +366,51 @@
   color: var(--color-accent);
 }
 
+
+/* ---------- Form fields (TextInput / Select) ---------- */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ui-field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.ui-field-msg { font-size: 0.74rem; color: var(--color-text-dim); }
+.ui-field-msg.error { color: var(--color-danger-text); }
+
+.ui-input, .ui-select {
+  background: var(--color-input);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-input-foreground);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-input.size-sm, .ui-select.size-sm { padding: 0.34rem 0.6rem; font-size: 0.8rem; }
+.ui-input.size-md, .ui-select.size-md { padding: 0.5rem 0.75rem; }
+
+.ui-input::placeholder { color: var(--color-text-dim); }
+
+.ui-input:focus, .ui-select:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.ui-input.invalid, .ui-select.invalid { border-color: var(--color-danger); }
+.ui-input.invalid:focus, .ui-select.invalid:focus { border-color: var(--color-danger); box-shadow: var(--shadow-focus-ring); }
+
+.ui-input:disabled, .ui-select:disabled { opacity: 0.55; cursor: not-allowed; }
+
 @media (prefers-reduced-motion: reduce) {
-  .segmented-btn, .pill-btn, .ui-btn, .ui-tab { transition: none; }
+  .segmented-btn, .pill-btn, .ui-btn, .ui-tab, .ui-input, .ui-select { transition: none; }
   .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }
   .ui-spinner { animation-duration: 1.6s; }
 }
