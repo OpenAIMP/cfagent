@@ -177,6 +177,7 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: endsWith(\"/etrade/lookup\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/latest\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/chains\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/strategy\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/expire-dates\")",
