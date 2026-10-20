@@ -144,14 +144,18 @@ jobs:
           S_SCREENER_SLACK_CHANNEL: ${{ secrets.SCREENER_SLACK_CHANNEL }}
           S_SCREENER_EMAIL_TO: ${{ secrets.SCREENER_EMAIL_TO }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
-          # API occasionally blips, and a single failed put used to fail the whole
-          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
-          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
+          # the Cloudflare API occasionally blips, and a single failed put used to
+          # fail the whole production deploy. Retries up to 3 attempts with 10s
+          # backoff. The value is read once and re-fed per attempt, so
+          # `printf ... | put_secret NAME` keeps working across retries.
           put_secret() {
-            local name="$1" attempts=0 max=3
+            local name="$1" attempts=0 max=3 payload
+            # Read stdin once: a retry must re-feed the same value, not an
+            # already-drained pipe.
+            payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if put_secret "$name"; then
+              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
@@ -195,14 +199,18 @@ jobs:
           S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
           S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
-          # API occasionally blips, and a single failed put used to fail the whole
-          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
-          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
+          # the Cloudflare API occasionally blips, and a single failed put used to
+          # fail the whole production deploy. Retries up to 3 attempts with 10s
+          # backoff. The value is read once and re-fed per attempt, so
+          # `printf ... | put_secret NAME` keeps working across retries.
           put_secret() {
-            local name="$1" attempts=0 max=3
+            local name="$1" attempts=0 max=3 payload
+            # Read stdin once: a retry must re-feed the same value, not an
+            # already-drained pipe.
+            payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if put_secret "$name"; then
+              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
@@ -279,14 +287,18 @@ jobs:
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
           MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
-          # API occasionally blips, and a single failed put used to fail the whole
-          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
-          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
+          # the Cloudflare API occasionally blips, and a single failed put used to
+          # fail the whole production deploy. Retries up to 3 attempts with 10s
+          # backoff. The value is read once and re-fed per attempt, so
+          # `printf ... | put_secret NAME` keeps working across retries.
           put_secret() {
-            local name="$1" attempts=0 max=3
+            local name="$1" attempts=0 max=3 payload
+            # Read stdin once: a retry must re-feed the same value, not an
+            # already-drained pipe.
+            payload="$(cat)"
             while [ "$attempts" -lt "$max" ]; do
-              if put_secret "$name"; then
+              if printf "%s" "$payload" | npx wrangler secret put "$name"; then
                 return 0
               fi
               attempts=$((attempts + 1))
