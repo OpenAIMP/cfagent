@@ -1,6 +1,9 @@
 export interface Env {
   ASSETS: Fetcher;
   AI: Ai;
+  // Issue #605: R2 bucket for report PDF blobs. Optional so the #605 code is
+  // safe to merge before the bucket is provisioned (falls back to DO storage).
+  REPORTS_BUCKET?: R2Bucket;
   SESSIONS: KVNamespace;
   // Issue #329: session + credential store. KV stays bound only for the
   // one-time legacy migration (see security/session.ts).

@@ -519,60 +519,49 @@ export class ScreenerAgent extends Agent<Env> {
    * GET /api/screener/report.pdf and attached to Slack/email deliveries.
    * Issue #297: Also stores per-run PDFs with unique keys to prevent
    * franken-PDFs from concurrent runs overwriting each other.
+   * Issue #605: blobs live in R2 when bound, else legacy DO storage.
    */
   async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
-    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(PDF_LATEST_KEY);
-    if (!stored) return null;
-    const bin = atob(stored.base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { bytes, fileName: stored.fileName };
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
   }
 
   /**
    * Get a specific run's PDF by its storage key (issue #297).
    */
   async getPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
-    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(pdfKey);
-    if (!stored) return null;
-    const bin = atob(stored.base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { bytes, fileName: stored.fileName };
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return getReportPdf(this.env, this.ctx.storage, pdfKey);
   }
 
   /**
    * Get the latest options PDF (issue #361).
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
-    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(OPTIONS_PDF_LATEST_KEY);
-    if (!stored) return null;
-    const bin = atob(stored.base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { bytes, fileName: stored.fileName };
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
   }
 
   /**
    * Get a specific options run's PDF by its storage key (issue #361).
    */
   async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
-    const stored = await this.ctx.storage.get<{ base64: string; fileName: string }>(pdfKey);
-    if (!stored) return null;
-    const bin = atob(stored.base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { bytes, fileName: stored.fileName };
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return getReportPdf(this.env, this.ctx.storage, pdfKey);
   }
 
   /**
    * Store an options PDF (issue #361). Called from scheduledTasks after generation.
    */
   async storeOptionsPdf(base64: string, fileName: string): Promise<string> {
-    const pdfData = { base64, fileName };
+    const { putReportPdf } = await import("../services/reportBlobStore");
     const perRunKey = `${OPTIONS_PDF_KEY_PREFIX}${fileName}`;
-    await this.ctx.storage.put(perRunKey, pdfData);
-    await this.ctx.storage.put(OPTIONS_PDF_LATEST_KEY, pdfData);
+    // storeOptionsPdf receives base64; decode once, then store via the blob store.
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    await putReportPdf(this.env, this.ctx.storage, perRunKey, fileName, bytes);
+    await putReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY, fileName, bytes);
     return perRunKey;
   }
 
@@ -586,26 +575,19 @@ export class ScreenerAgent extends Agent<Env> {
     );
     // Issue #269: generate + store the report PDF for download/delivery.
     // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
+    // Issue #605: blobs go to R2 when bound, else legacy DO storage.
     try {
       const { generateScreenerPdf, screenerPdfFileName } = await import(
         "../trading"
       );
+      const { putReportPdf } = await import("../services/reportBlobStore");
       const pdfBytes = await generateScreenerPdf(result);
-      let base64 = "";
-      const chunk = 8192;
-      for (let i = 0; i < pdfBytes.length; i += chunk) {
-        base64 += String.fromCharCode(...pdfBytes.subarray(i, i + chunk));
-      }
       const fileName = screenerPdfFileName(result);
-      const pdfData = {
-        base64: btoa(base64),
-        fileName,
-      };
       // Store with per-run unique key
       const perRunKey = `${PDF_KEY_PREFIX}${fileName}`;
-      await this.ctx.storage.put(perRunKey, pdfData);
+      await putReportPdf(this.env, this.ctx.storage, perRunKey, fileName, pdfBytes);
       // Also update the "latest" pointer for backward compatibility
-      await this.ctx.storage.put(PDF_LATEST_KEY, pdfData);
+      await putReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY, fileName, pdfBytes);
       // Store the key on the result for the UI to fetch the specific PDF
       result.pdfKey = perRunKey;
     } catch (err) {
