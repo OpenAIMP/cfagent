@@ -131,8 +131,16 @@ export async function generateOptionsPdf(result: OptionScreenResult): Promise<Ui
 /**
  * Generate a filename for the options PDF report.
  */
+/**
+ * #297 naming parity with the stock screener PDFs (#334):
+ * options-scan_{universe}_{schedule}_{timestamp}_{jobId}.pdf
+ * The schedule and jobId are appended by the caller when available.
+ */
 export function optionsPdfFileName(result: OptionScreenResult): string {
-  const date = result.scannedAt.slice(0, 10);
-  const time = result.scannedAt.slice(11, 19).replace(/:/g, "-");
-  return `options-scan_${date}_${time}.pdf`;
+  const ts = new Date(result.scannedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+  const r = result as unknown as Record<string, unknown>;
+  const u = String(r.universe || "options").toLowerCase().replace(/_/g, "-");
+  const schedule = String(r.schedule || r.trigger || "adhoc");
+  const jobId = String(r.jobId || "adhoc");
+  return `options-scan_${u}_${schedule}_${ts}_${jobId}.pdf`;
 }
