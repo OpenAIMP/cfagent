@@ -99,6 +99,8 @@ export interface ScreenerRunResult {
   skippedDuplicate?: boolean;
   /** Issue #607: durable task record id for this run (screener task ledger). */
   taskId?: string;
+  /** Issue #706: learnings applied at run start. */
+  appliedLearnings?: string[];
 }
 
 const LATEST_KEY = "screener:latest";
@@ -287,6 +289,16 @@ export class ScreenerAgent extends Agent<Env> {
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
     const cfg = DEFAULT_SCREENER_CONFIG;
+    // Issue #706: read active learnings at run start; log which ones applied.
+    let appliedLearnings: string[] = [];
+    try {
+      const { getActiveLearnings } = await import("../services/learnings");
+      const learnings = getActiveLearnings(this.sql, "screener");
+      appliedLearnings = learnings.map((l) => `${l.id}: ${l.observation.slice(0, 80)}`);
+      if (learnings.length > 0) {
+        console.log(`[ScreenerAgent] Applied ${learnings.length} learnings:`, appliedLearnings);
+      }
+    } catch {}
     // Issue #421: a run's sector label states what was actually screened.
     // When no sector was selected, the screen covered every sector in the
     // universe → "ALL" (header renderers suppress it) — never the config
@@ -458,6 +470,8 @@ export class ScreenerAgent extends Agent<Env> {
         ...(acquired.partial ? { partial: acquired.partial } : {}),
       };
       if (taskId) result.taskId = taskId;
+      // Issue #706: record which learnings were applied.
+      if (appliedLearnings.length > 0) result.appliedLearnings = appliedLearnings;
 
       await beat();
       await this.persistRun(result);

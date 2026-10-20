@@ -1141,5 +1141,39 @@ export async function handleEtradeBrokerActivityRoutes(
     }
   }
 
+  // Issue #706: learning store endpoints.
+  if (path.endsWith("/learnings") && request.method === "GET") {
+    try {
+      const { getActiveLearnings, getLearningHistory } = await import("../../services/learnings");
+      const domain = url.searchParams.get("domain") || undefined;
+      const history = url.searchParams.get("history") === "true";
+      const learnings = history
+        ? getLearningHistory(ctx.getOrm(), domain)
+        : getActiveLearnings(ctx.getOrm(), domain);
+      return Response.json({ learnings });
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to list learnings" }, { status: 500 });
+    }
+  }
+  if (path.endsWith("/learnings") && request.method === "POST") {
+    try {
+      const { recordLearning } = await import("../../services/learnings");
+      const body = (await request.json().catch(() => ({}))) as any;
+      if (!body.domain || !body.observation) {
+        return Response.json({ error: "domain and observation required" }, { status: 400 });
+      }
+      const id = recordLearning(ctx.getOrm(), {
+        domain: body.domain,
+        observation: body.observation,
+        evidenceRefs: body.evidenceRefs,
+        confidence: body.confidence,
+        source: "human",
+      });
+      return Response.json({ id, success: true });
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to record learning" }, { status: 500 });
+    }
+  }
+
   return null;
 }
