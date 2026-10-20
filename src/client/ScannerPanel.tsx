@@ -75,6 +75,7 @@ import {
   type OpportunityScanResponse,
   type OpportunityScanResult,
   type ScanMode,
+  type ScanRunDetail,
   type ScanRunDiffResult,
   type ScanRunSummary,
   type StrategyProfile,
@@ -88,6 +89,11 @@ import type {
   ScanTargetSource,
   ScanTypeRollup,
 } from "../trading/options/opportunityScanner";
+import {
+  downloadScanExport,
+  scanExportRunFromResult,
+  scanExportRunFromStored,
+} from "./scannerExport";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import type { ExpectedIvDirection, OptionThesis } from "../trading/options/strategyEngine";
 import type { UnifiedOptionsRequest } from "../trading/options/unifiedOptionsService";
@@ -628,7 +634,7 @@ export function MatrixBoard({
   );
 }
 
-export function ScanResultsView({ result, runContext, onPreviewTrade }: { result: OpportunityScanResponse; runContext: ScanRunContext; onPreviewTrade?: (ctx: TradeOrderContext) => void }) {
+export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun }: { result: OpportunityScanResponse; runContext: ScanRunContext; onPreviewTrade?: (ctx: TradeOrderContext) => void; storedRun?: ScanRunDetail | null }) {
   const mode = runContext.mode;
   const { gate, evaluated, scanned, skipped } = scanCounts(result);
   const generatedAt = result.generatedAt || result.meta?.generatedAt;
@@ -639,10 +645,45 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
   const matrix = result.matrix ?? [];
   const typeRollup = result.typeRollup ?? [];
 
+  // Issue #126 (PR-C): result-set downloads of THIS run (the one
+  // being viewed), beside the PDF report. When the view shows a
+  // stored run from history, the export is built from that stored
+  // run — never from the latest run or the live form state.
+  const exportRun = storedRun
+    ? scanExportRunFromStored(storedRun)
+    : scanExportRunFromResult(result);
+  const exportButtonStyle = {
+    fontSize: "0.8rem",
+    padding: "0.35rem 0.75rem",
+    borderRadius: "4px",
+    border: "1px solid var(--color-accent)",
+    color: "var(--color-accent)",
+    background: "transparent",
+    cursor: "pointer",
+  } as const;
+
   return (
     <div className="scp-results">
       <div className="scp-results-head">
         <strong>Mode: {MODE_LABELS[mode]}</strong>
+        <button
+          type="button"
+          className="scanner-export-csv"
+          style={exportButtonStyle}
+          onClick={() => downloadScanExport(exportRun, "results-csv")}
+          title="Download this run's result rows as CSV"
+        >
+          ⬇ CSV results
+        </button>
+        <button
+          type="button"
+          className="scanner-export-json"
+          style={exportButtonStyle}
+          onClick={() => downloadScanExport(exportRun, "run-json")}
+          title="Download this run's full stored result as JSON"
+        >
+          ⬇ JSON run
+        </button>
         <a
           href={result.reportUrl || "/api/options/report.pdf"}
           download
@@ -1100,6 +1141,10 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [historyError, setHistoryError] = useState("");
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [historicalNote, setHistoricalNote] = useState<string | null>(null);
+  // The stored run currently being viewed (issue #126 PR-C): the
+  // results view's CSV/JSON exports target THIS run. Set by viewRun,
+  // cleared whenever a fresh scan result replaces the view.
+  const [viewedRun, setViewedRun] = useState<ScanRunDetail | null>(null);
   const [rerunNote, setRerunNote] = useState("");
   const [diffResult, setDiffResult] = useState<ScanRunDiffResult | null>(null);
   const [diffError, setDiffError] = useState("");
@@ -1151,6 +1196,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
     // A fresh run replaces whatever the results area showed — a
     // stored run's banner or a diff must never linger over it.
     setHistoricalNote(null);
+    setViewedRun(null);
     setRerunNote("");
     setDiffResult(null);
     setDiffError("");
@@ -1179,6 +1225,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
       const run = await getScanRun(activeEnv, userLogin, summary.id);
       const stored = run.result;
       setResult(stored);
+      setViewedRun(run);
       setRunContext({
         mode: stored.mode,
         profileLabel: stored.profileRef ? `${stored.profileRef.name} v${stored.profileRef.version}` : null,
@@ -1222,6 +1269,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         setResult(scan);
         setRunContext(context);
         setHistoricalNote(null);
+        setViewedRun(null);
         setDiffResult(null);
         setDiffError("");
         setRerunNote(
@@ -1479,7 +1527,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
             </div>
           )}
           {result && rerunNote && <div className="scp-note" role="note">{rerunNote}</div>}
-          {result && runContext && <ScanResultsView result={result} runContext={runContext} onPreviewTrade={onPreviewTrade} />}
+          {result && runContext && <ScanResultsView result={result} runContext={runContext} onPreviewTrade={onPreviewTrade} storedRun={viewedRun} />}
         </>
       )}
 
