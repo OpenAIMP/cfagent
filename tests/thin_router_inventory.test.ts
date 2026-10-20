@@ -34,6 +34,9 @@
  * /schedules/trigger-discovery (in handleSchedulesRoutes, last) —
  * bringing the inventory to 152. New routes update this pin; the
  * pin's purpose (no UNINTENTIONAL route-surface change) is unchanged.
+ * Issue #341 added one more — GET /api/reports/research/browse (in
+ * handleReportsRoutes, after the trading/reports webhook handler and
+ * before the reports list) — bringing the inventory to 156.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -100,6 +103,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
+  "handleReportsRoutes :: endsWith(\"/api/reports/research/browse\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",
