@@ -2392,7 +2392,7 @@ body {
 
 @keyframes pulseGlow {
   from { opacity: 0.7; }
-  to { opacity: 1; box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+  to { opacity: 1; box-shadow: var(--shadow-glow-warning); }
 }
 
 .tx-main-row {
@@ -2767,7 +2767,7 @@ body {
 }
 
 .orm-browse-btn:hover {
-  background: #4338ca;
+  background: var(--color-primary-hover);
 }
 
 .orm-browsed-card {
@@ -4420,9 +4420,9 @@ body {
 }
 
 @keyframes pulseGreen {
-  0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% { transform: scale(0.9); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 70%, transparent); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px transparent; }
+  100% { transform: scale(0.9); box-shadow: 0 0 0 0 transparent; }
 }
 
 .protocol-badge {
@@ -8098,9 +8098,9 @@ body {
 }
 
 @keyframes pulseDot {
-  0% { transform: scale(0.95); box-shadow: 0 0 4px #10b981; }
-  50% { transform: scale(1.15); box-shadow: 0 0 10px #10b981; }
-  100% { transform: scale(0.95); box-shadow: 0 0 4px #10b981; }
+  0% { transform: scale(0.95); box-shadow: 0 0 4px var(--color-success); }
+  50% { transform: scale(1.15); box-shadow: 0 0 10px var(--color-success); }
+  100% { transform: scale(0.95); box-shadow: 0 0 4px var(--color-success); }
 }
 
 .menu-button-title {
@@ -11372,7 +11372,7 @@ body {
 
 @keyframes tickFlashGreen {
   0% {
-    background-color: rgba(16, 185, 129, 0.65);
+    background-color: color-mix(in srgb, var(--color-success) 65%, transparent);
     color: var(--color-success-text);
     box-shadow: var(--shadow-glow-primary);
     transform: scale(1.04);
@@ -11387,7 +11387,7 @@ body {
 
 @keyframes tickFlashRed {
   0% {
-    background-color: rgba(239, 68, 68, 0.65);
+    background-color: color-mix(in srgb, var(--color-danger) 65%, transparent);
     color: var(--color-danger-text);
     box-shadow: var(--shadow-glow-danger);
     transform: scale(1.04);

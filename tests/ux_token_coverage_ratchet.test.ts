@@ -3,22 +3,19 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * UX token coverage ratchet (Phase 2 of #137, issue #470).
+ * UX token coverage gate (Phase 2 of #137, issue #470; completed in
+ * Phase 6, #476).
  *
  * Raw color literals (hex + rgb/hsl functional notation) may only live in
- * the token sources (src/client/tokens.css and the generated section of
- * src/client/designTokens.ts). Everywhere else in src/client the counts can
- * only go DOWN:
- *
- * - tests/ux_token_coverage_ratchet.json pins the per-file ceiling measured
- *   by the Phase 0 baseline (scripts/token-coverage.mjs, #468).
- * - A file exceeding its ceiling, or a new file with any raw literal, fails.
- * - When a migration slice lowers a file's count, lower its ceiling in the
- *   same PR. Phase 6 (#476) deletes the allowlist entirely.
+ * the token sources (src/client/tokens.css and src/client/designTokens.ts).
+ * The Phase 2–6 ratchet drove the count from the Phase 0 baseline of 3,105
+ * to ZERO; the per-file ceiling allowlist was deleted when it reached zero
+ * (its history lives in git and in plans/UX/baseline/). Any raw literal
+ * anywhere else in src/client now fails outright — add a token instead.
  *
  * Also pinned: theme-class selectors (.dark/.light/.theme-*) are banned in
  * CSS outside tokens.css — `data-theme` is the sanctioned mechanism
- * (legacy adapters themselves are removed in Phase 4, #474).
+ * (legacy adapters themselves were removed in Phase 4, #474).
  */
 
 const ROOT = join(__dirname, "..");
@@ -59,29 +56,14 @@ function scan(): Map<string, number> {
   return counts;
 }
 
-const allowlist = JSON.parse(readFileSync(join(ROOT, "tests", "ux_token_coverage_ratchet.json"), "utf8")) as Record<string, number>;
-
-describe("UX token coverage ratchet (#470)", () => {
-  it("no file exceeds its raw-color ceiling and no unlisted file has raw colors", () => {
+describe("UX token coverage gate (#470, #476)", () => {
+  it("no raw color literals anywhere in src/client outside the token sources", () => {
     const counts = scan();
     const violations: string[] = [];
     for (const [file, n] of counts) {
-      const ceiling = allowlist[file];
-      if (ceiling === undefined) violations.push(`${file}: ${n} raw color literals, no allowlist entry (add tokens, not literals)`);
-      else if (n > ceiling) violations.push(`${file}: ${n} raw color literals exceeds ceiling ${ceiling}`);
+      violations.push(`${file}: ${n} raw color literals (add tokens, not literals)`);
     }
     expect(violations).toEqual([]);
-  });
-
-  it("allowlist ceilings are never above the measured counts plus zero slack for removed files", () => {
-    const counts = scan();
-    for (const [file, ceiling] of Object.entries(allowlist)) {
-      const current = counts.get(file) ?? 0;
-      // A ceiling may equal the current count (not yet migrated) — but it may
-      // not exceed it by invention: ceilings come from the baseline or a
-      // lowered value recorded by a migration PR.
-      expect(ceiling, `${file} ceiling`).toBeGreaterThanOrEqual(current);
-    }
   });
 
   it("no theme-class selectors in CSS outside tokens.css", () => {

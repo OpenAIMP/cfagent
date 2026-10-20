@@ -116,6 +116,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-success": "#10b981",
     "--color-success-foreground": "#04241c",
     "--color-success-subtle": "rgba(16, 185, 129, 0.14)",
+    "--color-primary-hover": "#059669",
     "--color-success-hover": "#059669",
     "--color-danger": "#f43f5e",
     "--color-danger-foreground": "#2e0a10",
@@ -210,6 +211,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-success": "#15803d",
     "--color-success-foreground": "#ffffff",
     "--color-success-subtle": "rgba(21, 128, 61, 0.12)",
+    "--color-primary-hover": "#166534",
     "--color-success-hover": "#166534",
     "--color-danger": "#dc2626",
     "--color-danger-foreground": "#ffffff",
@@ -304,6 +306,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-success": "#00e065",
     "--color-success-foreground": "#000000",
     "--color-success-subtle": "rgba(0, 224, 101, 0.22)",
+    "--color-primary-hover": "#00c853",
     "--color-success-hover": "#00c853",
     "--color-danger": "#ff4d4d",
     "--color-danger-foreground": "#000000",
@@ -359,3 +362,17 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
   }
 };
 /* END GENERATED TOKENS */
+
+/**
+ * Ad accent palette (#476): user-selectable DATA values for sponsored-card
+ * accents — content choices, not theme styling. They live in the token
+ * module so raw color values stay confined to token sources.
+ */
+export const adAccentPalette = [
+  { value: "#6366f1", label: "Indigo" },
+  { value: "#f38020", label: "Cloudflare Orange" },
+  { value: "#06b6d4", label: "Cyan" },
+  { value: "#10b981", label: "Emerald Green" },
+  { value: "#a855f7", label: "Purple" },
+  { value: "#f43f5e", label: "Rose" },
+] as const;
