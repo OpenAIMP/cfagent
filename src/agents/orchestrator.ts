@@ -201,6 +201,8 @@ const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
 const LEGACY_SCHEDULE_MIGRATION_KEY = "screener:legacy-baseline-migration:v3";
 /** Issue #618: interval between automatic stale-task sweeps (6 hours). */
 const STALE_SWEEP_INTERVAL_SECONDS = 6 * 60 * 60;
+/** Issue #624: research task heartbeat interval while a run is in flight (2 minutes). */
+const RESEARCH_TASK_HEARTBEAT_MS = 120_000;
 
 function screenerAgentName(userLogin: string): string {
   // Preserve the original shared agent for the legacy system identity.
@@ -339,131 +341,147 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       );
       taskId = null;
     }
-    let executionPath: ResearchExecutionPath = "think";
-    const child = await this.runAgentTool(ResearchAgent, {
-      input: { trigger, userLogin: login },
-    });
-    let report = await agent.getLatest();
-    if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
-      // Keep scheduled discovery dependable if a provider cannot complete
-      // the Think turn. The same read-only deterministic pipeline remains
-      // the recovery path and persists through the same ResearchAgent.
-      // Issue #543: the fallback must not silently mask which execution
-      // path ran — emit a structured warning carrying the identifiers an
-      // operator needs to correlate the bypass in Workers Logs.
-      console.warn(
-        `[OrchestratorAgent] Think research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
-      );
-      const fallback = await agent.runResearch({ trigger, userLogin: login });
-      if (!fallback.success || !fallback.report) {
-        const failure = fallback.error || child.error || `Research agent finished with status ${child.status}.`;
-        // Issue #577: a total failure escalates the task for a human
-        // instead of vanishing into this error return.
-        if (taskId) {
-          try {
-            await agent.failResearchTask(taskId, failure, true);
-          } catch {
-            // Ledger is best-effort; the error return stands either way.
-          }
-        }
-        return { success: false, error: failure, taskId };
-      }
-      executionPath = "fallback";
-      report = fallback.report;
-    }
-    const sql = this.ensureTables();
-    const stored = storeReportAtGeneration(sql, {
-      runId: report.runId,
-      generationId: report.generationId,
-      title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
-      source: "options_research",
-      summary: report.summary,
-      body: report as unknown as Record<string, unknown>,
-    });
-    // #335: render the run PDF from the canonical stored report (best-effort;
-    // the PDF is a delivery artifact, never a second copy).
-    let pdfKey: string | null = null;
-    try {
-      const { generateResearchPdf, researchPdfFileName } = await import(
-        "../trading"
-      );
-      const pdfBytes = await generateResearchPdf(report);
-      const fileName = researchPdfFileName(report);
-      pdfKey = await agent.storeResearchPdf(fileName, pdfBytes);
-    } catch (err) {
-      console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
-    }
-    // #336: full delivery through the #308 seams (Slack, email, webhook),
-    // delivering the canonical stored copy. Best-effort; never fails the run.
-    let emailed = false;
-    try {
-      const delivery = await this.deliverResearchReport(
-        agent,
-        report,
-        {
-          reportId: stored?.reportId ?? null,
-          pdfKey,
-          trigger,
-          userLogin: login,
-        }
-      );
-      emailed = delivery.emailed;
-    } catch (err) {
-      console.warn("[OrchestratorAgent] Research delivery failed:", err);
-    }
-    // Issue #577: complete the task with the path actually taken and a
-    // deterministic evaluation of the outcome (never a model grading
-    // itself). Best-effort — the published result stands either way.
+    // Issue #624: heartbeat the task while dispatch is in flight —
+    // both the Think turn and the fallback run below are awaited here,
+    // so one timer bounds the heartbeat gap for either path. Cleared
+    // in the finally on every exit; the ledger rejects heartbeats
+    // from terminal states, so a stray tick would be harmless anyway.
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     if (taskId) {
-      try {
-        const evaluation = evaluateResearchOutcome(
-          {
-            reportRunId: report.runId,
-            previousRunId: previousRunId ?? null,
-            expectedTrigger: trigger,
-            expectedUserLogin: login,
-            reportTrigger: report.trigger,
-            reportUserLogin: report.userLogin,
-            summary: report.summary,
-            ideas: report.ideas.length,
-            watchlist: report.watchlist.length,
-            rejected: report.rejected.length,
-          },
-          new Date().toISOString()
-        );
-        await agent.completeResearchTask(taskId, {
-          path: executionPath,
-          reportRunId: report.runId,
-          evaluation,
-        });
-      } catch (err) {
-        console.warn(
-          `[OrchestratorAgent] Research task ledger unavailable (complete): ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
+      const id = taskId;
+      heartbeatTimer = setInterval(() => {
+        void agent.heartbeatResearchTask(id).catch(() => undefined);
+      }, RESEARCH_TASK_HEARTBEAT_MS);
     }
-    // #584 EP-009: meter the research run — attribute compute to tenant + task.
-    // Best-effort and never throws; metering must not break the run.
     try {
-      const { recordUsageEvent } = await import("../services/scheduledReports");
-      recordUsageEvent(this.ctx.storage.sql, {
-        userLogin: login,
-        runId: report.runId,
-        category: "research_run",
-        detail: { trigger, ideas: report.ideas.length, taskId },
+      let executionPath: ResearchExecutionPath = "think";
+      const child = await this.runAgentTool(ResearchAgent, {
+        input: { trigger, userLogin: login },
       });
-    } catch {
-      // Metering is advisory; the published result stands either way.
+      let report = await agent.getLatest();
+      if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
+        // Keep scheduled discovery dependable if a provider cannot complete
+        // the Think turn. The same read-only deterministic pipeline remains
+        // the recovery path and persists through the same ResearchAgent.
+        // Issue #543: the fallback must not silently mask which execution
+        // path ran — emit a structured warning carrying the identifiers an
+        // operator needs to correlate the bypass in Workers Logs.
+        console.warn(
+          `[OrchestratorAgent] Think research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
+        );
+        const fallback = await agent.runResearch({ trigger, userLogin: login });
+        if (!fallback.success || !fallback.report) {
+          const failure = fallback.error || child.error || `Research agent finished with status ${child.status}.`;
+          // Issue #577: a total failure escalates the task for a human
+          // instead of vanishing into this error return.
+          if (taskId) {
+            try {
+              await agent.failResearchTask(taskId, failure, true);
+            } catch {
+              // Ledger is best-effort; the error return stands either way.
+            }
+          }
+          return { success: false, error: failure, taskId };
+        }
+        executionPath = "fallback";
+        report = fallback.report;
+      }
+      const sql = this.ensureTables();
+      const stored = storeReportAtGeneration(sql, {
+        runId: report.runId,
+        generationId: report.generationId,
+        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+        source: "options_research",
+        summary: report.summary,
+        body: report as unknown as Record<string, unknown>,
+      });
+      // #335: render the run PDF from the canonical stored report (best-effort;
+      // the PDF is a delivery artifact, never a second copy).
+      let pdfKey: string | null = null;
+      try {
+        const { generateResearchPdf, researchPdfFileName } = await import(
+          "../trading"
+        );
+        const pdfBytes = await generateResearchPdf(report);
+        const fileName = researchPdfFileName(report);
+        pdfKey = await agent.storeResearchPdf(fileName, pdfBytes);
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
+      }
+      // #336: full delivery through the #308 seams (Slack, email, webhook),
+      // delivering the canonical stored copy. Best-effort; never fails the run.
+      let emailed = false;
+      try {
+        const delivery = await this.deliverResearchReport(
+          agent,
+          report,
+          {
+            reportId: stored?.reportId ?? null,
+            pdfKey,
+            trigger,
+            userLogin: login,
+          }
+        );
+        emailed = delivery.emailed;
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Research delivery failed:", err);
+      }
+      // Issue #577: complete the task with the path actually taken and a
+      // deterministic evaluation of the outcome (never a model grading
+      // itself). Best-effort — the published result stands either way.
+      if (taskId) {
+        try {
+          const evaluation = evaluateResearchOutcome(
+            {
+              reportRunId: report.runId,
+              previousRunId: previousRunId ?? null,
+              expectedTrigger: trigger,
+              expectedUserLogin: login,
+              reportTrigger: report.trigger,
+              reportUserLogin: report.userLogin,
+              summary: report.summary,
+              ideas: report.ideas.length,
+              watchlist: report.watchlist.length,
+              rejected: report.rejected.length,
+            },
+            new Date().toISOString()
+          );
+          await agent.completeResearchTask(taskId, {
+            path: executionPath,
+            reportRunId: report.runId,
+            evaluation,
+          });
+        } catch (err) {
+          console.warn(
+            `[OrchestratorAgent] Research task ledger unavailable (complete): ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+      // #584 EP-009: meter the research run — attribute compute to tenant + task.
+      // Best-effort and never throws; metering must not break the run.
+      try {
+        const { recordUsageEvent } = await import("../services/scheduledReports");
+        recordUsageEvent(this.ctx.storage.sql, {
+          userLogin: login,
+          runId: report.runId,
+          category: "research_run",
+          detail: { trigger, ideas: report.ideas.length, taskId },
+        });
+      } catch {
+        // Metering is advisory; the published result stands either way.
+      }
+      return {
+        success: true,
+        reportId: stored?.reportId ?? null,
+        created: stored?.created ?? false,
+        emailed,
+        report,
+        taskId,
+        executionPath,
+      };
+    } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
     }
-    return {
-      success: true,
-      reportId: stored?.reportId ?? null,
-      created: stored?.created ?? false,
-      emailed,
-      report,
-      taskId,
-      executionPath,
-    };
   }
 
   /**
