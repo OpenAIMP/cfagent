@@ -311,3 +311,11 @@ describe("Table + Skeleton (#492)", () => {
     expect(element.props.lines).toBe(3);
   });
 });
+
+describe("TextInput multiline (#594)", () => {
+  it("supports multiline (textarea) rendering with rows", () => {
+    const element = React.createElement(TextInput, { multiline: true, rows: 3, value: "body" });
+    expect(element.props.multiline).toBe(true);
+    expect(element.props.rows).toBe(3);
+  });
+});

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "../apiFetch";
+import { TextInput, Select } from "../components/ui";
 import { etToUtcCron } from "./cronTime";
 import "./scheduledOptions.css";
 
@@ -1230,8 +1231,7 @@ export function ScheduledOptionsManager({
                     Job
                     <span className="hint">What runs when this schedule fires</span>
                   </label>
-                  <select
-                    className="sched-select"
+                  <Select
                     value={jobType}
                     onChange={(e) => {
                       const nextJobType = e.target.value as CreatableJob;
@@ -1242,7 +1242,7 @@ export function ScheduledOptionsManager({
                     <option value="optionsAnalysis">Autonomous Options Analysis</option>
                     <option value="marketScreen">Autonomous Market Screen (Stocks)</option>
                     <option value="strategyDiscovery">Saved-View Strategy Discovery</option>
-                  </select>
+                  </Select>
                 </div>
               )}
 
@@ -1253,8 +1253,7 @@ export function ScheduledOptionsManager({
                     Target Universe
                     <span className="hint">Screens all symbols in the universe</span>
                   </label>
-                  <select
-                    className="sched-input"
+                  <Select
                     value={targetUniverse}
                     onChange={(e) => setTargetUniverse(e.target.value)}
                   >
@@ -1266,16 +1265,15 @@ export function ScheduledOptionsManager({
                     <option value="RUSSELL2000">Russell 2000</option>
                     <option value="ETF">ETFs</option>
                     <option value="LEV_ETF">Leveraged ETFs</option>
-                  </select>
+                  </Select>
                   {!targetUniverse && jobType === "optionsAnalysis" && (
                     <>
                       <label className="sched-form-label" style={{ marginTop: "0.5rem" }}>
                         Target Equity Symbols
                         <span className="hint">Comma-separated tickers</span>
                       </label>
-                      <input
+                      <TextInput
                         type="text"
-                        className="sched-input"
                         value={targetSymbols}
                         onChange={(e) => setTargetSymbols(e.target.value)}
                         placeholder="e.g. NVDA, AAPL, SPY, MSFT"
@@ -1292,9 +1290,8 @@ export function ScheduledOptionsManager({
                     Max items
                     <span className="hint">Maximum live symbols scanned per run; 0 means all selected symbols.</span>
                   </label>
-                  <input
+                  <TextInput
                     type="number"
-                    className="sched-input"
                     min={0}
                     step={1}
                     value={maxItems}
@@ -1337,9 +1334,8 @@ export function ScheduledOptionsManager({
                       <div className="discovery-request-grid">
                         <div className="sched-form-group">
                           <label className="sched-form-label">Symbol</label>
-                          <input
+                          <TextInput
                             type="text"
-                            className="sched-input"
                             value={draft.symbol}
                             onChange={(e) => updateDiscoveryRequest(idx, { symbol: e.target.value })}
                             placeholder="e.g. NVDA"
@@ -1349,8 +1345,7 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Thesis</label>
-                          <select
-                            className="sched-select"
+                          <Select
                             value={draft.thesis}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, { thesis: e.target.value as DiscoveryRequestDraft["thesis"] })
@@ -1361,13 +1356,12 @@ export function ScheduledOptionsManager({
                             <option value="bearish">Bearish</option>
                             <option value="range_bound">Range-bound</option>
                             <option value="large_move">Large move</option>
-                          </select>
+                          </Select>
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Target Price ($)</label>
-                          <input
+                          <TextInput
                             type="number"
-                            className="sched-input"
                             min={0}
                             step="0.01"
                             value={draft.targetPrice}
@@ -1379,9 +1373,8 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Target Date</label>
-                          <input
+                          <TextInput
                             type="date"
-                            className="sched-input"
                             value={draft.targetDate}
                             onChange={(e) => updateDiscoveryRequest(idx, { targetDate: e.target.value })}
                             aria-label={`View ${idx + 1} target date`}
@@ -1390,8 +1383,7 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Expected IV Direction</label>
-                          <select
-                            className="sched-select"
+                          <Select
                             value={draft.expectedIvDirection}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, {
@@ -1403,12 +1395,11 @@ export function ScheduledOptionsManager({
                             <option value="rise">Rise</option>
                             <option value="unchanged">Unchanged</option>
                             <option value="fall">Fall</option>
-                          </select>
+                          </Select>
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Data Mode</label>
-                          <select
-                            className="sched-select"
+                          <Select
                             value={draft.dataMode}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, { dataMode: e.target.value as DiscoveryRequestDraft["dataMode"] })
@@ -1417,13 +1408,12 @@ export function ScheduledOptionsManager({
                           >
                             <option value="live">Live chain</option>
                             <option value="calibrated-demo">Calibrated demo (gate permitting)</option>
-                          </select>
+                          </Select>
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Max Planned Loss ($)</label>
-                          <input
+                          <TextInput
                             type="number"
-                            className="sched-input"
                             min={0}
                             step="1"
                             value={draft.maxPlannedLoss}
@@ -1435,9 +1425,8 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Min Reward / Risk</label>
-                          <input
+                          <TextInput
                             type="number"
-                            className="sched-input"
                             min={0}
                             step="0.1"
                             value={draft.minRewardRisk}
@@ -1449,9 +1438,8 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Optimization Bias (0–100, optional)</label>
-                          <input
+                          <TextInput
                             type="number"
-                            className="sched-input"
                             min={0}
                             max={100}
                             step={1}
@@ -1463,9 +1451,8 @@ export function ScheduledOptionsManager({
                         </div>
                         <div className="sched-form-group">
                           <label className="sched-form-label">Max DTE (optional)</label>
-                          <input
+                          <TextInput
                             type="number"
-                            className="sched-input"
                             min={1}
                             step={1}
                             value={draft.maxDte}
@@ -1480,9 +1467,8 @@ export function ScheduledOptionsManager({
                           Allowed Strategies
                           <span className="hint">Comma-separated registry ids, or "all" for the full registry (the panel default)</span>
                         </label>
-                        <input
+                        <TextInput
                           type="text"
-                          className="sched-input"
                           value={draft.allowedStrategies}
                           onChange={(e) => updateDiscoveryRequest(idx, { allowedStrategies: e.target.value })}
                           placeholder="all"
@@ -1509,8 +1495,7 @@ export function ScheduledOptionsManager({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                 <div className="sched-form-group">
                   <label className="sched-form-label">Cadence Type</label>
-                  <select
-                    className="sched-select"
+                  <Select
                     value={scheduleType}
                     onChange={(e) => setScheduleType(e.target.value as ScheduleMode)}
                   >
@@ -1518,15 +1503,14 @@ export function ScheduledOptionsManager({
                     <option value="cron">Cron Expression (Specific Time/Days)</option>
                     <option value="delayed">Delayed (Once, After a Delay)</option>
                     <option value="scheduled">One-Shot (Specific Date &amp; Time)</option>
-                  </select>
+                  </Select>
                 </div>
 
                 {scheduleType === "interval" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Interval Seconds</label>
-                    <input
+                    <TextInput
                       type="number"
-                      className="sched-input"
                       value={intervalSeconds}
                       onChange={(e) => setIntervalSeconds(Number(e.target.value))}
                       min={60}
@@ -1551,9 +1535,8 @@ export function ScheduledOptionsManager({
                 {scheduleType === "cron" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Cron Expression</label>
-                    <input
+                    <TextInput
                       type="text"
-                      className="sched-input"
                       value={cronExpression}
                       onChange={(e) => setCronExpression(e.target.value)}
                       placeholder="e.g. 30 9 * * 1-5"
@@ -1586,9 +1569,8 @@ export function ScheduledOptionsManager({
                 {scheduleType === "delayed" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Delay Seconds</label>
-                    <input
+                    <TextInput
                       type="number"
-                      className="sched-input"
                       value={delaySeconds}
                       onChange={(e) => setDelaySeconds(Number(e.target.value))}
                       min={1}
@@ -1604,9 +1586,8 @@ export function ScheduledOptionsManager({
                 {scheduleType === "scheduled" && (
                   <div className="sched-form-group">
                     <label className="sched-form-label">Run At (One-Shot)</label>
-                    <input
+                    <TextInput
                       type="datetime-local"
-                      className="sched-input"
                       value={scheduledDate}
                       onChange={(e) => setScheduledDate(e.target.value)}
                       required
@@ -1624,8 +1605,7 @@ export function ScheduledOptionsManager({
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                     <div className="sched-form-group">
                       <label className="sched-form-label">Market Thesis / Outlook</label>
-                      <select
-                        className="sched-select"
+                      <Select
                         value={thesis}
                         onChange={(e) => setThesis(e.target.value as any)}
                       >
@@ -1633,20 +1613,19 @@ export function ScheduledOptionsManager({
                         <option value="bearish">Bearish (Puts, Bear Spreads)</option>
                         <option value="neutral">Neutral (Iron Condor, Calendar)</option>
                         <option value="directional">Directional (Breakouts &amp; Straddles)</option>
-                      </select>
+                      </Select>
                     </div>
 
                     <div className="sched-form-group">
                       <label className="sched-form-label">Risk Profile</label>
-                      <select
-                        className="sched-select"
+                      <Select
                         value={riskProfile}
                         onChange={(e) => setRiskProfile(e.target.value as any)}
                       >
                         <option value="conservative">Conservative (High POP &gt; 65%, Defined Risk)</option>
                         <option value="balanced">Balanced (Optimal R/R &gt; 1.5x, Moderate POP)</option>
                         <option value="aggressive">Aggressive (Maximum Leverage &amp; Upside)</option>
-                      </select>
+                      </Select>
                     </div>
                   </div>
 
@@ -1671,9 +1650,8 @@ export function ScheduledOptionsManager({
                           Interactive cards with <code>[✓ Approve &amp; Preview Order]</code> buttons
                         </span>
                         {pushToSlack && (
-                          <input
+                          <TextInput
                             type="text"
-                            className="sched-input"
                             style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
                             value={slackChannel}
                             onChange={(e) => setSlackChannel(e.target.value)}
@@ -1696,9 +1674,8 @@ export function ScheduledOptionsManager({
                           Detailed payoff metrics grid, breakevens, and Greeks summary
                         </span>
                         {Boolean(emailTo) && (
-                          <input
+                          <TextInput
                             type="email"
-                            className="sched-input"
                             style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
                             value={emailTo}
                             onChange={(e) => setEmailTo(e.target.value)}
@@ -1721,9 +1698,8 @@ export function ScheduledOptionsManager({
                           HMAC SHA-256 signed JSON payload. Dispatched only when OUTBOUND_WEBHOOK_SECRET is configured on the server — without a signing secret, the webhook is not sent.
                         </span>
                         {Boolean(webhookUrl) && (
-                          <input
+                          <TextInput
                             type="url"
-                            className="sched-input"
                             style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
                             value={webhookUrl}
                             onChange={(e) => setWebhookUrl(e.target.value)}

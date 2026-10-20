@@ -20,6 +20,7 @@
  * - Tabs + TabPanel — WAI-ARIA tablist/tabpanel pair (roving tabindex,
  *   arrow/Home/End keys, automatic activation).
  * - TextInput / Select — labeled form controls on the token input
+ *   family (TextInput adds ref forwarding + a multiline textarea mode)
  *   family, with hint/error wiring (aria-invalid + aria-describedby)
  *   via the shared FieldShell.
  * - Modal — dialog on the tokens.css Universal Modal System classes:
