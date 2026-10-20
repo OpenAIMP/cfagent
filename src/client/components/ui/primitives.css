@@ -153,6 +153,65 @@
 .ui-badge.tone-purple { background: var(--color-purple-subtle); color: var(--color-purple-text); border-color: var(--color-purple-border); }
 .ui-badge.tone-trade { background: var(--color-trade-subtle); color: var(--color-trade); border-color: var(--color-warning-border); }
 
+
+/* ---------- Button ---------- */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-btn.size-sm { font-size: 0.75rem; padding: 0.32rem 0.65rem; min-height: 30px; }
+.ui-btn.size-md { font-size: 0.85rem; padding: 0.5rem 1rem; min-height: 38px; }
+.ui-btn.size-lg { font-size: 0.95rem; padding: 0.65rem 1.3rem; min-height: 44px; }
+
+.ui-btn.variant-primary { background: var(--color-primary); color: var(--color-primary-foreground); }
+.ui-btn.variant-primary:hover:not(:disabled) { background: var(--color-primary-hover); }
+
+.ui-btn.variant-secondary {
+  background: var(--color-card-elevated);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-medium);
+}
+.ui-btn.variant-secondary:hover:not(:disabled) { background: var(--color-surface-hover); border-color: var(--color-border-strong); }
+
+.ui-btn.variant-ghost { background: transparent; color: var(--color-text-secondary); }
+.ui-btn.variant-ghost:hover:not(:disabled) { background: var(--color-muted); color: var(--color-text-primary); }
+
+.ui-btn.variant-danger { background: var(--color-danger); color: var(--color-danger-foreground); }
+.ui-btn.variant-danger:hover:not(:disabled) { background: var(--color-danger-text); }
+
+.ui-btn.variant-trade { background: var(--color-trade); color: var(--color-primary-foreground); }
+.ui-btn.variant-trade:hover:not(:disabled) { background: var(--color-trade-deep); }
+
+.ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ui-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.ui-btn .ui-btn-spinner {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: ui-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .segmented-btn, .pill-btn { transition: none; }
+  .segmented-btn, .pill-btn, .ui-btn { transition: none; }
+  .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }
 }
