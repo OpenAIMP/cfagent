@@ -7475,12 +7475,6 @@ body {
   background: var(--color-card-hover);
 }
 
-.empty-state {
-  text-align: center;
-  padding: 2.5rem;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-}
 
 .ledger-header-row {
   display: flex;
@@ -8540,30 +8534,8 @@ body {
   padding: 0.15rem;
 }
 
-.btn-pref-pill {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--color-text-muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 0.2rem 0.45rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
 
-.btn-pref-pill:hover {
-  color: var(--color-text-primary);
-  background: var(--color-muted);
-}
 
-.btn-pref-pill.active {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  border-color: var(--color-accent-border);
-  box-shadow: var(--shadow-glow-accent);
-}
 
 .font-size-controls-group {
   display: inline-flex;
@@ -8590,11 +8562,6 @@ body {
   text-align: center;
 }
 
-.btn-pref-pill.step-btn {
-  font-family: var(--font-mono);
-  font-weight: 800;
-  padding: 0.2rem 0.4rem;
-}
 
 .font-style-pref-row {
   align-items: center;

@@ -1605,8 +1605,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <tbody>
                 {bars.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="empty-state">
-                      {barsLoading ? "Loading historical bars…" : "No bars returned."}
+                    <td colSpan={8}>
+                      <EmptyState title={barsLoading ? "Loading historical bars…" : "No bars returned."} />
                     </td>
                   </tr>
                 ) : (
@@ -1828,8 +1828,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <tbody>
                 {comparisonResults.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="empty-state">
-                      {compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."}
+                    <td colSpan={11}>
+                      <EmptyState title={compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."} />
                     </td>
                   </tr>
                 ) : (

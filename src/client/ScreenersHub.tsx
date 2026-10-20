@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
-import { Skeleton } from "./components/ui";
+import { Skeleton, EmptyState } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -654,7 +654,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           ))}
           {!manualResult && summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
           {!manualResult && (rows.length > 0 || summary) && (
-            rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
+            rows.length === 0 ? <EmptyState title="No results matched those filters." /> : (
               <div className="options-table-scroll">
                 <div style={{
                   display: "flex",

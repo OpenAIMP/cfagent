@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card, Badge, TextInput, Button } from "./components/ui";
+import { Card, Badge, TextInput, Button, EmptyState } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -2216,36 +2216,30 @@ export function ETradeTradingHub({
               <tbody>
                 {positions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="empty-state portfolio-empty-state">
-                      <div className="portfolio-empty-box" style={{ padding: "2.5rem 1rem", textAlign: "center" }}>
-                        <div className="empty-icon" style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>💼</div>
-                        <h4 style={{ fontSize: "1.1rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
-                          {positionsLoading ? "Loading portfolio positions from broker…" : "No Active Holdings Found"}
-                        </h4>
-                        <p style={{ maxWidth: "520px", margin: "0 auto 1.25rem auto", color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: "1.5" }}>
-                          {positionsLoading
+                    <td colSpan={8}>
+                      <EmptyState
+                        icon="💼"
+                        title={positionsLoading ? "Loading portfolio positions from broker…" : "No Active Holdings Found"}
+                        description={
+                          positionsLoading
                             ? "Connecting to brokerage upstream and calculating portfolio equity balances…"
                             : isLive
                             ? "No active positions found in your connected live brokerage account. Use the Fast Order Ticket to build and preview an order."
-                            : "Your paper trading sandbox has no open positions. Place a paper trade or load curated demo holdings (NVDA, AAPL, MSFT, SPY) to explore portfolio analytics, charts, and Greeks."}
-                        </p>
-                        {!positionsLoading && (
-                          <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
-                            <Button variant="trade"
-                              type="button"
-                              onClick={() => handleNavigateSubTab("order")}
-                            >
-                              ⚡ Build Order Ticket
-                            </Button>
-                            <Button variant="secondary"
-                              type="button"
-                              onClick={handleSeedDemoPortfolio}
-                            >
-                              🌱 Load Curated Demo Positions
-                            </Button>
-                          </div>
-                        )}
-                      </div>
+                            : "Your paper trading sandbox has no open positions. Place a paper trade or load curated demo holdings (NVDA, AAPL, MSFT, SPY) to explore portfolio analytics, charts, and Greeks."
+                        }
+                        action={
+                          !positionsLoading ? (
+                            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+                              <Button variant="trade" onClick={() => handleNavigateSubTab("order")}>
+                                ⚡ Build Order Ticket
+                              </Button>
+                              <Button variant="secondary" onClick={handleSeedDemoPortfolio}>
+                                🌱 Load Curated Demo Positions
+                              </Button>
+                            </div>
+                          ) : undefined
+                        }
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -2429,8 +2423,8 @@ export function ETradeTradingHub({
               <tbody>
                 {orders.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="empty-state">
-                      {ordersLoading ? "Loading orders ledger…" : "No trade orders recorded yet."}
+                    <td colSpan={11}>
+                      <EmptyState title={ordersLoading ? "Loading orders ledger…" : "No trade orders recorded yet."} />
                     </td>
                   </tr>
                 ) : (
