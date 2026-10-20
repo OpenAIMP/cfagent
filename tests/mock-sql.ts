@@ -235,8 +235,39 @@ export class MockSqlStorage implements SqlStorage {
       const cols = insertMatch[2].split(",").map((c) => c.trim());
       const record: Record<string, any> = {};
 
+      // Issue #669: value tokens may mix placeholders with literals
+      // (e.g. VALUES (?, ?, 'queued', ?)) — a literal occupies its
+      // column without consuming a bound argument, exactly like real
+      // SQLite. Split on commas outside single quotes.
+      const valueTokens: string[] = [];
+      {
+        let current = "";
+        let inQuote = false;
+        for (const ch of insertMatch[3]) {
+          if (ch === "'") inQuote = !inQuote;
+          if (ch === "," && !inQuote) {
+            valueTokens.push(current);
+            current = "";
+          } else {
+            current += ch;
+          }
+        }
+        valueTokens.push(current);
+      }
+      let argIdx = 0;
       for (let i = 0; i < cols.length; i++) {
-        record[cols[i]] = args[i];
+        const token = (valueTokens[i] ?? "?").trim();
+        if (token === "?") {
+          record[cols[i]] = args[argIdx++];
+        } else if (token.startsWith("'") && token.endsWith("'")) {
+          record[cols[i]] = token.slice(1, -1).replace(/''/g, "'");
+        } else if (token.toUpperCase() === "NULL") {
+          record[cols[i]] = null;
+        } else if (!Number.isNaN(Number(token))) {
+          record[cols[i]] = Number(token);
+        } else {
+          record[cols[i]] = args[argIdx++];
+        }
       }
 
       let existing = this.tables.get(tbl);
@@ -256,7 +287,7 @@ export class MockSqlStorage implements SqlStorage {
     }
 
     // UPDATE table SET col = ?, ... WHERE id = ?
-    const updateMatch = q.match(/UPDATE\s+(\w+)\s+SET\s+(.*?)\s+WHERE\s+(.*?)$/i);
+    const updateMatch = q.match(/UPDATE\s+(\w+)\s+SET\s+(.*?)\s+WHERE\s+(.*?)$/is);
     if (updateMatch) {
       const tbl = updateMatch[1];
       const setPart = updateMatch[2];
@@ -275,6 +306,15 @@ export class MockSqlStorage implements SqlStorage {
         } else if (expr.includes("+")) {
           // e.g. impressions = impressions + 1
           updates.push({ col, val: null, isExpr: expr });
+        } else if (expr.startsWith("'") && expr.endsWith("'")) {
+          // Issue #669: literal SET assignments (e.g. status = 'running'
+          // in the async-job claim UPDATE) — real SQLite applies them
+          // without consuming a bound argument.
+          updates.push({ col, val: expr.slice(1, -1).replace(/''/g, "'") });
+        } else if (expr.toUpperCase() === "NULL") {
+          updates.push({ col, val: null });
+        } else if (!Number.isNaN(Number(expr))) {
+          updates.push({ col, val: Number(expr) });
         }
       }
 
