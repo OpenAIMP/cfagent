@@ -291,7 +291,7 @@ export async function handleEtradeBrokerRoutes(
       const universe = (filters.universe as string) || "NASDAQ100";
       const agent = ctx.getScreenerAgent(userLogin);
       if (universe === "ALL") {
-        const shards = await agent.runSharded({ trigger: "manual", filters, userLogin });
+        const shards = await agent.runSharded({ trigger: "manual", filters, userLogin, environment: requestedEnv });
         const orm = ctx.getOrm();
         for (const shard of shards) {
           await publishManualScreenerRun(ctx.env, orm, userLogin, shard);
@@ -329,6 +329,11 @@ export async function handleEtradeBrokerRoutes(
         filters,
         universe: universe as any,
         userLogin,
+        // The screener runs in its own Durable Object, so it cannot infer the
+        // environment selected on this orchestrator request. Carry the same
+        // authenticated account context into the shared manual/scheduled
+        // screening pipeline.
+        environment: requestedEnv,
       });
       ctx.audit("etrade.screened", "trading", {
         filterSummary: result.discoveryMessage,
