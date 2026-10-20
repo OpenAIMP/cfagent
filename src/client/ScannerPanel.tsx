@@ -684,21 +684,29 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
         >
           ⬇ JSON run
         </button>
-        <a
-          href={result.reportUrl || "/api/options/report.pdf"}
-          download
-          style={{
-            fontSize: "0.8rem",
-            padding: "0.35rem 0.75rem",
-            borderRadius: "4px",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-            textDecoration: "none",
-            marginLeft: "auto",
-          }}
-        >
-          📄 Download PDF report
-        </a>
+        {/* Issue #126 (PR-D): the PDF link exists only when THIS run
+            has its own reportUrl. The previous keyless fallback
+            ("/api/options/report.pdf" with no key) serves the LATEST
+            run's PDF — a viewed historical run silently downloaded a
+            different run's report, the wrong-run class #297 fixed
+            for the stock screener. No reportUrl → no PDF link. */}
+        {result.reportUrl && (
+          <a
+            href={result.reportUrl}
+            download
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+              marginLeft: "auto",
+            }}
+          >
+            📄 Download PDF report
+          </a>
+        )}
         {result.profileRef && (
           <span className="scp-badge scp-badge-profile">Profile: {result.profileRef.name} v{result.profileRef.version}</span>
         )}

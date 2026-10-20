@@ -2,6 +2,25 @@
 
 _Synced 2026-10-20 via `git clone` + `git pull --rebase` (main @ 6159842+). Repo: https://github.com/OpenAIMP/cfagent_
 
+## Status — COMPLETE (2026-10-20)
+
+All phases implemented and merged; issues #467–#476 and gate #491 closed.
+
+- **Coverage: 3,105 → 0** raw color literals in `src/client` outside the token sources
+  (`scripts/token-coverage.mjs` TOTAL). The Phase 2 ratchet allowlist is retired;
+  `tests/ux_token_coverage_ratchet.test.ts` is now a hard zero gate.
+- **One vocabulary**: `--color-*` semantic tokens only. The `--bg-*`/`--text-*`/
+  `--border-*`/`--accent-*` shims and the `--opt-*` layer are deleted codebase-wide.
+- **Three themes, one mechanism**: root `data-theme` only (legacy class/body adapters
+  deleted in Phase 4). `high-contrast` shipped in Phase 5 as a pure token map —
+  126 tokens, zero component changes. `generatedThemeTokens` covers 3 themes ×
+  93 `--color-*` tokens; contrast audit: 75 pairs, 0 below WCAG AA.
+- **PR trail**: #503, #505–#508, #516 (foundations), #509–#538 (Phase 3a),
+  #544/#546/#549/#550 (3b), #554/#556 (3c), #558 (Phase 4), #559 (Phase 5),
+  #562/#564 (Phase 6).
+- Continuing separately: #492 (composable primitives program) and #400 (Chat.tsx split).
+
+
 ## What the product / UX is
 
 **NextGenTP** (`ai-search-agent`, live at agent.openaimp.com): a Cloudflare Workers multi-agent
@@ -23,7 +42,7 @@ Object (Workers AI, RAG, NLQ analytics) with E*TRADE / options / screener toolin
 
 ### Appearance system (three preference axes, all pre-paint, no FOUC)
 
-- **Theme**: `light | dark | system` — `src/client/theme.ts`, localStorage `nextgentp_theme`,
+- **Theme**: `light | dark | system | high-contrast` — `src/client/theme.ts`, localStorage `nextgentp_theme`,
   `prefers-color-scheme` resolution + live listener + cross-tab storage sync.
 - **Density**: `compact | comfortable` — in `src/client/designTokens.ts`, key `nextgentp_density`.
 - **Typography**: font scale + style — `src/client/typography.ts`.
