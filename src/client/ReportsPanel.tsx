@@ -13,6 +13,7 @@ import { apiFetch as fetch } from "./apiFetch";
 import { Button, SegmentedControl } from "./components/ui";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
 import { ResearchIdeasBrowser } from "./chat/tabs/ResearchIdeasBrowser";
+import { ResearchTrackRecord } from "./chat/tabs/ResearchTrackRecord";
 import "./reports.css";
 
 export interface ReportItem {
@@ -47,7 +48,7 @@ export function ReportsPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [panelMode, setPanelMode] = useState<"reports" | "ideas">("reports");
+  const [panelMode, setPanelMode] = useState<"reports" | "ideas" | "track">("reports");
 
   const fetchReports = useCallback(async (query?: string) => {
     setLoading(true);
@@ -90,9 +91,12 @@ export function ReportsPanel() {
         options={[
           { id: "reports", label: "Reports" },
           { id: "ideas", label: "Watchlist & Rejected" },
+          { id: "track", label: "Track Record" },
         ]}
       />
-      {panelMode === "ideas" ? (
+      {panelMode === "track" ? (
+        <ResearchTrackRecord />
+      ) : panelMode === "ideas" ? (
         <ResearchIdeasBrowser
           onOpenReport={(id) => {
             setPanelMode("reports");

@@ -466,6 +466,39 @@ export class ResearchAgent extends Think<Env> {
   }
 
   /**
+   * Issue #340: the track record — every published run's ideas joined
+   * to their latest §9 evaluations. Read-only over the stored rows;
+   * never throws (an empty record on any failure).
+   */
+  async getTrackRecord(): Promise<import("../services/researchTrackRecord").TrackRecord> {
+    const { buildTrackRecord } = await import("../services/researchTrackRecord");
+    try {
+      this.ensureTables();
+      const sql = this.storageSql();
+      const runRows = Array.from(
+        sql.exec("SELECT report_json FROM research_runs ORDER BY created_at DESC")
+      ) as Array<{ report_json?: unknown }>;
+      const evalRows = Array.from(
+        sql.exec("SELECT evaluation_json FROM research_evaluations ORDER BY evaluated_at ASC")
+      ) as Array<{ evaluation_json?: unknown }>;
+      const parse = (v: unknown): unknown => {
+        if (typeof v !== "string") return null;
+        try {
+          return JSON.parse(v);
+        } catch {
+          return null;
+        }
+      };
+      return buildTrackRecord(
+        runRows.map((r) => parse(r.report_json)),
+        evalRows.map((r) => parse(r.evaluation_json))
+      );
+    } catch {
+      return buildTrackRecord([], []);
+    }
+  }
+
+  /**
    * §9 evaluation pass: compare a published run's ideas against later
    * prices. Reads the stored run; writes an evaluation row; never mutates
    * the original report.

@@ -402,3 +402,15 @@
   align-items: center;
   justify-content: space-between;
 }
+
+.track-record {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.track-record h4 {
+  margin: 10px 0 2px;
+  color: var(--color-text-primary);
+}

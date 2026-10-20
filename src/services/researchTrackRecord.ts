@@ -1,0 +1,223 @@
+/**
+ * Issue #340: the research track record — every published idea (§9
+ * record, written before outcomes were known) joined to its scheduled
+ * evaluation results. Pure builder over the stored shapes: no
+ * recomputation, no retrospective edits — render what was recorded.
+ *
+ * Join: evaluations belong to a run; an idea is matched by
+ * (runId, symbol, structure). When a run was evaluated more than once,
+ * the LATEST evaluation wins (evaluations are append-only snapshots).
+ */
+
+export interface TrackRecordIdea {
+  runId: string;
+  runCreatedAt: string;
+  symbol: string;
+  structure: string;
+  outlook: string;
+  thesis: string;
+  invalidation: string;
+  entrySpot: number | null;
+  /** Latest evaluation for this idea, or null when never evaluated. */
+  evaluation: {
+    evaluatedAt: string;
+    invalidated: boolean;
+    pnlEstimatePerUnit: number | null;
+    /** pnl / published maxLoss — the R multiple, when computable. */
+    rMultiple: number | null;
+    evalSpot: number | null;
+    directionCorrect: boolean | null;
+    notes: string[];
+  } | null;
+}
+
+export interface TrackRecordSlice {
+  key: string;
+  published: number;
+  evaluated: number;
+  /** Share of evaluated ideas with pnl > 0 (null when none evaluated). */
+  winRate: number | null;
+  avgRMultiple: number | null;
+}
+
+export interface TrackRecord {
+  published: number;
+  evaluated: number;
+  invalidated: number;
+  winRate: number | null;
+  directionAccuracy: number | null;
+  avgPnlPerUnit: number | null;
+  avgRMultiple: number | null;
+  byStrategy: TrackRecordSlice[];
+  byPeriod: TrackRecordSlice[];
+  ideas: TrackRecordIdea[];
+}
+
+interface ReportLike {
+  runId?: unknown;
+  createdAt?: unknown;
+  ideas?: unknown;
+}
+
+interface EvaluationLike {
+  runId?: unknown;
+  evaluatedAt?: unknown;
+  ideas?: unknown;
+}
+
+function isObj(v: unknown): v is Record<string, any> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+function num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function mean(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function sliceStats(rows: TrackRecordIdea[]): Omit<TrackRecordSlice, "key" | "published"> {
+  const evaluated = rows.filter((r) => r.evaluation != null);
+  const wins = evaluated.filter(
+    (r) => (r.evaluation!.pnlEstimatePerUnit ?? 0) > 0
+  ).length;
+  return {
+    evaluated: evaluated.length,
+    winRate: evaluated.length > 0 ? wins / evaluated.length : null,
+    avgRMultiple: mean(
+      evaluated
+        .map((r) => r.evaluation!.rMultiple)
+        .filter((v): v is number => v != null)
+    ),
+  };
+}
+
+function groupSlices(
+  ideas: TrackRecordIdea[],
+  keyOf: (idea: TrackRecordIdea) => string
+): TrackRecordSlice[] {
+  const groups = new Map<string, TrackRecordIdea[]>();
+  for (const idea of ideas) {
+    const key = keyOf(idea);
+    const list = groups.get(key) ?? [];
+    list.push(idea);
+    groups.set(key, list);
+  }
+  return [...groups.entries()]
+    .map(([key, rows]) => ({ key, published: rows.length, ...sliceStats(rows) }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+export function buildTrackRecord(
+  reports: unknown[],
+  evaluations: unknown[]
+): TrackRecord {
+  // Latest evaluation per run.
+  const latestByRun = new Map<string, { evaluatedAt: string; ideas: any[] }>();
+  for (const raw of evaluations) {
+    if (!isObj(raw)) continue;
+    const ev = raw as EvaluationLike;
+    const runId = str(ev.runId);
+    if (!runId) continue;
+    const evaluatedAt = str(ev.evaluatedAt);
+    const existing = latestByRun.get(runId);
+    if (!existing || evaluatedAt > existing.evaluatedAt) {
+      latestByRun.set(runId, {
+        evaluatedAt,
+        ideas: Array.isArray(ev.ideas) ? (ev.ideas as any[]) : [],
+      });
+    }
+  }
+
+  const ideas: TrackRecordIdea[] = [];
+  for (const raw of reports) {
+    if (!isObj(raw)) continue;
+    const report = raw as ReportLike;
+    const runId = str(report.runId);
+    if (!runId || !Array.isArray(report.ideas)) continue;
+    const runCreatedAt = str(report.createdAt);
+    const latest = latestByRun.get(runId);
+    for (const rawIdea of report.ideas as any[]) {
+      if (!isObj(rawIdea)) continue;
+      const symbol = str(rawIdea.symbol);
+      const structure = str(rawIdea.structure);
+      if (!symbol) continue;
+      const maxLoss = num((rawIdea.economics as any)?.maxLoss);
+      let evaluation: TrackRecordIdea["evaluation"] = null;
+      if (latest) {
+        const match = latest.ideas.find(
+          (e) => isObj(e) && str(e.symbol) === symbol && str(e.structure) === structure
+        );
+        if (match) {
+          const pnl = num(match.pnlEstimatePerUnit);
+          evaluation = {
+            evaluatedAt: latest.evaluatedAt,
+            invalidated: match.invalidated === true,
+            pnlEstimatePerUnit: pnl,
+            rMultiple:
+              pnl != null && maxLoss != null && maxLoss > 0 ? pnl / maxLoss : null,
+            evalSpot: num(match.evalSpot),
+            directionCorrect:
+              typeof match.directionCorrect === "boolean"
+                ? match.directionCorrect
+                : null,
+            notes: Array.isArray(match.notes) ? match.notes.map(str) : [],
+          };
+        }
+      }
+      ideas.push({
+        runId,
+        runCreatedAt,
+        symbol,
+        structure,
+        outlook: str(rawIdea.outlook),
+        thesis: str(rawIdea.thesis),
+        invalidation: str(rawIdea.invalidation),
+        entrySpot: num(rawIdea.entrySpot),
+        evaluation,
+      });
+    }
+  }
+
+  // Newest publications first.
+  ideas.sort((a, b) => b.runCreatedAt.localeCompare(a.runCreatedAt));
+
+  const evaluated = ideas.filter((i) => i.evaluation != null);
+  const directionScored = evaluated.filter(
+    (i) => i.evaluation!.directionCorrect != null
+  );
+  return {
+    published: ideas.length,
+    evaluated: evaluated.length,
+    invalidated: evaluated.filter((i) => i.evaluation!.invalidated).length,
+    winRate:
+      evaluated.length > 0
+        ? evaluated.filter((i) => (i.evaluation!.pnlEstimatePerUnit ?? 0) > 0)
+            .length / evaluated.length
+        : null,
+    directionAccuracy:
+      directionScored.length > 0
+        ? directionScored.filter((i) => i.evaluation!.directionCorrect).length /
+          directionScored.length
+        : null,
+    avgPnlPerUnit: mean(
+      evaluated
+        .map((i) => i.evaluation!.pnlEstimatePerUnit)
+        .filter((v): v is number => v != null)
+    ),
+    avgRMultiple: mean(
+      evaluated
+        .map((i) => i.evaluation!.rMultiple)
+        .filter((v): v is number => v != null)
+    ),
+    byStrategy: groupSlices(ideas, (i) => i.structure || "(unknown)"),
+    byPeriod: groupSlices(ideas, (i) => i.runCreatedAt.slice(0, 7) || "(unknown)"),
+    ideas,
+  };
+}
