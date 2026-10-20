@@ -58,11 +58,29 @@ export function ReportsPanel() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<"reports" | "ideas" | "track">("reports");
+  const [semanticMode, setSemanticMode] = useState(false);
 
-  const fetchReports = useCallback(async (query?: string) => {
+  const fetchReports = useCallback(async (query?: string, semantic?: boolean) => {
     setLoading(true);
     setError(null);
     try {
+      if (semantic && query?.trim()) {
+        // Issue #649: semantic search via Vectorize.
+        const params = new URLSearchParams({ q: query.trim() });
+        const res = await fetch(`/api/reports/semantic-search?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as any;
+        // Fetch the full report details for the merged hits.
+        const ids = (data.hits || []).map((h: any) => h.reportId);
+        if (ids.length === 0) {
+          setReports([]);
+        } else {
+          const all = await fetch(`/api/reports?limit=100`).then((r) => r.json()) as any;
+          const byId = new Map((all.reports || []).map((r: any) => [String(r.id), r]));
+          setReports(ids.map((id: string) => byId.get(id)).filter(Boolean));
+        }
+        return;
+      }
       const params = new URLSearchParams();
       if (query) params.set("q", query);
       if (sourceFilter !== "all") params.set("source", sourceFilter);
@@ -83,7 +101,7 @@ export function ReportsPanel() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchReports(searchQuery);
+    fetchReports(searchQuery, semanticMode);
   };
 
   const filteredSources = ["all", "screener", "options_scanner", "iv_collection", "research_report"];
@@ -124,6 +142,14 @@ export function ReportsPanel() {
             className="search-input"
           />
           <button type="submit" className="search-btn">🔍 Search</button>
+          <label className="semantic-toggle" title="Use AI semantic search instead of keyword matching">
+            <input
+              type="checkbox"
+              checked={semanticMode}
+              onChange={(e) => setSemanticMode(e.target.checked)}
+            />
+            🧠 Semantic
+          </label>
         </form>
         <div className="source-filters">
           {filteredSources.map((s) => (
