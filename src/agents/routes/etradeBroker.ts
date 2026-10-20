@@ -1134,7 +1134,7 @@ export async function handleEtradeBrokerActivityRoutes(
   // Issue #650: setup catalog browser endpoint.
   if (path.endsWith("/trading/setup-catalog") && request.method === "GET") {
     try {
-      const { listSetups } = await import("../../trading/setupCatalog");
+      const { listSetups } = await import("../../trading");
       return Response.json({ setups: listSetups() });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });

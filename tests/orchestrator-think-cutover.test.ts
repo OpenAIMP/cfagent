@@ -119,7 +119,15 @@ describe("#686 R1 — identity stability under the cutover", () => {
     const wrangler = read("wrangler.jsonc");
     expect(wrangler).toContain('{ "name": "SEARCH_AGENT", "class_name": "SearchAgent" }');
     expect(wrangler).toContain('{ "tag": "v1", "new_sqlite_classes": ["SearchAgent"] }');
-    expect(wrangler).not.toContain('"tag": "v7"');
+    // Identity pin: "SearchAgent" appears exactly twice in wrangler.jsonc —
+    // the SEARCH_AGENT binding and its v1 creation. Any later migration that
+    // re-created, renamed, or deleted the class would add an occurrence.
+    // (This replaces a blanket `not.toContain('"tag": "v7"')` written when v6
+    // was the head migration: v7 is #680's legitimate ReportAssetAgent
+    // migration, and banning the next tag number breaks on every new DO.)
+    expect(wrangler.match(/"SearchAgent"/g)).toHaveLength(2);
+    expect(wrangler).not.toContain("renamed_classes");
+    expect(wrangler).not.toContain("deleted_classes");
   });
 
   it("the routes ctx bag exposes Think session accessors, not AIChatAgent ones", () => {
