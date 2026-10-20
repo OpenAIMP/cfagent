@@ -19,6 +19,9 @@
  *   role=alert for danger/warning).
  * - Tabs + TabPanel — WAI-ARIA tablist/tabpanel pair (roving tabindex,
  *   arrow/Home/End keys, automatic activation).
+ * - TextInput / Select — labeled form controls on the token input
+ *   family, with hint/error wiring (aria-invalid + aria-describedby)
+ *   via the shared FieldShell.
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -32,3 +35,5 @@ export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { Card, type CardProps } from "./Card";
 export { Notice, type NoticeProps, type NoticeTone } from "./Notice";
 export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } from "./Tabs";
+export { TextInput, type TextInputProps } from "./TextInput";
+export { Select, type SelectProps } from "./Select";

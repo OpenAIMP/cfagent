@@ -19,7 +19,7 @@ import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 import { adAccentPalette } from "./designTokens";
-import { Button } from "./components/ui";
+import { Button, TextInput } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
@@ -1342,12 +1342,12 @@ export function Chat({ user }: { user: User }) {
                 <option value="mas_events">🛡️ mas_events (Audit Log)</option>
               </select>
 
-              <input
-                type="text"
+              <TextInput
                 value={browseSearch}
                 onChange={(e) => setBrowseSearch(e.target.value)}
                 placeholder="Search table text…"
-                className="orm-search-input"
+                aria-label="Search table text"
+                style={{ flex: 1, minWidth: 180 }}
               />
 
               <Button

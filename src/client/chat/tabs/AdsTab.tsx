@@ -1,5 +1,6 @@
 import React from "react";
 import { adAccentPalette } from "../../designTokens";
+import { Select } from "../../components/ui";
 import type { AdItem } from "../types";
 
 export interface AdsTabProps {
@@ -156,15 +157,15 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                   </div>
 
                   <div className="form-group">
-                    <label>Accent Color</label>
-                    <select
+                    <Select
+                      label="Accent Color"
                       value={newAdColor}
                       onChange={(e) => setNewAdColor(e.target.value)}
                     >
                       {adAccentPalette.map((c) => (
                         <option key={c.value} value={c.value}>{c.label} ({c.value})</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                 </div>
 
