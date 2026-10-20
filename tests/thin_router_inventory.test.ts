@@ -43,9 +43,18 @@
  * /trigger plus PUT /schedules/:id (in handleSchedulesRoutes, after
  * the get-by-id block and before create) — bringing the inventory
  * to 164.
- * Issue #649 added GET /reports/semantic-search (in
- * handleReportsRoutes, after the /api/reports equality) without
- * updating this pin; the pin was repaired alongside #424 — 165.
+ * Issue #649 added one more — POST /reports/semantic-search (in
+ * handleReportsRoutes, after the /api/reports list) — bringing the
+ * inventory to 165; the pin update landed with #714 after the route
+ * was found unpinned during #686 post-merge verification.
+ * #714 also pinned five more routes that had landed unpinned:
+ * /trading/setup-catalog and /learnings ×2 (handleEtradeBroker-
+ * ActivityRoutes, after /etrade/lookup; #650, #706) and
+ * /options/strategy-reviews + /options/strategy-reviews/decide
+ * (handleEtradeOptionsRoutes, after /trading/options/config; #653)
+ * — bringing the inventory to 170. Issue #705 added one more —
+ * POST /reflection/run (handleEtradeBrokerActivityRoutes, last) —
+ * 171, pinned by #714 as well.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -192,6 +201,10 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: endsWith(\"/etrade/lookup\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/trading/setup-catalog\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/learnings\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/learnings\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/reflection/run\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/options/latest\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/chains\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/strategy\")",
@@ -214,6 +227,8 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/screen\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/unified\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/config\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/strategy-reviews\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/strategy-reviews/decide\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlists\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlist/details\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlist/create\")",
