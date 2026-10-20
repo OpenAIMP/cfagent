@@ -424,6 +424,19 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         );
       }
     }
+    // #584 EP-009: meter the research run — attribute compute to tenant + task.
+    // Best-effort and never throws; metering must not break the run.
+    try {
+      const { recordUsageEvent } = await import("../services/scheduledReports");
+      recordUsageEvent(this.ctx.storage.sql, {
+        userLogin: login,
+        runId: report.runId,
+        category: "research_run",
+        detail: { trigger, ideas: report.ideas.length, taskId },
+      });
+    } catch {
+      // Metering is advisory; the published result stands either way.
+    }
     return {
       success: true,
       reportId: stored?.reportId ?? null,
@@ -1750,7 +1763,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    */
   private async storeResearchReportCanonicalAsync(
     bodyJson: string,
-    meta: { title: string; summary: string }
+    meta: { title: string; summary: string; userLogin?: string }
   ): Promise<{ reportId: string; generationId: string } | null> {
     const generationId = await sha256Hex(bodyJson);
     const orm = this.getOrm();
@@ -1762,6 +1775,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       summary: meta.summary,
       body: JSON.parse(bodyJson),
       createdAt: new Date().toISOString(),
+      userLogin: meta.userLogin,
     });
     return stored ? { reportId: stored.reportId, generationId } : null;
   }
