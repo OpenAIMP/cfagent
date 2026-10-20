@@ -12,6 +12,7 @@ import {
   buildAllStocks,
 } from "../src/trading/screenerPipeline";
 import { DynamicMarketScreener } from "../src/trading/screener";
+import { DEFAULT_SCREENER_CONFIG } from "../src/trading/screenerConfig";
 import type { ETradeQuote, ScreenedStockItem } from "../src/types";
 
 function makeQuote(overrides: Partial<ETradeQuote> = {}): ETradeQuote {
@@ -281,5 +282,106 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
     expect(acquired.quotes.length).toBe(1);
     expect(acquired.partial).toBeUndefined();
     expect(acquired.discovery.message).not.toContain("Partial screen");
+  });
+});
+
+describe("screenerPipeline — E*TRADE batch quote acquisition (#495)", () => {
+  const listed = (symbols: string[]) =>
+    symbols.map(
+      (symbol) => ({ symbol, companyName: `${symbol} Inc`, exchange: "NASDAQ" }) as any
+    );
+  const configWith = (
+    overrides: Partial<typeof DEFAULT_SCREENER_CONFIG.acquisition>
+  ) => ({
+    ...DEFAULT_SCREENER_CONFIG,
+    acquisition: { ...DEFAULT_SCREENER_CONFIG.acquisition, ...overrides },
+  });
+
+  it("quotes a universe in batch requests instead of one request per symbol", async () => {
+    const symbols = Array.from({ length: 60 }, (_, i) => `B${i}`);
+    const batch = vi.fn(async (requested: string[]) =>
+      requested.map((symbol) => makeQuote({ symbol }))
+    );
+    const single = vi.fn(async () => {
+      throw new Error("per-symbol path must not run for a fully batched universe");
+    });
+
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: listed(symbols),
+      maxSymbols: 0,
+      config: configWith({ quoteBatchSize: 50 }),
+      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+    });
+
+    // 60 symbols = 50 + 10: two broker calls, zero per-symbol calls.
+    expect(batch).toHaveBeenCalledTimes(2);
+    expect(batch.mock.calls.map(([requested]) => requested.length)).toEqual([50, 10]);
+    expect(single).not.toHaveBeenCalled();
+    expect(acquired.quotes).toHaveLength(60);
+    expect(acquired.partial).toBeUndefined();
+    expect(acquired.discovery.message).toContain("60 of 60");
+  });
+
+  it("retries a symbol the batch omitted so a complete screen stays complete", async () => {
+    const batch = vi.fn(async (requested: string[]) =>
+      requested.filter((symbol) => symbol !== "BBB").map((symbol) => makeQuote({ symbol }))
+    );
+    const single = vi.fn(async (symbol: string) => makeQuote({ symbol }));
+
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: listed(["AAA", "BBB", "CCC"]),
+      maxSymbols: 0,
+      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+    });
+
+    expect(single).toHaveBeenCalledWith("BBB");
+    expect(acquired.quotes.map((q) => q.symbol).sort()).toEqual(["AAA", "BBB", "CCC"]);
+    expect(acquired.partial).toBeUndefined();
+  });
+
+  it("qualifies a screen that stays incomplete and names the broker omission", async () => {
+    const batch = vi.fn(async (requested: string[]) =>
+      requested.filter((symbol) => symbol !== "BBB").map((symbol) => makeQuote({ symbol }))
+    );
+    const single = vi.fn(async (symbol: string) => makeQuote({ symbol }));
+
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: listed(["AAA", "BBB", "CCC"]),
+      maxSymbols: 0,
+      // Spent retry budget: the omission is reported as a broker omission
+      // instead of being retried again.
+      config: configWith({ maxIndividualQuoteRetries: 0 }),
+      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+    });
+
+    expect(single).not.toHaveBeenCalled();
+    expect(acquired.partial?.quotedCount).toBe(2);
+    expect(acquired.partial?.requestedCount).toBe(3);
+    expect(acquired.partial?.failedSymbols).toEqual(["BBB"]);
+    expect(acquired.partial?.failureReasons).toEqual({ "batch-omitted": 1 });
+    expect(acquired.discovery.message).toContain("Partial screen");
+  });
+
+  it("caps per-symbol retries so an outage cannot fan out into hundreds of calls", async () => {
+    const symbols = Array.from({ length: 40 }, (_, i) => `C${i}`);
+    const batch = vi.fn(async () => [] as ETradeQuote[]);
+    const single = vi.fn(async (symbol: string) => makeQuote({ symbol }));
+
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: listed(symbols),
+      maxSymbols: 0,
+      config: configWith({ maxIndividualQuoteRetries: 3 }),
+      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+    });
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(single).toHaveBeenCalledTimes(3);
+    expect(acquired.quotes).toHaveLength(3);
+    expect(acquired.partial?.requestedCount).toBe(40);
+    expect(acquired.partial?.failedSymbols).toHaveLength(37);
   });
 });
