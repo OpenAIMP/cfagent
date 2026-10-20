@@ -205,6 +205,33 @@
   border-left: 3px solid var(--color-accent);
 }
 
+.schedule-item-card.is-discovery {
+  border-left: 3px solid var(--color-sentiment-directional);
+}
+
+/* Saved discovery view editor (issue #126): one card per saved
+   StrategyRequest inside the schedule create/edit form. */
+.discovery-request-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  padding: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.discovery-request-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.discovery-request-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
 .schedule-card-top {
   display: flex;
   justify-content: space-between;
