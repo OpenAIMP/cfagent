@@ -331,6 +331,15 @@ Run affected tests and required repository checks.
 
 For prose-only documentation, static configuration, generated output, or other changes where classic TDD does not fit, use appropriate validation and document the exception.
 
+### The pin rule
+
+A **pin** is a test that freezes a shared surface so that changes to it are deliberate and visible. This repository's pins include the route inventory (`tests/thin_router_inventory.test.ts`), the design-token mirror and contrast/drift suites, the dependency-pinning guard, Durable Object binding and migration assertions, module-boundary suites (e.g. the trading boundary), and the Think conformance adopter set.
+
+1. **Same PR.** A change that alters a pinned surface MUST update the corresponding pin in the same pull request: adding or reordering a route updates the route inventory; changing tokens or themes regenerates the mirror and satisfies the contrast/drift suites; adding a binding or migration updates the identity assertions it touches; an import across a module boundary goes through the boundary's public surface instead of around it. A pin updated later, in a cleanup PR, means the surface changed unpinned — that gap is where drift accumulates (the #677 UX token regression is the standing example).
+2. **No red pins merge.** A pull request MUST NOT merge while any pin fails, whether the pin guards its own surface or another one. A pin red on `main` is a stop-the-line event under §10, never background noise to be merged over.
+3. **Scope pins narrowly.** A pin MUST assert the facts it exists to protect and no more. An over-broad pin — for example banning any new migration tag anywhere in `wrangler.jsonc` when the invariant is one class's migration — false-fires on legitimate parallel change and teaches everyone to ignore pins. When a pin false-fires, narrow it in the same PR that reveals it.
+4. **New surfaces get pins.** Introducing a new shared surface (a route family, a token set, a binding, a module boundary) without a pin requires an explicit note in the PR body saying why. Silence is not a waiver.
+
 ### Agentic application requirements
 
 Where applicable, test:
