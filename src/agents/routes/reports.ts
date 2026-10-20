@@ -381,6 +381,50 @@ export async function handleReportsRoutes(
     return Response.json({ success: true, status: result.status });
   }
 
+  // Issue #339: one stored report by id for the Reports-tab detail view
+  // (research run detail renders the canonical body client-side). The
+  // attachment payload of email-delivery bodies is stripped — the detail
+  // view needs metadata, not a base64 PDF. Owner scoping matches the
+  // list (#584 EP-003).
+  const reportDetailMatch = path.match(/\/api\/reports\/([^/]+)$/);
+  if (reportDetailMatch && request.method === "GET") {
+    try {
+      const { getScheduledReportById, scheduledReportPdfUrl } = await import("../../services/scheduledReports");
+      const headerLogin = request.headers.get("x-user-login");
+      const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
+      const hit = getScheduledReportById(ctx.ensureTables(), decodeURIComponent(reportDetailMatch[1]), { userLogin });
+      if (!hit) {
+        return Response.json({ error: "Report not found" }, { status: 404 });
+      }
+      let body: unknown = null;
+      let hasAttachment = false;
+      try {
+        const parsed = JSON.parse(hit.body);
+        if (parsed && typeof parsed === "object" && typeof (parsed as any).attachmentBase64 === "string" && (parsed as any).attachmentBase64) {
+          hasAttachment = true;
+          body = { ...(parsed as Record<string, unknown>), attachmentBase64: "" };
+        } else {
+          body = parsed;
+        }
+      } catch {
+        body = null;
+      }
+      return Response.json({
+        id: hit.id,
+        runId: hit.runId,
+        title: hit.title,
+        source: hit.source,
+        summary: hit.summary,
+        createdAt: hit.createdAt,
+        reportUrl: scheduledReportPdfUrl(hit.source, hit.body),
+        hasAttachment,
+        body,
+      });
+    } catch {
+      return Response.json({ error: "Failed to load report" }, { status: 500 });
+    }
+  }
+
   // List persisted reports (issue #309). Queries mas_reports (populated by #278, #308).
   // Supports ?q=search query and ?source=screener|options_scanner|iv_collection
   if ((path.endsWith("/reports") || path === "/reports" || path === "/api/reports") && request.method === "GET") {
