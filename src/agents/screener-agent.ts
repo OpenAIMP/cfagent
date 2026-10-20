@@ -648,5 +648,31 @@ export class ScreenerAgent extends Agent<Env> {
     } catch (err) {
       console.warn("[ScreenerAgent] PDF generation failed:", err);
     }
+    // Issue #732: persist to mas_reports so the Reports tab shows scheduled runs.
+    // The tab reads from SQL, but persistRun only wrote to DO storage.
+    try {
+      const { persistScheduledReportSql } = await import("../services/scheduledReports");
+      const orm = this.getOrm();
+      const sql = {
+        exec: (query: string, ...params: unknown[]) => orm.execQuery(query, ...params),
+      } as any;
+      persistScheduledReportSql(sql, {
+        runId: `${result.universe}:${result.timestamp}`,
+        title: `Market Screen — ${result.universe} · ${result.trigger === "manual" ? "Manual" : "Scheduled"}`,
+        source: "screener",
+        summary: `Scanned ${result.totalScanned}, ${result.matchedCount} matched.`,
+        body: JSON.stringify({
+          universe: result.universe,
+          sector: result.sector,
+          totalScanned: result.totalScanned,
+          matchedCount: result.matchedCount,
+          opportunities: result.opportunities,
+          timestamp: result.timestamp,
+        }),
+        userLogin: this.userLogin(),
+      });
+    } catch (err) {
+      console.warn("[ScreenerAgent] mas_reports persistence failed:", err);
+    }
   }
 }
