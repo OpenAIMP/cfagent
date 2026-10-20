@@ -29,6 +29,7 @@
 import {
   ETradeAgenticPaymentService,
   TRADING_PAID_SERVICES,
+  payerScopeId,
 } from "../../services/agenticPayments";
 import { ETradeService } from "../../services/etrade";
 import { FossResearchService } from "../../services/fossResearch";
@@ -46,6 +47,26 @@ export interface PremiumRouteContext {
 }
 
 /**
+ * Issue #183: build the payment service for a premium request. The
+ * worker (src/server.ts) sets the x-user-login header ONLY from the
+ * caller's verified session and strips it for anonymous traffic, which
+ * is served by the shared premium-gateway instance. So: header present
+ * → session traffic, per-user behaviour unchanged; header absent →
+ * anonymous traffic, and the service runs payer-bound so every
+ * persisted payment row/event is scoped by the VERIFIED payer
+ * (services/agenticPayments.ts payerScopeId), never by an asserted
+ * login and never pooled under the gateway instance's identity.
+ */
+function premiumPaymentService(
+  ctx: PremiumRouteContext,
+  sessionId: string,
+  request: Request
+): ETradeAgenticPaymentService {
+  const payerBound = !request.headers.get("x-user-login");
+  return new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId, undefined, { payerBound });
+}
+
+/**
  * Handles the premium paid-trading routes. Returns a Response on match,
  * null when no premium path matches (the orchestrator then continues its
  * sequential matching).
@@ -59,7 +80,7 @@ export async function handlePremiumRoutes(
 ): Promise<Response | null> {
   // Paid Trading Service: Institutional Options & Greeks Screener ($0.05 USDC)
   if (path.includes("/premium/options-scan") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
 
     return paymentService.handleGatedEndpoint(
@@ -87,7 +108,16 @@ export async function handlePremiumRoutes(
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
           };
         }
-        const userLogin = request.headers.get("x-user-login") || sessionId || "premium_subscriber";
+        // Issue #183: the fulfillment identity is the session login
+        // (x-user-login, set by the worker from the verified session)
+        // for signed-in traffic. For anonymous gateway traffic there is
+        // deliberately NO x-user-login — the identity is the VERIFIED
+        // payer scope from the payment receipt. That scope is not an app
+        // login and holds no stored E*TRADE tokens, so broker access
+        // fails honestly ("OAuth Token Missing") instead of running
+        // under a caller-asserted login. The previous fallbacks
+        // (sessionId, then a shared "premium_subscriber") are gone.
+        const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
         const rawEnvHdr = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
         const reqEnvLocal = (rawEnvHdr === "TEST" || rawEnvHdr === "PROD") ? rawEnvHdr : undefined;
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, reqEnvLocal);
@@ -135,7 +165,7 @@ export async function handlePremiumRoutes(
 
   // Paid Trading Service: Autonomous Equity Research Report ($0.10 USDC)
   if (path.includes("/premium/market-research") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
 
     return paymentService.handleGatedEndpoint(
@@ -185,7 +215,7 @@ export async function handlePremiumRoutes(
 
   // Paid Trading Service: Real-Time Quantitative Anomaly Signals ($0.02 USDC)
   if (path.includes("/premium/stock-signals") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.STOCK_SIGNALS;
 
     return paymentService.handleGatedEndpoint(
