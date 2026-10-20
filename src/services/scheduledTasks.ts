@@ -851,27 +851,6 @@ export class ScheduledTasksService {
         }
       }
 
-      // Issue #223: put the run on the screener event bus, mirroring the
-      // stock screen (#210). Delivery above stays on the direct A2A path;
-      // the event is the lifecycle record subscribers consume.
-      await this.publishScreenerEvent({
-        type: "options.completed",
-        timestamp,
-        trigger: options.trigger || "scheduled",
-        universe: options.universe,
-        thesis: targetThesis,
-        totalScanned: response.data?.scanned ?? symbols.length,
-        withTrades: response.data?.withTrades ?? 0,
-        symbols,
-        summary: response.summary,
-        reportUrl,
-        opportunities: (response.data?.opportunities || []).slice(0, 10).map((row: any) => ({
-          symbol: row.symbol,
-          strategy: row.pick?.best?.candidate?.type,
-          directionTags: row.directionTags,
-        })),
-      });
-
       return {
         success: true,
         taskType: "options_analysis" as any,
@@ -918,16 +897,6 @@ export class ScheduledTasksService {
         });
         if (!failure.ok) console.warn("[ScheduledTasksService] Slack A2A failure notification failed:", failure.error);
       }
-
-      // Issue #223: the failure joins the bus too, mirroring screener.failed.
-      await this.publishScreenerEvent({
-        type: "options.failed",
-        timestamp,
-        trigger: options.trigger || "scheduled",
-        universe: options.universe,
-        thesis: targetThesis,
-        error: err.message || "Scheduled options analysis failed",
-      });
 
       return {
         success: false,
@@ -1411,7 +1380,17 @@ export class ScheduledTasksService {
         );
       }
 
-      const etrade = new ETradeService(this.env);
+      // One client/pipeline for the whole execution — the saved
+      // path's construction, under the schedule owner's identity and
+      // environment (#447/#461). The bare form used here before
+      // silently substituted the "default_trader" login and no
+      // environment override (#672).
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        userLogin,
+        options.environment
+      );
       const pipeline = new OptionsAgentPipeline(
         new DynamicOptionsScreener(etrade.client)
       );
