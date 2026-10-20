@@ -283,6 +283,8 @@ body.theme-dark,
   --gradient-trade-hover: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   --gradient-user: linear-gradient(135deg, #4338ca 0%, #312e81 100%);
   --gradient-ai: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
+  --gradient-llm: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(168, 85, 247, 0.3) 100%);
+  --color-trade-subtle: rgba(234, 88, 12, 0.14);
   --color-trade: #ea580c;
   --color-trade-deep: #c2410c;
   --shadow-focus-ring: 0 0 0 3px rgba(56, 189, 248, 0.3);
@@ -451,6 +453,8 @@ body.theme-light,
   --gradient-trade-hover: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
   --gradient-user: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
   --gradient-ai: linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);
+  --gradient-llm: linear-gradient(135deg, rgba(79, 70, 229, 0.16) 0%, rgba(147, 51, 234, 0.16) 100%);
+  --color-trade-subtle: rgba(194, 65, 12, 0.1);
   --color-trade: #c2410c;
   --color-trade-deep: #9a3412;
   --shadow-focus-ring: 0 0 0 3px rgba(2, 132, 199, 0.35);

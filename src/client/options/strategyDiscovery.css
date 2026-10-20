@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: var(--space-3, 0.75rem);
   gap: var(--space-3, 0.75rem);
   flex-wrap: wrap;
@@ -38,10 +38,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1, 0.25rem);
-  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.75));
+  background: var(--color-surface-sunken);
   padding: 3px;
   border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--color-border-subtle);
   box-sizing: border-box;
 }
 
@@ -67,15 +67,15 @@
 }
 
 .strat-view-tab-btn:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
 .strat-view-tab-btn.active {
-  background: rgba(2, 132, 199, 0.22);
+  background: var(--color-info-subtle);
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.45);
-  box-shadow: 0 0 12px rgba(2, 132, 199, 0.25);
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-glow-accent);
   font-weight: var(--font-weight-bold, 700);
 }
 
@@ -266,7 +266,7 @@
   font-weight: var(--font-weight-semibold, 600);
   padding: 2px var(--space-1, 0.25rem);
   border-radius: var(--radius-xs, 4px);
-  background: var(--color-surface, rgba(15, 23, 42, 0.6));
+  background: var(--color-surface);
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border-subtle);
   white-space: nowrap;
@@ -279,22 +279,22 @@
 
 .strat-opt-adjacent-factors .strat-factor-chip.return {
   color: var(--color-warning);
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: var(--color-warning-border);
 }
 
 .strat-opt-adjacent-factors .strat-factor-chip.chance {
   color: var(--color-success);
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: var(--color-success-border);
 }
 
 .strat-opt-adjacent-factors .strat-factor-chip.safety {
   color: var(--color-sentiment-directional);
-  border-color: rgba(168, 85, 247, 0.3);
+  border-color: var(--color-purple-border);
 }
 
 .strat-opt-adjacent-factors .strat-factor-chip.capital {
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: var(--color-accent-border);
 }
 
 .strat-opt-slider-wrap {
@@ -339,8 +339,8 @@
 }
 
 .strat-factor-card {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm, 6px);
   padding: 0.35rem 0.55rem;
   display: flex;
@@ -372,7 +372,7 @@
 .strat-factor-bar-bg {
   height: 3px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-muted);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -464,12 +464,12 @@
 
 .strat-change-pill.positive {
   color: var(--color-success);
-  background: rgba(34, 197, 94, 0.12);
+  background: var(--color-success-subtle);
 }
 
 .strat-change-pill.negative {
   color: var(--color-danger);
-  background: rgba(239, 68, 68, 0.12);
+  background: var(--color-danger-subtle);
 }
 
 .strat-delayed-badge {
@@ -633,7 +633,7 @@
 .strat-sentiment-card.neutral.active .strat-sentiment-circle {
   border-color: var(--color-sentiment-neutral);
   background: var(--color-sentiment-neutral);
-  color: var(--color-text-inverse, var(--color-surface));
+  color: var(--color-text-inverse);
   box-shadow: 0 0 14px var(--color-sentiment-neutral-border);
 }
 
@@ -734,7 +734,7 @@
 
 .strat-rr-select option {
   background: var(--color-surface-sunken);
-  color: var(--color-surface-sunken-foreground, var(--color-text-primary));
+  color: var(--color-surface-sunken-foreground);
 }
 
 .strat-stat-rr-badge {
@@ -775,12 +775,12 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(8, 15, 36, 0.85) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-input);
+  border: 1px solid var(--color-border-medium);
   border-radius: 8px;
   padding: 0.45rem 0.65rem;
   font-size: 0.82rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-sm);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -792,16 +792,16 @@
 }
 
 .strat-input-pill:hover {
-  border-color: rgba(56, 189, 248, 0.45);
-  background: linear-gradient(135deg, rgba(20, 32, 58, 0.85) 0%, rgba(12, 22, 50, 0.95) 100%);
-  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.15);
+  border-color: var(--color-accent-border);
+  background: var(--color-input);
+  box-shadow: var(--shadow-glow-accent);
   transform: translateY(-1px);
 }
 
 .strat-input-pill:focus-within {
   border-color: var(--color-accent);
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(8, 15, 36, 0.95) 100%);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), 0 4px 12px rgba(0, 0, 0, 0.4);
+  background: var(--color-input);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .strat-input-pill label {
@@ -858,20 +858,20 @@
 }
 
 .strat-pct-tag.gain {
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  border: 1px solid var(--color-success-border);
 }
 
 .strat-pct-tag.loss {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid var(--color-danger-border);
 }
 
 .strat-implied-move-info {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(8, 15, 36, 0.85) 100%);
-  border-color: rgba(56, 189, 248, 0.28);
+  background: var(--color-info-subtle);
+  border-color: var(--color-accent-border);
 }
 
 .strat-implied-val {
@@ -909,8 +909,8 @@
 }
 
 .strat-scroll-arrow {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   width: 26px;
   height: 48px;
@@ -928,9 +928,9 @@
 }
 
 .strat-scroll-arrow:hover {
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--color-surface-hover);
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.45);
+  border-color: var(--color-accent-border);
   transform: scale(1.05);
 }
 
@@ -948,7 +948,7 @@
   overflow-y: hidden !important;
   padding: 0.4rem 0.2rem;
   scrollbar-width: thin;
-  scrollbar-color: rgba(56, 189, 248, 0.35) rgba(15, 23, 42, 0.6);
+  scrollbar-color: var(--color-accent-border) var(--color-surface-sunken);
   width: 100%;
   justify-content: flex-start;
   scroll-behavior: smooth;
@@ -962,26 +962,26 @@
 
 .strat-exp-chips-scroll::-webkit-scrollbar-track,
 .strat-timeline-row::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--color-surface-sunken);
   border-radius: 3px;
 }
 
 .strat-exp-chips-scroll::-webkit-scrollbar-thumb,
 .strat-timeline-row::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.35);
+  background: var(--color-accent-border);
   border-radius: 3px;
 }
 
 .strat-exp-chips-scroll::-webkit-scrollbar-thumb:hover,
 .strat-timeline-row::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.6);
+  background: var(--color-border-focus);
 }
 
 .strat-timeline-chip,
 .strat-exp-chip {
-  background: var(--color-surface, rgba(15, 23, 42, 0.85));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
-  color: var(--color-text-secondary, var(--color-text-muted));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
   padding: 0.35rem 0.65rem;
   border-radius: 8px;
   cursor: pointer;
@@ -999,9 +999,9 @@
 
 .strat-timeline-chip:hover,
 .strat-exp-chip:hover {
-  background: var(--color-surface-hover, rgba(30, 41, 59, 0.95));
-  color: var(--color-text-primary, var(--color-surface));
-  border-color: var(--color-primary, rgba(56, 189, 248, 0.4));
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-primary);
 }
 
 .strat-timeline-chip.active,
@@ -1010,7 +1010,7 @@
   color: var(--color-text-primary);
   border-color: var(--color-accent);
   font-weight: 700;
-  box-shadow: 0 0 12px rgba(2, 132, 199, 0.55);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .strat-chip-month {
@@ -1018,7 +1018,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--color-text-secondary, var(--color-text-muted));
+  color: var(--color-text-secondary);
   line-height: 1.1;
 }
 
@@ -1030,7 +1030,7 @@
 .strat-chip-day {
   font-size: 0.88rem;
   font-weight: 800;
-  color: var(--color-text-primary, var(--color-surface));
+  color: var(--color-text-primary);
   line-height: 1.1;
 }
 
@@ -1131,8 +1131,8 @@
 .strat-card:hover,
 .strat-discovery-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(56, 189, 248, 0.45);
-  box-shadow: 0 12px 28px rgba(2, 132, 199, 0.2);
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .strat-card-title-row {
@@ -1230,7 +1230,7 @@
   height: 120px;
   background: var(--color-surface-sunken);
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-subtle);
   display: block;
 }
 
@@ -1247,12 +1247,12 @@
   cursor: pointer;
   text-align: center;
   transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .strat-card-btn-builder:not(.strat-card-icon-btn):hover {
   background: var(--color-accent);
-  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.55);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 /* ==========================================================================
@@ -1305,7 +1305,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: 0.75rem;
 }
 
@@ -1330,9 +1330,9 @@
 }
 
 .strat-btn-action {
-  background: var(--color-surface, rgba(30, 41, 59, 0.7));
+  background: var(--color-surface);
   color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm, 6px);
   height: 32px;
   min-height: 32px;
@@ -1351,62 +1351,62 @@
 }
 
 .strat-btn-action:hover {
-  background: var(--color-surface-hover, rgba(51, 65, 85, 0.85));
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong, rgba(255, 255, 255, 0.25));
+  border-color: var(--color-border-strong);
   transform: translateY(-1px);
 }
 
 .strat-btn-action.secondary {
-  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.8));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.12));
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-secondary);
 }
 
 .strat-btn-action.secondary:hover {
-  background: var(--color-surface-hover, rgba(30, 41, 59, 0.9));
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
 .strat-btn-action.eval-llm {
-  background: rgba(147, 51, 234, 0.15);
-  border-color: rgba(168, 85, 247, 0.35);
+  background: var(--color-purple-subtle);
+  border-color: var(--color-purple-border);
   color: var(--color-sentiment-directional);
 }
 
 .strat-btn-action.eval-llm:hover {
-  background: rgba(147, 51, 234, 0.28);
-  border-color: rgba(168, 85, 247, 0.55);
+  background: var(--color-purple-subtle);
+  border-color: var(--color-purple-border);
   color: var(--color-text-primary);
 }
 
 .strat-btn-action.risk-btn {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
   color: var(--color-warning);
 }
 
 .strat-btn-action.risk-btn:hover {
-  background: rgba(245, 158, 11, 0.28);
-  border-color: rgba(245, 158, 11, 0.55);
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
   color: var(--color-text-primary);
 }
 
 .strat-btn-action.strat-btn-trade-highlight {
-  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
-  border: 1px solid #c2410c !important;
-  color: #ffffff !important;
+  background: var(--gradient-trade) !important;
+  border: 1px solid var(--color-trade-deep) !important;
+  color: var(--color-on-gradient) !important;
   font-weight: var(--font-weight-bold, 700) !important;
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+  box-shadow: var(--shadow-glow-trade) !important;
+  text-shadow: var(--text-shadow-on-gradient) !important;
 }
 
 .strat-btn-action.strat-btn-trade-highlight:hover {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
-  border-color: #ea580c !important;
-  color: #ffffff !important;
+  background: var(--gradient-trade-hover) !important;
+  border-color: var(--color-trade) !important;
+  color: var(--color-on-gradient) !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.5) !important;
+  box-shadow: var(--shadow-glow-trade) !important;
 }
 
 /* SUBHEADER: SYMBOL QUOTE BAR (IMAGE 1 & 2) */
@@ -1415,8 +1415,8 @@
   align-items: center;
   gap: 0.85rem;
   padding: 0.65rem 1rem;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   margin: 0.4rem 0 0.85rem 0;
   flex-wrap: wrap;
@@ -1436,15 +1436,15 @@
   font-size: 0.92rem;
   letter-spacing: 0.03em;
   padding: 0.25rem 0.65rem;
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  border: 1px solid var(--color-accent-border);
   border-radius: 6px;
 }
 
 .strat-sym-quick-btn {
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
   padding: 0.25rem 0.65rem;
   border-radius: 6px;
@@ -1458,9 +1458,9 @@
 }
 
 .strat-sym-quick-btn:hover {
-  background: rgba(51, 65, 85, 0.9);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: var(--color-border-strong);
 }
 
 .strat-quote-name {
@@ -1492,24 +1492,24 @@
 }
 
 .strat-quote-change.gain {
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid var(--color-success-border);
 }
 
 .strat-quote-change.loss {
-  background: rgba(244, 63, 94, 0.15);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  border: 1px solid var(--color-danger-border);
 }
 
 .strat-delayed-tag {
   font-size: 0.72rem;
   color: var(--color-text-dim);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border-subtle);
   white-space: nowrap;
 }
 
@@ -1546,8 +1546,8 @@
 }
 
 .strat-ruler-nav-arrow {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   width: 28px;
   height: var(--strike-ruler-height);
@@ -1565,9 +1565,9 @@
 }
 
 .strat-ruler-nav-arrow:hover {
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--color-surface-hover);
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.45);
+  border-color: var(--color-accent-border);
   transform: scale(1.04);
 }
 
@@ -1586,7 +1586,7 @@
 .strat-strike-ruler {
   position: relative;
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   height: var(--strike-ruler-height);
   display: flex;
@@ -1606,17 +1606,17 @@
 }
 
 .strat-strike-ruler::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--color-surface-sunken);
   border-radius: 3px;
 }
 
 .strat-strike-ruler::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.35);
+  background: var(--color-accent-border);
   border-radius: 3px;
 }
 
 .strat-strike-ruler::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.6);
+  background: var(--color-border-focus);
 }
 
 .strat-ruler-ticks {
@@ -1652,7 +1652,7 @@
 }
 
 .strat-ruler-tick:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-muted);
   border-radius: 4px;
 }
 
@@ -1713,13 +1713,13 @@
 .strat-ruler-tick.highlight .strat-ruler-price-txt {
   color: var(--color-accent);
   font-weight: 800;
-  text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+  text-shadow: var(--shadow-glow-accent);
 }
 
 .strat-ruler-tick.highlight .strat-ruler-tick-bar {
   background: var(--color-accent);
   height: var(--space-2);
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .strat-ruler-badge {
@@ -1735,7 +1735,7 @@
   letter-spacing: -0.01em;
   color: var(--color-text-primary);
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   z-index: 2;
   user-select: none;
@@ -1743,7 +1743,7 @@
 
 .strat-ruler-badge:hover {
   transform: scale(1.08);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   z-index: 5;
 }
 
@@ -1763,7 +1763,7 @@
   grid-template-columns: repeat(6, 1fr);
   gap: 0.75rem;
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.85rem 1rem;
 }
@@ -1834,8 +1834,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.65));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg, 14px);
   padding: 0.5rem 0.85rem;
   box-sizing: border-box;
@@ -1863,7 +1863,7 @@
 .strat-footer-slider-label {
   font-size: 0.72rem;
   font-weight: 700;
-  color: var(--color-text-secondary, var(--color-text-muted));
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
@@ -1884,7 +1884,7 @@
 .strat-footer-sub-label {
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--color-text-muted, var(--color-text-dim));
+  color: var(--color-text-muted);
   text-transform: uppercase;
 }
 
@@ -1898,9 +1898,9 @@
   padding: 0.18rem 0.45rem;
   font-size: 0.7rem;
   border-radius: 4px;
-  background: var(--color-surface, rgba(15, 23, 42, 0.8));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
-  color: var(--color-text-secondary, var(--color-border-medium));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
@@ -1926,14 +1926,14 @@
   font-size: 0.68rem;
   border-radius: 4px;
   cursor: pointer;
-  background: var(--color-surface, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
-  color: var(--color-text-secondary, var(--color-text-muted));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
 }
 
 .strat-iv-btn.mini:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.1));
-  color: var(--color-text-primary, var(--color-surface));
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 /* BOTTOM VIEW TOGGLE BAR (TABLE / GRAPH, METRICS) */
@@ -1942,7 +1942,7 @@
   align-items: center;
   justify-content: space-between;
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.45rem 0.75rem;
   flex-wrap: wrap;
@@ -1956,8 +1956,8 @@
 }
 
 .strat-bottom-btn {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-muted);
   font-size: 0.78rem;
   font-weight: 600;
@@ -1968,7 +1968,7 @@
 }
 
 .strat-bottom-btn:hover {
-  background: rgba(30, 41, 59, 0.8);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
@@ -1981,7 +1981,7 @@
 /* POSITIONS DRAWER / MODAL */
 .strat-positions-panel {
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  border: 1px solid var(--color-accent-border);
   border-radius: 6px;
   padding: 1rem;
   display: flex;
@@ -2003,7 +2003,7 @@
   grid-template-columns: 80px 100px 1fr 100px 100px 50px;
   align-items: center;
   gap: 0.6rem;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--color-surface-sunken);
   padding: 0.5rem 0.75rem;
   border-radius: 4px;
   font-size: 0.82rem;
@@ -2040,7 +2040,7 @@
   color: var(--color-text-muted);
   padding: 0.6rem 0.8rem;
   text-align: right;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--color-border-medium);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -2053,7 +2053,7 @@
 .strat-matrix-table td {
   padding: 0.45rem 0.8rem;
   text-align: right;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .strat-matrix-table td:first-child {
@@ -2061,7 +2061,7 @@
 }
 
 .strat-matrix-table tr.current-price-row {
-  background: rgba(56, 189, 248, 0.12);
+  background: var(--color-accent-subtle);
   font-weight: 700;
 }
 
@@ -2073,14 +2073,14 @@
   width: 100%;
   max-width: 680px;
   margin: 0.6rem auto 0 auto;
-  background: rgba(11, 19, 41, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: var(--color-card);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
   padding: 0.85rem 1.1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-card);
 }
 
 .strat-opt-regime-row {
@@ -2091,7 +2091,7 @@
 }
 
 .strat-opt-regime-badge {
-  background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(14, 165, 233, 0.15) 100%);
+  background: var(--color-accent-subtle);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
   padding: 0.25rem 0.65rem;
@@ -2117,8 +2117,8 @@
 }
 
 .strat-factor-card {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.45rem 0.55rem;
   display: flex;
@@ -2161,7 +2161,7 @@
 .strat-factor-bar-bg {
   width: 100%;
   height: 5px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-muted);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -2208,29 +2208,29 @@
   font-weight: 600;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-muted);
 }
 
 .strat-factor-pill.pop {
   color: var(--color-success);
-  border-color: rgba(34, 197, 94, 0.3);
+  border-color: var(--color-success-border);
 }
 
 .strat-factor-pill.return {
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: var(--color-accent-border);
 }
 
 .strat-factor-pill.safety {
   color: var(--color-sentiment-directional);
-  border-color: rgba(168, 85, 247, 0.3);
+  border-color: var(--color-purple-border);
 }
 
 .strat-factor-pill.score {
   color: var(--color-warning);
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: var(--color-warning-border);
   font-weight: 700;
 }
 
@@ -2242,8 +2242,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  background: rgba(11, 19, 41, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.75rem 1rem;
 }
@@ -2264,8 +2264,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.5rem 0.85rem;
 }
@@ -2287,22 +2287,22 @@
 
 .strat-leg-pill.call.buy,
 .strat-leg-pill.call {
-  background: rgba(34, 197, 94, 0.2);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(34, 197, 94, 0.4);
+  border: 1px solid var(--color-success-border);
 }
 
 .strat-leg-pill.put.buy,
 .strat-leg-pill.put {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  border: 1px solid var(--color-danger-border);
 }
 
 .strat-leg-pill.sell {
-  background: rgba(234, 179, 8, 0.2);
+  background: var(--color-warning-subtle);
   color: var(--color-warning);
-  border: 1px solid rgba(234, 179, 8, 0.4);
+  border: 1px solid var(--color-warning-border);
 }
 
 .strat-leg-strike-display {
@@ -2329,8 +2329,8 @@
 }
 
 .strat-strike-step-btn {
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-primary);
   padding: 0.25rem 0.55rem;
   border-radius: 4px;
@@ -2362,7 +2362,7 @@
   gap: 0.45rem;
   margin-top: auto;
   padding-top: 0.55rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--color-border-subtle);
   width: 100%;
 }
 
@@ -2407,7 +2407,7 @@
   transform: translateX(-50%) translateY(4px);
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  border: 1px solid var(--color-accent-border);
   font-size: 0.68rem;
   font-weight: 700;
   font-family: var(--font-sans);
@@ -2418,7 +2418,7 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  box-shadow: var(--shadow-md);
   z-index: 99;
 }
 
@@ -2430,7 +2430,7 @@
   transform: translateX(-50%);
   border-width: 4px;
   border-style: solid;
-  border-color: rgba(56, 189, 248, 0.35) transparent transparent transparent;
+  border-color: var(--color-accent-border) transparent transparent transparent;
 }
 
 .strat-card-icon-btn:hover .strat-icon-tooltip {
@@ -2441,16 +2441,16 @@
 
 /* 1. Trade Button (Amber / Orange theme) */
 .strat-card-icon-btn.trade {
-  background: rgba(234, 88, 12, 0.12) !important;
-  border-color: rgba(234, 88, 12, 0.3) !important;
+  background: var(--color-trade-subtle) !important;
+  border-color: var(--color-trade) !important;
   color: var(--color-warning) !important;
 }
 
 .strat-card-icon-btn.trade:hover {
-  background: rgba(234, 88, 12, 0.28) !important;
+  background: var(--color-trade-subtle) !important;
   border-color: var(--color-warning) !important;
   color: var(--color-text-primary) !important;
-  box-shadow: 0 0 12px rgba(234, 88, 12, 0.35) !important;
+  box-shadow: var(--shadow-glow-trade) !important;
   transform: translateY(-2px);
 }
 
@@ -2480,7 +2480,7 @@
 .strat-card-icon-btn.eval:hover {
   background: var(--color-sentiment-directional) !important;
   border-color: var(--color-sentiment-directional) !important;
-  color: #ffffff !important;
+  color: var(--color-on-gradient) !important;
   box-shadow: 0 0 12px var(--color-sentiment-directional-subtle) !important;
   transform: translateY(-2px);
 }
@@ -2488,14 +2488,14 @@
 /* 4. Risk Analysis Button */
 .strat-card-icon-btn.risk {
   background: var(--color-warning-subtle) !important;
-  border-color: var(--color-warning-border, var(--color-warning)) !important;
+  border-color: var(--color-warning-border) !important;
   color: var(--color-warning) !important;
 }
 
 .strat-card-icon-btn.risk:hover {
   background: var(--color-warning) !important;
   border-color: var(--color-warning) !important;
-  color: var(--color-warning-foreground, #ffffff) !important;
+  color: var(--color-warning-foreground) !important;
   box-shadow: 0 0 12px var(--color-warning-subtle) !important;
   transform: translateY(-2px);
 }
@@ -2509,16 +2509,16 @@
 
 
 .strat-btn-action.eval-llm {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(168, 85, 247, 0.3) 100%);
-  border: 1px solid rgba(168, 85, 247, 0.5);
+  background: var(--gradient-llm);
+  border: 1px solid var(--color-purple-border);
   color: var(--color-text-secondary);
 }
 
 .strat-btn-action.eval-llm:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5) 0%, rgba(168, 85, 247, 0.5) 100%);
+  background: var(--gradient-llm);
   border-color: var(--color-sentiment-directional);
   color: var(--color-text-primary);
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.35);
+  box-shadow: var(--shadow-glow-purple);
 }
 
 /* ==========================================================================
@@ -2530,8 +2530,8 @@
 }
 
 .options-download-main-btn {
-  background: rgba(14, 165, 233, 0.15);
-  border: 1px solid rgba(14, 165, 233, 0.4);
+  background: var(--color-info-subtle);
+  border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
   font-family: var(--font-sans);
   font-size: var(--font-size-body-sm, 0.8125rem);
@@ -2551,10 +2551,10 @@
 }
 
 .options-download-main-btn:hover:not(:disabled) {
-  background: rgba(14, 165, 233, 0.3);
+  background: var(--color-info-subtle);
   border-color: var(--color-accent);
   color: var(--color-text-primary);
-  box-shadow: 0 0 10px rgba(14, 165, 233, 0.25);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .options-download-main-btn:disabled {
@@ -2568,9 +2568,9 @@
   right: 0;
   min-width: 310px;
   background: var(--color-surface-sunken) !important;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.15);
+  box-shadow: var(--shadow-lg), var(--shadow-glow-accent);
   padding: 0.6rem;
   z-index: 1000;
   display: flex;
@@ -2583,7 +2583,7 @@
 
 .options-download-menu-header {
   padding: 0.3rem 0.5rem 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2605,27 +2605,27 @@
   gap: 0.6rem;
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
 }
 
 .options-download-menu-item:hover:not(:disabled) {
-  background: rgba(30, 41, 59, 0.9);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-card);
+  border-color: var(--color-accent-border);
   transform: translateX(2px);
 }
 
 .options-download-menu-item.highlight {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.3);
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
 }
 
 .options-download-menu-item.highlight:hover:not(:disabled) {
-  background: rgba(34, 197, 94, 0.2);
-  border-color: rgba(34, 197, 94, 0.6);
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
 }
 
 .options-download-menu-item .menu-item-icon {
@@ -2658,15 +2658,15 @@
 }
 
 .options-download-status.success {
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  border: 1px solid var(--color-success-border);
 }
 
 .options-download-status.error {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid var(--color-danger-border);
 }
 
 /* ==========================================================================
@@ -2675,7 +2675,7 @@
 .llm-eval-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 7, 18, 0.85);
+  background: var(--color-overlay);
   backdrop-filter: blur(8px);
   z-index: 9999;
   display: flex;
@@ -2687,9 +2687,9 @@
 
 .llm-eval-modal-content {
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(99, 102, 241, 0.35);
+  border: 1px solid var(--color-primary-border);
   border-radius: 12px;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 25px rgba(99, 102, 241, 0.2);
+  box-shadow: var(--shadow-lg), var(--shadow-glow-indigo);
   width: 100%;
   max-width: 860px;
   max-height: 90vh;
@@ -2715,8 +2715,8 @@
   align-items: flex-start;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  background: rgba(15, 23, 42, 0.85);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .llm-eval-title-group {
@@ -2760,7 +2760,7 @@
 
 .llm-eval-close-btn:hover {
   color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-muted);
 }
 
 .llm-eval-modal-body {
@@ -2775,8 +2775,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 0.6rem;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 0.75rem 1rem;
 }
@@ -2819,7 +2819,7 @@
 
 .llm-eval-label textarea {
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--color-border-medium);
   border-radius: 6px;
   color: var(--color-text-primary);
   padding: 0.65rem 0.85rem;
@@ -2833,7 +2833,7 @@
 .llm-eval-label textarea:focus {
   outline: none;
   border-color: var(--color-sentiment-directional);
-  box-shadow: 0 0 10px rgba(129, 140, 248, 0.25);
+  box-shadow: var(--shadow-glow-indigo);
 }
 
 .llm-eval-action-bar {
@@ -2853,12 +2853,12 @@
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  box-shadow: var(--shadow-glow-indigo);
 }
 
 .llm-eval-submit-btn:hover:not(:disabled) {
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-sentiment-directional) 100%);
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.5);
+  box-shadow: var(--shadow-glow-indigo);
   transform: translateY(-1px);
 }
 
@@ -2869,8 +2869,8 @@
 }
 
 .llm-eval-order-btn {
-  background: rgba(34, 197, 94, 0.2);
-  border: 1px solid rgba(34, 197, 94, 0.45);
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success-border);
   color: var(--color-success);
   font-size: 0.82rem;
   font-weight: 700;
@@ -2881,7 +2881,7 @@
 }
 
 .llm-eval-order-btn:hover {
-  background: rgba(34, 197, 94, 0.35);
+  background: var(--color-success-subtle);
   border-color: var(--color-success);
   color: var(--color-text-primary);
 }
@@ -2901,7 +2901,7 @@
   font-size: 0.72rem;
   color: var(--color-text-muted);
   padding: 0.4rem 0.6rem;
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--color-surface-sunken);
   border-radius: 4px;
 }
 
@@ -2910,8 +2910,8 @@
 }
 
 .llm-eval-synthesis-card {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--color-card);
+  border: 1px solid var(--color-primary-border);
   border-radius: 8px;
   padding: 1rem;
   display: flex;
@@ -2938,7 +2938,7 @@
   flex-direction: column;
   gap: 0.45rem;
   margin-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.6rem;
 }
 
@@ -2954,7 +2954,7 @@
   display: flex;
   align-items: flex-start;
   gap: 0.6rem;
-  background: rgba(30, 41, 59, 0.5);
+  background: var(--color-surface-sunken);
   padding: 0.5rem 0.7rem;
   border-radius: 6px;
 }
@@ -2963,7 +2963,7 @@
   font-size: 0.8rem;
   font-weight: 800;
   color: var(--color-accent);
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
 }
@@ -2993,8 +2993,8 @@
 }
 
 .llm-eval-group-card {
-  background: rgba(15, 23, 42, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.75rem;
   display: flex;
@@ -3006,7 +3006,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: 0.35rem;
 }
 
@@ -3038,19 +3038,19 @@
   font-size: 0.65rem;
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
-  background: rgba(56, 189, 248, 0.12);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  border: 1px solid var(--color-accent-border);
 }
 
 /* ==========================================================================
    DOWNLOAD RAW & NORMALIZED DATA STRIP IN MODAL
    ========================================================================== */
 .llm-eval-export-strip {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: var(--color-card);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
   padding: 0.85rem 1rem;
   display: flex;
@@ -3095,44 +3095,44 @@
 }
 
 .llm-export-btn.raw {
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: var(--color-info-subtle);
+  border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
 }
 
 .llm-export-btn.raw:hover {
-  background: rgba(59, 130, 246, 0.3);
+  background: var(--color-info-subtle);
   border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
 
 .llm-export-btn.normalized {
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: var(--color-purple-subtle);
+  border: 1px solid var(--color-purple-border);
   color: var(--color-sentiment-directional);
 }
 
 .llm-export-btn.normalized:hover {
-  background: rgba(168, 85, 247, 0.3);
+  background: var(--color-purple-subtle);
   border-color: var(--color-sentiment-directional);
   color: var(--color-text-primary);
 }
 
 .llm-export-btn.report {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.4);
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success-border);
   color: var(--color-success);
 }
 
 .llm-export-btn.report:hover {
-  background: rgba(34, 197, 94, 0.3);
+  background: var(--color-success-subtle);
   border-color: var(--color-success);
   color: var(--color-text-primary);
 }
 
 .options-eval-llm-btn {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%);
-  border: 1px solid rgba(168, 85, 247, 0.5);
+  background: var(--gradient-llm);
+  border: 1px solid var(--color-purple-border);
   color: var(--color-text-secondary);
   font-size: 0.78rem;
   font-weight: 700;
@@ -3146,10 +3146,10 @@
 }
 
 .options-eval-llm-btn:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.45) 0%, rgba(168, 85, 247, 0.45) 100%);
+  background: var(--gradient-llm);
   border-color: var(--color-sentiment-directional);
   color: var(--color-text-primary);
-  box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+  box-shadow: var(--shadow-glow-purple);
 }
 
 /* ==========================================================================
@@ -3167,7 +3167,7 @@
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(2, 132, 199, 0.4);
+  box-shadow: var(--shadow-lg), var(--shadow-glow-accent);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -3195,8 +3195,8 @@
 }
 
 .strat-action-chip {
-  background: var(--color-surface, rgba(15, 23, 42, 0.8));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.12));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-secondary);
   height: 32px;
   min-height: 32px;
@@ -3216,59 +3216,59 @@
 }
 
 .strat-action-chip:hover {
-  background: var(--color-surface-hover, rgba(30, 41, 59, 0.95));
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong, rgba(56, 189, 248, 0.4));
+  border-color: var(--color-border-strong);
 }
 
 .strat-action-chip.highlight {
-  background: rgba(2, 132, 199, 0.2);
+  background: var(--color-info-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
 
 .strat-action-chip.highlight:hover {
-  background: rgba(2, 132, 199, 0.4);
+  background: var(--color-info-subtle);
   color: var(--color-text-primary);
 }
 
 .strat-action-chip.save {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
   color: var(--color-success);
 }
 
 .strat-action-chip.save:hover {
-  background: rgba(16, 185, 129, 0.3);
+  background: var(--color-success-subtle);
   color: var(--color-text-primary);
 }
 
 .strat-action-chip.trade-fast {
-  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
-  color: #ffffff !important;
-  border: 1px solid #c2410c !important;
+  background: var(--gradient-trade) !important;
+  color: var(--color-on-gradient) !important;
+  border: 1px solid var(--color-trade-deep) !important;
   font-weight: var(--font-weight-bold, 700) !important;
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+  box-shadow: var(--shadow-glow-trade) !important;
+  text-shadow: var(--text-shadow-on-gradient) !important;
   flex-shrink: 0;
 }
 
 .strat-action-chip.trade-fast:hover {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
-  color: #ffffff !important;
-  border-color: #ea580c !important;
+  background: var(--gradient-trade-hover) !important;
+  color: var(--color-on-gradient) !important;
+  border-color: var(--color-trade) !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.5) !important;
+  box-shadow: var(--shadow-glow-trade) !important;
 }
 
 .strat-action-chip.refresh {
-  background: rgba(14, 165, 233, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-info-subtle);
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
 }
 
 .strat-action-chip.refresh:hover {
-  background: rgba(14, 165, 233, 0.3);
+  background: var(--color-info-subtle);
   border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
@@ -3279,8 +3279,8 @@
 }
 
 .strat-mini-refresh-btn {
-  background: rgba(30, 41, 59, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: var(--color-card);
+  border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
   padding: 0.2rem 0.45rem;
   border-radius: 4px;
@@ -3295,7 +3295,7 @@
 }
 
 .strat-mini-refresh-btn:hover {
-  background: rgba(2, 132, 199, 0.25);
+  background: var(--color-info-subtle);
   border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
@@ -3334,17 +3334,17 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-medium);
   padding: 2px 4px;
   border-radius: 7px;
   transition: all 0.2s ease;
 }
 
 .strat-autorefresh-group.active {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.35);
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
+  box-shadow: var(--shadow-glow-primary);
 }
 
 .strat-action-chip.autorefresh {
@@ -3394,20 +3394,20 @@
 }
 
 .autorefresh-badge.on {
-  background: rgba(16, 185, 129, 0.25);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  border: 1px solid var(--color-success-border);
 }
 
 .autorefresh-badge.off {
-  background: rgba(100, 116, 139, 0.2);
+  background: var(--color-muted);
   color: var(--color-text-muted);
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  border: 1px solid var(--color-border-strong);
 }
 
 .strat-autorefresh-select {
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
   border-radius: 5px;
   padding: 0.2rem 0.4rem;
@@ -3421,7 +3421,7 @@
 .strat-autorefresh-select:hover,
 .strat-autorefresh-select:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 /* Symbol Autocomplete Dropdown Popover (Anchored under symbol input / search) */
@@ -3440,10 +3440,10 @@
   width: 360px;
   max-height: 380px;
   overflow-y: auto;
-  background: var(--color-surface-raised, var(--color-surface-sunken));
-  border: 1px solid var(--color-border-medium, rgba(56, 189, 248, 0.3));
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-md, 8px);
-  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.6), 0 6px 16px -2px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
   padding: 0.4rem;
   z-index: 999;
   backdrop-filter: blur(16px);
@@ -3494,7 +3494,7 @@
 
 .strat-dropdown-item:hover,
 .strat-dropdown-item.active {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
 }
 
 .strat-dropdown-sym-col {
@@ -3547,12 +3547,12 @@
 
 .strat-dropdown-pill.gain {
   color: var(--color-success);
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--color-success-subtle);
 }
 
 .strat-dropdown-pill.loss {
   color: var(--color-danger);
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--color-danger-subtle);
 }
 
 /* Strategy Name & Change Button */
@@ -3563,8 +3563,8 @@
 }
 
 .strat-change-strat-btn {
-  background: rgba(2, 132, 199, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: var(--color-info-subtle);
+  border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
   font-size: 0.74rem;
   font-weight: 600;
@@ -3575,7 +3575,7 @@
 }
 
 .strat-change-strat-btn:hover {
-  background: rgba(2, 132, 199, 0.3);
+  background: var(--color-info-subtle);
   color: var(--color-text-primary);
 }
 
@@ -3584,8 +3584,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: var(--color-card);
+  border: 1px solid var(--color-primary-border);
   border-left: 3px solid var(--color-sentiment-directional);
   border-radius: 8px;
   padding: 0.55rem 0.95rem;
@@ -3616,7 +3616,7 @@
 }
 
 .strat-compare-toggle-btn {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
   font-size: 0.74rem;
@@ -3634,7 +3634,7 @@
 
 .strat-compare-revert-btn {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   font-size: 0.74rem;
   font-weight: 600;
@@ -3645,7 +3645,7 @@
 
 .strat-compare-revert-btn:hover {
   color: var(--color-text-primary);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: var(--color-border-strong);
 }
 
 /* Symbol Quote Bar search button */
@@ -3656,8 +3656,8 @@
 }
 
 .strat-sym-quick-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   font-size: 0.72rem;
   padding: 0.15rem 0.4rem;
@@ -3666,7 +3666,7 @@
 }
 
 .strat-sym-quick-btn:hover {
-  background: rgba(56, 189, 248, 0.2);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
 }
 
@@ -3720,8 +3720,8 @@
 }
 
 .strat-ruler-shift-btn {
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
   font-size: 0.72rem;
   font-weight: 600;
@@ -3732,7 +3732,7 @@
 }
 
 .strat-ruler-shift-btn:hover {
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
   border-color: var(--color-accent);
 }
@@ -3750,21 +3750,21 @@
 }
 
 .strat-ruler-shift-btn.center-atm {
-  background: rgba(2, 132, 199, 0.2);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-info-subtle);
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
   font-weight: 700;
 }
 
 .strat-ruler-shift-btn.center-atm:hover {
-  background: rgba(2, 132, 199, 0.35);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
 
 .strat-ruler-shift-btn.wings {
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: var(--color-accent-border);
 }
 
 .strat-vol-bar {
@@ -3793,7 +3793,7 @@
 }
 
 .strat-ruler-badge.call.short {
-  background: rgba(16, 185, 129, 0.18);
+  background: var(--color-success-subtle);
   border: 1px solid var(--color-success);
   color: var(--color-success);
   font-weight: 800;
@@ -3807,7 +3807,7 @@
 }
 
 .strat-ruler-badge.put.short {
-  background: rgba(239, 68, 68, 0.18);
+  background: var(--color-danger-subtle);
   border: 1px solid var(--color-danger);
   color: var(--color-danger);
   font-weight: 800;
@@ -3838,8 +3838,8 @@
   align-items: center;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-surface-sunken);
 }
 
 .strat-add-leg-btn,
@@ -3854,7 +3854,7 @@
 }
 
 .strat-add-leg-btn.call {
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
@@ -3864,18 +3864,18 @@
 }
 
 .strat-remove-leg-btn.call {
-  background: rgba(16, 185, 129, 0.08);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--color-border-subtle);
 }
 
 .strat-remove-leg-btn.call:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
 .strat-add-leg-btn.put {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
@@ -3885,13 +3885,13 @@
 }
 
 .strat-remove-leg-btn.put {
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--color-border-subtle);
 }
 
 .strat-remove-leg-btn.put:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.28);
+  background: var(--color-danger-subtle);
   color: var(--color-text-primary);
 }
 
@@ -3928,7 +3928,7 @@
 
 .strat-leg-card.closed {
   background: var(--color-surface-sunken);
-  border-color: rgba(56, 189, 248, 0.25);
+  border-color: var(--color-accent-border);
 }
 
 .strat-leg-header-row {
@@ -3946,8 +3946,8 @@
 }
 
 .strat-qty-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-primary);
   width: 22px;
   height: 22px;
@@ -3961,7 +3961,7 @@
 }
 
 .strat-qty-btn:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.25);
+  background: var(--color-info-subtle);
 }
 
 .strat-leg-qty {
@@ -3981,12 +3981,12 @@
 }
 
 .strat-side-pill.buy {
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
 .strat-side-pill.sell {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
@@ -3998,12 +3998,12 @@
 }
 
 .strat-type-pill.call {
-  background: rgba(2, 132, 199, 0.2);
+  background: var(--color-info-subtle);
   color: var(--color-accent);
 }
 
 .strat-type-pill.put {
-  background: rgba(168, 85, 247, 0.2);
+  background: var(--color-purple-subtle);
   color: var(--color-sentiment-directional);
 }
 
@@ -4027,8 +4027,8 @@
 }
 
 .strat-cost-display-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
   font-size: 0.8rem;
   font-weight: 600;
@@ -4043,7 +4043,7 @@
 .strat-cost-display-btn.custom {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--color-accent-subtle);
 }
 
 .strat-custom-cost-badge {
@@ -4076,7 +4076,7 @@
 
 .strat-cost-save-btn,
 .strat-cost-reset-btn {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-muted);
   border: none;
   color: var(--color-text-primary);
   font-size: 0.75rem;
@@ -4106,19 +4106,19 @@
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
   cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   transition: all 0.15s ease;
 }
 
 .strat-leg-act-btn:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--color-card);
   color: var(--color-text-primary);
 }
 
 .strat-leg-act-btn.exclude.active {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
@@ -4129,12 +4129,12 @@
 
 .strat-leg-act-btn.remove {
   color: var(--color-danger);
-  border-color: rgba(239, 68, 68, 0.25);
-  background: rgba(239, 68, 68, 0.08);
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-subtle);
 }
 
 .strat-leg-act-btn.remove:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--color-danger-subtle);
   border-color: var(--color-danger);
   color: var(--color-text-primary);
 }
@@ -4143,10 +4143,10 @@
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--color-accent);
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid var(--color-accent-border);
 }
 
 .strat-leg-body-row {
@@ -4174,9 +4174,9 @@
   align-items: center;
   padding: 0.12rem 0.4rem;
   border-radius: var(--radius-xs, 4px);
-  background: var(--color-muted, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
-  color: var(--color-text-secondary, var(--color-border-medium));
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
   font-size: 0.72rem;
   font-weight: 500;
   transition: all var(--transition-fast, 0.15s ease);
@@ -4185,20 +4185,20 @@
 }
 
 .strat-greek-chip:hover {
-  border-color: var(--color-accent, var(--color-accent));
-  color: var(--color-text-primary, var(--color-surface));
-  background: var(--color-surface-hover, rgba(56, 189, 248, 0.1));
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
 }
 
 .strat-greek-chip.iv {
-  background: var(--color-accent-subtle, rgba(56, 189, 248, 0.12));
-  border-color: rgba(56, 189, 248, 0.35);
-  color: var(--color-accent, var(--color-accent));
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+  color: var(--color-accent);
   font-weight: 700;
 }
 
 .strat-greek-chip.delta {
-  border-color: rgba(148, 163, 184, 0.25);
+  border-color: var(--color-border-medium);
   color: var(--color-surface-hover);
 }
 
@@ -4206,11 +4206,11 @@
 .strat-greek-chip.vanna,
 .strat-greek-chip.charm,
 .strat-greek-chip.vomma {
-  color: var(--color-text-muted, var(--color-text-muted));
+  color: var(--color-text-muted);
 }
 
 .strat-spread-txt {
-  color: var(--color-text-dim, var(--color-text-dim));
+  color: var(--color-text-dim);
   font-size: 0.72rem;
   white-space: nowrap;
 }
@@ -4225,8 +4225,8 @@
   font-size: 0.68rem;
   font-weight: 600;
   color: var(--color-warning);
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--color-warning-subtle);
+  border: 1px solid var(--color-warning-border);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
 }
@@ -4255,7 +4255,7 @@
 
 .strat-stats-tab {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   font-size: 0.76rem;
   font-weight: 600;
@@ -4266,27 +4266,27 @@
 }
 
 .strat-stats-tab:hover {
-  border-color: rgba(56, 189, 248, 0.4);
+  border-color: var(--color-accent-border);
   color: var(--color-text-secondary);
 }
 
 .strat-stats-tab.active {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+  box-shadow: var(--shadow-glow-accent);
 }
 
 .strat-stats-tab.reset-both {
-  border: 1px dashed rgba(56, 189, 248, 0.45);
+  border: 1px dashed var(--color-accent-border);
   color: var(--color-accent);
   font-size: 0.72rem;
   padding: 0.22rem 0.55rem;
-  background: rgba(56, 189, 248, 0.05);
+  background: var(--color-accent-subtle);
 }
 
 .strat-stats-tab.reset-both:hover {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
 }
 
@@ -4327,14 +4327,14 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.75rem;
   background: var(--color-surface-sunken);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.85rem 1rem;
 }
 
 .strat-metrics-strip.greeks .strat-metric-cell {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: var(--color-card);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
 }
@@ -4360,8 +4360,8 @@
 }
 
 .strat-metrics-strip.side-by-side .strat-metric-cell {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
   box-sizing: border-box;
@@ -4369,8 +4369,8 @@
 }
 
 .strat-metrics-strip.side-by-side.greeks .strat-metric-cell {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.22);
+  background: var(--color-card);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -4477,7 +4477,7 @@
 
 .strat-matrix-table td {
   padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--color-border-subtle);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -4535,23 +4535,23 @@
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
   cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-card);
   color: var(--color-text-muted);
 }
 
 .strat-iv-btn.crush {
   color: var(--color-danger);
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: var(--color-danger-border);
 }
 
 .strat-iv-btn.surge {
   color: var(--color-success);
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: var(--color-success-border);
 }
 
 .strat-iv-btn:hover {
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
@@ -4561,7 +4561,7 @@
 .strat-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--color-overlay);
   backdrop-filter: blur(4px);
   z-index: 9999;
   display: flex;
@@ -4738,24 +4738,24 @@
 }
 
 .strat-lib-risk-badge.defined {
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
 .strat-lib-risk-badge.undefined {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
 .strat-lib-risk-badge.covered {
-  background: rgba(56, 189, 248, 0.2);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
 }
 
 .strat-lib-svg-wrap {
   height: 48px;
   width: 100%;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--color-surface-sunken);
   border-radius: 4px;
   padding: 0.2rem;
 }
@@ -4778,7 +4778,7 @@
   align-items: center;
   justify-content: space-between;
   padding-top: 0.35rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .strat-lib-legs-tag {
@@ -4878,7 +4878,7 @@
 
 .strat-save-cancel-btn {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   padding: 0.6rem 1rem;
   border-radius: 6px;
@@ -4934,7 +4934,7 @@
 }
 
 .strat-saved-load-btn {
-  background: rgba(2, 132, 199, 0.2);
+  background: var(--color-info-subtle);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
   font-size: 0.74rem;
@@ -4967,7 +4967,7 @@
 
 .strat-saved-leg-chip {
   font-size: 0.68rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-muted);
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
   color: var(--color-text-secondary);
@@ -5018,7 +5018,7 @@
 .strat-roll-strike-btn.current {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: rgba(2, 132, 199, 0.2);
+  background: var(--color-info-subtle);
 }
 
 /* Positions Drawer */
@@ -5043,7 +5043,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--color-border-medium);
   padding-bottom: 0.5rem;
 }
 
@@ -5091,8 +5091,8 @@
 }
 
 .strat-pos-item button {
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: var(--color-danger-subtle);
+  border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
   font-size: 0.7rem;
   padding: 0.15rem 0.4rem;
@@ -5120,8 +5120,8 @@
   border-radius: 10px;
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--color-text-secondary, var(--color-text-dim));
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
   text-transform: capitalize;
 }
 .strat-library-card.selected {
@@ -5133,11 +5133,11 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  border-top: 1px solid var(--color-border);
 }
 .strat-modal-footer .primary {
   background: var(--color-accent);
-  color: var(--color-text-inverse, #fff);
+  color: var(--color-text-inverse);
   border: none;
   font-weight: 600;
 }
