@@ -17,17 +17,20 @@ import {
   fetchEvaluate,
   fetchHedgeAnalysis,
   fetchPortfolioRisk,
+  fetchRepairAnalysis,
   fetchSizing,
   fetchThinkVerdict,
   fmtNumber,
   fmtSignedUsd,
   fmtUsd,
   hedgeProposalToTradeContext,
+  repairProposalToTradeContext,
   positionRowToEvalForm,
   sizingToEvalForm,
   type ConcentrationReport,
   type EvaluateResult,
   type HedgeAnalysis,
+  type RepairAnalysis,
   type ThinkTradeValidationResult,
   type PortfolioRiskReport,
   type SizingCandidate,
@@ -45,6 +48,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
   const [panelOpen, setPanelOpen] = useState(true);
   const [report, setReport] = useState<PortfolioRiskReport | null>(null);
   const [hedge, setHedge] = useState<HedgeAnalysis | null>(null);
+  const [repair, setRepair] = useState<RepairAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -84,10 +88,11 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
     setLoading(true);
     setError("");
     try {
-      const [riskResult, hedgeResult] = await Promise.allSettled([fetchPortfolioRisk(activeEnv), fetchHedgeAnalysis(activeEnv)]);
+      const [riskResult, hedgeResult, repairResult] = await Promise.allSettled([fetchPortfolioRisk(activeEnv), fetchHedgeAnalysis(activeEnv), fetchRepairAnalysis(activeEnv)]);
       if (riskResult.status === "fulfilled") setReport(riskResult.value);
       else setError(riskResult.reason?.message || "Failed to load portfolio risk");
       if (hedgeResult.status === "fulfilled") setHedge(hedgeResult.value);
+      if (repairResult.status === "fulfilled") setRepair(repairResult.value);
     } finally {
       setLoading(false);
     }
@@ -258,6 +263,26 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             <p>{proposal.rationale}</p>
           </div>
           <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(hedgeProposalToTradeContext(proposal, report?.spyPrice ?? null))}>
+            Preview in Order Ticket →
+          </button>
+        </div>
+      ))}
+
+      {/* Repair drafts (#355) */}
+      <div className="prp-subhead">Repair Proposals <span className="prp-badge prp-badge-draft">DRAFT — HITL review only</span></div>
+      {repair?.status === "not-underwater" && <div className="prp-note">{repair.reason}</div>}
+      {repair?.status === "unavailable" && <div className="prp-note prp-warn">{repair.reason}</div>}
+      {repair && repair.symbolsUnavailable.length > 0 && (
+        <div className="prp-note prp-warn">No repair proposed for: {repair.symbolsUnavailable.map((s) => `${s} (${repair.unavailableReasons[s]})`).join("; ")}</div>
+      )}
+      {repair?.proposals.map((proposal, i) => (
+        <div className="prp-hedge-card" key={`${proposal.symbol}-${i}`}>
+          <div className="prp-hedge-main">
+            <strong>{proposal.symbol} 1×2 call ratio — buy {proposal.legLong.strike}C, sell 2× {proposal.legShort.strike}C ({proposal.legLong.expirationDate})</strong>
+            <span>{proposal.netDebitPerUnit <= 0 ? "Credit" : "Debit"} {fmtUsd(Math.abs(proposal.netDebitPerUnit), 2)}/unit · recover at {fmtUsd(proposal.breakevenAtExpiry, 2)} · capped above {fmtUsd(proposal.upsideCappedAbove, 2)} · <em>no downside protection</em></span>
+            <p>{proposal.rationale}</p>
+          </div>
+          <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(repairProposalToTradeContext(proposal))}>
             Preview in Order Ticket →
           </button>
         </div>
