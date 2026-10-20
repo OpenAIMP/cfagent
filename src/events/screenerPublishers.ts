@@ -259,6 +259,22 @@ function formatOpportunities(
     `📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}`,
     scanned,
     ...(partialLine ? [partialLine] : []),
+    // Issue #728: rejection breakdown — when few or zero match, show why.
+    ...(event.rejections?.length
+      ? [
+          `Rejections: ${Object.entries(
+            event.rejections.reduce((acc: Record<string, number>, r) => {
+              // Group by the gate: take the first clause before " (" or " for".
+              const gate = r.reason.split(" (")[0].split(" for ")[0].trim();
+              acc[gate] = (acc[gate] || 0) + 1;
+              return acc;
+            }, {})
+          )
+            .sort((a, b) => b[1] - a[1])
+            .map(([gate, n]) => `${n} ${gate}`)
+            .join(", ")}`,
+        ]
+      : []),
     ``,
     ...lines,
     ``,

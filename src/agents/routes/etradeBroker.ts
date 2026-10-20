@@ -151,6 +151,7 @@ async function publishManualScreenerRun(
           },
         }
       : {}),
+    ...(result.rejections?.length ? { rejections: result.rejections } : {}),
   });
 }
 
