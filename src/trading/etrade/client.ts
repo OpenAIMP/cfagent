@@ -3284,10 +3284,26 @@ export class ETradeRestClient {
   /**
    * Watchlist API: Delete Watchlist
    * DELETE /v1/user/watchlist/delete/{watchlistId}
+   *
+   * The boolean result is the caller contract and is unchanged, but the
+   * method is no longer silent (issue #244): it follows the same
+   * lastError discipline as the read methods (#155/#168) — cleared on
+   * entry, the reason recorded on EVERY false return (missing
+   * credentials, missing watchlist id, HTTP error, exception), and
+   * unset after a successful delete — so getLastError() tells callers
+   * WHY a delete failed instead of collapsing every cause into `false`.
    */
   async deleteWatchlist(watchlistId: string | number): Promise<boolean> {
+    this.lastError = undefined;
     const envConfig = this.getEnvConfig();
-    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret || !watchlistId) return false;
+    if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+      this.lastError = "E*TRADE consumer credentials are not configured for watchlist deletion.";
+      return false;
+    }
+    if (!watchlistId) {
+      this.lastError = "E*TRADE watchlist-delete request is missing a watchlist id.";
+      return false;
+    }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/user/watchlist/delete/${encodeURIComponent(String(watchlistId))}`;
     const fallbackUrl = `${envConfig.etrade.baseUrl}/user/watchlist/delete/${encodeURIComponent(String(watchlistId))}.json`;
@@ -3318,8 +3334,19 @@ export class ETradeRestClient {
         });
       }
 
-      return res.ok;
-    } catch {
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        this.lastError = `E*TRADE Delete Watchlist Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        this.handleUpstreamAuthError(res.status, "user/watchlist/delete", errorText);
+        return false;
+      }
+
+      this.lastError = undefined;
+      return true;
+    } catch (err) {
+      if (!this.lastError) {
+        this.lastError = `E*TRADE watchlist delete request failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
       return false;
     }
   }

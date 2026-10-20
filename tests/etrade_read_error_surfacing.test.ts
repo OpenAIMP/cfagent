@@ -1053,6 +1053,77 @@ describe("getWatchlistDetails — lastError contract (#168)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #244: deleteWatchlist was the client's one bare-boolean write
+// method — missing credentials, HTTP errors, and exceptions all
+// collapsed to `false` with nothing recorded. The boolean contract is
+// unchanged; the method now records the reason in lastError under the
+// same discipline as the reads above.
+// ---------------------------------------------------------------------------
+
+describe("deleteWatchlist — lastError contract (#244)", () => {
+  it("missing credentials return false and set lastError without calling upstream", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const client = new ETradeRestClient(makeBareEnv(), USER);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("consumer credentials are not configured");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("missing watchlist id returns false and sets lastError without calling upstream", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const client = new ETradeRestClient(makeEnv(), USER);
+    expect(await client.deleteWatchlist("")).toBe(false);
+    expect(client.getLastError()).toContain("missing a watchlist id");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 400 returns false and sets lastError naming the failure (was silent)", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("Delete Watchlist Error [HTTP 400]");
+  });
+
+  it("HTTP 401 returns false and surfaces the session-expired reason", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(401);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("Session Expired");
+  });
+
+  it("network failure returns false and sets lastError (was a bare catch)", async () => {
+    const client = await makeAuthedClient();
+    throwAllFetches();
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("watchlist delete request failed");
+    expect(client.getLastError()).toContain("socket hangup");
+  });
+
+  it("success returns true with NO error, and clears a prior failure", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toBeTruthy();
+    vi.restoreAllMocks();
+    okJson({});
+    expect(await client.deleteWatchlist("w1")).toBe(true);
+    expect(client.getLastError()).toBeUndefined();
+  });
+
+  it("recorded reasons never contain credential or token material", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    const err = client.getLastError() ?? "";
+    expect(err).not.toContain(FAKE_KEY);
+    expect(err).not.toContain(FAKE_SECRET);
+    expect(err).not.toContain(FAKE_TOKEN);
+    expect(err).not.toContain(FAKE_TOKEN_SECRET);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// // ---------------------------------------------------------------------------
 // Service level + secret hygiene
 // ---------------------------------------------------------------------------
 
