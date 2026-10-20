@@ -46,6 +46,8 @@ import {
 } from "../services/researchTaskLedger";
 
 const LATEST_KEY = "research:latest";
+const RESEARCH_PDF_KEY_PREFIX = "research:pdf:";
+const RESEARCH_PDF_LATEST_KEY = "research:pdf:latest";
 const HISTORY_KEY = "research:history";
 const MAX_HISTORY = 20;
 
@@ -329,6 +331,53 @@ export class ResearchAgent extends Think<Env> {
   async getLatest(): Promise<ResearchReport | null> {
     try {
       return (await this.ctx.storage.get<ResearchReport>(LATEST_KEY)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * #335: store the run's PDF (delivery artifact, rendered from the canonical
+   * stored report). Per-run key + latest pointer, mirroring the screener PDF
+   * pattern (#361). Best-effort — never throws.
+   */
+  async storeResearchPdf(
+    fileName: string,
+    bytes: Uint8Array
+  ): Promise<string | null> {
+    try {
+      let base64 = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        base64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      const data = { base64: btoa(base64), fileName };
+      const perRunKey = `${RESEARCH_PDF_KEY_PREFIX}${fileName}`;
+      await this.ctx.storage.put(perRunKey, data);
+      await this.ctx.storage.put(RESEARCH_PDF_LATEST_KEY, data);
+      return perRunKey;
+    } catch (err) {
+      console.warn("[ResearchAgent] PDF store failed:", err);
+      return null;
+    }
+  }
+
+  /** #335: fetch a stored research PDF by key (or "latest"). */
+  async getResearchPdfByKey(
+    pdfKey: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    try {
+      const key =
+        pdfKey === "latest" ? RESEARCH_PDF_LATEST_KEY : pdfKey;
+      const stored = await this.ctx.storage.get<{
+        base64: string;
+        fileName: string;
+      }>(key);
+      if (!stored?.base64) return null;
+      const binary = atob(stored.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return { bytes, fileName: stored.fileName };
     } catch {
       return null;
     }
