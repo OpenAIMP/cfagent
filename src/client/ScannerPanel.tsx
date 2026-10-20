@@ -61,6 +61,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import "./scannerPanel.css";
+import { StrategyLibraryModal } from "./options/StrategyLibraryModal";
 import { parseSymbolList } from "./accountApi";
 import {
   createProfile,
@@ -1051,10 +1052,10 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [fitLimit, setFitLimit] = useState(25);
   // Issue #391: Selected strategy IDs for filtering (empty = all strategies)
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
-  // Issue #391: Strategy catalog for the multi-select (loaded from API)
+  // Issue #391: Strategy catalog for the picker (loaded from API)
   const [strategyCatalog, setStrategyCatalog] = useState<CatalogStrategy[]>([]);
-  // Issue #437: Search filter for strategy list
-  const [strategySearch, setStrategySearch] = useState("");
+  // Issue #450: strategy selection happens in the shared StrategyLibraryModal
+  const [strategyModalOpen, setStrategyModalOpen] = useState(false);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
 
   // Load strategy catalog on mount
@@ -1394,58 +1395,24 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           </select>
         </div>
         <div className="scp-field scp-field-strategies">
-          <label htmlFor="scp-strategies">Strategies <span className="scp-hint">(empty = all)</span></label>
-          <input
-            type="text"
-            placeholder="Search strategies…"
-            value={strategySearch}
-            onChange={(e) => setStrategySearch(e.target.value)}
-            className="scp-strategy-search"
-            aria-label="Search strategies"
-          />
-          <div className="scp-strategy-checkboxes" id="scp-strategies">
-            {(() => {
-              // Issue #437: Filter by thesis and search, group by category
-              const filtered = strategyCatalog.filter((s) => {
-                const normalize = (t: string) => t.toLowerCase().replace(/_/g, " ");
-                const thesisMatch = !thesis || s.theses.some((t) => normalize(t) === normalize(thesis));
-                const searchMatch = !strategySearch ||
-                  s.label.toLowerCase().includes(strategySearch.toLowerCase()) ||
-                  s.id.toLowerCase().includes(strategySearch.toLowerCase());
-                return thesisMatch && searchMatch;
-              });
-              const grouped = filtered.reduce((acc, s) => {
-                const cat = s.category || "Other";
-                if (!acc[cat]) acc[cat] = [];
-                acc[cat].push(s);
-                return acc;
-              }, {} as Record<string, CatalogStrategy[]>);
-              return Object.entries(grouped).map(([category, strategies]) => (
-                <div key={category} className="scp-strategy-group">
-                  <div className="scp-strategy-group-title">{category}</div>
-                  {strategies.map((s) => (
-                    <label key={s.id} className="scp-strategy-check">
-                      <input
-                        type="checkbox"
-                        checked={selectedStrategies.includes(s.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedStrategies([...selectedStrategies, s.id]);
-                          } else {
-                            setSelectedStrategies(selectedStrategies.filter((id) => id !== s.id));
-                          }
-                        }}
-                      />
-                      <span title={s.description}>{s.label || s.id}</span>
-                    </label>
-                  ))}
-                </div>
-              ));
-            })()}
-            {strategyCatalog.length === 0 && (
-              <span className="scp-muted">Loading strategies…</span>
-            )}
-          </div>
+          {/* Issue #450: one shared StrategyLibraryModal (multi-select).
+              Names, descriptions and thesis tags preserved from the catalog. */}
+          <label>Strategies <span className="scp-hint">(empty = all)</span></label>
+          <button
+            type="button"
+            className="scp-strategy-picker-btn"
+            onClick={() => setStrategyModalOpen(true)}
+            disabled={strategyCatalog.length === 0}
+          >
+            {strategyCatalog.length === 0
+              ? "Loading strategies…"
+              : selectedStrategies.length === 0
+                ? "Select strategies…"
+                : `${selectedStrategies.length} selected: ${selectedStrategies
+                    .map((id) => strategyCatalog.find((s) => s.id === id)?.label || id)
+                    .slice(0, 3)
+                    .join(", ")}${selectedStrategies.length > 3 ? "…" : ""}`}
+          </button>
           {selectedStrategies.length > 0 && (
             <button
               type="button"
@@ -1455,6 +1422,14 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
               Clear ({selectedStrategies.length})
             </button>
           )}
+          <StrategyLibraryModal
+            isOpen={strategyModalOpen}
+            onClose={() => setStrategyModalOpen(false)}
+            strategies={strategyCatalog}
+            multiSelect
+            selectedIds={selectedStrategies}
+            onApply={setSelectedStrategies}
+          />
         </div>
         <div className="scp-field">
           <label htmlFor="scp-risk">Risk profile</label>
