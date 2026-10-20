@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { downloadScreenExport } from "./screenerExport";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -327,9 +328,56 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
+  // Issue #125 (PR-B) / #126: result-set downloads of THIS run (the one
+  // being viewed), beside the PDF report. A failed run produced no
+  // result set, so it offers none; partial runs export with their #462
+  // qualification carried into the file (see screenerExport.ts).
+  const exportButtonStyle = {
+    fontSize: "0.8rem",
+    padding: "0.35rem 0.75rem",
+    borderRadius: "4px",
+    border: "1px solid var(--color-accent)",
+    color: "var(--color-accent)",
+    background: "transparent",
+    cursor: "pointer",
+  } as const;
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+        {result.success && (
+          <>
+            <button
+              type="button"
+              className="screener-export-csv"
+              style={exportButtonStyle}
+              onClick={() => downloadScreenExport(result, "standouts")}
+              title="Download this run's standout opportunities as CSV"
+            >
+              ⬇ CSV standouts
+            </button>
+            {(result.allStocks?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                className="screener-export-csv-all"
+                style={exportButtonStyle}
+                onClick={() => downloadScreenExport(result, "all-stocks")}
+                title="Download every symbol this run scanned as CSV"
+              >
+                ⬇ CSV all screened
+              </button>
+            )}
+            <button
+              type="button"
+              className="screener-export-json"
+              style={exportButtonStyle}
+              onClick={() => downloadScreenExport(result, "run-json")}
+              title="Download this run's full result as JSON"
+            >
+              ⬇ JSON run
+            </button>
+          </>
+        )}
         <a
           href={reportUrl}
           download
