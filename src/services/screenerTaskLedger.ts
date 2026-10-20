@@ -2,8 +2,9 @@
  * Issue #607 — durable task records for screener runs (phase-2 P2-3.1;
  * transformation mandate §6; design: docs/agents/agentic-architecture.md
  * §5/§7). Mirrors the research task ledger (#577) for the screener's
- * storage world: ScreenerAgent persists via async Durable Object KV
- * (ctx.storage), not SQLite, so this store interface is async.
+ * storage world: ScreenerAgent persists via the Durable Object
+ * storage API (ctx.storage get/put/list) — not Cloudflare KV, and not
+ * the DO SQLite API ResearchAgent uses — so this store interface is async.
  *
  * One record per runScreen execution — manual, scheduled, and every
  * runSharded shard (shards call runScreen) — tracking the run
@@ -14,7 +15,7 @@
  * id is the durable identity screener runs otherwise lack (results
  * are identified only by timestamp).
  *
- * SDK-free: storage is injected, so the agent (DO KV) and tests
+ * SDK-free: storage is injected, so the agent (DO storage) and tests
  * (in-memory) share this exact code. Claiming is safe because the
  * owning DO instance is serialized per account.
  */

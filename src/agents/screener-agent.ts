@@ -148,7 +148,7 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
-   * Issue #607: task-ledger store over this agent's DO KV storage.
+   * Issue #607: task-ledger store over this agent's Durable Object storage.
    * Ledger keys live under screener:task: / screener:idem: — alongside
    * the run blobs, in the same per-account Durable Object.
    */
