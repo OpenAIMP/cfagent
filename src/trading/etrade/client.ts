@@ -46,6 +46,18 @@ function firstQuoteData(data: any): any {
   return quoteData && typeof quoteData === "object" ? quoteData : undefined;
 }
 
+/**
+ * Issue #462: per-call quote outcome. The error is captured inside the
+ * call that produced it — never read back from shared instance state — so
+ * concurrent quote fetches on one client cannot overwrite each other's
+ * failures. Scoping: the client instance is user-bound (constructed per
+ * ETradeService for one userLogin); this result is call-scoped.
+ */
+export interface ETradeQuoteResult {
+  quote: ETradeQuote | null;
+  error: string | null;
+}
+
 export class ETradeRestClient {
   public lastError?: string;
 
@@ -106,16 +118,36 @@ export class ETradeRestClient {
   }
 
   /**
-   * Fetches real live quote from E*TRADE
+   * Fetches real live quote from E*TRADE.
+   *
+   * Thin wrapper over fetchQuoteDetailed, kept for sequential callers that
+   * read getLastError(). Concurrent callers must use fetchQuoteDetailed so
+   * each call's failure is captured with its own result (issue #462).
    */
   async fetchQuote(symbol: string): Promise<ETradeQuote | null> {
+    const { quote, error } = await this.fetchQuoteDetailed(symbol);
+    this.lastError = error ?? undefined;
+    return quote;
+  }
+
+  /**
+   * Fetches real live quote from E*TRADE with per-call error capture.
+   *
+   * Issue #462: quote errors used to travel via the shared mutable
+   * `lastError` field. One client instance serves a whole screener run
+   * while quotes fetch concurrently, so concurrent calls overwrote and
+   * cleared each other's errors — the screener report could not name why
+   * symbols failed (everything landed in "other"). The error is now a
+   * local of this call; nothing crosses calls, so user, session and run
+   * scoping stay intact under concurrency.
+   */
+  async fetchQuoteDetailed(symbol: string): Promise<ETradeQuoteResult> {
     const sym = symbol.toUpperCase().trim();
-    this.lastError = undefined;
+    const fail = (error: string): ETradeQuoteResult => ({ quote: null, error });
     const envConfig = this.getEnvConfig();
 
     if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
-      this.lastError = "E*TRADE consumer credentials are not configured for live quote requests.";
-      return null;
+      return fail("E*TRADE consumer credentials are not configured for live quote requests.");
     }
 
     let token = "";
@@ -134,8 +166,7 @@ export class ETradeRestClient {
 
     if (!token || !tokenSecret) {
       // Unauthenticated: cannot call authenticated 3-legged E*TRADE quote endpoint
-      this.lastError = `E*TRADE OAuth access token is missing for ${sym} in ${envConfig.name} mode.`;
-      return null;
+      return fail(`E*TRADE OAuth access token is missing for ${sym} in ${envConfig.name} mode.`);
     }
 
     const primaryUrl = `${envConfig.etrade.baseUrl}/market/quote/${encodeURIComponent(sym)}`;
@@ -169,10 +200,10 @@ export class ETradeRestClient {
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
-        this.lastError = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+        const error = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchQuote HTTP ${res.status}: ${errorText}`);
         this.handleUpstreamAuthError(res.status, "quote", errorText);
-        return null;
+        return fail(error);
       }
 
       let data = (await res.json().catch(() => null)) as any;
@@ -192,9 +223,9 @@ export class ETradeRestClient {
         });
         if (!res.ok) {
           const errorText = await res.text().catch(() => "");
-          this.lastError = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
+          const error = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
           this.handleUpstreamAuthError(res.status, "quote", errorText);
-          return null;
+          return fail(error);
         }
         if (res.ok) {
           data = (await res.json().catch(() => null)) as any;
@@ -207,16 +238,14 @@ export class ETradeRestClient {
         const detail = Array.isArray(messages)
           ? messages.map((message: any) => String(message?.description || message?.message || message?.code || "")).filter(Boolean).join("; ")
           : "";
-        this.lastError = `E*TRADE returned no quote data for ${sym}${detail ? `: ${detail}` : " (HTTP 200 empty response)"}`;
-        return null;
+        return fail(`E*TRADE returned no quote data for ${sym}${detail ? `: ${detail}` : " (HTTP 200 empty response)"}`);
       }
 
       const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
       const rawCompanyName = String(quoteData?.companyName || "").trim();
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.close || quoteData.previousClose || quoteData.bid || 0);
       if (price <= 0) {
-        this.lastError = `E*TRADE quote response for ${sym} contained no positive trade or bid price.`;
-        return null;
+        return fail(`E*TRADE quote response for ${sym} contained no positive trade or bid price.`);
       }
 
       // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
@@ -228,19 +257,17 @@ export class ETradeRestClient {
 
       if (isGoogleStub && sym !== "GOOG" && sym !== "GOOGL") {
         // Reject sandbox dummy Google mock response for non-Google equities
-        this.lastError = `E*TRADE returned a mismatched sandbox quote for ${sym} (GOOG mock).`;
-        return null;
+        return fail(`E*TRADE returned a mismatched sandbox quote for ${sym} (GOOG mock).`);
       }
 
       if (!envConfig.isLive && price === 577.51) {
         // Discard 2014 legacy static sandbox price
-        return null;
+        return fail(`E*TRADE discarded the legacy static sandbox price for ${sym}.`);
       }
 
       if (returnedSym && returnedSym !== sym) {
         // Symbol mismatch: E*TRADE returned a different symbol than requested
-        this.lastError = `E*TRADE quote symbol mismatch: requested ${sym}, received ${returnedSym}.`;
-        return null;
+        return fail(`E*TRADE quote symbol mismatch: requested ${sym}, received ${returnedSym}.`);
       }
 
       const quoteStatus = String(quoteItem?.quoteStatus || quoteData?.quoteStatus || (envConfig.isLive ? "REALTIME" : "DELAYED"));
@@ -251,7 +278,7 @@ export class ETradeRestClient {
         companyName = `${sym} Inc.`;
       }
 
-      return {
+      const quote: ETradeQuote = {
         symbol: sym,
         companyName,
         lastPrice: price,
@@ -277,9 +304,13 @@ export class ETradeRestClient {
         source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
         timestamp: dateTime,
       };
+      return { quote, error: null };
     } catch (err) {
       if (err instanceof ETradeError) throw err;
-      return null;
+      // Surface the thrown failure as this call's error instead of a bare
+      // null — the old path swallowed it (and getLastError() stayed stale),
+      // which also fed "other" in the screener's failure categorization.
+      return fail(err instanceof Error ? err.message : String(err));
     }
   }
 

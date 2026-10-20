@@ -28,6 +28,7 @@ import {
   toOpportunityStock,
   type ScannedStock,
   type OpportunityStock,
+  type PartialQuoteQualification,
 } from "../trading";
 import { fetchTechnicalsBatch } from "../trading";
 import {
@@ -77,6 +78,12 @@ export interface ScreenerRunResult {
   /** Full scanned set with provenance (for the results table). */
   allStocks: ScannedStock[];
   discoveryMessage: string;
+  /**
+   * Issue #462: set when the screen ran on an incomplete quote set. The
+   * result is a qualified partial report — never a complete screen, never
+   * a failure. Zero quotes still fails honestly (success:false + error).
+   */
+  partial?: PartialQuoteQualification;
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
   error?: string;
@@ -234,6 +241,7 @@ export class ScreenerAgent extends Agent<Env> {
         opportunities,
         allStocks,
         discoveryMessage: acquired.discovery.message,
+        ...(acquired.partial ? { partial: acquired.partial } : {}),
       };
 
       await this.persistRun(result);

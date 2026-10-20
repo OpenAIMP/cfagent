@@ -140,8 +140,34 @@ export interface AcquiredUniverse {
     isCuratedUniverse?: boolean;
     error?: string;
   };
+  /**
+   * Issue #462: set when E*TRADE quoted only part of the requested universe.
+   * The pipeline returns the successful quotes and the screen runs on them;
+   * the result is published as a *qualified partial* report (never as a
+   * complete screen, and never as a failure). No fallback data is substituted.
+   */
+  partial?: PartialQuoteQualification;
   /** Set when acquisition failed under a test fixture (screenLive parity). */
   error?: string;
+}
+
+/**
+ * Issue #462: qualification metadata for a screen run on an incomplete
+ * quote set. Carried on AcquiredUniverse -> ScreenerRunResult ->
+ * ScreenerCompletedEvent -> PDF/publishers so every delivery shows the
+ * qualification prominently.
+ */
+export interface PartialQuoteQualification {
+  /** Symbols successfully quoted (the subset the screen ran on). */
+  quotedCount: number;
+  /** Symbols requested from the universe (the full target). */
+  requestedCount: number;
+  /** Symbols that failed to quote (no fallback substituted). */
+  failedSymbols: string[];
+  /** Categorized failure counts (e.g. { other: 53 }). */
+  failureReasons: Record<string, number>;
+  /** Up to 3 redacted failure samples for diagnostics. */
+  failureSamples: string[];
 }
 
 /**
@@ -203,7 +229,28 @@ export async function acquireUniverse(
     if (lower.includes("zero-price")) {
       return "api-zero-price";
     }
-    if (lower.includes("no quote") || lower.includes("not found") || lower.includes("invalid symbol")) {
+    // Issue #462: the E*TRADE client's actual error strings (previously
+    // unrecognized, so every one of these landed in "other"):
+    // "contained no positive trade or bid price" is E*TRADE's zero-price.
+    if (lower.includes("no positive trade or bid price")) {
+      return "api-zero-price";
+    }
+    // "Quote API Error [HTTP <n>]" with 5xx is an upstream E*TRADE failure
+    // (4xx statuses are caught above by their digits: 401/403 → auth,
+    // 429 → rate-limited).
+    const httpStatus = lower.match(/quote api error \[http (\d{3})\]/);
+    if (httpStatus) {
+      return Number(httpStatus[1]) >= 500 ? "api-http-5xx" : "api-http-error";
+    }
+    if (lower.includes("symbol mismatch") || lower.includes("mismatched sandbox quote")) {
+      return "symbol-mismatch";
+    }
+    if (
+      lower.includes("no live quote") ||
+      lower.includes("no quote") ||
+      lower.includes("not found") ||
+      lower.includes("invalid symbol")
+    ) {
       return "symbol-not-quotable";
     }
     if (lower.includes("timeout") || lower.includes("econnreset") || lower.includes("network")) {
@@ -298,28 +345,44 @@ export async function acquireUniverse(
           `Reasons: ${JSON.stringify(failureReasons)}. Samples: ${failureSamples.join("; ")}`
       );
     }
-    if (failed.length > 0) {
-      const reasonSummary = Object.entries(failureReasons)
-        .map(([reason, count]) => `${reason}=${count}`)
-        .join(", ");
+    const reasonSummary = Object.entries(failureReasons)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(", ");
+    if (quotes.length === 0 && failed.length > 0) {
+      // Issue #462: with zero quotes there is no screen to qualify — fail
+      // honestly with the full diagnostics. (A partial set, by contrast,
+      // returns qualified results below instead of failing.)
       throw new Error(
-        `E*TRADE unavailable: incomplete live quote set (${quotes.length} of ${limited.length} symbols quoted` +
+        `E*TRADE unavailable: no live quotes returned (${quotes.length} of ${limited.length} symbols quoted` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
           (reasonSummary ? ` (failure reasons: ${reasonSummary})` : "") +
           (failureSamples.length > 0 ? ` (diagnostics: ${failureSamples.join("; ")})` : "") +
-          `). No partial screen published; no fallback data substituted.`
+          `). No fallback data substituted.`
       );
     }
+    const partial: PartialQuoteQualification | undefined =
+      failed.length > 0
+        ? {
+            quotedCount: quotes.length,
+            requestedCount: limited.length,
+            failedSymbols: failed,
+            failureReasons,
+            failureSamples,
+          }
+        : undefined;
     return {
       quotes,
+      ...(partial ? { partial } : {}),
       discovery: {
         mode: "live_quotes",
         candidateCount: symbols.length,
         listingCount: quotes.length,
-        message:
-          `E*TRADE-only live quotes; ${quotes.length} of ${limited.length} symbols quoted` +
-          (failed.length > 0 ? ` (${failed.length} failed, no fallback substituted)` : "") +
-          ".",
+        message: partial
+          ? `Partial screen — qualified results: E*TRADE quoted ${quotes.length} of ${limited.length} symbols ` +
+            `(${failed.length} unavailable: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}` +
+            (reasonSummary ? `; failure reasons: ${reasonSummary}` : "") +
+            `). Screen ran on the quoted subset only; no fallback data substituted.`
+          : `E*TRADE-only live quotes; ${quotes.length} of ${limited.length} symbols quoted.`,
       },
     };
   }

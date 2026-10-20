@@ -404,7 +404,12 @@ export class ETradeService {
     const envConfig = this.client.getEnvConfig();
     let quoteError: unknown;
     try {
-      const live = await this.client.fetchQuote(cleanSym);
+      // Issue #462: per-call error capture — this method runs concurrently
+      // (5 at a time per screener run) on ONE client instance, so reading
+      // the shared getLastError() after the await attributed one symbol's
+      // failure to another. fetchQuoteDetailed returns the error with the
+      // result; nothing is read from shared instance state.
+      const { quote: live, error } = await this.client.fetchQuoteDetailed(cleanSym);
       if (live && live.lastPrice > 0) {
         const isStub =
           (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
@@ -412,7 +417,7 @@ export class ETradeService {
           cleanSym !== "GOOGL";
         if (!isStub) return live;
       }
-      quoteError = this.client.getLastError();
+      quoteError = error ?? undefined;
     } catch (err) {
       quoteError = err;
     }
@@ -424,7 +429,7 @@ export class ETradeService {
         ? quoteError.message
         : typeof quoteError === "string" && quoteError
           ? quoteError
-          : this.client.getLastError();
+          : undefined;
       throw new Error(detail || `E*TRADE returned no live quote for ${cleanSym}`);
     }
     // Sandbox retains its explicit mock/cache behavior for development.

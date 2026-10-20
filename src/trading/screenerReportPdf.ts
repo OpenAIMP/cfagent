@@ -113,6 +113,21 @@ export async function generateScreenerPdf(
     return doc.save();
   }
 
+  // Issue #462: a partial quote set publishes a qualified partial report —
+  // the qualification is stated before any results so it can never be
+  // mistaken for a complete screen.
+  if (result.partial) {
+    const failed = result.partial.failedSymbols;
+    const reasonSummary = Object.entries(result.partial.failureReasons)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(", ");
+    text(ctx, "PARTIAL SCREEN — QUALIFIED RESULTS", { size: 13, bold: true, color: [0.75, 0.45, 0] });
+    text(ctx, `${result.partial.quotedCount} of ${result.partial.requestedCount} symbols quoted; ${failed.length} unavailable (${failed.slice(0, 8).join(", ")}${failed.length > 8 ? ", ..." : ""}).`, { size: 10 });
+    if (reasonSummary) text(ctx, `Failure reasons: ${reasonSummary}.`, { size: 10 });
+    text(ctx, "Results below cover the quoted subset only; no fallback data substituted.", { size: 10 });
+    rule(ctx);
+  }
+
   // Summary
   text(ctx, "Summary", { size: 13, bold: true });
   text(ctx, `Scanned: ${result.totalScanned}   Matched: ${result.matchedCount}   Opportunities: ${result.opportunities.length}`);

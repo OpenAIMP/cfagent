@@ -209,9 +209,17 @@ function formatOpportunities(
   const scanned = event.expectedCount && event.expectedCount > event.totalScanned
     ? `Scanned ${event.totalScanned} of ${event.expectedCount} ${universe} stocks, ${event.matchedCount} matched.`
     : `Scanned ${event.totalScanned} ${universe} stocks, ${event.matchedCount} matched.`;
+  // Issue #462: a partial quote set yields a qualified partial report — the
+  // qualification rides every delivery so it never reads as a complete screen.
+  const partialLine = event.partial
+    ? `⚠️ Partial screen — qualified results: ${event.partial.quotedCount} of ${event.partial.requestedCount} symbols quoted; ` +
+      `${event.partial.failedSymbols.length} unavailable (${event.partial.failedSymbols.slice(0, 5).join(", ")}${event.partial.failedSymbols.length > 5 ? "…" : ""}). ` +
+      `Results cover the quoted subset only; no fallback data substituted.`
+    : null;
   const text = [
     `📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}`,
     scanned,
+    ...(partialLine ? [partialLine] : []),
     ``,
     ...lines,
     ``,
@@ -230,6 +238,7 @@ function formatOpportunities(
   const html = [
     `<h2>📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}</h2>`,
     `<p>${scanned}</p>`,
+    ...(partialLine ? [`<p><b>${partialLine}</b></p>`] : []),
     `<table border="1" cellpadding="6" cellspacing="0">`,
     `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
     htmlRows,
