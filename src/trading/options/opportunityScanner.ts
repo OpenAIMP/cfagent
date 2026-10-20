@@ -768,6 +768,9 @@ export class OpportunityScanner {
       /** Fit-gate overrides for this call (issue #24), merged over the
        *  config defaults from getOpportunityScannerConfig(). */
       fitGate?: Partial<FitGateParams>;
+      /** Issue #738: max symbols to scan. Defaults to MAX_SCAN_SYMBOLS (20)
+       *  — the schedule passes its maxItems (100) to scan the full universe. */
+      maxSymbols?: number;
       /** Saved strategy profile to run under (issue #28): its
        *  StrategyRequest-level fields fill the template wherever the
        *  caller did not declare the field explicit (see
@@ -790,7 +793,11 @@ export class OpportunityScanner {
     } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
-    const batch = unique.slice(0, MAX_SCAN_SYMBOLS);
+    // Issue #738: respect the caller's maxSymbols instead of the hardcoded
+    // 20-symbol cap. The schedule asks for 100; truncating to 20 then failing
+    // the run for "incomplete universe" is self-inflicted.
+    const maxSymbols = options.maxSymbols ?? MAX_SCAN_SYMBOLS;
+    const batch = unique.slice(0, maxSymbols);
     // Saved strategy profile (issue #28): the profile is the BASE layer
     // of this scan — everything downstream (request building, target
     // resolution, the fit gate, the provenance snapshot) runs on the
