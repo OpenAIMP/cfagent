@@ -43,6 +43,9 @@
  * /trigger plus PUT /schedules/:id (in handleSchedulesRoutes, after
  * the get-by-id block and before create) — bringing the inventory
  * to 164.
+ * Issue #649 added GET /reports/semantic-search (in
+ * handleReportsRoutes, after the /api/reports equality) without
+ * updating this pin; the pin was repaired alongside #424 — 165.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -113,6 +116,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",
+  "handleReportsRoutes :: endsWith(\"/reports/semantic-search\")",
   "handleMcpChatNlqRoutes :: endsWith(\"/mcp\")",
   "handleMcpChatNlqRoutes :: === \"/chat\"",
   "handleMcpChatNlqRoutes :: === \"/api/chat\"",

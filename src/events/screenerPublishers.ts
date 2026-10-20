@@ -413,10 +413,13 @@ async function publishFailed(
 
   const cfpay = getCfpayConfig(deps.env);
   const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  let attempted = false;
   if (cfpay) {
+    attempted = true;
     const result = await deliverScreenerToSlackA2A(deps.env, { text });
     if (!result.ok) console.warn("[ScreenerPublishers] Slack A2A failure-notify failed:", result.error);
   } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
+    attempted = true;
     try {
       const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
       await slack.postSlackMessage({ text, channel: slackChannel } as any);
@@ -427,6 +430,7 @@ async function publishFailed(
 
   const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
   if (webhookUrl) {
+    attempted = true;
     try {
       const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
       await webhook.dispatchOutboundWebhook(
@@ -436,6 +440,29 @@ async function publishFailed(
       );
     } catch (err) {
       console.warn("[ScreenerPublishers] Webhook failure-notify failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Issue #424: with no channel configured the failure used to vanish
+  // silently — the exact complaint behind the issue. Audit the skip so
+  // the silence is on the record and diagnosable.
+  if (!attempted) {
+    try {
+      deps.orm?.events?.create({
+        id: crypto.randomUUID(),
+        sessionId: deps.userLogin,
+        type: "screener.failure_notify_skipped",
+        agent: "orchestrator",
+        payload: {
+          sector: event.sector,
+          universe: event.universe,
+          error: event.error,
+          reason: "no notification channel configured",
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      // Non-critical audit insertion error
     }
   }
 }
