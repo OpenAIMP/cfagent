@@ -40,6 +40,20 @@ describe("#333 fetchScreenerPdf", () => {
     expect(pdf).toBeNull();
   });
 
+  it("logs the error and returns null when pdfStatus is failed (#822)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const agent = {
+      getPdfByKey: async () => ({ bytes: PDF_BYTES, fileName: "should-not-fetch.pdf" }),
+      getLatestPdf: async () => ({ bytes: PDF_BYTES, fileName: "latest.pdf" }),
+    };
+    const pdf = await fetchScreenerPdf(makeDeps(agent), undefined, "failed", "PDF lib crashed");
+    expect(pdf).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("PDF generation failed")
+    );
+    errorSpy.mockRestore();
+  });
+
   it("returns null (not throw) when the agent errors, and logs it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = {

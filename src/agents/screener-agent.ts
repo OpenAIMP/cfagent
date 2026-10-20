@@ -96,6 +96,11 @@ export interface ScreenerRunResult {
   rejections?: { symbol: string; reason: string }[];
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
+  /** Issue #822: explicit PDF generation status. 'failed' means generatePdfAsset
+   *  threw or returned null — the publisher must NOT fall back to a stale PDF. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  /** When pdfStatus is 'failed', the error that caused it. */
+  pdfError?: string;
   error?: string;
   /** Duplicate scheduled delivery was suppressed by the shared per-user DO. */
   skippedDuplicate?: boolean;
@@ -644,9 +649,19 @@ export class ScreenerAgent extends Agent<Env> {
           await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
         }
         result.pdfKey = asset.key;
+        result.pdfStatus = "generated";
+      } else {
+        // generatePdfAsset returned null — treat as failure, not silent skip.
+        result.pdfStatus = "failed";
+        result.pdfError = "generatePdfAsset returned null";
+        console.error("[ScreenerAgent] PDF generation returned null for run", result.timestamp);
       }
     } catch (err) {
-      console.warn("[ScreenerAgent] PDF generation failed:", err);
+      // Issue #822: do NOT swallow. Record the failure explicitly so the
+      // publisher knows not to fall back to a stale PDF.
+      result.pdfStatus = "failed";
+      result.pdfError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] PDF generation failed:", err instanceof Error ? err.message : String(err));
     }
     // Issue #732: persist to mas_reports so the Reports tab shows scheduled runs.
     // The tab reads from SQL, but persistRun only wrote to DO storage.
