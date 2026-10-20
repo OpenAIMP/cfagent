@@ -29,6 +29,9 @@ import {
   ScheduledOptionsManager,
   SYSTEM_JOBS,
   triggerRouteFor,
+  buildProfileDerivedPayload,
+  parseDerivedSymbols,
+  profileDerivationBlockReason,
 } from "../src/client/options/ScheduledOptionsManager";
 import { etToUtcCron } from "../src/client/options/cronTime";
 
@@ -135,7 +138,26 @@ function installFetch(state: StubState) {
           { status: 400 }
         );
       }
+      // Mirror the route's arm-time rejection for the profile-derived
+      // model (#533): one fixture profile id is rejected server-side
+      // so the form's 400 surfacing is exercised for this model too.
+      if (
+        body?.callback === "autonomousStrategyDiscovery" &&
+        body?.payload?.inputModel === "profile-derived" &&
+        body?.payload?.profileId === "prof-reject"
+      ) {
+        return Response.json(
+          {
+            success: false,
+            error: "Profile-derived discovery schedules require exactly one symbol source: payload.symbols or payload.watchlistName.",
+          },
+          { status: 400 }
+        );
+      }
       return Response.json({ success: true, schedule: { id: "sched-new-1", ...body } });
+    }
+    if (url.includes("/api/etrade/options/profiles") && method === "GET") {
+      return Response.json({ count: PROFILE_FIXTURES.length, profiles: PROFILE_FIXTURES });
     }
     if (url === "/api/schedules/trigger-discovery" && method === "POST") {
       const reqs = Array.isArray(body?.requests) ? body.requests : [];
@@ -784,5 +806,337 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
     expect(createCalls[0].body.payload.requests[0]).toEqual(discoveryRequestNvda);
     expect(createCalls[0].body.payload.requests[1]).toEqual(discoveryRequestMsft);
     await waitForText("Schedule updated successfully");
+  });
+});
+
+// Profile-derived discovery schedules (issue #533, PR-533B) -----------
+
+const profileIncome = {
+  id: "prof-1",
+  userLogin: "trader1",
+  name: "Income",
+  version: 3,
+  thesis: "bullish",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  allowedStrategies: ["long_call", "long_put"],
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-10T00:00:00.000Z",
+};
+
+const PROFILE_FIXTURES = [
+  profileIncome,
+  {
+    id: "prof-2",
+    userLogin: "trader1",
+    name: "No Thesis",
+    version: 1,
+    maxPlannedLoss: 500,
+    minRewardRisk: 1,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+  },
+  {
+    id: "prof-3",
+    userLogin: "trader1",
+    name: "No Caps",
+    version: 2,
+    thesis: "bearish",
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+  },
+  {
+    id: "prof-reject",
+    userLogin: "trader1",
+    name: "Server Rejects",
+    version: 1,
+    thesis: "bullish",
+    maxPlannedLoss: 100,
+    minRewardRisk: 1,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+  },
+];
+
+const userDiscoveryDerived = {
+  id: "user-discovery-derived",
+  type: "interval",
+  callback: "autonomousStrategyDiscovery",
+  intervalSeconds: 3600,
+  payload: {
+    userLogin: "trader1",
+    environment: "TEST",
+    inputModel: "profile-derived",
+    symbols: ["NVDA", "MSFT"],
+    profileId: "prof-1",
+    trigger: "scheduled",
+  },
+  time: NEXT_RUN_S,
+};
+
+function setFieldValue(
+  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  value: string
+) {
+  const proto =
+    el instanceof HTMLSelectElement
+      ? HTMLSelectElement.prototype
+      : el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function openDerivedEditor(modal: HTMLElement) {
+  const jobSelect = selectByOptionText(modal, "Saved-View Strategy Discovery");
+  setValue(jobSelect, optionValueByText(jobSelect, "Saved-View Strategy Discovery"));
+  await flush(40);
+  const modelSelect = selectByOptionText(modal, "Symbol set + profile (derived targets)");
+  setValue(modelSelect, optionValueByText(modelSelect, "Symbol set + profile (derived targets)"));
+  await flush(40);
+}
+
+describe("profile-derived payload builder (#533)", () => {
+  it("parses symbols from comma/newline text, uppercased, blanks dropped", () => {
+    expect(parseDerivedSymbols("NVDA, msft\nAAPL,,  spy ")).toEqual(["NVDA", "MSFT", "AAPL", "SPY"]);
+    expect(parseDerivedSymbols("")).toEqual([]);
+  });
+
+  it("emits exactly one symbol source: symbols XOR watchlistName, never both", () => {
+    const bySymbols = buildProfileDerivedPayload({
+      source: "symbols",
+      symbolsText: "NVDA, MSFT",
+      watchlistName: "My List",
+      profileId: "prof-1",
+    });
+    expect(bySymbols).toEqual({
+      payload: { inputModel: "profile-derived", symbols: ["NVDA", "MSFT"], profileId: "prof-1" },
+    });
+    const byWatchlist = buildProfileDerivedPayload({
+      source: "watchlist",
+      symbolsText: "NVDA",
+      watchlistName: " My List ",
+      profileId: "prof-1",
+    });
+    expect(byWatchlist).toEqual({
+      payload: { inputModel: "profile-derived", watchlistName: "My List", profileId: "prof-1" },
+    });
+  });
+
+  it("rejects a missing profile, an empty source, an over-cap set, and a bad ticker", () => {
+    expect(
+      buildProfileDerivedPayload({ source: "symbols", symbolsText: "NVDA", watchlistName: "", profileId: "" })
+    ).toEqual({ error: "Choose a Strategy Profile to derive targets under." });
+    expect(
+      buildProfileDerivedPayload({ source: "symbols", symbolsText: " , ", watchlistName: "", profileId: "p" })
+    ).toEqual({ error: "Enter at least one symbol to derive targets for." });
+    expect(
+      buildProfileDerivedPayload({ source: "watchlist", symbolsText: "", watchlistName: "  ", profileId: "p" })
+    ).toEqual({ error: "Enter the name of a watchlist to derive targets for." });
+    const tooMany = Array.from({ length: 26 }, (_, i) => `S${i}`).join(",");
+    expect(
+      buildProfileDerivedPayload({ source: "symbols", symbolsText: tooMany, watchlistName: "", profileId: "p" })
+    ).toEqual({ error: "Profile-derived discovery schedules are capped at 25 symbols per schedule." });
+    expect(
+      buildProfileDerivedPayload({ source: "symbols", symbolsText: "NVDA, BAD!", watchlistName: "", profileId: "p" })
+    ).toEqual({ error: '"BAD!" is not a valid ticker symbol.' });
+  });
+
+  it("names why a profile cannot derive: no thesis (D1), missing risk caps (D3)", () => {
+    expect(profileDerivationBlockReason({ thesis: "bullish", maxPlannedLoss: 500, minRewardRisk: 1 })).toBeNull();
+    expect(profileDerivationBlockReason({ maxPlannedLoss: 500, minRewardRisk: 1 })).toBe(
+      "no thesis — cannot derive direction"
+    );
+    expect(profileDerivationBlockReason({ thesis: "bearish" })).toBe(
+      "missing max planned loss or min reward/risk — cannot derive targets"
+    );
+    expect(profileDerivationBlockReason({ thesis: "bearish", maxPlannedLoss: 500 })).toBe(
+      "missing max planned loss or min reward/risk — cannot derive targets"
+    );
+  });
+});
+
+describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
+  const withDerived = () => freshState({ schedules: [...ALL_SCHEDULES, userDiscovery, userDiscoveryDerived] });
+
+  it("labels a profile-derived schedule's card with its model, symbols, and resolved profile", async () => {
+    installFetch(withDerived());
+    await renderManager();
+    await waitForText("Strategy Discovery · Profile-derived");
+    await waitForText("Income (v3)");
+    const card = cardByTitle("Strategy Discovery · Profile-derived");
+    expect(card.textContent).toContain("input model");
+    expect(card.textContent).toContain("Profile-derived");
+    expect(card.textContent).toContain("NVDA, MSFT");
+    // The profile id resolves to the loaded profile's name + version.
+    expect(card.textContent).toContain("Income (v3)");
+    expect(card.textContent).not.toContain("saved views");
+    // The saved-view card next to it keeps its own labelling.
+    const savedCard = cardByTitle("Strategy Discovery");
+    expect(savedCard.textContent).toContain("saved views");
+  });
+
+  it("creates a profile-derived schedule from explicit symbols with the exact payload shape", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    await openDerivedEditor(modal);
+
+    const symbolsArea = modal.querySelector('[aria-label="Derived symbols"]') as HTMLTextAreaElement;
+    expect(symbolsArea).not.toBeNull();
+    setFieldValue(symbolsArea, "NVDA, msft\nAAPL");
+    const profileSelect = selectByOptionText(modal, "Income");
+    setValue(profileSelect, "prof-1");
+
+    await submitForm(modal.querySelector("form")!);
+
+    const createCalls = callsTo(calls, "/api/schedules/create", "POST");
+    expect(createCalls).toHaveLength(1);
+    const body = createCalls[0].body;
+    expect(body.callback).toBe("autonomousStrategyDiscovery");
+    expect(body.payload).toEqual({
+      inputModel: "profile-derived",
+      symbols: ["NVDA", "MSFT", "AAPL"],
+      profileId: "prof-1",
+      environment: "TEST",
+      trigger: "scheduled",
+    });
+    expect(body.payload).not.toHaveProperty("requests");
+    expect(body.payload).not.toHaveProperty("watchlistName");
+    await waitForText("Schedule created successfully");
+  });
+
+  it("creates a profile-derived schedule from a watchlist name — symbols key absent", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    await openDerivedEditor(modal);
+
+    const sourceSelect = selectByOptionText(modal, "Watchlist name");
+    setValue(sourceSelect, optionValueByText(sourceSelect, "Watchlist name"));
+    await flush(40);
+    const watchlistInput = modal.querySelector('[aria-label="Derived watchlist name"]') as HTMLInputElement;
+    expect(watchlistInput).not.toBeNull();
+    setFieldValue(watchlistInput, "My List");
+    const profileSelect = selectByOptionText(modal, "Income");
+    setValue(profileSelect, "prof-1");
+
+    await submitForm(modal.querySelector("form")!);
+
+    const createCalls = callsTo(calls, "/api/schedules/create", "POST");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].body.payload).toEqual({
+      inputModel: "profile-derived",
+      watchlistName: "My List",
+      profileId: "prof-1",
+      environment: "TEST",
+      trigger: "scheduled",
+    });
+    expect(createCalls[0].body.payload).not.toHaveProperty("symbols");
+    expect(createCalls[0].body.payload).not.toHaveProperty("requests");
+  });
+
+  it("disables profiles that cannot derive, with the reason in the option text", async () => {
+    installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    await openDerivedEditor(modal);
+
+    const profileSelect = selectByOptionText(modal, "Income");
+    const byValue = (v: string) => [...profileSelect.options].find((o) => o.value === v)!;
+    expect(byValue("prof-1").disabled).toBe(false);
+    expect(byValue("prof-2").disabled).toBe(true);
+    expect(byValue("prof-2").textContent).toContain("no thesis — cannot derive direction");
+    expect(byValue("prof-3").disabled).toBe(true);
+    expect(byValue("prof-3").textContent).toContain("missing max planned loss or min reward/risk");
+  });
+
+  it("blocks a derived create with no profile chosen and posts nothing", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    await openDerivedEditor(modal);
+    const symbolsArea = modal.querySelector('[aria-label="Derived symbols"]') as HTMLTextAreaElement;
+    setFieldValue(symbolsArea, "NVDA");
+
+    await submitForm(modal.querySelector("form")!);
+
+    expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(0);
+    await waitForText("Choose a Strategy Profile to derive targets under.");
+  });
+
+  it("surfaces the create route's 400 for a profile-derived create, modal stays open", async () => {
+    const calls = installFetch(freshState());
+    await renderManager();
+    await waitForText("Stock Market Screen");
+
+    const modal = await openCreateModal();
+    await openDerivedEditor(modal);
+    const symbolsArea = modal.querySelector('[aria-label="Derived symbols"]') as HTMLTextAreaElement;
+    setFieldValue(symbolsArea, "NVDA");
+    const profileSelect = selectByOptionText(modal, "Server Rejects");
+    setValue(profileSelect, "prof-reject");
+
+    await submitForm(modal.querySelector("form")!);
+
+    expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(1);
+    await waitForText("require exactly one symbol source");
+    expect(container.querySelector(".sched-modal-card")).not.toBeNull();
+  });
+
+  it("edits a profile-derived schedule: the form hydrates from its payload and round-trips it", async () => {
+    const calls = installFetch(withDerived());
+    await renderManager();
+    await waitForText("Strategy Discovery · Profile-derived");
+
+    await click(buttonByText(cardByTitle("Strategy Discovery · Profile-derived"), "Edit"));
+    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    expect(modal).not.toBeNull();
+    const modelSelect = selectByOptionText(modal, "Symbol set + profile (derived targets)");
+    expect(modelSelect.value).toBe("profile-derived");
+    const symbolsArea = modal.querySelector('[aria-label="Derived symbols"]') as HTMLTextAreaElement;
+    expect(symbolsArea.value).toBe("NVDA, MSFT");
+    const profileSelect = selectByOptionText(modal, "Income");
+    expect(profileSelect.value).toBe("prof-1");
+
+    await submitForm(modal.querySelector("form")!);
+
+    const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
+    expect(cancelCalls.map((c) => c.body.id)).toContain("user-discovery-derived");
+    const createCalls = callsTo(calls, "/api/schedules/create", "POST");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].body.payload).toEqual({
+      inputModel: "profile-derived",
+      symbols: ["NVDA", "MSFT"],
+      profileId: "prof-1",
+      environment: "TEST",
+      trigger: "scheduled",
+    });
+    await waitForText("Schedule updated successfully");
+  });
+
+  it("shows the profile id and the derived-at-run-time note in a derived schedule's details", async () => {
+    const calls = installFetch(withDerived());
+    await renderManager();
+    await waitForText("Strategy Discovery · Profile-derived");
+
+    const card = cardByTitle("Strategy Discovery · Profile-derived");
+    await click(buttonByText(card, "Details"));
+    await waitForText("Targets derived at run time");
+
+    expect(callsTo(calls, "/api/schedules/user-discovery-derived", "GET")).toHaveLength(1);
+    expect(card.textContent).toContain("Profile ID:");
+    expect(card.textContent).toContain("prof-1");
   });
 });
