@@ -17,6 +17,7 @@ import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
 import PostalMime from "postal-mime";
+import { SERVER_PALETTE } from "../../theme/serverPalette";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -92,11 +93,11 @@ export class ETradeEmailTradingService {
       const respHtml = this.renderEmailContainer(
         "Order Approval Failed",
         `
-        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-          <h3 style="color: #ef4444; margin-top: 0;">❌ Approval Not Processed</h3>
-          <p style="color: #cbd5e1; margin-bottom: 0;">${respText}</p>
+        <div style="background: ${SERVER_PALETTE.dangerAlpha10}; border: 1px solid ${SERVER_PALETTE.sentimentVeryBearish}; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+          <h3 style="color: ${SERVER_PALETTE.sentimentVeryBearish}; margin-top: 0;">❌ Approval Not Processed</h3>
+          <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 0;">${respText}</p>
         </div>
-        <p style="color: #94a3b8; font-size: 13px;">To draft a new trade, email commands like: <code>Buy 10 NVDA limit 125.00</code>.</p>
+        <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px;">To draft a new trade, email commands like: <code>Buy 10 NVDA limit 125.00</code>.</p>
         `
       );
 
@@ -155,14 +156,14 @@ export class ETradeEmailTradingService {
     const respHtml = this.renderEmailContainer(
       isSuccess ? "E*TRADE Order Executed Successfully" : "E*TRADE Execution Alert",
       `
-      <div style="background: ${isSuccess ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)"}; border: 1px solid ${isSuccess ? "#22c55e" : "#ef4444"}; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-        <h3 style="color: ${isSuccess ? "#22c55e" : "#ef4444"}; margin-top: 0;">${isSuccess ? "✓ Order Routed to Broker" : "✕ Execution Blocked"}</h3>
-        <p style="color: #f8fafc; font-size: 15px; margin-bottom: 8px;"><strong>${targetTrade.action} ${targetTrade.quantity} ${targetTrade.symbol}</strong></p>
-        <p style="color: #cbd5e1; margin-bottom: 4px;"><strong>Broker Ref:</strong> <code style="color: #38bdf8;">${execId}</code></p>
-        <p style="color: #cbd5e1; margin-bottom: 4px;"><strong>Execution Total:</strong> $${targetTrade.totalValue.toFixed(2)} USD</p>
-        <p style="color: #cbd5e1; margin-bottom: 0;"><strong>Authorizer DID:</strong> <code>${authorizerDid}</code></p>
+      <div style="background: ${isSuccess ? SERVER_PALETTE.greenAlpha10 : SERVER_PALETTE.dangerAlpha10}; border: 1px solid ${isSuccess ? SERVER_PALETTE.green500 : SERVER_PALETTE.sentimentVeryBearish}; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+        <h3 style="color: ${isSuccess ? SERVER_PALETTE.green500 : SERVER_PALETTE.sentimentVeryBearish}; margin-top: 0;">${isSuccess ? "✓ Order Routed to Broker" : "✕ Execution Blocked"}</h3>
+        <p style="color: ${SERVER_PALETTE.textPrimary}; font-size: 15px; margin-bottom: 8px;"><strong>${targetTrade.action} ${targetTrade.quantity} ${targetTrade.symbol}</strong></p>
+        <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 4px;"><strong>Broker Ref:</strong> <code style="color: ${SERVER_PALETTE.accent};">${execId}</code></p>
+        <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 4px;"><strong>Execution Total:</strong> $${targetTrade.totalValue.toFixed(2)} USD</p>
+        <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 0;"><strong>Authorizer DID:</strong> <code>${authorizerDid}</code></p>
       </div>
-      <p style="color: #94a3b8; font-size: 13px;">This trade was authorized via Cloudflare Email Agent and stamped with Cryptographic Agent DID proof.</p>
+      <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px;">This trade was authorized via Cloudflare Email Agent and stamped with Cryptographic Agent DID proof.</p>
       `
     );
 
@@ -213,10 +214,10 @@ export class ETradeEmailTradingService {
     const respHtml = this.renderEmailContainer(
       "E*TRADE Order Cancelled",
       `
-      <div style="background: rgba(148, 163, 184, 0.1); border: 1px solid #64748b; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-        <h3 style="color: #94a3b8; margin-top: 0;">✓ Draft Discarded Safely</h3>
-        <p style="color: #cbd5e1; margin-bottom: 4px;"><strong>Order:</strong> ${orderDesc}</p>
-        <p style="color: #cbd5e1; margin-bottom: 0;">Status: <strong>CANCELLED</strong>. No live capital moved.</p>
+      <div style="background: ${SERVER_PALETTE.slateAlpha10}; border: 1px solid ${SERVER_PALETTE.slate500}; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+        <h3 style="color: ${SERVER_PALETTE.textMuted}; margin-top: 0;">✓ Draft Discarded Safely</h3>
+        <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 4px;"><strong>Order:</strong> ${orderDesc}</p>
+        <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 0;">Status: <strong>CANCELLED</strong>. No live capital moved.</p>
       </div>
       `
     );
@@ -275,26 +276,26 @@ export class ETradeEmailTradingService {
         const respHtml = this.renderEmailContainer(
           `Real-Time Market Quote: ${q.symbol}`,
           `
-          <div style="background: #1e293b; border-radius: 8px; padding: 20px; border: 1px solid #334155; margin-bottom: 20px;">
+          <div style="background: ${SERVER_PALETTE.slate800}; border-radius: 8px; padding: 20px; border: 1px solid ${SERVER_PALETTE.slate700}; margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
-              <h2 style="color: #f8fafc; margin: 0; font-size: 24px;">${q.symbol} <span style="font-size: 15px; color: #94a3b8; font-weight: normal;">${q.company || ""}</span></h2>
-              <span style="font-size: 24px; font-weight: bold; color: #38bdf8;">${q.lastPrice}</span>
+              <h2 style="color: ${SERVER_PALETTE.textPrimary}; margin: 0; font-size: 24px;">${q.symbol} <span style="font-size: 15px; color: ${SERVER_PALETTE.textMuted}; font-weight: normal;">${q.company || ""}</span></h2>
+              <span style="font-size: 24px; font-weight: bold; color: ${SERVER_PALETTE.accent};">${q.lastPrice}</span>
             </div>
-            <p style="color: ${changeStr.includes("-") ? "#ef4444" : "#22c55e"}; font-size: 15px; margin: 0 0 16px 0; font-weight: 600;">
+            <p style="color: ${changeStr.includes("-") ? SERVER_PALETTE.sentimentVeryBearish : SERVER_PALETTE.green500}; font-size: 15px; margin: 0 0 16px 0; font-weight: 600;">
               ${changeStr} Today
             </p>
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #cbd5e1;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: ${SERVER_PALETTE.textSecondary};">
               <tr>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155;"><strong>Bid / Ask:</strong></td>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155; text-align: right;">${q.bidAsk || "N/A"}</td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Bid / Ask:</strong></td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right;">${q.bidAsk || "N/A"}</td>
               </tr>
               <tr>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155;"><strong>Volume:</strong></td>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155; text-align: right;">${q.volume || "N/A"}</td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Volume:</strong></td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right;">${q.volume || "N/A"}</td>
               </tr>
               <tr>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155;"><strong>52-Week Range:</strong></td>
-                <td style="padding: 6px 0; border-bottom: 1px solid #334155; text-align: right;">${q.range52Week || "N/A"}</td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>52-Week Range:</strong></td>
+                <td style="padding: 6px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right;">${q.range52Week || "N/A"}</td>
               </tr>
               <tr>
                 <td style="padding: 6px 0;"><strong>Market Cap:</strong></td>
@@ -302,8 +303,8 @@ export class ETradeEmailTradingService {
               </tr>
             </table>
           </div>
-          <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid #0284c7; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-            <p style="color: #38bdf8; margin: 0; font-size: 13px;">💡 <strong>Quick Trade Prompt:</strong> Reply to this email with <code>Preview Buy 10 ${q.symbol} limit ${lastPriceStr.replace("$", "") || "100"}</code> to draft an order ticket.</p>
+          <div style="background: ${SERVER_PALETTE.accentAlpha10}; border: 1px solid ${SERVER_PALETTE.sky600}; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <p style="color: ${SERVER_PALETTE.accent}; margin: 0; font-size: 13px;">💡 <strong>Quick Trade Prompt:</strong> Reply to this email with <code>Preview Buy 10 ${q.symbol} limit ${lastPriceStr.replace("$", "") || "100"}</code> to draft an order ticket.</p>
           </div>
           `
         );
@@ -332,23 +333,23 @@ export class ETradeEmailTradingService {
 
         let htmlRows = stocks.length > 0
           ? stocks.slice(0, 10).map((s: any) => `
-          <tr style="border-bottom: 1px solid #334155;">
-            <td style="padding: 8px; font-weight: bold; color: #38bdf8;">${s.symbol}</td>
-            <td style="padding: 8px; color: #cbd5e1;">${s.exchange || "N/A"}</td>
-            <td style="padding: 8px; text-align: right; color: #f8fafc;">${s.price}</td>
-            <td style="padding: 8px; text-align: right; color: ${(s.change || "").includes("-") ? "#ef4444" : "#22c55e"};">${s.change}</td>
-            <td style="padding: 8px; text-align: right; color: #f1f5f9;">${s.marketCap || "N/A"}</td>
+          <tr style="border-bottom: 1px solid ${SERVER_PALETTE.slate700};">
+            <td style="padding: 8px; font-weight: bold; color: ${SERVER_PALETTE.accent};">${s.symbol}</td>
+            <td style="padding: 8px; color: ${SERVER_PALETTE.textSecondary};">${s.exchange || "N/A"}</td>
+            <td style="padding: 8px; text-align: right; color: ${SERVER_PALETTE.textPrimary};">${s.price}</td>
+            <td style="padding: 8px; text-align: right; color: ${(s.change || "").includes("-") ? SERVER_PALETTE.sentimentVeryBearish : SERVER_PALETTE.green500};">${s.change}</td>
+            <td style="padding: 8px; text-align: right; color: ${SERVER_PALETTE.slate100};">${s.marketCap || "N/A"}</td>
           </tr>
         `).join("")
-          : `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #94a3b8;">No equities matched the requested screener criteria.</td></tr>`;
+          : `<tr><td colspan="5" style="padding: 16px; text-align: center; color: ${SERVER_PALETTE.textMuted};">No equities matched the requested screener criteria.</td></tr>`;
 
         const respHtml = this.renderEmailContainer(
           `Market Screener Results (${stocks.length} Equities)`,
           `
-          <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 16px;">${nlqRes.summary}</p>
+          <p style="color: ${SERVER_PALETTE.textSecondary}; font-size: 14px; margin-bottom: 16px;">${nlqRes.summary}</p>
           <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
             <thead>
-              <tr style="background: #1e293b; color: #94a3b8; text-align: left; border-bottom: 2px solid #475569;">
+              <tr style="background: ${SERVER_PALETTE.slate800}; color: ${SERVER_PALETTE.textMuted}; text-align: left; border-bottom: 2px solid ${SERVER_PALETTE.slate600};">
                 <th style="padding: 8px;">Symbol</th>
                 <th style="padding: 8px;">Exchange</th>
                 <th style="padding: 8px; text-align: right;">Price</th>
@@ -394,52 +395,52 @@ export class ETradeEmailTradingService {
         const respHtml = this.renderEmailContainer(
           `Order Preview Awaiting Human Authorization`,
           `
-          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-            <h3 style="color: #f59e0b; margin-top: 0;">🛡️ Agentic HITL Safety Guarantee</h3>
-            <p style="color: #fef3c7; font-size: 14px; margin-bottom: 0;">
+          <div style="background: ${SERVER_PALETTE.warningAlpha10}; border: 1px solid ${SERVER_PALETTE.warning}; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+            <h3 style="color: ${SERVER_PALETTE.warning}; margin-top: 0;">🛡️ Agentic HITL Safety Guarantee</h3>
+            <p style="color: ${SERVER_PALETTE.amber100}; font-size: 14px; margin-bottom: 0;">
               No funds have been moved. Every trade drafted by the Multi-Agent System requires explicit human authorization before being routed to E*TRADE.
             </p>
           </div>
 
-          <div style="background: #1e293b; border-radius: 8px; padding: 20px; border: 1px solid #334155; margin-bottom: 24px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #cbd5e1;">
+          <div style="background: ${SERVER_PALETTE.slate800}; border-radius: 8px; padding: 20px; border: 1px solid ${SERVER_PALETTE.slate700}; margin-bottom: 24px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: ${SERVER_PALETTE.textSecondary};">
               <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155;"><strong>Order Action:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155; text-align: right; color: #38bdf8; font-weight: bold;">${actionStr}</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Order Action:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right; color: ${SERVER_PALETTE.accent}; font-weight: bold;">${actionStr}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155;"><strong>Ticker Symbol:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155; text-align: right; font-weight: bold; color: #f8fafc;">${symbol}</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Ticker Symbol:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right; font-weight: bold; color: ${SERVER_PALETTE.textPrimary};">${symbol}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155;"><strong>Quantity:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155; text-align: right;">${qty} shares</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Quantity:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right;">${qty} shares</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155;"><strong>Estimated Price:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155; text-align: right;">${price}</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Estimated Price:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right;">${price}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155;"><strong>Online Commission:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #334155; text-align: right; color: #22c55e;">$0.00 USD</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700};"><strong>Online Commission:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid ${SERVER_PALETTE.slate700}; text-align: right; color: ${SERVER_PALETTE.green500};">$0.00 USD</td>
               </tr>
               <tr>
                 <td style="padding: 10px 0; font-size: 16px;"><strong>Estimated Total Value:</strong></td>
-                <td style="padding: 10px 0; text-align: right; font-size: 18px; font-weight: bold; color: #38bdf8;">${total}</td>
+                <td style="padding: 10px 0; text-align: right; font-size: 18px; font-weight: bold; color: ${SERVER_PALETTE.accent};">${total}</td>
               </tr>
             </table>
           </div>
 
           <div style="text-align: center; margin-bottom: 24px;">
-            <a href="${approveUrl}" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: bold; font-size: 15px; display: inline-block;">
+            <a href="${approveUrl}" style="background: ${SERVER_PALETTE.blue600}; color: ${SERVER_PALETTE.onGradient}; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: bold; font-size: 15px; display: inline-block;">
               ✓ Review & Approve on Trading Hub
             </a>
           </div>
 
-          <div style="background: #0f172a; border-radius: 6px; padding: 12px; border: 1px solid #1e293b;">
-            <p style="color: #94a3b8; font-size: 13px; margin: 0 0 6px 0;"><strong>Or Authorize Directly via Email Reply:</strong></p>
-            <p style="color: #cbd5e1; font-family: monospace; font-size: 14px; margin: 0 0 4px 0;">Reply <code>APPROVE ${orderId}</code> to execute live.</p>
-            <p style="color: #cbd5e1; font-family: monospace; font-size: 14px; margin: 0;">Reply <code>CANCEL ${orderId}</code> to discard.</p>
+          <div style="background: ${SERVER_PALETTE.card}; border-radius: 6px; padding: 12px; border: 1px solid ${SERVER_PALETTE.slate800};">
+            <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px; margin: 0 0 6px 0;"><strong>Or Authorize Directly via Email Reply:</strong></p>
+            <p style="color: ${SERVER_PALETTE.textSecondary}; font-family: monospace; font-size: 14px; margin: 0 0 4px 0;">Reply <code>APPROVE ${orderId}</code> to execute live.</p>
+            <p style="color: ${SERVER_PALETTE.textSecondary}; font-family: monospace; font-size: 14px; margin: 0;">Reply <code>CANCEL ${orderId}</code> to discard.</p>
           </div>
           `
         );
@@ -466,9 +467,9 @@ export class ETradeEmailTradingService {
         const respHtml = this.renderEmailContainer(
           `E*TRADE Brokerage Account Overview`,
           `
-          <p style="color: #cbd5e1; font-size: 15px; margin-bottom: 16px;">${nlqRes.summary}</p>
-          <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid #0284c7; border-radius: 8px; padding: 12px;">
-            <p style="color: #38bdf8; margin: 0; font-size: 13px;">🛡️ Account data reconciled against live E*TRADE REST API feeds.</p>
+          <p style="color: ${SERVER_PALETTE.textSecondary}; font-size: 15px; margin-bottom: 16px;">${nlqRes.summary}</p>
+          <div style="background: ${SERVER_PALETTE.accentAlpha10}; border: 1px solid ${SERVER_PALETTE.sky600}; border-radius: 8px; padding: 12px;">
+            <p style="color: ${SERVER_PALETTE.accent}; margin: 0; font-size: 13px;">🛡️ Account data reconciled against live E*TRADE REST API feeds.</p>
           </div>
           `
         );
@@ -499,12 +500,12 @@ export class ETradeEmailTradingService {
             .map(([k, v]) => `<strong>${k}:</strong> ${String(v)}`)
             .join(" &nbsp;|&nbsp; ");
           return `
-            <div style="background: #1e293b; border-radius: 8px; padding: 14px; margin-bottom: 12px; border: 1px solid #334155;">
+            <div style="background: ${SERVER_PALETTE.slate800}; border-radius: 8px; padding: 14px; margin-bottom: 12px; border: 1px solid ${SERVER_PALETTE.slate700};">
               <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                <h4 style="color: #38bdf8; margin: 0 0 6px 0;">${escapeHtml(label)}</h4>
-                ${score !== undefined ? `<span style="color: #22c55e; font-weight: bold;">Score: ${score}</span>` : ""}
+                <h4 style="color: ${SERVER_PALETTE.accent}; margin: 0 0 6px 0;">${escapeHtml(label)}</h4>
+                ${score !== undefined ? `<span style="color: ${SERVER_PALETTE.green500}; font-weight: bold;">Score: ${score}</span>` : ""}
               </div>
-              ${details ? `<p style="color: #94a3b8; font-size: 13px; margin: 0;">${details}</p>` : ""}
+              ${details ? `<p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px; margin: 0;">${details}</p>` : ""}
             </div>
           `;
         }).join("");
@@ -514,9 +515,9 @@ export class ETradeEmailTradingService {
         const respHtml = this.renderEmailContainer(
           "Options Research Results",
           `
-          <p style="color: #cbd5e1; font-size: 15px; margin-top: 0;">${escapeHtml(nlqRes.summary || "Options strategy evaluation completed.")}</p>
-          ${htmlCards || '<p style="color: #94a3b8;">No matching option candidates found.</p>'}
-          <p style="color: #64748b; font-size: 12px; margin-top: 16px;">🛡️ Multi-Agent Options Engine • E*TRADE Dynamic API Feed • Research Only</p>
+          <p style="color: ${SERVER_PALETTE.textSecondary}; font-size: 15px; margin-top: 0;">${escapeHtml(nlqRes.summary || "Options strategy evaluation completed.")}</p>
+          ${htmlCards || `<p style="color: ${SERVER_PALETTE.textMuted};">No matching option candidates found.</p>`}
+          <p style="color: ${SERVER_PALETTE.slate500}; font-size: 12px; margin-top: 16px;">🛡️ Multi-Agent Options Engine • E*TRADE Dynamic API Feed • Research Only</p>
           `
         );
 
@@ -536,7 +537,7 @@ export class ETradeEmailTradingService {
       // Default AI Answer
       const respSub = `🤖 E*TRADE Trading Assistant: ${subject || "Market Research"}`;
       const respText = nlqRes.summary || "Your trading research request was processed.";
-      const respHtml = this.renderEmailContainer("E*TRADE Trading Assistant", `<p style="color: #cbd5e1; font-size: 14px;">${respText}</p>`);
+      const respHtml = this.renderEmailContainer("E*TRADE Trading Assistant", `<p style="color: ${SERVER_PALETTE.textSecondary}; font-size: 14px;">${respText}</p>`);
 
       return {
         success: true,
@@ -552,7 +553,7 @@ export class ETradeEmailTradingService {
     } catch (err: any) {
       const respSub = `⚠️ Error Processing Trading Request`;
       const respText = `An error occurred while processing your request: ${err.message || String(err)}`;
-      const respHtml = this.renderEmailContainer("Processing Error", `<p style="color: #ef4444;">${respText}</p>`);
+      const respHtml = this.renderEmailContainer("Processing Error", `<p style="color: ${SERVER_PALETTE.sentimentVeryBearish};">${respText}</p>`);
 
       return {
         success: false,
@@ -654,16 +655,16 @@ export class ETradeEmailTradingService {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${headerTitle}</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f8fafc;">
-  <div style="max-width: 620px; margin: 0 auto; background-color: #0f172a; border-radius: 10px; border: 1px solid #1e293b; overflow: hidden; margin-top: 20px; margin-bottom: 20px;">
+<body style="margin: 0; padding: 0; background-color: ${SERVER_PALETTE.pageBackground}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: ${SERVER_PALETTE.textPrimary};">
+  <div style="max-width: 620px; margin: 0 auto; background-color: ${SERVER_PALETTE.card}; border-radius: 10px; border: 1px solid ${SERVER_PALETTE.slate800}; overflow: hidden; margin-top: 20px; margin-bottom: 20px;">
     <!-- Brand Header -->
-    <div style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); padding: 24px; border-bottom: 1px solid #1e293b;">
+    <div style="background: linear-gradient(135deg, ${SERVER_PALETTE.blue900} 0%, ${SERVER_PALETTE.card} 100%); padding: 24px; border-bottom: 1px solid ${SERVER_PALETTE.slate800};">
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <div>
-          <span style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
+          <span style="background: ${SERVER_PALETTE.blue500}; color: ${SERVER_PALETTE.onGradient}; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
             E*TRADE AGENTIC HUB
           </span>
-          <h1 style="color: #ffffff; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">${headerTitle}</h1>
+          <h1 style="color: ${SERVER_PALETTE.onGradient}; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">${headerTitle}</h1>
         </div>
       </div>
     </div>
@@ -674,15 +675,15 @@ export class ETradeEmailTradingService {
     </div>
 
     <!-- Security & Provenance Footer -->
-    <div style="background-color: #0b0f19; padding: 18px 24px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b;">
+    <div style="background-color: ${SERVER_PALETTE.pageBackground}; padding: 18px 24px; border-top: 1px solid ${SERVER_PALETTE.slate800}; font-size: 12px; color: ${SERVER_PALETTE.slate500};">
       <p style="margin: 0 0 6px 0;">
-        🛡️ <strong>Trading Agent DID:</strong> <code style="color: #94a3b8;">${AGENT_DIDS.TRADING}</code>
+        🛡️ <strong>Trading Agent DID:</strong> <code style="color: ${SERVER_PALETTE.textMuted};">${AGENT_DIDS.TRADING}</code>
       </p>
       <p style="margin: 0 0 6px 0;">
         ⚖️ <strong>Regulatory Compliance:</strong> Direct REST API execution over OAuth 1.0a. Strict Human-in-the-Loop protection enforced on all equity orders.
       </p>
       <p style="margin: 0;">
-        OpenAIMP Agentic Trading Network • <a href="${this.env.APP_BASE_URL || "https://agent.openaimp.com"}" style="color: #38bdf8; text-decoration: none;">agent.openaimp.com</a>
+        OpenAIMP Agentic Trading Network • <a href="${this.env.APP_BASE_URL || "https://agent.openaimp.com"}" style="color: ${SERVER_PALETTE.accent}; text-decoration: none;">agent.openaimp.com</a>
       </p>
     </div>
   </div>

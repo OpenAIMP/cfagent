@@ -41,6 +41,7 @@ import { AGENT_DIDS } from "../../agents/did";
 import { rankCandidatesWithLlm } from "./llmComparison";
 import { defaultRegistry, REQUESTED_STRATEGY_NAMES } from "./strategies/catalog";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
+import { SERVER_PALETTE } from "../../theme/serverPalette";
 
 export type UnifiedOptionsAction =
   | "screen"
@@ -832,33 +833,33 @@ export class UnifiedOptionsService {
     if (req.action === "config" && data.config) {
       const cfg = data.config as EtapiConfig;
       cardsHtml = `
-        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px;">
-          <h3 style="margin-top:0;color:#38bdf8;">⚙️ ETAPI Runtime Parameters</h3>
-          <table style="width:100%;border-collapse:collapse;color:#cbd5e1;font-size:13px;">
-            <tr><td style="padding:6px 0;">Risk-Free Rate:</td><td style="font-weight:bold;color:#f8fafc;">${(cfg.strategyEngine.riskFreeRate * 100).toFixed(1)}%</td></tr>
-            <tr><td style="padding:6px 0;">Fee / Contract:</td><td style="font-weight:bold;color:#f8fafc;">$${cfg.strategyEngine.feePerContract.toFixed(2)}</td></tr>
-            <tr><td style="padding:6px 0;">Default Max DTE:</td><td style="font-weight:bold;color:#f8fafc;">${cfg.screener.defaultMaxDte} days</td></tr>
-            <tr><td style="padding:6px 0;">ATM Band:</td><td style="font-weight:bold;color:#f8fafc;">${(cfg.screener.atmBandPct * 100).toFixed(1)}%</td></tr>
-            <tr><td style="padding:6px 0;">Unusual Vol/OI:</td><td style="font-weight:bold;color:#f8fafc;">${cfg.screener.unusualVolumeOiRatio}x</td></tr>
+        <div style="background:${SERVER_PALETTE.card};border:1px solid ${SERVER_PALETTE.slate800};border-radius:8px;padding:16px;margin-bottom:16px;">
+          <h3 style="margin-top:0;color:${SERVER_PALETTE.accent};">⚙️ ETAPI Runtime Parameters</h3>
+          <table style="width:100%;border-collapse:collapse;color:${SERVER_PALETTE.textSecondary};font-size:13px;">
+            <tr><td style="padding:6px 0;">Risk-Free Rate:</td><td style="font-weight:bold;color:${SERVER_PALETTE.textPrimary};">${(cfg.strategyEngine.riskFreeRate * 100).toFixed(1)}%</td></tr>
+            <tr><td style="padding:6px 0;">Fee / Contract:</td><td style="font-weight:bold;color:${SERVER_PALETTE.textPrimary};">$${cfg.strategyEngine.feePerContract.toFixed(2)}</td></tr>
+            <tr><td style="padding:6px 0;">Default Max DTE:</td><td style="font-weight:bold;color:${SERVER_PALETTE.textPrimary};">${cfg.screener.defaultMaxDte} days</td></tr>
+            <tr><td style="padding:6px 0;">ATM Band:</td><td style="font-weight:bold;color:${SERVER_PALETTE.textPrimary};">${(cfg.screener.atmBandPct * 100).toFixed(1)}%</td></tr>
+            <tr><td style="padding:6px 0;">Unusual Vol/OI:</td><td style="font-weight:bold;color:${SERVER_PALETTE.textPrimary};">${cfg.screener.unusualVolumeOiRatio}x</td></tr>
           </table>
         </div>
       `;
     } else if (req.action === "catalog" && data.strategies) {
       cardsHtml = `
-        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px;">
-          <h3 style="margin-top:0;color:#38bdf8;">📚 Options Strategy Catalog (${data.count} Strategies)</h3>
-          <p style="color:#cbd5e1;font-size:13px;">${summary}</p>
+        <div style="background:${SERVER_PALETTE.card};border:1px solid ${SERVER_PALETTE.slate800};border-radius:8px;padding:16px;margin-bottom:16px;">
+          <h3 style="margin-top:0;color:${SERVER_PALETTE.accent};">📚 Options Strategy Catalog (${data.count} Strategies)</h3>
+          <p style="color:${SERVER_PALETTE.textSecondary};font-size:13px;">${summary}</p>
         </div>
       `;
     } else if (bt && bt.label) {
       const legsHtml = (bt.legs || []).map((l: any) =>
         `<tr>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b;"><span style="color:${l.side?.toLowerCase() === 'buy' ? '#22c55e' : '#f43f5e'};font-weight:bold;">${l.side}</span></td>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b; font-weight: 600;">${l.quantity}x</td>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b; font-weight: bold; color: #38bdf8;">$${l.strike}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b;"><span style="background:${l.optionType === 'CALL' ? 'rgba(56,189,248,0.2)' : 'rgba(244,63,94,0.2)'};padding:2px 8px;border-radius:4px;font-size:11px;color:${l.optionType === 'CALL' ? '#38bdf8' : '#f43f5e'};font-weight:bold;">${l.optionType}</span></td>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${l.expirationDate}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #1e293b; color: #f8fafc;">$${l.entryPrice ? Number(l.entryPrice).toFixed(2) : "0.00"}</td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800};"><span style="color:${l.side?.toLowerCase() === 'buy' ? SERVER_PALETTE.green500 : SERVER_PALETTE.danger};font-weight:bold;">${l.side}</span></td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; font-weight: 600;">${l.quantity}x</td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; font-weight: bold; color: ${SERVER_PALETTE.accent};">$${l.strike}</td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800};"><span style="background:${l.optionType === 'CALL' ? SERVER_PALETTE.accentAlpha20 : SERVER_PALETTE.roseAlpha20};padding:2px 8px;border-radius:4px;font-size:11px;color:${l.optionType === 'CALL' ? SERVER_PALETTE.accent : SERVER_PALETTE.danger};font-weight:bold;">${l.optionType}</span></td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800};">${l.expirationDate}</td>
+          <td style="padding: 10px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; color: ${SERVER_PALETTE.textPrimary};">$${l.entryPrice ? Number(l.entryPrice).toFixed(2) : "0.00"}</td>
         </tr>`
       ).join("");
 
@@ -876,20 +877,20 @@ export class UnifiedOptionsService {
       if (Array.isArray(data.opportunities) && data.opportunities.length > 1) {
         const oppRows = data.opportunities.slice(1, 5).map((o: any) =>
           `<tr>
-            <td style="padding: 8px; border-bottom: 1px solid #1e293b; font-weight: bold; color: #38bdf8;">${o.symbol}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #1e293b;">${o.pick?.best?.candidate?.label || "Opportunity"}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #1e293b; color: #22c55e;">+$${o.pick?.best?.candidate?.maxProfit ? Number(o.pick?.best?.candidate?.maxProfit).toFixed(2) : "∞"}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #1e293b; color: #ef4444;">-$${Number(o.pick?.best?.candidate?.maxLoss || 0).toFixed(2)}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #1e293b; font-weight: bold;">${o.score}</td>
+            <td style="padding: 8px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; font-weight: bold; color: ${SERVER_PALETTE.accent};">${o.symbol}</td>
+            <td style="padding: 8px; border-bottom: 1px solid ${SERVER_PALETTE.slate800};">${o.pick?.best?.candidate?.label || "Opportunity"}</td>
+            <td style="padding: 8px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; color: ${SERVER_PALETTE.green500};">+$${o.pick?.best?.candidate?.maxProfit ? Number(o.pick?.best?.candidate?.maxProfit).toFixed(2) : "∞"}</td>
+            <td style="padding: 8px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; color: ${SERVER_PALETTE.sentimentVeryBearish};">-$${Number(o.pick?.best?.candidate?.maxLoss || 0).toFixed(2)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; font-weight: bold;">${o.score}</td>
           </tr>`
         ).join("");
 
         otherOppsHtml = `
-          <div style="margin-top: 20px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
-            <h4 style="margin: 0 0 10px; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Other Screened Universe Setups</h4>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #cbd5e1; text-align: left;">
+          <div style="margin-top: 20px; background: ${SERVER_PALETTE.card}; border: 1px solid ${SERVER_PALETTE.slate800}; border-radius: 8px; padding: 14px;">
+            <h4 style="margin: 0 0 10px; font-size: 13px; color: ${SERVER_PALETTE.textMuted}; text-transform: uppercase; letter-spacing: 0.05em;">Other Screened Universe Setups</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: ${SERVER_PALETTE.textSecondary}; text-align: left;">
               <thead>
-                <tr style="color: #64748b; border-bottom: 1px solid #334155;">
+                <tr style="color: ${SERVER_PALETTE.slate500}; border-bottom: 1px solid ${SERVER_PALETTE.slate700};">
                   <th style="padding: 6px;">Symbol</th>
                   <th style="padding: 6px;">Strategy</th>
                   <th style="padding: 6px;">Max Profit</th>
@@ -904,63 +905,63 @@ export class UnifiedOptionsService {
       }
 
       cardsHtml = `
-        <div style="background: linear-gradient(135deg, #111827 0%, #0f172a 100%); border-radius: 12px; padding: 22px; border: 1px solid #2563eb; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
+        <div style="background: linear-gradient(135deg, ${SERVER_PALETTE.gray900} 0%, ${SERVER_PALETTE.card} 100%); border-radius: 12px; padding: 22px; border: 1px solid ${SERVER_PALETTE.blue600}; margin-bottom: 20px; box-shadow: 0 10px 25px -5px ${SERVER_PALETTE.blackAlpha50};">
           <!-- Strategy Header -->
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #1e293b; padding-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid ${SERVER_PALETTE.slate800}; padding-bottom: 14px;">
             <div>
-              <span style="display: inline-block; background: rgba(37,99,235,0.2); color: #60a5fa; font-size: 11px; font-weight: bold; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px;">
+              <span style="display: inline-block; background: ${SERVER_PALETTE.surfaceActive}; color: ${SERVER_PALETTE.blue400}; font-size: 11px; font-weight: bold; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px;">
                 ${bt.symbol || sym} · ${req.thesis ? req.thesis.toUpperCase() : "BULLISH"} THESIS
               </span>
-              <h2 style="color: #f8fafc; margin: 0; font-size: 20px; font-weight: 700;">Top Trade: ${bt.label}</h2>
-              <span style="color: #94a3b8; font-size: 13px;">Target Expiry: ${bt.expirationDate || "Near-term"}</span>
+              <h2 style="color: ${SERVER_PALETTE.textPrimary}; margin: 0; font-size: 20px; font-weight: 700;">Top Trade: ${bt.label}</h2>
+              <span style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px;">Target Expiry: ${bt.expirationDate || "Near-term"}</span>
             </div>
-            <div style="text-align: right; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 8px 14px;">
-              <span style="display: block; font-size: 10px; color: #94a3b8; text-transform: uppercase;">Quant Score</span>
-              <span style="font-size: 22px; font-weight: 800; color: #38bdf8;">${score}<span style="font-size: 13px; color: #64748b;">/100</span></span>
+            <div style="text-align: right; background: ${SERVER_PALETTE.accentAlpha10}; border: 1px solid ${SERVER_PALETTE.accentAlpha30}; border-radius: 8px; padding: 8px 14px;">
+              <span style="display: block; font-size: 10px; color: ${SERVER_PALETTE.textMuted}; text-transform: uppercase;">Quant Score</span>
+              <span style="font-size: 22px; font-weight: 800; color: ${SERVER_PALETTE.accent};">${score}<span style="font-size: 13px; color: ${SERVER_PALETTE.slate500};">/100</span></span>
             </div>
           </div>
 
           <!-- Payoff Metrics Grid -->
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Profit</span>
-              <p style="color: #22c55e; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.maxProfitUnbounded ? "Unlimited (∞)" : `$${Number(bt.maxProfit || 0).toFixed(2)}`}</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Profit</span>
+              <p style="color: ${SERVER_PALETTE.green500}; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.maxProfitUnbounded ? "Unlimited (∞)" : `$${Number(bt.maxProfit || 0).toFixed(2)}`}</p>
             </div>
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Loss</span>
-              <p style="color: #ef4444; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.maxLoss || 0).toFixed(2)}</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Max Loss</span>
+              <p style="color: ${SERVER_PALETTE.sentimentVeryBearish}; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.maxLoss || 0).toFixed(2)}</p>
             </div>
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Reward / Risk</span>
-              <p style="color: #38bdf8; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.targetRewardRisk ? Number(bt.targetRewardRisk).toFixed(2) : "1.85"}x</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Reward / Risk</span>
+              <p style="color: ${SERVER_PALETTE.accent}; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${bt.targetRewardRisk ? Number(bt.targetRewardRisk).toFixed(2) : "1.85"}x</p>
             </div>
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Est. POP</span>
-              <p style="color: #a78bfa; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${popPct}</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Est. POP</span>
+              <p style="color: ${SERVER_PALETTE.violet400}; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">${popPct}</p>
             </div>
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Net Debit / Credit</span>
-              <p style="color: #f8fafc; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.netDebit || 0).toFixed(2)}</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Net Debit / Credit</span>
+              <p style="color: ${SERVER_PALETTE.textPrimary}; font-size: 18px; font-weight: bold; margin: 4px 0 0 0;">$${Number(bt.netDebit || 0).toFixed(2)}</p>
             </div>
-            <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b;">
-              <span style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600;">Breakevens</span>
-              <p style="color: #cbd5e1; font-size: 15px; font-weight: bold; margin: 6px 0 0 0;">${breakevensStr}</p>
+            <div style="background: ${SERVER_PALETTE.tileBackground}; padding: 12px; border-radius: 8px; border: 1px solid ${SERVER_PALETTE.slate800};">
+              <span style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; text-transform: uppercase; font-weight: 600;">Breakevens</span>
+              <p style="color: ${SERVER_PALETTE.textSecondary}; font-size: 15px; font-weight: bold; margin: 6px 0 0 0;">${breakevensStr}</p>
             </div>
           </div>
 
           <!-- Net Greeks Banner -->
-          <div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-around; font-size: 13px;">
-            <div><span style="color: #64748b;">Net Delta (Δ):</span> <strong style="color: #38bdf8;">${Number(greeks.delta || 0).toFixed(2)}</strong></div>
-            <div><span style="color: #64748b;">Net Gamma (Γ):</span> <strong style="color: #38bdf8;">${Number(greeks.gamma || 0).toFixed(3)}</strong></div>
-            <div><span style="color: #64748b;">Net Theta (Θ):</span> <strong style="color: #f43f5e;">${Number(greeks.theta || 0).toFixed(2)}/day</strong></div>
-            <div><span style="color: #64748b;">Net Vega (V):</span> <strong style="color: #a78bfa;">${Number(greeks.vega || 0).toFixed(2)}/1% IV</strong></div>
+          <div style="background: ${SERVER_PALETTE.tileBackground}; border: 1px solid ${SERVER_PALETTE.slate800}; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-around; font-size: 13px;">
+            <div><span style="color: ${SERVER_PALETTE.slate500};">Net Delta (Δ):</span> <strong style="color: ${SERVER_PALETTE.accent};">${Number(greeks.delta || 0).toFixed(2)}</strong></div>
+            <div><span style="color: ${SERVER_PALETTE.slate500};">Net Gamma (Γ):</span> <strong style="color: ${SERVER_PALETTE.accent};">${Number(greeks.gamma || 0).toFixed(3)}</strong></div>
+            <div><span style="color: ${SERVER_PALETTE.slate500};">Net Theta (Θ):</span> <strong style="color: ${SERVER_PALETTE.danger};">${Number(greeks.theta || 0).toFixed(2)}/day</strong></div>
+            <div><span style="color: ${SERVER_PALETTE.slate500};">Net Vega (V):</span> <strong style="color: ${SERVER_PALETTE.violet400};">${Number(greeks.vega || 0).toFixed(2)}/1% IV</strong></div>
           </div>
 
           <!-- Option Legs Breakdown Table -->
           <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #cbd5e1; text-align: left;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: ${SERVER_PALETTE.textSecondary}; text-align: left;">
               <thead>
-                <tr style="color: #64748b; border-bottom: 2px solid #1e293b; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em;">
+                <tr style="color: ${SERVER_PALETTE.slate500}; border-bottom: 2px solid ${SERVER_PALETTE.slate800}; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em;">
                   <th style="padding: 8px 10px;">Action</th>
                   <th style="padding: 8px 10px;">Qty</th>
                   <th style="padding: 8px 10px;">Strike</th>
@@ -975,7 +976,7 @@ export class UnifiedOptionsService {
 
           <!-- Direct Human-in-the-Loop Approval Action -->
           <div style="margin-top: 20px; text-align: center;">
-            <a href="/?tab=trading&symbol=${encodeURIComponent(bt.symbol || sym)}&action=options_preview" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%); color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.4);">
+            <a href="/?tab=trading&symbol=${encodeURIComponent(bt.symbol || sym)}&action=options_preview" style="display: inline-block; background: linear-gradient(135deg, ${SERVER_PALETTE.blue600} 0%, ${SERVER_PALETTE.accent} 100%); color: ${SERVER_PALETTE.onGradient}; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px ${SERVER_PALETTE.blueAlpha40};">
               ✓ Preview &amp; Authorize Order on E*TRADE Terminal →
             </a>
           </div>
@@ -988,20 +989,20 @@ export class UnifiedOptionsService {
     return `
       <!DOCTYPE html>
       <html>
-      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #060913; color: #f8fafc; padding: 24px; margin: 0;">
-        <div style="max-width: 680px; margin: 0 auto; background: #0c1222; border: 1px solid #1e293b; border-radius: 14px; padding: 26px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${SERVER_PALETTE.surface}; color: ${SERVER_PALETTE.textPrimary}; padding: 24px; margin: 0;">
+        <div style="max-width: 680px; margin: 0 auto; background: ${SERVER_PALETTE.surfaceRaised}; border: 1px solid ${SERVER_PALETTE.slate800}; border-radius: 14px; padding: 26px; box-shadow: 0 20px 40px ${SERVER_PALETTE.blackAlpha60};">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-            <h1 style="color: #38bdf8; margin: 0; font-size: 21px; display: flex; align-items: center; gap: 8px;">
+            <h1 style="color: ${SERVER_PALETTE.accent}; margin: 0; font-size: 21px; display: flex; align-items: center; gap: 8px;">
               📊 E*TRADE Options Intelligence: ${sym}
             </h1>
-            <span style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600;">
+            <span style="background: ${SERVER_PALETTE.emeraldAlpha15}; border: 1px solid ${SERVER_PALETTE.emeraldAlpha40}; color: ${SERVER_PALETTE.successText}; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600;">
               AUTONOMOUS SCREENER
             </span>
           </div>
-          <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 20px;">${summary}</p>
+          <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 20px;">${summary}</p>
           ${cardsHtml}
-          <div style="color: #64748b; font-size: 11px; border-top: 1px solid #1e293b; padding-top: 14px; margin-top: 10px; display: flex; justify-content: space-between;">
-            <span>Attested by Trading Agent DID: <code style="color: #94a3b8;">${AGENT_DIDS.TRADING}</code></span>
+          <div style="color: ${SERVER_PALETTE.slate500}; font-size: 11px; border-top: 1px solid ${SERVER_PALETTE.slate800}; padding-top: 14px; margin-top: 10px; display: flex; justify-content: space-between;">
+            <span>Attested by Trading Agent DID: <code style="color: ${SERVER_PALETTE.textMuted};">${AGENT_DIDS.TRADING}</code></span>
             <span>Generated: ${meta.generatedAt} [${meta.environment}]</span>
           </div>
         </div>

@@ -21,6 +21,7 @@ import type {
   BrowserAgentSnapResult,
 } from "../types";
 import { AGENT_DIDS } from "../agents/did";
+import { SERVER_PALETTE } from "../theme/serverPalette";
 
 export class ETradeBrowserService {
   constructor(private env?: Env) {}
@@ -330,14 +331,14 @@ export class ETradeBrowserService {
    */
   private generateScreenshotPlaceholderBase64(url: string): string {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
-  <rect width="100%" height="100%" fill="#0a0f1d"/>
-  <rect x="16" y="16" width="768" height="418" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="10 6"/>
-  <text x="400" y="150" fill="#f59e0b" font-family="monospace" font-size="26" font-weight="bold" text-anchor="middle">PLACEHOLDER — NOT A SCREENSHOT</text>
-  <text x="400" y="195" fill="#e2e8f0" font-family="monospace" font-size="14" text-anchor="middle">No image of this page was captured.</text>
-  <text x="400" y="225" fill="#94a3b8" font-family="monospace" font-size="12" text-anchor="middle">Cloudflare Browser Rendering was unavailable, so this illustration was</text>
-  <text x="400" y="245" fill="#94a3b8" font-family="monospace" font-size="12" text-anchor="middle">generated locally. It shows no page content and no market data.</text>
-  <text x="400" y="300" fill="#38bdf8" font-family="monospace" font-size="12" text-anchor="middle">${url}</text>
-  <text x="400" y="410" fill="#64748b" font-family="monospace" font-size="11" text-anchor="middle">Generated placeholder • Cloudflare Browser Agent</text>
+  <rect width="100%" height="100%" fill="${SERVER_PALETTE.placeholderBackground}"/>
+  <rect x="16" y="16" width="768" height="418" fill="none" stroke="${SERVER_PALETTE.warning}" stroke-width="2" stroke-dasharray="10 6"/>
+  <text x="400" y="150" fill="${SERVER_PALETTE.warning}" font-family="monospace" font-size="26" font-weight="bold" text-anchor="middle">PLACEHOLDER — NOT A SCREENSHOT</text>
+  <text x="400" y="195" fill="${SERVER_PALETTE.slate200}" font-family="monospace" font-size="14" text-anchor="middle">No image of this page was captured.</text>
+  <text x="400" y="225" fill="${SERVER_PALETTE.textMuted}" font-family="monospace" font-size="12" text-anchor="middle">Cloudflare Browser Rendering was unavailable, so this illustration was</text>
+  <text x="400" y="245" fill="${SERVER_PALETTE.textMuted}" font-family="monospace" font-size="12" text-anchor="middle">generated locally. It shows no page content and no market data.</text>
+  <text x="400" y="300" fill="${SERVER_PALETTE.accent}" font-family="monospace" font-size="12" text-anchor="middle">${url}</text>
+  <text x="400" y="410" fill="${SERVER_PALETTE.slate500}" font-family="monospace" font-size="11" text-anchor="middle">Generated placeholder • Cloudflare Browser Agent</text>
 </svg>`;
     return Buffer.from(svg).toString("base64");
   }
@@ -349,14 +350,14 @@ export class ETradeBrowserService {
     const isBuy = (tx.action || "BUY").toUpperCase().includes("BUY");
     const statusUpper = (tx.status || "EXECUTED").toUpperCase();
     const statusColor = statusUpper === "EXECUTED" || statusUpper === "FILLED"
-      ? "#22c55e"
+      ? SERVER_PALETTE.green500
       : statusUpper === "PREVIEWED"
-      ? "#38bdf8"
+      ? SERVER_PALETTE.accent
       : statusUpper === "REJECTED" || statusUpper === "CANCELLED"
-      ? "#ef4444"
-      : "#f59e0b";
+      ? SERVER_PALETTE.sentimentVeryBearish
+      : SERVER_PALETTE.warning;
 
-    const badgeFill = isBuy ? "#15803d" : "#b91c1c";
+    const badgeFill = isBuy ? SERVER_PALETTE.green700 : SERVER_PALETTE.red700;
     const totalFormatted = tx.totalValue !== undefined
       ? `$${Math.abs(tx.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : "N/A";
@@ -365,49 +366,49 @@ export class ETradeBrowserService {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380" viewBox="0 0 700 380">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0b1120" />
-      <stop offset="100%" stop-color="#030712" />
+      <stop offset="0%" stop-color="${SERVER_PALETTE.receiptGradientStart}" />
+      <stop offset="100%" stop-color="${SERVER_PALETTE.backgroundEnd}" />
     </linearGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#bgGrad)" rx="12" />
-  <rect x="2" y="2" width="696" height="376" fill="none" stroke="#1e293b" stroke-width="2" rx="10" />
+  <rect x="2" y="2" width="696" height="376" fill="none" stroke="${SERVER_PALETTE.slate800}" stroke-width="2" rx="10" />
 
   <!-- Top Banner -->
-  <text x="35" y="45" fill="#38bdf8" font-family="-apple-system, BlinkMacSystemFont, monospace" font-size="16" font-weight="bold">E*TRADE TRADING DESK | OFFICIAL TRANSACTION RECEIPT</text>
+  <text x="35" y="45" fill="${SERVER_PALETTE.accent}" font-family="-apple-system, BlinkMacSystemFont, monospace" font-size="16" font-weight="bold">E*TRADE TRADING DESK | OFFICIAL TRANSACTION RECEIPT</text>
   <rect x="540" y="28" width="125" height="26" rx="13" fill="${badgeFill}" />
-  <text x="602" y="45" fill="#ffffff" font-family="-apple-system, sans-serif" font-size="12" font-weight="bold" text-anchor="middle">${(tx.action || "BUY").toUpperCase()}</text>
+  <text x="602" y="45" fill="${SERVER_PALETTE.onGradient}" font-family="-apple-system, sans-serif" font-size="12" font-weight="bold" text-anchor="middle">${(tx.action || "BUY").toUpperCase()}</text>
 
-  <line x1="35" y1="65" x2="665" y2="65" stroke="#1e293b" stroke-width="1" />
+  <line x1="35" y1="65" x2="665" y2="65" stroke="${SERVER_PALETTE.slate800}" stroke-width="1" />
 
   <!-- Primary Ticker & Status -->
-  <text x="35" y="115" fill="#f8fafc" font-family="-apple-system, sans-serif" font-size="34" font-weight="900">${tx.symbol.toUpperCase()}</text>
+  <text x="35" y="115" fill="${SERVER_PALETTE.textPrimary}" font-family="-apple-system, sans-serif" font-size="34" font-weight="900">${tx.symbol.toUpperCase()}</text>
   <circle cx="210" cy="105" r="7" fill="${statusColor}" />
   <text x="225" y="110" fill="${statusColor}" font-family="-apple-system, sans-serif" font-size="15" font-weight="bold">${statusUpper}</text>
 
   <!-- Key Metrics Grid -->
-  <rect x="35" y="140" width="195" height="75" fill="#0f172a" rx="8" stroke="#334155" stroke-width="1" />
-  <text x="50" y="165" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">ORDER QUANTITY</text>
-  <text x="50" y="198" fill="#f8fafc" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${tx.quantity.toLocaleString()} units</text>
+  <rect x="35" y="140" width="195" height="75" fill="${SERVER_PALETTE.card}" rx="8" stroke="${SERVER_PALETTE.slate700}" stroke-width="1" />
+  <text x="50" y="165" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">ORDER QUANTITY</text>
+  <text x="50" y="198" fill="${SERVER_PALETTE.textPrimary}" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${tx.quantity.toLocaleString()} units</text>
 
-  <rect x="250" y="140" width="195" height="75" fill="#0f172a" rx="8" stroke="#334155" stroke-width="1" />
-  <text x="265" y="165" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">EXECUTION / LIMIT</text>
-  <text x="265" y="198" fill="#f8fafc" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${priceFormatted}</text>
+  <rect x="250" y="140" width="195" height="75" fill="${SERVER_PALETTE.card}" rx="8" stroke="${SERVER_PALETTE.slate700}" stroke-width="1" />
+  <text x="265" y="165" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">EXECUTION / LIMIT</text>
+  <text x="265" y="198" fill="${SERVER_PALETTE.textPrimary}" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${priceFormatted}</text>
 
-  <rect x="465" y="140" width="200" height="75" fill="#0f172a" rx="8" stroke="#334155" stroke-width="1" />
-  <text x="480" y="165" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">TOTAL CONSIDERATION</text>
-  <text x="480" y="198" fill="#38bdf8" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${totalFormatted}</text>
+  <rect x="465" y="140" width="200" height="75" fill="${SERVER_PALETTE.card}" rx="8" stroke="${SERVER_PALETTE.slate700}" stroke-width="1" />
+  <text x="480" y="165" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">TOTAL CONSIDERATION</text>
+  <text x="480" y="198" fill="${SERVER_PALETTE.accent}" font-family="-apple-system, sans-serif" font-size="20" font-weight="bold">${totalFormatted}</text>
 
   <!-- Transaction Details & Routing -->
-  <text x="35" y="245" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">Order Type: <tspan fill="#f1f5f9" font-weight="bold">${tx.orderType || "MARKET"}</tspan></text>
-  <text x="250" y="245" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">Environment: <tspan fill="#f1f5f9" font-weight="bold">${tx.environment || "TEST / Sandbox"}</tspan></text>
-  <text x="465" y="245" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">Commission: <tspan fill="#f1f5f9" font-weight="bold">$${(tx.commission ?? 0).toFixed(2)}</tspan></text>
+  <text x="35" y="245" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">Order Type: <tspan fill="${SERVER_PALETTE.slate100}" font-weight="bold">${tx.orderType || "MARKET"}</tspan></text>
+  <text x="250" y="245" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">Environment: <tspan fill="${SERVER_PALETTE.slate100}" font-weight="bold">${tx.environment || "TEST / Sandbox"}</tspan></text>
+  <text x="465" y="245" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">Commission: <tspan fill="${SERVER_PALETTE.slate100}" font-weight="bold">$${(tx.commission ?? 0).toFixed(2)}</tspan></text>
 
-  <text x="35" y="275" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">Transaction ID: <tspan fill="#cbd5e1" font-family="monospace">${tx.transactionId}</tspan></text>
-  <text x="35" y="300" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="12">Executed At: <tspan fill="#cbd5e1" font-family="monospace">${tx.timestamp || new Date().toISOString()}</tspan></text>
+  <text x="35" y="275" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">Transaction ID: <tspan fill="${SERVER_PALETTE.textSecondary}" font-family="monospace">${tx.transactionId}</tspan></text>
+  <text x="35" y="300" fill="${SERVER_PALETTE.textMuted}" font-family="-apple-system, sans-serif" font-size="12">Executed At: <tspan fill="${SERVER_PALETTE.textSecondary}" font-family="monospace">${tx.timestamp || new Date().toISOString()}</tspan></text>
 
   <!-- Footer Attestation -->
-  <line x1="35" y1="330" x2="665" y2="330" stroke="#1e293b" stroke-width="1" />
-  <text x="35" y="355" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">Attested by Cloudflare Browser Agent (${AGENT_DIDS.BROWSER || "did:agent:openaimp:browser"}) • ${tx.humanApproved ? "Human-in-the-Loop Verified" : "Human approval not recorded for this transaction"}</text>
+  <line x1="35" y1="330" x2="665" y2="330" stroke="${SERVER_PALETTE.slate800}" stroke-width="1" />
+  <text x="35" y="355" fill="${SERVER_PALETTE.slate500}" font-family="-apple-system, sans-serif" font-size="11">Attested by Cloudflare Browser Agent (${AGENT_DIDS.BROWSER || "did:agent:openaimp:browser"}) • ${tx.humanApproved ? "Human-in-the-Loop Verified" : "Human approval not recorded for this transaction"}</text>
 </svg>`;
 
     return Buffer.from(svg).toString("base64");
