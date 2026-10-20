@@ -42,6 +42,7 @@ import {
   SqlScanRunStore,
   SqlStrategyProfileStore,
   UNIVERSES,
+  validateNoViewRequest,
   validateStrategyRequest,
   MAX_SAVED_REQUESTS_PER_RUN,
 } from "../../trading";
@@ -263,16 +264,49 @@ export async function handleSchedulesRoutes(
           // time). Arm-time validation there is SHAPE ONLY — the
           // profile may be edited or deleted after arming, and both
           // are honest fire-time outcomes, so existence is
-          // deliberately NOT checked here.
+          // deliberately NOT checked here. Issue #534 adds the
+          // no-view model: the payload carries constraintSets only,
+          // each validated in full at arm time (a constraint set is
+          // static configuration, unlike a profile — nothing about
+          // it resolves later, so an invalid or view-smuggling set
+          // is rejected here and never armed). The three shapes are
+          // mutually exclusive; a payload mixing them is rejected.
           const inputModel = (safePayload as any).inputModel;
           if (
             inputModel !== undefined &&
             inputModel !== "saved-request" &&
-            inputModel !== "profile-derived"
+            inputModel !== "profile-derived" &&
+            inputModel !== "no-view"
           ) {
-            return Response.json({ success: false, error: `Unknown discovery inputModel '${inputModel}'. Use "saved-request" or "profile-derived".` }, { status: 400 });
+            return Response.json({ success: false, error: `Unknown discovery inputModel '${inputModel}'. Use "saved-request", "profile-derived", or "no-view".` }, { status: 400 });
           }
-          if (inputModel === "profile-derived") {
+          if (inputModel !== "no-view" && (safePayload as any).constraintSets !== undefined) {
+            return Response.json({ success: false, error: "payload.constraintSets belongs to the no-view discovery input model (inputModel \"no-view\") and cannot be combined with saved requests or a profile." }, { status: 400 });
+          }
+          if (inputModel === "no-view") {
+            if (
+              (safePayload as any).requests !== undefined ||
+              (safePayload as any).symbols !== undefined ||
+              (safePayload as any).watchlistName !== undefined ||
+              (safePayload as any).profileId !== undefined
+            ) {
+              return Response.json({ success: false, error: "No-view discovery schedules carry payload.constraintSets only — requests, symbols, watchlistName and profileId belong to the other discovery input models." }, { status: 400 });
+            }
+            const constraintSets = (safePayload as any).constraintSets;
+            if (!Array.isArray(constraintSets) || constraintSets.length === 0) {
+              return Response.json({ success: false, error: "No-view discovery schedules require at least one constraint set in payload.constraintSets." }, { status: 400 });
+            }
+            if (constraintSets.length > MAX_SAVED_REQUESTS_PER_RUN) {
+              return Response.json({ success: false, error: `No-view discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per schedule.` }, { status: 400 });
+            }
+            for (let i = 0; i < constraintSets.length; i++) {
+              const setError = validateNoViewRequest(constraintSets[i]);
+              if (setError) {
+                const symbol = typeof constraintSets[i]?.symbol === "string" ? constraintSets[i].symbol : "?";
+                return Response.json({ success: false, error: `No-view constraint set ${i + 1} (${symbol}) is invalid: ${setError}` }, { status: 400 });
+              }
+            }
+          } else if (inputModel === "profile-derived") {
             const profileId = (safePayload as any).profileId;
             if (typeof profileId !== "string" || !profileId.trim()) {
               return Response.json({ success: false, error: "Profile-derived discovery schedules require payload.profileId (the Strategy Profile to derive targets under)." }, { status: 400 });
@@ -468,7 +502,9 @@ export async function handleSchedulesRoutes(
     // carrying inputModel "profile-derived" (+ profileId and symbols
     // or watchlistName) flows through the same call — the service
     // branches on the discriminator — and abstentions ride back in the
-    // result data alongside failures.
+    // result data alongside failures. Issue #534: a body carrying
+    // inputModel "no-view" (+ constraintSets) flows through the same
+    // call the same way.
     if (path.endsWith("/schedules/trigger-discovery") && request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
