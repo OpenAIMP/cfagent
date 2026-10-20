@@ -15,6 +15,7 @@ import type { StrategyEvaluation } from "../../trading/options/strategies/types"
 import { ResearchReportActions } from "../ResearchReportActions";
 import { defaultRegistry } from "../../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./StrategyDiscoveryPanel";
+import { DiscoveryRunsPanel } from "./DiscoveryRunsPanel";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
@@ -1094,13 +1095,19 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       )}
 
       {researchMode === "discovery" && (
-        <StrategyDiscoveryPanel
-          initialSymbol={symbol.trim() || "TSLA"}
-          activeEnv={activeEnv}
-          userLogin={userLogin}
-          onPreviewTrade={onPreviewTrade}
-          onSendPrompt={onSendPrompt}
-        />
+        <>
+          <StrategyDiscoveryPanel
+            initialSymbol={symbol.trim() || "TSLA"}
+            activeEnv={activeEnv}
+            userLogin={userLogin}
+            onPreviewTrade={onPreviewTrade}
+            onSendPrompt={onSendPrompt}
+          />
+          {/* Issue #126 (PR-F): the persisted scheduled/manual discovery
+              runs — a separate, read-only record stream below the
+              interactive panel; the two are never merged. */}
+          <DiscoveryRunsPanel activeEnv={activeEnv} userLogin={userLogin} />
+        </>
       )}
 
       {researchMode === "contracts" && (
