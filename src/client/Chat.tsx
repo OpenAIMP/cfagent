@@ -1695,7 +1695,7 @@ export function Chat({ user }: { user: User }) {
   const [newPayCurrency, setNewPayCurrency] = useState("USD");
   const [newPayCustomer, setNewPayCustomer] = useState(user.name || "Client");
   const [newPayGateway, setNewPayGateway] = useState<"stripe" | "paypal" | "lemonsqueezy">("stripe");
-  const [newPayDesc, setNewPayDesc] = useState("500,000 AI Inference Token Credits");
+  const [newPayDesc, setNewPayDesc] = useState("");
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [paySuccessMsg, setPaySuccessMsg] = useState("");
   const [payErrorMsg, setPayErrorMsg] = useState("");
@@ -3087,7 +3087,7 @@ export function Chat({ user }: { user: User }) {
                     <label>Purpose / Description</label>
                     <input
                       type="text"
-                      placeholder="e.g. 500,000 AI Inference Token Credits"
+                      placeholder="Describe what this payment is for"
                       value={newPayDesc}
                       onChange={(e) => setNewPayDesc(e.target.value)}
                     />
