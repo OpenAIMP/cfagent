@@ -62,9 +62,16 @@ export async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: str
       console.warn("[ScreenerPublishers] SCREENER_AGENT binding missing — cannot fetch PDF.");
       return null;
     }
+    // Issue #801: NEVER fall back to getLatestPdf(). If the event doesn't carry
+    // the run's pdfKey, attaching "the latest" PDF sends a stale report from a
+    // different run. A missing attachment is better than a wrong one.
+    if (!pdfKey) {
+      console.warn("[ScreenerPublishers] No pdfKey on event — skipping PDF attachment (not falling back to latest).");
+      return null;
+    }
     const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
     const agent = ns.get(ns.idFromName(agentName)) as unknown as ScreenerAgent;
-    return pdfKey ? await agent.getPdfByKey(pdfKey) : await agent.getLatestPdf();
+    return await agent.getPdfByKey(pdfKey);
   } catch (err) {
     console.warn("[ScreenerPublishers] fetchScreenerPdf failed:", err instanceof Error ? err.message : String(err));
     return null;
