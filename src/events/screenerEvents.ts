@@ -36,6 +36,18 @@ export interface ScreenerCompletedEvent {
   totalScanned: number;
   matchedCount: number;
   opportunities: ScreenerOpportunity[];
+  /**
+   * Issue #462: qualification for a screen run on an incomplete quote set.
+   * The delivered result is a qualified partial report — never presented as
+   * a complete screen and never as a failure. Failed symbols carry no
+   * fallback data.
+   */
+  partial?: {
+    quotedCount: number;
+    requestedCount: number;
+    failedSymbols: string[];
+    failureReasons: Record<string, number>;
+  };
 }
 
 export interface ScreenerFailedEvent {

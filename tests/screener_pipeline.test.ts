@@ -239,4 +239,47 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
       },
     })).rejects.toThrow("failure reasons: auth=2");
   });
+
+  it("returns a qualified partial result when only part of the universe quotes (#462)", async () => {
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: [
+        { symbol: "NVDA", companyName: "NVIDIA", exchange: "NASDAQ" },
+        { symbol: "AAPL", companyName: "Apple", exchange: "NASDAQ" },
+        { symbol: "MSFT", companyName: "Microsoft", exchange: "NASDAQ" },
+      ] as any,
+      liveDeps: {
+        fetchETradeQuote: async (sym: string) => {
+          if (sym === "AAPL") throw new Error("E*TRADE Quote API Error [HTTP 500]");
+          return makeQuote({ symbol: sym });
+        },
+      },
+    });
+    // The screen runs on the quoted subset — no throw, no fallback.
+    expect(acquired.quotes.map((q) => q.symbol).sort()).toEqual(["MSFT", "NVDA"]);
+    expect(acquired.partial).toBeDefined();
+    expect(acquired.partial!.quotedCount).toBe(2);
+    expect(acquired.partial!.requestedCount).toBe(3);
+    expect(acquired.partial!.failedSymbols).toEqual(["AAPL"]);
+    // HTTP 500 categorizes as an upstream E*TRADE failure, not "other" (#462).
+    expect(acquired.partial!.failureReasons["api-http-5xx"]).toBe(1);
+    expect(acquired.partial!.failureReasons.other).toBeUndefined();
+    expect(acquired.discovery.message).toContain("Partial screen");
+    expect(acquired.discovery.message).toContain("qualified");
+  });
+
+  it("returns no partial qualification when the full universe quotes (#462)", async () => {
+    const acquired = await acquireUniverse({
+      mode: "etrade-only",
+      symbols: [
+        { symbol: "NVDA", companyName: "NVIDIA", exchange: "NASDAQ" },
+      ] as any,
+      liveDeps: {
+        fetchETradeQuote: async (sym: string) => makeQuote({ symbol: sym }),
+      },
+    });
+    expect(acquired.quotes.length).toBe(1);
+    expect(acquired.partial).toBeUndefined();
+    expect(acquired.discovery.message).not.toContain("Partial screen");
+  });
 });

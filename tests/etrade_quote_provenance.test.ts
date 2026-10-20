@@ -157,7 +157,9 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     it("getQuoteAsync returns a genuine live quote unchanged", async () => {
       const service = new ETradeService(orm, liveEnv);
       const live = liveQuote("ACME");
-      (service.client as any).fetchQuote = async () => live;
+      // Issue #462: fetchQuoteRemote calls fetchQuoteDetailed (per-call
+      // error capture) — mock the detailed seam, not the shared wrapper.
+      (service.client as any).fetchQuoteDetailed = async () => ({ quote: live, error: null });
       const q = await service.getQuoteAsync("ACME");
       expect(q).toBe(live);
       expect(q.quoteStatus).toBe("REALTIME");

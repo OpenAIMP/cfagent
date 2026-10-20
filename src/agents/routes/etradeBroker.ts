@@ -141,6 +141,16 @@ async function publishManualScreenerRun(
     totalScanned: result.totalScanned,
     matchedCount: result.matchedCount,
     opportunities: result.opportunities,
+    ...(result.partial
+      ? {
+          partial: {
+            quotedCount: result.partial.quotedCount,
+            requestedCount: result.partial.requestedCount,
+            failedSymbols: result.partial.failedSymbols,
+            failureReasons: result.partial.failureReasons,
+          },
+        }
+      : {}),
   });
 }
 
