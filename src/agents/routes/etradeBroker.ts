@@ -274,6 +274,18 @@ export async function handleEtradeBrokerRoutes(
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const accounts = await etrade.fetchAccountsRemote();
+      if (accounts.length === 0) {
+        // Issue #243: an empty list with a recorded client error is an
+        // upstream failure (expired OAuth, missing credentials, network),
+        // not "you have no accounts" — surface it as a 502 naming the
+        // cause instead of an ambiguous empty 200 (the #155 pattern).
+        // A genuine empty leaves lastError unset and keeps the exact
+        // previous 200 payload.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
+      }
       return Response.json({ count: accounts.length, accounts });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch accounts" }, { status: 500 });
@@ -905,6 +917,15 @@ export async function handleEtradeBrokerRoutes(
       const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
       const symbol = url.searchParams.get("symbol") || undefined;
       const orders = await etrade.fetchOrdersRemote(undefined, { status, marker, count, symbol });
+      if (orders.length === 0) {
+        // Issue #243: empty + recorded client error = upstream failure,
+        // not "no orders" — 502 naming the cause (#155 pattern). A
+        // genuine empty keeps the exact previous 200 payload.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
+      }
       return Response.json({ count: orders.length, orders });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch exchange orders" }, { status: 500 });
@@ -990,6 +1011,15 @@ export async function handleEtradeBrokerActivityRoutes(
       const status = (url.searchParams.get("status") as "READ" | "UNREAD" | "DELETED") || undefined;
       const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
       const alerts = await etrade.fetchAlerts({ category, status, count });
+      if (alerts.length === 0) {
+        // Issue #243: empty + recorded client error = upstream failure,
+        // not "no alerts" — 502 naming the cause (#155 pattern). A
+        // genuine empty keeps the exact previous 200 payload.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
+      }
       return Response.json({ count: alerts.length, alerts });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch alerts" }, { status: 500 });
@@ -1031,6 +1061,15 @@ export async function handleEtradeBrokerActivityRoutes(
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const items = await etrade.lookupProduct(search);
+      if (items.length === 0) {
+        // Issue #243: empty + recorded client error = upstream failure,
+        // not "no matches" — 502 naming the cause (#155 pattern). A
+        // genuine no-match keeps the exact previous 200 payload.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
+      }
       return Response.json({ count: items.length, items });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to lookup products" }, { status: 500 });
