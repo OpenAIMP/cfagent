@@ -224,7 +224,7 @@ describe("F16 — executionCardPresentation", () => {
   });
 
   it("source pins: the card derives from the helper and the fabricated fallbacks are gone", () => {
-    const chat = src("client/Chat.tsx");
+    const chat = src("client/chat/ToolResultView.tsx");
     expect(chat).toContain("executionCardPresentation(data)");
     expect(chat).not.toContain('data.success !== false ? "FILLED" : "CANCELLED"');
     expect(chat).not.toContain('data.brokerOrderRef || "simulated"');
