@@ -5,7 +5,7 @@ import { getWorkersAIModel } from "./model";
 import { buildOrchestratorSystemPrompt, resolveMasMaxSteps } from "./chatPrompt";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, type NLQSchedulingPort } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
@@ -42,6 +42,7 @@ import { SqlStrategyProfileStore } from "../trading";
 import { AGENT_DIDS, createDidAttestation, getUserDid, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { createAgentMcpTools } from "./mcpAdapter";
+import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
@@ -2649,83 +2650,34 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     return { result, route };
   }
 
+  /** Issue #669: the this-bound context for the shared fallback
+   * (src/agents/chatErrorFallback.ts), so the Think shadow builds the
+   * identical degraded answer from the same implementation. */
+  private chatErrorFallbackContext(): ChatErrorFallbackContext {
+    return {
+      env: this.env,
+      orm: this.getOrm(),
+      sessionId: this.sessionKey(),
+      audit: (type, payload) => this.audit(type, "orchestrator", payload),
+      scanRunStore: new SqlScanRunStore(this.ctx.storage.sql),
+      profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql),
+      schedulingPort: this.nlqSchedulingPort(),
+    };
+  }
+
   /**
    * Issue #312: shared degraded-answer builder for chat turns. Runs the
    * deterministic NLQ fallback and returns the same diagnostic text the
    * WebSocket chat streams; POST /api/chat returns it as JSON instead.
+   * Issue #669: the implementation lives in ./chatErrorFallback,
+   * shared with the Think shadow; this method only binds the context.
    */
   private async buildChatErrorFallback(
     streamErr: unknown,
     userText: string,
     userLogin: string
   ): Promise<string> {
-    const orm = this.getOrm();
-    const sessionId = this.sessionKey();
-      const aspect = resolveErrorAspect(streamErr);
-      logAspectEvent({
-        aspect: "ChatStream",
-        operationName: "streamInitializationError",
-        code: aspect.code,
-        level: "error",
-        error: aspect.message,
-        metadata: { userText, userLogin },
-        audit: (e, _c, p) => this.audit(e, "orchestrator", p),
-      });
-      this.audit("stream.error", "orchestrator", { code: aspect.code, error: aspect.message });
-
-      // Attempt deterministic query execution (e.g. Stock Screener or Research query)
-      let deterministicSection = "";
-      if (userText && userText.trim().length > 0) {
-        try {
-          const { result } = await executeNaturalLanguageQuery(
-            orm,
-            sessionId,
-            userText,
-            this.env,
-            userLogin,
-            undefined,
-            { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() }
-          );
-          if (result && result.status !== "error") {
-            if (Array.isArray(result.rows) && result.rows.length > 0) {
-              deterministicSection = [
-                "",
-                "---",
-                "### 📈 Deterministic Results (Executed without AI tokens):",
-                `Found **${result.count || result.rows.length}** results matching your criteria:`,
-                "",
-                ...result.rows.slice(0, 12).map((row: any) => {
-                  const sym = row.symbol || row.ticker || "";
-                  const name = row.companyName || row.name || "";
-                  const mcap = row.marketCap ? ` · MCap: ${formatMarketCap(Number(row.marketCap))}` : "";
-                  const price = row.price !== undefined ? ` · Price: $${Number(row.price).toFixed(2)}` : "";
-                  const change = row.changePct !== undefined ? ` (${row.changePct >= 0 ? "+" : ""}${Number(row.changePct).toFixed(2)}%)` : "";
-                  return `- **${sym}** ${name ? `(${name})` : ""}${price}${change}${mcap}`;
-                }),
-              ].join("\n");
-            } else if (result.summary) {
-              deterministicSection = `\n\n---\n### 📈 Deterministic Result:\n${result.summary}`;
-            }
-          }
-        } catch (fallbackQueryErr) {
-          console.warn("[OrchestratorAgent] Deterministic fallback query error:", fallbackQueryErr);
-        }
-      }
-
-      const fallbackText = [
-        `⚠️ **[${aspect.code}] ${aspect.title}**`,
-        "",
-        `**Diagnosis:** ${aspect.message}`,
-        "",
-        "**What needs to be done to resolve this:**",
-        ...aspect.resolutionSteps.map((step, idx) => `${idx + 1}. ${step}`),
-        "",
-        aspect.suggestedTab
-          ? `👉 **Direct Navigation:** Go to the **${aspect.suggestedTabLabel || aspect.suggestedTab}** from the navigation bar to run scans and queries directly with direct exchange feeds.`
-          : "",
-        deterministicSection,
-      ].filter(Boolean).join("\n");
-    return fallbackText;
+    return buildChatErrorFallback(this.chatErrorFallbackContext(), streamErr, userText, userLogin);
   }
 
   async onChatMessage() {
