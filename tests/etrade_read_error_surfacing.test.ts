@@ -29,6 +29,37 @@ import { storeAccessTokens } from "../src/security/etradeOAuth";
 import { __resetTokenCache } from "../src/security/etradeTokenCache";
 import type { Env } from "../src/types";
 
+// CI hermeticity (fix for the #466 main-CI break): ci.yml injects the real
+// ET_* secrets into process.env, and resolveEnvironmentConfig falls back to
+// process.env when the Env object lacks a value — which silently defeats
+// every "missing credentials" case below (they only pass in a credential-
+// free local shell). Scrub the process-level E*TRADE vars for this file;
+// makeEnv()/makeBareEnv() pass config via the Env object, which always wins
+// over process.env, so credentialed cases are unaffected.
+const SCRUBBED_ENV_KEYS = [
+  "ET_API_KEY",
+  "ET_API_SECRET",
+  "ET_BASE_URL",
+  "ET_PROD_API_KEY",
+  "ET_PROD_API_SECRET",
+  "PROD_ET_API_KEY",
+  "PROD_ET_API_SECRET",
+] as const;
+let savedProcessEnv: Record<string, string | undefined> = {};
+beforeEach(() => {
+  savedProcessEnv = {};
+  for (const k of SCRUBBED_ENV_KEYS) {
+    savedProcessEnv[k] = process.env[k];
+    delete process.env[k];
+  }
+});
+afterEach(() => {
+  for (const k of SCRUBBED_ENV_KEYS) {
+    if (savedProcessEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedProcessEnv[k];
+  }
+});
+
 const USER = "test_trader_168";
 // Fake placeholder credentials (the same convention as
 // tests/etrade_options_error_surfacing.test.ts) — never real secrets.
