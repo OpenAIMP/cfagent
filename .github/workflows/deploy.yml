@@ -144,19 +144,38 @@ jobs:
           S_SCREENER_SLACK_CHANNEL: ${{ secrets.SCREENER_SLACK_CHANNEL }}
           S_SCREENER_EMAIL_TO: ${{ secrets.SCREENER_EMAIL_TO }}
         run: |
+          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
+          # API occasionally blips, and a single failed put used to fail the whole
+          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
+          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          put_secret() {
+            local name="$1" attempts=0 max=3
+            while [ "$attempts" -lt "$max" ]; do
+              if put_secret "$name"; then
+                return 0
+              fi
+              attempts=$((attempts + 1))
+              if [ "$attempts" -lt "$max" ]; then
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
+                sleep 10
+              fi
+            done
+            echo "put_secret: '$name' failed after $max attempts" >&2
+            return 1
+          }
           GH_ID="$S_GH_CLIENT_ID"
           if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
 
           GH_SEC="$S_GH_CLIENT_SECRET"
           if [ -z "$GH_SEC" ]; then GH_SEC="$S_GITHUB_CLIENT_SECRET"; fi
 
-          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | npx wrangler secret put GITHUB_CLIENT_ID; fi
-          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
-          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | npx wrangler secret put APP_BASE_URL; fi
-          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | npx wrangler secret put SESSION_SECRET; fi
-          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | npx wrangler secret put DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
-          if [ -n "$S_SCREENER_SLACK_CHANNEL" ]; then printf "%s" "$S_SCREENER_SLACK_CHANNEL" | npx wrangler secret put SCREENER_SLACK_CHANNEL; fi
-          if [ -n "$S_SCREENER_EMAIL_TO" ]; then printf "%s" "$S_SCREENER_EMAIL_TO" | npx wrangler secret put SCREENER_EMAIL_TO; fi
+          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | put_secret GITHUB_CLIENT_ID; fi
+          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | put_secret GITHUB_CLIENT_SECRET; fi
+          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | put_secret APP_BASE_URL; fi
+          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | put_secret SESSION_SECRET; fi
+          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | put_secret DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
+          if [ -n "$S_SCREENER_SLACK_CHANNEL" ]; then printf "%s" "$S_SCREENER_SLACK_CHANNEL" | put_secret SCREENER_SLACK_CHANNEL; fi
+          if [ -n "$S_SCREENER_EMAIL_TO" ]; then printf "%s" "$S_SCREENER_EMAIL_TO" | put_secret SCREENER_EMAIL_TO; fi
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -176,6 +195,25 @@ jobs:
           S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
           S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
         run: |
+          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
+          # API occasionally blips, and a single failed put used to fail the whole
+          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
+          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          put_secret() {
+            local name="$1" attempts=0 max=3
+            while [ "$attempts" -lt "$max" ]; do
+              if put_secret "$name"; then
+                return 0
+              fi
+              attempts=$((attempts + 1))
+              if [ "$attempts" -lt "$max" ]; then
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
+                sleep 10
+              fi
+            done
+            echo "put_secret: '$name' failed after $max attempts" >&2
+            return 1
+          }
           TARGET_KEY="$S_ET_API_KEY"
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_API_KEY"; fi
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ET_PROD_API_KEY"; fi
@@ -204,28 +242,28 @@ jobs:
           echo "Secret length: ${#TARGET_SEC}"
 
           if [ -n "$TARGET_KEY" ]; then
-            printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_API_KEY
+            printf "%s" "$TARGET_KEY" | put_secret ET_API_KEY
             if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_PROD_API_KEY
+              printf "%s" "$TARGET_KEY" | put_secret ET_PROD_API_KEY
             else
-              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_SANDBOX_API_KEY
+              printf "%s" "$TARGET_KEY" | put_secret ET_SANDBOX_API_KEY
             fi
           fi
 
           if [ -n "$TARGET_SEC" ]; then
-            printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_API_SECRET
+            printf "%s" "$TARGET_SEC" | put_secret ET_API_SECRET
             if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_PROD_API_SECRET
+              printf "%s" "$TARGET_SEC" | put_secret ET_PROD_API_SECRET
             else
-              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_SANDBOX_API_SECRET
+              printf "%s" "$TARGET_SEC" | put_secret ET_SANDBOX_API_SECRET
             fi
           fi
 
           if [ -n "$TARGET_URL" ]; then
-            printf "%s" "$TARGET_URL" | npx wrangler secret put ET_BASE_URL
+            printf "%s" "$TARGET_URL" | put_secret ET_BASE_URL
           fi
 
-          printf "%s" "$ACTIVE_ENV_NAME" | npx wrangler secret put APP_ENV
+          printf "%s" "$ACTIVE_ENV_NAME" | put_secret APP_ENV
 
       - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -241,15 +279,34 @@ jobs:
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
           MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
         run: |
-          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
-          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
-          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
-          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
-          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
-          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
-          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
-          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
-          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
+          # Retry wrapper for `wrangler secret put` (issues #560/#561): the Cloudflare
+          # API occasionally blips, and a single failed put used to fail the whole
+          # production deploy. Retries up to 3 attempts with 10s backoff. stdin passes
+          # through to wrangler, so `printf ... | put_secret NAME` keeps working.
+          put_secret() {
+            local name="$1" attempts=0 max=3
+            while [ "$attempts" -lt "$max" ]; do
+              if put_secret "$name"; then
+                return 0
+              fi
+              attempts=$((attempts + 1))
+              if [ "$attempts" -lt "$max" ]; then
+                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in 10s..." >&2
+                sleep 10
+              fi
+            done
+            echo "put_secret: '$name' failed after $max attempts" >&2
+            return 1
+          }
+          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | put_secret STRIPE_SECRET_KEY; fi
+          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | put_secret STRIPE_WEBHOOK_SECRET; fi
+          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | put_secret PAYPAL_CLIENT_ID; fi
+          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | put_secret PAYPAL_CLIENT_SECRET; fi
+          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | put_secret PAYPAL_ENVIRONMENT; fi
+          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | put_secret LEMONSQUEEZY_API_KEY; fi
+          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | put_secret LEMONSQUEEZY_STORE_ID; fi
+          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | put_secret LEMONSQUEEZY_WEBHOOK_SECRET; fi
+          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | put_secret MPP_SECRET_KEY; fi
 
   # ── Step 3: tag the deployed commit (issue #321) ──
   # Tags every successful deploy for rollback and release tracking.
