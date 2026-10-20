@@ -29,6 +29,7 @@ import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent, ScreenerRunRequest } from "./screener-agent";
+import { recordOptionsRun } from "./optionsRuns";
 import type { ResearchAgent } from "./research-agent";
 import { evaluateResearchOutcome, type ResearchExecutionPath } from "../services/researchTaskLedger";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
@@ -947,6 +948,24 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
+      // Issue #223: persist the run so GET /api/options/latest can report what
+      // the scheduler produced. History is auxiliary — a storage failure must
+      // not turn a completed analysis into a failed one.
+      try {
+        await recordOptionsRun(this.ctx.storage, {
+          timestamp: res.timestamp,
+          success: res.success,
+          trigger: payload?.trigger === "manual" ? "manual" : "scheduled",
+          thesis: payload?.thesis || "bullish",
+          symbols: res.data?.symbols || payload?.symbols || [],
+          withTrades: res.data?.withTrades ?? 0,
+          summary: res.data?.summary || "",
+          opportunities: (res.data?.opportunities || []).slice(0, 10),
+          ...(res.success ? {} : { error: res.error }),
+        });
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Could not persist options run:", err);
+      }
       if (res.success && res.data) {
         if (typeof (this as any).broadcast === "function") {
           try {

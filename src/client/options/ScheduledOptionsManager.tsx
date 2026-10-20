@@ -26,6 +26,18 @@ export interface ScheduledOptionsManagerProps {
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
+/** One autonomous options-analysis run as returned by GET /api/options/latest (#223). */
+export interface OptionsRunSummary {
+  timestamp: string;
+  success: boolean;
+  trigger?: string;
+  thesis?: string;
+  symbols?: string[];
+  withTrades?: number;
+  summary?: string;
+  error?: string;
+}
+
 /** Shared schedule-card metadata for user-owned stock and options jobs. */
 export interface SystemJobInfo {
   label: string;
@@ -306,6 +318,11 @@ export function ScheduledOptionsManager({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Issue #223: autonomous options runs persisted by the DO (last 20 kept).
+  const [latestRuns, setLatestRuns] = useState<OptionsRunSummary[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
+
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -415,6 +432,29 @@ export function ScheduledOptionsManager({
     fetchSchedules();
     fetchAudit();
   }, [fetchSchedules, fetchAudit]);
+
+  // Issue #223: latest autonomous options runs. Polls so a scheduled fire
+  // shows up without a manual refresh; failure is reported, never faked.
+  const fetchLatestRuns = useCallback(async () => {
+    setRunsLoading(true);
+    try {
+      const res = await fetch("/api/options/latest", { headers: authHeaders() });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setLatestRuns(Array.isArray(data?.runs) ? data.runs.slice(0, 5) : []);
+      setRunsError(null);
+    } catch (err: any) {
+      setRunsError(err?.message || "Could not load autonomous options runs");
+    } finally {
+      setRunsLoading(false);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    fetchLatestRuns();
+    const timer = setInterval(fetchLatestRuns, 60_000);
+    return () => clearInterval(timer);
+  }, [fetchLatestRuns]);
 
   // Open the modal for a NEW schedule (never an edit session).
   const openCreateModal = () => {
@@ -869,6 +909,69 @@ export function ScheduledOptionsManager({
           )}
         </div>
       )}
+
+      {/* Issue #223: autonomous options runs (last 5 of the persisted 20). */}
+      <section className="sched-section-card">
+        <header className="sched-section-header">
+          <h4>
+            <span>📈</span> Latest Autonomous Options Runs
+            <span className="sched-count-pill">{latestRuns.length} Runs</span>
+          </h4>
+          <button
+            type="button"
+            className="btn-sched-action-sm"
+            onClick={fetchLatestRuns}
+            disabled={runsLoading}
+          >
+            {runsLoading ? "Refreshing…" : "↻ Refresh"}
+          </button>
+        </header>
+
+        {runsError ? (
+          <p style={{ margin: "0.4rem 0 0", fontSize: "0.78rem", color: "var(--color-danger)" }}>{runsError}</p>
+        ) : null}
+
+        {latestRuns.length === 0 && !runsLoading ? (
+          <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            No options runs recorded yet. A scheduled or manual analysis appears here once it completes.
+          </p>
+        ) : (
+          <div className="schedules-grid">
+            {latestRuns.map((run, idx) => (
+              <div className="schedule-item-card is-options" key={`${run.timestamp}-${idx}`}>
+                <div className="schedule-card-top">
+                  <span className={`schedule-type-badge ${run.success ? "interval" : "once"}`}>
+                    {run.success ? "completed" : "failed"}
+                  </span>
+                  <span className="schedule-id-snippet" title={run.timestamp}>
+                    {new Date(run.timestamp).toLocaleString()}
+                  </span>
+                </div>
+                <h5 className="schedule-title">
+                  {run.symbols && run.symbols.length > 0 ? run.symbols.join(", ") : "Autonomous options analysis"}
+                </h5>
+                <div className="schedule-payload-details">
+                  <div className="payload-row">
+                    <span className="payload-label">setups:</span>
+                    <span className="payload-value">{run.withTrades ?? 0}</span>
+                  </div>
+                  <div className="payload-row">
+                    <span className="payload-label">trigger:</span>
+                    <span className="payload-value">
+                      {run.trigger || "scheduled"}
+                      {run.thesis ? ` · ${run.thesis}` : ""}
+                    </span>
+                  </div>
+                </div>
+                {run.summary ? <p className="schedule-system-note">{run.summary}</p> : null}
+                {!run.success && run.error ? (
+                  <p style={{ margin: "0.4rem 0 0", fontSize: "0.76rem", color: "var(--color-danger)" }}>{run.error}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Active Schedules Section */}
       <section className="sched-section-card">

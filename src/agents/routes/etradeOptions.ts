@@ -6,6 +6,7 @@
  * Owns the contiguous options block (between the E*TRADE broker
  * account-activity delegation and the E*TRADE watchlists block):
  *   GET  /etrade/options/chains
+ *   GET  /options/latest                       (#223 autonomous options runs)
  *   POST /etrade/options/strategy          (#314 advertised spelling -
  *         delegates to the single-owner strategy-discovery handler)
  *   GET  /etrade/options/expire-dates
@@ -49,6 +50,7 @@
  */
 
 import type { AgentContext } from "agents";
+import { readOptionsRuns } from "../optionsRuns";
 import { ETradeService } from "../../services/etrade";
 import {
   DynamicOptionsScreener,
@@ -180,6 +182,26 @@ export async function handleEtradeOptionsRoutes(
   ctx: EtradeOptionsRouteContext
 ): Promise<Response | null> {
   const sql = ctx.ensureTables();
+
+    // Issue #223: latest autonomous options-analysis runs. Results were only
+    // ever visible in the live broadcast; the scheduler now keeps the last 20
+    // runs in DO storage so the panel can render what actually ran.
+    // server.ts strips the /api prefix, so the DO sees /options/latest.
+    if (path.endsWith("/options/latest") && request.method === "GET") {
+      try {
+        const runs = await readOptionsRuns((ctx.agentCtx as { storage?: unknown } | undefined)?.storage);
+        return Response.json({
+          count: runs.length,
+          runs,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        return Response.json(
+          { error: err?.message || "Failed to load options runs", runs: [] },
+          { status: 500 }
+        );
+      }
+    }
 
     // Real E*TRADE REST API: Option Chains
     if (path.endsWith("/etrade/options/chains") && request.method === "GET") {
