@@ -62,7 +62,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  box-shadow: var(--shadow-glow-accent);
   transition: all 0.2s ease;
 }
 
@@ -72,8 +72,8 @@
 }
 
 .btn-sched-secondary {
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
   border-radius: 8px;
   padding: 0.6rem 1.15rem;
@@ -87,8 +87,8 @@
 }
 
 .btn-sched-secondary:hover:not(:disabled) {
-  background: rgba(51, 65, 85, 0.9);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-surface-hover);
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
 }
 
@@ -166,7 +166,7 @@
 }
 
 .sched-count-pill {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
   font-size: 0.75rem;
   padding: 0.15rem 0.55rem;
@@ -196,9 +196,9 @@
 }
 
 .schedule-item-card:hover {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: var(--color-accent-border);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 
 .schedule-item-card.is-options {
@@ -222,27 +222,27 @@
 }
 
 .schedule-type-badge.interval {
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--color-success-subtle);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid var(--color-success-border);
 }
 
 .schedule-type-badge.cron {
-  background: rgba(129, 140, 248, 0.15);
+  background: var(--color-primary-alpha);
   color: var(--color-sentiment-directional);
-  border: 1px solid rgba(129, 140, 248, 0.3);
+  border: 1px solid var(--color-primary-border);
 }
 
 .schedule-type-badge.delayed {
-  background: rgba(245, 158, 11, 0.15);
+  background: var(--color-warning-subtle);
   color: var(--color-warning);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid var(--color-warning-border);
 }
 
 .schedule-type-badge.scheduled {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid var(--color-accent-border);
 }
 
 /* Baseline system schedules (issue #110): visibly distinct from
@@ -258,9 +258,9 @@
   padding: 0.2rem 0.55rem;
   border-radius: 4px;
   letter-spacing: 0.04em;
-  background: rgba(245, 158, 11, 0.15);
+  background: var(--color-warning-subtle);
   color: var(--color-warning);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  border: 1px solid var(--color-warning-border);
 }
 
 .schedule-system-note {
@@ -271,8 +271,8 @@
 }
 
 .schedule-cancel-confirm {
-  background: rgba(244, 63, 94, 0.08);
-  border: 1px solid rgba(244, 63, 94, 0.35);
+  background: var(--color-danger-subtle);
+  border: 1px solid var(--color-danger-border);
   border-radius: 8px;
   padding: 0.7rem 0.85rem;
   font-size: 0.8rem;
@@ -285,7 +285,7 @@
 
 /* Per-card detail expansion (GET /api/schedules/:id) */
 .schedule-detail-panel {
-  background: rgba(11, 15, 25, 0.6);
+  background: var(--color-surface-sunken);
   border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
@@ -343,7 +343,7 @@
 }
 
 .schedule-payload-details {
-  background: rgba(11, 15, 25, 0.6);
+  background: var(--color-surface-sunken);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
   font-size: 0.78rem;
@@ -375,7 +375,7 @@
 }
 
 .sym-tag {
-  background: rgba(56, 189, 248, 0.12);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
   border-radius: 3px;
   padding: 0.1rem 0.35rem;
@@ -402,21 +402,21 @@
 }
 
 .chan-badge.slack {
-  background: rgba(224, 30, 90, 0.15);
+  background: var(--brand-slack-subtle);
   color: var(--color-danger);
-  border: 1px solid rgba(224, 30, 90, 0.3);
+  border: 1px solid var(--brand-slack-border);
 }
 
 .chan-badge.email {
-  background: rgba(59, 130, 246, 0.15);
+  background: var(--color-info-subtle);
   color: var(--color-accent);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid var(--color-accent-border);
 }
 
 .chan-badge.webhook {
-  background: rgba(168, 85, 247, 0.15);
+  background: var(--color-purple-subtle);
   color: var(--color-sentiment-directional);
-  border: 1px solid rgba(168, 85, 247, 0.3);
+  border: 1px solid var(--color-purple-border);
 }
 
 .schedule-card-footer {
@@ -425,7 +425,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   padding-top: 0.65rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--color-border-subtle);
   gap: 0.5rem;
 }
 
@@ -437,7 +437,7 @@
 
 .btn-sched-action-sm {
   background: transparent;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
   border-radius: 6px;
   padding: 0.35rem 0.7rem;
@@ -451,14 +451,14 @@
 }
 
 .btn-sched-action-sm:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
 }
 
 .btn-sched-cancel-sm {
   background: transparent;
-  border: 1px solid rgba(244, 63, 94, 0.25);
+  border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
   border-radius: 6px;
   padding: 0.35rem 0.7rem;
@@ -472,8 +472,8 @@
 }
 
 .btn-sched-cancel-sm:hover:not(:disabled) {
-  background: rgba(244, 63, 94, 0.2);
-  border-color: rgba(244, 63, 94, 0.5);
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger-border);
   color: var(--color-danger);
 }
 
@@ -481,8 +481,8 @@
 .schedules-empty-state {
   text-align: center;
   padding: 3rem 1.5rem;
-  background: rgba(11, 15, 25, 0.4);
-  border: 1px dashed rgba(255, 255, 255, 0.1);
+  background: var(--color-surface-sunken);
+  border: 1px dashed var(--color-border-medium);
   border-radius: 10px;
 }
 
@@ -496,7 +496,7 @@
 .sched-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--color-overlay);
   backdrop-filter: blur(8px);
   z-index: 1000;
   display: flex;
@@ -556,7 +556,7 @@
 
 .btn-modal-close:hover {
   color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-muted);
 }
 
 .sched-form-group {
@@ -589,8 +589,8 @@
 
 .sched-input,
 .sched-select {
-  background: rgba(18, 26, 47, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-input);
+  border: 1px solid var(--color-border-medium);
   border-radius: 8px;
   color: var(--color-text-primary);
   padding: 0.65rem 0.85rem;
@@ -603,7 +603,7 @@
 .sched-input:focus,
 .sched-select:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .preset-chips-row {
@@ -614,8 +614,8 @@
 }
 
 .preset-chip {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
@@ -625,9 +625,9 @@
 }
 
 .preset-chip:hover {
-  background: rgba(56, 189, 248, 0.15);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: var(--color-accent-border);
 }
 
 .channels-checkbox-grid {
@@ -638,8 +638,8 @@
 }
 
 .channel-check-card {
-  background: rgba(18, 26, 47, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
   display: flex;
@@ -649,7 +649,7 @@
 }
 
 .channel-check-card:hover {
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: var(--color-accent-border);
 }
 
 .channel-check-top {
@@ -674,19 +674,19 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 /* Live Execution Results Preview Box */
 .live-execution-preview {
-  background: rgba(12, 18, 34, 0.9);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-accent);
   border-radius: 12px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -720,20 +720,20 @@
 }
 
 .dispatch-pill.success {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success-border);
   color: var(--color-success);
 }
 
 .dispatch-pill.skipped {
-  background: rgba(100, 116, 139, 0.15);
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-strong);
   color: var(--color-text-muted);
 }
 
 .dispatch-pill.failed {
-  background: rgba(244, 63, 94, 0.15);
-  border: 1px solid rgba(244, 63, 94, 0.35);
+  background: var(--color-danger-subtle);
+  border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
 }
 
@@ -752,16 +752,16 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .sched-audit-table td {
   padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .sched-audit-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-muted);
 }
 
 .status-indicator-dot {
@@ -788,22 +788,22 @@
    ========================================================================== */
 
 .scheduled-options-manager {
-  color: var(--color-text-primary, #1f2937);
+  color: var(--color-text-primary);
 }
 
 /* Ensure form labels and options are visible */
 .sched-form-label,
 .sched-form-group label {
-  color: var(--color-text-primary, #1f2937) !important;
+  color: var(--color-text-primary) !important;
   font-weight: 600;
 }
 
 .sched-select,
 .sched-input,
 .sched-textarea {
-  color: var(--color-text-primary, #1f2937) !important;
-  background: var(--color-card, #ffffff) !important;
-  border: 1px solid var(--color-border, #d1d5db) !important;
+  color: var(--color-text-primary) !important;
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
 }
 
 .sched-select option {
@@ -814,12 +814,12 @@
 /* Ensure schedule cards are readable */
 .sched-schedule-card,
 .schedule-card {
-  color: var(--color-text-primary, #1f2937) !important;
+  color: var(--color-text-primary) !important;
 }
 
 /* Hint text should be visible but muted, not invisible */
 .hint,
 .sched-preset-note {
-  color: var(--color-text-muted, #6b7280) !important;
+  color: var(--color-text-muted) !important;
   opacity: 1 !important;
 }
