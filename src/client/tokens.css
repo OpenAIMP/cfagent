@@ -242,6 +242,15 @@ body.theme-dark,
   --color-danger-border: rgba(239, 68, 68, 0.35);
   --color-warning-border: rgba(245, 158, 11, 0.35);
 
+/* Gradients (Phase 3a #471) — dark stops are the historical values verbatim */
+  --gradient-app: radial-gradient(circle at 50% 0%, #171f38 0%, #060913 65%);
+  --gradient-primary: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --gradient-accent: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  --gradient-trade: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  --gradient-trade-hover: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  --gradient-user: linear-gradient(135deg, #4338ca 0%, #312e81 100%);
+  --color-on-gradient: #ffffff;
+
   /* Bright status text (400-level tones for pills/badges/banners on dark) — Phase 3a (#471) */
   --color-success-text: #34d399;
   --color-danger-text: #f87171;
@@ -378,6 +387,15 @@ body.theme-light,
   --color-success-border: rgba(22, 163, 74, 0.4);
   --color-danger-border: rgba(220, 38, 38, 0.4);
   --color-warning-border: rgba(217, 119, 6, 0.45);
+
+/* Gradients (Phase 3a #471) — light stops deepened so white text keeps AA */
+  --gradient-app: radial-gradient(circle at 50% 0%, #ffffff 0%, #e9eef5 65%);
+  --gradient-primary: linear-gradient(135deg, #059669 0%, #047857 100%);
+  --gradient-accent: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+  --gradient-trade: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+  --gradient-trade-hover: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  --gradient-user: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+  --color-on-gradient: #ffffff;
 
   /* Bright status text — in light these resolve to the AA base status colors */
   --color-success-text: #15803d;
