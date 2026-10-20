@@ -827,10 +827,42 @@ Do not report `PASS` when:
 [ ] Obtain merge authorization
 [ ] Merge to main
 [ ] Verify post-merge CI and applicable CD
+[ ] Verify the feature works end-to-end (§17)
 [ ] Update issue and completion evidence
 [ ] Synchronize local main
 [ ] Only now begin the next issue
 ```
+
+## 17. Post-merge verification discipline
+
+Merging is not completion. A PR merged without verifying the feature works in production is an unverified change. Every merged PR MUST pass the verification steps below before the next issue begins.
+
+### 17.1. Integration over unit tests
+
+Unit tests verify logic in isolation. They do not catch integration failures:
+
+- **Route registration**: a route handler that checks the wrong path prefix (e.g. `/api/...` when the server strips `/api`) passes unit tests but 404s in production. Every new route MUST be verified through the actual server path handling, not just string-matched in an inventory test.
+- **Storage wiring**: a feature that writes to one store but reads from another (e.g. DO storage vs SQL) passes unit tests but shows empty in the UI. Every feature that persists data MUST verify the read path returns what the write path stored.
+- **Config agreement**: a schedule that requests N items but a scanner that caps at M < N passes unit tests but truncates silently. Every configurable limit MUST be verified end-to-end with the actual values.
+
+### 17.2. Verification checklist (per merged PR)
+
+After merging, before starting the next issue:
+
+1. **Hit the endpoint**: `curl` the new/changed endpoint through the production path. Assert HTTP 200 and non-empty response.
+2. **Check the UI**: if the change affects a UI tab, verify the tab loads data (not just renders without error).
+3. **Check the logs**: verify no new errors in the worker logs for the affected path.
+4. **Verify the fix**: if the PR fixes a bug, reproduce the original failure scenario and confirm it's resolved.
+
+### 17.3. Regression prevention
+
+- **Routing integration test**: new routes MUST include a test that sends a request through `server.ts`'s path handling (including `/api` prefix stripping) and asserts the correct handler fires. String-matching in the inventory test is not sufficient.
+- **Storage round-trip test**: new persistence MUST include a test that writes through the feature's write path and reads through the UI's read path, asserting the data appears.
+- **No silent truncation**: any hardcoded limit that could truncate user-requested data MUST be surfaced as a configuration error, not a silent cap.
+
+### 17.4. When CI is unavailable
+
+If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm. The post-merge verification in §17.2 becomes MORE important, not less — it is the only safety net when CI is bypassed.
 
 ## Instruction to add to `AGENTS.md`
 
