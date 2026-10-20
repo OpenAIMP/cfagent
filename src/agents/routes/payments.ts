@@ -158,7 +158,15 @@ export async function handlePaymentsRoutes(
         description?: string;
       };
 
-      const amount = Number(body.amount) || 10;
+      // #524: an omitted or unparseable amount is a validation error, never
+      // a silent $10 charge.
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return Response.json(
+          { error: "amount is required and must be a positive number" },
+          { status: 400 }
+        );
+      }
       const currency = (body.currency || "USD").toUpperCase();
       // No invented customer name (issue #514): a create that supplies no
       // customer stores "" rather than a fabricated organization.
