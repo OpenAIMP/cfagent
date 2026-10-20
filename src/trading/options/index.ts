@@ -19,6 +19,7 @@ export * from "./opportunityScanner";
 export * from "./llmComparison";
 export * from "./llmIdeas";
 export * from "./strategies/catalog";
+export * from "./strategies/directionTags";
 export * from "./strategies/registry";
 export * from "./strategies/template";
 export * from "./strategies/ledger";

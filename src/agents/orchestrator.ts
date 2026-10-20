@@ -14,6 +14,7 @@ import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
+import { SqlPausedScheduleStore } from "../services/scheduleManagement";
 import {
   evaluatePolicy,
   describeVerdict,
@@ -203,6 +204,13 @@ const SCREENER_EXECUTION_CONTEXT_KEY = "screener:execution-context";
 const LEGACY_SCHEDULE_MIGRATION_KEY = "screener:legacy-baseline-migration:v3";
 /** Issue #618: interval between automatic stale-task sweeps (6 hours). */
 const STALE_SWEEP_INTERVAL_SECONDS = 6 * 60 * 60;
+/**
+ * Issue #275: the hourly full-catalog Strategy/Symbol Scanner run.
+ * Minute :35 staggers it off the equity screens (commonly armed at
+ * :05) and the :15/:22 system jobs, so the E*TRADE budget is not hit
+ * by every job in the same minute.
+ */
+export const STRATEGY_SCAN_CRON = "35 * * * *";
 /** Issue #624: research task heartbeat interval while a run is in flight (2 minutes). */
 const RESEARCH_TASK_HEARTBEAT_MS = 120_000;
 
@@ -720,8 +728,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // owner. Never use that id as an E*TRADE login. Authenticated requests
       // perform the one-time migration away from app-created baseline jobs.
       const context = await this.getScreenerExecutionContext();
-      if (context?.userLogin) await this.migrateLegacyScreenSchedules(context);
-      else await this.removeUnownedBaselineSchedules();
+      if (context?.userLogin) {
+        await this.migrateLegacyScreenSchedules(context);
+        // Issue #275: the hourly full-catalog strategy scan rides the
+        // same authenticated maintenance path (armed once per user).
+        await this.ensureStrategyScanSchedule(context);
+      } else await this.removeUnownedBaselineSchedules();
     } catch (schedErr) {
       console.warn("[OrchestratorAgent][onStart] Legacy maintenance schedule reconciliation failed:", schedErr);
     }
@@ -797,6 +809,51 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     });
     if (already) return;
     await this.scheduleEvery(STALE_SWEEP_INTERVAL_SECONDS, "sweepStaleLedgerTasks", { userLogin });
+  }
+
+  /**
+   * Issue #275: arm the hourly Strategy/Symbol Scanner run once per
+   * authenticated user — the full strategy catalog (no
+   * allowedStrategies restriction) over the NASDAQ100 universe,
+   * published through the same audit + Slack path as the equity
+   * screens. Follows the ensureStaleSweepSchedule pattern, with one
+   * addition: a scan the user paused in the Schedules tab (#273's
+   * paused store) is never silently re-armed.
+   */
+  async ensureStrategyScanSchedule(context: ScreenerExecutionContext): Promise<void> {
+    const userLogin = context.userLogin;
+    const environment = context.environment || "PROD";
+    const existing = await this.listSchedules().catch(() => [] as Schedule<unknown>[]);
+    const already = existing.some((s) => {
+      const item = s as any;
+      return item.callback === "autonomousOptionsAnalysis" && item.payload?.userLogin === userLogin;
+    });
+    if (already) return;
+    try {
+      const paused = new SqlPausedScheduleStore(this.ctx.storage.sql).list();
+      const pausedForUser = paused.some(
+        (r) =>
+          r.callback === "autonomousOptionsAnalysis" &&
+          (r.payload as { userLogin?: string } | undefined)?.userLogin === userLogin
+      );
+      if (pausedForUser) return;
+    } catch {
+      // Paused-store unavailable: the SDK arming below is idempotent,
+      // so a missed pause check can only re-arm a job the user can
+      // pause again — never duplicate one.
+    }
+    await this.schedule(
+      STRATEGY_SCAN_CRON,
+      "autonomousOptionsAnalysis" as keyof this,
+      { userLogin, environment, universe: "NASDAQ100", trigger: "scheduled" },
+      { idempotent: true }
+    );
+    this.audit("schedule.created", "orchestrator", {
+      callback: "autonomousOptionsAnalysis",
+      scheduleType: "cron",
+      cron: STRATEGY_SCAN_CRON,
+      origin: "strategy-scan-baseline",
+    });
   }
 
   /**

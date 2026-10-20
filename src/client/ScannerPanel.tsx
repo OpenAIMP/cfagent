@@ -1414,7 +1414,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   return (
     <section className="scp-panel" id="section-opportunity-scanner" style={{ scrollMarginTop: 80 }}>
       <div className="scp-header">
-        <h3>📈 Opportunity Scanner</h3>
+        <h3>📈 Strategy/Symbol Scanner</h3>
         <span className="scp-asof">{activeEnv} environment</span>
       </div>
       <StrategyCatalogBrowser />
