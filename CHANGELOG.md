@@ -19,6 +19,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Premium fulfillment bound to the verified payer (#183):** `/api/payments/agentic/*` now requires a GitHub OAuth session (401 at the worker without one — the #154 pattern); `/api/premium/*` keeps anonymous x402 paid access but no longer trusts caller-asserted identity headers — the worker strips them and routes to the dedicated `premium-gateway` instance, and persisted payment state is scoped by the VERIFIED payer (`x402:<payer>`) from the claim verifier, never the asserted login. Premium fulfillment runs under that payer scope; wallet status counts only the caller's own rows; the auto-approve limit persists per identity. Also removes the hardcoded synthetic wallet-address fallback: without `X402_AGENT_WALLET_KEY` the service has no wallet identity and signing a payment proof fails closed. Pinned by `tests/agentic_payments_identity_binding.test.ts`.
+
 ### Fixed
 
 - **Deploy job no longer segfaults on secret refresh (#590):** `Build & Deploy [PROD]` failed on every main merge with exit 139 at "Set core secrets on Cloudflare Worker". The retry wrapper added for #560/#561 called `put_secret` from inside `put_secret`, so bash recursed until it crashed; the same body was copied into all three secret steps. Each wrapper now runs `npx wrangler secret put "$name"`, reads the piped value once, and re-feeds it on every retry (a retry used to find stdin drained), still capped at three attempts. The Worker itself had been deploying — the crash happened afterwards, so Tag Release and Post-deploy QA never ran during the failure window. Pinned by `tests/deploy_workflow_secret_retry.test.ts`.
