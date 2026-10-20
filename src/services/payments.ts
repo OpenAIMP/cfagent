@@ -187,6 +187,14 @@ export class PaymentGatewayService {
    * Executes a refund or returns signed attestation proof across supported gateways
    */
   async executeRefund(params: RefundParams): Promise<RefundResult> {
+    // Normalize the gateway exactly like createCheckout and capturePayment
+    // (issue #185). The gateway here comes from a stored transaction row,
+    // and rows written before the create route validated its input (#156)
+    // can carry un-normalized values (" Stripe "). Since the factory became
+    // default-deny in #148, such a row threw at refund time instead of
+    // refunding; normalizing first restores the refund while unknown
+    // gateways still fail loudly at the factory lookup below.
+    const gateway = normalizeGateway(params.gateway) as SupportedGateway;
     const authorizerDid = `did:user:github:${params.userLogin}`;
 
     // 1. Generate Verifiable Agent DID Attestation
@@ -196,14 +204,14 @@ export class PaymentGatewayService {
       amount: params.amount || 0,
       currency: "USD",
       customer: "settled_account",
-      gateway: params.gateway,
+      gateway,
       proposerDid: AGENT_DIDS.PAYMENTS,
       authorizerDid,
     });
 
     // 2. Resolve Strategy via Factory (GoF Strategy + Factory Pattern)
-    const strategy = PaymentStrategyFactory.getStrategy(params.gateway);
-    return strategy.executeRefund(this.env, params, didAttestation);
+    const strategy = PaymentStrategyFactory.getStrategy(gateway);
+    return strategy.executeRefund(this.env, { ...params, gateway }, didAttestation);
   }
 
   /**
