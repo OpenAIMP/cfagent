@@ -322,9 +322,15 @@ function sentimentColor(s?: string): string {
 
 export function ScreenerResultsView({ result }: { result: ScreenerResultData }) {
   const triggerLabel = result.trigger === "manual" ? "Manual Screen" : "Autonomous Screen";
+  // Issue #126 (PR-D): only THIS run's PDF — its own reportUrl, else
+  // its per-run pdfKey (#297). When neither exists (this run's PDF
+  // generation failed, or a failed run), there is NO PDF link: the
+  // previous keyless fallback ("/api/screener/report.pdf" with no
+  // key) serves the LATEST run's PDF, so the viewed run silently
+  // downloaded a different run's report.
   const reportUrl = result.reportUrl || (result.pdfKey
     ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
-    : "/api/screener/report.pdf");
+    : undefined);
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
@@ -378,20 +384,22 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             </button>
           </>
         )}
-        <a
-          href={reportUrl}
-          download
-          style={{
-            fontSize: "0.8rem",
-            padding: "0.35rem 0.75rem",
-            borderRadius: "4px",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-            textDecoration: "none",
-          }}
-        >
-          📄 Download PDF report
-        </a>
+        {reportUrl && (
+          <a
+            href={reportUrl}
+            download
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+            }}
+          >
+            📄 Download PDF report
+          </a>
+        )}
       </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
         {/* Issue #421: no sector claim when none was selected ("ALL"). */}
