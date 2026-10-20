@@ -476,8 +476,33 @@ export class ETradeRestClient {
     };
 
     const results = await Promise.all(batches.map((b) => fetchBatch(b)));
+    const quotes = results.flat();
+
+    // Retry missing symbols in smaller chunks. A batch can fail entirely
+    // (HTTP error, timeout, rate limit) while others succeed — without this,
+    // one dead batch of 50 sinks half the universe. Smaller chunks are less
+    // likely to trip E*TRADE's per-request limits, and a short delay between
+    // retries keeps us under the rate ceiling.
+    const quoted = new Set(quotes.map((q) => q.symbol));
+    const missing = uniqueSyms.filter((s) => !quoted.has(s));
+    if (missing.length > 0) {
+      const retryBatchSize = 10;
+      const retryDelayMs = 500;
+      for (let i = 0; i < missing.length; i += retryBatchSize) {
+        if (i > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+        const chunk = missing.slice(i, i + retryBatchSize);
+        const retried = await fetchBatch(chunk);
+        for (const q of retried) {
+          if (!quoted.has(q.symbol)) {
+            quoted.add(q.symbol);
+            quotes.push(q);
+          }
+        }
+      }
+    }
+
     if (!batchFailed) this.lastError = undefined;
-    return results.flat();
+    return quotes;
   }
 
   async getMarketMovers(category: ETradeMarketMoverCategory): Promise<string[]> {
