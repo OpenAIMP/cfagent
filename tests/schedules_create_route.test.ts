@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 // The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
 // module graph pulls in `cloudflare:` protocol imports the node test loader
@@ -59,13 +60,17 @@ describe("POST /api/schedules/create (#111)", () => {
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
+    // #604: tokens live in the SessionStore DO (ns "etrade"), not KV.
+    const { namespace: sessionStoreNs, seed: seedSession } =
+      makeFakeSessionStore();
+    seedSession(
+      "etrade",
+      `etrade:token:TEST:${authenticatedLogin}`,
+      storedTestTokens
+    );
     agent.env = {
       APP_ENV: "TEST",
-      KV: {
-        get: async (key: string) => key === `etrade:token:TEST:${authenticatedLogin}` ? storedTestTokens : null,
-        put: async () => undefined,
-        delete: async () => undefined,
-      },
+      SESSION_STORE: sessionStoreNs,
     } as any;
     agent.schedule = async (when: any, callback: string, payload: any, options: any) => {
       scheduleCalls.push([when, callback, payload, options]);

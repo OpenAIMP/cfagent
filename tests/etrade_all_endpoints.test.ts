@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 import type { Env } from "../src/types";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
@@ -28,6 +29,8 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       }),
     } as any;
 
+    const { namespace: sessionStoreNs } = makeFakeSessionStore();
+
     env = {
       APP_NAME: "cfagent-test",
       APP_BASE_URL: "https://agent.openaimp.com",
@@ -35,7 +38,7 @@ describe("E*TRADE All Official Endpoints Suite (Full 23-Endpoint Validation)", (
       GITHUB_CLIENT_ID: "gh_id",
       GITHUB_CLIENT_SECRET: "gh_sec",
       AI_SEARCH_ENDPOINT: "https://ai.example.com",
-      SESSIONS: mockKv,
+      SESSION_STORE: sessionStoreNs,
       ETRADE_KV: mockKv,
       SEARCH_AGENT: {} as any,
       ASSETS: {} as any,

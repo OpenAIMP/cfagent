@@ -112,7 +112,6 @@ export interface Env {
   VECTORIZE?: any;
   // Optional / backward-compatible bindings
   KV?: KVNamespace;
-  ETRADE_KV?: KVNamespace;
   BROWSER_AGENT?: DurableObjectNamespace;
   SLACK_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;

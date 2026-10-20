@@ -1,6 +1,6 @@
 import type { Env, SessionData } from "../types";
 import { createStoreKv, type DoNamespaceLike } from "./durableKv";
-import { createResilientKv, type KvLike } from "./kvResilience";
+import { type KvLike } from "./kvResilience";
 
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 export const COOKIE_NAME = "session_id";
@@ -42,17 +42,15 @@ export function clearSessionCookie(): string {
  * Sessions live in the SessionStore Durable Object (issue #329), not KV.
  *
  * KV's free tier caps reads at 100k/day and throws once exhausted — that throw
- * was the 1101. The DO has no such cap. Legacy KV is still consulted on a miss
- * so sessions created before the move keep working, and each one is copied into
- * the DO as it is read; set `SESSIONS_KV_FALLBACK=off` once the migration window
- * has passed to drop the last KV dependency.
+ * was the 1101. The DO has no such cap. The legacy KV fallback was removed in
+ * #604: the migration window has passed and SESSIONS_KV_FALLBACK=off made it
+ * dormant. Auth material stays in the DO (never moves back to KV).
  */
 export function sessionStore(env: Env): KvLike {
   return createStoreKv({
     namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
-    legacy: createResilientKv(env.SESSIONS, "sessions"),
     namespaceName: "sessions",
-    legacyFallback: env.SESSIONS_KV_FALLBACK !== "off",
+    legacyFallback: false,
   });
 }
 

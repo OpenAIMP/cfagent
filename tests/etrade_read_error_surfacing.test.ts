@@ -22,6 +22,7 @@
  * string; one test pins the opposite.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
@@ -88,6 +89,7 @@ function makeKv() {
 /** Env WITH sandbox consumer credentials configured. */
 function makeEnv(overrides: Record<string, unknown> = {}): Env {
   const kv = makeKv();
+  const { namespace: sessionStoreNs } = makeFakeSessionStore();
   return {
     APP_NAME: "cfagent-test",
     APP_BASE_URL: "https://agent.openaimp.com",
@@ -95,7 +97,7 @@ function makeEnv(overrides: Record<string, unknown> = {}): Env {
     ET_API_KEY: FAKE_KEY,
     ET_API_SECRET: FAKE_SECRET,
     ET_BASE_URL: "https://apisb.etrade.com/v1",
-    SESSIONS: kv,
+    SESSION_STORE: sessionStoreNs,
     ETRADE_KV: kv,
     SEARCH_AGENT: {} as any,
     AGENT_SESSIONS: {} as any,
@@ -109,12 +111,13 @@ function makeEnv(overrides: Record<string, unknown> = {}): Env {
 /** Env with NO E*TRADE consumer credentials at all. */
 function makeBareEnv(): Env {
   const kv = makeKv();
+  const { namespace: sessionStoreNs } = makeFakeSessionStore();
   return {
     APP_NAME: "cfagent-test",
     APP_BASE_URL: "https://agent.openaimp.com",
     APP_ENV: "TEST",
     ET_BASE_URL: "https://apisb.etrade.com/v1",
-    SESSIONS: kv,
+    SESSION_STORE: sessionStoreNs,
     ETRADE_KV: kv,
     SEARCH_AGENT: {} as any,
     AGENT_SESSIONS: {} as any,
