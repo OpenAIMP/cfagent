@@ -833,7 +833,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     }
     const runScreen = async () => {
       const trigger = payload?.trigger || "scheduled";
-      const universe = payload?.universe || "TECH";
+      const universe = payload?.universe || "NASDAQ100";
       const savedContext = await this.getScreenerExecutionContext();
       const userLogin = savedContext?.userLogin || payload?.userLogin;
       const environment = savedContext?.environment || payload?.environment;
@@ -875,7 +875,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         const run = {
           timestamp: res.timestamp,
           sector: res.data?.sector || payload?.sector || "ALL",
-          universe: res.data?.universe || payload?.universe || "TECH",
+          universe: res.data?.universe || payload?.universe || "NASDAQ100",
           success: res.success,
           totalScanned: res.data?.totalScanned ?? 0,
           matchedCount: res.data?.matchedCount ?? 0,
@@ -895,7 +895,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         orm.storeCanonicalReport({
           runId: `screener:${res.timestamp}`,
           generationId: `screener:${res.timestamp}`,
-          title: `Autonomous market screen — ${res.data?.universe || payload?.universe || "TECH"}`,
+          title: `Autonomous market screen — ${res.data?.universe || payload?.universe || "NASDAQ100"}`,
           source: "screener",
           summary: res.success
             ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
