@@ -22,7 +22,15 @@
  * target is labelled DERIVED on every surface and is never mistaken
  * for a configured view. Symbols whose inputs cannot be derived
  * honestly abstain (outcome status "abstained", reason recorded, no
- * request, no target).
+ * request, no target). "no-view" (issue #534): a schedule stores
+ * constraint sets — symbols plus risk/DTE/liquidity constraints, with
+ * NO thesis and NO target anywhere; at fire time each symbol's live
+ * chain is ranked by the target-free score model (no-view-v1) and the
+ * stored constraint set is persisted verbatim next to its outcome,
+ * stamped with the mode's declared IV constant. A symbol whose chain
+ * loads but where nothing clears the gates is a completed outcome
+ * flagged abstained (ranked empty, best pick no_trade) — never a
+ * failure and never a manufactured pick.
  *
  * One deliberate trim vs the pipeline's inline response: per-symbol
  * outcomes persist the ranked set, risk reports, screened-out list
@@ -33,10 +41,10 @@
  * ranked candidates carry their own legs and prices.
  */
 
-import type { OptionThesis, StrategyRequest } from "./strategyEngine";
+import type { NoViewStrategyRequest, OptionThesis, StrategyRequest } from "./strategyEngine";
 import type { ProfileRef } from "./strategyProfile";
 import type { OptionsDataSnapshot } from "./optionsDataAgent";
-import type { BestTradePick, RankedStrategy } from "./recommendationAgent";
+import type { BestNoViewTradePick, BestTradePick, RankedNoViewStrategy, RankedStrategy } from "./recommendationAgent";
 import type { StrategyRiskReport } from "./strategyRiskAgent";
 import type { StrategyRecommendationResult } from "./strategyEngine";
 
@@ -69,9 +77,11 @@ export type DiscoveryRunStatus = "completed" | "partial" | "failed";
 /** How a stored run's inputs were produced. "saved-request": complete
  *  StrategyRequests captured from the panel, re-run verbatim (issue
  *  #126). "profile-derived": a symbol set + Strategy Profile, targets
- *  derived per symbol at fire time (issue #533). Recorded on every run
- *  so the two can never be confused. */
-export type DiscoveryInputModel = "saved-request" | "profile-derived";
+ *  derived per symbol at fire time (issue #533). "no-view": constraint
+ *  sets only — no thesis, no target, ranked by the target-free score
+ *  model (issue #534). Recorded on every run so the three can never
+ *  be confused. */
+export type DiscoveryInputModel = "saved-request" | "profile-derived" | "no-view";
 
 /**
  * The full derivation of one symbol's target in a profile-derived run
@@ -100,6 +110,24 @@ export interface DiscoveryTargetDerivation {
   profileRef: ProfileRef;
 }
 
+/**
+ * One symbol's input record in a no-view run (issue #534): the
+ * constraint set exactly as armed — stored verbatim so a reader can
+ * always see what constrained the run and that no view did — plus the
+ * mode's IV assumption. The IV direction is a declared constant of
+ * the mode (decision 4 on #534: fixed to "unchanged", never
+ * user-settable in v1, since a settable IV lean would be a partial
+ * view), stamped here rather than left as a hidden default.
+ */
+export interface DiscoveryConstraintSet {
+  source: "no-view";
+  /** The constraint set exactly as stored on the schedule: symbol +
+   *  constraints only. The type carries no thesis/target fields. */
+  request: NoViewStrategyRequest;
+  /** The mode's declared IV constant ("unchanged") at fire time. */
+  expectedIvDirection: "unchanged";
+}
+
 /** The outcome of running (or attempting) one symbol of a discovery run. */
 export interface DiscoverySymbolOutcome {
   symbol: string;
@@ -113,13 +141,32 @@ export interface DiscoverySymbolOutcome {
    *  Present on completed/failed outcomes, and on abstentions that
    *  got far enough to compute a target before abstaining. */
   derivation?: DiscoveryTargetDerivation;
+  /** No-view runs: the constraint set that produced this outcome,
+   *  stored verbatim (see DiscoveryConstraintSet). Present on every
+   *  no-view outcome — the mode's input record, in place of a view. */
+  constraintSet?: DiscoveryConstraintSet;
+  /** No-view runs only: TRUE on a completed outcome where the chain
+   *  loaded but no structure cleared the stated constraints — an
+   *  abstention, recorded with its gate reasons in `excluded`, an
+   *  empty ranked set and a no_trade best pick. Never set on failed
+   *  outcomes; the profile-derived model's abstentions use the
+   *  "abstained" status instead (no chain ever ran there). */
+  abstained?: boolean;
   /** Present when status is "completed": mirrors the strategies
    *  route's response shape for this symbol. */
   ranked?: RankedStrategy[];
+  /** No-view runs: the ranked structures under the constraint set
+   *  (score model no-view-v1), the counterpart of `ranked` for a mode
+   *  whose candidates carry no target fields. Empty on a no-view
+   *  abstention. */
+  rankedNoView?: RankedNoViewStrategy[];
   riskReports?: StrategyRiskReport[];
   screenedOut?: Array<{ id: string; reason: string }>;
   excluded?: StrategyRecommendationResult["excluded"];
   bestTrade?: BestTradePick;
+  /** No-view runs: the capped best pick (status research_only or
+   *  no_trade, never "recommended"), the counterpart of `bestTrade`. */
+  bestNoViewTrade?: BestNoViewTradePick;
   /** Snapshot provenance summary (screen block + data source + any
    *  validation error), without the contract list — see module doc. */
   snapshot?: {
@@ -152,10 +199,13 @@ export interface DiscoveryRunSummary {
    *  under, stamped with its version at fire time. */
   profileRef?: ProfileRef;
   status: DiscoveryRunStatus;
-  /** Requests that ran: saved requests (saved-request runs) or
-   *  constructed requests (profile-derived runs — abstained symbols
-   *  contribute none). */
+  /** Inputs that ran: saved requests (saved-request runs), constructed
+   *  requests (profile-derived runs — abstained symbols contribute
+   *  none), or constraint sets (no-view runs). */
   requestCount: number;
+  /** Completed outcomes that produced a ranked result — no-view
+   *  abstentions are completed outcomes but count separately below,
+   *  never here. */
   completedCount: number;
   /** Failed outcomes only — abstentions are counted separately. */
   failedCount: number;
@@ -167,6 +217,9 @@ export interface DiscoveryRunSummary {
 /** A persisted discovery run: summary plus requests and outcomes. */
 export interface StoredDiscoveryRun extends DiscoveryRunSummary {
   requests: StrategyRequest[];
+  /** No-view runs: the run's constraint sets, verbatim (issue #534).
+   *  Absent for the other input models. */
+  constraintSets?: DiscoveryConstraintSet[];
   outcomes: DiscoverySymbolOutcome[];
 }
 
@@ -184,6 +237,10 @@ export interface DiscoveryRunInput {
   /** Profile-derived runs: the resolved profile reference. */
   profileRef?: ProfileRef;
   requests: StrategyRequest[];
+  /** No-view runs: the constraint sets that ran, verbatim (issue
+   *  #534). `requests` is empty for this model — no StrategyRequest
+   *  exists anywhere in it. */
+  constraintSets?: DiscoveryConstraintSet[];
   outcomes: DiscoverySymbolOutcome[];
   status: DiscoveryRunStatus;
 }
@@ -256,8 +313,15 @@ const PRUNE_CAP_SQL =
   `DELETE FROM ${TABLE} WHERE id NOT IN (SELECT id FROM ${TABLE} ORDER BY created_at DESC, id DESC LIMIT ?)`;
 
 function summarize(input: DiscoveryRunInput, id: string): DiscoveryRunSummary {
-  const completedCount = input.outcomes.filter((o) => o.status === "completed").length;
-  const abstainedCount = input.outcomes.filter((o) => o.status === "abstained").length;
+  // An outcome counts as an abstention either by status (the
+  // profile-derived model, where no request ever ran) or by the
+  // abstained flag on a completed outcome (the no-view model, where
+  // the chain loaded and the gates rejected everything). Abstentions
+  // never count as completions or failures. Neither marker exists on
+  // saved-request outcomes, so their counts are unchanged.
+  const isAbstention = (o: DiscoverySymbolOutcome) => o.status === "abstained" || o.abstained === true;
+  const completedCount = input.outcomes.filter((o) => o.status === "completed" && !isAbstention(o)).length;
+  const abstainedCount = input.outcomes.filter(isAbstention).length;
   return {
     id,
     createdAt: input.createdAt,
@@ -267,7 +331,8 @@ function summarize(input: DiscoveryRunInput, id: string): DiscoveryRunSummary {
     inputModel: input.inputModel,
     ...(input.profileRef !== undefined ? { profileRef: input.profileRef } : {}),
     status: input.status,
-    requestCount: input.requests.length,
+    requestCount:
+      input.inputModel === "no-view" ? (input.constraintSets?.length ?? 0) : input.requests.length,
     completedCount,
     failedCount: input.outcomes.length - completedCount - abstainedCount,
     abstainedCount,
@@ -329,7 +394,12 @@ export class SqlDiscoveryRunStore implements DiscoveryRunStore {
     this.ensure();
     const id = this.idFactory();
     const summary = summarize(input, id);
-    const run: StoredDiscoveryRun = { ...summary, requests: input.requests, outcomes: input.outcomes };
+    const run: StoredDiscoveryRun = {
+      ...summary,
+      requests: input.requests,
+      ...(input.constraintSets !== undefined ? { constraintSets: input.constraintSets } : {}),
+      outcomes: input.outcomes,
+    };
     this.sql.exec(
       INSERT_SQL,
       id,
@@ -337,7 +407,11 @@ export class SqlDiscoveryRunStore implements DiscoveryRunStore {
       input.status,
       summary.userLogin ?? null,
       JSON.stringify(summary),
-      JSON.stringify({ requests: input.requests, outcomes: input.outcomes }),
+      JSON.stringify({
+        requests: input.requests,
+        ...(input.constraintSets !== undefined ? { constraintSets: input.constraintSets } : {}),
+        outcomes: input.outcomes,
+      }),
     );
     // Retention is enforced on the write path, relative to the run's
     // own timestamp (same discipline as the scan store).
@@ -362,8 +436,16 @@ export class SqlDiscoveryRunStore implements DiscoveryRunStore {
     const summary = JSON.parse(rows[0].summary_json) as DiscoveryRunSummary;
     // The summary is the scoping authority; an invisible run reads as absent.
     if (!discoveryRunVisibleToCaller(summary, options.userLogin)) return null;
-    const body = JSON.parse(rows[0].run_json) as Pick<StoredDiscoveryRun, "requests" | "outcomes">;
-    return { ...summary, requests: body.requests, outcomes: body.outcomes };
+    const body = JSON.parse(rows[0].run_json) as Pick<
+      StoredDiscoveryRun,
+      "requests" | "outcomes" | "constraintSets"
+    >;
+    return {
+      ...summary,
+      requests: body.requests,
+      ...(body.constraintSets !== undefined ? { constraintSets: body.constraintSets } : {}),
+      outcomes: body.outcomes,
+    };
   }
 
   async prune(now: Date): Promise<number> {
@@ -395,6 +477,7 @@ export class InMemoryDiscoveryRunStore implements DiscoveryRunStore {
     const run: StoredDiscoveryRun = {
       ...summarize(input, this.idFactory()),
       requests: input.requests,
+      ...(input.constraintSets !== undefined ? { constraintSets: input.constraintSets } : {}),
       outcomes: input.outcomes,
     };
     this.runs.push(run);
