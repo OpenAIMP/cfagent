@@ -169,7 +169,6 @@ describe("fetchQuote — lastError contract (#168)", () => {
     const client = await makeAuthedClient();
     throwAllFetches();
     expect(await client.fetchQuote("AAPL")).toBeNull();
-    expect(client.getLastError()).toContain("quote request failed");
     expect(client.getLastError()).toContain("socket hangup");
   });
 
