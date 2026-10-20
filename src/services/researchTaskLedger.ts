@@ -86,6 +86,10 @@ export interface ResearchOutcomeFacts {
   rejected?: number | null;
 }
 
+/** Issue #615 (R4): default staleness threshold — 30 minutes, far
+ * above observed research run durations (minutes-scale). */
+export const DEFAULT_STALE_AFTER_MS = 30 * 60 * 1000;
+
 const TASK_PREFIX = "task:";
 const IDEM_PREFIX = "idem:";
 const ACTIVE: ReadonlySet<ResearchTaskStatus> = new Set(["queued", "claimed", "running"]);
@@ -271,6 +275,42 @@ export class ResearchTaskLedger {
 
   cancel(id: string): ResearchTask {
     return this.transition(id, ["queued", "claimed"], "cancelled");
+  }
+
+  /**
+   * Issue #615 (R4): active tasks whose heartbeat is older than
+   * staleAfterMs at `at` (default: now). Read-only — a stale verdict
+   * is a pure function of stored state; terminal tasks never stale.
+   */
+  findStale(staleAfterMs: number, at?: string): ResearchTask[] {
+    const nowMs = Date.parse(at ?? this.now());
+    return this.list(Number.MAX_SAFE_INTEGER).filter(
+      (t) => ACTIVE.has(t.status) && nowMs - Date.parse(t.heartbeatAt) > staleAfterMs
+    );
+  }
+
+  /**
+   * Issue #615 (R4): close every stale task as failed → escalated
+   * with the stale reason recorded. No auto-rerun: the work may have
+   * partially happened, so a human reviews the escalation.
+   */
+  sweepStale(staleAfterMs: number, at?: string): ResearchTask[] {
+    const nowMs = Date.parse(at ?? this.now());
+    return this.findStale(staleAfterMs, at).map((t) => {
+      const ageMs = nowMs - Date.parse(t.heartbeatAt);
+      return this.markStale(
+        t.id,
+        `stale: no heartbeat for ${ageMs}ms (threshold ${staleAfterMs}ms)`
+      );
+    });
+  }
+
+  /** Fail + escalate a task abandoned in any active state. */
+  markStale(id: string, reason: string): ResearchTask {
+    const task = this.transition(id, ["queued", "claimed", "running"], "failed", reason);
+    task.error = reason;
+    this.save(task);
+    return this.escalate(id, "stale task sweep");
   }
 
   private load(id: string): ResearchTask {

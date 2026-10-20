@@ -38,6 +38,7 @@ import {
 } from "../services/researchPipeline";
 import { EtradeResearchDataProvider } from "../services/researchProviders";
 import {
+  DEFAULT_STALE_AFTER_MS,
   ResearchTaskLedger,
   type ResearchTask,
   type ResearchTaskEvaluation,
@@ -273,6 +274,20 @@ export class ResearchAgent extends Think<Env> {
 
   async listResearchTasks(limit = 50): Promise<ResearchTask[]> {
     return this.taskLedger().list(limit);
+  }
+
+  /** Issue #615 (R4): active research tasks whose heartbeat aged out. */
+  async findStaleResearchTasks(
+    staleAfterMs: number = DEFAULT_STALE_AFTER_MS
+  ): Promise<ResearchTask[]> {
+    return this.taskLedger().findStale(staleAfterMs);
+  }
+
+  /** Issue #615 (R4): close stale research tasks as failed → escalated. */
+  async sweepStaleResearchTasks(
+    staleAfterMs: number = DEFAULT_STALE_AFTER_MS
+  ): Promise<ResearchTask[]> {
+    return this.taskLedger().sweepStale(staleAfterMs);
   }
 
   /** Typed config read (amendment 1: the single config owner). */

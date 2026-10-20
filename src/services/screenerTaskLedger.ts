@@ -88,6 +88,10 @@ export interface ScreenerOutcomeFacts {
   error?: string | null;
 }
 
+/** Issue #615 (R4): default staleness threshold — 30 minutes, far
+ * above observed screener run durations (minutes-scale). */
+export const DEFAULT_STALE_AFTER_MS = 30 * 60 * 1000;
+
 const TASK_PREFIX = "task:";
 const IDEM_PREFIX = "idem:";
 const ACTIVE: ReadonlySet<ScreenerTaskStatus> = new Set(["queued", "claimed", "running"]);
@@ -299,6 +303,48 @@ export class ScreenerTaskLedger {
   /** Terminal for work that will not run (e.g. a suppressed duplicate). */
   async cancel(id: string, note?: string): Promise<ScreenerTask> {
     return this.transition(id, ["queued", "claimed", "running"], "cancelled", note);
+  }
+
+  /**
+   * Issue #615 (R4): active tasks whose heartbeat is older than
+   * staleAfterMs at `at` (default: now). Read-only — a stale verdict
+   * is a pure function of stored state; terminal tasks never stale.
+   */
+  async findStale(staleAfterMs: number, at?: string): Promise<ScreenerTask[]> {
+    const nowMs = Date.parse(at ?? this.now());
+    const all = await this.list(Number.MAX_SAFE_INTEGER);
+    return all.filter(
+      (t) => ACTIVE.has(t.status) && nowMs - Date.parse(t.heartbeatAt) > staleAfterMs
+    );
+  }
+
+  /**
+   * Issue #615 (R4): close every stale task as failed → escalated
+   * with the stale reason recorded. No auto-rerun: the run may have
+   * partially happened, so a human reviews the escalation.
+   */
+  async sweepStale(staleAfterMs: number, at?: string): Promise<ScreenerTask[]> {
+    const nowMs = Date.parse(at ?? this.now());
+    const stale = await this.findStale(staleAfterMs, at);
+    const swept: ScreenerTask[] = [];
+    for (const t of stale) {
+      const ageMs = nowMs - Date.parse(t.heartbeatAt);
+      swept.push(
+        await this.markStale(
+          t.id,
+          `stale: no heartbeat for ${ageMs}ms (threshold ${staleAfterMs}ms)`
+        )
+      );
+    }
+    return swept;
+  }
+
+  /** Fail + escalate a task abandoned in any active state. */
+  async markStale(id: string, reason: string): Promise<ScreenerTask> {
+    const task = await this.transition(id, ["queued", "claimed", "running"], "failed", reason);
+    task.error = reason;
+    await this.save(task);
+    return this.escalate(id, "stale task sweep");
   }
 
   private async load(id: string): Promise<ScreenerTask> {
