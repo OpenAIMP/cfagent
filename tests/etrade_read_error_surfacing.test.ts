@@ -26,6 +26,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
 import { storeAccessTokens } from "../src/security/etradeOAuth";
+import { __resetTokenCache } from "../src/security/etradeTokenCache";
 import type { Env } from "../src/types";
 
 const USER = "test_trader_168";
@@ -119,6 +120,10 @@ function okJson(payload: unknown) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // getValidTokens serves repeats from an isolate-level cache (#329);
+  // reset it so a token stored by an earlier test cannot leak into a
+  // missing-token scenario (the pattern main's own OAuth tests use).
+  __resetTokenCache();
 });
 afterEach(() => {
   vi.restoreAllMocks();
