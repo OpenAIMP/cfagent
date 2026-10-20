@@ -24,7 +24,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withX402, type X402Config } from "agents/x402";
 import { z } from "zod";
 import type { Env } from "../types";
-import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 
 // ---------------------------------------------------------------------------
@@ -115,7 +114,14 @@ export class OptionsScannerMCP extends McpAgent<Env> {
         }
 
         const normalizedUnderlying = underlying?.toUpperCase().trim() || "all_exchange_listings";
-        this.persistAudit(normalizedUnderlying, undefined, queued.jobId);
+        // Issue #700 (point 2): the paid-scan audit event is persisted in
+        // the orchestrator's mas_events (see persistAudit). Registered
+        // with waitUntil so the write can complete without blocking the
+        // tool response; persistAudit never rejects.
+        const auditWrite = this.persistAudit(normalizedUnderlying, undefined, queued.jobId);
+        if (typeof this.ctx?.waitUntil === "function") {
+          this.ctx.waitUntil(auditWrite);
+        }
         return {
           content: [
             {
@@ -226,26 +232,60 @@ export class OptionsScannerMCP extends McpAgent<Env> {
     return data;
   }
 
-  private persistAudit(underlying: string, matchedCount?: number, jobId?: string): void {
+  /**
+   * Persists the paid-scan audit event in the ORCHESTRATOR's mas_events —
+   * the store GET /api/audit reads — via POST /api/audit/event, which
+   * funnels into recordAudit(), the single owner of mas_events inserts
+   * (issue #270). The write travels the same SEARCH_AGENT channel (and to
+   * the same orchestrator instance) as the scan job it belongs to.
+   *
+   * Issue #700 (point 2): the previous implementation wrote to this DO's
+   * own storage through the ORM, passing `this.ctx.storage` where its
+   * constructor expects ctx.storage.sql, and this DO never ran
+   * initializeSchema — so it threw on every paid scan and a bare catch
+   * swallowed the failure.
+   * No CF_WALLET_SCANNER_PAID record was ever written.
+   *
+   * The event is an intent record: it fires when the paid scan is QUEUED,
+   * so matchedCount is included only when a caller actually knows it —
+   * never fabricated. recordAudit assigns the stored row's id (a full
+   * UUID) and timestamp; the scanner-generated eventId below travels in
+   * the payload as the correlation id and is what failure logs cite.
+   *
+   * Failure contract: a failed audit write never fails the paid scan
+   * (this method never rejects), but it is always logged explicitly with
+   * the event id — no silent swallow.
+   */
+  private async persistAudit(underlying: string, matchedCount?: number, jobId?: string): Promise<void> {
+    const eventId = crypto.randomUUID();
+    const payload: Record<string, unknown> = {
+      eventId,
+      source: "cf_wallet_scanner",
+      underlying,
+      jobId,
+      pricePaid: SCANNER_PRICE_USD,
+      protocol: "x402",
+      proposerDid: AGENT_DIDS.PAYMENTS,
+    };
+    if (typeof matchedCount === "number") {
+      payload.matchedCount = matchedCount;
+    }
     try {
-      const orm = new DatabaseORM(this.ctx.storage as any);
-      orm.events.create({
-        id: `evt_scan_${crypto.randomUUID().slice(0, 8)}`,
-        sessionId: "cf_wallet_scanner",
-        type: "CF_WALLET_SCANNER_PAID",
-        agent: "payments",
-        payload: {
-          underlying,
-          matchedCount: matchedCount ?? null,
-          jobId,
-          pricePaid: SCANNER_PRICE_USD,
-          protocol: "x402",
-          proposerDid: AGENT_DIDS.PAYMENTS,
+      await this.forwardToOrchestrator(
+        "/api/audit/event",
+        "POST",
+        {
+          type: "CF_WALLET_SCANNER_PAID",
+          agent: "payments",
+          payload,
         },
-        createdAt: new Date().toISOString(),
-      });
-    } catch {
-      // Non-critical - don't block the tool response
+        "default_trader",
+      );
+    } catch (err) {
+      console.error(
+        `[OptionsScannerMCP] Failed to persist CF_WALLET_SCANNER_PAID audit event ${eventId} (jobId: ${jobId ?? "unknown"}):`,
+        err,
+      );
     }
   }
 }
