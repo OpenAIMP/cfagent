@@ -29,37 +29,6 @@ import { storeAccessTokens } from "../src/security/etradeOAuth";
 import { __resetTokenCache } from "../src/security/etradeTokenCache";
 import type { Env } from "../src/types";
 
-// CI hermeticity (fix for the #466 main-CI break): ci.yml injects the real
-// ET_* secrets into process.env, and resolveEnvironmentConfig falls back to
-// process.env when the Env object lacks a value — which silently defeats
-// every "missing credentials" case below (they only pass in a credential-
-// free local shell). Scrub the process-level E*TRADE vars for this file;
-// makeEnv()/makeBareEnv() pass config via the Env object, which always wins
-// over process.env, so credentialed cases are unaffected.
-const SCRUBBED_ENV_KEYS = [
-  "ET_API_KEY",
-  "ET_API_SECRET",
-  "ET_BASE_URL",
-  "ET_PROD_API_KEY",
-  "ET_PROD_API_SECRET",
-  "PROD_ET_API_KEY",
-  "PROD_ET_API_SECRET",
-] as const;
-let savedProcessEnv: Record<string, string | undefined> = {};
-beforeEach(() => {
-  savedProcessEnv = {};
-  for (const k of SCRUBBED_ENV_KEYS) {
-    savedProcessEnv[k] = process.env[k];
-    delete process.env[k];
-  }
-});
-afterEach(() => {
-  for (const k of SCRUBBED_ENV_KEYS) {
-    if (savedProcessEnv[k] === undefined) delete process.env[k];
-    else process.env[k] = savedProcessEnv[k];
-  }
-});
-
 const USER = "test_trader_168";
 // Fake placeholder credentials (the same convention as
 // tests/etrade_options_error_surfacing.test.ts) — never real secrets.
@@ -149,37 +118,8 @@ function okJson(payload: unknown) {
     .mockImplementation(async () => new Response(JSON.stringify(payload), { status: 200 }));
 }
 
-// resolveEnvironmentConfig() falls back to process.env for E*TRADE
-// credentials (a deliberate cascade for Node/local dev), reading every
-// alias below. CI injects the real ET_API_KEY / ET_API_SECRET secrets
-// into the test job's environment, so without scrubbing, the ambient
-// values leak into the "missing credentials" fixtures and those tests
-// fail in CI while passing locally (#490). Stub every alias to "" —
-// the resolver's sanitize step treats "" as unset — for each test.
-const AMBIENT_ET_CREDENTIAL_VARS = [
-  "ET_API_KEY",
-  "ET_API_SECRET",
-  "ETRADE_API_KEY",
-  "ETRADE_API_SECRET",
-  "ETRADE_CONSUMER_KEY",
-  "ETRADE_CONSUMER_SECRET",
-  "ET_PROD_API_KEY",
-  "ET_PROD_API_SECRET",
-  "PROD_ET_API_KEY",
-  "PROD_ET_API_SECRET",
-  "ETRADE_PROD_CONSUMER_KEY",
-  "ETRADE_PROD_CONSUMER_SECRET",
-  "ET_SANDBOX_API_KEY",
-  "ET_SANDBOX_API_SECRET",
-  "SANDBOX_ET_API_KEY",
-  "SANDBOX_ET_API_SECRET",
-  "ETRADE_SANDBOX_CONSUMER_KEY",
-  "ETRADE_SANDBOX_CONSUMER_SECRET",
-];
-
 beforeEach(() => {
   vi.restoreAllMocks();
-  for (const name of AMBIENT_ET_CREDENTIAL_VARS) vi.stubEnv(name, "");
   // getValidTokens serves repeats from an isolate-level cache (#329);
   // reset it so a token stored by an earlier test cannot leak into a
   // missing-token scenario (the pattern main's own OAuth tests use).
@@ -187,7 +127,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -1049,6 +988,76 @@ describe("getWatchlistDetails — lastError contract (#168)", () => {
     expect(details?.name).toBe("Main");
     expect(details?.symbols).toEqual(["AAPL"]);
     expect(client.getLastError()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #244: deleteWatchlist was the client's one bare-boolean write
+// method — missing credentials, HTTP errors, and exceptions all
+// collapsed to `false` with nothing recorded. The boolean contract is
+// unchanged; the method now records the reason in lastError under the
+// same discipline as the reads above.
+// ---------------------------------------------------------------------------
+
+describe("deleteWatchlist — lastError contract (#244)", () => {
+  it("missing credentials return false and set lastError without calling upstream", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const client = new ETradeRestClient(makeBareEnv(), USER);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("consumer credentials are not configured");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("missing watchlist id returns false and sets lastError without calling upstream", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const client = new ETradeRestClient(makeEnv(), USER);
+    expect(await client.deleteWatchlist("")).toBe(false);
+    expect(client.getLastError()).toContain("missing a watchlist id");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 400 returns false and sets lastError naming the failure (was silent)", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("Delete Watchlist Error [HTTP 400]");
+  });
+
+  it("HTTP 401 returns false and surfaces the session-expired reason", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(401);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("Session Expired");
+  });
+
+  it("network failure returns false and sets lastError (was a bare catch)", async () => {
+    const client = await makeAuthedClient();
+    throwAllFetches();
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toContain("watchlist delete request failed");
+    expect(client.getLastError()).toContain("socket hangup");
+  });
+
+  it("success returns true with NO error, and clears a prior failure", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    expect(client.getLastError()).toBeTruthy();
+    vi.restoreAllMocks();
+    okJson({});
+    expect(await client.deleteWatchlist("w1")).toBe(true);
+    expect(client.getLastError()).toBeUndefined();
+  });
+
+  it("recorded reasons never contain credential or token material", async () => {
+    const client = await makeAuthedClient();
+    failAllFetches(400);
+    expect(await client.deleteWatchlist("w1")).toBe(false);
+    const err = client.getLastError() ?? "";
+    expect(err).not.toContain(FAKE_KEY);
+    expect(err).not.toContain(FAKE_SECRET);
+    expect(err).not.toContain(FAKE_TOKEN);
+    expect(err).not.toContain(FAKE_TOKEN_SECRET);
   });
 });
 
