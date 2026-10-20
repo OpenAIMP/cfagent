@@ -3,9 +3,9 @@
 .scp-panel {
   margin-top: 1.25rem;
   padding: 1rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-muted);
 }
 .scp-header {
   display: flex;
@@ -17,13 +17,13 @@
   font-size: 1.05rem;
 }
 .scp-asof {
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-size: 0.8rem;
 }
 .scp-mode-switch {
   display: inline-flex;
   margin-top: 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -31,16 +31,16 @@
   padding: 0.45rem 0.9rem;
   border: none;
   background: transparent;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
   cursor: pointer;
   font-size: 0.88rem;
 }
 .scp-mode-btn + .scp-mode-btn {
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid var(--color-border-medium);
 }
 .scp-mode-btn.active {
-  background: rgba(88, 166, 255, 0.22);
-  color: #fff;
+  background: var(--color-info-subtle);
+  color: var(--color-on-gradient);
   font-weight: 700;
 }
 .scp-form {
@@ -59,14 +59,14 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .scp-field input,
 .scp-field select {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
   font-size: 0.88rem;
 }
@@ -80,8 +80,8 @@
 .scp-run {
   padding: 0.45rem 0.9rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-muted);
   color: inherit;
   cursor: pointer;
   font-weight: 600;
@@ -93,24 +93,24 @@
 .scp-note {
   margin-top: 0.6rem;
   font-size: 0.85rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-muted {
   margin-top: 0.6rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
 }
 .scp-error {
   margin-top: 0.7rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  background: rgba(240, 82, 82, 0.12);
-  color: #ff9c9c;
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-text);
   font-size: 0.85rem;
 }
 .scp-results {
   margin-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.8rem;
 }
 .scp-results-head {
@@ -122,7 +122,7 @@
 .scp-counts {
   margin-top: 0.35rem;
   font-size: 0.85rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-table {
   width: 100%;
@@ -134,57 +134,57 @@
 .scp-table td {
   padding: 0.35rem 0.5rem;
   text-align: left;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--color-border-subtle);
   vertical-align: top;
 }
 .scp-table th {
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 .scp-badge {
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   font-size: 0.7rem;
-  background: rgba(255, 255, 255, 0.1);
-  color: #c6cdd6;
+  background: var(--color-muted);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 .scp-badge-profile {
-  background: rgba(88, 166, 255, 0.18);
-  color: #8db9ff;
+  background: var(--color-info-subtle);
+  color: var(--color-info-text);
 }
 .scp-badge-fit {
-  background: rgba(46, 204, 113, 0.18);
-  color: #7be2a8;
+  background: var(--color-success-subtle);
+  color: var(--color-success-text);
 }
 .scp-badge-borderline {
-  background: rgba(240, 180, 41, 0.18);
-  color: #f0b429;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
 }
 .scp-badge-no_fit,
 .scp-badge-none {
-  background: rgba(240, 82, 82, 0.16);
-  color: #ff9c9c;
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-text);
 }
 .scp-reasons {
   margin-top: 0.2rem;
   font-size: 0.72rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   max-width: 240px;
 }
 .scp-nofit {
   margin-top: 0.8rem;
   padding: 0.6rem 0.8rem;
   border-radius: 8px;
-  border: 1px dashed rgba(240, 180, 41, 0.45);
-  background: rgba(240, 180, 41, 0.07);
-  color: #f0d48a;
+  border: 1px dashed var(--color-warning-border);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
   font-size: 0.88rem;
 }
 .scp-assumptions {
   margin-top: 0.8rem;
   font-size: 0.83rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-assumptions ul {
   margin: 0.3rem 0 0;
@@ -201,7 +201,7 @@
 .scp-mini-btn {
   padding: 0.25rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border-medium);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -212,7 +212,7 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .scp-row-main {
   display: flex;
@@ -223,30 +223,30 @@
 }
 .scp-row-summary {
   font-size: 0.82rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-row-meta {
   font-size: 0.75rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .scp-danger {
   padding: 0.25rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid rgba(229, 72, 77, 0.5);
+  border: 1px solid var(--color-danger-border);
   background: transparent;
-  color: #ff9c9c;
+  color: var(--color-danger-text);
   cursor: pointer;
   font-size: 0.8rem;
 }
 .scp-danger.armed {
-  background: #e5484d;
-  border-color: #e5484d;
-  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-on-gradient);
   font-weight: 700;
 }
 .scp-profile-form {
   margin-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.4rem;
 }
 .scp-form-grid {
@@ -279,7 +279,7 @@
 .scp-legend {
   margin-top: 0.3rem;
   font-size: 0.78rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   max-width: 720px;
 }
 .scp-rollup {
@@ -292,9 +292,9 @@
   min-width: 210px;
   flex: 1;
   padding: 0.55rem 0.7rem;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-muted);
 }
 .scp-rollup-type {
   font-weight: 700;
@@ -303,29 +303,29 @@
 .scp-rollup-line {
   margin-top: 0.2rem;
   font-size: 0.83rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-rollup-meta {
   margin-top: 0.15rem;
   font-size: 0.75rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .scp-rollup-best {
   margin-top: 0.35rem;
   font-size: 0.8rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
 }
 .scp-badge-verdict-pass {
-  background: rgba(46, 204, 113, 0.18);
-  color: #7be2a8;
+  background: var(--color-success-subtle);
+  color: var(--color-success-text);
 }
 .scp-badge-verdict-no_pass {
-  background: rgba(240, 180, 41, 0.16);
-  color: #f0b429;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
 }
 .scp-badge-verdict-skipped {
-  background: rgba(255, 255, 255, 0.08);
-  color: #9aa4b2;
+  background: var(--color-muted);
+  color: var(--color-text-muted);
 }
 .scp-matrix-scroll {
   overflow-x: auto;
@@ -347,51 +347,51 @@
 }
 .scp-cell-label {
   font-size: 0.75rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .scp-cell-reason {
   margin-top: 0.2rem;
   font-size: 0.72rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   max-width: 180px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .scp-cell-empty {
-  color: #5b6572;
+  color: var(--color-text-dim);
 }
 .scp-skip-reason {
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 .scp-cell-btn {
   display: block;
   width: 100%;
   padding: 0.3rem 0.4rem;
-  border: 1px solid rgba(88, 166, 255, 0.35);
+  border: 1px solid var(--color-accent-border);
   border-radius: 8px;
-  background: rgba(88, 166, 255, 0.07);
+  background: var(--color-info-subtle);
   color: inherit;
   text-align: left;
   cursor: pointer;
   font: inherit;
 }
 .scp-cell-btn:hover {
-  background: rgba(88, 166, 255, 0.16);
+  background: var(--color-info-subtle);
 }
 /* Slice 3: trust layer — target-provenance chips, composite captions,
    borderline bucket chips. */
 .scp-chip-target {
   margin-left: 0.35rem;
-  background: rgba(167, 139, 250, 0.16);
-  color: #c9b8f7;
+  background: var(--color-purple-subtle);
+  color: var(--color-purple-text);
 }
 .scp-cell-caption {
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
 }
 .scp-borderline .scp-badge + .scp-badge {
   margin-left: 0.3rem;
@@ -401,19 +401,19 @@
 .scp-historical {
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid rgba(88, 166, 255, 0.35);
-  background: rgba(88, 166, 255, 0.08);
-  color: #c6cdd6;
+  border: 1px solid var(--color-accent-border);
+  background: var(--color-info-subtle);
+  color: var(--color-text-secondary);
 }
 .scp-diff {
   margin-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.8rem;
 }
 .scp-diff-line {
   margin-top: 0.55rem;
   font-size: 0.85rem;
-  color: #c6cdd6;
+  color: var(--color-text-secondary);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -435,7 +435,7 @@
   align-items: center;
   gap: 0.3rem;
   font-size: 0.8rem;
-  color: #9aa4b2;
+  color: var(--color-text-muted);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -449,10 +449,10 @@
    Token colors only (no new hardcoded hex — see #422). */
 .scp-strategy-picker-btn {
   padding: 0.45rem 0.9rem;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.2));
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: var(--color-surface-raised, transparent);
-  color: var(--color-text-primary, inherit);
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
   cursor: pointer;
   font-size: 0.88rem;
   text-align: left;

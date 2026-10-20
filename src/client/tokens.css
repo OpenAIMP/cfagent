@@ -186,6 +186,9 @@
   --brand-hackernews: #ff6600;
   --brand-pinterest: #bd081c;
   --brand-slack-gradient: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+  --brand-slack: #e01e5a;
+  --brand-slack-subtle: rgba(224, 30, 90, 0.15);
+  --brand-slack-border: rgba(224, 30, 90, 0.3);
   --brand-google-gradient: linear-gradient(135deg, #4285f4, #1a73e8);
   --brand-google-gradient-hover: linear-gradient(135deg, #1a73e8, #1557b0);
   --brand-google-yellow: #fbbc04;
@@ -284,6 +287,8 @@ body.theme-dark,
   --gradient-user: linear-gradient(135deg, #4338ca 0%, #312e81 100%);
   --gradient-ai: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
   --gradient-llm: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(168, 85, 247, 0.3) 100%);
+  --gradient-flow-bullish: linear-gradient(90deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.75) 60%, rgba(16, 185, 129, 0.15) 100%);
+  --gradient-flow-bearish: linear-gradient(270deg, rgba(239, 68, 68, 0.95) 0%, rgba(185, 28, 28, 0.75) 60%, rgba(239, 68, 68, 0.15) 100%);
   --color-trade-subtle: rgba(234, 88, 12, 0.14);
   --color-trade: #ea580c;
   --color-trade-deep: #c2410c;
@@ -454,6 +459,8 @@ body.theme-light,
   --gradient-user: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
   --gradient-ai: linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);
   --gradient-llm: linear-gradient(135deg, rgba(79, 70, 229, 0.16) 0%, rgba(147, 51, 234, 0.16) 100%);
+  --gradient-flow-bullish: linear-gradient(90deg, rgba(5, 150, 105, 0.9) 0%, rgba(4, 120, 87, 0.7) 60%, rgba(4, 120, 87, 0.45) 100%);
+  --gradient-flow-bearish: linear-gradient(270deg, rgba(220, 38, 38, 0.9) 0%, rgba(185, 28, 28, 0.7) 60%, rgba(185, 28, 28, 0.45) 100%);
   --color-trade-subtle: rgba(194, 65, 12, 0.1);
   --color-trade: #c2410c;
   --color-trade-deep: #9a3412;
