@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "../apiFetch";
-import { TextInput, Select } from "../components/ui";
+import { TextInput, Select, EmptyState } from "../components/ui";
 import { etToUtcCron } from "./cronTime";
 import "./scheduledOptions.css";
 
@@ -888,17 +888,18 @@ export function ScheduledOptionsManager({
         </header>
 
         {schedules.length === 0 && !loading ? (
-          <div className="schedules-empty-state">
-            <span style={{ fontSize: "2.5rem" }}>📅</span>
-            <p>No active schedules. Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically.</p>
-            <button
+          <EmptyState
+            icon="📅"
+            description="Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically."
+            title="No active schedules"
+            action={<button
               type="button"
               className="btn-sched-primary"
               onClick={openCreateModal}
             >
               + Create First Schedule
-            </button>
-          </div>
+            </button>}
+          />
         ) : (
           <div className="schedules-grid">
             {schedules.map((item) => {

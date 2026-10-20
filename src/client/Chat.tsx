@@ -63,6 +63,11 @@ export function Chat({ user }: { user: User }) {
     });
   }, []);
 
+  const handleSelectTheme = (next: ThemeMode) => {
+    setTheme(next);
+    applyTheme(next);
+  };
+
   const handleCycleTheme = () => {
     setTheme((prev) => {
       const next: ThemeMode = prev === "light" ? "dark" : prev === "dark" ? "high-contrast" : prev === "high-contrast" ? "system" : "light";
@@ -1080,6 +1085,7 @@ export function Chat({ user }: { user: User }) {
                 userAvatar={user.avatar}
                 theme={theme}
                 onCycleTheme={handleCycleTheme}
+                onSelectTheme={handleSelectTheme}
                 currentLayout={navLayout}
                 onToggleLayout={handleToggleNavLayout}
                 accountMode={accountMode}
@@ -1139,6 +1145,7 @@ export function Chat({ user }: { user: User }) {
                   userAvatar={user.avatar}
                   theme={theme}
                   onCycleTheme={handleCycleTheme}
+                onSelectTheme={handleSelectTheme}
                   currentLayout={navLayout}
                   onToggleLayout={handleToggleNavLayout}
                   accountMode={accountMode}

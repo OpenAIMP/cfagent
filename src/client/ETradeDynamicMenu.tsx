@@ -6,6 +6,7 @@ import {
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import { PillGroup, Button } from "./components/ui";
 import {
   AdBannerConfig,
   getStoredAdBannerConfig,
@@ -56,6 +57,7 @@ export interface SettingsMenuProps {
   // System & appearance preferences
   theme?: string;
   onCycleTheme?: () => void;
+  onSelectTheme?: (theme: "light" | "dark" | "high-contrast" | "system") => void;
   currentLayout?: "left" | "top";
   onToggleLayout?: (layout: "left" | "top") => void;
   accountMode?: "paper" | "live";
@@ -113,6 +115,7 @@ export function SettingsMenu({
   defaultSymbol = "NVDA",
   theme = "auto",
   onCycleTheme,
+  onSelectTheme,
   currentLayout = "left",
   onToggleLayout,
   accountMode,
@@ -639,43 +642,23 @@ export function SettingsMenu({
 
             <div className="settings-prefs-stack">
               {/* Theme Settings */}
-              {onCycleTheme && (
+              {(onCycleTheme || onSelectTheme) && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Theme:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "light" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="Light Theme"
-                    >
-                      ☀️ Light
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "dark" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="Dark Theme"
-                    >
-                      🌙 Dark
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "high-contrast" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="High Contrast Theme"
-                    >
-                      ◐ Contrast
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "system" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="System / Auto Theme"
-                    >
-                      🖥️ Auto
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Theme"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "light", label: "Light", icon: "☀️", tooltip: "Light Theme" },
+                      { id: "dark", label: "Dark", icon: "🌙", tooltip: "Dark Theme" },
+                      { id: "high-contrast", label: "Contrast", icon: "◐", tooltip: "High Contrast Theme" },
+                      { id: "system", label: "Auto", icon: "🖥️", tooltip: "System / Auto Theme" },
+                    ]}
+                    value={(theme as "light" | "dark" | "high-contrast" | "system") ?? "system"}
+                    onChange={(next) => (onSelectTheme ? onSelectTheme(next) : onCycleTheme?.())}
+                  />
                 </div>
               )}
 
@@ -683,45 +666,20 @@ export function SettingsMenu({
               <div className="settings-pref-row">
                 <span className="pref-row-lbl">Font Size:</span>
                 <div className="settings-pref-btn-group font-size-controls-group">
-                  <button
-                    type="button"
-                    className="btn-pref-pill step-btn"
-                    onClick={() => {
-                      const next = adjustFontScale(-0.05);
-                      setFontScale(next);
-                    }}
-                    title="Decrease application font size"
-                    disabled={fontScale <= 0.75}
-                  >
-                    A-
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => { const next = adjustFontScale(-0.05); setFontScale(next); }} title="Decrease application font size" disabled={fontScale <= 0.75}>A-</Button>
                   <span className="font-scale-pct" title="Current font scale level">
                     {Math.round(fontScale * 100)}%
                   </span>
-                  <button
-                    type="button"
-                    className="btn-pref-pill step-btn"
-                    onClick={() => {
-                      const next = adjustFontScale(0.05);
-                      setFontScale(next);
-                    }}
-                    title="Increase application font size"
-                    disabled={fontScale >= 1.5}
-                  >
-                    A+
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => { const next = adjustFontScale(0.05); setFontScale(next); }} title="Increase application font size" disabled={fontScale >= 1.5}>A+</Button>
                   <span className="font-controls-divider" aria-hidden="true" />
-                  {FONT_SCALE_PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`btn-pref-pill ${Math.abs(fontScale - p.scale) < 0.03 ? "active" : ""}`}
-                      onClick={() => handleFontScaleChange(p.scale)}
-                      title={`Scale to ${p.label} (${p.pct})`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                  <PillGroup
+                    ariaLabel="Font size presets"
+                    size="sm"
+                    variant="default"
+                    options={FONT_SCALE_PRESETS.map((p) => ({ id: p.id, label: p.label, tooltip: `Scale to ${p.label} (${p.pct})` }))}
+                    value={FONT_SCALE_PRESETS.find((p) => Math.abs(fontScale - p.scale) < 0.03)?.id ?? ""}
+                    onChange={(id) => { const preset = FONT_SCALE_PRESETS.find((p) => p.id === id); if (preset) handleFontScaleChange(preset.scale); }}
+                  />
                 </div>
               </div>
 
@@ -729,24 +687,18 @@ export function SettingsMenu({
               {onToggleLayout && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Navigation:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${currentLayout === "top" ? "active" : ""}`}
-                      onClick={() => onToggleLayout("top")}
-                      title="Switch to Top Nav Bar"
-                    >
-                      ⊞ Top Menu
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${currentLayout === "left" ? "active" : ""}`}
-                      onClick={() => onToggleLayout("left")}
-                      title="Switch to Left Sidebar"
-                    >
-                      ⊟ Left Sidebar
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Navigation layout"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "top", label: "Top Menu", icon: "⊞", tooltip: "Switch to Top Nav Bar" },
+                      { id: "left", label: "Left Sidebar", icon: "⊟", tooltip: "Switch to Left Sidebar" },
+                    ]}
+                    value={currentLayout ?? "top"}
+                    onChange={(layout) => onToggleLayout?.(layout)}
+                  />
                 </div>
               )}
 
@@ -754,65 +706,50 @@ export function SettingsMenu({
               {onToggleAccountMode && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Policy Mode:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${accountMode === "paper" ? "active" : ""}`}
-                      onClick={() => accountMode !== "paper" && onToggleAccountMode()}
-                      title="Simulated paper money"
-                    >
-                      🧪 Paper
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${accountMode === "live" ? "active" : ""}`}
-                      onClick={() => accountMode !== "live" && onToggleAccountMode()}
-                      title="Live brokerage execution"
-                    >
-                      🔴 Live Real
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Policy account mode"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "paper", label: "Paper", icon: "🧪", tooltip: "Simulated paper money" },
+                      { id: "live", label: "Live Real", icon: "🔴", tooltip: "Live brokerage execution" },
+                    ]}
+                    value={accountMode ?? "paper"}
+                    onChange={(mode) => { if (mode !== accountMode) onToggleAccountMode?.(); }}
+                  />
                 </div>
               )}
 
               {/* Centralized Auto-Refresh Settings */}
               <div className="settings-pref-row">
                 <span className="pref-row-lbl">Auto-Refresh:</span>
-                <div className="settings-pref-btn-group">
-                  <button
-                    type="button"
-                    className={`btn-pref-pill ${!effectiveAutoRefreshEnabled ? "active" : ""}`}
-                    onClick={() => handleSetAutoRefresh(false)}
-                    title="Pause automatic background refresh"
-                  >
-                    ⏹ OFF
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn-pref-pill ${effectiveAutoRefreshEnabled ? "active" : ""}`}
-                    onClick={() => handleSetAutoRefresh(true)}
-                    title="Enable automatic background refresh"
-                  >
-                    ▶ ON
-                  </button>
-                </div>
+                <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Auto-refresh"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "off", label: "OFF", icon: "⏹", tooltip: "Pause automatic background refresh" },
+                      { id: "on", label: "ON", icon: "▶", tooltip: "Enable automatic background refresh" },
+                    ]}
+                    value={effectiveAutoRefreshEnabled ? "on" : "off"}
+                    onChange={(v) => handleSetAutoRefresh(v === "on")}
+                  />
               </div>
 
               {effectiveAutoRefreshEnabled && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Cadence:</span>
                   <div className="settings-pref-btn-group">
-                    {[10, 15, 30, 60, 120, 300].map((sec) => (
-                      <button
-                        key={sec}
-                        type="button"
-                        className={`btn-pref-pill ${effectiveAutoRefreshInterval === sec ? "active" : ""}`}
-                        onClick={() => handleSetAutoRefresh(true, sec)}
-                        title={`Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}`}
-                      >
-                        {sec < 60 ? `${sec}s` : `${sec / 60}m`}
-                      </button>
-                    ))}
+                    <PillGroup
+                    ariaLabel="Auto-refresh cadence"
+                    size="sm"
+                    variant="default"
+                    options={[10, 15, 30, 60, 120, 300].map((sec) => ({ id: String(sec), label: sec < 60 ? `${sec}s` : `${sec / 60}m`, tooltip: `Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}` }))}
+                    value={String(effectiveAutoRefreshInterval)}
+                    onChange={(v) => handleSetAutoRefresh(true, Number(v))}
+                  />
                   </div>
                 </div>
               )}
@@ -821,24 +758,18 @@ export function SettingsMenu({
               {onToggleReportDispatchHitl && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Report dispatch HITL:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!reportDispatchHitl ? "active" : ""}`}
-                      onClick={() => onToggleReportDispatchHitl(false)}
-                      title="Send research reports autonomously (current behavior)"
-                    >
-                      ⏹ Autonomous
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${reportDispatchHitl ? "active" : ""}`}
-                      onClick={() => onToggleReportDispatchHitl(true)}
-                      title="Hold research reports for human confirmation before dispatch"
-                    >
-                      ✅ Require confirmation
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Report dispatch confirmation"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "auto", label: "Autonomous", icon: "⏹", tooltip: "Send research reports autonomously (current behavior)" },
+                      { id: "confirm", label: "Require confirmation", icon: "✅", tooltip: "Hold research reports for human confirmation before dispatch" },
+                    ]}
+                    value={reportDispatchHitl ? "confirm" : "auto"}
+                    onChange={(v) => onToggleReportDispatchHitl?.(v === "confirm")}
+                  />
                 </div>
               )}
 
@@ -856,35 +787,14 @@ export function SettingsMenu({
                             {item.kind === "email" ? "📧" : "🔗"} {item.detail}
                           </span>
                           <div className="settings-pref-btn-group">
-                            <button
-                              type="button"
-                              className="btn-pref-pill"
-                              onClick={() => onDecideReportConfirmation(item.confirmationId, "approved")}
-                              title={`Approve and dispatch (ID ${item.confirmationId})`}
-                            >
-                              ✅ Approve
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-pref-pill"
-                              onClick={() => onDecideReportConfirmation(item.confirmationId, "rejected")}
-                              title={`Reject (ID ${item.confirmationId})`}
-                            >
-                              ❌ Reject
-                            </button>
+                            <Button size="sm" variant="primary" onClick={() => onDecideReportConfirmation(item.confirmationId, "approved")} title={`Approve and dispatch (ID ${item.confirmationId})`}>✅ Approve</Button>
+                            <Button size="sm" variant="danger" onClick={() => onDecideReportConfirmation(item.confirmationId, "rejected")} title={`Reject (ID ${item.confirmationId})`}>❌ Reject</Button>
                           </div>
                         </div>
                       ))
                     )}
                     {onRefreshReportConfirmations && (
-                      <button
-                        type="button"
-                        className="btn-pref-pill"
-                        onClick={() => onRefreshReportConfirmations()}
-                        title="Refresh the pending confirmations list"
-                      >
-                        ⟳ Refresh
-                      </button>
+                      <Button size="sm" variant="secondary" onClick={() => onRefreshReportConfirmations()} title="Refresh the pending confirmations list">⟳ Refresh</Button>
                     )}
                   </div>
                 </div>
@@ -962,86 +872,68 @@ export function SettingsMenu({
 
             <div className="settings-pref-row">
               <span className="pref-row-lbl">Workspace Banners:</span>
-              <div className="settings-pref-btn-group">
-                <button
-                  type="button"
-                  className={`btn-pref-pill ${!effectiveAdConfig.enabled ? "active" : ""}`}
-                  onClick={() => handleToggleAdMaster(false)}
-                  title="Disable all promotional banners and ads across workspace tabs (Clean UI)"
-                >
-                  ⏹ OFF (Clean)
-                </button>
-                <button
-                  type="button"
-                  className={`btn-pref-pill ${effectiveAdConfig.enabled ? "active" : ""}`}
-                  onClick={() => handleToggleAdMaster(true)}
-                  title="Enable promotional banners and customize placements"
-                >
-                  ▶ ON
-                </button>
-              </div>
+              <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Workspace banners"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "off", label: "OFF (Clean)", icon: "⏹", tooltip: "Disable all promotional banners and ads across workspace tabs (Clean UI)" },
+                      { id: "on", label: "ON", icon: "▶", tooltip: "Enable promotional banners and customize placements" },
+                    ]}
+                    value={effectiveAdConfig.enabled ? "on" : "off"}
+                    onChange={(v) => handleToggleAdMaster(v === "on")}
+                  />
             </div>
 
             {effectiveAdConfig.enabled && (
               <div className="settings-ads-suboptions">
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Sponsor Spotlight:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showSponsorSpotlight", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showSponsorSpotlight", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Sponsor Spotlight"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showSponsorSpotlight ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showSponsorSpotlight", v === "on")}
+                    />
                 </div>
 
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Ad Network Strip:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showAdNetworkStrip", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showAdNetworkStrip", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Ad Network Strip"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showAdNetworkStrip ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showAdNetworkStrip", v === "on")}
+                    />
                 </div>
 
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Google Ad Units:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showGoogleAdUnits", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showGoogleAdUnits", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Google Ad Units"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showGoogleAdUnits ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showGoogleAdUnits", v === "on")}
+                    />
                 </div>
               </div>
             )}

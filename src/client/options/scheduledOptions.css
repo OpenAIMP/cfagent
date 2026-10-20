@@ -505,19 +505,7 @@
 }
 
 /* Empty Schedule State */
-.schedules-empty-state {
-  text-align: center;
-  padding: 3rem 1.5rem;
-  background: var(--color-surface-sunken);
-  border: 1px dashed var(--color-border-medium);
-  border-radius: 10px;
-}
 
-.schedules-empty-state p {
-  color: var(--color-text-muted);
-  margin: 0.5rem 0 1.25rem;
-  font-size: 0.9rem;
-}
 
 /* Drawer / Modal Form for Creating Schedules */
 .sched-modal-overlay {
