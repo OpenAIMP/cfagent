@@ -32,7 +32,7 @@ import {
   type StrategyRequest,
 } from "../trading";
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
-import { tagOpportunitiesWithDirection } from "../trading";
+import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
 import type { ScanRunStore } from "../trading";
 import type {
   DiscoveryConstraintSet,
@@ -960,6 +960,76 @@ export class ScheduledTasksService {
    * the failure path (audit + session message + { success: false })
    * and its record exists for diagnosis, never as a success.
    */
+
+  /**
+   * Issue #424: strategy-discovery failures were audit + session-message
+   * only — silent in Slack/webhook terms, unlike every sibling scheduled
+   * job (market screen failures fan out via the bus publishers; options
+   * analysis failures send a Slack A2A notice). Mirror that fan-out here:
+   * Slack (cfpay A2A when configured, else the bot-token service) plus the
+   * outbound webhook, each best-effort. When no channel is configured at
+   * all, audit the skip so the silence is at least on the record.
+   */
+  private async notifyStrategyDiscoveryFailure(args: {
+    error: string;
+    symbols: string[];
+    trigger?: string;
+    inputModel?: string;
+  }): Promise<void> {
+    const text =
+      `⚠️ Scheduled Strategy Discovery FAILED — ${args.symbols.join(", ") || "no symbols"}\n` +
+      `Error: ${args.error}\n_Time: ${new Date().toISOString()}_`;
+    let attempted = false;
+    try {
+      if (getCfpayConfig(this.env)) {
+        attempted = true;
+        const result = await deliverScreenerToSlackA2A(this.env, { text });
+        if (!result.ok) {
+          console.warn("[ScheduledTasksService] Discovery failure Slack A2A failed:", result.error);
+        }
+      } else if (this.env.SLACK_BOT_TOKEN || this.env.SLACK_WEBHOOK_URL) {
+        attempted = true;
+        const slack = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
+        await slack.postSlackMessage({ text } as any);
+      }
+    } catch (err) {
+      console.warn(
+        "[ScheduledTasksService] Discovery failure Slack notify failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+    const webhookUrl = this.env.OUTBOUND_WEBHOOK_URL;
+    if (webhookUrl) {
+      attempted = true;
+      try {
+        const webhook = new ETradeWebhookService(this.orm, this.env, this.userLogin);
+        await webhook.dispatchOutboundWebhook(
+          "options.strategy_discovery_failed",
+          {
+            error: args.error,
+            symbols: args.symbols,
+            trigger: args.trigger || "scheduled",
+            ...(args.inputModel ? { inputModel: args.inputModel } : {}),
+          },
+          webhookUrl
+        );
+      } catch (err) {
+        console.warn(
+          "[ScheduledTasksService] Discovery failure webhook notify failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+    if (!attempted) {
+      this.audit("options.strategy_discovery_notify_skipped", {
+        error: args.error,
+        symbols: args.symbols,
+        ...(args.inputModel ? { inputModel: args.inputModel } : {}),
+        reason: "no notification channel configured",
+      });
+    }
+  }
+
   async autonomousStrategyDiscovery(
     options: AutonomousStrategyDiscoveryOptions = {}
   ): Promise<ScheduledTaskResult<{
@@ -990,13 +1060,14 @@ export class ScheduledTasksService {
     const requests = options.requests ?? [];
     const symbols = requests.map((r) => (typeof r?.symbol === "string" ? r.symbol.toUpperCase().trim() : "?"));
 
-    const fail = (error: string, runId?: string, status?: DiscoveryRunStatus, failures: Array<{ symbol: string; error: string }> = []) => {
+    const fail = async (error: string, runId?: string, status?: DiscoveryRunStatus, failures: Array<{ symbol: string; error: string }> = []) => {
       this.audit("options.strategy_discovery_failed", {
         symbols,
         trigger: options.trigger || "scheduled",
         ...(runId ? { runId } : {}),
         error,
       });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger });
       if (this.orm?.messages) {
         try {
           this.orm.messages.create({
@@ -1044,21 +1115,21 @@ export class ScheduledTasksService {
     try {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
-        return fail("No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again.");
+        return await fail("No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again.");
       }
       if (!this.discoveryRunStore) {
-        return fail("Discovery run store not configured for this service instance");
+        return await fail("Discovery run store not configured for this service instance");
       }
       if (!Array.isArray(requests) || requests.length === 0) {
-        return fail("Scheduled discovery requires at least one saved strategy request; none was supplied. Capture a view in the discovery panel and schedule it — no view is invented for a schedule.");
+        return await fail("Scheduled discovery requires at least one saved strategy request; none was supplied. Capture a view in the discovery panel and schedule it — no view is invented for a schedule.");
       }
       if (requests.length > MAX_SAVED_REQUESTS_PER_RUN) {
-        return fail(`Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per run; ${requests.length} were supplied.`);
+        return await fail(`Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per run; ${requests.length} were supplied.`);
       }
       for (let i = 0; i < requests.length; i++) {
         const validationError = validateStrategyRequest(requests[i]);
         if (validationError) {
-          return fail(`Saved discovery request ${i + 1} of ${requests.length} (${symbols[i]}) is invalid: ${validationError}`);
+          return await fail(`Saved discovery request ${i + 1} of ${requests.length} (${symbols[i]}) is invalid: ${validationError}`);
         }
       }
 
@@ -1096,7 +1167,7 @@ export class ScheduledTasksService {
       });
 
       if (status === "failed") {
-        return fail(
+        return await fail(
           `Every saved discovery request failed (${failures.map((f) => `${f.symbol}: ${f.error}`).join("; ")})`,
           run.id,
           status,
@@ -1148,7 +1219,7 @@ export class ScheduledTasksService {
         timestamp,
       };
     } catch (err: any) {
-      return fail(err?.message || "Scheduled strategy discovery failed");
+      return await fail(err?.message || "Scheduled strategy discovery failed");
     }
   }
 
@@ -1281,7 +1352,7 @@ export class ScheduledTasksService {
           .filter((s) => s.length > 0)
       : [];
 
-    const fail = (
+    const fail = async (
       error: string,
       runId?: string,
       status?: DiscoveryRunStatus,
@@ -1297,6 +1368,7 @@ export class ScheduledTasksService {
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
       });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols: attemptedSymbols, trigger: options.trigger, inputModel: "profile-derived" });
       if (this.orm?.messages) {
         try {
           this.orm.messages.create({
@@ -1343,19 +1415,19 @@ export class ScheduledTasksService {
     try {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
-        return fail(
+        return await fail(
           "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
         );
       }
       if (!this.discoveryRunStore) {
-        return fail("Discovery run store not configured for this service instance");
+        return await fail("Discovery run store not configured for this service instance");
       }
       if (!this.strategyProfileStore) {
-        return fail("Strategy profile store not configured for this service instance");
+        return await fail("Strategy profile store not configured for this service instance");
       }
       const profileId = typeof options.profileId === "string" ? options.profileId.trim() : "";
       if (!profileId) {
-        return fail(
+        return await fail(
           "Profile-derived discovery requires a profileId; none was supplied. The schedule must name the Strategy Profile its targets are derived under."
         );
       }
@@ -1363,7 +1435,7 @@ export class ScheduledTasksService {
       if (!profile) {
         // Deleted (or never existed) since arming: an honest failure
         // naming the profile — never a silently substituted view.
-        return fail(
+        return await fail(
           `Strategy profile ${profileId} was not found for this account. It may have been deleted after the schedule was armed; no run was recorded.`
         );
       }
@@ -1371,14 +1443,14 @@ export class ScheduledTasksService {
       const hasSymbols = options.symbols !== undefined;
       const hasWatchlist = options.watchlistName !== undefined;
       if (hasSymbols === hasWatchlist) {
-        return fail(
+        return await fail(
           "Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName."
         );
       }
       let symbols: string[];
       if (hasSymbols) {
         if (!Array.isArray(options.symbols)) {
-          return fail("Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName.");
+          return await fail("Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName.");
         }
         const seen = new Set<string>();
         symbols = [];
@@ -1393,7 +1465,7 @@ export class ScheduledTasksService {
         const name = typeof options.watchlistName === "string" ? options.watchlistName : "";
         const resolved = name.trim() ? this.resolveWatchlistSymbols(name, userLogin) : null;
         if (!resolved) {
-          return fail(
+          return await fail(
             `Watchlist "${options.watchlistName}" was not found among this account's stored watchlists; no run was recorded.`
           );
         }
@@ -1401,12 +1473,12 @@ export class ScheduledTasksService {
       }
       attemptedSymbols = symbols;
       if (symbols.length === 0) {
-        return fail(
+        return await fail(
           "Profile-derived discovery resolved to no symbols; there is nothing to derive. No run was recorded."
         );
       }
       if (symbols.length > MAX_SAVED_REQUESTS_PER_RUN) {
-        return fail(
+        return await fail(
           `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${symbols.length} were resolved.`
         );
       }
@@ -1494,7 +1566,7 @@ export class ScheduledTasksService {
           ...failures.map((f) => `${f.symbol}: ${f.error}`),
           ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
         ];
-        return fail(
+        return await fail(
           `No derived discovery request produced a result (${parts.join("; ")})`,
           run.id,
           status,
@@ -1557,7 +1629,7 @@ export class ScheduledTasksService {
         timestamp,
       };
     } catch (err: any) {
-      return fail(err?.message || "Scheduled strategy discovery failed");
+      return await fail(err?.message || "Scheduled strategy discovery failed");
     }
   }
 
@@ -1597,7 +1669,7 @@ export class ScheduledTasksService {
       typeof s?.symbol === "string" ? s.symbol.toUpperCase().trim() : "?"
     );
 
-    const fail = (
+    const fail = async (
       error: string,
       runId?: string,
       status?: DiscoveryRunStatus,
@@ -1612,6 +1684,7 @@ export class ScheduledTasksService {
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
       });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger, inputModel: "no-view" });
       if (this.orm?.messages) {
         try {
           this.orm.messages.create({
@@ -1658,15 +1731,15 @@ export class ScheduledTasksService {
     try {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
-        return fail(
+        return await fail(
           "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
         );
       }
       if (!this.discoveryRunStore) {
-        return fail("Discovery run store not configured for this service instance");
+        return await fail("Discovery run store not configured for this service instance");
       }
       if (options.inputModel !== "no-view") {
-        return fail(
+        return await fail(
           `No-view constraint sets require inputModel "no-view"; this payload carries ${options.inputModel ? `"${options.inputModel}"` : "no inputModel"}. The discovery input models are mutually exclusive — no run was recorded.`
         );
       }
@@ -1676,17 +1749,17 @@ export class ScheduledTasksService {
         options.watchlistName !== undefined ||
         options.profileId !== undefined
       ) {
-        return fail(
+        return await fail(
           "No-view discovery payloads carry constraintSets only — requests, symbols, watchlistName and profileId belong to the other discovery input models. Mixed payload shapes are rejected, never partially honoured; no run was recorded."
         );
       }
       if (!Array.isArray(options.constraintSets) || options.constraintSets.length === 0) {
-        return fail(
+        return await fail(
           "No-view discovery requires at least one constraint set in payload.constraintSets; none was supplied. A constraint set names a symbol and its constraints only — no view is invented for a schedule."
         );
       }
       if (options.constraintSets.length > MAX_SAVED_REQUESTS_PER_RUN) {
-        return fail(
+        return await fail(
           `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${options.constraintSets.length} constraint sets were supplied.`
         );
       }
@@ -1699,7 +1772,7 @@ export class ScheduledTasksService {
           options.constraintSets[i] as Parameters<typeof validateNoViewRequest>[0]
         );
         if (validationError) {
-          return fail(
+          return await fail(
             `No-view constraint set ${i + 1} of ${options.constraintSets.length} (${symbols[i]}) is invalid: ${validationError}`
           );
         }
@@ -1765,7 +1838,7 @@ export class ScheduledTasksService {
           ...failures.map((f) => `${f.symbol}: ${f.error}`),
           ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
         ];
-        return fail(
+        return await fail(
           `No no-view discovery symbol produced a result (${parts.join("; ")})`,
           run.id,
           status,
@@ -1828,7 +1901,7 @@ export class ScheduledTasksService {
         timestamp,
       };
     } catch (err: any) {
-      return fail(err?.message || "Scheduled strategy discovery failed");
+      return await fail(err?.message || "Scheduled strategy discovery failed");
     }
   }
 
