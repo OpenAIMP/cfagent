@@ -25,7 +25,7 @@
 
 .schedules-tabs .tab.active {
   background: var(--color-accent);
-  color: white;
+  color: var(--color-accent-contrast);
   border-color: var(--color-accent);
 }
 
@@ -152,7 +152,7 @@
 .reports-search .search-btn {
   padding: 0.6rem 1.2rem;
   background: var(--color-accent);
-  color: white;
+  color: var(--color-accent-contrast);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -176,7 +176,7 @@
 
 .filter-chip.active {
   background: var(--color-accent);
-  color: white;
+  color: var(--color-accent-contrast);
   border-color: var(--color-accent);
 }
 
@@ -201,7 +201,6 @@
 }
 
 .source-badge {
-  color: white;
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.25rem 0.75rem;
