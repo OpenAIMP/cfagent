@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Notice } from "./ui";
 
 export interface PartnerDeal {
   id: string;
@@ -137,9 +138,9 @@ export function PartnerDealsModal({
         </div>
 
         {/* Notice explaining clean UI guarantee */}
-        <div className="partner-deals-notice">
-          🛡️ <strong>Clean Workspace Guarantee:</strong> Ads and promotional banners have been externalized from all trading tabs. You can browse offers here on-demand without cluttering your workspace.
-        </div>
+        <Notice tone="success" variant="strip" density="compact" icon="🛡️" title="Clean Workspace Guarantee:">
+          Ads and promotional banners have been externalized from all trading tabs. You can browse offers here on-demand without cluttering your workspace.
+        </Notice>
 
         {/* Category Filters */}
         <div className="partner-deals-category-bar">

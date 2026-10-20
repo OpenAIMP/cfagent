@@ -14,6 +14,9 @@
  * - Spinner — loading indicator (sizes sm/md/lg; role="status" label).
  * - EmptyState — icon/title/description/action empty block (optional
  *   framed panel variant).
+ * - Card — surface container (flat/elevated; padding scale).
+ * - Notice — inline banner/alert (tones; box/strip; dismissible;
+ *   role=alert for danger/warning).
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -24,3 +27,5 @@ export { Badge, type BadgeProps, type BadgeTone } from "./Badge";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { Spinner, type SpinnerProps } from "./Spinner";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
+export { Card, type CardProps } from "./Card";
+export { Notice, type NoticeProps, type NoticeTone } from "./Notice";
