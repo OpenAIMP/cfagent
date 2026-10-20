@@ -1,0 +1,184 @@
+import type { TradingSubTab } from "../ETradeTradingHub";
+export interface User {
+  login: string;
+  name: string;
+  avatar: string;
+}
+
+export const TRADING_TABS = new Set<string>([
+  "trading",
+  "autopilot",
+  "order",
+  "orders",
+  "portfolio",
+  "ledger",
+  "screeners",
+  "scanner",
+  "reports",
+  "schedules",
+  "options",
+  "voice",
+  "omnichannel",
+]);
+
+export function isTradingTab(targetTab: string): boolean {
+  return TRADING_TABS.has(targetTab);
+}
+
+export function mapTabToTradingSubTab(targetTab: string): TradingSubTab {
+  switch (targetTab) {
+    case "order":
+    case "orders":
+      return "order";
+    case "portfolio":
+      return "portfolio";
+    case "ledger":
+      return "ledger";
+    case "screeners":
+      return "screeners";
+    case "scanner":
+      return "scanner";
+    case "reports":
+      return "reports";
+    case "schedules":
+      return "schedules";
+    case "options":
+      return "options";
+    case "voice":
+      return "voice";
+    case "omnichannel":
+      return "omnichannel";
+    case "trading":
+    case "autopilot":
+    default:
+      return "autopilot";
+  }
+}
+
+export interface AuditLogEvent {
+  id: string;
+  type: string;
+  agent: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface MemoryItem {
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
+export interface ReferralItem {
+  id: string;
+  userLogin: string;
+  title: string;
+  url: string;
+  category: string;
+  rewardText: string;
+  clicks: number;
+  signups: number;
+  createdAt: string;
+}
+
+export interface AdItem {
+  id: string;
+  title: string;
+  tagline: string;
+  sponsor: string;
+  badge: string;
+  url: string;
+  ctaText: string;
+  accentColor: string;
+  impressions: number;
+  clicks: number;
+  createdAt: string;
+}
+
+export interface TransactionItem {
+  id: string;
+  sessionId: string;
+  action: "charge" | "refund" | "invoice" | "payout";
+  amount: number;
+  currency: string;
+  customer: string;
+  gateway: "stripe" | "paypal" | "lemonsqueezy" | "sandbox";
+  gatewayRef?: string;
+  status: "draft" | "awaiting_confirmation" | "authorized" | "completed" | "failed" | "rejected";
+  checkoutUrl?: string;
+  proposerDid: string;
+  authorizerDid?: string;
+  proofSignature: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GatewayInfo {
+  id: "stripe" | "paypal" | "lemonsqueezy" | "sandbox";
+  name: string;
+  configured: boolean;
+  mode: "live" | "sandbox" | "simulated";
+  capabilities: string[];
+}
+
+export interface CategoryItem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalAdItem {
+  id: string;
+  name: string;
+  network: "direct" | "ethicalads" | "carbon" | "adsense" | "google";
+  placement: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
+  title: string;
+  tagline: string;
+  ctaText: string;
+  targetUrl: string;
+  bannerImageUrl?: string;
+  cpmRate: number;
+  cpcRate: number;
+  impressions: number;
+  clicks: number;
+  earnings: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface RevenueSummaryData {
+  grossRevenue: number;
+  adNetworkRevenue: number;
+  marketplaceRevenue: number;
+  paymentPlatformFees: number;
+  referralPayouts: number;
+  netRevenue: number;
+  totalImpressions: number;
+  totalAdClicks: number;
+  averageRPM: number;
+}
+
+export interface TableMetadataItem {
+  name: string;
+  description: string;
+  rowCount: number;
+  columns: Array<{ name: string; type: string; isPrimary: boolean }>;
+}
+
+export function extractText(message: any): string {
+  if (typeof message.content === "string") return message.content;
+  if (Array.isArray(message.parts)) {
+    return message.parts
+      .filter((p: any) => p && p.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text)
+      .join("") || "";
+  }
+  return "";
+}
