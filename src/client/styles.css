@@ -10044,44 +10044,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.item-badge {
-  font-size: 0.64rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.item-badge.badge-live {
-  background: var(--color-sentiment-very-bearish-subtle);
-  color: var(--color-danger-text);
-  border: 1px solid var(--color-danger-border);
-}
-
-.item-badge.badge-pro {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-  border: 1px solid var(--color-success-border);
-}
-
-.item-badge.badge-ai {
-  background: var(--color-purple-subtle);
-  color: var(--color-purple-text);
-  border: 1px solid var(--color-purple-border);
-}
-
-.item-badge.badge-mcp {
-  background: var(--color-info-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
-}
-
-.item-badge.badge-default {
-  background: var(--color-tag);
-  color: var(--color-text-secondary);
-}
-
 .sidebar-footer {
   display: none !important;
 }

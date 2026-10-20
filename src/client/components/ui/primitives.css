@@ -124,6 +124,35 @@
   border-color: var(--color-purple-border);
 }
 
+
+/* ---------- Badge ---------- */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.ui-badge.size-sm { font-size: 0.66rem; padding: 0.1rem 0.45rem; }
+.ui-badge.size-md { font-size: 0.72rem; padding: 0.2rem 0.6rem; }
+
+.ui-badge.uppercase { text-transform: uppercase; letter-spacing: 0.04em; }
+
+.ui-badge .ui-badge-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; flex: none; }
+
+.ui-badge.tone-neutral { background: var(--color-muted); color: var(--color-text-secondary); border-color: var(--color-border-subtle); }
+.ui-badge.tone-accent { background: var(--color-accent-subtle); color: var(--color-accent); border-color: var(--color-accent-border); }
+.ui-badge.tone-success { background: var(--color-success-subtle); color: var(--color-success-text); border-color: var(--color-success-border); }
+.ui-badge.tone-warning { background: var(--color-warning-subtle); color: var(--color-warning-text); border-color: var(--color-warning-border); }
+.ui-badge.tone-danger { background: var(--color-danger-subtle); color: var(--color-danger-text); border-color: var(--color-danger-border); }
+.ui-badge.tone-info { background: var(--color-info-subtle); color: var(--color-info-text); border-color: var(--color-accent-border); }
+.ui-badge.tone-purple { background: var(--color-purple-subtle); color: var(--color-purple-text); border-color: var(--color-purple-border); }
+.ui-badge.tone-trade { background: var(--color-trade-subtle); color: var(--color-trade); border-color: var(--color-warning-border); }
+
 @media (prefers-reduced-motion: reduce) {
   .segmented-btn, .pill-btn { transition: none; }
 }

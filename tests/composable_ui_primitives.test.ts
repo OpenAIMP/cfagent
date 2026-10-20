@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -117,6 +117,9 @@ describe("Primitive styles (primitives.css)", () => {
       ".variant-emerald",
       ".variant-amber",
       ".variant-purple",
+      ".ui-badge",
+      ".tone-success",
+      ".tone-danger",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -130,5 +133,21 @@ describe("Primitive styles (primitives.css)", () => {
   it("keeps focus visible and honors reduced motion", () => {
     expect(css).toContain(":focus-visible");
     expect(css).toContain("prefers-reduced-motion");
+  });
+});
+
+describe("Badge Component (#492)", () => {
+  it("supports every semantic tone", () => {
+    const tones = ["neutral", "accent", "success", "warning", "danger", "info", "purple", "trade"] as const;
+    for (const tone of tones) {
+      const element = React.createElement(Badge, { tone }, "LIVE");
+      expect(element.props.tone).toBe(tone);
+    }
+  });
+
+  it("supports sizes and the status dot", () => {
+    const element = React.createElement(Badge, { tone: "success", size: "sm", dot: true }, "PRO");
+    expect(element.props.size).toBe("sm");
+    expect(element.props.dot).toBe(true);
   });
 });

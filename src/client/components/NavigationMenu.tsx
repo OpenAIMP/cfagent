@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
+import { Badge, type BadgeTone } from "./ui";
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 
@@ -46,9 +47,20 @@ export interface NavItemDef {
   category: "Execution" | "Intelligence" | "Playbooks" | "Platform";
   badge?: string;
   badgeType?: "pro" | "live" | "ai" | "mcp" | "new";
+
   icon: (props: { active?: boolean; className?: string }) => React.ReactNode;
   description: string;
 }
+
+/** Nav item badge kinds -> Badge tones (#492). */
+const NAV_BADGE_TONES: Record<string, BadgeTone> = {
+  live: "danger",
+  pro: "success",
+  ai: "purple",
+  mcp: "info",
+  new: "accent",
+  default: "neutral",
+};
 
 export interface NavigationMenuProps {
   layout: NavLayoutMode;
@@ -673,14 +685,14 @@ export function NavigationMenu({
                   </span>
                   {!collapsed && <span className="item-label">{item.label}</span>}
                   {!collapsed && item.badge && (
-                    <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    <Badge size="sm" uppercase tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                       {item.badge}
-                    </span>
+                    </Badge>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
-                      </span>
+                      </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
                 </button>
