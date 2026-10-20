@@ -2787,24 +2787,24 @@ export function ETradeTradingHub({
                 </h5>
                 <div className="omnichannel-form-group">
                   <div>
-                    <label className="omnichannel-form-label">From (Sender Email):</label>
-                    <TextInput
+                    <label htmlFor="omni-email-from" className="omnichannel-form-label">From (Sender Email):</label>
+                    <TextInput id="omni-email-from"
                       type="email"
                       value={emailFrom}
                       onChange={(e) => setEmailFrom(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label className="omnichannel-form-label">Subject:</label>
-                    <TextInput
+                    <label htmlFor="omni-email-subject" className="omnichannel-form-label">Subject:</label>
+                    <TextInput id="omni-email-subject"
                       type="text"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label className="omnichannel-form-label">Email Body:</label>
-                    <TextInput
+                    <label htmlFor="omni-email-body" className="omnichannel-form-label">Email Body:</label>
+                    <TextInput id="omni-email-body"
                       multiline
                       rows={2}
                       value={emailBody}
@@ -2913,8 +2913,8 @@ export function ETradeTradingHub({
                 </h5>
                 <div className="omnichannel-form-group">
                   <div>
-                    <label className="omnichannel-form-label">Slack Message / Mention:</label>
-                    <TextInput
+                    <label htmlFor="omni-slack-message" className="omnichannel-form-label">Slack Message / Mention:</label>
+                    <TextInput id="omni-slack-message"
                       type="text"
                       value={slackPrompt}
                       onChange={(e) => setSlackPrompt(e.target.value)}

@@ -223,9 +223,9 @@ export function FlowFiltersSidebar({
 
           {/* Tickers Input */}
           <div className="flow-form-group">
-            <label className="flow-form-label">Tickers:</label>
+            <label htmlFor="flow-tickers" className="flow-form-label">Tickers:</label>
             <div className="flow-ticker-input-wrap">
-              <TextInput
+              <TextInput id="flow-tickers"
                 type="text"
                 placeholder="Add or exclude a ticker"
                 value={tickerInput}
@@ -247,9 +247,9 @@ export function FlowFiltersSidebar({
           {/* Insiders Input (Only for Insider Flow) */}
           {currentTab === "insider" && (
             <div className="flow-form-group">
-              <label className="flow-form-label">Insiders:</label>
+              <label htmlFor="flow-insiders" className="flow-form-label">Insiders:</label>
               <div className="flow-ticker-input-wrap">
-                <TextInput
+                <TextInput id="flow-insiders"
                   type="text"
                   placeholder="Add or exclude an insider"
                   value={insiderInput}
@@ -272,7 +272,7 @@ export function FlowFiltersSidebar({
           {/* Minimum Premium Slider */}
           <div className="flow-form-group">
             <div className="flow-slider-label-row">
-              <label className="flow-form-label">Minimum premium:</label>
+              <label htmlFor="flow-min-premium" className="flow-form-label">Minimum premium:</label>
               <span className="flow-slider-val-tag">
                 {filterConfig.minPremium === 0
                   ? "All premiums"
@@ -281,7 +281,7 @@ export function FlowFiltersSidebar({
                   : `$${Math.round(filterConfig.minPremium / 1000)}k`}
               </span>
             </div>
-            <input
+            <input id="flow-min-premium"
               type="range"
               className="flow-range-slider"
               min={0}
@@ -298,14 +298,14 @@ export function FlowFiltersSidebar({
           {(currentTab === "live" || currentTab === "historical" || currentTab === "summary") && (
             <div className="flow-form-group">
               <div className="flow-slider-label-row">
-                <label className="flow-form-label">Expiration:</label>
+                <label htmlFor="flow-expiration" className="flow-form-label">Expiration:</label>
                 <span className="flow-slider-val-tag">
                   {filterConfig.maxDte >= 9999
                     ? "All expirations"
                     : `Less than ${filterConfig.maxDte} days`}
                 </span>
               </div>
-              <input
+              <input id="flow-expiration"
                 type="range"
                 className="flow-range-slider"
                 min={1}
