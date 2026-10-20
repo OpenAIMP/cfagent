@@ -12,6 +12,14 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
 
+
+/** Print palette (#473): named print mirrors of the semantic text roles —
+ *  same scale as screenerReportPdf — instead of scattered rgb literals. */
+const PRINT_INK: [number, number, number] = [0.15, 0.15, 0.15];
+const PRINT_MUTED: [number, number, number] = [0.4, 0.4, 0.4];
+const PRINT_FAINT: [number, number, number] = [0.5, 0.5, 0.5];
+const PRINT_HAIRLINE: [number, number, number] = [0.7, 0.7, 0.7];
+
 const MARGIN = 48;
 const PAGE_W = 612; // Letter
 const PAGE_H = 792;
@@ -42,7 +50,7 @@ function text(
   const size = opts.size ?? 10;
   const font = opts.bold ? ctx.bold : ctx.font;
   ensureSpace(ctx, size + 4);
-  const c = opts.color ?? [0.15, 0.15, 0.15];
+  const c = opts.color ?? PRINT_INK;
   ctx.page.drawText(str.slice(0, 120), {
     x: opts.x ?? MARGIN,
     y: ctx.y,
@@ -59,7 +67,7 @@ function rule(ctx: Ctx): void {
     start: { x: MARGIN, y: ctx.y },
     end: { x: PAGE_W - MARGIN, y: ctx.y },
     thickness: 0.75,
-    color: rgb(0.7, 0.7, 0.7),
+    color: rgb(...PRINT_HAIRLINE),
   });
   ctx.y -= 10;
 }
@@ -87,7 +95,7 @@ export async function generateOptionsPdf(result: OptionScreenResult): Promise<Ui
 
   // Header
   text(ctx, "Options Scanner Report", { size: 18, bold: true });
-  text(ctx, `Generated: ${result.scannedAt}`, { size: 9, color: [0.4, 0.4, 0.4] });
+  text(ctx, `Generated: ${result.scannedAt}`, { size: 9, color: PRINT_MUTED });
   rule(ctx);
 
   // Summary
@@ -108,13 +116,13 @@ export async function generateOptionsPdf(result: OptionScreenResult): Promise<Ui
     ensureSpace(ctx, 28);
     text(ctx, formatContract(contract), { size: 9, bold: true });
     if (contract.bid && contract.ask) {
-      text(ctx, `  Bid/Ask: $${contract.bid.toFixed(2)} / $${contract.ask.toFixed(2)}`, { size: 8, color: [0.4, 0.4, 0.4] });
+      text(ctx, `  Bid/Ask: $${contract.bid.toFixed(2)} / $${contract.ask.toFixed(2)}`, { size: 8, color: PRINT_MUTED });
     }
     ctx.y -= 2;
   }
 
   if (result.contracts.length > 50) {
-    text(ctx, `... and ${result.contracts.length - 50} more`, { size: 9, color: [0.5, 0.5, 0.5] });
+    text(ctx, `... and ${result.contracts.length - 50} more`, { size: 9, color: PRINT_FAINT });
   }
 
   return await doc.save() as Uint8Array;

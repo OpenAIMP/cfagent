@@ -28,9 +28,9 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const SOURCE_COLORS: Record<string, string> = {
-  screener: "#3b82f6",
-  options_scanner: "#8b5cf6",
-  iv_collection: "#10b981",
+  screener: "var(--color-accent)",
+  options_scanner: "var(--color-purple)",
+  iv_collection: "var(--color-success)",
 };
 
 export function ReportsPanel() {
@@ -118,7 +118,7 @@ export function ReportsPanel() {
             <div className="report-header">
               <span
                 className="source-badge"
-                style={{ backgroundColor: SOURCE_COLORS[r.source] || "#6b7280" }}
+                style={{ backgroundColor: SOURCE_COLORS[r.source] || "var(--color-text-dim)" }}
               >
                 {SOURCE_LABELS[r.source] || r.source}
               </span>

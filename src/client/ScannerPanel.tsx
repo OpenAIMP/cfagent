@@ -945,10 +945,10 @@ interface CatalogStrategy {
 }
 
 const THESIS_COLORS: Record<string, string> = {
-  bullish: "var(--color-success, #30a46c)",
-  bearish: "var(--color-danger, #e5484d)",
-  range_bound: "var(--color-warning, #d4a017)",
-  large_move: "#8b5cf6",
+  bullish: "var(--color-success)",
+  bearish: "var(--color-danger)",
+  range_bound: "var(--color-warning)",
+  large_move: "var(--color-purple)",
 };
 
 function StrategyCatalogBrowser() {

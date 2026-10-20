@@ -311,7 +311,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
               x2={svgW - padR}
               y1={toY(val)}
               y2={toY(val)}
-              stroke="var(--color-border-subtle, rgba(127, 127, 127, 0.2))"
+              stroke="var(--color-border-subtle)"
               strokeDasharray={Math.abs(val) < 0.01 ? "none" : "3 3"}
               strokeWidth={Math.abs(val) < 0.01 ? "1.2" : "1"}
             />
@@ -355,7 +355,7 @@ export const UniversalChart: React.FC<UniversalChartProps> = ({
           x2={svgW - padR}
           y1={zeroY}
           y2={zeroY}
-          stroke="var(--color-text-muted, rgba(127, 127, 127, 0.55))"
+          stroke="var(--color-text-muted)"
           strokeWidth={isMini ? "1" : "1.5"}
           strokeDasharray="none"
         />

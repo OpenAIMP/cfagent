@@ -10,6 +10,19 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { ScreenerRunResult } from "../agents/screener-agent";
 
+
+/** Print palette (#473): PDFs render on white paper, so the report uses
+ *  this named print scale — the print mirrors of the semantic text/status
+ *  roles — instead of scattered rgb literals. pdf-lib 0..1 RGB triples. */
+const PRINT_INK: [number, number, number] = [0.15, 0.15, 0.15];
+const PRINT_LABEL: [number, number, number] = [0.35, 0.35, 0.35];
+const PRINT_MUTED: [number, number, number] = [0.4, 0.4, 0.4];
+const PRINT_NOTE: [number, number, number] = [0.45, 0.45, 0.45];
+const PRINT_FAINT: [number, number, number] = [0.5, 0.5, 0.5];
+const PRINT_HAIRLINE: [number, number, number] = [0.7, 0.7, 0.7];
+const PRINT_DANGER: [number, number, number] = [0.8, 0.2, 0.2];
+const PRINT_WARNING: [number, number, number] = [0.75, 0.45, 0];
+
 const MARGIN = 48;
 const PAGE_W = 612; // Letter
 const PAGE_H = 792;
@@ -39,7 +52,7 @@ function text(
 ): void {
   const size = opts.size ?? 10;
   const font = opts.bold ? ctx.bold : ctx.font;
-  const c = opts.color ?? [0.15, 0.15, 0.15];
+  const c = opts.color ?? PRINT_INK;
   const x = opts.x ?? MARGIN;
   const maxWidth = PAGE_W - MARGIN - x;
   const words = str.split(/\s+/).filter(Boolean);
@@ -74,7 +87,7 @@ function rule(ctx: Ctx): void {
     start: { x: MARGIN, y: ctx.y },
     end: { x: PAGE_W - MARGIN, y: ctx.y },
     thickness: 0.75,
-    color: rgb(0.7, 0.7, 0.7),
+    color: rgb(...PRINT_HAIRLINE),
   });
   ctx.y -= 10;
 }
@@ -105,12 +118,12 @@ export async function generateScreenerPdf(
   text(ctx, `Stock Screener Report — ${universeLabel}`, { size: 18, bold: true });
   // Issue #421: no sector segment when none was selected ("ALL").
   const sectorSegment = result.sector && result.sector !== "ALL" ? `  •  ${result.sector} sector` : "";
-  text(ctx, `${triggerLabel}${sectorSegment}`, { size: 11, color: [0.4, 0.4, 0.4] });
-  text(ctx, `Generated (UTC): ${result.timestamp}`, { size: 10, color: [0.4, 0.4, 0.4] });
+  text(ctx, `${triggerLabel}${sectorSegment}`, { size: 11, color: PRINT_MUTED });
+  text(ctx, `Generated (UTC): ${result.timestamp}`, { size: 10, color: PRINT_MUTED });
   rule(ctx);
 
   if (!result.success) {
-    text(ctx, "Screen failed", { size: 13, bold: true, color: [0.8, 0.2, 0.2] });
+    text(ctx, "Screen failed", { size: 13, bold: true, color: PRINT_DANGER });
     text(ctx, result.error || "E*TRADE unavailable — no market data.", { size: 10 });
     return doc.save();
   }
@@ -123,7 +136,7 @@ export async function generateScreenerPdf(
     const reasonSummary = Object.entries(result.partial.failureReasons)
       .map(([reason, count]) => `${reason}=${count}`)
       .join(", ");
-    text(ctx, "PARTIAL SCREEN — QUALIFIED RESULTS", { size: 13, bold: true, color: [0.75, 0.45, 0] });
+    text(ctx, "PARTIAL SCREEN — QUALIFIED RESULTS", { size: 13, bold: true, color: PRINT_WARNING });
     text(ctx, `${result.partial.quotedCount} of ${result.partial.requestedCount} symbols quoted; ${failed.length} unavailable (${failed.slice(0, 8).join(", ")}${failed.length > 8 ? ", ..." : ""}).`, { size: 10 });
     if (reasonSummary) text(ctx, `Failure reasons: ${reasonSummary}.`, { size: 10 });
     text(ctx, "Results below cover the quoted subset only; no fallback data substituted.", { size: 10 });
@@ -133,7 +146,7 @@ export async function generateScreenerPdf(
   // Summary
   text(ctx, "Summary", { size: 13, bold: true });
   text(ctx, `Scanned: ${result.totalScanned}   Matched: ${result.matchedCount}   Opportunities: ${result.opportunities.length}`);
-  if (result.discoveryMessage) text(ctx, result.discoveryMessage, { size: 9, color: [0.4, 0.4, 0.4] });
+  if (result.discoveryMessage) text(ctx, result.discoveryMessage, { size: 9, color: PRINT_MUTED });
   rule(ctx);
 
   // Gaps summary
@@ -154,7 +167,7 @@ export async function generateScreenerPdf(
   // Opportunities
   text(ctx, "Opportunities", { size: 13, bold: true });
   if (result.opportunities.length === 0) {
-    text(ctx, "No standout opportunities in this run.", { size: 10, color: [0.4, 0.4, 0.4] });
+    text(ctx, "No standout opportunities in this run.", { size: 10, color: PRINT_MUTED });
   } else {
     // Header row
     const cols: Array<[string, number]> = [
@@ -164,7 +177,7 @@ export async function generateScreenerPdf(
     ensureSpace(ctx, 16);
     let x = MARGIN;
     for (const [label, w] of cols) {
-      ctx.page.drawText(label, { x, y: ctx.y, size: 9, font: bold, color: rgb(0.35, 0.35, 0.35) });
+      ctx.page.drawText(label, { x, y: ctx.y, size: 9, font: bold, color: rgb(...PRINT_LABEL) });
       x += w;
     }
     ctx.y -= 13;
@@ -184,7 +197,7 @@ export async function generateScreenerPdf(
         [fmt(t?.rsi14, 1), 44],
       ];
       for (const [val, w] of cells) {
-        ctx.page.drawText(val.slice(0, 18), { x, y: ctx.y, size: 9, font, color: rgb(0.15, 0.15, 0.15) });
+        ctx.page.drawText(val.slice(0, 18), { x, y: ctx.y, size: 9, font, color: rgb(...PRINT_INK) });
         x += w;
       }
       ctx.y -= 12;
@@ -201,7 +214,7 @@ export async function generateScreenerPdf(
     "Growth/Profitability/Revisions: withheld — E*TRADE carries no fundamentals.",
     "Sentiment: day-action based (very bearish → very bullish). Range zones are 52-week based, not RSI.",
   ];
-  for (const n of notes) text(ctx, `• ${n}`, { size: 8, color: [0.45, 0.45, 0.45] });
+  for (const n of notes) text(ctx, `• ${n}`, { size: 8, color: PRINT_NOTE });
 
   // Page numbers
   const pages = doc.getPages();
@@ -211,7 +224,7 @@ export async function generateScreenerPdf(
       y: 28,
       size: 8,
       font,
-      color: rgb(0.5, 0.5, 0.5),
+      color: rgb(...PRINT_FAINT),
     });
   });
 
