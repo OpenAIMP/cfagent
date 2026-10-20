@@ -314,6 +314,12 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       // Keep scheduled discovery dependable if a provider cannot complete
       // the Think turn. The same read-only deterministic pipeline remains
       // the recovery path and persists through the same ResearchAgent.
+      // Issue #543: the fallback must not silently mask which execution
+      // path ran — emit a structured warning carrying the identifiers an
+      // operator needs to correlate the bypass in Workers Logs.
+      console.warn(
+        `[OrchestratorAgent] Think research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
+      );
       const fallback = await agent.runResearch({ trigger, userLogin: login });
       if (!fallback.success || !fallback.report) {
         return { success: false, error: fallback.error || child.error || `Research agent finished with status ${child.status}.` };
