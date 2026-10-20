@@ -250,6 +250,7 @@ body.theme-dark,
   --gradient-trade: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
   --gradient-trade-hover: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   --gradient-user: linear-gradient(135deg, #4338ca 0%, #312e81 100%);
+  --gradient-surface: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
   --color-on-gradient: #ffffff;
 
   /* Bright status text (400-level tones for pills/badges/banners on dark) — Phase 3a (#471) */
@@ -304,6 +305,9 @@ body.theme-dark,
   --shadow-glow-accent: 0 0 10px rgba(56, 189, 248, 0.25);
   --shadow-glow-indigo: 0 4px 14px rgba(99, 102, 241, 0.35);
   --shadow-glow-trade: 0 2px 8px rgba(234, 88, 12, 0.35);
+  --shadow-glow-warning: 0 0 6px rgba(250, 204, 21, 0.8);
+  --shadow-glow-danger: 0 0 8px rgba(244, 63, 94, 0.7);
+  --shadow-glow-purple: 0 0 6px rgba(192, 132, 252, 0.8);
   --modal-backdrop-bg: rgba(0, 0, 0, 0.7);
   --glow-shadow: 0 0 24px rgba(16, 185, 129, 0.2);
 
@@ -404,6 +408,7 @@ body.theme-light,
   --gradient-trade: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
   --gradient-trade-hover: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
   --gradient-user: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+  --gradient-surface: linear-gradient(135deg, #ffffff 0%, #e8eef6 100%);
   --color-on-gradient: #ffffff;
 
   /* Bright status text — in light these resolve to the AA base status colors */
@@ -458,6 +463,9 @@ body.theme-light,
   --shadow-glow-accent: 0 0 10px rgba(2, 132, 199, 0.2);
   --shadow-glow-indigo: 0 4px 14px rgba(79, 70, 229, 0.22);
   --shadow-glow-trade: 0 2px 8px rgba(194, 65, 12, 0.28);
+  --shadow-glow-warning: 0 0 6px rgba(245, 158, 11, 0.45);
+  --shadow-glow-danger: 0 0 8px rgba(225, 29, 72, 0.4);
+  --shadow-glow-purple: 0 0 6px rgba(168, 85, 247, 0.5);
   --modal-backdrop-bg: rgba(15, 23, 42, 0.45);
   --glow-shadow: 0 4px 16px rgba(16, 185, 129, 0.12);
 
