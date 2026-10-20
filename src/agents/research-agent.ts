@@ -340,8 +340,15 @@ export class ResearchAgent extends Think<Env> {
         config = merged.config;
       }
       const provider = new EtradeResearchDataProvider(this.env, userLogin);
+      // Issue #773: feed historical evaluation outcomes into the pipeline's Decide stage.
+      let trackRecord: import("../services/researchTrackRecord").TrackRecord | undefined;
+      try {
+        trackRecord = await this.getTrackRecord();
+      } catch {
+        // No track record yet — pipeline runs without feedback.
+      }
       const report = await runResearchPipeline(
-        { provider },
+        { provider, ...(trackRecord ? { trackRecord } : {}) },
         config,
         { trigger: req.trigger, userLogin }
       );

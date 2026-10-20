@@ -633,6 +633,8 @@ function scoreCandidate(
 
 export interface PipelineDeps {
   provider: ResearchDataProvider;
+  /** Issue #773: historical evaluation outcomes for feedback into Decide. */
+  trackRecord?: import("./researchTrackRecord").TrackRecord;
 }
 
 function newRunId(): string {
@@ -782,7 +784,30 @@ export async function runResearchPipeline(
     // BUILD-AND-PRICE — construct candidate structures per the §6 table; keep the best
     // gated one. Alternatives are evaluated, not just the richest premium.
     stage("build-and-price", `${symbol}: building ${draft.outlook} structures.`);
-    const structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
+    let structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
+    // Issue #773: reorder structures by historical direction accuracy.
+    // Families with poor accuracy (<40%, n>=10) go last; strong ones (>60%) go first.
+    if (deps.trackRecord?.byStrategy?.length) {
+      const acc = new Map<string, { correct: number; total: number }>();
+      for (const s of deps.trackRecord.byStrategy) {
+        // byStrategy slices have directionAccuracy and evaluated counts
+        const evaluated = (s as any).evaluated ?? 0;
+        const dirAcc = (s as any).directionAccuracy;
+        if (typeof dirAcc === "number" && evaluated >= 10) {
+          acc.set(s.key, { correct: Math.round(dirAcc * evaluated), total: evaluated });
+        }
+      }
+      if (acc.size > 0) {
+        const score = (name: string) => {
+          const a = acc.get(name);
+          if (!a) return 0.5; // no data → neutral
+          const rate = a.correct / a.total;
+          return rate < 0.4 ? -1 : rate > 0.6 ? 1 : 0;
+        };
+        structureNames = [...structureNames].sort((a, b) => score(b) - score(a));
+        step("decide", `Structure order by historical accuracy: ${structureNames.join(", ")}.`);
+      }
+    }
     let bestCard: TradeCard | null = null;
 
     for (const name of structureNames) {
