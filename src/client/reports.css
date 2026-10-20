@@ -126,6 +126,148 @@
   background: var(--color-muted);
 }
 
+.schedule-card .card-actions {
+  flex-wrap: wrap;
+}
+
+.schedule-card .card-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Issue #273: status badge, frequency editor, create form. */
+.schedule-status {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.schedule-status.active {
+  color: var(--color-success);
+}
+
+.schedule-status.paused {
+  color: var(--color-warning);
+}
+
+.schedule-action-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-body-sm);
+  margin-bottom: 0.75rem;
+}
+
+.schedule-editor {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.schedule-presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.schedule-presets .preset {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-card);
+  cursor: pointer;
+  font-size: var(--font-size-body-sm);
+}
+
+.schedule-presets .preset:hover {
+  background: var(--color-muted);
+}
+
+.schedule-presets .preset.active {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border-color: var(--color-accent);
+}
+
+.schedule-editor-custom {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.schedule-editor-custom input {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-sm);
+}
+
+.schedule-editor-custom button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-card);
+  cursor: pointer;
+  font-size: var(--font-size-body-sm);
+}
+
+.schedule-create-form {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: var(--color-card);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 640px;
+}
+
+.schedule-create-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.schedule-create-row label,
+.schedule-create-label {
+  min-width: 110px;
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-secondary);
+  padding-top: 0.35rem;
+}
+
+.schedule-create-row select,
+.schedule-create-row input,
+.schedule-create-row textarea {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-sm);
+}
+
+.schedule-create-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.schedule-create-actions button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-card);
+  cursor: pointer;
+  font-size: var(--font-size-body-sm);
+}
+
 /* --- Reports Panel --- */
 .reports-panel {
   padding: 1rem;
