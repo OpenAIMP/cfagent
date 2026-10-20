@@ -1052,7 +1052,8 @@ describe("getWatchlistDetails — lastError contract (#168)", () => {
   });
 });
 
-Issue #244: deleteWatchlist was the client's one bare-boolean write
+// ---------------------------------------------------------------------------
+// Issue #244: deleteWatchlist was the client's one bare-boolean write
 // method — missing credentials, HTTP errors, and exceptions all
 // collapsed to `false` with nothing recorded. The boolean contract is
 // unchanged; the method now records the reason in lastError under the
