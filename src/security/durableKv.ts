@@ -43,6 +43,7 @@ export interface StoreReply {
   ok?: boolean;
   consumed?: boolean;
   error?: string;
+  entries?: Array<{ key: string; value: string }>;
 }
 
 function timeoutSignal(): AbortSignal | undefined {
@@ -131,6 +132,18 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       if (legacyStore) await legacyStore.delete(key);
     },
   };
+}
+
+/** List entries in a Durable Object bucket by prefix for internal maintenance. */
+export async function listStoreEntries(options: {
+  namespace?: DoNamespaceLike | null;
+  namespaceName: string;
+  prefix: string;
+  instanceName?: string;
+}): Promise<Array<{ key: string; value: string }> | null> {
+  const send = createStoreClient(options.namespace, options.namespaceName, options.instanceName ?? "kv");
+  const reply = await send({ op: "list", ns: options.namespaceName, key: options.prefix });
+  return Array.isArray(reply?.entries) ? reply.entries : null;
 }
 
 export type ConsumeOutcome = "consumed" | "duplicate" | "unavailable";

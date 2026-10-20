@@ -1,9 +1,9 @@
 /**
  * Screener universe registry (issue #270).
  *
- * Universes are defined as SELECTORS over the listings directory
- * (market-cap ranks, ETF markers, keyword filters) — not hardcoded
- * symbol lists — so they stay fresh as listings change.
+ * Universes are selectors over the live listings directory, never stored
+ * ticker arrays. The exact selected listing snapshot is then passed into
+ * quote acquisition once for each run.
  *
  * The listings directory is not market data (just "which symbols exist"),
  * so using it for universe membership is consistent with the E*TRADE-only
@@ -32,18 +32,6 @@ export interface UniverseDef {
   /** Shardable: included when user selects ALL. */
   shardable: boolean;
 }
-
-/**
- * Curated leveraged-ETF list (29 names, ported from the trading-system
- * lev_etf universe). These are the liquid 2x/3x index/sector/vol products.
- */
-export const LEVERAGED_ETF_SYMBOLS = [
-  "TQQQ", "SQQQ", "UPRO", "SPXU", "TNA", "TZA",
-  "SOXL", "SOXS", "TECL", "TECS", "FAS", "FAZ",
-  "TBT", "TMF", "LABU", "LABD", "ERX", "ERY",
-  "GUSH", "DRIP", "NUGT", "DUST", "JNUG", "JDST",
-  "UVXY", "SVXY", "QLD", "QID", "DDM",
-];
 
 function buildUniverses(): Record<UniverseId, UniverseDef> {
   const d = DEFAULT_SCREENER_CONFIG.universes.defaultMaxSymbols;
@@ -123,11 +111,17 @@ function isEtfListing(l: NasdaqStockListing): boolean {
   const name = `${l.companyName} ${l.symbol}`.toUpperCase();
   return (
     name.includes("ETF") ||
-    (l as any).etf === "Y" ||
+    l.etf?.toUpperCase() === "Y" ||
     name.includes("ULTRA") ||
     name.includes("DIREXION") ||
     name.includes("PROSHARES")
   );
+}
+
+function isLeveragedEtfListing(l: NasdaqStockListing): boolean {
+  if (!isEtfListing(l)) return false;
+  const metadata = `${l.companyName} ${l.industry || ""} ${l.sector || ""}`;
+  return /\b(?:1\.5|2|3|4|5|-1|-2|-3)x\b|\bleveraged?\b|\bultra\b|\binverse\b|\bdaily\s+(?:bull|bear)\b/i.test(metadata);
 }
 
 /**
@@ -165,16 +159,7 @@ export function resolveUniverse(
     case "ETF":
       return allListings.filter(isEtfListing);
     case "LEV_ETF": {
-      const wanted = new Set(LEVERAGED_ETF_SYMBOLS);
-      const found = allListings.filter((l) => wanted.has(l.symbol.toUpperCase()));
-      // Include any curated symbol even if missing from listings.
-      const foundSyms = new Set(found.map((l) => l.symbol.toUpperCase()));
-      for (const sym of LEVERAGED_ETF_SYMBOLS) {
-        if (!foundSyms.has(sym)) {
-          found.push({ symbol: sym, companyName: `${sym} (leveraged ETF)` } as NasdaqStockListing);
-        }
-      }
-      return found;
+      return allListings.filter(isLeveragedEtfListing);
     }
     case "ALL":
       // ALL is sharded by the caller — never resolved directly.

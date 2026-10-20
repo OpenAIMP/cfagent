@@ -39,11 +39,6 @@ import {
   fetchAllUsStockListings,
   type NasdaqStockListing,
 } from "../services/nasdaqListings";
-import {
-  getCuratedStockListings,
-  getCuratedStockUniverse,
-  getCuratedStockBySymbol,
-} from "../config/curatedStockUniverse";
 import type {
   ETradeQuote,
   ScreenedStockItem,
@@ -218,7 +213,11 @@ export async function acquireUniverse(
     }
     const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
     const symbols = opts.symbols ?? (await fetchTechnologySymbols());
-    const limited = symbols.slice(0, opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols);
+    const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
+    const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
+    if (limited.length === 0) {
+      throw new Error("The selected live universe contains no listings; no static symbols were substituted.");
+    }
     const quotes: ETradeQuote[] = [];
     const failed: string[] = [];
     // Categorized failure reasons for diagnostics (issue: stuck-at-6).
@@ -280,15 +279,15 @@ export async function acquireUniverse(
           `Reasons: ${JSON.stringify(failureReasons)}. Samples: ${failureSamples.join("; ")}`
       );
     }
-    if (quotes.length === 0) {
+    if (failed.length > 0) {
       const reasonSummary = Object.entries(failureReasons)
         .map(([reason, count]) => `${reason}=${count}`)
         .join(", ");
       throw new Error(
-        `E*TRADE unavailable: no live quotes returned for ${limited.length} symbols` +
+        `E*TRADE unavailable: incomplete live quote set (${quotes.length} of ${limited.length} symbols quoted` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
           (reasonSummary ? ` (failure reasons: ${reasonSummary})` : "") +
-          ". No fallback data substituted."
+          `). No partial screen published; no fallback data substituted.`
       );
     }
     return {
@@ -305,19 +304,16 @@ export async function acquireUniverse(
     };
   }
 
-  // all-listings mode (extracted from DynamicMarketScreener.screenLive —
-  // behavior preserved exactly, including test fixture + curated fallback).
+  // all-listings mode. Production membership always comes from the live
+  // listings directory; test fixtures are only used by explicit tests.
   const sourceCounts: Record<string, number> = {};
   let listings: NasdaqStockListing[];
   try {
     listings =
       DynamicMarketScreener.getTestListingsFixture() ??
       (await fetchAllUsStockListings());
-    if (
-      !DynamicMarketScreener.getTestListingsFixture() &&
-      (!listings || listings.length === 0)
-    ) {
-      listings = getCuratedStockListings();
+    if (!DynamicMarketScreener.getTestListingsFixture() && (!listings || listings.length === 0)) {
+      throw new Error("The live listings directory returned no symbols; no static universe was substituted.");
     }
   } catch (error) {
     if (
@@ -338,7 +334,19 @@ export async function acquireUniverse(
         error: message,
       };
     }
-    listings = getCuratedStockListings();
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      quotes: [],
+      discovery: {
+        mode: "all_us_listings",
+        candidateCount: 0,
+        listingCount: 0,
+        sourceCounts,
+        message: `Dynamic all-exchange listing request failed: ${message}; no static universe was substituted.`,
+        error: message,
+      },
+      error: message,
+    };
   }
 
   for (const listing of listings)
@@ -350,6 +358,12 @@ export async function acquireUniverse(
           (listing) => listing.exchange.toUpperCase() === opts.exchange
         )
       : listings;
+  // This non-E*TRADE discovery view displays the listings feed's last sale as
+  // its price. Keep symbol-only rows for universe resolution elsewhere, but do
+  // not render a made-up zero-price quote in this view.
+  selectedListings = selectedListings.filter(
+    (listing) => typeof listing.lastPrice === "number" && listing.lastPrice > 0
+  );
   if (
     selectedListings.length === 0 &&
     !DynamicMarketScreener.getTestListingsFixture()
@@ -376,21 +390,18 @@ export async function acquireUniverse(
     };
   }
 
-  const isCuratedUniverse =
-    !DynamicMarketScreener.getTestListingsFixture() &&
-    listings.length === getCuratedStockUniverse().length;
   const quotes: ETradeQuote[] = selectedListings.map((listing) => {
-    const curated = getCuratedStockBySymbol(listing.symbol);
+    const listingPrice = listing.lastPrice!; // selectedListings excludes missing last-sale values above
     const sector =
-      curated?.sector ||
+      listing.sector ||
       inferSectorFromCompanyName(listing.companyName) ||
       "Equities";
     return {
       symbol: listing.symbol,
       companyName: listing.companyName,
       listingExchange: listing.exchange.toUpperCase(),
-      lastPrice: listing.lastPrice,
-      price: listing.lastPrice,
+      lastPrice: listingPrice,
+      price: listingPrice,
       change: listing.change,
       changePercent: listing.changePercent,
       bid: 0,
@@ -404,16 +415,12 @@ export async function acquireUniverse(
       week52Low: 0,
       sector,
       quoteStatus: "AS_OF_UNKNOWN",
-      source: isCuratedUniverse
-        ? "Curated externalized stock universe (Nasdaq, NYSE, AMEX)"
-        : "Nasdaq all-exchange stock listings (source quote time unavailable)",
+      source: "Nasdaq live listings directory (source quote time unavailable)",
       timestamp: "",
     };
   });
 
-  const message = isCuratedUniverse
-    ? `Loaded ${listings.length.toLocaleString()} curated listings from externalized universe across Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters.`
-    : `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
+  const message = `Loaded ${listings.length.toLocaleString()} current listings from Nasdaq, NYSE, and AMEX; ${selectedListings.length.toLocaleString()} are in the selected exchange scope. Applied the remaining supported filters. Source quote timestamps are unavailable.`;
 
   return {
     quotes,
@@ -423,7 +430,6 @@ export async function acquireUniverse(
       listingCount: quotes.length,
       sourceCounts,
       message,
-      isCuratedUniverse,
     },
   };
 }

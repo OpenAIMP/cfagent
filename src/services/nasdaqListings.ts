@@ -4,13 +4,15 @@ export interface NasdaqStockListing {
   symbol: string;
   companyName: string;
   exchange: NasdaqExchange;
-  lastPrice: number;
+  /** Optional listings-feed snapshot; screening prices always come from E*TRADE. */
+  lastPrice?: number;
   change: number;
   changePercent: number;
   marketCap?: number;
   /** Live sector metadata from Nasdaq's listings feed; never a local ticker map. */
   sector?: string;
   industry?: string;
+  etf?: string;
 }
 
 interface NasdaqScreenerRow {
@@ -22,6 +24,7 @@ interface NasdaqScreenerRow {
   marketCap?: string;
   sector?: string;
   industry?: string;
+  etf?: string;
 }
 
 function parseNumber(value: string | undefined): number | undefined {
@@ -35,18 +38,22 @@ function parseNumber(value: string | undefined): number | undefined {
 function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStockListing | null {
   const symbol = String(row.symbol || "").trim().toUpperCase();
   const lastPrice = parseNumber(row.lastsale);
-  if (!/^[A-Z0-9./-]+$/.test(symbol) || !lastPrice || lastPrice <= 0) return null;
+  // This endpoint defines membership, not tradable quote availability. Keep
+  // valid symbols even when Nasdaq omits last-sale data; E*TRADE quote
+  // acquisition decides whether the screen can complete for the full set.
+  if (!/^[A-Z0-9./-]+$/.test(symbol)) return null;
 
   return {
     symbol,
     companyName: String(row.name || symbol).trim(),
     exchange,
-    lastPrice,
+    lastPrice: lastPrice && lastPrice > 0 ? lastPrice : undefined,
     change: parseNumber(row.netchange) ?? 0,
     changePercent: parseNumber(row.pctchange) ?? 0,
     marketCap: parseNumber(row.marketCap),
     sector: String(row.sector || "").trim() || undefined,
     industry: String(row.industry || "").trim() || undefined,
+    etf: String(row.etf || "").trim() || undefined,
   };
 }
 

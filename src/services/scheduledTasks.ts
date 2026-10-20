@@ -45,6 +45,8 @@ export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
   /** Universe to scan (resolves to symbols via listings; overrides symbols). */
   universe?: string;
+  /** Maximum number of live universe listings to analyze; zero means all. */
+  maxItems?: number;
   thesis?: OptionThesis;
   targetDate?: string;
   allowedStrategies?: OptionStrategyType[];
@@ -247,10 +249,14 @@ export class ScheduledTasksService {
         trigger: options.trigger || "scheduled",
         sector: options.sector || "Technology",
         universe: (options.universe as any) || "TECH",
-        maxItems: options.maxItems,
+        maxSymbols: options.maxItems,
         userLogin,
         environment: options.environment,
       });
+
+      if (result.skippedDuplicate) {
+        return { success: true, taskType: "market_screen", skipped: true, timestamp } as any;
+      }
 
       if (!result.success) {
         throw new Error(result.error || "E*TRADE unavailable");
@@ -284,7 +290,7 @@ export class ScheduledTasksService {
         trigger: options.trigger || "scheduled",
         expectedCount: result.expectedCount,
         pdfKey: result.pdfKey,
-        deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 13)}`,
+        deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 16)}`,
         sector: result.sector || options.sector || "Technology",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
@@ -336,7 +342,7 @@ export class ScheduledTasksService {
         timestamp,
         universe: options.universe || "TECH",
         trigger: options.trigger || "scheduled",
-        deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 13)}`,
+        deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 16)}`,
         sector: options.sector || "Technology",
         error: err.message || "Market screener execution error",
       });
@@ -550,6 +556,11 @@ export class ScheduledTasksService {
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this options screen. Sign in and run it again.");
       }
+      if (options.trigger === "scheduled") {
+        const jobKey = `options:${options.universe || (options.symbols || []).join(",")}:${targetThesis}:${options.maxItems ?? "all"}`;
+        const claimed = await this.getScreenerAgent(userLogin).claimScheduledExecution(jobKey, options.environment);
+        if (!claimed) return { success: true, taskType: "options_analysis", skipped: true, timestamp } as any;
+      }
       // Resolve universe to symbols inside the failure boundary so listings
       // and E*TRADE errors reach the scheduled failure notification path.
       const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
@@ -559,10 +570,14 @@ export class ScheduledTasksService {
         const listings = await fetchAllUsStockListings();
         const universeDef = UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES];
         const resolved = resolveUniverse(effectiveUniverse as any, listings);
-        const maxSymbols = universeDef?.defaultMaxSymbols ?? 50;
-        symbols = resolved.slice(0, maxSymbols).map((l) => l.symbol);
+        const maxSymbols = options.maxItems ?? universeDef?.defaultMaxSymbols ?? 50;
+        symbols = (maxSymbols > 0 ? resolved.slice(0, maxSymbols) : resolved).map((l) => l.symbol);
       } else {
-        symbols = options.symbols || [];
+        const requested = options.symbols || [];
+        symbols = options.maxItems && options.maxItems > 0 ? requested.slice(0, options.maxItems) : requested;
+      }
+      if (symbols.length === 0) {
+        throw new Error(`No live symbols resolved for the options universe${effectiveUniverse ? ` ${effectiveUniverse}` : ""}; no static list was substituted.`);
       }
 
       const unifiedService = new UnifiedOptionsService(
@@ -585,6 +600,16 @@ export class ScheduledTasksService {
         overrideEnv: options.environment,
       });
       if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
+      const scanData = response.data as any;
+      const scannedCount = Number(scanData?.scanned ?? 0);
+      const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
+      const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
+      if (scannedCount !== symbols.length || coverageErrors > 0 || truncatedCount > 0) {
+        throw new Error(
+          `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
+          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. No partial report published.`
+        );
+      }
 
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
       let optionsPdf: Uint8Array | undefined;

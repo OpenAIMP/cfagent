@@ -25,13 +25,7 @@ export interface ScheduledOptionsManagerProps {
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
-/**
- * The app's baseline schedules: registered by OrchestratorAgent.onStart
- * on every agent start, so they are part of the product, not user data.
- * Recognising them by callback lets the UI label them honestly, offer
- * each job's own on-demand trigger, and protect them from the
- * edit/cancel flows that are safe for user-created schedules.
- */
+/** Shared schedule-card metadata for user-owned stock and options jobs. */
 export interface SystemJobInfo {
   label: string;
   description: string;
@@ -39,29 +33,15 @@ export interface SystemJobInfo {
 }
 
 export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
-  autoRenewETradeTokens: {
-    label: "E*TRADE Token Renewal (System)",
-    description:
-      "Renews the E*TRADE OAuth tokens before they expire at midnight ET, so every background job keeps its broker access.",
-    triggerRoute: "/api/schedules/trigger-renew",
-  },
   autonomousMarketScreen: {
-    label: "Autonomous Market Screen (System)",
-    description:
-      "Hourly E*TRADE stock screen of one market universe (Nasdaq-100, S&P 100/500, Russell 2000, ETFs). Scores each name on sentiment, momentum, value and factor grades; publishes standouts + PDF report to Slack.",
+    label: "Stock Market Screen",
+    description: "Screens the selected live stock universe with E*TRADE quotes and generates a PDF report.",
     triggerRoute: "/api/schedules/trigger-screen",
   },
   autonomousOptionsAnalysis: {
-    label: "Strategy/Symbol Scanner — Scheduled (System)",
-    description:
-      "Hourly options strategy scan across the full strategy catalog. For each tracked symbol it prices every strategy against live E*TRADE option chains and reports the best structures per direction thesis (bullish/bearish/range-bound/large-move).",
+    label: "Options Market Screen",
+    description: "Screens the selected live universe against E*TRADE option chains and generates a report.",
     triggerRoute: "/api/schedules/trigger-options-analysis",
-  },
-  collectIvHistory: {
-    label: "IV History Collection (System)",
-    description:
-      "Records one closing ATM implied-volatility data point per tracked symbol each weekday, building the IV history series used for IV rank and percentile.",
-    triggerRoute: "/api/schedules/trigger-iv-collection",
   },
 };
 
@@ -74,8 +54,6 @@ export const SYSTEM_JOBS: Record<string, SystemJobInfo> = {
 export const TRIGGER_ROUTES: Record<string, string> = {
   autonomousOptionsAnalysis: "/api/schedules/trigger-options-analysis",
   autonomousMarketScreen: SYSTEM_JOBS.autonomousMarketScreen.triggerRoute,
-  autoRenewETradeTokens: SYSTEM_JOBS.autoRenewETradeTokens.triggerRoute,
-  collectIvHistory: SYSTEM_JOBS.collectIvHistory.triggerRoute,
 };
 
 export function systemJobFor(callback: unknown): SystemJobInfo | undefined {
@@ -87,22 +65,14 @@ export function triggerRouteFor(callback: unknown): string | undefined {
 }
 
 /** Jobs the create form can register. Anything else stays API-only. */
-export type CreatableJob = "optionsAnalysis" | "ivCollection" | "marketScreen";
+export type CreatableJob = "optionsAnalysis" | "marketScreen";
 
 export const JOB_CALLBACKS: Record<CreatableJob, string> = {
   optionsAnalysis: "autonomousOptionsAnalysis",
-  ivCollection: "collectIvHistory",
   marketScreen: "autonomousMarketScreen",
 };
 
 export type ScheduleMode = "interval" | "cron" | "delayed" | "scheduled";
-
-const SYMBOL_PRESETS = [
-  { label: "Megacap Tech", symbols: "NVDA, AAPL, MSFT, AMZN, GOOGL" },
-  { label: "Index ETFs", symbols: "SPY, QQQ, IWM, DIA" },
-  { label: "Semiconductors", symbols: "NVDA, AMD, AVGO, TSM, INTC" },
-  { label: "High Beta Momentum", symbols: "TSLA, META, NFLX, PLTR, COIN" },
-];
 
 const INTERVAL_PRESETS = [
   { label: "Every 15 min", seconds: 900 },
@@ -190,8 +160,9 @@ export function ScheduledOptionsManager({
 
   // Form State
   const [jobType, setJobType] = useState<CreatableJob>("optionsAnalysis");
-  const [targetSymbols, setTargetSymbols] = useState("NVDA, AAPL, SPY, MSFT");
-  const [targetUniverse, setTargetUniverse] = useState("");
+  const [targetSymbols, setTargetSymbols] = useState("");
+  const [maxItems, setMaxItems] = useState(100);
+  const [targetUniverse, setTargetUniverse] = useState("NASDAQ100");
   const [scheduleType, setScheduleType] = useState<ScheduleMode>("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [cronExpression, setCronExpression] = useState(() =>
@@ -210,9 +181,6 @@ export function ScheduledOptionsManager({
   // the banner Run Now button, otherwise the schedule's id.
   const [triggeringKey, setTriggeringKey] = useState<string | null>(null);
   const [liveResult, setLiveResult] = useState<any | null>(null);
-
-  // System-schedule cancel guard: the id awaiting inline confirmation.
-  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
 
   // Detail expansion state (GET /api/schedules/:id, fetched on demand)
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -244,12 +212,10 @@ export function ScheduledOptionsManager({
       if (res.ok && rawList) {
         // Shape-guard: only rows the card renderer can trust — a
         // malformed row must never crash the panel.
-        setSchedules(
-          rawList.filter(
-            (s: any) =>
-              s && typeof s === "object" && typeof s.id === "string" && typeof s.callback === "string"
-          )
-        );
+        setSchedules(rawList.filter((s: any) =>
+          s && typeof s === "object" && typeof s.id === "string" &&
+          (s.callback === "autonomousMarketScreen" || s.callback === "autonomousOptionsAnalysis")
+        ));
       } else {
         setSchedules([]);
         if (data && data.error) setError(data.error);
@@ -293,19 +259,25 @@ export function ScheduledOptionsManager({
   const openCreateModal = () => {
     setEditingScheduleId(null);
     setJobType("optionsAnalysis");
+    setTargetUniverse("NASDAQ100");
+    setTargetSymbols("");
+    setMaxItems(100);
     setModalOpen(true);
   };
 
-  // Edit Existing Schedule — user-created options analysis only. System
-  // schedules and other callbacks have no Edit control at all (see the
-  // card renderer): the form cannot represent them, and "editing" one
-  // would cancel it and recreate an analysis schedule in its place.
+  // Edit a user-created stock or options screen schedule.
   const handleEditSchedule = (item: ScheduledTaskItem) => {
     setEditingScheduleId(item.id);
-    setJobType("optionsAnalysis");
+    setJobType(item.callback === "autonomousMarketScreen" ? "marketScreen" : "optionsAnalysis");
     const payload = payloadOf(item);
     const syms = payload.symbols;
-    setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "NVDA, AAPL, SPY, MSFT");
+    setTargetSymbols(Array.isArray(syms) ? syms.join(", ") : "");
+    setMaxItems(Number.isSafeInteger(payload.maxItems) ? payload.maxItems : 100);
+    setTargetUniverse(
+      typeof payload.universe === "string"
+        ? payload.universe
+        : item.callback === "autonomousMarketScreen" ? "NASDAQ100" : ""
+    );
     setThesis(payload.thesis || "bullish");
     setRiskProfile(payload.riskProfile || "balanced");
     setScheduleType(
@@ -328,21 +300,38 @@ export function ScheduledOptionsManager({
     setError(null);
     setSuccessMsg(null);
 
-    const isIvJob = !editingScheduleId && jobType === "ivCollection";
+    const symbols = targetSymbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (!Number.isInteger(maxItems) || maxItems < 0) {
+      setError("Max items must be a whole number greater than or equal to zero.");
+      setSubmitting(false);
+      return;
+    }
+    if (!targetUniverse && symbols.length === 0) {
+      setError("Choose a universe or enter at least one symbol.");
+      setSubmitting(false);
+      return;
+    }
+    if (jobType === "marketScreen" && !targetUniverse) {
+      setError("Stock screens require one live universe.");
+      setSubmitting(false);
+      return;
+    }
 
     let callback: string;
     let payload: Record<string, any>;
-    if (isIvJob) {
-      callback = JOB_CALLBACKS.ivCollection;
-      payload = { userLogin };
+    if (jobType === "marketScreen") {
+      callback = JOB_CALLBACKS.marketScreen;
+      payload = {
+        ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+        maxItems,
+        sector: "Technology",
+        trigger: "scheduled",
+      };
     } else {
-      const symbols = targetSymbols
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean);
       callback = JOB_CALLBACKS.optionsAnalysis;
       payload = {
-        ...(targetUniverse ? { universe: targetUniverse } : { symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY"] }),
+        ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+        maxItems,
         thesis,
         riskProfile,
         pushToSlack,
@@ -350,6 +339,7 @@ export function ScheduledOptionsManager({
         emailTo: emailTo.trim() || undefined,
         webhookUrl: webhookUrl.trim() || undefined,
         environment: activeEnv,
+        trigger: "scheduled",
       };
     }
 
@@ -415,9 +405,7 @@ export function ScheduledOptionsManager({
     }
   };
 
-  // Cancel Schedule — the actual POST. Guarding lives in the callers:
-  // window.confirm for user schedules, the inline two-step confirm for
-  // system schedules.
+  // Cancel Schedule — the actual POST.
   const doCancelSchedule = async (scheduleId: string) => {
     try {
       const res = await fetch("/api/schedules/cancel", {
@@ -428,7 +416,6 @@ export function ScheduledOptionsManager({
       const data = (await res.json()) as any;
       if (res.ok && (data.cancelled || data.success)) {
         setSuccessMsg(`✓ Schedule ${scheduleId} cancelled`);
-        setConfirmingCancelId(null);
         fetchSchedules();
         fetchAudit();
       } else {
@@ -494,9 +481,15 @@ export function ScheduledOptionsManager({
       .split(",")
       .map((s) => s.trim().toUpperCase())
       .filter(Boolean);
+    if (!targetUniverse && symbols.length === 0) {
+      setError("Choose a universe or enter at least one symbol.");
+      setTriggeringKey(null);
+      return;
+    }
 
     const payload = {
-      ...(targetUniverse ? { universe: targetUniverse } : { symbols: symbols.length > 0 ? symbols : ["NVDA", "AAPL", "SPY", "MSFT"] }),
+      ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+      maxItems,
       thesis,
       riskProfile,
       pushToSlack,
@@ -707,7 +700,6 @@ export function ScheduledOptionsManager({
           <div className="schedules-grid">
             {schedules.map((item) => {
               const systemJob = systemJobFor(item.callback);
-              const isSystem = Boolean(systemJob);
               const isOptions = item.callback === "autonomousOptionsAnalysis";
               const payload = payloadOf(item);
               const triggerRoute = triggerRouteFor(item.callback);
@@ -715,19 +707,18 @@ export function ScheduledOptionsManager({
               const symbols = Array.isArray(payload.symbols)
                 ? payload.symbols.filter((s: any) => typeof s === "string")
                 : [];
-              const confirmingCancel = confirmingCancelId === item.id;
 
               return (
                 <div
                   key={item.id}
-                  className={`schedule-item-card ${isOptions ? "is-options" : ""} ${isSystem ? "is-system" : ""}`}
+                  className={`schedule-item-card ${isOptions ? "is-options" : "is-stock"}`}
                 >
                   <div className="schedule-card-top">
                     <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                       <span className={`schedule-type-badge ${item.type}`}>
                         {item.type}
                       </span>
-                      {isSystem && <span className="schedule-system-badge">System</span>}
+                      <span className="schedule-system-badge">{isOptions ? "Options" : "Stock"}</span>
                     </div>
                     <span className="schedule-id-snippet" title={item.id}>
                       {item.id.slice(0, 16)}…
@@ -739,9 +730,24 @@ export function ScheduledOptionsManager({
                     <div className="schedule-cadence">{cadenceText(item)}</div>
                     {systemJob && (
                       <p className="schedule-system-note">
-                        {systemJob.description} Registered by the app at startup.
+                        {systemJob.description}
                       </p>
                     )}
+                  </div>
+
+                  <div className="schedule-payload-details">
+                    {[
+                      ["userLogin", payload.userLogin || userLogin || "—"],
+                      ["environment", payload.environment || activeEnv || "—"],
+                      ["universe", payload.universe || (Array.isArray(payload.symbols) ? "Custom symbols" : "—")],
+                      ["maxItems", payload.maxItems ?? (Array.isArray(payload.symbols) ? payload.symbols.length : "all")],
+                      ["trigger", payload.trigger || "scheduled"],
+                    ].map(([key, value]) => (
+                      <div className="payload-row" key={String(key)}>
+                        <span className="payload-label">{key}:</span>
+                        <span className="payload-value">{formatPayloadValue(value)}</span>
+                      </div>
+                    ))}
                   </div>
 
                   {isOptions ? (
@@ -756,7 +762,7 @@ export function ScheduledOptionsManager({
                               </span>
                             ))
                           ) : (
-                            <span className="payload-value">Sector Scanner</span>
+                            <span className="payload-value">{payload.universe || "Universe scan"}</span>
                           )}
                         </div>
                       </div>
@@ -783,49 +789,14 @@ export function ScheduledOptionsManager({
                         </div>
                       </div>
                     </div>
-                  ) : (
+                  ) : payload.sector ? (
                     <div className="schedule-payload-details">
-                      {Object.keys(payload).length > 0 ? (
-                        Object.entries(payload).map(([key, value]) => (
-                          <div className="payload-row" key={key}>
-                            <span className="payload-label">{key}:</span>
-                            <span className="payload-value">{formatPayloadValue(value)}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="payload-row">
-                          <span className="payload-label">Payload:</span>
-                          <span className="payload-value">— none —</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {confirmingCancel && (
-                    <div className="schedule-cancel-confirm" role="alert">
-                      <span>
-                        Stop the <strong>{title}</strong> system job? It stays off only until the
-                        agent restarts — restarting re-registers it. Until then, this background
-                        function does not run.
-                      </span>
-                      <div style={{ display: "flex", gap: "0.4rem" }}>
-                        <button
-                          type="button"
-                          className="btn-sched-cancel-sm"
-                          onClick={() => doCancelSchedule(item.id)}
-                        >
-                          Yes, cancel it
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-sched-action-sm"
-                          onClick={() => setConfirmingCancelId(null)}
-                        >
-                          Keep it
-                        </button>
+                      <div className="payload-row">
+                        <span className="payload-label">Sector:</span>
+                        <span className="payload-value">{formatPayloadValue(payload.sector)}</span>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {detailId === item.id && (
                     <div className="schedule-detail-panel">
@@ -906,37 +877,23 @@ export function ScheduledOptionsManager({
                         {triggeringKey === item.id ? "⚡ Running…" : "⚡ Trigger Now"}
                       </button>
                     )}
-                    {!isSystem && isOptions && (
-                      <button
-                        type="button"
-                        className="btn-sched-action-sm"
-                        style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
-                        onClick={() => handleEditSchedule(item)}
-                        title="Update parameters or cadence for this schedule"
-                      >
-                        ✏ Edit / Update
-                      </button>
-                    )}
-                    {!confirmingCancel &&
-                      (isSystem ? (
-                        <button
-                          type="button"
-                          className="btn-sched-cancel-sm"
-                          onClick={() => setConfirmingCancelId(item.id)}
-                          title="Cancel this system schedule (it is re-registered when the agent restarts)"
-                        >
-                          ✕ Cancel
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn-sched-cancel-sm"
-                          onClick={() => handleCancelSchedule(item.id)}
-                          title="Permanently cancel this durable schedule"
-                        >
-                          ✕ Cancel
-                        </button>
-                      ))}
+                    <button
+                      type="button"
+                      className="btn-sched-action-sm"
+                      style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
+                      onClick={() => handleEditSchedule(item)}
+                      title="Update parameters or cadence for this schedule"
+                    >
+                      ✏ Edit / Update
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-sched-cancel-sm"
+                      onClick={() => handleCancelSchedule(item.id)}
+                      title="Permanently cancel this durable schedule"
+                    >
+                      ✕ Cancel
+                    </button>
                   </div>
                 </div>
               );
@@ -1021,7 +978,7 @@ export function ScheduledOptionsManager({
           <div className="sched-modal-card" onClick={(e) => e.stopPropagation()}>
             <header className="sched-modal-header">
               <div>
-                <h3>{editingScheduleId ? "✏ Update Options Screening Schedule" : "⏰ Configure New Schedule"}</h3>
+        <h3>{editingScheduleId ? "✏ Update Screening Schedule" : "⏰ Configure New Schedule"}</h3>
                 <p>Register a durable Cloudflare Agents SDK timer to run in the background.</p>
               </div>
               <button
@@ -1034,7 +991,7 @@ export function ScheduledOptionsManager({
             </header>
 
             <form onSubmit={handleCreateSchedule} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
-              {/* Job Picker (create only — edits are analysis-only) */}
+              {/* Job Picker */}
               {!editingScheduleId && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
@@ -1044,24 +1001,20 @@ export function ScheduledOptionsManager({
                   <select
                     className="sched-select"
                     value={jobType}
-                    onChange={(e) => setJobType(e.target.value as CreatableJob)}
+                    onChange={(e) => {
+                      const nextJobType = e.target.value as CreatableJob;
+                      setJobType(nextJobType);
+                      if (nextJobType === "marketScreen" && !targetUniverse) setTargetUniverse("NASDAQ100");
+                    }}
                   >
                     <option value="optionsAnalysis">Autonomous Options Analysis</option>
                     <option value="marketScreen">Autonomous Market Screen (Stocks)</option>
-                    <option value="ivCollection">IV History Collection</option>
                   </select>
-                  {jobType === "ivCollection" && (
-                    <p className="sched-preset-note">
-                      Records one ATM IV data point per tracked symbol (your watchlists plus the
-                      curated universe) into the IV history series. No analysis options apply —
-                      the job runs under your login.
-                    </p>
-                  )}
                 </div>
               )}
 
-              {/* Target Universe or Symbols (options analysis only) */}
-              {(editingScheduleId || jobType === "optionsAnalysis") && (
+              {/* Target Universe or Symbols */}
+              {(editingScheduleId || jobType === "optionsAnalysis" || jobType === "marketScreen") && (
                 <div className="sched-form-group">
                   <label className="sched-form-label">
                     Target Universe
@@ -1072,7 +1025,7 @@ export function ScheduledOptionsManager({
                     value={targetUniverse}
                     onChange={(e) => setTargetUniverse(e.target.value)}
                   >
-                    <option value="">Custom symbols (below)</option>
+                    {jobType === "optionsAnalysis" && <option value="">Custom symbols (below)</option>}
                     <option value="TECH">Technology (keyword discovery)</option>
                     <option value="NASDAQ100">Nasdaq-100</option>
                     <option value="SP100">S&P 100</option>
@@ -1081,7 +1034,7 @@ export function ScheduledOptionsManager({
                     <option value="ETF">ETFs</option>
                     <option value="LEV_ETF">Leveraged ETFs</option>
                   </select>
-                  {!targetUniverse && (
+                  {!targetUniverse && jobType === "optionsAnalysis" && (
                     <>
                       <label className="sched-form-label" style={{ marginTop: "0.5rem" }}>
                         Target Equity Symbols
@@ -1095,22 +1048,26 @@ export function ScheduledOptionsManager({
                         placeholder="e.g. NVDA, AAPL, SPY, MSFT"
                         required
                       />
-                      <div className="preset-chips-row">
-                        {SYMBOL_PRESETS.map((p) => (
-                          <button
-                            key={p.label}
-                            type="button"
-                            className="preset-chip"
-                            onClick={() => setTargetSymbols(p.symbols)}
-                          >
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
                     </>
                   )}
                 </div>
               )}
+
+              <div className="sched-form-group">
+                <label className="sched-form-label">
+                  Max items
+                  <span className="hint">Maximum live symbols scanned per run; 0 means all selected symbols.</span>
+                </label>
+                <input
+                  type="number"
+                  className="sched-input"
+                  min={0}
+                  step={1}
+                  value={maxItems}
+                  onChange={(e) => setMaxItems(Number(e.target.value))}
+                  required
+                />
+              </div>
 
               {/* Schedule Cadence / Type */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
