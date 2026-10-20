@@ -121,7 +121,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
-  "handleReportsRoutes :: endsWith(\"/api/reports/research/browse\")",
+  "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",

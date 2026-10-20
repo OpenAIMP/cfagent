@@ -385,7 +385,7 @@ export async function handleReportsRoutes(
   // every stored research run, flattened with provenance and filterable
   // by kind, rejected-gate code, and symbol search. Sourced entirely
   // from the stored canonical reports; nothing is recomputed.
-  if (path.endsWith("/api/reports/research/browse") && request.method === "GET") {
+  if (path.endsWith("/reports/research/browse") && request.method === "GET") {
     try {
       const { listScheduledReports } = await import("../../services/scheduledReports");
       const { extractResearchBrowseEntries, researchBrowseGates } = await import("../../services/researchBrowse");
