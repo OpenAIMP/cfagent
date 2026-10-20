@@ -1,5 +1,5 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import type { Schedule, ScheduleCriteria } from "agents";
+import type { Schedule } from "agents";
 import { convertToModelMessages, streamText, stepCountIs, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { getWorkersAIModel } from "./model";
 import { LLMJudge } from "./judge";
@@ -9,10 +9,8 @@ import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
 import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedGateway, SUPPORTED_GATEWAYS, type SupportedGateway } from "../services/payments";
-import { resolveEnvironmentConfig } from "../config/environment";
-import { getStoredTokens, getValidTokens, isTokenExpiredEt } from "../security/etradeOAuth";
-import { runStorageRetention } from "../security/storageRetention";
-import { ETradeRestClient, UNIVERSES } from "../trading";
+import { getValidTokens } from "../security/etradeOAuth";
+import { ETradeRestClient } from "../trading";
 import { computePortfolioRisk, aggregatePortfolioRisk, resolvePositionsSnapshot, evaluatePostTradeTotals, type CandidateGreekContribution } from "../services/portfolioRisk";
 import { ETradeThinkHarness } from "../services/thinkHarness";
 import {
@@ -79,6 +77,7 @@ import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
+import { handleSchedulesRoutes } from "./routes/schedules";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2799,7 +2798,6 @@ Agentic Best Practices & Workflow Rules:
     // Cloudflare Agents Task Scheduling Management APIs
     // ==========================================
 
-    // List all schedules (supports ?type=cron|interval|delayed|scheduled)
     // Issue #359-15: screener + autonomous research routes (stock screener
     // /screener/*, options PDF, and /research/*) are handled by
     // src/agents/routes/screenerResearch.ts (handleScreenerResearchRoutes).
@@ -2817,272 +2815,32 @@ Agentic Best Practices & Workflow Rules:
       writeSetting: (key, value) => this.writeSetting(key, value),
     });
     if (screenerResearchResponse) return screenerResearchResponse;
-    if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
-      try {
-        // Issue #108: the typed listSchedules() is called directly. The
-        // old fallback chain (listSchedules → scheduler.list → deprecated
-        // getSchedules → 200 with an empty list) is deleted: it masked a
-        // broken scheduling binding as "you have no schedules" (audit
-        // finding F14). A failure now surfaces as the 500 below.
-        const typeParam = url.searchParams.get("type");
-        const schedules = await this.listSchedules(
-          typeParam ? { type: typeParam as ScheduleCriteria["type"] } : undefined
-        );
-        return Response.json({
-          count: schedules.length,
-          schedules,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to list schedules", schedules: [] }, { status: 500 });
-      }
-    }
-
-    // Cancel a schedule by ID (POST /api/schedules/cancel or DELETE /api/schedules/:id)
-    if (
-      ((path.endsWith("/schedules/cancel") || path.includes("/schedules/cancel/")) && request.method === "POST") ||
-      (path.includes("/schedules/") && request.method === "DELETE")
-    ) {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const scheduleId =
-          body.scheduleId ||
-          body.id ||
-          url.searchParams.get("id") ||
-          path.split("/schedules/cancel/")[1] ||
-          path.split("/schedules/")[1] ||
-          "";
-
-        if (!scheduleId) {
-          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
-        }
-        const cancelled = await this.cancelSchedule(scheduleId);
-        this.audit("schedule.cancelled", "orchestrator", { scheduleId, success: cancelled });
-        return Response.json({ scheduleId, cancelled });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to cancel schedule" }, { status: 500 });
-      }
-    }
-
-    // Get specific schedule by ID (GET /api/schedules/:id)
-    if (path.includes("/schedules/") && request.method === "GET") {
-      try {
-        const scheduleId = path.split("/schedules/").pop() || "";
-        const schedule = await this.getScheduleById(scheduleId);
-        if (!schedule) {
-          return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
-        }
-        return Response.json(schedule);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to get schedule" }, { status: 500 });
-      }
-    }
-
-    // Create a schedule (delayed, scheduled, cron, or interval)
-    if ((path.endsWith("/schedules/create") || (path.endsWith("/schedules") && request.method === "POST"))) {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const { scheduleType, callback, payload, delayInSeconds, intervalSeconds, cron, date } = body;
-
-        if (!callback) {
-          return Response.json({ error: "Callback method name is required" }, { status: 400 });
-        }
-
-        // Callback allow-list (#111): this public route may only arm the
-        // user-creatable callbacks in CREATABLE_SCHEDULE_CALLBACKS.
-        // Anything else — including internal-only callbacks such as
-        // executeAsyncJob and expireStaleOrderDraft — is rejected, and no
-        // schedule is created.
-        if (!(CREATABLE_SCHEDULE_CALLBACKS as readonly string[]).includes(callback)) {
-          return Response.json(
-            {
-              success: false,
-              error: `Callback '${callback}' is not allowed: POST /api/schedules/create only accepts ${CREATABLE_SCHEDULE_CALLBACKS.join(", ")}`,
-            },
-            { status: 400 }
-          );
-        }
-
-        // Stamp screening schedules with the identity established by the
-        // authenticated Worker forwarder. Never trust a caller-supplied
-        // payload.userLogin to select another account's E*TRADE credentials.
-        const context = await this.getScreenerExecutionContext();
-        const headerUserLogin = request.headers.get("x-user-login") || "";
-        const trustedUserLogin = context?.userLogin || (/^[A-Za-z0-9._-]{1,80}$/.test(headerUserLogin) ? headerUserLogin : "");
-        const headerEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-        const trustedEnvironment = context?.environment ||
-          (headerEnvironment === "TEST" || headerEnvironment === "PROD"
-            ? headerEnvironment
-            : resolveEnvironmentConfig(this.env).name as ETradeEnvironment);
-        if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback) && !trustedUserLogin) {
-          return Response.json({ success: false, error: "An authenticated E*TRADE account is required to create screening schedules." }, { status: 401 });
-        }
-        if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback)) {
-          const storedTokens = await getStoredTokens(this.env, trustedUserLogin, trustedEnvironment);
-          if (!storedTokens || isTokenExpiredEt(storedTokens.storedAt)) {
-            return Response.json({
-              success: false,
-              error: "Connect an E*TRADE account for this environment before creating an account-scoped schedule.",
-            }, { status: 409 });
-          }
-        }
-        const { userLogin: _untrustedUserLogin, environment: _untrustedEnvironment, ...safePayload } =
-          payload && typeof payload === "object" ? payload : {};
-        const universe = typeof safePayload.universe === "string" ? safePayload.universe : undefined;
-        if (universe && !(universe in UNIVERSES)) {
-          return Response.json({ success: false, error: `Unknown screening universe '${universe}'.` }, { status: 400 });
-        }
-        if (universe === "ALL") {
-          return Response.json({ success: false, error: "Choose one specific universe for a scheduled screen." }, { status: 400 });
-        }
-        if (callback === "autonomousMarketScreen" && !universe) {
-          return Response.json({ success: false, error: "Stock schedules require one explicit universe." }, { status: 400 });
-        }
-        if (safePayload.symbols !== undefined &&
-            (!Array.isArray(safePayload.symbols) || safePayload.symbols.some((symbol: unknown) => typeof symbol !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(symbol)))) {
-          return Response.json({ success: false, error: "symbols must be an array of valid ticker strings." }, { status: 400 });
-        }
-        if (ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback) && safePayload.maxItems !== undefined &&
-            (!Number.isSafeInteger(safePayload.maxItems) || safePayload.maxItems < 0 || safePayload.maxItems > 10000)) {
-          return Response.json({ success: false, error: "maxItems must be a whole number from 0 to 10000." }, { status: 400 });
-        }
-        const effectiveUniverse = universe ||
-          (callback === "autonomousOptionsAnalysis" && (!safePayload.symbols || safePayload.symbols.length === 0) ? "NASDAQ100" : undefined);
-        const defaultMaxItems = effectiveUniverse
-          ? UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES].defaultMaxSymbols
-          : (safePayload.symbols?.length || 0);
-        const screeningPayload = ACCOUNT_SCOPED_SCHEDULE_CALLBACKS.has(callback)
-          ? {
-              ...safePayload,
-              ...(effectiveUniverse ? { universe: effectiveUniverse } : {}),
-              maxItems: safePayload.maxItems ?? defaultMaxItems,
-              ...(trustedUserLogin ? { userLogin: trustedUserLogin } : {}),
-              ...(trustedEnvironment ? { environment: trustedEnvironment } : {}),
-              trigger: "scheduled",
-            }
-          : payload;
-
-        // No fabricated success (#111): this route never invents a
-        // schedule id or reports success for a schedule that does not
-        // exist. Issue #108: the calls below use the typed Agents SDK
-        // API directly — schedule/scheduleEvery are typed members of
-        // the Agent base class, so the old missing-method guard is
-        // gone; if a typed call throws, the catch below returns the
-        // same honest 503 {success:false} shape.
-        let schedule: Schedule<unknown> | undefined;
-        if (scheduleType === "interval" && intervalSeconds) {
-          schedule = await this.scheduleEvery(Number(intervalSeconds), callback, screeningPayload);
-        } else if (scheduleType === "cron" && cron) {
-          schedule = await this.schedule(cron, callback, screeningPayload, { idempotent: body.idempotent !== false });
-        } else if (scheduleType === "scheduled" && date) {
-          schedule = await this.schedule(new Date(date), callback, screeningPayload);
-        } else if (delayInSeconds !== undefined) {
-          schedule = await this.schedule(Number(delayInSeconds), callback, screeningPayload);
-        } else {
-          return Response.json(
-            { error: "Invalid schedule parameters: provide intervalSeconds, cron, date, or delayInSeconds" },
-            { status: 400 }
-          );
-        }
-
-        this.audit("schedule.created", "orchestrator", { scheduleId: schedule?.id, callback, scheduleType });
-        return Response.json({ success: true, schedule });
-      } catch (err: any) {
-        // A throwing SDK scheduling call created nothing, so it gets the
-        // honest 503 {success:false, error} shape (#111), worded as what
-        // it is — scheduling was unavailable and no schedule was created
-        // — never a success response and never a fabricated id.
-        return Response.json(
-          { success: false, error: `Scheduling unavailable: ${err.message || "Failed to create schedule"}` },
-          { status: 503 }
-        );
-      }
-    }
-
-    // Trigger autonomous market screen immediately on demand
-    if (path.endsWith("/schedules/trigger-screen") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const userLogin = request.headers.get("x-user-login") || undefined;
-        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : undefined;
-        await this.autonomousMarketScreen({ ...body, userLogin, environment, trigger: "manual" });
-        return Response.json({ success: true, message: "Autonomous market screen triggered" });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
-      }
-    }
-
-    // Trigger E*TRADE token renewal immediately on demand
-    if (path.endsWith("/schedules/trigger-renew") && request.method === "POST") {
-      try {
-        const context = await this.getScreenerExecutionContext();
-        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
-        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
-        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : context?.environment;
-        await this.autoRenewETradeTokens({ userLogin, env: environment });
-        return Response.json({ success: true, message: "E*TRADE token renewal triggered" });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to trigger token renewal" }, { status: 500 });
-      }
-    }
-
-    // Trigger autonomous options analysis immediately on demand
-    if (path.endsWith("/schedules/trigger-options-analysis") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const context = await this.getScreenerExecutionContext();
-        const userLogin = request.headers.get("x-user-login") || context?.userLogin || "";
-        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
-          ? rawEnvironment
-          : context?.environment;
-        const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
-        const result = await service.autonomousOptionsAnalysis({ ...body, userLogin, environment, trigger: "manual" });
-        return Response.json(result);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
-      }
-    }
-
-    // Nightly mas_messages retention pass (issue #255, part of #143).
-    // The Worker's scheduled() handler fires this at the 0 4 * * * cron.
-    if (path.endsWith("/schedules/trigger-retention") && request.method === "POST") {
-      try {
-        const result = runStorageRetention(this.getOrm(), {
-          retentionDays: this.env.MAS_MESSAGES_RETENTION_DAYS,
-        });
-        return Response.json({ success: true, ...result });
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to run storage retention" }, { status: 500 });
-      }
-    }
-
-    // Trigger the daily IV history collection immediately on demand
-    // (issue #15) — same per-name outcomes the scheduled run produces;
-    // idempotent per (symbol, day), so a manual rerun is safe.
-    if (path.endsWith("/schedules/trigger-iv-collection") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const context = await this.getScreenerExecutionContext();
-        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
-        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
-        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
-        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : context?.environment;
-        const service = new ScheduledTasksService(
-          this.env,
-          this.getOrm(),
-          userLogin,
-          new SqlScanRunStore(this.ctx.storage.sql),
-          new SqlIvHistoryStore(this.ctx.storage.sql)
-        );
-        const result = await service.collectDailyIvHistory({ ...body, userLogin, environment });
-        return Response.json(result);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to trigger IV collection" }, { status: 500 });
-      }
-    }
+    // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
+    // trigger-*) are handled by src/agents/routes/schedules.ts
+    // (handleSchedulesRoutes). Invoked at this exact position in the
+    // sequential path.endsWith matching sequence (after the screener +
+    // research delegation, before the Not-found fallthrough); a non-null
+    // return matched. Orchestrator-owned helpers (the SDK scheduling
+    // port, audit, getOrm, autonomousMarketScreen/autoRenewETradeTokens,
+    // getScreenerExecutionContext, the #111 callback allow-list constants)
+    // arrive via the context object.
+    const schedulesResponse = await handleSchedulesRoutes(request, url, path, sessionId, {
+      env: this.env,
+      agentCtx: this.ctx,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      listSchedules: (criteria) => this.listSchedules(criteria),
+      cancelSchedule: (id) => this.cancelSchedule(id),
+      getScheduleById: (id) => this.getScheduleById(id),
+      schedule: (when, callback, payload, options) => this.schedule(when, callback as keyof this, payload, options),
+      scheduleEvery: (intervalSeconds, callback, payload) => this.scheduleEvery(intervalSeconds, callback as keyof this, payload),
+      getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
+      getOrm: () => this.getOrm(),
+      autonomousMarketScreen: (payload) => this.autonomousMarketScreen(payload),
+      autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
+      creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,
+      accountScopedScheduleCallbacks: ACCOUNT_SCOPED_SCHEDULE_CALLBACKS,
+    });
+    if (schedulesResponse) return schedulesResponse;
 
     return new Response("Not found", { status: 404 });
   }

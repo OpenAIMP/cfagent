@@ -54,6 +54,32 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   FossResearchService-import-stays-inline anchor) was swapped to the new
   ownership per the #405 rule. Pure move, no behavior change.
 
+- **Schedules routes extracted from orchestrator.ts** (#359/#379):
+  the contiguous schedules block (GET `/schedules`, POST
+  `/schedules/cancel`, DELETE `/schedules/:id`, GET `/schedules/:id`,
+  POST `/schedules/create` + its `/schedules` create alias, POST
+  `/schedules/trigger-screen|/trigger-renew|/trigger-options-analysis|/trigger-retention|/trigger-iv-collection`)
+  moved to `src/agents/routes/schedules.ts` as a single handler,
+  `handleSchedulesRoutes`, invoked from `routeRequest` at the exact
+  original position (after the screener + research delegation, before the
+  Not-found fallthrough - this block was the last one before it). The
+  `resolveEnvironmentConfig`, `getStoredTokens`, `isTokenExpiredEt`,
+  `runStorageRetention` and `UNIVERSES` imports moved with the block; the
+  Agents SDK scheduling port (`listSchedules`, `cancelSchedule`,
+  `getScheduleById`, `schedule`, `scheduleEvery` - the `as keyof this`
+  assertion pattern from the #109 NLQ scheduling port), `audit`,
+  `getOrm`, `agentCtx` (for the SqlStorage-backed stores),
+  `autonomousMarketScreen`/`autoRenewETradeTokens` and
+  `getScreenerExecutionContext` arrive via the context object with
+  identical arguments (#111 allow-list/honest-503 semantics and #447
+  account-stamping unchanged). The #111 `CREATABLE_SCHEDULE_CALLBACKS`
+  / `ACCOUNT_SCOPED_SCHEDULE_CALLBACKS` constants stay module-owned by
+  `orchestrator.ts` (the former is a public export) and arrive via the
+  context; the #447 `onStart` schedule-reconciliation code is untouched
+  outside the route block. A scripted scan confirms the 15-condition
+  inventory and order are unchanged. Characterization:
+  `tests/schedules_routes_extraction.test.ts` (18 tests).
+
 - **Alpaca routes extracted from orchestrator.ts** (#359/#376): the
   alpaca-named route blocks moved to `src/agents/routes/alpaca.ts` as TWO
   handlers, each invoked from `routeRequest` at its exact original position —
