@@ -84,6 +84,13 @@ export interface ScreenerResultData {
     technicals?: StockTechnicalsData;
   }>;
   discoveryMessage?: string;
+  /** Issue #462: qualification when the screen ran on a partial quote set. */
+  partial?: {
+    quotedCount: number;
+    requestedCount: number;
+    failedSymbols: string[];
+    failureReasons: Record<string, number>;
+  };
   error?: string;
 }
 
@@ -339,8 +346,12 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
         </a>
       </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-        <strong>{triggerLabel}</strong> • <strong>{result.sector}</strong> sector •{" "}
-        {result.totalScanned.toLocaleString()} scanned • {result.matchedCount} matched •{" "}
+        {/* Issue #421: no sector claim when none was selected ("ALL"). */}
+        <strong>{triggerLabel}</strong>
+        {result.sector && result.sector !== "ALL" && (
+          <> • <strong>{result.sector}</strong> sector</>
+        )}{" "}
+        • {result.totalScanned.toLocaleString()} scanned • {result.matchedCount} matched •{" "}
         <span style={{ color: "var(--theme-text-muted)" }}>
           {new Date(result.timestamp).toLocaleString()}
         </span>
@@ -350,6 +361,23 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           </span>
         )}
       </div>
+
+      {result.success && result.partial && (
+        <div
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--theme-text-warning, #b45309)",
+            padding: "0.75rem",
+            border: "1px solid var(--theme-text-warning, #b45309)",
+            borderRadius: "4px",
+            marginBottom: "0.5rem",
+          }}
+        >
+          ⚠️ Partial screen — qualified results: {result.partial.quotedCount} of {result.partial.requestedCount} symbols quoted;{" "}
+          {result.partial.failedSymbols.length} unavailable ({result.partial.failedSymbols.slice(0, 5).join(", ")}
+          {result.partial.failedSymbols.length > 5 ? "…" : ""}). Results cover the quoted subset only; no fallback data substituted.
+        </div>
+      )}
 
       {!result.success ? (
         <div

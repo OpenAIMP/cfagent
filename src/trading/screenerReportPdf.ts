@@ -103,7 +103,9 @@ export async function generateScreenerPdf(
   // Header
   const universeLabel = (result.universe || "TECH").replace(/_/g, " ");
   text(ctx, `Stock Screener Report — ${universeLabel}`, { size: 18, bold: true });
-  text(ctx, `${triggerLabel}  •  ${result.sector} sector`, { size: 11, color: [0.4, 0.4, 0.4] });
+  // Issue #421: no sector segment when none was selected ("ALL").
+  const sectorSegment = result.sector && result.sector !== "ALL" ? `  •  ${result.sector} sector` : "";
+  text(ctx, `${triggerLabel}${sectorSegment}`, { size: 11, color: [0.4, 0.4, 0.4] });
   text(ctx, `Generated (UTC): ${result.timestamp}`, { size: 10, color: [0.4, 0.4, 0.4] });
   rule(ctx);
 

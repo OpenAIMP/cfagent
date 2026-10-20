@@ -245,9 +245,11 @@ export class ScheduledTasksService {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
+      // Issue #421: pass the sector through unset when none was chosen —
+      // ScreenerAgent labels unselected runs "ALL" instead of inventing one.
       const result = await this.getScreenerAgent(userLogin).runScreen({
         trigger: options.trigger || "scheduled",
-        sector: options.sector || "Technology",
+        sector: options.sector,
         universe: (options.universe as any) || "TECH",
         maxSymbols: options.maxItems,
         userLogin,
@@ -291,7 +293,7 @@ export class ScheduledTasksService {
         expectedCount: result.expectedCount,
         pdfKey: result.pdfKey,
         deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 16)}`,
-        sector: result.sector || options.sector || "Technology",
+        sector: result.sector || options.sector || "ALL",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
@@ -353,7 +355,7 @@ export class ScheduledTasksService {
         universe: options.universe || "TECH",
         trigger: options.trigger || "scheduled",
         deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 16)}`,
-        sector: options.sector || "Technology",
+        sector: options.sector || "ALL",
         error: err.message || "Market screener execution error",
       });
 

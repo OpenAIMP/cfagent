@@ -476,7 +476,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         const existing = ((await this.ctx.storage.get(key)) as any[]) || [];
         const run = {
           timestamp: res.timestamp,
-          sector: res.data?.sector || payload?.sector || "Technology",
+          sector: res.data?.sector || payload?.sector || "ALL",
           universe: res.data?.universe || payload?.universe || "TECH",
           success: res.success,
           totalScanned: res.data?.totalScanned ?? 0,

@@ -46,7 +46,7 @@ export interface ScreenerRunRequest {
   trigger: "manual" | "scheduled";
   /** Manual: user filters (search/limit/price-range/trend). Scheduled: { sector }. */
   filters?: StockScreenerFilter;
-  /** Scheduled: sector label (default "Technology"). */
+  /** Scheduled: sector label (issue #421: "ALL" when none was selected). */
   sector?: string;
   /** Universe to screen (default "TECH"). "ALL" auto-shards (see runSharded). */
   universe?: UniverseId;
@@ -145,7 +145,11 @@ export class ScreenerAgent extends Agent<Env> {
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
     const cfg = DEFAULT_SCREENER_CONFIG;
-    const sector = req.sector || req.filters?.sector || cfg.acquisition.defaultSector;
+    // Issue #421: a run's sector label states what was actually screened.
+    // When no sector was selected, the screen covered every sector in the
+    // universe → "ALL" (header renderers suppress it) — never the config
+    // default, which made NASDAQ100 reports claim "Technology sector".
+    const sector = req.sector || req.filters?.sector || "ALL";
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
     const universe: UniverseId = req.universe ?? "TECH";
