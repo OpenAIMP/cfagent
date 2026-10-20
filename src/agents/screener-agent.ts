@@ -115,7 +115,7 @@ export class ScreenerAgent extends Agent<Env> {
     const storage = this.ctx.storage as any;
     if (typeof storage.transaction === "function") {
       return storage.transaction(async (txn: any) => {
-        const current = await txn.get<{ slot: string }>(key);
+        const current = await txn.get(key) as { slot: string } | undefined;
         if (current?.slot === slot) return false;
         await txn.put(key, { environment, jobKey, slot });
         return true;
