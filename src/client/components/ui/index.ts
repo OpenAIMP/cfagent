@@ -11,6 +11,9 @@
  *   danger/info/purple/trade; sizes sm/md; optional status dot).
  * - Button — action button (variants primary/secondary/ghost/danger/
  *   trade; sizes sm/md/lg; loading state with aria-busy).
+ * - Spinner — loading indicator (sizes sm/md/lg; role="status" label).
+ * - EmptyState — icon/title/description/action empty block (optional
+ *   framed panel variant).
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -19,3 +22,5 @@ export { SegmentedControl, type SegmentedControlOption, type SegmentedControlPro
 export { PillGroup, type PillOption, type PillGroupProps } from "./PillGroup";
 export { Badge, type BadgeProps, type BadgeTone } from "./Badge";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
+export { Spinner, type SpinnerProps } from "./Spinner";
+export { EmptyState, type EmptyStateProps } from "./EmptyState";

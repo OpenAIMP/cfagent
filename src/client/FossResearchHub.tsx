@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { EmptyState, Spinner } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -1252,7 +1253,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
           ) : (
-            <div className="empty-state">No research report available.</div>
+            <EmptyState title="No research report available." />
           )}
         </div>
       )}
@@ -1324,7 +1325,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                 </div>
               ) : (
-                <div className="empty-state">Loading Yahoo Finance Quote…</div>
+                <EmptyState icon={<Spinner size="lg" label="Loading Yahoo Finance quote" />} title="Loading Yahoo Finance Quote…" />
               )}
             </div>
 
@@ -1391,7 +1392,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                 </div>
               ) : (
-                <div className="empty-state">Loading Alpaca Quote…</div>
+                <EmptyState icon={<Spinner size="lg" label="Loading Alpaca quote" />} title="Loading Alpaca Quote…" />
               )}
             </div>
           </div>
@@ -1511,7 +1512,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
           ) : (
-            <div className="empty-state">No fundamentals data available.</div>
+            <EmptyState title="No fundamentals data available." />
           )}
         </div>
       )}

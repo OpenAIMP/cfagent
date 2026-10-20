@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
+import { EmptyState } from "./ui";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
@@ -764,21 +765,21 @@ export function AutopilotControlCenter({
 
         {/* Actions Table / Empty State */}
         {filteredActions.length === 0 ? (
-          <div className="autopilot-empty-state">
-            <div className="empty-state-icon">🛡️</div>
-            <h3 className="empty-state-title">No autonomous actions recorded</h3>
-            <p className="empty-state-text">
-              As the NextGenTP autonomous agent scans opportunities and evaluates policy limits, live
-              order executions and cryptographic audit proofs will appear here in real time.
-            </p>
-            <button
-              type="button"
-              className="btn-simulate-action secondary"
-              onClick={handleSimulateAutonomousAction}
-            >
-              Trigger Policy Evaluation
-            </button>
-          </div>
+          <EmptyState
+            framed
+            icon="🛡️"
+            title="No autonomous actions recorded"
+            description="As the NextGenTP autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time."
+            action={
+              <button
+                type="button"
+                className="btn-simulate-action secondary"
+                onClick={handleSimulateAutonomousAction}
+              >
+                Trigger Policy Evaluation
+              </button>
+            }
+          />
         ) : (
           <div className="autopilot-table-container">
             <table className="autopilot-actions-table">
