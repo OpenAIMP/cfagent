@@ -133,6 +133,39 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: npx wrangler deploy
 
+  # ── Step 2b: sync Worker secrets (issue #590) ─────────────────────────
+  # A separate, non-blocking job on purpose: the Worker code is already
+  # deployed when this runs, so a Cloudflare secrets blip must not read as
+  # "the code deploy failed", and tag release / QA must not wait on it.
+  sync-secrets:
+    runs-on: ubuntu-latest
+    name: Sync Worker secrets [${{ needs.load-environment.outputs.target_env }}]
+    needs: [load-environment, deploy]
+    environment: ${{ needs.load-environment.outputs.target_env }}
+    timeout-minutes: 20
+    continue-on-error: true
+    env:
+      APP_ENV: ${{ needs.load-environment.outputs.target_env }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start secret sync summary
+        run: |
+          echo "## Worker secrets — $APP_ENV" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Code deploy \`${{ github.sha }}\` is already live; this job only refreshes Worker secrets." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set core secrets on Cloudflare Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
@@ -147,48 +180,25 @@ jobs:
           S_SCREENER_SLACK_CHANNEL: ${{ secrets.SCREENER_SLACK_CHANNEL }}
           S_SCREENER_EMAIL_TO: ${{ secrets.SCREENER_EMAIL_TO }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
-          # the Cloudflare API occasionally blips, and a single failed put used to
-          # fail the whole production deploy. Retries up to 3 attempts with 10s
-          # backoff. The value is read once and re-fed per attempt, so
-          # `printf ... | put_secret NAME` keeps working across retries.
-          put_secret() {
-            local name="$1" attempts=0 max=3 payload
-            # Read stdin once: a retry must re-feed the same value, not an
-            # already-drained pipe.
-            payload="$(cat)"
-            while [ "$attempts" -lt "$max" ]; do
-              # Bound each attempt: a hung Cloudflare API call must fail and
-              # retry, not sit until the job timeout.
-              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
-                return 0
-              fi
-              attempts=$((attempts + 1))
-              if [ "$attempts" -lt "$max" ]; then
-                backoff=$((attempts * 10))
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
-                sleep "$backoff"
-              fi
-            done
-            # Name the failed secret in the check annotation: a secret push
-            # that exhausts its retries is a pipeline failure, not a flake to
-            # be waved through.
-            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
-            return 1
-          }
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
           GH_ID="$S_GH_CLIENT_ID"
           if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
-
           GH_SEC="$S_GH_CLIENT_SECRET"
           if [ -z "$GH_SEC" ]; then GH_SEC="$S_GITHUB_CLIENT_SECRET"; fi
 
-          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | put_secret GITHUB_CLIENT_ID; fi
-          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | put_secret GITHUB_CLIENT_SECRET; fi
-          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | put_secret APP_BASE_URL; fi
-          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | put_secret SESSION_SECRET; fi
-          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | put_secret DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
-          if [ -n "$S_SCREENER_SLACK_CHANNEL" ]; then printf "%s" "$S_SCREENER_SLACK_CHANNEL" | put_secret SCREENER_SLACK_CHANNEL; fi
-          if [ -n "$S_SCREENER_EMAIL_TO" ]; then printf "%s" "$S_SCREENER_EMAIL_TO" | put_secret SCREENER_EMAIL_TO; fi
+          # Auth/session secrets are required: an absent value is a
+          # configuration failure, not a reason to skip the push.
+          require_secret GITHUB_CLIENT_ID "$GH_ID"
+          require_secret GITHUB_CLIENT_SECRET "$GH_SEC"
+          require_secret APP_BASE_URL "$S_APP_BASE_URL"
+          require_secret SESSION_SECRET "$S_SESSION_SECRET"
+          require_secret DASHBOARD_API_KEY_IS_A2A_TOKEN "$S_DASHBOARD_API_KEY"
+
+          # Notification targets are genuinely optional; absence is reported.
+          optional_secret SCREENER_SLACK_CHANNEL "$S_SCREENER_SLACK_CHANNEL"
+          optional_secret SCREENER_EMAIL_TO "$S_SCREENER_EMAIL_TO"
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -208,35 +218,9 @@ jobs:
           S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
           S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
-          # the Cloudflare API occasionally blips, and a single failed put used to
-          # fail the whole production deploy. Retries up to 3 attempts with 10s
-          # backoff. The value is read once and re-fed per attempt, so
-          # `printf ... | put_secret NAME` keeps working across retries.
-          put_secret() {
-            local name="$1" attempts=0 max=3 payload
-            # Read stdin once: a retry must re-feed the same value, not an
-            # already-drained pipe.
-            payload="$(cat)"
-            while [ "$attempts" -lt "$max" ]; do
-              # Bound each attempt: a hung Cloudflare API call must fail and
-              # retry, not sit until the job timeout.
-              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
-                return 0
-              fi
-              attempts=$((attempts + 1))
-              if [ "$attempts" -lt "$max" ]; then
-                backoff=$((attempts * 10))
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
-                sleep "$backoff"
-              fi
-            done
-            # Name the failed secret in the check annotation: a secret push
-            # that exhausts its retries is a pipeline failure, not a flake to
-            # be waved through.
-            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
-            return 1
-          }
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
           TARGET_KEY="$S_ET_API_KEY"
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_API_KEY"; fi
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ET_PROD_API_KEY"; fi
@@ -264,29 +248,24 @@ jobs:
           echo "Key length: ${#TARGET_KEY}"
           echo "Secret length: ${#TARGET_SEC}"
 
-          if [ -n "$TARGET_KEY" ]; then
-            printf "%s" "$TARGET_KEY" | put_secret ET_API_KEY
-            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_KEY" | put_secret ET_PROD_API_KEY
-            else
-              printf "%s" "$TARGET_KEY" | put_secret ET_SANDBOX_API_KEY
-            fi
+          # Without broker credentials the screener and every order path are
+          # dead, so an empty E*TRADE key is a hard failure.
+          require_secret ET_API_KEY "$TARGET_KEY"
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+            require_secret ET_PROD_API_KEY "$TARGET_KEY"
+          else
+            require_secret ET_SANDBOX_API_KEY "$TARGET_KEY"
           fi
 
-          if [ -n "$TARGET_SEC" ]; then
-            printf "%s" "$TARGET_SEC" | put_secret ET_API_SECRET
-            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_SEC" | put_secret ET_PROD_API_SECRET
-            else
-              printf "%s" "$TARGET_SEC" | put_secret ET_SANDBOX_API_SECRET
-            fi
+          require_secret ET_API_SECRET "$TARGET_SEC"
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+            require_secret ET_PROD_API_SECRET "$TARGET_SEC"
+          else
+            require_secret ET_SANDBOX_API_SECRET "$TARGET_SEC"
           fi
 
-          if [ -n "$TARGET_URL" ]; then
-            printf "%s" "$TARGET_URL" | put_secret ET_BASE_URL
-          fi
-
-          printf "%s" "$ACTIVE_ENV_NAME" | put_secret APP_ENV
+          require_secret ET_BASE_URL "$TARGET_URL"
+          require_secret APP_ENV "$ACTIVE_ENV_NAME"
 
       - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -302,44 +281,29 @@ jobs:
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
           MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
         run: |
-          # Retry wrapper for `wrangler secret put` (issues #560/#561, defect #590):
-          # the Cloudflare API occasionally blips, and a single failed put used to
-          # fail the whole production deploy. Retries up to 3 attempts with 10s
-          # backoff. The value is read once and re-fed per attempt, so
-          # `printf ... | put_secret NAME` keeps working across retries.
-          put_secret() {
-            local name="$1" attempts=0 max=3 payload
-            # Read stdin once: a retry must re-feed the same value, not an
-            # already-drained pipe.
-            payload="$(cat)"
-            while [ "$attempts" -lt "$max" ]; do
-              # Bound each attempt: a hung Cloudflare API call must fail and
-              # retry, not sit until the job timeout.
-              if printf "%s" "$payload" | timeout 90 npx wrangler secret put "$name"; then
-                return 0
-              fi
-              attempts=$((attempts + 1))
-              if [ "$attempts" -lt "$max" ]; then
-                backoff=$((attempts * 10))
-                echo "put_secret: '$name' failed (attempt $attempts/$max), retrying in ${backoff}s..." >&2
-                sleep "$backoff"
-              fi
-            done
-            # Name the failed secret in the check annotation: a secret push
-            # that exhausts its retries is a pipeline failure, not a flake to
-            # be waved through.
-            echo "::error title=Secret push failed::$name failed after $max attempts" >&2
-            return 1
-          }
-          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | put_secret STRIPE_SECRET_KEY; fi
-          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | put_secret STRIPE_WEBHOOK_SECRET; fi
-          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | put_secret PAYPAL_CLIENT_ID; fi
-          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | put_secret PAYPAL_CLIENT_SECRET; fi
-          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | put_secret PAYPAL_ENVIRONMENT; fi
-          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | put_secret LEMONSQUEEZY_API_KEY; fi
-          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | put_secret LEMONSQUEEZY_STORE_ID; fi
-          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | put_secret LEMONSQUEEZY_WEBHOOK_SECRET; fi
-          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | put_secret MPP_SECRET_KEY; fi
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
+          # Gateways differ per deployment, so each key stays optional — but
+          # absence is now a warning plus a summary line, never a silent skip.
+          optional_secret STRIPE_SECRET_KEY "$STRIPE_SECRET_KEY"
+          optional_secret STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_SECRET"
+          optional_secret PAYPAL_CLIENT_ID "$PAYPAL_CLIENT_ID"
+          optional_secret PAYPAL_CLIENT_SECRET "$PAYPAL_CLIENT_SECRET"
+          optional_secret PAYPAL_ENVIRONMENT "$PAYPAL_ENVIRONMENT"
+          optional_secret LEMONSQUEEZY_API_KEY "$LEMONSQUEEZY_API_KEY"
+          optional_secret LEMONSQUEEZY_STORE_ID "$LEMONSQUEEZY_STORE_ID"
+          optional_secret LEMONSQUEEZY_WEBHOOK_SECRET "$LEMONSQUEEZY_WEBHOOK_SECRET"
+          optional_secret MPP_SECRET_KEY "$MPP_SECRET_KEY"
+
+      - name: Finish secret sync summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "All configured secrets synced." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Secret sync failed — see the annotation above. The deployed code is unaffected; re-run this job after fixing the Cloudflare/GitHub secret." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # ── Step 3: tag the deployed commit (issue #321) ──
   # Tags every successful deploy for rollback and release tracking.
