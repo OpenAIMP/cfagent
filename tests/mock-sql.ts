@@ -323,49 +323,91 @@ export class MockSqlStorage implements SqlStorage {
     let argIdx = 0;
 
     for (const cond of conditions) {
-      const eqMatch = cond.match(/(\w+)\s*=\s*\?/);
-      if (eqMatch) {
-        const col = eqMatch[1];
-        const val = args[argIdx++];
-        if (row[col] != val) return false;
-        continue;
-      }
-
-      const likeMatch = cond.match(/lower\((\w+)\)\s+LIKE\s+\?/i);
-      if (likeMatch) {
-        const col = likeMatch[1];
-        const pattern = String(args[argIdx++] || "").toLowerCase().replace(/%/g, "");
-        const cell = String(row[col] || "").toLowerCase();
-        if (!cell.includes(pattern)) return false;
-        continue;
-      }
-
-      // Issue #255: comparison operators behave like real SQLite so
-      // retention-style range predicates (e.g. created_at < ?) are testable.
-      // ISO-8601 timestamps compare lexicographically, matching TEXT semantics.
-      const cmpMatch = cond.match(/(\w+)\s*(<=|>=|<|>)\s*\?/);
-      if (cmpMatch) {
-        const col = cmpMatch[1];
-        const op = cmpMatch[2];
-        const val = args[argIdx++];
-        const cell = row[col];
-        // Numeric when both sides are numbers; otherwise codepoint order,
-        // matching SQLite BINARY collation for TEXT (ISO-8601 timestamps).
-        let cmp: number;
-        if (typeof cell === "number" && typeof val === "number") {
-          cmp = cell - val;
-        } else {
-          const a = String(cell ?? "");
-          const b = String(val ?? "");
-          cmp = a < b ? -1 : a > b ? 1 : 0;
+      // OR group, e.g. "(LOWER(title) LIKE ? OR LOWER(summary) LIKE ?)":
+      // any branch may match; the matching branch consumes its args.
+      if (/\sOR\s/i.test(cond)) {
+        const branches = cond.split(/\sOR\s/i);
+        let matched = false;
+        let consumed = 0;
+        for (const branch of branches) {
+          const r = this.matchesCondition(row, branch, args.slice(argIdx));
+          if (r.matched) {
+            matched = true;
+            consumed = r.consumed;
+            break;
+          }
         }
-        if (op === "<" && !(cmp < 0)) return false;
-        if (op === ">" && !(cmp > 0)) return false;
-        if (op === "<=" && !(cmp <= 0)) return false;
-        if (op === ">=" && !(cmp >= 0)) return false;
+        if (!matched) return false;
+        argIdx += consumed;
         continue;
       }
+      const r = this.matchesCondition(row, cond, args.slice(argIdx));
+      if (!r.matched) return false;
+      argIdx += r.consumed;
     }
     return true;
+  }
+
+  /** Evaluate one AND-condition; reports whether it matched and how many args it consumed. */
+  private matchesCondition(
+    row: Record<string, any>,
+    cond: string,
+    args: unknown[]
+  ): { matched: boolean; consumed: number } {
+    let consumed = 0;
+    // IS NULL / IS NOT NULL (no args consumed).
+    const nullMatch = cond.match(/(\w+)\s+IS\s+(NOT\s+)?NULL/i);
+    if (nullMatch) {
+      const col = nullMatch[1];
+      const negated = !!nullMatch[2];
+      const isNull = row[col] === null || row[col] === undefined;
+      return { matched: negated ? !isNull : isNull, consumed: 0 };
+    }
+    const eqMatch = cond.match(/(\w+)\s*=\s*\?/);
+    if (eqMatch) {
+      const col = eqMatch[1];
+      const val = args[consumed++];
+      if (row[col] != val) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    const likeMatch = cond.match(/lower\((\w+)\)\s+LIKE\s+\?/i);
+    if (likeMatch) {
+      const col = likeMatch[1];
+      const pattern = String(args[consumed++] || "")
+        .toLowerCase()
+        .replace(/%/g, "");
+      const cell = String(row[col] || "").toLowerCase();
+      if (!cell.includes(pattern)) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    // Issue #255: comparison operators behave like real SQLite so
+    // retention-style range predicates (e.g. created_at < ?) are testable.
+    // ISO-8601 timestamps compare lexicographically, matching TEXT semantics.
+    const cmpMatch = cond.match(/(\w+)\s*(<=|>=|<|>)\s*\?/);
+    if (cmpMatch) {
+      const col = cmpMatch[1];
+      const op = cmpMatch[2];
+      const val = args[consumed++];
+      const cell = row[col];
+      // Numeric when both sides are numbers; otherwise codepoint order,
+      // matching SQLite BINARY collation for TEXT (ISO-8601 timestamps).
+      let cmp: number;
+      if (typeof cell === "number" && typeof val === "number") {
+        cmp = cell - val;
+      } else {
+        const a = String(cell ?? "");
+        const b = String(val ?? "");
+        cmp = a < b ? -1 : a > b ? 1 : 0;
+      }
+      if (op === "<" && !(cmp < 0)) return { matched: false, consumed: 0 };
+      if (op === ">" && !(cmp > 0)) return { matched: false, consumed: 0 };
+      if (op === "<=" && !(cmp <= 0)) return { matched: false, consumed: 0 };
+      if (op === ">=" && !(cmp >= 0)) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+    // Unrecognized condition: preserve the old lenient behavior.
+    return { matched: true, consumed: 0 };
   }
 }

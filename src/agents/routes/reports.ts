@@ -65,7 +65,7 @@ export interface ReportsRouteContext {
   ): Promise<{ success: boolean; status?: number; error?: string; notConfigured?: boolean }>;
   storeResearchReportCanonicalAsync(
     bodyJson: string,
-    meta: { title: string; summary: string }
+    meta: { title: string; summary: string; userLogin?: string }
   ): Promise<{ reportId: string; generationId: string } | null>;
   audit(
     type: string,
@@ -298,6 +298,7 @@ export async function handleReportsRoutes(
     const stored = await ctx.storeResearchReportCanonicalAsync(reportBodyJson, {
       title,
       summary: `Research report workbook: ${fileName} (${title})`,
+      userLogin,
     });
     if (!stored) {
       return Response.json({ error: "The report could not be stored; dispatch aborted." }, { status: 500 });
@@ -336,6 +337,7 @@ export async function handleReportsRoutes(
     // Issue #308: store the canonical copy FIRST — every channel
     // delivers the stored report, never the request in memory.
     const wtitle = (typeof body.title === "string" ? body.title : "Research report").replace(/[\r\n]/g, " ").slice(0, 120);
+    const wuserLogin = request.headers.get("x-user-login") || sessionId;
     const reportBodyJson = canonicalResearchWebhookBody({
       title: wtitle,
       query: typeof body.query === "string" ? body.query : "",
@@ -344,6 +346,7 @@ export async function handleReportsRoutes(
     const stored = await ctx.storeResearchReportCanonicalAsync(reportBodyJson, {
       title: wtitle,
       summary: `Research report: ${wtitle} (${body.sheets.length} sheets)`,
+      userLogin: wuserLogin,
     });
     if (!stored) {
       return Response.json({ error: "The report could not be stored; dispatch aborted." }, { status: 500 });
@@ -382,31 +385,27 @@ export async function handleReportsRoutes(
   // Supports ?q=search query and ?source=screener|options_scanner|iv_collection
   if ((path.endsWith("/reports") || path === "/reports" || path === "/api/reports") && request.method === "GET") {
     try {
-      const { searchScheduledReports, ensureScheduledReportsTable, SCHEDULED_REPORTS_TABLE } = await import("../../services/scheduledReports");
+      const { searchScheduledReports, listScheduledReports, ensureScheduledReportsTable } = await import("../../services/scheduledReports");
       const query = url.searchParams.get("q") || "";
       const sourceFilter = url.searchParams.get("source") || undefined;
       const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100));
+      // #584 EP-003: tenant scoping from the caller's login. No header →
+      // undefined → legacy unfiltered behavior (identity strings are not
+      // yet unified; see scheduledReports.ts).
+      const headerLogin = request.headers.get("x-user-login");
+      const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
 
       ensureScheduledReportsTable(ctx.ensureTables());
 
       let reports: any[];
       if (query.trim()) {
-        // Search with query
-        reports = searchScheduledReports(ctx.ensureTables(), query, limit);
+        // Search with query (user-scoped)
+        reports = searchScheduledReports(ctx.ensureTables(), query, limit, { userLogin });
       } else {
-        // List all, newest first
+        // List all (user-scoped), newest first
         // Note: mas_reports has no report_url column (see #307 R2 discussion).
         // The PDF URL is constructed from the runId via /api/screener/report.pdf
-        const sql = ctx.ensureTables();
-        let sqlQuery = `SELECT id, run_id as runId, title, source, summary, created_at as createdAt FROM ${SCHEDULED_REPORTS_TABLE}`;
-        const params: unknown[] = [];
-        if (sourceFilter) {
-          sqlQuery += ` WHERE source = ?`;
-          params.push(sourceFilter);
-        }
-        sqlQuery += ` ORDER BY created_at DESC LIMIT ?`;
-        params.push(limit);
-        reports = Array.from(sql.exec(sqlQuery, ...params)) as any[];
+        reports = listScheduledReports(ctx.ensureTables(), { userLogin, sourceFilter, limit });
       }
 
       // Apply source filter to search results (search doesn't support it natively)

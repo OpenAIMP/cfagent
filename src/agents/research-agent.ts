@@ -387,6 +387,20 @@ export class ResearchAgent extends Think<Env> {
         evaluation.evaluatedAt,
         JSON.stringify(evaluation)
       );
+      // #584 EP-009: meter the evaluation — attributed to tenant + task.
+      try {
+        const { recordUsageEvent } = await import(
+          "../services/scheduledReports"
+        );
+        recordUsageEvent(this.storageSql(), {
+          userLogin: userLogin || "default",
+          runId,
+          category: "research_evaluation",
+          detail: { ideas: evaluation.ideas.length },
+        });
+      } catch {
+        // Metering is advisory.
+      }
       return evaluation;
     } catch {
       return null;

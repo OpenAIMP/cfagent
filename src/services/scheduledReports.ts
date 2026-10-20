@@ -44,6 +44,8 @@ export interface ScheduledReportInput {
    * content hash.
    */
   generationId?: string;
+  /** Owning user login (#584 EP-003 tenant scoping). Defaults to "default". */
+  userLogin?: string;
   /** Human title, e.g. "Autonomous market screen — Technology". */
   title: string;
   /** Producer label: "screener" | "iv_collection" | "retention" | ... */
@@ -86,8 +88,23 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   )`);
   // Additive migration for tables created before issue #308.
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "generation_id", "TEXT");
+  // #584 (EP-003): tenant scoping. Legacy rows predate the column; they were
+  // all produced by the single-user deployment, so they backfill to "default"
+  // — the same default the routes use when no login is present.
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "user_login", "TEXT");
+  try {
+    sql.exec(
+      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET user_login = ? WHERE user_login IS NULL`,
+      "default"
+    );
+  } catch {
+    // Fails closed: a partial backfill is retried on the next call.
+  }
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${SCHEDULED_REPORTS_TABLE} (created_at DESC)`
+  );
+  sql.exec(
+    `CREATE INDEX IF NOT EXISTS idx_mas_reports_user ON ${SCHEDULED_REPORTS_TABLE} (user_login)`
   );
   sql.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${SCHEDULED_REPORTS_TABLE} (generation_id)`
@@ -157,8 +174,12 @@ export function storeReportAtGeneration(
       if (id) return { reportId: id, created: false };
     }
     const rec = toScheduledReportRecord(input);
+    const owner =
+      typeof input.userLogin === "string" && input.userLogin
+        ? input.userLogin
+        : "default";
     sql.exec(
-      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       rec.id,
       rec.runId,
       rec.title,
@@ -166,7 +187,8 @@ export function storeReportAtGeneration(
       rec.summary,
       rec.body,
       rec.createdAt,
-      generationId
+      generationId,
+      owner
     );
     return { reportId: rec.id, created: true };
   } catch {
@@ -316,7 +338,8 @@ export interface ScheduledReportHit {
 export function searchScheduledReports(
   sql: SqlStorage,
   query: string,
-  limit: number = SCHEDULED_REPORT_DEFAULT_LIMIT
+  limit: number = SCHEDULED_REPORT_DEFAULT_LIMIT,
+  opts?: { userLogin?: string }
 ): ScheduledReportHit[] {
   try {
     ensureScheduledReportsTable(sql);
@@ -337,10 +360,22 @@ export function searchScheduledReports(
       const like = `%${t}%`;
       params.push(like, like, like);
     }
+    // #584 EP-003: tenant scoping. When the caller knows the user, filter
+    // strictly. When unknown (undefined), preserve legacy behavior (all
+    // rows): the deployment's identity strings are not yet unified
+    // ("default" vs "default_trader" vs session ids), so a strict default
+    // would hide a user's own rows. See #488.
+    const owner =
+      opts?.userLogin && typeof opts.userLogin === "string"
+        ? opts.userLogin
+        : undefined;
     const capped = Math.max(1, Math.min(Math.floor(limit) || SCHEDULED_REPORT_DEFAULT_LIMIT, 25));
+    const ownerClause = owner ? `user_login = ? AND ` : "";
+    const ownerParams: unknown[] = owner ? [owner] : [];
     const rows = Array.from(
       sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${clause} ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
+        ...ownerParams,
         ...params,
         capped
       )
@@ -352,6 +387,160 @@ export function searchScheduledReports(
       source: String(r.source ?? ""),
       summary: String(r.summary ?? ""),
       body: String(r.body ?? ""),
+      createdAt: String(r.created_at ?? ""),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * #584 EP-003: user-scoped report listing, newest first. Extracted from the
+ * /reports route so the scoping is tested in one place.
+ */
+export function listScheduledReports(
+  sql: SqlStorage,
+  opts?: { userLogin?: string; sourceFilter?: string; limit?: number }
+): ScheduledReportHit[] {
+  try {
+    ensureScheduledReportsTable(sql);
+    // #584 EP-003: strict filter when the caller knows the user; legacy
+    // unfiltered behavior when unknown (identity strings not yet unified).
+    const owner =
+      opts?.userLogin && typeof opts.userLogin === "string"
+        ? opts.userLogin
+        : undefined;
+    const limit = Math.max(
+      1,
+      Math.min(Math.floor(opts?.limit ?? 50) || 50, 100)
+    );
+    let q = `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE}`;
+    const params: unknown[] = [];
+    const wheres: string[] = [];
+    if (owner) {
+      wheres.push(`user_login = ?`);
+      params.push(owner);
+    }
+    if (opts?.sourceFilter) {
+      wheres.push(`source = ?`);
+      params.push(opts.sourceFilter);
+    }
+    if (wheres.length > 0) q += ` WHERE ` + wheres.join(" AND ");
+    q += ` ORDER BY created_at DESC LIMIT ?`;
+    params.push(limit);
+    const rows = Array.from(sql.exec(q, ...params)) as Array<
+      Record<string, unknown>
+    >;
+    return rows.map((r) => ({
+      id: String(r.id ?? ""),
+      runId: String(r.run_id ?? ""),
+      title: String(r.title ?? ""),
+      source: String(r.source ?? ""),
+      summary: String(r.summary ?? ""),
+      body: String(r.body ?? ""),
+      createdAt: String(r.created_at ?? ""),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* #584 EP-009: usage metering                                          */
+/* ------------------------------------------------------------------ */
+
+export const USAGE_EVENTS_TABLE = "usage_events";
+
+export interface UsageEventInput {
+  /** Tenant identity (user login). */
+  userLogin: string;
+  /** Task identity, e.g. the research run id. */
+  runId: string;
+  /** Billable category, e.g. "research_run" | "research_evaluation". */
+  category: string;
+  /** Optional detail payload (JSON-serializable). */
+  detail?: unknown;
+}
+
+export interface UsageEvent {
+  id: string;
+  userLogin: string;
+  runId: string;
+  category: string;
+  createdAt: string;
+}
+
+/** Idempotent DDL for usage_events. Never throws. */
+export function ensureUsageEventsTable(sql: SqlStorage): void {
+  try {
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${USAGE_EVENTS_TABLE} (
+      id TEXT PRIMARY KEY,
+      user_login TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      detail_json TEXT
+    )`);
+    sql.exec(
+      `CREATE INDEX IF NOT EXISTS idx_usage_events_user ON ${USAGE_EVENTS_TABLE} (user_login, created_at DESC)`
+    );
+  } catch {
+    // Fails closed; callers treat a missing table as no events.
+  }
+}
+
+/**
+ * Record one metered consumption event, attributed to tenant + task.
+ * Never throws — metering must not break the metered operation.
+ */
+export function recordUsageEvent(
+  sql: SqlStorage,
+  input: UsageEventInput
+): string | null {
+  try {
+    if (!input || !input.userLogin || !input.runId || !input.category)
+      return null;
+    ensureUsageEventsTable(sql);
+    const id = `use_${Date.now().toString(36)}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    sql.exec(
+      `INSERT INTO ${USAGE_EVENTS_TABLE} (id, user_login, run_id, category, created_at, detail_json) VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      input.userLogin,
+      input.runId,
+      input.category,
+      new Date().toISOString(),
+      input.detail === undefined ? null : JSON.stringify(input.detail)
+    );
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+/** List usage events for one tenant, newest first. Never throws. */
+export function listUsageEvents(
+  sql: SqlStorage,
+  userLogin: string,
+  limit = 100
+): UsageEvent[] {
+  try {
+    if (!userLogin) return [];
+    ensureUsageEventsTable(sql);
+    const capped = Math.max(1, Math.min(Math.floor(limit) || 100, 500));
+    const rows = Array.from(
+      sql.exec(
+        `SELECT id, user_login, run_id, category, created_at FROM ${USAGE_EVENTS_TABLE} WHERE user_login = ? ORDER BY created_at DESC LIMIT ?`,
+        userLogin,
+        capped
+      )
+    ) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: String(r.id ?? ""),
+      userLogin: String(r.user_login ?? ""),
+      runId: String(r.run_id ?? ""),
+      category: String(r.category ?? ""),
       createdAt: String(r.created_at ?? ""),
     }));
   } catch {
