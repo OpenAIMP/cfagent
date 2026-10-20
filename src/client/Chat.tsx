@@ -1227,8 +1227,8 @@ function AgentChatTabContent({
           gap: "6px",
           padding: "6px 12px",
           overflowX: "auto",
-          borderTop: "1px solid rgba(255, 255, 255, 0.05)",
-          background: "rgba(15, 23, 42, 0.5)",
+          borderTop: "1px solid var(--color-border-subtle)",
+          background: "var(--color-surface-sunken)",
           whiteSpace: "nowrap",
           alignItems: "center",
         }}
