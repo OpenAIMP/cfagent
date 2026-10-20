@@ -37,6 +37,7 @@
  * recording SEARCH_AGENT stub for the preflight's never-forwards check.
  */
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Module mocks: same stand-ins as the #154/#183 transport gate tests —
@@ -179,5 +180,14 @@ describe("worker premium/wallet CORS preflight — no identity headers advertise
       expect(allow).toContain("x-environment");
     }
     expect(agentForwarded).toHaveLength(0);
+  });
+});
+
+describe("src/server.ts — no CORS surface advertises x-user-id (#700)", () => {
+  it("no Access-Control-Allow-Headers value in server.ts mentions x-user-id", () => {
+    const src = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const values = [...src.matchAll(/Access-Control-Allow-Headers"?\s*[:,]\s*"?([^"\n]+)"?/g)].map((m) => m[1]);
+    expect(values.length).toBeGreaterThan(0);
+    for (const v of values) expect(v).not.toContain("x-user-id");
   });
 });
