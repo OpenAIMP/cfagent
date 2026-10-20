@@ -117,10 +117,12 @@ export function AskAgentWidget({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [isMinimized, setIsMinimized] = useState(() => {
+    // Minimized by default (#637): only an explicit stored "false"
+    // (the user expanded it before) starts the widget expanded.
     if (typeof window !== "undefined") {
-      return localStorage.getItem("cfagent_ask_agent_minimized") === "true";
+      return localStorage.getItem("cfagent_ask_agent_minimized") !== "false";
     }
-    return false;
+    return true;
   });
 
   const toggleMinimize = (e: React.MouseEvent) => {
