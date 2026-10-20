@@ -1339,8 +1339,8 @@ body {
 }
 
 .error-banner-btn {
-  background: #dc2626;
-  color: #ffffff;
+  background: var(--color-danger);
+  color: var(--color-danger-foreground);
   border: 0;
   border-radius: 6px;
   padding: 0.35rem 0.75rem;
@@ -1399,8 +1399,8 @@ body {
 }
 
 .notice-link-btn {
-  background: #059669;
-  color: #ffffff;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
   text-decoration: none;
   border-radius: 6px;
   padding: 0.35rem 0.75rem;
@@ -3086,8 +3086,8 @@ body {
 }
 
 .test-ad-btn:hover {
-  background: #0284c7;
-  color: #ffffff;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
 }
 
 .danger-sm-btn {
@@ -3102,8 +3102,8 @@ body {
 }
 
 .danger-sm-btn:hover {
-  background: #dc2626;
-  color: #ffffff;
+  background: var(--color-danger);
+  color: var(--color-danger-foreground);
 }
 
 .create-subcard {
@@ -5006,8 +5006,8 @@ body {
 }
 
 .preview-indicator-badge {
-  background: #f59e0b;
-  color: #0f172a;
+  background: var(--color-warning);
+  color: var(--color-warning-foreground);
   font-size: 0.65rem;
   font-weight: 800;
   padding: 0.1rem 0.4rem;
@@ -5432,8 +5432,8 @@ body {
 }
 
 .btn-act-buy:hover {
-  background: #10b981;
-  color: #ffffff;
+  background: var(--color-success);
+  color: var(--color-success-foreground);
 }
 
 .btn-act-sell {
@@ -5442,8 +5442,8 @@ body {
 }
 
 .btn-act-sell:hover {
-  background: #ef4444;
-  color: #ffffff;
+  background: var(--color-danger);
+  color: var(--color-danger-foreground);
 }
 
 /* Order Ticket Layout */
@@ -6133,8 +6133,8 @@ body {
 }
 
 .btn-card-trade {
-  background: #10b981;
-  color: #ffffff;
+  background: var(--color-success);
+  color: var(--color-success-foreground);
 }
 
 /* Quote Detail Modal */
@@ -7863,8 +7863,8 @@ body {
 }
 
 .btn-env-toggle.active-env {
-  background: #38bdf8;
-  color: #0f172a;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
   box-shadow: 0 1px 4px rgba(56, 189, 248, 0.4);
   font-weight: 700;
 }
@@ -8607,9 +8607,9 @@ body {
 }
 
 .btn-msg-fix {
-  background: #f59e0b;
+  background: var(--color-warning);
   border: none;
-  color: #0f172a;
+  color: var(--color-warning-foreground);
   font-weight: 700;
   font-size: 0.72rem;
   padding: 0.25rem 0.5rem;
@@ -11559,8 +11559,8 @@ body {
   gap: 0.55rem;
   padding: 0.55rem 1.15rem;
   border-radius: 9999px;
-  background: #064e3b;
-  color: #ffffff;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
   border: 1px solid rgba(16, 185, 129, 0.45);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 185, 129, 0.3);
   font-weight: 700;
@@ -11578,7 +11578,7 @@ body {
 }
 
 .ask-agent-pill-btn.active {
-  background: #059669;
+  background: var(--color-primary);
   border-color: #34d399;
   box-shadow: 0 0 22px rgba(16, 185, 129, 0.6);
 }
@@ -11855,8 +11855,8 @@ body {
 
 .ask-agent-msg-bubble.user {
   align-self: flex-end;
-  background: #10b981;
-  color: #ffffff;
+  background: var(--color-success);
+  color: var(--color-success-foreground);
   border-radius: 12px 12px 2px 12px;
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
@@ -11973,9 +11973,9 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: #10b981;
+  background: var(--color-success);
   border: 0;
-  color: #ffffff;
+  color: var(--color-success-foreground);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -11987,7 +11987,7 @@ body {
 }
 
 .ask-agent-send-btn:hover:not(:disabled) {
-  background: #059669;
+  background: var(--color-primary);
   transform: translateY(-1px);
 }
 
@@ -12188,8 +12188,8 @@ body {
 }
 
 .btn-pause-autopilot {
-  background-color: #dc2626;
-  color: #ffffff;
+  background-color: var(--color-danger);
+  color: var(--color-danger-foreground);
   box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
 }
 
@@ -12199,13 +12199,13 @@ body {
 }
 
 .btn-resume-autopilot {
-  background-color: #10b981;
-  color: #ffffff;
+  background-color: var(--color-success);
+  color: var(--color-success-foreground);
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
 }
 
 .btn-resume-autopilot:hover {
-  background-color: #059669;
+  background-color: var(--color-primary);
   transform: translateY(-1px);
 }
 
@@ -12728,9 +12728,9 @@ body {
 
 .form-field input,
 .form-field select {
-  background: #1e293b;
+  background: var(--color-input);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
+  color: var(--color-input-foreground);
   padding: 0.55rem 0.75rem;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -12763,8 +12763,8 @@ body {
 }
 
 .btn-save-limits {
-  background: #10b981;
-  color: #ffffff;
+  background: var(--color-success);
+  color: var(--color-success-foreground);
   border: none;
   font-weight: 600;
   font-size: 0.82rem;
@@ -12775,7 +12775,7 @@ body {
 }
 
 .btn-save-limits:hover {
-  background: #059669;
+  background: var(--color-primary);
 }
 
 .btn-cancel {
@@ -13155,9 +13155,9 @@ body {
 }
 
 .partner-deals-cat-btn.active {
-  background: #38bdf8;
+  background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #0f172a;
+  color: var(--color-accent-contrast);
 }
 
 .partner-deals-grid {
@@ -13540,8 +13540,8 @@ body {
 }
 
 .omnichannel-header-badge {
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
   padding: 2px 7px;
   border-radius: 9999px;
   font-size: 0.68rem;
@@ -13896,7 +13896,7 @@ body {
 }
 
 .slack-action-btn.primary {
-  background: #059669;
+  background: var(--color-primary);
 }
 
 .slack-action-btn.danger {
@@ -13934,8 +13934,8 @@ body {
 }
 
 .voice-header-badge {
-  background: #10b981;
-  color: #ffffff;
+  background: var(--color-success);
+  color: var(--color-success-foreground);
   padding: 2px 7px;
   border-radius: 9999px;
   font-size: 0.68rem;
@@ -14181,8 +14181,8 @@ body {
 }
 
 .btn-voice-send {
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
   border: none;
   padding: 0.6rem 1.2rem;
   border-radius: 6px;
@@ -14298,7 +14298,7 @@ body {
 }
 
 .btn-voice-order.approve {
-  background: #059669;
+  background: var(--color-primary);
 }
 
 .btn-voice-order.cancel {
