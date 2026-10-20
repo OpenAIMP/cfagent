@@ -3,6 +3,7 @@ import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { ETradeService } from "../src/services/etrade";
 import { AGENT_DIDS } from "../src/agents/did";
+import { storeAccessTokens } from "../src/security/etradeOAuth";
 import { McpToolFactory } from "../src/mcp/commands";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import type { TradingOrderLeg } from "../src/trading/interfaces";
@@ -771,6 +772,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("creates preview draft for HITL authorization even when broker returns collar notice or validation warning without previewId", async () => {
+      const tokenStore = new Map<string, string>();
       const testEnv: Env = {
         ETRADE_CONSUMER_KEY: "mock_ckey",
         ETRADE_CONSUMER_SECRET: "mock_csecret",
@@ -778,7 +780,13 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
         ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
         ETRADE_ENVIRONMENT: "sandbox",
+        ETRADE_KV: {
+          get: async (key: string) => tokenStore.get(key) ?? null,
+          put: async (key: string, value: string) => { tokenStore.set(key, value); },
+          delete: async (key: string) => { tokenStore.delete(key); },
+        } as any,
       } as Env;
+      await storeAccessTokens(testEnv, "openaimp", "mock_token", "mock_tsecret", "TEST");
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
         const url = String(input);
