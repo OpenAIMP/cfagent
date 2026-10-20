@@ -1,0 +1,151 @@
+/**
+ * ReportAssetAgent (issue #680).
+ *
+ * Single owner for the Generate step of the generate/store/serve/deliver
+ * model. All PDF asset generation flows through here — no caller generates
+ * inline anymore.
+ *
+ * - Accepts a generation request (asset type + canonical data).
+ * - Renders via the trading PDF renderers (one call site per type).
+ * - Stores via reportBlobStore (R2 when bound, DO-storage otherwise).
+ * - Returns the storage key + filename.
+ *
+ * Best-effort: generation failure returns null, never throws — the run
+ * that requested the asset must not fail because rendering did.
+ */
+
+import { Agent } from "agents";
+import type { Env } from "../types";
+import { putReportPdf } from "../services/reportBlobStore";
+
+export type AssetType = "research" | "screener" | "options";
+
+export interface AssetRequest {
+  type: AssetType;
+  /** Canonical data the renderer consumes (never a second copy). */
+  data: unknown;
+  /** Optional storage key; defaults to `report:pdf:<type>:<uuid>`. */
+  key?: string;
+  /** Optional filename override; defaults to the #297 convention. */
+  fileName?: string;
+  /** User scope for the storage namespace. */
+  userLogin?: string;
+}
+
+export interface AssetResult {
+  key: string;
+  fileName: string;
+}
+
+export class ReportAssetAgent extends Agent<Env> {
+  /**
+   * Generate + store one PDF asset. Returns null on any failure.
+   */
+  async generateAsset(request: AssetRequest): Promise<AssetResult | null> {
+    try {
+      const { type, data } = request;
+      let bytes: Uint8Array;
+      let fileName: string;
+
+      if (type === "research") {
+        const { generateResearchPdf, researchPdfFileName } = await import("../trading");
+        bytes = await generateResearchPdf(data as any);
+        fileName = request.fileName ?? researchPdfFileName(data as any);
+      } else if (type === "screener") {
+        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
+        bytes = await generateScreenerPdf(data as any);
+        fileName = request.fileName ?? screenerPdfFileName(data as any);
+      } else {
+        const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+        bytes = await generateOptionsPdf(data as any);
+        fileName = request.fileName ?? optionsPdfFileName(data as any);
+      }
+
+      const key =
+        request.key ?? `report:pdf:${type}:${crypto.randomUUID().slice(0, 8)}`;
+      const storage = {
+        put: async (k: string, v: unknown) => {
+          await (this.ctx.storage as any).put(k, v);
+        },
+        get: async (k: string) => (await (this.ctx.storage as any).get(k)) ?? null,
+      };
+      await putReportPdf(this.env, storage as any, key, fileName, bytes);
+      return { key, fileName };
+    } catch (err) {
+      console.warn(`[ReportAssetAgent] generateAsset(${request.type}) failed:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch a stored asset by key.
+   */
+  async getAsset(key: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    try {
+      const { getReportPdf } = await import("../services/reportBlobStore");
+      const storage = {
+        put: async (k: string, v: unknown) => {
+          await (this.ctx.storage as any).put(k, v);
+        },
+        get: async (k: string) => (await (this.ctx.storage as any).get(k)) ?? null,
+      };
+      return await getReportPdf(this.env, storage as any, key);
+    } catch (err) {
+      console.warn(`[ReportAssetAgent] getAsset(${key}) failed:`, err);
+      return null;
+    }
+  }
+}
+
+/**
+ * Helper for callers: get the ReportAssetAgent for a user and generate.
+ * The agent name is stable per user so assets are namespaced.
+ */
+export function reportAssetAgentName(userLogin: string): string {
+  return userLogin === "default_trader" ? "default" : `assets:${userLogin}`;
+}
+
+/**
+ * Generate one PDF asset via the ReportAssetAgent DO.
+ * Returns the storage key + filename, or null on any failure.
+ * This is the single entry point all callers use (issue #680).
+ */
+export async function generatePdfAsset(
+  env: { REPORT_ASSET_AGENT?: any },
+  userLogin: string,
+  type: AssetType,
+  data: unknown
+): Promise<AssetResult | null> {
+  try {
+    const ns = (env as any).REPORT_ASSET_AGENT;
+    if (!ns) return null;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    return await agent.generateAsset({ type, data, userLogin });
+  } catch (err) {
+    console.warn(`[ReportAssetAgent] generatePdfAsset(${type}) failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * Generate + fetch the bytes back (for callers that need the bytes inline,
+ * e.g. Slack delivery). Returns null on any failure.
+ */
+export async function generatePdfAssetWithBytes(
+  env: { REPORT_ASSET_AGENT?: any },
+  userLogin: string,
+  type: AssetType,
+  data: unknown
+): Promise<{ key: string; fileName: string; bytes: Uint8Array } | null> {
+  const asset = await generatePdfAsset(env, userLogin, type, data);
+  if (!asset) return null;
+  try {
+    const ns = (env as any).REPORT_ASSET_AGENT;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    const stored = await agent.getAsset(asset.key);
+    if (!stored) return null;
+    return { key: asset.key, fileName: asset.fileName, bytes: stored.bytes };
+  } catch {
+    return null;
+  }
+}

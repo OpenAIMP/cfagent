@@ -1057,29 +1057,26 @@ export async function handleEtradeOptionsRoutes(
           const slackChannel = filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL;
           const summary = `📊 Options Contract Screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
           try {
-            const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-            const pdfBytes = await generateOptionsPdf(result);
-            const fileName = optionsPdfFileName(result);
-            let binary = "";
-            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            try {
-              const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-              optionsPdfKey = pdfKey;
-              optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-            } catch (storeErr) {
-              console.warn("[Orchestrator] Manual options contracts PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
+            // Issue #680: generation is owned by ReportAssetAgent.
+            const { generatePdfAssetWithBytes } = await import("../report-asset-agent");
+            const asset = await generatePdfAssetWithBytes(ctx.env, userLogin, "options", result);
+            if (asset) {
+              const pdfBytes = asset.bytes;
+              const fileName = asset.fileName;
+              optionsPdfKey = asset.key;
+              optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(asset.key)}`;
+              const sent = await deliverScreenerToSlackA2A(ctx.env, {
+                text: summary,
+                channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
+                pdf: {
+                  bytes: pdfBytes,
+                  fileName,
+                  title: `Options Contract Screen — ${new Date().toISOString().slice(0, 10)}`,
+                  comment: `📄 Options contract screener PDF\n\n${summary}`,
+                },
+              });
+              if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
             }
-            const sent = await deliverScreenerToSlackA2A(ctx.env, {
-              text: summary,
-              channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
-              pdf: {
-                bytes: pdfBytes,
-                fileName,
-                title: `Options Contract Screen — ${new Date().toISOString().slice(0, 10)}`,
-                comment: `📄 Options contract screener PDF\n\n${summary}`,
-              },
-            });
-            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
           } catch (pdfErr) {
             console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
             const sent = await deliverScreenerToSlackA2A(ctx.env, { text: summary, channel: slackChannel });
@@ -1091,13 +1088,13 @@ export async function handleEtradeOptionsRoutes(
         // row, whether or not Slack delivery was requested.
         if (!optionsPdfKey) {
           try {
-            const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-            const pdfBytes = await generateOptionsPdf(result);
-            const fileName = optionsPdfFileName(result);
-            let binary = "";
-            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            optionsPdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-            optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
+            // Issue #680: generation is owned by ReportAssetAgent.
+            const { generatePdfAsset } = await import("../report-asset-agent");
+            const asset = await generatePdfAsset(ctx.env, userLogin, "options", result);
+            if (asset) {
+              optionsPdfKey = asset.key;
+              optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(asset.key)}`;
+            }
           } catch (pdfErr) {
             console.warn("[Orchestrator] Manual options contract report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
           }
@@ -1166,30 +1163,25 @@ export async function handleEtradeOptionsRoutes(
             const slackPayload = result.toSlack();
             const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
             if (result.success) {
-              const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-              const pdfBytes = await generateOptionsPdf(result.data);
-              const fileName = optionsPdfFileName(result.data);
-              let binary = "";
-              for (let i = 0; i < pdfBytes.length; i += 8192) {
-                binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
+              // Issue #680: generation is owned by ReportAssetAgent.
+              const { generatePdfAssetWithBytes } = await import("../report-asset-agent");
+              const asset = await generatePdfAssetWithBytes(ctx.env, userLogin, "options", result.data);
+              if (asset) {
+                const pdfBytes = asset.bytes;
+                const fileName = asset.fileName;
+                reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(asset.key)}`;
+                const sent = await deliverScreenerToSlackA2A(ctx.env, {
+                  text,
+                  channel: slackChannel,
+                  pdf: {
+                    bytes: pdfBytes,
+                    fileName,
+                    title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
+                    comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched\n\n${text}`,
+                  },
+                });
+                if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
               }
-              try {
-                const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-                reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-              } catch (storeErr) {
-                console.warn("[Orchestrator] Manual options PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
-              }
-              const sent = await deliverScreenerToSlackA2A(ctx.env, {
-                text,
-                channel: slackChannel,
-                pdf: {
-                  bytes: pdfBytes,
-                  fileName,
-                  title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
-                  comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched\n\n${text}`,
-                },
-              });
-              if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
             } else {
               const sent = await deliverScreenerToSlackA2A(ctx.env, { text, channel: slackChannel });
               if (!sent.ok) console.warn("[Orchestrator] Slack A2A notification (manual options) failed:", sent.error);
@@ -1206,13 +1198,13 @@ export async function handleEtradeOptionsRoutes(
           }
           if (!pdfKey) {
             try {
-              const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-              const pdfBytes = await generateOptionsPdf(result.data);
-              const fileName = optionsPdfFileName(result.data);
-              let binary = "";
-              for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-              pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-              reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+              // Issue #680: generation is owned by ReportAssetAgent.
+              const { generatePdfAsset } = await import("../report-asset-agent");
+              const asset = await generatePdfAsset(ctx.env, userLogin, "options", result.data);
+              if (asset) {
+                pdfKey = asset.key;
+                reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(asset.key)}`;
+              }
             } catch (pdfErr) {
               console.warn("[Orchestrator] Manual options report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
             }
