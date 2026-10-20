@@ -41,6 +41,12 @@ vi.mock("../src/services/etrade", () => {
       count: symbols.length,
     })),
     deleteWatchlist: vi.fn(async (_id: string) => true),
+    // Issue #243: the details/list routes now consult the service's
+    // existing getLastError() (the #155 pattern) to tell an upstream
+    // failure from a genuine empty/not-found. The real ETradeService
+    // always implements it; undefined models "no recorded error" here,
+    // so every behaviour pinned below is unchanged.
+    getLastError: vi.fn(() => undefined),
   };
   const seen: any[] = [];
   class MockETradeService {
