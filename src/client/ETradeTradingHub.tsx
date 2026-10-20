@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card, Badge } from "./components/ui";
+import { Card, Badge, TextInput } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -2811,29 +2811,27 @@ export function ETradeTradingHub({
                 <div className="omnichannel-form-group">
                   <div>
                     <label className="omnichannel-form-label">From (Sender Email):</label>
-                    <input
+                    <TextInput
                       type="email"
                       value={emailFrom}
                       onChange={(e) => setEmailFrom(e.target.value)}
-                      className="omnichannel-form-input"
                     />
                   </div>
                   <div>
                     <label className="omnichannel-form-label">Subject:</label>
-                    <input
+                    <TextInput
                       type="text"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
-                      className="omnichannel-form-input"
                     />
                   </div>
                   <div>
                     <label className="omnichannel-form-label">Email Body:</label>
-                    <textarea
+                    <TextInput
+                      multiline
                       rows={2}
                       value={emailBody}
                       onChange={(e) => setEmailBody(e.target.value)}
-                      className="omnichannel-form-input"
                     />
                   </div>
 
@@ -2939,11 +2937,10 @@ export function ETradeTradingHub({
                 <div className="omnichannel-form-group">
                   <div>
                     <label className="omnichannel-form-label">Slack Message / Mention:</label>
-                    <input
+                    <TextInput
                       type="text"
                       value={slackPrompt}
                       onChange={(e) => setSlackPrompt(e.target.value)}
-                      className="omnichannel-form-input"
                     />
                   </div>
 
