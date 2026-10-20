@@ -870,6 +870,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Merge to main
 [ ] Verify post-merge CI and applicable CD
 [ ] Verify the feature works end-to-end (§17)
+[ ] Confirm §18/§19 regression coverage (pins bite-proofed; detection covers the changed surface; fix + coverage where a defect was fixed)
 [ ] Update issue and completion evidence
 [ ] Synchronize local main
 [ ] Only now begin the next issue
@@ -938,6 +939,43 @@ Suites that alias the real runtime (framework or SDK stubs, mocked storage) veri
 ### 18.5 Merge promptly, and verify the merge
 
 Per §11's sequential execution: after each PR, merge it before starting the next fix, then verify the branch's merged state (zero commits ahead of `main`, or ancestry) instead of assuming it. A merge is not complete until the branch is verified in `main` and post-merge checks are green — or red and classified under §18.2. Long-lived branches are how unpinned drift accumulates (§7, the pin rule).
+
+## 19. Regression assurance: detection, coverage, and enforcement
+
+§18 disciplines the merge gate. This section covers the other two layers of regression assurance — **detection** after merge and the **response** loop — plus the gate-screening checks that sit beside §18.1 and the enforcement that makes all of it more than discipline. Detection is not prevention (§18), and prevention is not complete without detection behind it: a change is regression-safe when all three layers cover the surface it touched.
+
+### 19.1 Detection (after merge)
+
+- Every production deploy MUST be followed by automated smoke verification of the deployed surface. Where the repository provides it, failing smoke sections file tracked issues automatically (cfpay's post-deploy `[QA self-heal]` issues). A deploy whose smoke has not reported is unverified (§17).
+- CI and deploy failures on `main` MUST be filed or updated as tracked issues automatically where the repository provides the mechanism (cfagent's `ci-failure-self-heal` workflow) and MUST be surfaced to the responsible lane within minutes by repository watchers. A red `main` discovered at the next working session is a detection failure.
+- Production verification MUST bypass edge caches (a cache-busting request or equivalent). A cached response is not evidence about the new deploy.
+
+### 19.2 Response: the defect loop and fix + coverage
+
+- Defects found by detection go through the fixing lane as issue → branch → PR → green gate → merge, under the same rules as any other change (§5, §6, §11, §18). For cfpay this is the self-heal fixer lane.
+- **Fix + coverage is mandatory.** A fix for a defect on a surface no check exercised MUST add the check — test or smoke section — that would have caught it, in the same PR or in a linked follow-up issue filed at the same time. A fix without coverage leaves the hole open for the next change.
+- The loop closes only when the check that filed the defect passes again on a later run or deploy; only then does the tracking issue close.
+- A production defect outside the loop gets the §18.2 treatment on the record — the failing surface and the diverging change named before a fix is attempted (bisection where the culprit is not obvious).
+
+### 19.3 Gate screening (beside §18.1)
+
+Before merging, the gate MUST also screen for the failure shapes a green suite cannot see:
+
+- **Stale base.** The diff is compared against a fresh base. A branch built on a stale base can delete newer work in a clean, conflict-free merge; deletions reaching far beyond the change's scope are the signature, and they stop the merge.
+- **Resolution debris.** The diff and `main` are checked for conflict markers and botched-resolution remnants.
+- **Hermeticity.** New and changed tests are screened for live-network calls and dependence on the ambient environment (real credentials, provider availability, runner load). A test that passes only on its author's machine is a future red `main`.
+- **Bite-proofed pins.** A new pin or regression test (§7) is demonstrated failing on the tree without the fix and passing with it. A pin that has never been seen red is decoration, not a gate.
+- **Landed-state verification.** After merge, the gate verifies every branch commit is present on `main` (§18.5) — a merge record alone is not proof, because a stale PR head can silently drop a late commit.
+
+### 19.4 Enforcement
+
+§18 and this section are discipline until repository settings make them mechanical.
+
+- `main` in every repository under this policy MUST be protected with required status checks covering at minimum the CI test/build job and secret scanning, so a red or unfinished pipeline cannot be merged by any lane or tool. Where merge volume makes stale-base merges a live risk, the branch MUST also be required to be up to date before merging.
+- Enabling or changing branch protection is an owner-side repository setting (§3). Agents MUST record, per repository, whether protection is enabled and which checks are required; a repository without it is an open enforcement gap and MUST be reported as one — never described as covered.
+- Until protection is enabled for a repository, every merge in it remains auditable against §18 and this section after the fact. A merge that proceeded over a red or running check outside §18.1's emergency exception is a policy deviation and MUST be recorded on the PR or its issue, with the reason.
+
+***
 
 ## Instruction to add to `AGENTS.md`
 
