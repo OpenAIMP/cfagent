@@ -1142,8 +1142,7 @@ export async function handleEtradeBrokerActivityRoutes(
   }
 
   // Issue #706: learning store endpoints.
-  if (path.endsWith("/learnings") && request.method === "GET") {
-    try {
+  if (path.endsWith("/learnings") && request.method === "GET") {    try {
       const { getActiveLearnings, getLearningHistory } = await import("../../services/learnings");
       const domain = url.searchParams.get("domain") || undefined;
       const history = url.searchParams.get("history") === "true";
@@ -1172,6 +1171,18 @@ export async function handleEtradeBrokerActivityRoutes(
       return Response.json({ id, success: true });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to record learning" }, { status: 500 });
+    }
+  }
+
+  // Issue #705: reflection job trigger. The weekly guard lives in
+  // runReflection (Sunday-only, idempotent per week).
+  if (path.endsWith("/reflection/run") && request.method === "POST") {
+    try {
+      const { runReflection } = await import("../../services/reflection");
+      const result = runReflection(ctx.getOrm(), new Date());
+      return Response.json({ success: true, ...result, timestamp: new Date().toISOString() });
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Reflection failed" }, { status: 500 });
     }
   }
 
