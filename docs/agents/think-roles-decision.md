@@ -141,7 +141,7 @@ The five-step migration is **complete**:
 | 3a — Extraction + shadow core | #668 | #673 | da29cde |
 | 3b — Shadow turn lifecycle | #669 | #683 | e02c496 |
 | 4 — Cutover | #686 | #701 | f7a0efc |
-| 5 — Post-cutover verification | #721 | (this record's PR) | — |
+| 5 — Post-cutover verification | #721 | #724 | — |
 
 `OrchestratorAgent` runs on `Think<Env>` in production with its class
 name, `SearchAgent` export alias, `SEARCH_AGENT` binding, and
