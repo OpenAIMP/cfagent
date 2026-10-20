@@ -1341,6 +1341,18 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(researchPromise);
       else await researchPromise;
+      // Issue #705 — the weekly reflection job rides this tick (same
+      // Workers Free ceiling constraint as #354). Fire/no-fire is decided
+      // inside the route (Sunday, not already fired this week — durable
+      // guard in mas_settings), so this dispatch is unconditional.
+      const reflectionPromise = agent.fetch(
+        new Request("https://agent.internal/reflection/run", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(reflectionPromise);
+      else await reflectionPromise;
       return;
     }
     // Renew all account-scoped Durable Object tokens before midnight ET.
