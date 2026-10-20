@@ -69,7 +69,7 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
         </button>
       </div>
 
-      {error && <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
 
       {searched && !loading && !error && chunks.length === 0 && (
         <div style={{ opacity: 0.7 }}>

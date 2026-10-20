@@ -34,11 +34,20 @@ const SOURCE_LABELS: Record<string, string> = {
   research_report: "🔬 Research",
 };
 
-const SOURCE_COLORS: Record<string, string> = {
-  screener: "var(--color-accent)",
-  options_scanner: "var(--color-purple)",
-  iv_collection: "var(--color-success)",
-  research_report: "var(--color-warning)",
+// Badge colors travel as background/foreground token PAIRS (#677): each
+// foreground is the WCAG-AA paired token for its background in every
+// theme (white text on these backgrounds failed AA in dark/high-contrast).
+const SOURCE_BADGE_STYLES: Record<string, { backgroundColor: string; color: string }> = {
+  screener: { backgroundColor: "var(--color-accent)", color: "var(--color-accent-contrast)" },
+  options_scanner: { backgroundColor: "var(--color-purple)", color: "var(--color-purple-foreground)" },
+  iv_collection: { backgroundColor: "var(--color-success)", color: "var(--color-success-foreground)" },
+  research_report: { backgroundColor: "var(--color-warning)", color: "var(--color-warning-foreground)" },
+};
+
+// Unknown sources get the neutral sunken-surface pair (also AA-audited).
+const FALLBACK_BADGE_STYLE = {
+  backgroundColor: "var(--color-surface-sunken)",
+  color: "var(--color-surface-sunken-foreground)",
 };
 
 export function ReportsPanel() {
@@ -158,7 +167,7 @@ export function ReportsPanel() {
             <div className="report-header">
               <span
                 className="source-badge"
-                style={{ backgroundColor: SOURCE_COLORS[r.source] || "var(--color-text-dim)" }}
+                style={SOURCE_BADGE_STYLES[r.source] || FALLBACK_BADGE_STYLE}
               >
                 {SOURCE_LABELS[r.source] || r.source}
               </span>
