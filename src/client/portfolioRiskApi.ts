@@ -10,6 +10,7 @@ import type { PortfolioRiskReport } from "../services/portfolioRisk";
 import type { ConcentrationReport } from "../services/portfolioConcentration";
 import type { SizingCandidate, SizingResult } from "../services/positionSizing";
 import type { HedgeAnalysis, HedgeProposal } from "../services/hedgeProposals";
+import type { RepairAnalysis, RepairProposal } from "../services/repairProposals";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import { apiFetch } from "./apiFetch";
 
@@ -114,6 +115,62 @@ export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: n
       expirationDate: proposal.expirationDate,
     }],
     strategyNetDebit: Math.sign(proposal.estimatedCost || 1) * Math.abs(proposal.estimatedCost) / Math.max(1, proposal.quantity),
+  };
+}
+
+export type { RepairAnalysis, RepairProposal };
+
+// ---------------------------------------------------------------------------
+// Repair proposals (#355 endpoint)
+// ---------------------------------------------------------------------------
+
+export async function fetchRepairAnalysis(env: string): Promise<RepairAnalysis> {
+  const analysis = await postJson<RepairAnalysis>("/api/etrade/portfolio-repair/analyze", env);
+  // Shape guard (issue #71 pattern): the renderer reads .length on both arrays.
+  if (!analysis || !Array.isArray(analysis.proposals) || !Array.isArray(analysis.symbolsUnavailable)) {
+    throw new Error("Unexpected repair-analysis response shape — the payload was incomplete.");
+  }
+  return analysis;
+}
+
+/**
+ * Hand a repair draft to the hub's HITL order-ticket flow. The 1×2 ratio
+ * becomes two option legs; the DRAFT status and the rationale travel in the
+ * label so the ticket shows what is being previewed.
+ */
+export function repairProposalToTradeContext(proposal: RepairProposal): TradeOrderContext {
+  const cost = proposal.netDebitPerUnit <= 0
+    ? `credit ${fmtUsd(Math.abs(proposal.netDebitPerUnit), 2)}`
+    : `debit ${fmtUsd(proposal.netDebitPerUnit, 2)}`;
+  return {
+    assetClass: "options",
+    symbol: proposal.symbol,
+    action: "BUY",
+    quantity: proposal.units,
+    label: `Repair draft — 1×2 call ratio on ${proposal.symbol} (${cost}/unit, recover at ${proposal.upsideCappedAbove})`,
+    legs: [
+      `BUY ${proposal.units} ${proposal.symbol} ${proposal.legLong.strike} CALL exp ${proposal.legLong.expirationDate} @ ~${fmtUsd(proposal.legLong.premium, 2)}`,
+      `SELL ${proposal.units * 2} ${proposal.symbol} ${proposal.legShort.strike} CALL exp ${proposal.legShort.expirationDate} @ ~${fmtUsd(proposal.legShort.premium, 2)}`,
+    ],
+    optionLegs: [
+      {
+        securityType: "OPTN",
+        side: "BUY",
+        quantity: proposal.units,
+        optionType: "CALL",
+        strike: proposal.legLong.strike,
+        expirationDate: proposal.legLong.expirationDate,
+      },
+      {
+        securityType: "OPTN",
+        side: "SELL",
+        quantity: proposal.units * 2,
+        optionType: "CALL",
+        strike: proposal.legShort.strike,
+        expirationDate: proposal.legShort.expirationDate,
+      },
+    ],
+    strategyNetDebit: proposal.netDebitPerUnit,
   };
 }
 

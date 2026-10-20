@@ -896,6 +896,21 @@ export async function handleEtradeBrokerRoutes(
     }
   }
 
+  // Issue #355: portfolio repair proposals (1x2 call ratios on underwater
+  // longs). Drafts only — HITL-gated via the existing preview flow; no order
+  // path is reachable from this endpoint.
+  if (path.endsWith("/etrade/portfolio-repair/analyze") && request.method === "POST") {
+    try {
+      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      const { generateRepairProposals } = await import("../../services/repairProposals");
+      const analysis = await generateRepairProposals(etrade);
+      return Response.json(analysis);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to generate repair proposals" }, { status: 500 });
+    }
+  }
+
   // Order History & Trade Audit Ledger
   if (path.endsWith("/etrade/orders") && request.method === "GET") {
     try {
