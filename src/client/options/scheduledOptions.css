@@ -587,25 +587,6 @@
   line-height: 1.45;
 }
 
-.sched-input,
-.sched-select {
-  background: var(--color-input);
-  border: 1px solid var(--color-border-medium);
-  border-radius: 8px;
-  color: var(--color-text-primary);
-  padding: 0.65rem 0.85rem;
-  font-size: 0.86rem;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.sched-input:focus,
-.sched-select:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-focus-ring);
-}
-
 .preset-chips-row {
   display: flex;
   gap: 0.4rem;
@@ -796,14 +777,6 @@
 .sched-form-group label {
   color: var(--color-text-primary) !important;
   font-weight: 600;
-}
-
-.sched-select,
-.sched-input,
-.sched-textarea {
-  color: var(--color-text-primary) !important;
-  background: var(--color-card) !important;
-  border: 1px solid var(--color-border-medium) !important;
 }
 
 /* Native <option> rendering follows the root color-scheme (set by theme.ts); the old forced-light override was removed in Phase 6 (#476). */

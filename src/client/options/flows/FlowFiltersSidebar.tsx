@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { TextInput } from "../../components/ui";
 import {
   FlowFilterConfig,
   SavedFilterPreset,
@@ -224,9 +225,8 @@ export function FlowFiltersSidebar({
           <div className="flow-form-group">
             <label className="flow-form-label">Tickers:</label>
             <div className="flow-ticker-input-wrap">
-              <input
+              <TextInput
                 type="text"
-                className="flow-text-input"
                 placeholder="Add or exclude a ticker"
                 value={tickerInput}
                 onChange={(e) => setTickerInput(e.target.value)}
@@ -249,9 +249,8 @@ export function FlowFiltersSidebar({
             <div className="flow-form-group">
               <label className="flow-form-label">Insiders:</label>
               <div className="flow-ticker-input-wrap">
-                <input
+                <TextInput
                   type="text"
-                  className="flow-text-input"
                   placeholder="Add or exclude an insider"
                   value={insiderInput}
                   onChange={(e) => setInsiderInput(e.target.value)}
@@ -642,9 +641,8 @@ export function FlowFiltersSidebar({
           <div className="flow-modal-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>💾 Save Flow Filter Preset</h3>
             <p>Save current configuration to "Your Filters" for instant recall and alerting.</p>
-            <input
+            <TextInput
               type="text"
-              className="flow-text-input"
               placeholder="e.g. 0DTE Tech Sweeps"
               value={filterNameInput}
               onChange={(e) => setFilterNameInput(e.target.value)}

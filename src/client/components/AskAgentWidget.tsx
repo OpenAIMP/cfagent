@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
+import { TextInput } from "./ui";
 
 export interface AskAgentWidgetProps {
   onAskAgent: (prompt: string) => void;
@@ -383,7 +384,7 @@ export function AskAgentWidget({
 
           {/* Input & Action Footer */}
           <form className="ask-agent-input-form" onSubmit={handleSend}>
-            <input
+            <TextInput
               ref={inputRef}
               type="text"
               className="ask-agent-text-input"
