@@ -39,6 +39,27 @@
  * genuine empty -> the byte-identical previous 200; details upstream
  * failure -> 502, genuine not-found -> the previous 404.
  *
+ * Issue #517: the same handler's three sibling routes kept the
+ * ambiguous shapes after #243 — GET /etrade/transactions answered an
+ * empty 200 on upstream failure, and GET /etrade/transactions/:id
+ * and GET /etrade/alerts/:id mapped ANY null to 404. They now follow
+ * the identical split. The consumer survey was repeated for these
+ * routes (see #517): accountApi.ts getJson throws on non-200 with the
+ * body's error for all three; the transactions panel loader renders
+ * the message through its error state, and both detail click
+ * handlers catch to the same null they showed for the old 404 — no
+ * consumer depends on failure looking like empty or not-found.
+ *
+ * Detail-route contract note (the #168 client contract, the same
+ * call #243 made for watchlist/details): the client records an
+ * error for EVERY null detail result — including an upstream 404
+ * after the .json fallback retry — so an upstream 404 surfaces here
+ * as 502 naming the recorded reason. The routes' 404 remains for a
+ * null with NO recorded error (the genuine not-found case); with the
+ * current client that branch is defensive — no client path returns
+ * a clean null — so it is preserved verbatim in the route rather
+ * than exercised by a live scenario below.
+ *
  * No assertion ever expects credential or token material in an error
  * surface; one test pins the opposite.
  */
@@ -445,6 +466,190 @@ describe("error-surface hygiene (#243)", () => {
     const body = (await res!.json()) as any;
     for (const secret of [FAKE_KEY, FAKE_SECRET, FAKE_TOKEN, FAKE_TOKEN_SECRET]) {
       expect(body.error).not.toContain(secret);
+    }
+  });
+});
+
+describe("GET /etrade/transactions — failure vs genuine empty (#517)", () => {
+  const path = "/api/etrade/transactions";
+
+  /** Credentialed env with a preset account key, so the client calls
+   * the transactions endpoint directly (no account-resolution leg). */
+  async function makeAuthedEnvWithKey(): Promise<Env> {
+    const env = makeEnv({ ETRADE_ACCOUNT_ID_KEY: "key1" });
+    await storeAccessTokens(env, USER, FAKE_TOKEN, FAKE_TOKEN_SECRET);
+    return env;
+  }
+
+  it("missing credentials → 502 naming the cause, no upstream call (was 200 count 0)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(makeBareEnv(), makeOrm()));
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("consumer credentials are not configured");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 400 oauth rejection → 502 naming the failure", async () => {
+    failAllFetches(400);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnvWithKey(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("Transactions API Error [HTTP 400]");
+    expect(body.error).toContain("oauth_problem");
+  });
+
+  it("genuine empty (account resolves, wrapper present, no transactions) → the exact previous 200", async () => {
+    stubFetchByUrl([
+      { match: "/transactions", payload: { TransactionListResponse: {} } },
+      {
+        match: "/accounts/list",
+        payload: {
+          AccountListResponse: {
+            Accounts: {
+              Account: [{ accountId: "1234", accountIdKey: "key1", accountDesc: "Brokerage", accountType: "INDIVIDUAL" }],
+            },
+          },
+        },
+      },
+    ]);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(200);
+    expect(await res!.json()).toEqual({ count: 0, transactions: [] });
+  });
+
+  it("success → 200 with the transactions, unchanged", async () => {
+    okJson({
+      TransactionListResponse: {
+        Transaction: { transactionId: 987, accountId: "1234", transactionDate: 1700000000000, amount: 42.5, description: "ACH DEPOSIT", transactionType: "ACH" },
+      },
+    });
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnvWithKey(), makeOrm()));
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.count).toBe(1);
+    expect(body.transactions[0].transactionId).toBe("987");
+    expect(body.transactions[0].description).toBe("ACH DEPOSIT");
+  });
+});
+
+describe("GET /etrade/transactions/:id — failure vs genuine not-found (#517)", () => {
+  const path = "/api/etrade/transactions/txn_001";
+  const ACCOUNT_LIST = {
+    AccountListResponse: {
+      Accounts: {
+        Account: [{ accountId: "1234", accountIdKey: "key1", accountDesc: "Brokerage", accountType: "INDIVIDUAL" }],
+      },
+    },
+  };
+
+  it("missing credentials → 502 naming the cause, no upstream call (was 404 'not found')", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(makeBareEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("consumer credentials are not configured");
+    expect(body.error).not.toContain("not found");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 400 oauth rejection → 502 naming the failure (was 404 'not found')", async () => {
+    stubFetchByUrl([
+      { match: "/transactions/", payload: { Error: { code: 1003, message: "oauth_problem=token_rejected" } }, status: 400 },
+      { match: "/accounts/list", payload: ACCOUNT_LIST },
+    ]);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("Transaction Details API Error [HTTP 400]");
+    expect(body.error).toContain("oauth_problem");
+  });
+
+  it("upstream 404 → 502 naming the recorded reason (the #168 contract records it as a failure; the route 404 is for a null with no recorded error)", async () => {
+    stubFetchByUrl([
+      { match: "/transactions/", payload: { Error: { code: 404, message: "resource not found" } }, status: 404 },
+      { match: "/accounts/list", payload: ACCOUNT_LIST },
+    ]);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("Transaction Details API Error [HTTP 404]");
+  });
+
+  it("success → 200 with the details, unchanged", async () => {
+    stubFetchByUrl([
+      {
+        match: "/transactions/",
+        payload: {
+          TransactionDetailsResponse: { transactionId: "txn_001", accountId: "1234", transactionDate: 1700000000000, amount: -25.5, description: "Dividend" },
+        },
+      },
+      { match: "/accounts/list", payload: ACCOUNT_LIST },
+    ]);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.transactionId).toBe("txn_001");
+    expect(body.description).toBe("Dividend");
+    expect(body.amount).toBe(-25.5);
+  });
+});
+
+describe("GET /etrade/alerts/:id — failure vs genuine not-found (#517)", () => {
+  const path = "/api/etrade/alerts/5001";
+
+  it("missing credentials → 502 naming the cause, no upstream call (was 404 'not found')", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(makeBareEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("consumer credentials are not configured");
+    expect(body.error).not.toContain("not found");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 400 oauth rejection → 502 naming the failure (was 404 'not found')", async () => {
+    failAllFetches(400);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("Alert Details API Error [HTTP 400]");
+    expect(body.error).toContain("oauth_problem");
+  });
+
+  it("upstream 404 → 502 naming the recorded reason (same #168 contract as transaction details)", async () => {
+    failAllFetches(404);
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(502);
+    const body = (await res!.json()) as any;
+    expect(body.error).toContain("Alert Details API Error [HTTP 404]");
+  });
+
+  it("success → 200 with the details, unchanged", async () => {
+    okJson({
+      AlertDetailsResponse: { id: 5001, createTime: 1700000000, subject: "Price alert", msgText: "AAPL crossed 150" },
+    });
+    const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(await makeAuthedEnv(), makeOrm()));
+    expect(res!.status).toBe(200);
+    const body = (await res!.json()) as any;
+    expect(body.id).toBe(5001);
+    expect(body.subject).toBe("Price alert");
+  });
+});
+
+describe("error-surface hygiene (#517)", () => {
+  it("transactions and alert-details 502 bodies never contain credential or token material", async () => {
+    failAllFetches(400);
+    const env = makeEnv({ ETRADE_ACCOUNT_ID_KEY: "key1" });
+    await storeAccessTokens(env, USER, FAKE_TOKEN, FAKE_TOKEN_SECRET);
+    for (const path of ["/api/etrade/transactions", "/api/etrade/alerts/5001"]) {
+      const res = await handleEtradeBrokerActivityRoutes(req(path), urlOf(path), path, USER, brokerCtx(env, makeOrm()));
+      expect(res!.status).toBe(502);
+      const body = (await res!.json()) as any;
+      for (const secret of [FAKE_KEY, FAKE_SECRET, FAKE_TOKEN, FAKE_TOKEN_SECRET]) {
+        expect(body.error).not.toContain(secret);
+      }
     }
   });
 });

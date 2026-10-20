@@ -979,6 +979,16 @@ export async function handleEtradeBrokerActivityRoutes(
       const sortOrder = (url.searchParams.get("sortOrder") as "ASC" | "DESC") || undefined;
       const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
       const transactions = await etrade.fetchTransactions(undefined, { startDate, endDate, sortOrder, count });
+      if (transactions.length === 0) {
+        // Issue #517: empty + recorded client error = upstream failure,
+        // not "no transactions" — 502 naming the cause (#155 pattern,
+        // as #243 did for the sibling routes). A genuine empty keeps
+        // the exact previous 200 payload.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
+      }
       return Response.json({ count: transactions.length, transactions });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch transactions" }, { status: 500 });
@@ -994,6 +1004,14 @@ export async function handleEtradeBrokerActivityRoutes(
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const details = await etrade.fetchTransactionDetails(transactionId, undefined, storeId);
       if (!details) {
+        // Issue #517: null + recorded client error = upstream failure,
+        // not "not found" — 502 naming the cause (#155 pattern, as
+        // #243 did for watchlist/details). A genuine not-found (null,
+        // no recorded error) keeps the exact previous 404.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
         return Response.json({ error: "Transaction not found" }, { status: 404 });
       }
       return Response.json(details);
@@ -1034,6 +1052,14 @@ export async function handleEtradeBrokerActivityRoutes(
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const details = await etrade.fetchAlertDetails(alertId);
       if (!details) {
+        // Issue #517: null + recorded client error = upstream failure,
+        // not "not found" — 502 naming the cause (#155 pattern, as
+        // #243 did for watchlist/details). A genuine not-found (null,
+        // no recorded error) keeps the exact previous 404.
+        const upstreamError = etrade.getLastError();
+        if (upstreamError) {
+          return Response.json({ error: upstreamError }, { status: 502 });
+        }
         return Response.json({ error: "Alert not found" }, { status: 404 });
       }
       return Response.json(details);
