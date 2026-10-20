@@ -684,9 +684,23 @@ export async function handleEtradeOptionsRoutes(
             let humanFeedback: string | undefined;
             try {
               const { listStrategyReviews } = await import("../../services/strategyReviews");
-              const { buildHumanFeedbackContext } = await import("../../trading");
+              const { buildHumanFeedbackContext, buildReflectionFeedbackContext } = await import("../../trading");
+              const { getActiveLearnings } = await import("../../services/learnings");
               const recent = listStrategyReviews(ctx.getOrm()).slice(0, 20);
               humanFeedback = buildHumanFeedbackContext(recent) || undefined;
+              // Issue #775: append reflection adjustments so the Act step acts.
+              try {
+                const learnings = getActiveLearnings(ctx.getOrm() as any, "screener");
+                const reflectionCtx = buildReflectionFeedbackContext(
+                  learnings.map((l) => ({ observation: l.observation, confidence: l.confidence }))
+                );
+                if (reflectionCtx) {
+                  humanFeedback = humanFeedback
+                    ? `${humanFeedback}\n\n${reflectionCtx}`
+                    : reflectionCtx;
+                  console.log(`[Options] Ranking with reflection adjustments (${learnings.length} learnings)`);
+                }
+              } catch {}
               if (humanFeedback) {
                 console.log(`[Options] Ranking with human feedback context (${recent.length} recent decisions)`);
               }
