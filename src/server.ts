@@ -669,26 +669,72 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return new Response(resp.body, { status: resp.status, headers });
     }
 
-    // --- Cloudflare Agentic Payments (HTTP 402 Gated Endpoints & Wallet API) ---
-    if (path.startsWith("/api/premium/") || path.startsWith("/api/payments/agentic/")) {
-      if (request.method === "OPTIONS") {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment",
-            "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt",
-          },
-        });
-      }
+    // --- Cloudflare Agentic Payments: CORS preflight (premium + wallet families) ---
+    if ((path.startsWith("/api/premium/") || path.startsWith("/api/payments/agentic/")) && request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment",
+          "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt",
+        },
+      });
+    }
 
+    // --- Agentic Wallet API (/api/payments/agentic/*) ---
+    // Issue #183: a session is REQUIRED for the wallet family (the #154
+    // pattern) — the wallet and its HITL auto-approve limit are the
+    // signed-in user's own state. Previously a null session fell back
+    // to the caller-supplied x-user-id header or a shared
+    // "agentic_consumer" instance, so an unauthenticated caller could
+    // read and mutate a shared wallet (and select any user's instance
+    // by asserting their login). The fallback identities are removed;
+    // the only in-app caller (AgenticWalletPanel) is signed in.
+    if (path.startsWith("/api/payments/agentic/")) {
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || request.headers.get("x-user-id") || "agentic_consumer";
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const userLogin = session.githubLogin;
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const subPath = path.replace(/^\/api/, "");
       const targetUrl = new URL(subPath + url.search, "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", userLogin);
+
+      const resp = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
+      const headers = new Headers(resp.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment");
+      headers.set("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt");
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
+    // --- Premium Paid Endpoints (/api/premium/*) ---
+    // Issue #183: payment (x402) is the access control for premium
+    // endpoints, so anonymous paid access stays — but identity is never
+    // asserted. With a session, traffic runs under the session login,
+    // exactly as before. Without one, caller-supplied identity headers
+    // are stripped and the request is served by the dedicated
+    // PREMIUM_GATEWAY instance (nobody's user instance — the instance
+    // name itself is the downstream signal that this is anonymous
+    // traffic); the premium handlers bind every persisted payment row
+    // and the fulfillment identity to the VERIFIED payer instead.
+    // Previously an asserted x-user-id selected ANY user's instance
+    // and premium fulfillment ran under that asserted login.
+    if (path.startsWith("/api/premium/")) {
+      const session = await requireAuth(request, env);
+      const subPath = path.replace(/^\/api/, "");
+      const targetUrl = new URL(subPath + url.search, "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      let id;
+      if (session) {
+        forwardReq.headers.set("x-user-login", session.githubLogin);
+        id = env.SEARCH_AGENT.idFromName(session.githubLogin);
+      } else {
+        forwardReq.headers.delete("x-user-login");
+        forwardReq.headers.delete("x-user-id");
+        id = env.SEARCH_AGENT.idFromName(PREMIUM_GATEWAY_INSTANCE);
+      }
 
       const resp = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
       const headers = new Headers(resp.headers);
@@ -1244,6 +1290,16 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
     return env.ASSETS.fetch(request);
 }
+
+/**
+ * Issue #183: the dedicated Durable Object instance that serves
+ * ANONYMOUS premium (x402-paid) traffic. It is deliberately not any
+ * user's instance name: the premium handlers recognise anonymous
+ * traffic by the absence of an x-user-login header (the worker sets
+ * that header only from a verified session) and bind all persisted
+ * payment state to the verified payer instead of the instance.
+ */
+export const PREMIUM_GATEWAY_INSTANCE = "premium-gateway";
 
 export default {
   // Issue #329: an escaped throw used to surface as Cloudflare error 1101 —

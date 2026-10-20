@@ -70,6 +70,20 @@ export const AGENTIC_WALLET_SIMULATED_NOTE =
 export const SIMULATED_PROOF_SIGNATURE = "SIMULATED_UNSIGNED_PROOF_NO_SIGNATURE";
 
 /**
+ * Issue #183: the persisted-state scope for a VERIFIED agentic payment.
+ * Anonymous premium traffic is served by a shared gateway instance, so
+ * its ledger rows and audit events must NOT be stamped with that shared
+ * instance identity (every payer would pool into one wallet) and must
+ * NEVER carry a caller-asserted login. The only identity a verified
+ * payment actually proves is the payer, so payer-bound state is scoped
+ * `x402:<payer>` — one scope per verified payer, derived from the
+ * receipt the claim verifier produced, never from a header.
+ */
+export function payerScopeId(payer: string): string {
+  return `x402:${payer}`;
+}
+
+/**
  * Catalogue of Paid Trading Services offered by E*TRADE Trading Agent
  */
 export const TRADING_PAID_SERVICES: Record<string, PaidTradingServiceTier> = {
@@ -111,16 +125,46 @@ export class ETradeAgenticPaymentService {
     private orm?: DatabaseORM,
     private env?: Env,
     private sessionId: string = "default_trader",
-    private claimVerifier: X402ClaimVerifier = verifyOnChainClaim
+    private claimVerifier: X402ClaimVerifier = verifyOnChainClaim,
+    /**
+     * Issue #183: payer-bound mode is used for anonymous premium traffic
+     * (the worker's premium-gateway instance). In this mode, persisted
+     * payment state is scoped by the VERIFIED payer (see payerScopeId)
+     * instead of this.sessionId, so anonymous payers never pool into one
+     * shared ledger identity. Session (per-user instance) traffic leaves
+     * this off: its instance identity already IS the user's.
+     */
+    private identityOptions: { payerBound?: boolean } = {}
   ) {
     this.network = this.env?.X402_NETWORK || "base-sepolia";
     this.recipient =
       this.env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550";
     this.facilitatorUrl = this.env?.X402_FACILITATOR_URL || "https://x402.org/facilitator";
     this.autoApproveLimitUSD = Number(this.env?.X402_AUTO_APPROVE_LIMIT || 0.05);
+    // Issue #183: a limit previously set for this identity overrides the
+    // env default — setAutoApproveLimit persists per identity (below),
+    // and services are constructed per request, so the constructor is
+    // where a fresh instance picks the persisted value back up.
+    const persistedLimit = this.loadPersistedAutoApproveLimit();
+    if (persistedLimit !== undefined) this.autoApproveLimitUSD = persistedLimit;
     this.agentWalletAddress =
       this.env?.X402_AGENT_WALLET_KEY || "0x1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B";
     this.mppSecretKey = this.env?.MPP_SECRET_KEY;
+  }
+
+  /** Issue #183: true when this service serves anonymous (gateway) premium traffic. */
+  get payerBound(): boolean {
+    return this.identityOptions.payerBound === true;
+  }
+
+  /**
+   * Issue #183: the sessionId stamp for persisted payment state. In
+   * payer-bound mode with a receipt, that is the verified payer's scope;
+   * otherwise the service's own instance identity.
+   */
+  private stampForReceipt(receipt?: AgenticPaymentReceipt): string {
+    if (this.payerBound && receipt) return payerScopeId(receipt.payer);
+    return this.sessionId;
   }
 
   // =========================================================================
@@ -232,7 +276,14 @@ export class ETradeAgenticPaymentService {
     if (this.orm?.events) {
       this.orm.events.create({
         id: `evt_402_${Date.now()}`,
-        sessionId: this.sessionId,
+        // Issue #183: a challenge is issued BEFORE any payment exists, so
+        // in payer-bound (anonymous gateway) mode there is no verified
+        // payer to scope it to yet. Key the event by the challenge's own
+        // nonce — unique per challenge, traceable to the verified
+        // payment that later presents a proof carrying the same nonce —
+        // never by an asserted login or the shared gateway identity.
+        // The verified payment itself is payer-scoped (recordPaymentTransaction).
+        sessionId: this.payerBound ? `x402:challenge:${challenge.nonce}` : this.sessionId,
         type: "AGENTIC_PAYMENT_CHALLENGE",
         agent: "trading",
         payload: {
@@ -712,6 +763,11 @@ export class ETradeAgenticPaymentService {
   ): Promise<TransactionRecord> {
     const now = new Date().toISOString();
     const action = direction === "inbound" ? ("agentic_payment" as const) : ("micropayment" as const);
+    // Issue #183: in payer-bound mode the row (and its audit event) is
+    // stamped with the VERIFIED payer's scope, not the serving
+    // instance's identity — anonymous premium payments must not pool
+    // into the shared gateway instance's ledger.
+    const stamp = this.stampForReceipt(receipt);
     // Issue #122: a simulated receipt records as a simulated ledger entry —
     // never "completed", never with a fabricated `sig_…` proof signature.
     const isSimulated = receipt.simulated === true || receipt.status === "simulated";
@@ -719,7 +775,7 @@ export class ETradeAgenticPaymentService {
       receipt.note || `Cloudflare Agentic Payment (${(receipt.protocol || "x402").toUpperCase()}) on ${receipt.network || this.network}`;
     const txRecord: TransactionRecord = {
       id: `tx_${receipt.receiptId}`,
-      sessionId: this.sessionId,
+      sessionId: stamp,
       action,
       amount: receipt.amount,
       currency: receipt.currency,
@@ -743,7 +799,7 @@ export class ETradeAgenticPaymentService {
     if (this.orm?.events) {
       this.orm.events.create({
         id: `evt_pay_${Date.now()}`,
-        sessionId: this.sessionId,
+        sessionId: stamp,
         type: direction === "inbound" ? "AGENTIC_PAYMENT_COLLECTED" : "AGENTIC_PAYMENT_SUBMITTED",
         agent: "trading",
         payload: {
@@ -787,6 +843,11 @@ export class ETradeAgenticPaymentService {
     if (this.orm?.transactions) {
       const allTx = this.orm.transactions.findMany();
       for (const tx of allTx) {
+        // Issue #183: wallet status is PER-IDENTITY. Only rows stamped
+        // with this service's own identity count — even if the backing
+        // store is shared, one identity's agentic payments can never
+        // surface in another identity's wallet status.
+        if (tx.sessionId !== this.sessionId) continue;
         if (tx.gateway === "x402" || tx.gateway === "mpp") {
           count++;
           if (tx.action === "agentic_payment" || tx.action === "charge") {
@@ -823,11 +884,55 @@ export class ETradeAgenticPaymentService {
   }
 
   /**
-   * Set auto-approval threshold for Human-in-the-Loop protection
+   * Issue #183: the durable per-identity storage key for the
+   * auto-approve limit (the instance ORM's mas_memory key-value store —
+   * the same store the MCP commands use for persisted facts).
+   */
+  private autoApproveLimitKey(): string {
+    return `agentic:autoApproveLimitUSD:${this.sessionId}`;
+  }
+
+  /**
+   * Issue #183: read this identity's persisted auto-approve limit, or
+   * undefined when none was ever set (the caller then keeps the env
+   * default). A storage read failure must not break service
+   * construction — services are built per request in contexts that may
+   * not have the schema ready — so failures fall back to undefined.
+   */
+  private loadPersistedAutoApproveLimit(): number | undefined {
+    try {
+      if (!this.orm?.memory) return undefined;
+      const row = this.orm.memory.findById(this.autoApproveLimitKey());
+      if (!row) return undefined;
+      const value = Number(row.value);
+      return Number.isFinite(value) && value >= 0 ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Set auto-approval threshold for Human-in-the-Loop protection.
+   *
+   * Issue #183: the limit is PERSISTED per identity in the instance's
+   * durable key-value store. Previously this only mutated a field on a
+   * per-request service object, so the POSTed limit evaporated with the
+   * request and every read re-derived the env default — the setting
+   * never actually took effect. A persistence failure propagates: the
+   * caller must learn the limit did not take, not be told it did.
    */
   setAutoApproveLimit(limitUSD: number): void {
     if (limitUSD < 0) throw new Error("Auto-approval limit cannot be negative.");
     this.autoApproveLimitUSD = limitUSD;
+    if (this.orm?.memory) {
+      const key = this.autoApproveLimitKey();
+      const now = new Date().toISOString();
+      if (this.orm.memory.findById(key)) {
+        this.orm.memory.update(key, { value: String(limitUSD), updatedAt: now });
+      } else {
+        this.orm.memory.create({ key, value: String(limitUSD), updatedAt: now });
+      }
+    }
   }
 
   getAutoApproveLimit(): number {
