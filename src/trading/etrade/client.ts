@@ -358,7 +358,9 @@ export class ETradeRestClient {
     if (!cleanSyms.length) return [];
 
     const uniqueSyms = Array.from(new Set(cleanSyms));
-    const batchSize = 50;
+    // Issue #802: batch size 10, sequential. A 50-symbol batch that fails
+    // kills 50 symbols; a 10-symbol batch that fails kills 10.
+    const batchSize = 10;
     const batches: string[][] = [];
     for (let i = 0; i < uniqueSyms.length; i += batchSize) {
       batches.push(uniqueSyms.slice(i, i + batchSize));
@@ -475,7 +477,16 @@ export class ETradeRestClient {
       }
     };
 
-    const results = await Promise.all(batches.map((b) => fetchBatch(b)));
+    const results: ETradeQuote[][] = [];
+    // Issue #802: sequential loop, not Promise.all. 10 requests in flight
+    // at once risks E*TRADE rate limiting; sequential with a small gap is safer.
+    for (const b of batches) {
+      results.push(await fetchBatch(b));
+      // 100ms gap between batches to stay under rate limits.
+      if (batches.indexOf(b) < batches.length - 1) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
     const quotes = results.flat();
 
     // Retry missing symbols in smaller chunks. A batch can fail entirely
