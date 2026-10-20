@@ -339,6 +339,62 @@ jobs:
           git tag -a "$TAG" -m "Deploy ${{ github.sha }} to production" ${{ github.sha }}
           git push origin "$TAG"
           echo "Tagged $TAG"
+          # Hand the computed tags to the release step (issue #321 follow-up):
+          # PREVIOUS_TAG scopes the generated notes to this deploy only.
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "PREVIOUS_TAG=$LATEST" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error title=Release not published::RELEASE_TAG is empty; the tag step did not export it"
+            exit 1
+          fi
+          # Idempotent: a re-run of the same commit keeps the existing notes.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; leaving its notes untouched."
+            exit 0
+          fi
+          workdir="$(mktemp -d)"
+          generated="$workdir/generated.md"
+          notes="$workdir/notes.md"
+
+          # Ask GitHub for exactly the commit list `--generate-notes` would
+          # print, scoped to this deploy. A failure here costs the commit list,
+          # never the release: the curated changelog is the point of the step.
+          generate_args=(-f tag_name="$RELEASE_TAG")
+          if [ -n "${PREVIOUS_TAG:-}" ]; then
+            generate_args+=(-f previous_tag_name="$PREVIOUS_TAG")
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              "${generate_args[@]}" -q .body > "$generated"; then
+            echo "::warning title=Generated notes unavailable::gh api generate-notes failed; publishing the curated changelog only"
+            : > "$generated"
+          fi
+
+          # Curated entries on top, generated commits below, changelog link last.
+          # Composition lives in the script (not inline bash) so section matching
+          # and ordering are pinned by tests/release_notes_script.test.ts.
+          node scripts/ci/release-notes.mjs \
+            --tag "$RELEASE_TAG" \
+            --changelog CHANGELOG.md \
+            --generated "$generated" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out "$notes"
+
+          if [ ! -s "$notes" ]; then
+            echo "::error title=Release not published::no release notes could be composed for $RELEASE_TAG"
+            exit 1
+          fi
+
+          # One create with the finished body: `--generate-notes` cannot be
+          # combined with --notes-file, and create-then-edit left a window where
+          # a cancelled run published a release without its changelog.
+          gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes"
+          echo "Published $RELEASE_TAG with the curated changelog and this deploy's commit list."
 
   # ── Step 4: post-deploy QA smoke test (ported from cfpay) ──
   qa-smoke:
