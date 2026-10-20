@@ -717,7 +717,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const headers = new Headers(resp.headers);
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-environment");
       headers.set("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt");
       return new Response(resp.body, { status: resp.status, headers });
     }
@@ -753,7 +753,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const headers = new Headers(resp.headers);
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-user-id, x-environment");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, PAYMENT-SIGNATURE, PAYMENT-REQUIRED, x-environment");
       headers.set("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, WWW-Authenticate, PAYMENT-RESPONSE, Payment-Receipt");
       return new Response(resp.body, { status: resp.status, headers });
     }
