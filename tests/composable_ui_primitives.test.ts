@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -131,6 +131,9 @@ describe("Primitive styles (primitives.css)", () => {
       ".ui-input",
       ".ui-select",
       ".ui-field-label",
+      ".ui-modal",
+      ".ui-modal-body",
+      ".ui-modal-actions",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -267,5 +270,19 @@ describe("TextInput + Select (#492)", () => {
     );
     expect(element.props.label).toBe("Accent Color");
     expect(element.props.value).toBe("#6366f1");
+  });
+});
+
+describe("Modal (#492)", () => {
+  it("carries the dialog contract (open, title, size, footer)", () => {
+    const element = React.createElement(
+      Modal,
+      { open: true, onClose: () => {}, title: "Partner Deals", size: "lg", footer: "actions" },
+      "body",
+    );
+    expect(element.props.open).toBe(true);
+    expect(element.props.title).toBe("Partner Deals");
+    expect(element.props.size).toBe("lg");
+    expect(element.props.footer).toBe("actions");
   });
 });

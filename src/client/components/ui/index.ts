@@ -22,6 +22,9 @@
  * - TextInput / Select — labeled form controls on the token input
  *   family, with hint/error wiring (aria-invalid + aria-describedby)
  *   via the shared FieldShell.
+ * - Modal — dialog on the tokens.css Universal Modal System classes:
+ *   portal, Escape/backdrop close, focus trap + restore, scroll lock
+ *   (sizes sm/md/lg/xl, optional footer).
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -37,3 +40,4 @@ export { Notice, type NoticeProps, type NoticeTone } from "./Notice";
 export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } from "./Tabs";
 export { TextInput, type TextInputProps } from "./TextInput";
 export { Select, type SelectProps } from "./Select";
+export { Modal, type ModalProps } from "./Modal";
