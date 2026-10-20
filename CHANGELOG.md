@@ -9,8 +9,11 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **How to cut a release:** open a PR that moves the `## [Unreleased]` entries into a
   versioned `## [X.Y.Z] - YYYY-MM-DD` section. CI's *Test & Build* job
   (typecheck + vitest + build) is the required gate on every release PR.
-- **Tagging:** after the release PR merges, place the tag `vX.Y.Z` on its merge
-  commit (e.g. `git tag -a v0.1.0 <merge-sha> && git push origin v0.1.0`).
+- **Tagging and publication:** the `tag-release` job in `deploy.yml` tags every
+  successful `main` deploy (`v0.1.<patch>`) and publishes the matching GitHub
+  Release, whose body is this file's section for that version (falling back to
+  `## [Unreleased]`) followed by the deploy's commit list. Tag by hand only to
+  backfill a missed tag: `git tag -a vX.Y.Z <merge-sha> && git push origin vX.Y.Z`.
 - **Semver rules:** MAJOR = breaking contract or API changes; MINOR = new
   capabilities, backward-compatible; PATCH = fixes with no contract change.
 
@@ -56,6 +59,26 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **cfpay email-with-attachments A2A helper** (#384): `cfpaySendEmailWithAttachments()` in cfpayA2A.ts wraps cfpay's `email.sendWithAttachments` A2A op, enabling options-report PDF delivery by email (wiring into the scheduled options analysis follows).
 
 ### Changed
+
+- **GitHub Releases now carry the curated changelog (#321 follow-up):** every
+  successful `main` deploy tagged `v0.1.<patch>` and then stopped, so `/releases`
+  never showed what changed and the only description of a deploy lived in this
+  file. The `tag-release` job's new *Publish GitHub Release* step composes one
+  body per tag: the section for that version (or `[Unreleased]` while the release
+  PR has not moved entries yet) above the generated commit list, which is fetched
+  from `releases/generate-notes` scoped by `previous_tag_name`, and a link to this
+  file at the tag. Composition lives in `scripts/ci/release-notes.mjs` — heading
+  stripping, link-definition removal, blank-line tidying, the 60k section cap and
+  GitHub's 125k body cap are unit-tested in
+  `tests/release_notes_script.test.ts`; the workflow wiring, the scoped note range,
+  the idempotent re-run and the loud failure on a missing tag body are pinned by
+  `tests/release_publication.test.ts`. The release is created in a single call with
+  `--notes-file`, so a cancelled run cannot publish a release without its notes; a
+  failing `generate-notes` call degrades to the curated section with a warning
+  instead of blocking a deploy that already shipped.
+  `*.mjs` is pinned to LF in `.gitattributes` (alongside `*.sh`), because a CRLF
+  checkout on Windows left the script's shebang line unrecognized and the suite
+  failed with `SyntaxError: Invalid or unexpected token` on every local run.
 
 - **Thin-router wiring — orchestrator breakup COMPLETE** (#359/#380): the
   last two inline route blocks in `OrchestratorAgent.routeRequest` moved
