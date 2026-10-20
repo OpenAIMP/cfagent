@@ -60,7 +60,48 @@ export interface ScreenerFailedEvent {
   error: string;
 }
 
-export type ScreenerEvent = ScreenerCompletedEvent | ScreenerFailedEvent;
+/** One options opportunity as carried on the bus: a summary, not the full row. */
+export interface OptionsOpportunitySummary {
+  symbol: string;
+  strategy?: string;
+  directionTags?: string[];
+}
+
+/**
+ * Issue #223: the options counterpart of screener.completed. Delivery for
+ * options runs stays on the service's direct A2A path (PDF-centric); this
+ * event puts the run's lifecycle on the bus so subscribers — digests
+ * (#218), audit consumers, future publishers — see options runs exactly
+ * like stock screens.
+ */
+export interface OptionsCompletedEvent {
+  type: "options.completed";
+  timestamp: string;
+  trigger?: "manual" | "scheduled";
+  universe?: string;
+  thesis: string;
+  totalScanned: number;
+  withTrades: number;
+  symbols: string[];
+  summary: string;
+  reportUrl?: string;
+  opportunities: OptionsOpportunitySummary[];
+}
+
+export interface OptionsFailedEvent {
+  type: "options.failed";
+  timestamp: string;
+  trigger?: "manual" | "scheduled";
+  universe?: string;
+  thesis: string;
+  error: string;
+}
+
+export type ScreenerEvent =
+  | ScreenerCompletedEvent
+  | ScreenerFailedEvent
+  | OptionsCompletedEvent
+  | OptionsFailedEvent;
 export type ScreenerEventType = ScreenerEvent["type"];
 
 export type ScreenerEventHandler = (event: ScreenerEvent) => Promise<void> | void;
