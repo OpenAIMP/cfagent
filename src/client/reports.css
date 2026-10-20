@@ -387,3 +387,18 @@
 .research-sheet {
   margin-top: 12px;
 }
+
+.research-browse {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.research-browse-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}

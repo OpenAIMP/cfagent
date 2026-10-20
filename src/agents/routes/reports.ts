@@ -381,6 +381,46 @@ export async function handleReportsRoutes(
     return Response.json({ success: true, status: result.status });
   }
 
+  // Issue #341: watchlist & rejected-ideas browser — the §8 outputs of
+  // every stored research run, flattened with provenance and filterable
+  // by kind, rejected-gate code, and symbol search. Sourced entirely
+  // from the stored canonical reports; nothing is recomputed.
+  if (path.endsWith("/api/reports/research/browse") && request.method === "GET") {
+    try {
+      const { listScheduledReports } = await import("../../services/scheduledReports");
+      const { extractResearchBrowseEntries, researchBrowseGates } = await import("../../services/researchBrowse");
+      const headerLogin = request.headers.get("x-user-login");
+      const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
+      const reports = listScheduledReports(ctx.ensureTables(), {
+        userLogin,
+        sourceFilter: "research_report",
+        limit: 100,
+      });
+      const allEntries = extractResearchBrowseEntries(reports);
+      const gates = researchBrowseGates(allEntries);
+      let entries = allEntries;
+      const kind = url.searchParams.get("kind");
+      if (kind === "watchlist" || kind === "rejected") {
+        entries = entries.filter((e) => e.kind === kind);
+      }
+      const gate = url.searchParams.get("gate");
+      if (gate) {
+        entries = entries.filter((e) => e.gate === gate);
+      }
+      const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+      if (q) {
+        entries = entries.filter((e) => e.symbol.toLowerCase().includes(q));
+      }
+      return Response.json({
+        count: entries.length,
+        gates,
+        entries,
+      });
+    } catch {
+      return Response.json({ error: "Failed to load research browse" }, { status: 500 });
+    }
+  }
+
   // Issue #339: one stored report by id for the Reports-tab detail view
   // (research run detail renders the canonical body client-side). The
   // attachment payload of email-delivery bodies is stripped — the detail
