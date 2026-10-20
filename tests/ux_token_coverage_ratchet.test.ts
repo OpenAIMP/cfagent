@@ -26,6 +26,15 @@ const CLIENT_DIR = join(ROOT, "src", "client");
 const TOKEN_SOURCES = new Set(["src/client/tokens.css", "src/client/designTokens.ts"]);
 const EXTENSIONS = new Set([".css", ".ts", ".tsx"]);
 
+// Comments are prose, not styles: an issue reference like "#450" inside a
+// comment must not count as a hex literal. Mirrors stripComments in
+// scripts/token-coverage.mjs — keep the two implementations in sync.
+function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[\s;{}(])\/\/[^\n]*/g, "$1 ");
+}
+
 const HEX_RE = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/g;
 const FN_RE = /\b(?:rgba?|hsla?)\([^)]*\)/g;
 const THEME_CLASS_RE = /(^|[\s,>+~])\.(?:dark|light|theme-dark|theme-light)(?=[\s{.:,#\[]|$)/m;
@@ -43,7 +52,7 @@ function scan(): Map<string, number> {
   for (const file of walk(CLIENT_DIR)) {
     const rel = relative(ROOT, file).split("\\").join("/");
     if (TOKEN_SOURCES.has(rel)) continue;
-    const text = readFileSync(file, "utf8");
+    const text = stripComments(readFileSync(file, "utf8"));
     const n = (text.match(HEX_RE) ?? []).length + (text.match(FN_RE) ?? []).length;
     if (n > 0) counts.set(rel, n);
   }

@@ -171,7 +171,7 @@ export function StrategyLibraryModal({
                 {s.pnlSvgPath && (
                   <div className="strat-lib-svg-wrap">
                     <svg viewBox="0 0 100 50" className="strat-lib-thumbnail-svg">
-                      <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="2 2" />
+                      <line x1="0" y1="25" x2="100" y2="25" stroke="var(--color-border-strong)" strokeWidth="1" strokeDasharray="2 2" />
                       <path d={s.pnlSvgPath} fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
