@@ -500,7 +500,7 @@ body {
 .agent-tag {
   font-size: 0.65rem;
   background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
@@ -624,31 +624,31 @@ body {
 
 .tool-status-pill.success {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .tool-status-pill.warning {
   background: var(--color-warning-subtle);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid var(--color-warning-border);
 }
 
 .tool-status-pill.info {
   background: var(--color-primary-alpha);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
 .tool-status-pill.priority-high, .tool-status-pill.priority-urgent {
   background: rgba(244, 63, 94, 0.15);
-  color: #fb7185;
+  color: var(--color-danger-text);
   border: 1px solid rgba(244, 63, 94, 0.3);
 }
 
 .tool-status-pill.priority-medium {
   background: var(--color-warning-subtle);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid var(--color-warning-border);
 }
 
@@ -666,7 +666,7 @@ body {
   padding: 0.5rem 0.95rem;
   background: rgba(245, 158, 11, 0.08);
   border-top: 1px solid rgba(245, 158, 11, 0.15);
-  color: #fde68a;
+  color: var(--color-warning-text);
   font-size: 0.78rem;
 }
 
@@ -737,7 +737,7 @@ body {
 
 .reasoning-title {
   font-weight: 600;
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   font-size: 0.8rem;
 }
 
@@ -760,7 +760,7 @@ body {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   line-height: 1.6;
-  color: #c7d2fe;
+  color: var(--color-indigo-text);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 280px;
@@ -797,7 +797,7 @@ body {
 
 .hitl-btn.approve {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border-color: var(--color-success-border);
 }
 
@@ -809,7 +809,7 @@ body {
 
 .hitl-btn.reject {
   background: rgba(244, 63, 94, 0.12);
-  color: #fb7185;
+  color: var(--color-danger-text);
   border-color: rgba(244, 63, 94, 0.3);
 }
 
@@ -827,7 +827,7 @@ body {
 .confirm-details {
   padding: 0.5rem 0.95rem;
   font-size: 0.78rem;
-  color: #a7f3d0;
+  color: var(--color-success-text);
   line-height: 1.5;
 }
 
@@ -1038,7 +1038,7 @@ body {
 }
 
 .plan-badge.count-badge strong {
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .results-table-container {
@@ -1076,12 +1076,12 @@ body {
 
 .role-pill.user {
   background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .role-pill.assistant {
   background: rgba(6, 182, 212, 0.2);
-  color: #67e8f9;
+  color: var(--color-info-text);
 }
 
 .content-cell {
@@ -1157,7 +1157,7 @@ body {
 .badge-count {
   font-size: 0.72rem;
   background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
 }
@@ -1237,12 +1237,12 @@ body {
   border-radius: 9999px;
 }
 
-.event-agent-tag.judge { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-.event-agent-tag.search { background: rgba(6, 182, 212, 0.2); color: #67e8f9; }
-.event-agent-tag.payments { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
-.event-agent-tag.tasks { background: var(--color-success-subtle); color: #34d399; }
-.event-agent-tag.memory { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
-.event-agent-tag.nlq { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+.event-agent-tag.judge { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
+.event-agent-tag.search { background: rgba(6, 182, 212, 0.2); color: var(--color-info-text); }
+.event-agent-tag.payments { background: rgba(244, 63, 94, 0.2); color: var(--color-danger-text); }
+.event-agent-tag.tasks { background: var(--color-success-subtle); color: var(--color-success-text); }
+.event-agent-tag.memory { background: rgba(168, 85, 247, 0.2); color: var(--color-purple-text); }
+.event-agent-tag.nlq { background: rgba(99, 102, 241, 0.2); color: var(--color-indigo-text); }
 
 .event-type {
   font-size: 0.8rem;
@@ -1283,12 +1283,12 @@ body {
 
 .bot-avatar.error {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .agent-tag.error-tag {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 .error-text {
@@ -1299,7 +1299,7 @@ body {
 
 .inline-clear-btn {
   background: rgba(239, 68, 68, 0.25);
-  color: #fee2e2;
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger-border);
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
@@ -1323,7 +1323,7 @@ body {
   padding: 0.65rem 1.25rem;
   background: rgba(220, 38, 38, 0.15);
   border-top: 1px solid rgba(220, 38, 38, 0.3);
-  color: #fecaca;
+  color: var(--color-danger-text);
   font-size: 0.82rem;
   max-width: 960px;
   width: 100%;
@@ -1383,7 +1383,7 @@ body {
   padding: 0.65rem 1.25rem;
   background: var(--color-success-subtle);
   border-top: 1px solid var(--color-success-border);
-  color: #a7f3d0;
+  color: var(--color-success-text);
   font-size: 0.82rem;
   max-width: 960px;
   width: 100%;
@@ -1788,7 +1788,7 @@ body {
 
 .social-btn.telegram {
   background: rgba(36, 161, 222, 0.2);
-  color: #67e8f9;
+  color: var(--color-info-text);
   border: 1px solid rgba(36, 161, 222, 0.4);
 }
 
@@ -1963,13 +1963,13 @@ body {
 .form-alert.success {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: #6ee7b7;
+  color: var(--color-success-text);
 }
 
 .form-alert.error {
   background: var(--color-sentiment-very-bearish-subtle);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 .submit-action-btn {
@@ -2273,14 +2273,14 @@ body {
   font-weight: 800;
   text-transform: uppercase;
   background: rgba(99, 102, 241, 0.25);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
 }
 
 .did-role-tag.authorizer {
   background: var(--color-success-subtle);
-  color: #6ee7b7;
+  color: var(--color-success-text);
 }
 
 /* Payments & DID Page */
@@ -2357,9 +2357,9 @@ body {
   letter-spacing: 0.05em;
 }
 
-.gw-mode-badge.live { background: var(--color-success-subtle); color: #34d399; }
+.gw-mode-badge.live { background: var(--color-success-subtle); color: var(--color-success-text); }
 .gw-mode-badge.sandbox { background: var(--color-accent-subtle); color: var(--color-accent); }
-.gw-mode-badge.simulated { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.gw-mode-badge.simulated { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
 
 .gw-caps {
   display: flex;
@@ -2409,9 +2409,9 @@ body {
   letter-spacing: 0.04em;
 }
 
-.gateway-pill.stripe { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
-.gateway-pill.paypal { background: rgba(6, 182, 212, 0.2); color: #67e8f9; }
-.gateway-pill.lemonsqueezy { background: rgba(245, 158, 11, 0.2); color: #fde047; }
+.gateway-pill.stripe { background: rgba(99, 102, 241, 0.2); color: var(--color-indigo-text); }
+.gateway-pill.paypal { background: rgba(6, 182, 212, 0.2); color: var(--color-info-text); }
+.gateway-pill.lemonsqueezy { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
 .gateway-pill.sandbox { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
 
 .tx-status-pill {
@@ -2421,10 +2421,10 @@ body {
   border-radius: 999px;
 }
 
-.tx-status-pill.completed { background: var(--color-success-subtle); color: #34d399; }
+.tx-status-pill.completed { background: var(--color-success-subtle); color: var(--color-success-text); }
 .tx-status-pill.authorized { background: var(--color-accent-subtle); color: var(--color-accent); }
-.tx-status-pill.awaiting_confirmation { background: rgba(245, 158, 11, 0.25); color: #fbbf24; animation: pulseGlow 1.5s infinite alternate; }
-.tx-status-pill.rejected { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
+.tx-status-pill.awaiting_confirmation { background: rgba(245, 158, 11, 0.25); color: var(--color-warning-text); animation: pulseGlow 1.5s infinite alternate; }
+.tx-status-pill.rejected { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
 
 @keyframes pulseGlow {
   from { opacity: 0.7; }
@@ -2479,7 +2479,7 @@ body {
 
 .tx-hitl-notice {
   font-size: 0.78rem;
-  color: #fde047;
+  color: var(--color-warning-text);
   margin-bottom: 0.5rem;
 }
 
@@ -2609,7 +2609,7 @@ body {
   border: 1px solid rgba(99, 102, 241, 0.3);
   padding: 0.65rem;
   border-radius: 8px;
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   font-family: var(--font-mono);
   font-size: 0.76rem;
   overflow-x: auto;
@@ -2692,7 +2692,7 @@ body {
 .ext-ad-earnings-pill {
   font-family: var(--font-mono);
   font-size: 0.76rem;
-  color: #34d399;
+  color: var(--color-success-text);
   background: var(--color-success-subtle);
   border: 1px solid rgba(16, 185, 129, 0.25);
   padding: 0.25rem 0.65rem;
@@ -2847,7 +2847,7 @@ body {
 .nlq-summary-alert {
   background: var(--color-info-subtle);
   border: 1px solid var(--color-accent-border);
-  color: #7dd3fc;
+  color: var(--color-info-text);
   padding: 0.75rem 1rem;
   border-radius: 8px;
   font-size: 0.88rem;
@@ -2930,7 +2930,7 @@ body {
   align-self: flex-start;
   background: var(--color-primary-alpha);
   border: 1px solid var(--color-primary-border);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.4rem 0.8rem;
   border-radius: 8px;
   font-size: 0.78rem;
@@ -3064,7 +3064,7 @@ body {
 
 .ad-net-tag.direct {
   background: var(--color-purple-subtle);
-  color: #a855f7;
+  color: var(--color-purple);
   border: 1px solid var(--color-purple-border);
 }
 
@@ -3093,7 +3093,7 @@ body {
 .danger-sm-btn {
   background: var(--color-sentiment-very-bearish-subtle);
   border: 1px solid var(--color-danger-border);
-  color: #f87171;
+  color: var(--color-danger-text);
   padding: 0.25rem 0.55rem;
   border-radius: 8px;
   font-size: 0.74rem;
@@ -3211,7 +3211,7 @@ body {
 
 .col-pill.pk {
   background: var(--color-purple-subtle);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid var(--color-purple-border);
 }
 
@@ -3267,7 +3267,7 @@ body {
 .share-toggle-btn {
   background: var(--color-primary-alpha);
   border: 1px solid var(--color-primary-border);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.35rem 0.65rem;
   border-radius: 6px;
   font-size: 0.74rem;
@@ -3516,7 +3516,7 @@ body {
 
 .google-ad-body:hover .google-ad-title {
   text-decoration: underline;
-  color: #60a5fa;
+  color: var(--color-accent);
 }
 
 .google-ad-description {
@@ -3561,7 +3561,7 @@ body {
 }
 
 .google-ad-network-tag {
-  color: #818cf8;
+  color: var(--color-indigo-text);
 }
 
 /* Google Ad Formats */
@@ -3640,7 +3640,7 @@ body {
 .toggle-btn.active {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 /* ========================================================
@@ -3672,7 +3672,7 @@ body {
 
 .protocol-badge {
   background: rgba(99, 102, 241, 0.25);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   border: 1px solid var(--color-primary-border);
   padding: 0.25rem 0.75rem;
   border-radius: 20px;
@@ -3684,7 +3684,7 @@ body {
 
 .live-status-pill {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
   padding: 0.25rem 0.65rem;
   border-radius: 20px;
@@ -3747,7 +3747,7 @@ body {
 
 .ep-num code {
   font-size: 1.05rem;
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .ep-lbl {
@@ -3924,9 +3924,9 @@ body {
   text-transform: uppercase;
 }
 
-.method-tag.get, .method-pill.get { background: var(--color-success-subtle); color: #34d399; }
+.method-tag.get, .method-pill.get { background: var(--color-success-subtle); color: var(--color-success-text); }
 .method-tag.post, .method-pill.post { background: var(--color-accent-subtle); color: var(--color-accent); }
-.method-tag.delete, .method-pill.delete { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
+.method-tag.delete, .method-pill.delete { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
 
 .path-text code {
   font-size: 0.8rem;
@@ -3960,7 +3960,7 @@ body {
 .runner-badge {
   font-size: 0.7rem;
   font-weight: 800;
-  color: #818cf8;
+  color: var(--color-indigo-text);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -4138,8 +4138,8 @@ body {
   border-radius: 4px;
 }
 
-.status-code.ok { background: var(--color-success-subtle); color: #34d399; }
-.status-code.err { background: var(--color-sentiment-very-bearish-subtle); color: #f87171; }
+.status-code.ok { background: var(--color-success-subtle); color: var(--color-success-text); }
+.status-code.err { background: var(--color-sentiment-very-bearish-subtle); color: var(--color-danger-text); }
 
 .latency-tag {
   font-size: 0.76rem;
@@ -4152,7 +4152,7 @@ body {
   background: rgba(0, 0, 0, 0.5);
   padding: 0.85rem;
   border-radius: 8px;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   font-size: 0.78rem;
   overflow-x: auto;
@@ -4218,7 +4218,7 @@ body {
 }
 
 .config-header p code {
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .code-box-header {
@@ -4288,12 +4288,12 @@ body {
 
 .etrade-environment.prod {
   background: rgba(239, 68, 68, 0.18);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 .etrade-environment.test {
   background: rgba(245, 158, 11, 0.18);
-  color: #fcd34d;
+  color: var(--color-warning-text);
 }
 
 .etrade-banner-account {
@@ -4336,7 +4336,7 @@ body {
 }
 
 .etrade-environment-controls button.active {
-  color: #fff;
+  color: var(--color-on-gradient);
   background: rgba(71, 85, 105, 0.8);
 }
 
@@ -4346,11 +4346,11 @@ body {
 }
 
 .etrade-connection-state.connected {
-  color: #86efac;
+  color: var(--color-success-text);
 }
 
 .etrade-connection-state.disconnected {
-  color: #fcd34d;
+  color: var(--color-warning-text);
 }
 
 .etrade-banner-message {
@@ -4369,7 +4369,7 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 5px;
   padding: 0.3rem 0.5rem;
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
   background: rgba(30, 41, 59, 0.8);
   cursor: pointer;
 }
@@ -4443,7 +4443,7 @@ body {
 
 .mode-badge.live-pulse {
   background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
@@ -4591,7 +4591,7 @@ body {
 
 .btn-oauth-revoke {
   background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
+  color: var(--color-danger-text);
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 8px;
   padding: 0.5rem 0.9rem;
@@ -4717,7 +4717,7 @@ body {
 
 .step-number {
   background: var(--color-accent);
-  color: #0f172a;
+  color: var(--color-accent-contrast);
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -4733,7 +4733,7 @@ body {
   align-items: center;
   gap: var(--space-2, 0.5rem);
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
   border-radius: 8px;
   padding: 0.65rem 1.1rem;
@@ -4814,7 +4814,7 @@ body {
   border-radius: 8px;
   padding: 0.6rem 0.85rem;
   font-size: 0.78rem;
-  color: #fbbf24;
+  color: var(--color-warning-text);
   margin-top: 0.6rem;
   display: flex;
   justify-content: space-between;
@@ -4850,7 +4850,7 @@ body {
 
 .did-snippet {
   font-size: 0.72rem;
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .btn-tiny-copy {
@@ -4924,7 +4924,7 @@ body {
 
 .btn-nlq-chat {
   background: var(--color-primary-alpha);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 8px;
   padding: 0.65rem 1rem;
@@ -5106,13 +5106,13 @@ body {
 
 .action-pill.buy {
   background: rgba(16, 185, 129, 0.25);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .action-pill.sell {
   background: rgba(239, 68, 68, 0.25);
-  color: #f87171;
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger-border);
 }
 
@@ -5125,7 +5125,7 @@ body {
 }
 
 .attest-item code {
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .zero-comm {
@@ -5135,7 +5135,7 @@ body {
 
 .hitl-safety-notice {
   font-size: 0.8rem;
-  color: #fcd34d;
+  color: var(--color-warning-text);
   background: rgba(245, 158, 11, 0.12);
   padding: 0.5rem 0.85rem;
   border-radius: 6px;
@@ -5166,7 +5166,7 @@ body {
 
 .btn-reject-order {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
   border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 8px;
   padding: 0.75rem 1.25rem;
@@ -5187,13 +5187,13 @@ body {
 .execution-result-banner.success {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .execution-result-banner.rejected {
   background: var(--color-sentiment-very-bearish-subtle);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .exec-icon {
@@ -5351,12 +5351,12 @@ body {
 
 .change-pill.positive {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .change-pill.negative {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 /* RSI Badge and Gauge */
@@ -5401,7 +5401,7 @@ body {
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   background: rgba(99, 102, 241, 0.18);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
 }
 
 .table-actions-cell {
@@ -5428,7 +5428,7 @@ body {
 
 .btn-act-buy {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .btn-act-buy:hover {
@@ -5438,7 +5438,7 @@ body {
 
 .btn-act-sell {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .btn-act-sell:hover {
@@ -6049,8 +6049,8 @@ body {
 }
 
 .plan-badge.domain { background: var(--color-accent-subtle); color: var(--color-accent); }
-.plan-badge.intent { background: var(--color-success-subtle); color: #34d399; }
-.plan-badge.sql { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.plan-badge.intent { background: var(--color-success-subtle); color: var(--color-success-text); }
+.plan-badge.sql { background: rgba(245, 158, 11, 0.2); color: var(--color-warning-text); }
 
 .nlq-summary-text {
   font-size: 0.95rem;
@@ -6098,7 +6098,7 @@ body {
 
 .nlq-stock-card .signal-badge {
   background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
 }
@@ -6355,13 +6355,13 @@ body {
 
 .chip-provider.yf {
   background: rgba(147, 51, 234, 0.18);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid rgba(147, 51, 234, 0.35);
 }
 
 .chip-provider.alpaca {
   background: rgba(234, 179, 8, 0.18);
-  color: #facc15;
+  color: var(--color-warning-text);
   border: 1px solid rgba(234, 179, 8, 0.35);
 }
 
@@ -6823,7 +6823,7 @@ body {
 .narrative-badge {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #818cf8;
+  color: var(--color-indigo-text);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -6866,7 +6866,7 @@ body {
 }
 
 .target-highlight {
-  color: #34d399 !important;
+  color: var(--color-success-text) !important;
 }
 
 .technical-overview-row {
@@ -6946,7 +6946,7 @@ body {
 }
 
 .sig-snippet {
-  color: #c084fc !important;
+  color: var(--color-purple-text) !important;
 }
 
 /* Side Card: Ratings & Overview */
@@ -6988,19 +6988,19 @@ body {
 
 .rec-buy {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .rec-sell {
   background: rgba(244, 63, 94, 0.2);
-  color: #f43f5e;
+  color: var(--color-danger);
   border: 1px solid rgba(244, 63, 94, 0.4);
 }
 
 .rec-hold {
   background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
@@ -7162,12 +7162,12 @@ body {
 
 .quote-change-pill.positive {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .quote-change-pill.negative {
   background: rgba(244, 63, 94, 0.15);
-  color: #f43f5e;
+  color: var(--color-danger);
 }
 
 .quote-detail-grid {
@@ -7371,7 +7371,7 @@ body {
   padding: 0.25rem 0.65rem;
   border-radius: 6px;
   background: rgba(234, 179, 8, 0.2);
-  color: #facc15;
+  color: var(--color-warning-text);
   border: 1px solid rgba(234, 179, 8, 0.4);
 }
 
@@ -7534,12 +7534,12 @@ body {
 
 .change-pill.positive {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .change-pill.negative {
   background: rgba(244, 63, 94, 0.15);
-  color: #f43f5e;
+  color: var(--color-danger);
 }
 
 .target-val {
@@ -7752,13 +7752,13 @@ body {
 .env-trust-banner.env-sandbox {
   background: linear-gradient(90deg, rgba(234, 179, 8, 0.18) 0%, rgba(180, 83, 9, 0.15) 100%);
   border: 1px solid rgba(234, 179, 8, 0.45);
-  color: #fef08a;
+  color: var(--color-warning-text);
 }
 
 .env-trust-banner.env-live {
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.18) 100%);
   border: 1px solid rgba(239, 68, 68, 0.5);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 .env-trust-left {
@@ -7825,13 +7825,13 @@ body {
 
 .env-status-badge.badge-prod {
   background: rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
+  color: var(--color-danger-text);
   border: 1px solid rgba(239, 68, 68, 0.6);
 }
 
 .env-status-badge.badge-test {
   background: rgba(234, 179, 8, 0.35);
-  color: #fef08a;
+  color: var(--color-warning-text);
   border: 1px solid rgba(234, 179, 8, 0.6);
 }
 
@@ -7880,7 +7880,7 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
-  color: #fda4af;
+  color: var(--color-danger-text);
   margin-bottom: 0.75rem;
 }
 
@@ -7893,7 +7893,7 @@ body {
 }
 
 .reconciliation-alert-content strong {
-  color: #ffe4e6;
+  color: var(--color-danger-text);
   font-weight: 700;
   display: block;
   margin-bottom: 0.15rem;
@@ -7901,7 +7901,7 @@ body {
 
 .reconciliation-alert-content p {
   margin: 0;
-  color: #fecdd3;
+  color: var(--color-danger-text);
 }
 
 .btn-view-discrepancy {
@@ -7934,13 +7934,13 @@ body {
 .reconciliation-tag.reconciled {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .reconciliation-tag.unreconciled {
   background: rgba(239, 68, 68, 0.18);
   border: 1px solid var(--color-danger-border);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 /* NLQ Unverified Warning Banner */
@@ -7961,7 +7961,7 @@ body {
 }
 
 .nlq-unverified-warning-banner .warning-desc {
-  color: #fee2e2;
+  color: var(--color-danger-text);
   font-size: 0.88rem;
   line-height: 1.45;
   margin: 0 0 0.75rem 0;
@@ -8090,7 +8090,7 @@ body {
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid var(--color-accent-border);
   border-radius: 5px;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
@@ -8185,12 +8185,12 @@ body {
 
 .menu-env-tag.test {
   background: rgba(245, 158, 11, 0.18);
-  color: #fcd34d;
+  color: var(--color-warning-text);
 }
 
 .menu-env-tag.prod {
   background: rgba(239, 68, 68, 0.18);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 .menu-summary-label {
@@ -8290,12 +8290,12 @@ body {
   white-space: nowrap;
 }
 .brand-status-text.connected {
-  color: #10b981;
+  color: var(--color-success);
   background: var(--color-success-subtle);
   border: 1px solid rgba(16, 185, 129, 0.25);
 }
 .brand-status-text.disconnected {
-  color: #f59e0b;
+  color: var(--color-warning);
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.25);
 }
@@ -8308,11 +8308,11 @@ body {
 }
 .etrade-env-badge.test {
   background: rgba(245, 158, 11, 0.2);
-  color: #fcd34d;
+  color: var(--color-warning-text);
 }
 .etrade-env-badge.prod {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #fca5a5;
+  color: var(--color-danger-text);
 }
 
 /* Account Details Card — Single Line Thematic Layout */
@@ -8593,7 +8593,7 @@ body {
   border-radius: 7px;
   padding: 0.5rem 0.65rem;
   font-size: 0.74rem;
-  color: #fef3c7;
+  color: var(--color-warning-text);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -8620,7 +8620,7 @@ body {
 .btn-msg-dismiss {
   background: transparent;
   border: none;
-  color: #fef3c7;
+  color: var(--color-warning-text);
   cursor: pointer;
   font-size: 0.8rem;
 }
@@ -8996,17 +8996,17 @@ body {
 
 .job-tag-status.queued {
   background: rgba(245, 158, 11, 0.2);
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 
 .job-tag-status.completed {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .job-tag-status.failed {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .job-tag-time {
@@ -9056,7 +9056,7 @@ body {
 .btn-async-download {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
   font-size: 0.62rem;
   padding: 1px 5px;
   border-radius: 3px;
@@ -9197,7 +9197,7 @@ body {
   height: 28px;
   border-radius: 50%;
   background: #334155;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   font-size: 0.72rem;
   font-weight: 700;
   display: flex;
@@ -9243,7 +9243,7 @@ body {
 .btn-settings-signout {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #f87171;
+  color: var(--color-danger-text);
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 5px;
@@ -9680,7 +9680,7 @@ body {
   padding: 2px 8px;
   border-radius: 6px;
   background: rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  color: var(--color-danger-text);
   border: 1px solid rgba(239, 68, 68, 0.45);
   letter-spacing: 0.03em;
 }
@@ -9691,7 +9691,7 @@ body {
   padding: 2px 8px;
   border-radius: 6px;
   background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid rgba(245, 158, 11, 0.4);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -9700,7 +9700,7 @@ body {
 .error-headline {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #fef2f2;
+  color: var(--color-danger-text);
   line-height: 1.3;
 }
 
@@ -9788,7 +9788,7 @@ body {
 
 .error-action-btn.danger {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #fca5a5;
+  color: var(--color-danger-text);
   border-color: var(--color-danger-border);
 }
 
@@ -9806,7 +9806,7 @@ body {
 
 .error-action-btn.copy:hover {
   background: rgba(148, 163, 184, 0.18);
-  color: #e2e8f0;
+  color: var(--color-text-secondary);
 }
 
 /* ==========================================================================
@@ -9953,7 +9953,7 @@ body {
 
 .pill-pro {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   font-size: 0.68rem;
   font-weight: 800;
   padding: 2px 7px;
@@ -10091,25 +10091,25 @@ body {
 
 .item-badge.badge-live {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger-border);
 }
 
 .item-badge.badge-pro {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .item-badge.badge-ai {
   background: var(--color-purple-subtle);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid var(--color-purple-border);
 }
 
 .item-badge.badge-mcp {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--color-accent);
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
@@ -10218,7 +10218,7 @@ body {
 }
 
 .sidebar-signout-btn:hover {
-  color: #ef4444;
+  color: var(--color-sentiment-very-bearish);
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.08);
 }
@@ -10394,7 +10394,7 @@ body {
 }
 
 .sub-logout-link:hover {
-  color: #ef4444;
+  color: var(--color-sentiment-very-bearish);
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.08);
 }
@@ -10593,14 +10593,14 @@ body {
 
 .top-menu-item-btn:hover {
   background: rgba(255, 255, 255, 0.07) !important;
-  color: #f8fafc !important;
+  color: var(--color-text-primary) !important;
 }
 
 .top-menu-item-btn.active {
   background: rgba(16, 185, 129, 0.14) !important;
   border-color: var(--color-success-border) !important;
   border-bottom: 2px solid #10b981 !important;
-  color: #34d399 !important;
+  color: var(--color-success-text) !important;
   font-weight: 700 !important;
 }
 
@@ -10636,7 +10636,7 @@ body {
   border-radius: 6px !important;
   background: rgba(16, 185, 129, 0.12) !important;
   border: 1px solid var(--color-success-border) !important;
-  color: #34d399 !important;
+  color: var(--color-success-text) !important;
   font-size: 0.76rem !important;
   font-weight: 600 !important;
   cursor: pointer !important;
@@ -10683,7 +10683,7 @@ body {
 }
 
 .top-logout-link:hover {
-  color: #ef4444;
+  color: var(--color-sentiment-very-bearish);
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.08);
 }
@@ -10765,7 +10765,7 @@ body {
 }
 
 .top-icon-action-btn.logout-btn:hover {
-  color: #f87171;
+  color: var(--color-danger-text);
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.12);
 }
@@ -10818,7 +10818,7 @@ body {
 }
 
 .sidebar-icon-action-btn.logout-btn:hover {
-  color: #f87171;
+  color: var(--color-danger-text);
   border-color: var(--color-danger-border);
   background: rgba(239, 68, 68, 0.12);
 }
@@ -10958,7 +10958,7 @@ body {
 .nav-refresh-btn:hover {
   background: rgba(14, 165, 233, 0.2);
   border-color: rgba(56, 189, 248, 0.6);
-  color: #7dd3fc;
+  color: var(--color-info-text);
   box-shadow: var(--shadow-glow-accent);
   transform: translateY(-1px);
 }
@@ -11186,7 +11186,7 @@ body {
 .filter-pill.active {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
   font-weight: 700;
 }
 
@@ -11329,19 +11329,19 @@ body {
 
 .ticker-type-pill.type-stock {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--color-accent);
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .ticker-type-pill.type-crypto {
   background: var(--color-warning-subtle);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid var(--color-warning-border);
 }
 
 .ticker-type-pill.type-etf {
   background: var(--color-purple-subtle);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid var(--color-purple-border);
 }
 
@@ -11370,7 +11370,7 @@ body {
 
 .ticker-meta {
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--color-text-dim);
   background: var(--color-muted);
   padding: 1px 5px;
   border-radius: 3px;
@@ -11396,13 +11396,13 @@ body {
 
 .ticker-price-val.flash-up {
   background-color: rgba(16, 185, 129, 0.28);
-  color: #10b981;
+  color: var(--color-success);
   animation: tickFlashGreen 0.75s ease-out;
 }
 
 .ticker-price-val.flash-down {
   background-color: rgba(239, 68, 68, 0.28);
-  color: #ef4444;
+  color: var(--color-sentiment-very-bearish);
   animation: tickFlashRed 0.75s ease-out;
 }
 
@@ -11446,17 +11446,17 @@ body {
 
 .ticker-change-pill.positive {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .ticker-change-pill.negative {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .ticker-spread-text {
   font-size: 0.64rem;
-  color: #64748b;
+  color: var(--color-text-dim);
   font-family: var(--font-mono);
   background: rgba(255, 255, 255, 0.03);
   padding: 2px 5px;
@@ -11652,7 +11652,7 @@ body {
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-text-muted);
   background: var(--color-surface-sunken);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -11790,7 +11790,7 @@ body {
 .agent-ai-badge {
   font-size: 0.6rem;
   font-weight: 800;
-  color: #34d399;
+  color: var(--color-success-text);
   background: var(--color-success-subtle);
   padding: 1px 5px;
   border-radius: 4px;
@@ -11871,7 +11871,7 @@ body {
 
 .msg-time {
   font-size: 0.62rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-dim);
   align-self: flex-end;
 }
 
@@ -11938,7 +11938,7 @@ body {
 .quick-chip-btn:hover {
   background: var(--color-success-subtle);
   border-color: var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .ask-agent-input-form {
@@ -12112,7 +12112,7 @@ body {
   font-size: 0.6rem;
   font-weight: 800;
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #f87171;
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger-border);
   padding: 2px 6px;
   border-radius: 4px;
@@ -12212,7 +12212,7 @@ body {
 .btn-kill-switch-trigger {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #f87171;
+  color: var(--color-danger-text);
   font-size: 0.74rem;
   font-weight: 600;
   padding: 0.5rem 0.85rem;
@@ -12390,7 +12390,7 @@ body {
 
 .live-feed-badge.live {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
@@ -12457,7 +12457,7 @@ body {
 .btn-simulate-action {
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
-  color: #34d399;
+  color: var(--color-success-text);
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.35rem 0.85rem;
@@ -12468,7 +12468,7 @@ body {
 
 .btn-simulate-action:hover:not(:disabled) {
   background: rgba(16, 185, 129, 0.25);
-  color: #10b981;
+  color: var(--color-success);
 }
 
 .btn-simulate-action.secondary {
@@ -12488,13 +12488,13 @@ body {
 
 .action-source-pill.live {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .action-source-pill.simulated {
   background: var(--color-purple-subtle);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid var(--color-purple-border);
 }
 
@@ -12515,7 +12515,7 @@ body {
 .autopilot-actions-table th {
   padding: 0.65rem 0.85rem;
   background: rgba(255, 255, 255, 0.02);
-  color: #64748b;
+  color: var(--color-text-dim);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -12557,25 +12557,25 @@ body {
 
 .action-type-pill.type-order {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--color-accent);
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .action-type-pill.type-policy_check {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border: 1px solid var(--color-success-border);
 }
 
 .action-type-pill.type-risk_guardrail {
   background: var(--color-warning-subtle);
-  color: #fbbf24;
+  color: var(--color-warning-text);
   border: 1px solid var(--color-warning-border);
 }
 
 .action-type-pill.type-rebalance {
   background: var(--color-purple-subtle);
-  color: #c084fc;
+  color: var(--color-purple-text);
   border: 1px solid var(--color-purple-border);
 }
 
@@ -12605,12 +12605,12 @@ body {
 
 .policy-check-badge.passed {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
 }
 
 .policy-check-badge.failed {
   background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .status-cell .action-status-pill {
@@ -12629,17 +12629,17 @@ body {
 
 .action-status-pill.status-routed_to_approval {
   background: var(--color-warning-subtle);
-  color: #fbbf24;
+  color: var(--color-warning-text);
 }
 
 .action-status-pill.status-verified {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--color-accent);
 }
 
 .action-status-pill.status-blocked {
   background: var(--color-sentiment-very-bearish-subtle);
-  color: #ef4444;
+  color: var(--color-sentiment-very-bearish);
 }
 
 .attestation-cell .did-signature-badge {
@@ -12656,7 +12656,7 @@ body {
 
 .attestation-cell .did-signature-badge:hover {
   background: var(--color-success-subtle);
-  color: #34d399;
+  color: var(--color-success-text);
   border-color: var(--color-success-border);
 }
 
@@ -13022,7 +13022,7 @@ body {
   border-radius: 6px;
   font-size: 0.74rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text-primary);
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.25) 100%);
   border: 1px solid rgba(245, 158, 11, 0.45);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
@@ -13121,7 +13121,7 @@ body {
   background: rgba(16, 185, 129, 0.08);
   border-top: 1px solid rgba(16, 185, 129, 0.2);
   border-bottom: 1px solid rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  color: var(--color-success-text);
   padding: 8px 20px;
   font-size: 0.74rem;
   line-height: 1.45;
@@ -13259,7 +13259,7 @@ body {
 
 .deal-direct-link:hover {
   text-decoration: underline;
-  color: #7dd3fc;
+  color: var(--color-info-text);
 }
 
 .partner-deals-networks-strip {
@@ -13372,7 +13372,7 @@ body {
 .top-nav-logout-btn:hover {
   background: var(--color-sentiment-very-bearish-subtle);
   border-color: var(--color-danger-border);
-  color: #f87171;
+  color: var(--color-danger-text);
   text-decoration: none;
 }
 
@@ -13416,7 +13416,7 @@ body {
   border-radius: 6px;
   border: 1px solid var(--color-primary-border);
   background: rgba(99, 102, 241, 0.12);
-  color: #a5b4fc;
+  color: var(--color-indigo-text);
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -13457,7 +13457,7 @@ body {
 .sidebar-logout-btn:hover {
   background: var(--color-sentiment-very-bearish-subtle);
   border-color: var(--color-danger-border);
-  color: #f87171;
+  color: var(--color-danger-text);
 }
 
 .sidebar-logout-btn svg {
@@ -14659,7 +14659,7 @@ body {
   font-weight: 700;
 }
 .dual-feed-change-val.gain { color: var(--color-success); }
-.dual-feed-change-val.loss { color: #ef4444; }
+.dual-feed-change-val.loss { color: var(--color-sentiment-very-bearish); }
 
 .dual-feed-nbbo-val {
   font-size: 0.85rem;
