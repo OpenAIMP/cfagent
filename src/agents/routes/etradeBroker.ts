@@ -136,6 +136,8 @@ async function publishManualScreenerRun(
     trigger: "manual",
     expectedCount: result.expectedCount,
     pdfKey: result.pdfKey,
+    pdfStatus: result.pdfStatus,
+    pdfError: result.pdfError,
     deliveryId: `manual:${result.timestamp}:${result.universe}`,
     sector: result.sector,
     totalScanned: result.totalScanned,
@@ -393,6 +395,8 @@ export async function handleEtradeBrokerRoutes(
         discoveryMessage: result.discoveryMessage,
         scannedAt: result.timestamp,
         pdfKey: result.pdfKey,
+        pdfStatus: result.pdfStatus,
+        pdfError: result.pdfError,
         reportUrl: result.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}` : undefined,
       });
     } catch (err) {
