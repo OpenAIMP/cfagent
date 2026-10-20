@@ -371,3 +371,270 @@ describe("discoveryRunJson — profile-derived runs (#533)", () => {
     expect("userLogin" in parsed).toBe(false);
   });
 });
+
+// No-view runs (issue #534, PR-534-C) -------------------------------------
+
+const NO_VIEW_RATIONALE =
+  "No user view was supplied; this is the best-supported structure under the stated constraints, not a recommendation.";
+
+const noViewCandidate = (over: Record<string, unknown> = {}) => ({
+  id: "nv-1",
+  rank: 1,
+  type: "long_call",
+  label: "NVDA Long Call",
+  symbol: "NVDA",
+  underlyingPrice: 180,
+  expirationDate: "2026-11-20",
+  dataFreshness: "FRESH",
+  legs: [],
+  netDebit: 4.25,
+  estimatedFees: 1.3,
+  maxProfit: null,
+  maxProfitUnbounded: true,
+  maxLoss: 425,
+  breakevens: [184.25],
+  modelImpliedProbabilityOfProfit: 0.42,
+  netGreeks: { delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.1 },
+  liquidityScore: 80,
+  score: 74,
+  scoreBreakdown: {
+    popAlignment: 60,
+    cushion: 50,
+    liquidity: 80,
+    thetaBurden: 40,
+    freshness: 90,
+    weights: { popAlignment: 30, cushion: 20, liquidity: 20, thetaBurden: 15, freshness: 15 },
+  },
+  structureRewardRisk: null,
+  scoreModel: "no-view-v1",
+  payoffCurve: [],
+  scenarios: [],
+  explanations: [],
+  warnings: [],
+  assumptions: [],
+  ...over,
+});
+
+const CONSTRAINT_NVDA = {
+  symbol: "NVDA",
+  maxPlannedLoss: 500,
+  minRewardRisk: 1,
+  minProbabilityOfProfit: 0.35,
+  minDte: 7,
+  maxDte: 45,
+  riskProfile: "balanced",
+};
+const CONSTRAINT_MSFT = { ...CONSTRAINT_NVDA, symbol: "MSFT" };
+// AAPL's set omits the POP floor and DTE window: the export renders
+// the mode's default floor and no DTE part.
+const CONSTRAINT_AAPL = { symbol: "AAPL", maxPlannedLoss: 250, minRewardRisk: 2, riskProfile: "conservative" };
+
+const cs = (request: Record<string, unknown>) => ({
+  source: "no-view",
+  request,
+  expectedIvDirection: "unchanged",
+});
+
+const RUN_NOVIEW = {
+  id: "run-noview",
+  createdAt: "2026-10-20T14:15:00.000Z",
+  userLogin: "tester",
+  trigger: "scheduled",
+  scheduleId: "sched-noview",
+  inputModel: "no-view",
+  status: "partial",
+  requestCount: 3,
+  completedCount: 1,
+  failedCount: 1,
+  abstainedCount: 1,
+  symbols: ["NVDA", "MSFT", "AAPL"],
+  requests: [],
+  constraintSets: [cs(CONSTRAINT_NVDA), cs(CONSTRAINT_MSFT), cs(CONSTRAINT_AAPL)],
+  outcomes: [
+    {
+      symbol: "NVDA",
+      status: "completed",
+      constraintSet: cs(CONSTRAINT_NVDA),
+      rankedNoView: [
+        rankedEntry(noViewCandidate(), 1, 82.5),
+        rankedEntry(
+          noViewCandidate({
+            id: "nv-2",
+            type: "bull_put_spread",
+            label: "NVDA Bull Put Spread",
+            netDebit: -1.8,
+            maxProfit: 180,
+            maxProfitUnbounded: false,
+            maxLoss: 320,
+            structureRewardRisk: 0.56,
+          }),
+          2,
+          64,
+        ),
+      ],
+      excluded: [{ reason: "max planned loss exceeded", count: 2 }],
+      bestNoViewTrade: {
+        status: "research_only",
+        riskProfile: "balanced",
+        confidence: "MEDIUM",
+        best: undefined as unknown,
+        alternatives: [],
+        rationale: [NO_VIEW_RATIONALE],
+        blockers: [],
+        humanApprovalRequired: true,
+        disclaimer: "research only",
+      },
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 1200, contractsMatched: 45 } },
+    },
+    {
+      symbol: "MSFT",
+      status: "completed",
+      abstained: true,
+      constraintSet: cs(CONSTRAINT_MSFT),
+      rankedNoView: [],
+      excluded: [
+        { reason: "insufficient liquidity", count: 3 },
+        { reason: "probability of profit below the floor", count: 2 },
+      ],
+      bestNoViewTrade: {
+        status: "no_trade",
+        riskProfile: "balanced",
+        confidence: "LOW",
+        alternatives: [],
+        rationale: ["No user view was supplied and no MSFT structure cleared the stated constraints."],
+        blockers: ["No qualifying candidates"],
+        humanApprovalRequired: true,
+        disclaimer: "research only",
+      },
+      snapshot: { dataSource: "live", screen: { contractsEvaluated: 800, contractsMatched: 0 } },
+    },
+    {
+      symbol: "AAPL",
+      status: "failed",
+      constraintSet: cs(CONSTRAINT_AAPL),
+      error: "E*TRADE chain unavailable: session expired",
+    },
+  ],
+} as unknown as StoredDiscoveryRun;
+(RUN_NOVIEW.outcomes[0] as any).bestNoViewTrade.best = (RUN_NOVIEW.outcomes[0] as any).rankedNoView[0];
+
+const RUN_NOVIEW_ALL_ABSTAIN = {
+  id: "run-noview-abstain",
+  createdAt: "2026-10-20T14:25:00.000Z",
+  userLogin: "tester",
+  trigger: "manual-trigger",
+  inputModel: "no-view",
+  status: "completed",
+  requestCount: 1,
+  completedCount: 0,
+  failedCount: 0,
+  abstainedCount: 1,
+  symbols: ["MSFT"],
+  requests: [],
+  constraintSets: [cs(CONSTRAINT_MSFT)],
+  outcomes: [
+    {
+      symbol: "MSFT",
+      status: "completed",
+      abstained: true,
+      constraintSet: cs(CONSTRAINT_MSFT),
+      rankedNoView: [],
+      excluded: [{ reason: "insufficient liquidity", count: 3 }],
+    },
+  ],
+} as unknown as StoredDiscoveryRun;
+
+describe("discoveryCandidatesCsv — no-view runs (#534)", () => {
+  const csv = discoveryCandidatesCsv(RUN_NOVIEW);
+  const lines = csv.split("\r\n");
+
+  it("identifies the mode in the header: NO-VIEW, the score model, no thesis/target", () => {
+    expect(lines[0]).toBe(
+      "# cfagent discovery run results — NO-VIEW (constraints only): ranked structures under the no-view-v1 score model — no thesis, no target"
+    );
+    expect(lines[1]).toContain("input model: no-view");
+    expect(lines[1]).toContain("status: partial");
+    expect(lines[2]).toContain("symbols: NVDA, MSFT, AAPL");
+    expect(lines[2]).toContain("constraint sets: 3");
+    expect(lines[2]).toContain("rows in this file: 2");
+  });
+
+  it("adds one # CONSTRAINTS line per stored set: caps, floors, DTE, the fixed IV assumption", () => {
+    expect(lines).toContain(
+      "# CONSTRAINTS: NVDA — max planned loss $500.00 · min reward/risk 1× · min POP 35% · DTE 7–45 · risk profile balanced · IV expected unchanged"
+    );
+    // A set without a stored POP floor renders the mode's default.
+    expect(lines).toContain(
+      "# CONSTRAINTS: AAPL — max planned loss $250.00 · min reward/risk 2× · min POP 35% · risk profile conservative · IV expected unchanged"
+    );
+  });
+
+  it("adds an # ABSTAINED line for a flag abstention, naming its gate reasons", () => {
+    expect(lines).toContain(
+      "# ABSTAINED: MSFT — no structure qualified under the stated constraints (insufficient liquidity ×3, probability of profit below the floor ×2)"
+    );
+    expect(lines).toContain("# FAILED: AAPL — E*TRADE chain unavailable: session expired");
+  });
+
+  it("emits structure rows under the no-view columns — score model stamped, no view columns", () => {
+    const header = lines.find((l) => l.startsWith("symbol,"))!;
+    expect(header).toBe(
+      "symbol,scoreModel,rank,strategy,strategyType,compositeScore,probabilityOfProfit,netDebit,maxProfit,maxLoss,structureRewardRisk,expirationDate,bestPick"
+    );
+    expect(header).not.toContain("thesis");
+    expect(header).not.toContain("targetPrice");
+    const row1 = lines.find((l) => l.startsWith("NVDA,no-view-v1,1,"))!;
+    expect(row1).toContain("NVDA Long Call");
+    expect(row1).toContain("82.5"); // composite score under no-view-v1
+    expect(row1.endsWith("yes")).toBe(true); // the best-supported structure is flagged
+    const row2 = lines.find((l) => l.startsWith("NVDA,no-view-v1,2,"))!;
+    expect(row2).toContain("0.56"); // structure reward/risk, not a target ratio
+    expect(row2.endsWith("yes")).toBe(false);
+    expect(discoveryRunHasCandidates(RUN_NOVIEW)).toBe(true);
+  });
+
+  it("an all-abstain no-view run exports metadata + constraints + abstention and no rows", () => {
+    expect(discoveryRunHasCandidates(RUN_NOVIEW_ALL_ABSTAIN)).toBe(false);
+    const abstainLines = discoveryCandidatesCsv(RUN_NOVIEW_ALL_ABSTAIN)
+      .split("\r\n")
+      .filter((l) => l.length > 0);
+    expect(abstainLines).toHaveLength(6); // 3 metadata + CONSTRAINTS + ABSTAINED + column header
+    expect(abstainLines[3]).toContain("# CONSTRAINTS: MSFT");
+    expect(abstainLines[4]).toContain("# ABSTAINED: MSFT");
+  });
+
+  it("viewed-model CSVs gain no no-view lines (byte-identical headers)", () => {
+    const savedCsv = discoveryCandidatesCsv(RUN_PARTIAL);
+    expect(savedCsv).not.toContain("NO-VIEW");
+    expect(savedCsv).not.toContain("# CONSTRAINTS:");
+    expect(savedCsv.split("\r\n")[0]).toBe("# cfagent discovery run results — ranked candidates");
+    expect(savedCsv.split("\r\n")[2]).toContain("requests: 2");
+  });
+});
+
+describe("discoveryRunJson — no-view runs (#534)", () => {
+  it("carries the constraint sets and no-view outcomes verbatim, minus the scoping stamp", () => {
+    const parsed = JSON.parse(discoveryRunJson(RUN_NOVIEW));
+    expect(parsed.inputModel).toBe("no-view");
+    expect(parsed.constraintSets).toEqual([cs(CONSTRAINT_NVDA), cs(CONSTRAINT_MSFT), cs(CONSTRAINT_AAPL)]);
+    expect(parsed.outcomes[0].rankedNoView).toHaveLength(2);
+    expect(parsed.outcomes[0].rankedNoView[0].candidate.scoreModel).toBe("no-view-v1");
+    expect(parsed.outcomes[0].bestNoViewTrade.status).toBe("research_only");
+    expect(parsed.outcomes[0].bestNoViewTrade.rationale[0]).toBe(NO_VIEW_RATIONALE);
+    expect(parsed.outcomes[1].abstained).toBe(true);
+    expect(parsed.outcomes[1].rankedNoView).toEqual([]);
+    expect(parsed.outcomes[2].error).toContain("session expired");
+    expect("userLogin" in parsed).toBe(false);
+  });
+
+  it("a stored constraint set carries no view fields — nothing is exported as a view", () => {
+    const parsed = JSON.parse(discoveryRunJson(RUN_NOVIEW));
+    for (const set of parsed.constraintSets) {
+      expect("thesis" in set.request).toBe(false);
+      expect("targetPrice" in set.request).toBe(false);
+      expect("targetDate" in set.request).toBe(false);
+      expect("expectedIvDirection" in set.request).toBe(false);
+      expect(set.expectedIvDirection).toBe("unchanged");
+    }
+  });
+});
