@@ -369,6 +369,7 @@ export class ResearchAgent extends Think<Env> {
         quoteTimestamp: idea.quoteTimestamp,
         rulesVersion: report.rulesVersion,
         createdAt: report.createdAt,
+        outlook: (idea as { outlook?: StoredIdeaRecord["outlook"] }).outlook,
       }));
       const provider = new EtradeResearchDataProvider(this.env, userLogin || "default");
       const config = this.configService().load();
@@ -390,6 +391,58 @@ export class ResearchAgent extends Think<Env> {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * #583 docx §9: evaluate runs due for follow-up — runs older than
+   * `minAgeMs` with no evaluation row yet (oldest first, capped).
+   * Best-effort: per-run failures are recorded as nulls, never thrown.
+   */
+  async evaluateDueRuns(
+    userLogin?: string,
+    minAgeMs = 24 * 3600 * 1000,
+    nowMs = Date.now(),
+    limit = 5
+  ): Promise<{ evaluated: string[]; failed: string[] }> {
+    const evaluated: string[] = [];
+    const failed: string[] = [];
+    try {
+      this.ensureTables();
+      const sql = this.storageSql();
+      const runs = Array.from(
+        sql.exec("SELECT run_id, created_at FROM research_runs")
+      ) as Array<{ run_id?: unknown; created_at?: unknown }>;
+      const evalRows = Array.from(
+        sql.exec("SELECT run_id FROM research_evaluations")
+      ) as Array<{ run_id?: unknown }>;
+      const evaluatedIds = new Set(
+        evalRows
+          .map((r) => r.run_id)
+          .filter((id): id is string => typeof id === "string")
+      );
+      const { selectRunsDueForEvaluation } = await import(
+        "../services/researchPipeline"
+      );
+      const due = selectRunsDueForEvaluation(
+        runs
+          .filter(
+            (r): r is { run_id: string; created_at: string } =>
+              typeof r.run_id === "string" && typeof r.created_at === "string"
+          )
+          .map((r) => ({ runId: r.run_id, createdAt: r.created_at })),
+        evaluatedIds,
+        nowMs,
+        minAgeMs,
+        limit
+      );
+      for (const runId of due) {
+        const res = await this.evaluateRun(runId, userLogin);
+        (res ? evaluated : failed).push(runId);
+      }
+    } catch {
+      // Best-effort: a scheduling pass must never break the tick.
+    }
+    return { evaluated, failed };
   }
 
   private async persistRun(report: ResearchReport): Promise<void> {

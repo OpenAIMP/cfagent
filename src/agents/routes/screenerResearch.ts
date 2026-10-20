@@ -202,6 +202,21 @@ export async function handleScreenerResearchRoutes(
           ctx.runResearchAndPublish,
           userLogin
         );
+        // #583 docx §9: after the scheduled run, evaluate runs due for
+        // follow-up (older than 24h, no evaluation row). Best-effort: never
+        // fails the tick.
+        try {
+          const agent = ctx.getResearchAgent(userLogin);
+          if (agent) {
+            const evalRes = await agent.evaluateDueRuns(userLogin);
+            (out as Record<string, unknown>).evaluationsDue =
+              evalRes.evaluated.length + evalRes.failed.length;
+            (out as Record<string, unknown>).evaluationsDone =
+              evalRes.evaluated;
+          }
+        } catch {
+          // Evaluation is advisory; the research run already succeeded.
+        }
         ctx.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
         return Response.json(out);
       } catch (err: any) {

@@ -975,6 +975,8 @@ export interface StoredIdeaRecord {
   quoteTimestamp: number;
   rulesVersion: string;
   createdAt: string;
+  /** Idea outlook for direction scoring (#583); absent on legacy records. */
+  outlook?: Outlook;
 }
 
 export interface IdeaEvaluation {
@@ -984,6 +986,12 @@ export interface IdeaEvaluation {
   /** P&L estimate per unit at evaluation (intrinsic-based when expired, BS otherwise). */
   pnlEstimatePerUnit: number | null;
   evalSpot: number | null;
+  /**
+   * #583 docx §9 direction dimension: did spot move in the thesis outlook's
+   * direction vs entry? Null when unscored (non-directional outlook or no
+   * follow-up quote). Heuristic, not a fill record.
+   */
+  directionCorrect: boolean | null;
   notes: string[];
 }
 
@@ -997,6 +1005,11 @@ export interface ResearchEvaluation {
     invalidated: number;
     avgPnlPerUnit: number | null;
     dataQualityFailures: number;
+    /**
+     * #583: fraction of direction-scored ideas that scored correct
+     * (null when none scored).
+     */
+    directionAccuracy: number | null;
   };
   /** Rules are versioned; evaluation never edits the original record. */
   note: string;
@@ -1034,6 +1047,7 @@ export async function runResearchEvaluation(
         invalidated: false,
         pnlEstimatePerUnit: null,
         evalSpot: null,
+        directionCorrect: null,
         notes: ["Evaluation quote unavailable — data quality failure recorded."],
       });
       continue;
@@ -1053,9 +1067,13 @@ export async function runResearchEvaluation(
     }
     // P&L estimate: intrinsic value of legs at eval spot minus opening cost.
     // When legs have not expired this is a rough estimate — flagged as such.
+    // No legs means no economics: the estimate is unknown (null), never 0.
     let pnl: number | null = null;
     try {
-      const intrinsic = idea.legs.reduce((s, leg) => {
+      if (idea.legs.length === 0) {
+        notes.push("P&L estimate unavailable — idea has no legs.");
+      } else {
+        const intrinsic = idea.legs.reduce((s, leg) => {
         const iv =
           leg.optionType === "call"
             ? Math.max(quote!.price - leg.strike, 0)
@@ -1067,7 +1085,8 @@ export async function runResearchEvaluation(
         0
       );
       pnl = Number((intrinsic - openCost).toFixed(2));
-      notes.push("P&L is an intrinsic-based estimate, not a fill record.");
+        notes.push("P&L is an intrinsic-based estimate, not a fill record.");
+      }
     } catch {
       notes.push("P&L estimation failed.");
     }
@@ -1077,6 +1096,7 @@ export async function runResearchEvaluation(
       invalidated,
       pnlEstimatePerUnit: pnl,
       evalSpot: quote.price,
+      directionCorrect: scoreDirection(idea.outlook, idea.entrySpot, quote.price),
       notes,
     });
   }
@@ -1084,6 +1104,7 @@ export async function runResearchEvaluation(
   const pnls = results
     .map((r) => r.pnlEstimatePerUnit)
     .filter((p): p is number => p !== null);
+  const scored = results.filter((r) => r.directionCorrect !== null);
   return {
     runId,
     evaluatedAt: new Date(at).toISOString(),
@@ -1097,7 +1118,50 @@ export async function runResearchEvaluation(
           ? Number((pnls.reduce((a, b) => a + b, 0) / pnls.length).toFixed(2))
           : null,
       dataQualityFailures,
+      directionAccuracy:
+        scored.length > 0
+          ? Number(
+              (
+                scored.filter((r) => r.directionCorrect).length / scored.length
+              ).toFixed(3)
+            )
+          : null,
     },
     note: `Evaluated under rules ${config.rulesVersion}; original records unmodified.`,
   };
+}
+
+/**
+ * #583 docx §9 direction dimension: did spot move in the thesis outlook's
+ * direction relative to entry? Returns null for non-directional outlooks.
+ * Heuristic — direction only, not magnitude or fill quality.
+ */
+function scoreDirection(
+  outlook: Outlook | undefined,
+  entrySpot: number,
+  evalSpot: number
+): boolean | null {
+  if (outlook === "bullish") return evalSpot > entrySpot;
+  if (outlook === "bearish") return evalSpot < entrySpot;
+  return null;
+}
+
+/**
+ * #583: select runs due for outcome evaluation — runs older than `minAgeMs`
+ * with no evaluation row yet, oldest first, capped at `limit`.
+ * Pure function over run metadata; the caller performs the evaluations.
+ */
+export function selectRunsDueForEvaluation(
+  runs: Array<{ runId: string; createdAt: string }>,
+  evaluatedRunIds: Set<string>,
+  nowMs: number,
+  minAgeMs: number,
+  limit = 5
+): string[] {
+  const cutoff = new Date(nowMs - minAgeMs).toISOString();
+  return runs
+    .filter((r) => r.createdAt < cutoff && !evaluatedRunIds.has(r.runId))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    .slice(0, limit)
+    .map((r) => r.runId);
 }
