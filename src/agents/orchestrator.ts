@@ -392,21 +392,23 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
     } catch (err) {
       console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
     }
-    // Delivery: email the stored summary when explicitly configured.
+    // #336: full delivery through the #308 seams (Slack, email, webhook),
+    // delivering the canonical stored copy. Best-effort; never fails the run.
     let emailed = false;
     try {
-      const cfg = await agent.getResearchConfig();
-      if (cfg.autoEmail && cfg.emailTo) {
-        emailed = await this.sendResearchSummaryEmail(
-          cfg.emailTo,
-          report.summary,
-          report.ideas.length,
-          stored?.reportId ?? null,
-          login
-        );
-      }
-    } catch {
-      // Delivery never fails the run.
+      const delivery = await this.deliverResearchReport(
+        agent,
+        report,
+        {
+          reportId: stored?.reportId ?? null,
+          pdfKey,
+          trigger,
+          userLogin: login,
+        }
+      );
+      emailed = delivery.emailed;
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research delivery failed:", err);
     }
     // Issue #577: complete the task with the path actually taken and a
     // deterministic evaluation of the outcome (never a model grading
@@ -461,6 +463,183 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
       taskId,
       executionPath,
     };
+  }
+
+  /**
+   * #336: dispatch a research run's report through the #308 delivery seams
+   * (Slack, email, webhook), delivering the canonical stored copy — never a
+   * regenerated one. Respects the #277 HITL setting; attaches the run PDF
+   * where the channel supports files; flags pre-entry-refresh outcomes.
+   * Best-effort: delivery never fails the run.
+   */
+  private async deliverResearchReport(
+    agent: { getResearchPdfByKey(k: string): Promise<{ bytes: Uint8Array; fileName: string } | null>; refreshIdeaQuotes(r: unknown, u?: string): Promise<Array<{ symbol: string; status: string; detail: string }>>; getResearchConfig(): Promise<{ autoEmail?: boolean; emailTo?: string }> },
+    report: {
+      runId: string;
+      trigger: string;
+      createdAt: string;
+      summary: string;
+      ideas: Array<{ rank: number; symbol: string; outlook: string; structure: string; score: number; thesis: string }>;
+      watchlist: Array<{ symbol: string }>;
+      rejected: Array<unknown>;
+      userLogin?: string;
+    },
+    opts: { reportId: string | null; pdfKey: string | null; trigger: string; userLogin: string }
+  ): Promise<{ emailed: boolean; slack: boolean; webhook: boolean; held: boolean }> {
+    const result = { emailed: false, slack: false, webhook: false, held: false };
+
+    // Pre-entry refresh: flag ideas that moved or went stale.
+    const refreshFlags = await agent.refreshIdeaQuotes(report as never, opts.userLogin);
+    const flagLines = refreshFlags.map(
+      (f) => `⚠ ${f.symbol}: ${f.detail}`
+    );
+
+    // Delivery text from the canonical report.
+    const ideaLines = report.ideas.slice(0, 5).map(
+      (i) => `• #${i.rank} ${i.symbol} (${i.outlook}, ${i.structure}, score ${i.score.toFixed(1)})`
+    );
+    const text = [
+      `🔬 Options research — ${report.trigger} run ${report.runId}`,
+      report.summary,
+      "",
+      `Qualified ideas (${report.ideas.length}):`,
+      ...ideaLines,
+      ...(report.watchlist.length > 0 ? ["", `Watchlist: ${report.watchlist.map((w) => w.symbol).join(", ")}`] : []),
+      ...(flagLines.length > 0 ? ["", "Pre-entry refresh:", ...flagLines] : []),
+      "",
+      "Research only; no trades were placed.",
+    ].join("\n");
+
+    // #277 HITL: hold for approval instead of delivering.
+    if (this.getReportDispatchHitl()) {
+      try {
+        this.createReportConfirmation(
+          "email",
+          JSON.stringify({
+            kind: "research",
+            runId: report.runId,
+            reportId: opts.reportId,
+            pdfKey: opts.pdfKey,
+            trigger: opts.trigger,
+            userLogin: opts.userLogin,
+          }),
+          opts.reportId
+        );
+        result.held = true;
+      } catch (err) {
+        console.warn("[OrchestratorAgent] HITL hold failed:", err);
+      }
+      return result;
+    }
+
+    const pdf = opts.pdfKey
+      ? await agent.getResearchPdfByKey(opts.pdfKey).catch(() => null)
+      : null;
+    const reportUrl = `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/research/report.pdf${opts.pdfKey ? `?key=${encodeURIComponent(opts.pdfKey)}` : ""}`;
+
+    // 1. Slack via cfpay A2A (with PDF attach where supported).
+    try {
+      const { getCfpayConfig } = await import("../services/cfpayA2A");
+      const { deliverScreenerToSlackA2A } = await import("../services/screenerSlackDelivery");
+      const cfpay = getCfpayConfig(this.env);
+      const slackChannel =
+        (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
+      if (cfpay) {
+        const delivery = await deliverScreenerToSlackA2A(this.env, {
+          text,
+          channel: slackChannel,
+          ...(pdf
+            ? {
+                pdf: {
+                  ...pdf,
+                  title: `Options research — ${report.trigger} ${report.createdAt.slice(0, 10)}`,
+                  comment: text,
+                },
+              }
+            : {}),
+        });
+        result.slack = delivery.ok;
+        if (!delivery.ok) console.warn("[OrchestratorAgent] Research Slack delivery failed:", delivery.error);
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research Slack delivery failed:", err);
+    }
+
+    // 2. Email (opt-in via research config), with PDF attachment.
+    try {
+      const cfg = await agent.getResearchConfig();
+      if (cfg.autoEmail && cfg.emailTo) {
+        const { validateEmailRecipient } = await import("../security/webhookReplay");
+        const check = validateEmailRecipient(cfg.emailTo, this.env.EMAIL_TO_ALLOWED_DOMAINS);
+        if (check.ok) {
+          const { getCfpayConfig, cfpaySendEmail, cfpaySendEmailWithAttachments } = await import("../services/cfpayA2A");
+          const cfpay = getCfpayConfig(this.env);
+          const subject = `🔬 Options research — ${report.ideas.length} qualified idea(s)${flagLines.length > 0 ? " (⚠ refresh flags)" : ""}`;
+          let sent = false;
+          if (cfpay) {
+            let r;
+            if (pdf) {
+              let binary = "";
+              for (let i = 0; i < pdf.bytes.length; i += 8192)
+                binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+              r = await cfpaySendEmailWithAttachments(cfpay, {
+                to: cfg.emailTo,
+                subject,
+                body: `${text}\n\nPDF report: ${reportUrl}`,
+                attachments: [{ filename: pdf.fileName, contentB64: btoa(binary), contentType: "application/pdf" }],
+              });
+            } else {
+              r = await cfpaySendEmail(cfpay, cfg.emailTo, subject, `${text}\n\nPDF report: ${reportUrl}`);
+            }
+            sent = r.ok;
+          }
+          if (!sent) {
+            const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), opts.userLogin);
+            sent = await emailService.sendOutboundEmail(
+              cfg.emailTo,
+              subject,
+              `<p>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br/>")}</p>`,
+              `${text}\n\nPDF report: ${reportUrl}`,
+              pdf
+                ? (() => {
+                    let binary = "";
+                    for (let i = 0; i < pdf.bytes.length; i += 8192)
+                      binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+                    return { fileName: pdf.fileName, contentType: "application/pdf", contentBase64: btoa(binary) };
+                  })()
+                : undefined
+            );
+          }
+          result.emailed = sent;
+        }
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research email delivery failed:", err);
+    }
+
+    // 3. Webhook.
+    try {
+      const webhookUrl = (this.env as any).OUTBOUND_WEBHOOK_URL;
+      if (webhookUrl) {
+        const { ETradeWebhookService } = await import("../services/tradingWebhooks");
+        const webhook = new ETradeWebhookService(this.getOrm(), this.env, opts.userLogin);
+        await webhook.dispatchOutboundWebhook("research.completed", {
+          runId: report.runId,
+          trigger: report.trigger,
+          qualified: report.ideas.length,
+          watchlist: report.watchlist.length,
+          rejected: report.rejected.length,
+          refreshFlags,
+          reportUrl,
+          reportId: opts.reportId,
+        });
+        result.webhook = true;
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research webhook delivery failed:", err);
+    }
+
+    return result;
   }
 
   /** Issue #319: opt-in email delivery of the stored research summary. */

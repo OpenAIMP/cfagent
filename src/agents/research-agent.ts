@@ -398,6 +398,61 @@ export class ResearchAgent extends Think<Env> {
     }
   }
 
+  /**
+   * #336: pre-entry refresh. Re-fetch live quotes for the shortlisted ideas
+   * and flag any that moved materially or went stale since the run. Returns
+   * one flag per affected idea; empty means "no change". Best-effort — never
+   * throws; a provider failure yields no flags, not a failed delivery.
+   */
+  async refreshIdeaQuotes(
+    report: ResearchReport,
+    userLogin?: string
+  ): Promise<
+    Array<{ symbol: string; status: "moved" | "stale"; detail: string }>
+  > {
+    const flags: Array<{
+      symbol: string;
+      status: "moved" | "stale";
+      detail: string;
+    }> = [];
+    try {
+      const provider = new EtradeResearchDataProvider(
+        this.env,
+        userLogin || report.userLogin || "default"
+      );
+      for (const idea of (report.ideas ?? []).slice(0, 5)) {
+        let quote: { price?: number | null } | null = null;
+        try {
+          quote = await provider.getQuote(idea.symbol);
+        } catch {
+          quote = null;
+        }
+        if (!quote || quote.price == null || !Number.isFinite(quote.price)) {
+          flags.push({
+            symbol: idea.symbol,
+            status: "stale",
+            detail: "No live quote at delivery time — entry price unverified.",
+          });
+          continue;
+        }
+        const entry = idea.entrySpot;
+        if (entry > 0) {
+          const movePct = ((quote.price - entry) / entry) * 100;
+          if (Math.abs(movePct) >= 2) {
+            flags.push({
+              symbol: idea.symbol,
+              status: "moved",
+              detail: `Underlying moved ${movePct >= 0 ? "+" : ""}${movePct.toFixed(2)}% since entry reference $${entry.toFixed(2)} (now $${quote.price.toFixed(2)}).`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[ResearchAgent] Pre-entry refresh failed:", err);
+    }
+    return flags;
+  }
+
   async getHistory(): Promise<ResearchRunSummary[]> {
     try {
       return (await this.ctx.storage.get<ResearchRunSummary[]>(HISTORY_KEY)) ?? [];
