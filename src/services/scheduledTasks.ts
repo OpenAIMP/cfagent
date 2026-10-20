@@ -19,10 +19,19 @@ import {
 import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
+  OptionsAgentPipeline,
+  validateStrategyRequest,
+  MAX_SAVED_REQUESTS_PER_RUN,
   type OptionThesis,
   type OptionStrategyType,
+  type StrategyRequest,
 } from "../trading";
 import type { ScanRunStore } from "../trading";
+import type {
+  DiscoveryRunStatus,
+  DiscoveryRunStore,
+  DiscoverySymbolOutcome,
+} from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
@@ -60,6 +69,19 @@ export interface AutonomousOptionsAnalysisOptions {
   userLogin?: string;
 }
 
+export interface AutonomousStrategyDiscoveryOptions {
+  /** Complete saved StrategyRequests, captured from the discovery
+   *  panel and re-run verbatim (issue #126 decision — the system
+   *  never derives a target or invents a view for a schedule). */
+  requests?: StrategyRequest[];
+  environment?: string;
+  trigger?: "manual" | "scheduled";
+  userLogin?: string;
+  /** The arming schedule's id, when the caller knows it (recorded as
+   *  run provenance; the SDK callback path supplies none). */
+  scheduleId?: string;
+}
+
 /**
  * Failure contract for scheduled jobs (issue #112 — deliberate; do not
  * "fix" by throwing):
@@ -85,7 +107,8 @@ export class ScheduledTasksService {
     private orm?: DatabaseORM,
     private userLogin: string = "default_trader",
     private scanRunStore?: ScanRunStore,
-    private ivHistoryStore?: IvHistoryStore
+    private ivHistoryStore?: IvHistoryStore,
+    private discoveryRunStore?: DiscoveryRunStore
   ) {}
 
   /**
@@ -844,6 +867,249 @@ export class ScheduledTasksService {
         error: err.message || "Scheduled options analysis failed",
         timestamp,
       };
+    }
+  }
+
+  /**
+   * Scheduled strategy discovery (issue #126, PR-E): re-runs SAVED
+   * StrategyRequests — captured whole from the discovery panel — against
+   * live chains through the same OptionsAgentPipeline the interactive
+   * route uses, and persists one run record per execution
+   * (SqlDiscoveryRunStore) with per-symbol outcomes.
+   *
+   * The input model is deliberate (user decision on #126): the payload
+   * carries complete requests and this task re-runs them verbatim. It
+   * never derives a target price, a thesis, or any other part of a view
+   * the user did not configure.
+   *
+   * Honesty contract (mirrors the scanner's, per #112): a failure to
+   * resolve the owner/environment, a missing store, or an invalid
+   * payload fails the task with audit + session message and persists
+   * NOTHING. Once execution starts, exactly one run record is
+   * persisted: "completed" when every request produced a result,
+   * "partial" when some did and some failed (the failures are named on
+   * the record), and "failed" when none did — an all-failed run takes
+   * the failure path (audit + session message + { success: false })
+   * and its record exists for diagnosis, never as a success.
+   */
+  async autonomousStrategyDiscovery(
+    options: AutonomousStrategyDiscoveryOptions = {}
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+  }>> {
+    const timestamp = new Date().toISOString();
+    const requests = options.requests ?? [];
+    const symbols = requests.map((r) => (typeof r?.symbol === "string" ? r.symbol.toUpperCase().trim() : "?"));
+
+    const fail = (error: string, runId?: string, status?: DiscoveryRunStatus, failures: Array<{ symbol: string; error: string }> = []) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols,
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        error,
+      });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery failed for ${symbols.join(", ") || "no saved requests"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId
+          ? {
+              data: {
+                runId,
+                status: status as DiscoveryRunStatus,
+                requestCount: requests.length,
+                completedCount: requests.length - failures.length,
+                failedCount: failures.length,
+                symbols,
+                failures,
+              },
+            }
+          : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return fail("No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again.");
+      }
+      if (!this.discoveryRunStore) {
+        return fail("Discovery run store not configured for this service instance");
+      }
+      if (!Array.isArray(requests) || requests.length === 0) {
+        return fail("Scheduled discovery requires at least one saved strategy request; none was supplied. Capture a view in the discovery panel and schedule it — no view is invented for a schedule.");
+      }
+      if (requests.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return fail(`Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per run; ${requests.length} were supplied.`);
+      }
+      for (let i = 0; i < requests.length; i++) {
+        const validationError = validateStrategyRequest(requests[i]);
+        if (validationError) {
+          return fail(`Saved discovery request ${i + 1} of ${requests.length} (${symbols[i]}) is invalid: ${validationError}`);
+        }
+      }
+
+      // One client/pipeline for the whole execution — the same
+      // construction the interactive strategies route uses, under the
+      // schedule owner's identity and environment (#447/#461).
+      const etrade = new ETradeService(
+        this.orm || new DatabaseORM({ exec: () => [] }),
+        this.env,
+        userLogin,
+        options.environment
+      );
+      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      for (const request of requests) {
+        const symbol = request.symbol.toUpperCase().trim();
+        try {
+          const result = await pipeline.run(request);
+          const snapshot = result.snapshot;
+          // A snapshot that never loaded its chain is a failure, not
+          // an empty success: the screen records why (validation
+          // error, per-symbol fetch errors, or the client's recorded
+          // upstream cause). Zero contracts with NO failure signal is
+          // a genuine no-candidates outcome and completes honestly.
+          const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+            .filter((e) => e.symbol === symbol)
+            .map((e) => e.reason);
+          let failure: string | undefined;
+          if (snapshot.validationError) {
+            failure = snapshot.validationError;
+          } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
+            failure = fetchReasons.join("; ");
+          } else if (snapshot.contracts.length === 0) {
+            failure = etrade.getLastError() || undefined;
+          }
+          if (failure) {
+            outcomes.push({ symbol, status: "failed", request, error: failure });
+          } else {
+            outcomes.push({
+              symbol,
+              status: "completed",
+              request,
+              ranked: result.ranked,
+              riskReports: result.riskReports,
+              screenedOut: result.screenedOut.slice(0, 50),
+              excluded: result.strategies.excluded,
+              bestTrade: result.bestTrade,
+              snapshot: {
+                dataSource: snapshot.dataSource,
+                screen: snapshot.screen,
+                ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
+              },
+            });
+          }
+        } catch (err: any) {
+          outcomes.push({
+            symbol,
+            status: "failed",
+            request,
+            error: err?.message || "Strategy discovery pipeline failed",
+          });
+        }
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const status: DiscoveryRunStatus =
+        failures.length === 0 ? "completed" : failures.length === outcomes.length ? "failed" : "partial";
+
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        requests,
+        outcomes,
+        status,
+      });
+
+      if (status === "failed") {
+        return fail(
+          `Every saved discovery request failed (${failures.map((f) => `${f.symbol}: ${f.error}`).join("; ")})`,
+          run.id,
+          status,
+          failures
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        requestCount: requests.length,
+        completedCount: requests.length - failures.length,
+        failedCount: failures.length,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed"
+                ? `🔭 Scheduled Strategy Discovery completed for ${symbols.join(", ")}: all ${requests.length} saved requests produced results.`
+                : `🔭 Scheduled Strategy Discovery partially completed for ${symbols.join(", ")}: ${requests.length - failures.length} of ${requests.length} requests produced results; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: requests.length,
+          completedCount: requests.length - failures.length,
+          failedCount: failures.length,
+          symbols,
+          failures,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return fail(err?.message || "Scheduled strategy discovery failed");
     }
   }
 
