@@ -1,6 +1,13 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getSessionCached } from "./security/sessionCache";
+import {
+  bearerKeyFromRequest,
+  listApiKeys,
+  mintApiKey,
+  revokeApiKey,
+  verifyApiKey,
+} from "./security/apiKeys";
 import { serveStaticAsset } from "./security/staticAssets";
 import { withErrorBoundary } from "./security/workerErrorBoundary";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
@@ -541,28 +548,85 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       });
     }
 
+    // --- API Keys (issue #180): per-user keys for the MCP transport ---
+    // Session-required, and a session can only ever list, mint, or revoke
+    // its OWN keys (the #154 pattern: identity = session login only).
+    // Minting returns the plaintext secret exactly once; the server stores
+    // only its SHA-256 hash (src/security/apiKeys.ts).
+    if (path === "/api/api-keys") {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in with GitHub" }, { status: 401 });
+      }
+      const login = session.githubLogin;
+
+      if (request.method === "GET") {
+        return Response.json({ keys: await listApiKeys(env, login) });
+      }
+      if (request.method === "POST") {
+        const body = (await request.json().catch(() => ({}))) as { label?: unknown };
+        const label = typeof body.label === "string" ? body.label : "";
+        const minted = await mintApiKey(env, login, label);
+        return Response.json({ key: minted.key, secret: minted.secret }, { status: 201 });
+      }
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    if (path.startsWith("/api/api-keys/")) {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in with GitHub" }, { status: 401 });
+      }
+      if (request.method === "DELETE") {
+        const keyId = decodeURIComponent(path.slice("/api/api-keys/".length));
+        const revoked = keyId ? await revokeApiKey(env, session.githubLogin, keyId) : false;
+        if (!revoked) return Response.json({ error: "API key not found." }, { status: 404 });
+        return Response.json({ ok: true });
+      }
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
     // --- Model Context Protocol (MCP) JSON-RPC 2.0 & Discovery Endpoint ---
+    // Issue #180: transport identity is the app session OR a per-user API
+    // key (Authorization: Bearer cfk_…, see src/security/apiKeys.ts) bound
+    // to the login that minted it. The caller-asserted `x-user-id` header
+    // no longer asserts anything — it previously SELECTED the agent DO
+    // instance, so asserting a victim's login ran the full tool registry
+    // inside their instance, and anonymous callers shared an "mcp_client"
+    // instance. No credential → 401 before any DO access. The in-app
+    // explorer (McpApiExplorer) rides the session cookie and is unchanged.
     if (path === "/mcp" || path === "/api/mcp") {
+      const corsHeaders = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      };
       if (request.method === "OPTIONS") {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
-          },
-        });
+        return new Response(null, { headers: corsHeaders });
       }
 
       const session = await requireAuth(request, env);
-      const userLogin = session?.githubLogin || request.headers.get("x-user-id") || "mcp_client";
+      let userLogin = session?.githubLogin;
+      if (!userLogin) {
+        const verified = await verifyApiKey(env, bearerKeyFromRequest(request));
+        userLogin = verified?.login;
+      }
+      if (!userLogin) {
+        return Response.json(
+          { error: "Unauthorized: an app session or a valid API key is required." },
+          { status: 401, headers: corsHeaders }
+        );
+      }
       const id = env.SEARCH_AGENT.idFromName(userLogin);
       const targetUrl = new URL("/mcp" + url.search, "https://agent.internal");
+      const forwardReq = new Request(targetUrl, request);
+      forwardReq.headers.set("x-user-login", userLogin);
 
-      const resp = await env.SEARCH_AGENT.get(id).fetch(new Request(targetUrl, request));
+      const resp = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
       const headers = new Headers(resp.headers);
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-id");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
       return new Response(resp.body, { status: resp.status, headers });
     }
 

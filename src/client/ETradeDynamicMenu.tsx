@@ -6,6 +6,7 @@ import {
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import { ApiKeysPanel } from "./ApiKeysPanel";
 import { PillGroup, Button } from "./components/ui";
 import {
   AdBannerConfig,
@@ -992,6 +993,15 @@ export function SettingsMenu({
                 </div>
               </div>
             </details>
+          </div>
+
+          {/* API Keys (issue #180): per-user keys for external MCP clients */}
+          <div className="etrade-panel-section settings-api-keys-section">
+            <div className="section-label-row">
+              <span>API Keys</span>
+              <small>MCP transport access for external clients</small>
+            </div>
+            <ApiKeysPanel />
           </div>
 
           {/* User Account & Session */}
