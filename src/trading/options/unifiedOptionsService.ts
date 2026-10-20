@@ -351,7 +351,10 @@ export class UnifiedOptionsService {
         }
 
         case "opportunities": {
-          const symbols = req.symbols && req.symbols.length > 0 ? req.symbols : ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
+          const symbols = req.symbols && req.symbols.length > 0 ? req.symbols : (req.symbol ? [req.symbol.toUpperCase()] : []);
+          if (symbols.length === 0) {
+            throw new Error("Provide explicit symbols or a live universe for options screening; no static symbols are substituted.");
+          }
           const scanner = new OpportunityScanner(screener);
           const targetDate = req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
           const scanResult = await scanner.scan(symbols, {

@@ -80,6 +80,8 @@ export interface ScreenerRunResult {
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
   error?: string;
+  /** Duplicate scheduled delivery was suppressed by the shared per-user DO. */
+  skippedDuplicate?: boolean;
 }
 
 const LATEST_KEY = "screener:latest";
@@ -107,6 +109,24 @@ export class ScreenerAgent extends Agent<Env> {
     return this.orm;
   }
 
+  async claimScheduledExecution(jobKey: string, environment?: string): Promise<boolean> {
+    const slot = new Date().toISOString().slice(0, 16);
+    const key = `screening:scheduled:last-slot:${environment || "PROD"}:${jobKey}`;
+    const storage = this.ctx.storage as any;
+    if (typeof storage.transaction === "function") {
+      return storage.transaction(async (txn: any) => {
+        const current = await txn.get<{ slot: string }>(key);
+        if (current?.slot === slot) return false;
+        await txn.put(key, { environment, jobKey, slot });
+        return true;
+      });
+    }
+    const current = await storage.get(key) as { slot?: string } | undefined;
+    if (current?.slot === slot) return false;
+    await storage.put(key, { environment, jobKey, slot });
+    return true;
+  }
+
   private userLogin(): string {
     return "default_trader";
   }
@@ -122,8 +142,25 @@ export class ScreenerAgent extends Agent<Env> {
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
     const universe: UniverseId = req.universe ?? "TECH";
+    let expectedCount = 0;
 
     try {
+      if (req.trigger === "scheduled" && !(await this.claimScheduledExecution(`stock:${universe}`, req.environment))) {
+        return {
+          timestamp,
+          trigger: req.trigger,
+          universe,
+          sector,
+          success: false,
+          totalScanned: 0,
+          expectedCount: 0,
+          matchedCount: 0,
+          opportunities: [],
+          allStocks: [],
+          discoveryMessage: "Duplicate scheduled delivery suppressed for this account, environment, universe, and minute.",
+          skippedDuplicate: true,
+        };
+      }
       const etrade = new ETradeService(
         this.getOrm(),
         this.env,
@@ -142,19 +179,19 @@ export class ScreenerAgent extends Agent<Env> {
         const listings = await fetchAllUsStockListings();
         symbols = resolveUniverse(universe, listings);
       }
+      const requestedMaxSymbols = req.maxSymbols ?? universeDef.defaultMaxSymbols;
+      const selectedSymbols = symbols
+        ? (requestedMaxSymbols > 0 ? symbols.slice(0, requestedMaxSymbols) : symbols)
+        : [];
+      expectedCount = selectedSymbols.length;
       // E*TRADE-only acquisition (#261). Symbols come from the listings
       // directory (not market data); quotes come from E*TRADE or nothing.
       const acquired = await acquireUniverse({
         mode: "etrade-only",
-        symbols,
-        maxSymbols: req.maxSymbols ?? universeDef.defaultMaxSymbols,
+        symbols: selectedSymbols,
+        maxSymbols: selectedSymbols.length,
         liveDeps: { fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym) },
       });
-      const expectedCount = Math.min(
-        symbols?.length ?? universeDef.defaultMaxSymbols,
-        req.maxSymbols ?? universeDef.defaultMaxSymbols,
-      );
-
       const screenResult = screenUniverse(screener, acquired, {
         ...(req.filters ?? {}),
         sector,
@@ -211,7 +248,7 @@ export class ScreenerAgent extends Agent<Env> {
         sector,
         success: false,
         totalScanned: 0,
-        expectedCount: 0,
+        expectedCount,
         matchedCount: 0,
         opportunities: [],
         allStocks: [],

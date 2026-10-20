@@ -14,6 +14,7 @@ import {
   revokeRemoteAccessToken,
   getETradeAuthStatus,
   getValidTokens,
+  renewAllStoredETradeTokens,
 } from "./services/etradeOAuth";
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
@@ -1221,16 +1222,11 @@ export default {
       else await researchPromise;
       return;
     }
-    // Must match the renewal cron trigger in wrangler.jsonc: "0 3 * * *"
-    // UTC = 23:00 EDT / 22:00 EST, always >= 1h before the midnight-ET
-    // token expiry in both DST regimes (issue #107).
+    // Renew all account-scoped Durable Object tokens before midnight ET.
     if (event?.cron === "0 3 * * *") {
-      const renewPromise = agent.fetch(
-        new Request("https://agent.internal/schedules/trigger-renew", {
-          method: "POST",
-          headers: { "x-user-login": userLogin },
-        })
-      );
+      const renewPromise = renewAllStoredETradeTokens(env).then((counts) => {
+        console.info("[scheduled] E*TRADE account-token renewal completed", counts);
+      });
       if (ctx?.waitUntil) ctx.waitUntil(renewPromise);
       else await renewPromise;
       // Issue #255 — nightly mas_messages retention pass (0 4 * * * cron in
@@ -1245,23 +1241,6 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(retentionPromise);
       else await retentionPromise;
-    } else {
-      const optionsPromise = agent.fetch(
-        new Request("https://agent.internal/schedules/trigger-options-analysis", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-user-login": userLogin,
-          },
-          body: JSON.stringify({
-            symbols: ["AAPL", "NVDA", "SPY", "MSFT"],
-            thesis: "bullish",
-            pushToSlack: true,
-          }),
-        })
-      );
-      if (ctx?.waitUntil) ctx.waitUntil(optionsPromise);
-      else await optionsPromise;
     }
   },
   async queue(batch: any, env: Env, ctx?: any): Promise<void> {

@@ -15,7 +15,7 @@ import {
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
-import { createStoreKv, type DoNamespaceLike } from "./durableKv";
+import { createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
 import { createResilientKv, type KvLike } from "./kvResilience";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -506,6 +506,37 @@ export async function renewETradeAccessToken(
       return renewedTokens;
     }
   );
+}
+
+/** Renew every active account token from the Durable Object store. */
+export async function renewAllStoredETradeTokens(env: Env): Promise<{ renewed: number; skipped: number; failed: number }> {
+  const entries = await listStoreEntries({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    namespaceName: "etrade",
+    prefix: "etrade:token:",
+  });
+  if (!entries) throw new Error("SessionStore token listing is unavailable.");
+
+  let renewed = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const entry of entries) {
+    const match = entry.key.match(/^etrade:token:(TEST|PROD):(.+)$/);
+    if (!match) continue;
+    try {
+      const token = JSON.parse(entry.value) as ETradeTokenSet;
+      if (!token.userLogin || isTokenExpiredEt(token.storedAt)) {
+        skipped++;
+        continue;
+      }
+      const result = await renewETradeAccessToken(env, token.userLogin, match[1]);
+      if (result) renewed++;
+      else failed++;
+    } catch {
+      failed++;
+    }
+  }
+  return { renewed, skipped, failed };
 }
 
 /**

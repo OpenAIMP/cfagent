@@ -148,7 +148,8 @@ export const DEFAULT_SCREENER_CONFIG: ScreenerConfig = {
       SP500: 500,
       RUSSELL2000: 200,
       ETF: 100,
-      LEV_ETF: 29,
+      // Zero means use every listing selected by the live universe selector.
+      LEV_ETF: 0,
       ALL: 0,
     },
     nasdaq100Size: 100,

@@ -14,7 +14,7 @@ import type { Env } from "../types";
  * the client only has to add a binding — not a second index or routing scheme.
  */
 interface StoreOp {
-  op: "get" | "put" | "delete" | "consume";
+  op: "get" | "put" | "delete" | "consume" | "list";
   ns: string;
   key: string;
   value?: string;
@@ -49,6 +49,21 @@ export class SessionStore extends DurableObject<Env> {
     }
 
     try {
+      if (op === "list") {
+        if (ns !== "etrade" || !key.startsWith("etrade:token:")) {
+          return Response.json({ error: "list is restricted to E*TRADE token entries" }, { status: 400 });
+        }
+        const entries = this.ctx.storage.sql
+          .exec(
+            "SELECT key, value FROM kv_store WHERE ns = ? AND key LIKE ? AND (expires_at IS NULL OR expires_at > ?) ORDER BY key",
+            ns,
+            `${key.replace(/[\\%_]/g, "\\$&")}%`,
+            Date.now()
+          )
+          .toArray() as Array<{ key: string; value: string }>;
+        return Response.json({ entries });
+      }
+
       if (op === "get") {
         const row = this.ctx.storage.sql
           .exec("SELECT value, expires_at FROM kv_store WHERE ns = ? AND key = ?", ns, key)
