@@ -1360,7 +1360,7 @@ export function Chat({ user }: { user: User }) {
 
   const handleCycleTheme = () => {
     setTheme((prev) => {
-      const next: ThemeMode = prev === "light" ? "dark" : prev === "dark" ? "system" : "light";
+      const next: ThemeMode = prev === "light" ? "dark" : prev === "dark" ? "high-contrast" : prev === "high-contrast" ? "system" : "light";
       applyTheme(next);
       return next;
     });

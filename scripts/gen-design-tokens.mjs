@@ -45,12 +45,13 @@ const css = readFileSync(CSS_PATH, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""); // 
 const generated = {
   dark: extractMap(css, '[data-theme="dark"]'),
   light: extractMap(css, '[data-theme="light"]'),
+  "high-contrast": extractMap(css, '[data-theme="high-contrast"]'),
 };
 
 const section = [
   BEGIN,
   "/** Semantic --color-* values per theme, generated from tokens.css. */",
-  `export const generatedThemeTokens: Record<"dark" | "light", Record<string, string>> = ${JSON.stringify(generated, null, 2)};`,
+  `export const generatedThemeTokens: Record<\"dark\" | \"light\" | \"high-contrast\", Record<string, string>> = ${JSON.stringify(generated, null, 2)};`,
   END,
 ].join("\n");
 
