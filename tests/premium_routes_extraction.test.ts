@@ -5,9 +5,9 @@
  * src/agents/routes/premium.ts — the matching order in routeRequest is
  * load-bearing, so the module must handle the (path, method) pairs in the
  * same sequence as the original inline blocks; (b) the delegation call site
- * in orchestrator.ts — one call site, between the still-inline Cloudflare
- * Agentic Payments block and the still-inline Environment & E*TRADE Trading
- * APIs block; and (c) the extracted entry point's behavior with a mock
+ * in orchestrator.ts — one call site, between the Cloudflare Agentic
+ * Payments delegation (slice #359-17) and the E*TRADE broker delegation
+ * (slice #359-09); and (c) the extracted entry point's behavior with a mock
  * context: premium paths return a Response (payment-gated — an unpaid
  * request gets the 402 payment-required challenge without reaching the
  * fulfill callback), non-matching paths return null (the orchestrator keeps
@@ -15,10 +15,10 @@
  *
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS or
  * own-domain markers, never to a neighboring domain's inline comments or
- * blocks — those move when their domain is extracted. Here both neighbors
- * are still inline, so the anchors are their banner comments; when either
- * domain is extracted (agentic payments, E*TRADE APIs), its slice must swap
- * its banner anchor for its delegation call.
+ * blocks — those move when their domain is extracted. Both neighbors have
+ * since been extracted (agentic payments by slice #359-17, E*TRADE APIs by
+ * slice #359-09), so the anchors below are their delegation calls; slice
+ * #359-17 performed the agentic-payments swap this note called for.
  */
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -83,14 +83,15 @@ describe("premium route inventory (extraction #371)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("the delegation sits between the agentic-payments block and the E*TRADE block", () => {
+  it("the delegation sits between the agentic-payments delegation and the E*TRADE block", () => {
     const orchSrc = src("agents/orchestrator.ts");
     const myIdx = orchSrc.indexOf("handlePremiumRoutes(request, url, path, sessionId,");
-    // Lower bound: the still-inline agentic-payments banner (its extraction
-    // slice swaps this anchor for its delegation call).
-    const agenticIdx = orchSrc.indexOf("// Cloudflare Agentic Payments (x402 & MPP)");
+    // Lower bound: the agentic-payments DELEGATION CALL (landmark swap by
+    // slice #359-17, which extracted the then-inline agentic block into
+    // routes/agenticPayments.ts).
+    const agenticIdx = orchSrc.indexOf("handleAgenticPaymentsRoutes(request, url, path, sessionId,");
     expect(agenticIdx).toBeGreaterThan(-1);
-    expect(myIdx, "premium delegation must follow the agentic-payments block").toBeGreaterThan(agenticIdx);
+    expect(myIdx, "premium delegation must follow the agentic-payments delegation").toBeGreaterThan(agenticIdx);
     // Upper bound: the E*TRADE broker delegation call (the "Environment &
     // E*TRADE Trading APIs" banner moved into src/agents/routes/etradeBroker.ts
     // with slice #359-09, so the landmark anchors on the delegation call per

@@ -6,7 +6,7 @@
  * load-bearing, so the module must handle the (path, method) pairs in the
  * same sequence as the original inline blocks; (b) the delegation call site
  * in orchestrator.ts — one call site, after the referrals+ads handler and
- * before the (still inline) Cloudflare Agentic Payments block; and (c) the
+ * before the Cloudflare Agentic Payments delegation (slice #359-17); and (c) the
  * extracted entry point's behavior with a mock context: each moved path
  * responds as before, non-matching paths return null (the orchestrator
  * keeps routing).
@@ -14,11 +14,11 @@
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS
  * (handleReferralsAdsRoutes), never to a neighboring domain's inline
  * comments or blocks — those move when their domain is extracted. The upper
- * bound here is the still-inline "Cloudflare Agentic Payments" banner: when
- * that domain is extracted, its slice must swap this anchor for its
- * delegation call (the same swap this slice made for slice 03's
- * "/memory" anchor — see the payments test note in
- * tests/ads_revenue_referrals_routes_extraction.test.ts).
+ * bound was the then-inline "Cloudflare Agentic Payments" banner until
+ * slice #359-17 extracted that block into routes/agenticPayments.ts and
+ * swapped this anchor for its delegation call, per the rule (the same swap
+ * this slice made for slice 03's "/memory" anchor — see the payments test
+ * note in tests/ads_revenue_referrals_routes_extraction.test.ts).
  *
  * The payments routes are money-adjacent; the guards are pinned exactly:
  * #156 gateway validation (400 before checkout, before any row write),
@@ -111,19 +111,22 @@ describe("payments route inventory (extraction #370)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("the delegation sits between the referrals+ads handler and the agentic-payments block", () => {
+  it("the delegation sits between the referrals+ads handler and the agentic-payments delegation", () => {
     const orchSrc = src("agents/orchestrator.ts");
     const myIdx = orchSrc.indexOf("handlePaymentsRoutes(request, url, path, sessionId,");
     const referralsIdx = orchSrc.indexOf("handleReferralsAdsRoutes(request, url, path, sessionId,");
     expect(referralsIdx).toBeGreaterThan(-1);
     expect(myIdx, "payments delegation must follow the referrals+ads handler").toBeGreaterThan(referralsIdx);
-    // Upper bound: the still-inline agentic-payments banner (see file
-    // header note — its extraction slice swaps this for a delegation anchor).
-    const agenticIdx = orchSrc.indexOf("// Cloudflare Agentic Payments (x402 & MPP)");
+    // Upper bound: the agentic-payments DELEGATION CALL (landmark swap by
+    // slice #359-17, which extracted the then-inline agentic block into
+    // routes/agenticPayments.ts — see file header note).
+    const agenticIdx = orchSrc.indexOf("handleAgenticPaymentsRoutes(request, url, path, sessionId,");
     expect(agenticIdx).toBeGreaterThan(-1);
-    expect(myIdx, "payments delegation must precede the agentic-payments block").toBeLessThan(agenticIdx);
-    // The agentic block itself stays inline (not part of slice 07).
-    expect(orchSrc).toContain('path.endsWith("/payments/agentic/wallet")');
+    expect(myIdx, "payments delegation must precede the agentic-payments delegation").toBeLessThan(agenticIdx);
+    // The agentic block is NOT part of slice 07: its conditions live in
+    // routes/agenticPayments.ts and no longer appear inline in the router.
+    expect(orchSrc).not.toContain('path.endsWith("/payments/agentic/wallet")');
+    expect(src("agents/routes/agenticPayments.ts")).toContain('path.endsWith("/payments/agentic/wallet")');
   });
 });
 

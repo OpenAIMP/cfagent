@@ -40,6 +40,32 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Thin-router wiring — orchestrator breakup COMPLETE** (#359/#380): the
+  last two inline route blocks in `OrchestratorAgent.routeRequest` moved
+  into `src/agents/routes/` — the schema introspection block (GET
+  `/schema/tables`, POST `/schema/query`) into `routes/schema.ts` as
+  `handleSchemaRoutes` (between the MCP/chat/NLQ and ads/revenue/referrals
+  delegations), and the Cloudflare Agentic Payments block (x402 & MPP:
+  GET `/payments/agentic/wallet`, GET|POST
+  `/payments/agentic/auto-approve-limit`), deliberately left inline by
+  slice #359-07, into `routes/agenticPayments.ts` as
+  `handleAgenticPaymentsRoutes` (between the payments and premium
+  delegations); the `ETradeAgenticPaymentService` import moved with it.
+  `routeRequest` is now a thin ordered dispatcher: the request prelude
+  (url/path, `ensureTables`, `sessionKey`, the `requestedEnv` binding
+  passed via context), 22 guarded delegation calls, and the Not-found
+  fallthrough — no inline path-matched handlers remain. Landmark swaps
+  (#405) in the slice-03/07/08 tests: their anchors into the then-inline
+  schema-query condition and agentic-payments banner now anchor to the
+  new delegation calls. A scripted full-router scan confirms all 150
+  path-matching conditions in unchanged order; both moves are
+  byte-identical under reverse transform. Characterization:
+  `tests/schema_routes_extraction.test.ts` (8 tests),
+  `tests/agentic_payments_routes_extraction.test.ts` (12 tests),
+  `tests/thin_router_inventory.test.ts` (4 tests, pins the delegation-only
+  shape and the full 150-condition inventory). orchestrator.ts: 6,803 →
+  2,802 lines across the 17 slices. Pure move, no behavior change.
+
 - **FOSS research routes extracted from orchestrator.ts** (#359/#377): the
   non-alpaca FOSS route blocks moved to `src/agents/routes/fossResearch.ts`
   as TWO handlers, each invoked from `routeRequest` at its exact original

@@ -59,11 +59,13 @@ import {
 // routeRequest delegates to handleReportsRoutes at the original position.
 import { handleReportsRoutes } from "./routes/reports";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
+import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
+import { handleAgenticPaymentsRoutes } from "./routes/agenticPayments";
 // Issue #359-08: premium routes live in src/agents/routes/premium.ts;
 // routeRequest delegates to handlePremiumRoutes at the original position.
 import { handlePremiumRoutes } from "./routes/premium";
@@ -78,7 +80,7 @@ import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpa
 import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { handleSchedulesRoutes } from "./routes/schedules";
-import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
+import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
   AgentName,
@@ -2508,38 +2510,15 @@ Agentic Best Practices & Workflow Rules:
     });
     if (mcpChatNlqResponse) return mcpChatNlqResponse;
 
-    // Schema Introspection & Database Tables via ORM
-    if (path.endsWith("/schema/tables") && request.method === "GET") {
-      try {
-        const orm = this.getOrm();
-        const tables = orm.listTables();
-        return Response.json({ count: tables.length, tables });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to inspect database tables" }, { status: 500 });
-      }
-    }
-
-    // Direct Table Query Execution via ORM
-    if (path.endsWith("/schema/query") && request.method === "POST") {
-      try {
-        const body = (await request.json().catch(() => ({}))) as {
-          table?: string;
-          search?: string;
-          limit?: number;
-          offset?: number;
-        };
-        const table = body.table || "mas_categories";
-        const orm = this.getOrm();
-        const data = orm.getTableData(table, {
-          search: body.search,
-          limit: body.limit,
-          offset: body.offset,
-        });
-        return Response.json(data);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to query table data" }, { status: 500 });
-      }
-    }
+    // Issue #359-17: schema introspection routes (GET /schema/tables,
+    // POST /schema/query) are handled by src/agents/routes/schema.ts.
+    // Invoked at this exact position in the sequential path.endsWith
+    // matching sequence (between the MCP/chat/NLQ handler and the
+    // ads/revenue/referrals handler); a non-null return matched.
+    const schemaResponse = await handleSchemaRoutes(request, url, path, sessionId, {
+      getOrm: () => this.getOrm(),
+    });
+    if (schemaResponse) return schemaResponse;
 
     // Issue #359-03: ads / revenue / referrals (inventory group: categories,
     // revenue, external ads) are handled by
@@ -2621,45 +2600,19 @@ Agentic Best Practices & Workflow Rules:
     });
     if (paymentsResponse) return paymentsResponse;
 
-    // ==========================================
-    // Cloudflare Agentic Payments (x402 & MPP)
-    // ==========================================
-
-    // Agentic Wallet Status & Micropayment Metrics
-    if ((path.endsWith("/payments/agentic/wallet") || path.includes("/payments/agentic/wallet")) && request.method === "GET") {
-      try {
-        const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
-        const status = await paymentService.getWalletStatus();
-        return Response.json(status);
-      } catch (err: any) {
-        return Response.json({ error: err.message || "Failed to fetch wallet status" }, { status: 500 });
-      }
-    }
-
-    // Agentic Auto-Approve Limit (HITL threshold)
-    if (path.endsWith("/payments/agentic/auto-approve-limit") || path.includes("/payments/agentic/auto-approve-limit")) {
-      const paymentService = new ETradeAgenticPaymentService(this.getOrm(), this.env, sessionId);
-      if (request.method === "GET") {
-        return Response.json({
-          autoApproveLimitUSD: paymentService.getAutoApproveLimit(),
-          network: this.env.X402_NETWORK || "base-sepolia",
-        });
-      }
-      if (request.method === "POST") {
-        try {
-          const body = (await request.json().catch(() => ({}))) as any;
-          const limit = Number(body.limitUSD !== undefined ? body.limitUSD : body.limit);
-          if (isNaN(limit) || limit < 0) {
-            return Response.json({ error: "Invalid limitUSD. Must be non-negative number." }, { status: 400 });
-          }
-          paymentService.setAutoApproveLimit(limit);
-          this.audit("agentic_payment.limit_updated", "payments", { limitUSD: limit });
-          return Response.json({ success: true, autoApproveLimitUSD: limit });
-        } catch (err: any) {
-          return Response.json({ error: err.message || "Failed to update limit" }, { status: 500 });
-        }
-      }
-    }
+    // Issue #359-17: Cloudflare Agentic Payments routes (x402 & MPP:
+    // GET /payments/agentic/wallet, GET|POST
+    // /payments/agentic/auto-approve-limit) are handled by
+    // src/agents/routes/agenticPayments.ts. Invoked at this exact
+    // position in the sequential path.endsWith matching sequence
+    // (between the payments handler and the premium handler);
+    // a non-null return matched.
+    const agenticPaymentsResponse = await handleAgenticPaymentsRoutes(request, url, path, sessionId, {
+      env: this.env,
+      getOrm: () => this.getOrm(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (agenticPaymentsResponse) return agenticPaymentsResponse;
 
     // Issue #359-08: premium paid-trading routes (Paid Trading Service:
     // Institutional Options Screener, Equity Research, Anomaly Signals)
@@ -2692,9 +2645,10 @@ Agentic Best Practices & Workflow Rules:
     });
     if (etradeBrokerResponse) return etradeBrokerResponse;
 
-    // The requestedEnv binding stays inline: the still-inline E*TRADE
-    // options block (slice #359-11) reads it. The broker handlers recompute
-    // their own copy inside the module.
+    // The requestedEnv binding stays inline in the dispatcher: it is
+    // computed once here and passed through the context to the E*TRADE
+    // options and watchlists delegations below. The broker handlers
+    // recompute their own copy inside the module.
     const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
     const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
 
@@ -2741,8 +2695,9 @@ Agentic Best Practices & Workflow Rules:
     // (handleEtradeOptionsRoutes). Invoked at this exact position in the
     // sequential path.endsWith matching sequence (after the E*TRADE broker
     // account-activity delegation, before the watchlists block); a non-null
-    // return matched. The requestedEnv binding stays inline (shared with the
-    // still-inline watchlists block) and is passed through the context.
+    // return matched. The requestedEnv binding stays inline in the
+    // dispatcher (shared with the watchlists delegation below) and is
+    // passed through the context.
     const etradeOptionsResponse = await handleEtradeOptionsRoutes(request, url, path, sessionId, {
       env: this.env,
       getOrm: () => this.getOrm(),
