@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -126,6 +126,8 @@ describe("Primitive styles (primitives.css)", () => {
       ".ui-empty",
       ".ui-card",
       ".ui-notice",
+      ".ui-tabs",
+      ".ui-tab",
     ]) {
       expect(css, hook).toContain(hook);
     }
@@ -208,5 +210,35 @@ describe("Card + Notice (#492)", () => {
     expect(element.props.tone).toBe("warning");
     expect(element.props.variant).toBe("strip");
     expect(element.props.onDismiss).toBe(onDismiss);
+  });
+});
+
+describe("Tabs + TabPanel (#492)", () => {
+  const tabs = [
+    { id: "anatomy", label: "Risk Anatomy" },
+    { id: "playbook", label: "Defense Playbook" },
+    { id: "ai", label: "AI Risk Manager", badge: "new" },
+  ];
+
+  it("carries the tablist contract (idBase links tabs to panels)", () => {
+    const element = React.createElement(Tabs, {
+      tabs,
+      value: "anatomy",
+      onChange: () => {},
+      idBase: "risk-analysis",
+      ariaLabel: "Risk analysis views",
+    });
+    expect(element.props.idBase).toBe("risk-analysis");
+    expect(element.props.tabs).toHaveLength(3);
+    expect(element.props.tabs[2].badge).toBe("new");
+  });
+
+  it("TabPanel renders only when active", () => {
+    const inactive = TabPanel({ idBase: "risk-analysis", tabId: "ai", active: false, children: "x" });
+    expect(inactive).toBeNull();
+    const active = TabPanel({ idBase: "risk-analysis", tabId: "ai", active: true, children: "x" });
+    expect(active?.props.role).toBe("tabpanel");
+    expect(active?.props.id).toBe("risk-analysis-panel-ai");
+    expect(active?.props["aria-labelledby"]).toBe("risk-analysis-tab-ai");
   });
 });

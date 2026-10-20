@@ -150,49 +150,6 @@
   border-color: var(--color-danger-border);
 }
 
-/* Sub-tabs */
-.risk-tabs-nav {
-  display: flex;
-  padding: 0 1.75rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-  gap: 1.5rem;
-}
-
-.risk-tab-btn {
-  background: none;
-  border: none;
-  padding: 0.85rem 0;
-  color: var(--color-text-muted);
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  transition: color 0.15s ease;
-}
-
-.risk-tab-btn:hover {
-  color: var(--color-text-primary);
-}
-
-.risk-tab-btn.active {
-  color: var(--color-accent);
-}
-
-.risk-tab-btn.active::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--color-accent);
-  box-shadow: 0 0 10px var(--color-accent);
-}
-
 /* Body */
 .risk-modal-body {
   padding: 1.75rem;

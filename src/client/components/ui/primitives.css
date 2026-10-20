@@ -315,8 +315,59 @@
 .ui-notice.tone-danger { background: var(--color-danger-subtle); color: var(--color-danger-text); border-color: var(--color-danger-border); }
 .ui-notice.tone-info { background: var(--color-info-subtle); color: var(--color-info-text); border-color: var(--color-accent-border); }
 
+
+/* ---------- Tabs ---------- */
+.ui-tabs {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.ui-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-tabs.size-sm .ui-tab { font-size: 0.8rem; padding: 0.55rem 0; }
+.ui-tabs.size-md .ui-tab { font-size: 0.92rem; padding: 0.85rem 0; }
+
+.ui-tab:hover:not(:disabled) { color: var(--color-text-primary); }
+
+.ui-tab.selected {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.ui-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ui-tab:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--shadow-focus-ring);
+}
+.ui-tab.selected:focus-visible { box-shadow: var(--shadow-focus-ring), inset 0 -2px 0 var(--color-accent); }
+
+.ui-tab-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.14rem 0.34rem;
+  border-radius: 999px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .segmented-btn, .pill-btn, .ui-btn { transition: none; }
+  .segmented-btn, .pill-btn, .ui-btn, .ui-tab { transition: none; }
   .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }
   .ui-spinner { animation-duration: 1.6s; }
 }
