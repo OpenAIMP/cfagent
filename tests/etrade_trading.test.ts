@@ -773,6 +773,25 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
 
     it("creates preview draft for HITL authorization even when broker returns collar notice or validation warning without previewId", async () => {
       const tokenStore = new Map<string, string>();
+      const sessionStore = {
+        idFromName: (name: string) => name,
+        get: (_id: unknown) => ({
+          fetch: async (request: Request) => {
+            const payload = await request.json() as { op: string; ns: string; key: string; value?: string };
+            const key = `${payload.ns}:${payload.key}`;
+            if (payload.op === "get") return Response.json({ value: tokenStore.get(key) ?? null });
+            if (payload.op === "put") {
+              tokenStore.set(key, payload.value ?? "");
+              return Response.json({ ok: true });
+            }
+            if (payload.op === "delete") {
+              tokenStore.delete(key);
+              return Response.json({ ok: true });
+            }
+            return Response.json({ error: "Unsupported operation" }, { status: 400 });
+          },
+        }),
+      };
       const testEnv: Env = {
         ETRADE_CONSUMER_KEY: "mock_ckey",
         ETRADE_CONSUMER_SECRET: "mock_csecret",
@@ -780,11 +799,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
         ETRADE_ACCOUNT_ID_KEY: "acct_83921048",
         ETRADE_ENVIRONMENT: "sandbox",
-        ETRADE_KV: {
-          get: async (key: string) => tokenStore.get(key) ?? null,
-          put: async (key: string, value: string) => { tokenStore.set(key, value); },
-          delete: async (key: string) => { tokenStore.delete(key); },
-        } as any,
+        SESSION_STORE: sessionStore as any,
       } as Env;
       await storeAccessTokens(testEnv, "openaimp", "mock_token", "mock_tsecret", "TEST");
 
