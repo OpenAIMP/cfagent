@@ -29,14 +29,15 @@ describe("#333 fetchScreenerPdf", () => {
     expect(Array.from(pdf!.bytes.slice(0, 4))).toEqual([0x25, 0x50, 0x44, 0x46]);
   });
 
-  it("falls back to latest when no key is given", async () => {
+  it("returns null (never stale) when no key is given (#801)", async () => {
     const agent = {
       getPdfByKey: async () => null,
       getLatestPdf: async () => ({ bytes: PDF_BYTES, fileName: "latest.pdf" }),
     };
     const pdf = await fetchScreenerPdf(makeDeps(agent));
-    expect(pdf).not.toBeNull();
-    expect(pdf!.fileName).toBe("latest.pdf");
+    // Issue #801: must NOT fall back to latest — a missing key means no attachment,
+    // not someone else's report.
+    expect(pdf).toBeNull();
   });
 
   it("returns null (not throw) when the agent errors, and logs it", async () => {
