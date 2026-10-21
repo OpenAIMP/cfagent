@@ -47,7 +47,9 @@ export interface ETradeAuthStatus {
   renewable?: boolean;
 }
 
-// KV key constants — environment-scoped to allow independent TEST and PROD sessions
+// Token storage key constants (SessionStore DO keys; the KV_ identifier
+// names predate the #329 move off Workers KV) — environment-scoped to
+// allow independent TEST and PROD sessions
 const KV_ACCESS_TOKEN_KEY = (userLogin: string, envName?: string) =>
   envName ? `etrade:token:${envName.toUpperCase()}:${userLogin}` : `etrade:token:${userLogin}`;
 const KV_REQUEST_TOKEN_KEY = (userLogin: string, envName?: string) =>
@@ -113,7 +115,7 @@ export function isTokenExpiredEt(storedAtIso: string, nowMs: number = Date.now()
 }
 
 /**
- * Stores confirmed access tokens in KV
+ * Stores confirmed access tokens in the SessionStore DO
  */
 export async function storeAccessTokens(
   env: Env,
@@ -183,7 +185,7 @@ export async function getRequestTokenSecret(
 }
 
 /**
- * Retrieves stored access tokens for a user from KV
+ * Retrieves stored access tokens for a user from the SessionStore DO
  */
 export async function getStoredTokens(
   env: Env,
@@ -204,7 +206,7 @@ export async function getStoredTokens(
 }
 
 /**
- * Revokes and deletes stored tokens from KV across all environments
+ * Revokes and deletes stored tokens from the SessionStore DO across all environments
  */
 export async function revokeStoredTokens(env: Env, userLogin: string, overrideEnv?: string): Promise<void> {
   const kv = getKv(env);
@@ -226,8 +228,9 @@ export async function revokeStoredTokens(env: Env, userLogin: string, overrideEn
 }
 
 /**
- * Step 5: Revoke Access Token Upstream & Purge KV
- * Calls GET /oauth/revoke_access_token on E*TRADE servers and removes session from KV
+ * Step 5: Revoke Access Token Upstream & Purge Stored Tokens
+ * Calls GET /oauth/revoke_access_token on E*TRADE servers and removes the
+ * stored tokens from the SessionStore DO
  */
 export async function revokeRemoteAccessToken(
   env: Env,
@@ -568,7 +571,7 @@ export async function getValidTokens(
   const scopedKey = KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name);
 
   // Issue #329 follow-up: this function runs once per E*TRADE request, so the
-  // KV read (or two, on the legacy-key fallback) is the hottest remaining read
+  // token-store read (or two, on the legacy-key fallback) is the hottest remaining read
   // path. Serve repeats from the isolate cache; every write path invalidates.
   const cacheKey = tokenCacheKey(envConfig.name, userLogin);
   const cached = readTokenCache(cacheKey);
@@ -589,7 +592,7 @@ export async function getValidTokens(
         const parsed = JSON.parse(legacyRaw) as ETradeTokenSet;
         if (!parsed.environment || parsed.environment.toUpperCase() === envConfig.name.toUpperCase()) {
           tokens = parsed;
-          // Adopt active token for current environment in KV so future reads are instantaneous
+          // Adopt active token for current environment in the token store so future reads are instantaneous
           await kv.put(scopedKey, JSON.stringify({ ...parsed, environment: envConfig.name }), { expirationTtl: 86400 });
         }
       } catch {}
