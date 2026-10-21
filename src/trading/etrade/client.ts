@@ -104,7 +104,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
@@ -169,7 +169,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
@@ -349,7 +349,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
