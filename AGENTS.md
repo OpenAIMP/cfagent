@@ -8,6 +8,8 @@ Repository documentation lives in the [`docs/`](docs/) folder: plans in
 [`docs/plans/`](docs/plans/), agent policy and design docs in
 [`docs/agents/`](docs/agents/). Look there first.
 
+Find your role by matching your name to its role identifier in docs/agentic-org, and advance docs/agentic-org/mission.md through collaboration governed by docs/agentic-org/collaboration.md.
+
 In brief:
 
 - Work one issue at a time: issue → branch → PR → merge into `main` →
