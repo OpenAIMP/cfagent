@@ -76,7 +76,9 @@ export class YFinanceMarketScreener implements IMarketScreener {
       }
 
       // 2. Sector Filter
-      if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
+      // Issue #919: "ALL" (any case) means no sector filter — treat as wildcard.
+      const yfSectorLower = (filter.sector || "").toLowerCase().trim();
+      if (filter.sector && yfSectorLower !== "all" && yfSectorLower !== "any") {
         if ((stock.sector || "").toLowerCase() !== filter.sector.toLowerCase()) {
           rejections.push({
             symbol: stock.symbol,
