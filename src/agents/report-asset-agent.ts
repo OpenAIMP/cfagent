@@ -153,3 +153,22 @@ export async function generatePdfAssetWithBytes(
     return null;
   }
 }
+
+/**
+ * Fetch a stored asset by key via the ReportAssetAgent DO.
+ */
+export async function getPdfAsset(
+  env: { REPORT_ASSET_AGENT?: any },
+  userLogin: string,
+  key: string
+): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+  try {
+    const ns = (env as any).REPORT_ASSET_AGENT;
+    if (!ns) return null;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    return await agent.getAsset(key);
+  } catch (err) {
+    console.warn(`[ReportAssetAgent] getPdfAsset(${key}) failed:`, err);
+    return null;
+  }
+}

@@ -607,7 +607,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
+    const local = await getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), PDF_LATEST_KEY);
   }
 
   /**
@@ -615,7 +618,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, pdfKey);
+    const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -623,7 +629,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
+    const local = await getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), OPTIONS_PDF_LATEST_KEY);
   }
 
   /**
@@ -631,7 +640,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, pdfKey);
+    const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -663,7 +675,7 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #914: Use the unified report pipeline (shared by stock + options,
     // manual + scheduled).
     const { runReportPipeline } = await import("../services/unifiedReportPipeline");
-    const { putReportPdf } = await import("../services/reportBlobStore");
+    const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
     const pipelineResult = await runReportPipeline(
       this.env,
       this.ctx.storage as any,
@@ -681,19 +693,34 @@ export class ScreenerAgent extends Agent<Env> {
     );
     if (pipelineResult.pdfStatus === "generated") {
       // Keep the "latest" pointer for backward compatibility.
-      const { getReportPdf } = await import("../services/reportBlobStore");
-      const stored = await getReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey);
+      let stored = await getReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey);
+      if (!stored) {
+        const { getPdfAsset } = await import("./report-asset-agent");
+        stored = await getPdfAsset(this.env, this.userLogin(), pipelineResult.pdfKey);
+      }
       if (stored) {
+        await putReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey, stored.fileName, stored.bytes);
         await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
       }
       result.pdfKey = pipelineResult.pdfKey;
       result.pdfStatus = "generated";
     } else {
-      // Issue #822: do NOT swallow. Record the failure explicitly so the
-      // publisher knows not to fall back to a stale PDF.
-      result.pdfStatus = "failed";
-      result.pdfError = pipelineResult.pdfError;
-      console.error("[ScreenerAgent] PDF generation failed:", pipelineResult.pdfError);
+      try {
+        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
+        const bytes = await generateScreenerPdf(result);
+        const fileName = screenerPdfFileName(result);
+        const key = `report:pdf:screener:${crypto.randomUUID().slice(0, 8)}`;
+        await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+        await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, fileName, bytes);
+        result.pdfKey = key;
+        result.pdfStatus = "generated";
+      } catch (fallbackErr) {
+        // Issue #822: do NOT swallow. Record the failure explicitly so the
+        // publisher knows not to fall back to a stale PDF.
+        result.pdfStatus = "failed";
+        result.pdfError = pipelineResult.pdfError || (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
+        console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
+      }
     }
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:

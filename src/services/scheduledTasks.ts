@@ -766,7 +766,14 @@ export class ScheduledTasksService {
             optionsPdfFile = pdfData.fileName;
           }
         } else {
-          console.warn("[ScheduledTasksService] Options PDF generation failed:", pipelineResult.pdfError);
+          console.warn("[ScheduledTasksService] Options PDF generation via pipeline failed, attempting fallback:", pipelineResult.pdfError);
+          const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
+          optionsPdf = await generateOptionsPdf(response.data);
+          optionsPdfFile = optionsPdfFileName(response.data);
+          let binary = "";
+          for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
+          const storedKey = await this.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), optionsPdfFile);
+          if (!optionsPdfKey) optionsPdfKey = storedKey;
         }
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
@@ -805,6 +812,7 @@ export class ScheduledTasksService {
         const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
         const slackPayload = response.toSlack();
         const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
+        const matchCount = response.data?.matchedCount || response.data?.opportunities?.length || 0;
         try {
           const delivery = await deliverScreenerToSlackA2A(this.env, {
             text,
@@ -813,7 +821,7 @@ export class ScheduledTasksService {
               bytes: optionsPdf,
               fileName: optionsPdfFile,
               title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
-              comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
+              comment: `📄 Options scan PDF — ${matchCount} matches${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
             } } : {}),
           });
           notifications.slack = delivery.ok;
