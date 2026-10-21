@@ -1563,9 +1563,7 @@ export class ScheduledTasksService {
 
       // One client/pipeline for the whole execution — the saved
       // path's construction, under the schedule owner's identity and
-      // environment (#447/#461). The bare form used here before
-      // silently substituted the "default_trader" login and no
-      // environment override (#672).
+      // environment (#447/#461, #672).
       const etrade = this.createETradeService(userLogin, options.environment);
       const pipeline = new OptionsAgentPipeline(
         new DynamicOptionsScreener(etrade.client)
