@@ -24,6 +24,7 @@ import {
   ensureScheduledReportsTable,
   type ScheduledReportInput,
 } from "../services/scheduledReports";
+import { ensureSharedTable } from "./schema";
 
 export interface SqlStorage {
   exec: (query: string, ...args: unknown[]) => Iterable<unknown>;
@@ -393,6 +394,8 @@ export class DatabaseORM {
 
   /**
    * Initializes all SQLite tables and seeds initial data using the ORM.
+   * The seven shared mas_* tables are created from the canonical DDL in
+   * ./schema (issue #782) — do not re-add their DDL here.
    */
   initializeSchema(sessionId: string): void {
     // 1. Categories Table
@@ -411,36 +414,10 @@ export class DatabaseORM {
     `);
 
     // 2. Referrals Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_referrals (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        url TEXT NOT NULL,
-        category TEXT NOT NULL,
-        reward_text TEXT NOT NULL,
-        clicks INTEGER DEFAULT 0,
-        signups INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_referrals");
 
     // 3. Sponsored Marketplace Ads Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_ads (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        tagline TEXT NOT NULL,
-        sponsor TEXT NOT NULL,
-        badge TEXT NOT NULL,
-        url TEXT NOT NULL,
-        cta_text TEXT NOT NULL,
-        accent_color TEXT NOT NULL,
-        impressions INTEGER DEFAULT 0,
-        clicks INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_ads");
 
     // 4. External Ads & Network Inventory Table
     this.sql.exec(`
@@ -465,59 +442,16 @@ export class DatabaseORM {
     `);
 
     // 5. Transactions Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_transactions (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        amount REAL NOT NULL,
-        currency TEXT NOT NULL,
-        customer TEXT NOT NULL,
-        gateway TEXT NOT NULL,
-        gateway_ref TEXT,
-        status TEXT NOT NULL,
-        checkout_url TEXT,
-        proposer_did TEXT NOT NULL,
-        authorizer_did TEXT,
-        proof_signature TEXT,
-        note TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_transactions");
 
     // 6. Messages Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_messages");
 
     // 7. Memory Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_memory (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_memory");
 
     // 8. Events Table
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_events (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_events");
 
     // 8b. Inbound webhook replay-protection nonces (issue #143 P0)
     this.sql.exec(`
@@ -564,18 +498,7 @@ export class DatabaseORM {
     `);
 
     // 10. Watchlists Table (E*TRADE & Local Agent Watchlists)
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_watchlists (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        user_login TEXT NOT NULL,
-        symbols_json TEXT NOT NULL,
-        items_json TEXT,
-        source TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(this.sql, "mas_watchlists");
 
     // 11. Options Chain Cache Table (Durable Options Storage)
     this.sql.exec(`
