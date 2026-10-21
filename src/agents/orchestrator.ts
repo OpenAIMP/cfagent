@@ -9,6 +9,7 @@ import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQ
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
+import { ensureSharedTable } from "../orm/schema";
 import { PaymentGatewayService, normalizeGateway, isWebhookGateway, isSupportedGateway, SUPPORTED_GATEWAYS, type SupportedGateway } from "../services/payments";
 import { getValidTokens } from "../security/etradeOAuth";
 import { ETradeRestClient } from "../trading";
@@ -1406,16 +1407,9 @@ export class OrchestratorAgent extends Think<Env> {
   private ensureTables() {
     const storage = this.ctx.storage;
     const sql = storage.sql;
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
+    // Shared mas_* tables come from the canonical DDL in src/orm/schema
+    // (issue #782) — do not re-add their DDL here.
+    ensureSharedTable(sql, "mas_messages");
     sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_async_jobs (
         job_id TEXT PRIMARY KEY,
@@ -1434,23 +1428,8 @@ export class OrchestratorAgent extends Think<Env> {
       )
     `);
     sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_session_created ON mas_async_jobs(session_id, created_at DESC)");
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_events (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_memory (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(sql, "mas_events");
+    ensureSharedTable(sql, "mas_memory");
     // Autopilot policy state (autopilot Phase 1): server-owned run state,
     // limits, kill switch, and daily order budget. Previously all four lived in
     // browser localStorage, so a reload cleared the kill switch and a second
@@ -1534,47 +1513,10 @@ export class OrchestratorAgent extends Think<Env> {
       )
     `);
     sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_policy_verdicts_created ON mas_policy_verdicts(created_at DESC)");
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_referrals (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        url TEXT NOT NULL,
-        category TEXT NOT NULL,
-        reward_text TEXT NOT NULL,
-        clicks INTEGER DEFAULT 0,
-        signups INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_ads (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        tagline TEXT NOT NULL,
-        sponsor TEXT NOT NULL,
-        badge TEXT NOT NULL,
-        url TEXT NOT NULL,
-        cta_text TEXT NOT NULL,
-        accent_color TEXT NOT NULL,
-        impressions INTEGER DEFAULT 0,
-        clicks INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(sql, "mas_referrals");
+    ensureSharedTable(sql, "mas_ads");
 
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_watchlists (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        user_login TEXT NOT NULL,
-        symbols_json TEXT NOT NULL,
-        items_json TEXT,
-        source TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(sql, "mas_watchlists");
 
     // Seed default sponsor offers if ads table is empty
     try {
@@ -1643,26 +1585,7 @@ export class OrchestratorAgent extends Think<Env> {
       // Ignore if seeding fails
     }
 
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_transactions (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        amount REAL NOT NULL,
-        currency TEXT NOT NULL,
-        customer TEXT NOT NULL,
-        gateway TEXT NOT NULL,
-        gateway_ref TEXT,
-        status TEXT NOT NULL,
-        checkout_url TEXT,
-        proposer_did TEXT NOT NULL,
-        authorizer_did TEXT,
-        proof_signature TEXT,
-        note TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    ensureSharedTable(sql, "mas_transactions");
 
     // Issue #175: this store previously seeded two fabricated "default"
     // transactions on first use — completed charges carrying invented
