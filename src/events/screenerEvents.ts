@@ -58,6 +58,14 @@ export interface ScreenerCompletedEvent {
    * 0-match screen explains itself instead of just reporting the count.
    */
   rejections?: { symbol: string; reason: string }[];
+  /** Summary of criteria applied during screening. */
+  filterSummary?: string;
+  /** Direct recipient email (enables email dispatch via cfpay A2A or local fallback). */
+  emailTo?: string;
+  /** Explicit Slack channel destination. */
+  slackChannel?: string;
+  /** Outbound webhook endpoint. */
+  webhookUrl?: string;
 }
 
 export interface ScreenerFailedEvent {
@@ -68,6 +76,9 @@ export interface ScreenerFailedEvent {
   deliveryId?: string;
   sector: string;
   error: string;
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
 }
 
 /** One options opportunity as carried on the bus: a summary, not the full row. */

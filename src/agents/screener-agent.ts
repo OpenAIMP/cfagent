@@ -86,6 +86,8 @@ export interface ScreenerRunResult {
   /** Full scanned set with provenance (for the results table). */
   allStocks: ScannedStock[];
   discoveryMessage: string;
+  /** Summary of criteria applied during screening. */
+  filterSummary?: string;
   /**
    * Issue #462: set when the screen ran on an incomplete quote set. The
    * result is a qualified partial report — never a complete screen, never
@@ -519,6 +521,7 @@ export class ScreenerAgent extends Agent<Env> {
         opportunities,
         allStocks,
         discoveryMessage: acquired.discovery.message,
+        filterSummary: screenResult.filterSummary,
         ...(acquired.partial ? { partial: acquired.partial } : {}),
         // Issue #728: rejection reasons for the Slack breakdown.
         ...(screenResult.ledger?.rejections?.length

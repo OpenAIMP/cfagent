@@ -602,6 +602,12 @@ export function ScheduledOptionsManager({
   const [targetSymbols, setTargetSymbols] = useState("");
   const [maxItems, setMaxItems] = useState(100);
   const [targetUniverse, setTargetUniverse] = useState("NASDAQ100");
+  const [sector, setSector] = useState("Technology");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [minMarketCap, setMinMarketCap] = useState("");
+  const [maxPe, setMaxPe] = useState("");
+  const [trendFilter, setTrendFilter] = useState("");
   const [scheduleType, setScheduleType] = useState<ScheduleMode>("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [cronExpression, setCronExpression] = useState(() =>
@@ -777,6 +783,12 @@ export function ScheduledOptionsManager({
     setTargetUniverse("NASDAQ100");
     setTargetSymbols("");
     setMaxItems(100);
+    setSector("Technology");
+    setMinPrice("");
+    setMaxPrice("");
+    setMinMarketCap("");
+    setMaxPe("");
+    setTrendFilter("");
     setDiscoveryRequests([blankDiscoveryRequestDraft()]);
     setDiscoveryInputModel("saved-request");
     setDerivedSource("symbols");
@@ -837,12 +849,26 @@ export function ScheduledOptionsManager({
           ? payload.universe
           : item.callback === "autonomousMarketScreen" ? "NASDAQ100" : ""
       );
+      setSector(typeof payload.sector === "string" ? payload.sector : "Technology");
       setThesis(payload.thesis || "bullish");
       setRiskProfile(payload.riskProfile || "balanced");
       setPushToSlack(payload.pushToSlack !== false);
       if (payload.slackChannel) setSlackChannel(payload.slackChannel);
       if (payload.emailTo) setEmailTo(payload.emailTo);
       if (payload.webhookUrl) setWebhookUrl(payload.webhookUrl);
+      if (payload.filters) {
+        setMinPrice(payload.filters.minPrice != null ? String(payload.filters.minPrice) : "");
+        setMaxPrice(payload.filters.maxPrice != null ? String(payload.filters.maxPrice) : "");
+        setMinMarketCap(payload.filters.minMarketCap != null ? String(payload.filters.minMarketCap) : "");
+        setMaxPe(payload.filters.maxPe != null ? String(payload.filters.maxPe) : "");
+        setTrendFilter(payload.filters.trend || "");
+      } else {
+        setMinPrice("");
+        setMaxPrice("");
+        setMinMarketCap("");
+        setMaxPe("");
+        setTrendFilter("");
+      }
     }
     setScheduleType(
       item.type === "cron" || item.type === "delayed" || item.type === "scheduled" ? item.type : "interval"
@@ -939,11 +965,23 @@ export function ScheduledOptionsManager({
 
       if (jobType === "marketScreen") {
         callback = JOB_CALLBACKS.marketScreen;
+        const customFilters: Record<string, any> = {};
+        if (minPrice.trim()) customFilters.minPrice = Number(minPrice);
+        if (maxPrice.trim()) customFilters.maxPrice = Number(maxPrice);
+        if (minMarketCap.trim()) customFilters.minMarketCap = Number(minMarketCap);
+        if (maxPe.trim()) customFilters.maxPe = Number(maxPe);
+        if (trendFilter.trim()) customFilters.trend = trendFilter;
+
         payload = {
           ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
           maxItems,
-          sector: "Technology",
+          sector: sector || "ALL",
           trigger: "scheduled",
+          pushToSlack,
+          slackChannel: pushToSlack ? slackChannel : undefined,
+          emailTo: emailTo.trim() || undefined,
+          webhookUrl: webhookUrl.trim() || undefined,
+          ...(Object.keys(customFilters).length > 0 ? { filters: customFilters } : {}),
         };
       } else {
         callback = JOB_CALLBACKS.optionsAnalysis;
@@ -1542,24 +1580,33 @@ export function ScheduledOptionsManager({
                     </div>
                   )}
 
-                  {isOptions ? (
+                  {isOptions || item.callback === "autonomousMarketScreen" ? (
                     <div className="schedule-payload-details">
-                      <div className="payload-row">
-                        <span className="payload-label">Target Symbols:</span>
-                        <div className="payload-symbols-pills">
-                          {symbols.length > 0 ? (
-                            symbols.map((sym: string) => (
-                              <span key={sym} className="sym-tag">
-                                {sym}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="payload-value">{payload.universe || "Universe scan"}</span>
-                          )}
+                      {isOptions && (
+                        <div className="payload-row">
+                          <span className="payload-label">Target Symbols:</span>
+                          <div className="payload-symbols-pills">
+                            {symbols.length > 0 ? (
+                              symbols.map((sym: string) => (
+                                <span key={sym} className="sym-tag">
+                                  {sym}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="payload-value">{payload.universe || "Universe scan"}</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
-                      {(typeof payload.thesis === "string" || typeof payload.riskProfile === "string") && (
+                      {payload.sector && (
+                        <div className="payload-row">
+                          <span className="payload-label">Sector:</span>
+                          <span className="payload-value">{formatPayloadValue(payload.sector)}</span>
+                        </div>
+                      )}
+
+                      {isOptions && (typeof payload.thesis === "string" || typeof payload.riskProfile === "string") && (
                         <div className="payload-row">
                           <span className="payload-label">Thesis &amp; Risk:</span>
                           <span className="payload-value">
@@ -1579,13 +1626,6 @@ export function ScheduledOptionsManager({
                             <span className="payload-value">None configured — results surface in this app only</span>
                           )}
                         </div>
-                      </div>
-                    </div>
-                  ) : payload.sector ? (
-                    <div className="schedule-payload-details">
-                      <div className="payload-row">
-                        <span className="payload-label">Sector:</span>
-                        <span className="payload-value">{formatPayloadValue(payload.sector)}</span>
                       </div>
                     </div>
                   ) : null}
@@ -1907,6 +1947,99 @@ export function ScheduledOptionsManager({
                     required
                   />
                 </div>
+              )}
+
+              {/* Sector Selection (Market Screen) */}
+              {jobType === "marketScreen" && (
+                <div className="sched-form-group">
+                  <label htmlFor="sched-sector" className="sched-form-label">
+                    Sector
+                    <span className="hint">Filter stocks by sector or screen all sectors</span>
+                  </label>
+                  <Select id="sched-sector"
+                    value={sector}
+                    onChange={(e) => setSector(e.target.value)}
+                  >
+                    <option value="Technology">Technology</option>
+                    <option value="ALL">ALL (All Sectors — Recommended)</option>
+                    <option value="Financials">Financials</option>
+                    <option value="Healthcare">Healthcare</option>
+                    <option value="Consumer Discretionary">Consumer Discretionary</option>
+                    <option value="Industrials">Industrials</option>
+                    <option value="Energy">Energy</option>
+                    <option value="Communication Services">Communication Services</option>
+                    <option value="Materials">Materials</option>
+                    <option value="Utilities">Utilities</option>
+                    <option value="Real Estate">Real Estate</option>
+                  </Select>
+                </div>
+              )}
+
+              {/* Optional Custom Criteria (Market Screen) */}
+              {jobType === "marketScreen" && (
+                <details style={{ marginTop: "0.25rem", padding: "0.5rem 0.75rem", background: "var(--color-surface-sunken)", borderRadius: "6px", border: "1px solid var(--color-border-subtle)" }}>
+                  <summary style={{ fontSize: "0.84rem", cursor: "pointer", color: "var(--color-accent)", fontWeight: 600, userSelect: "none" }}>
+                    ⚙️ Custom Screening Criteria &amp; Filters (Optional)
+                  </summary>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.6rem" }}>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-filter-min-price" className="sched-form-label">Min Price ($)</label>
+                      <TextInput id="sched-filter-min-price"
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={minPrice}
+                        onChange={(e) => setMinPrice(e.target.value)}
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-filter-max-price" className="sched-form-label">Max Price ($)</label>
+                      <TextInput id="sched-filter-max-price"
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={maxPrice}
+                        onChange={(e) => setMaxPrice(e.target.value)}
+                        placeholder="e.g. 500"
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-filter-min-cap" className="sched-form-label">Min Mkt Cap ($B)</label>
+                      <TextInput id="sched-filter-min-cap"
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={minMarketCap}
+                        onChange={(e) => setMinMarketCap(e.target.value)}
+                        placeholder="e.g. 1"
+                      />
+                    </div>
+                    <div className="sched-form-group">
+                      <label htmlFor="sched-filter-max-pe" className="sched-form-label">Max P/E Ratio</label>
+                      <TextInput id="sched-filter-max-pe"
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={maxPe}
+                        onChange={(e) => setMaxPe(e.target.value)}
+                        placeholder="e.g. 50"
+                      />
+                    </div>
+                  </div>
+                  <div className="sched-form-group" style={{ marginTop: "0.5rem" }}>
+                    <label htmlFor="sched-filter-trend" className="sched-form-label">Price Trend / Momentum</label>
+                    <Select id="sched-filter-trend"
+                      value={trendFilter}
+                      onChange={(e) => setTrendFilter(e.target.value)}
+                    >
+                      <option value="">Any (Standard momentum)</option>
+                      <option value="bullish">Bullish Momentum</option>
+                      <option value="bearish">Bearish Trend</option>
+                      <option value="breakout">52-Week Breakout</option>
+                    </Select>
+                  </div>
+                </details>
               )}
 
               {/* Discovery input model (issues #126/#533/#534) */}
@@ -2441,128 +2574,128 @@ export function ScheduledOptionsManager({
                 )}
               </div>
 
-              {/* Thesis & Risk Profile + Dispatch (options analysis only) */}
-              {jobType !== "strategyDiscovery" && (editingScheduleId || jobType === "optionsAnalysis") && (
-                <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                    <div className="sched-form-group">
-                      <label htmlFor="sched-market-thesis" className="sched-form-label">Market Thesis / Outlook</label>
-                      <Select id="sched-market-thesis"
-                        value={thesis}
-                        onChange={(e) => setThesis(e.target.value as any)}
-                      >
-                        <option value="bullish">Bullish (Calls, Bull Spreads)</option>
-                        <option value="bearish">Bearish (Puts, Bear Spreads)</option>
-                        <option value="neutral">Neutral (Iron Condor, Calendar)</option>
-                        <option value="directional">Directional (Breakouts &amp; Straddles)</option>
-                      </Select>
-                    </div>
-
-                    <div className="sched-form-group">
-                      <label htmlFor="sched-risk-profile" className="sched-form-label">Risk Profile</label>
-                      <Select id="sched-risk-profile"
-                        value={riskProfile}
-                        onChange={(e) => setRiskProfile(e.target.value as any)}
-                      >
-                        <option value="conservative">Conservative (High POP &gt; 65%, Defined Risk)</option>
-                        <option value="balanced">Balanced (Optimal R/R &gt; 1.5x, Moderate POP)</option>
-                        <option value="aggressive">Aggressive (Maximum Leverage &amp; Upside)</option>
-                      </Select>
-                    </div>
+              {/* Thesis & Risk Profile (options analysis only) */}
+              {jobType === "optionsAnalysis" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                  <div className="sched-form-group">
+                    <label htmlFor="sched-market-thesis" className="sched-form-label">Market Thesis / Outlook</label>
+                    <Select id="sched-market-thesis"
+                      value={thesis}
+                      onChange={(e) => setThesis(e.target.value as any)}
+                    >
+                      <option value="bullish">Bullish (Calls, Bull Spreads)</option>
+                      <option value="bearish">Bearish (Puts, Bear Spreads)</option>
+                      <option value="neutral">Neutral (Iron Condor, Calendar)</option>
+                      <option value="directional">Directional (Breakouts &amp; Straddles)</option>
+                    </Select>
                   </div>
 
                   <div className="sched-form-group">
-                    <label className="sched-form-label">
-                      Omnichannel Notification Dispatch
-                      <span className="hint">Push trade alerts automatically</span>
+                    <label htmlFor="sched-risk-profile" className="sched-form-label">Risk Profile</label>
+                    <Select id="sched-risk-profile"
+                      value={riskProfile}
+                      onChange={(e) => setRiskProfile(e.target.value as any)}
+                    >
+                      <option value="conservative">Conservative (High POP &gt; 65%, Defined Risk)</option>
+                      <option value="balanced">Balanced (Optimal R/R &gt; 1.5x, Moderate POP)</option>
+                      <option value="aggressive">Aggressive (Maximum Leverage &amp; Upside)</option>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Omnichannel Notification Dispatch (for both options and stock screens) */}
+              {jobType !== "strategyDiscovery" && (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Omnichannel Notification Dispatch
+                    <span className="hint">Push reports and alerts automatically over Slack, Email (via cfpay A2A), and Webhooks</span>
+                  </label>
+
+                  <div className="channels-checkbox-grid">
+                    {/* Slack */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={pushToSlack}
+                          onChange={(e) => setPushToSlack(e.target.checked)}
+                        />
+                        <strong>Slack Block Kit</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        Interactive cards with PDF report attached and action shortcuts
+                      </span>
+                      {pushToSlack && (
+                        <TextInput
+                          type="text"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={slackChannel}
+                          onChange={(e) => setSlackChannel(e.target.value)}
+                          placeholder="Slack Channel (e.g. #trading-desk)"
+                        />
+                      )}
                     </label>
 
-                    <div className="channels-checkbox-grid">
-                      {/* Slack */}
-                      <label className="channel-check-card">
-                        <div className="channel-check-top">
-                          <input
-                            type="checkbox"
-                            checked={pushToSlack}
-                            onChange={(e) => setPushToSlack(e.target.checked)}
-                          />
-                          <strong>Slack Block Kit</strong>
-                        </div>
-                        <span className="channel-check-desc">
-                          Interactive cards with <code>[✓ Approve &amp; Preview Order]</code> buttons
-                        </span>
-                        {pushToSlack && (
-                          <TextInput
-                            type="text"
-                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                            value={slackChannel}
-                            onChange={(e) => setSlackChannel(e.target.value)}
-                            placeholder="Slack Channel (e.g. #trading-desk)"
-                          />
-                        )}
-                      </label>
-
-                      {/* Email */}
-                      <label className="channel-check-card">
-                        <div className="channel-check-top">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(emailTo)}
-                            onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
-                          />
-                          <strong>Dark-Mode Email Brief</strong>
-                        </div>
-                        <span className="channel-check-desc">
-                          Detailed payoff metrics grid, breakevens, and Greeks summary
-                        </span>
-                        {Boolean(emailTo) && (
-                          <TextInput
-                            type="email"
-                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                            value={emailTo}
-                            onChange={(e) => setEmailTo(e.target.value)}
-                            placeholder="Recipient Email (e.g. trader@firm.com)"
-                          />
-                        )}
-                      </label>
-
-                      {/* Webhook */}
-                      <label className="channel-check-card">
-                        <div className="channel-check-top">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(webhookUrl)}
-                            onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/options" : "")}
-                          />
-                          <strong>Outbound Signed Webhook</strong>
-                        </div>
-                        <span className="channel-check-desc">
-                          HMAC SHA-256 signed JSON payload. Dispatched only when OUTBOUND_WEBHOOK_SECRET is configured on the server — without a signing secret, the webhook is not sent.
-                        </span>
-                        {Boolean(webhookUrl) && (
-                          <TextInput
-                            type="url"
-                            style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
-                            value={webhookUrl}
-                            onChange={(e) => setWebhookUrl(e.target.value)}
-                            placeholder="https://..."
-                          />
-                        )}
-                      </label>
-
-                      {/* Broadcast — platform behaviour, not a per-job channel:
-                          rendered as a note, not a selectable channel (issue #123/F15). */}
-                      <div className="channel-check-card" style={{ opacity: 0.9 }}>
-                        <div className="channel-check-top">
-                          <strong>WebSocket UI Broadcast</strong>
-                        </div>
-                        <span className="channel-check-desc">
-                          Not a channel you configure: when a scheduled run completes, its results are always broadcast to connected app clients.
-                        </span>
+                    {/* Email */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(emailTo)}
+                          onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
+                        />
+                        <strong>Email Channel (via cfpay A2A)</strong>
                       </div>
+                      <span className="channel-check-desc">
+                        Full report with attached PDF, complete screened symbols table, and technicals
+                      </span>
+                      {Boolean(emailTo) && (
+                        <TextInput
+                          type="email"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={emailTo}
+                          onChange={(e) => setEmailTo(e.target.value)}
+                          placeholder="Recipient Email (e.g. trader@firm.com)"
+                        />
+                      )}
+                    </label>
+
+                    {/* Webhook */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(webhookUrl)}
+                          onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/screener" : "")}
+                        />
+                        <strong>Outbound Signed Webhook</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        HMAC SHA-256 signed JSON payload. Dispatched only when OUTBOUND_WEBHOOK_SECRET is configured on the server — without a signing secret, the webhook is not sent.
+                      </span>
+                      {Boolean(webhookUrl) && (
+                        <TextInput
+                          type="url"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={webhookUrl}
+                          onChange={(e) => setWebhookUrl(e.target.value)}
+                          placeholder="https://..."
+                        />
+                      )}
+                    </label>
+
+                    {/* Broadcast */}
+                    <div className="channel-check-card" style={{ opacity: 0.9 }}>
+                      <div className="channel-check-top">
+                        <strong>WebSocket UI Broadcast</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        Not a channel you configure: when a scheduled run completes, its results are always broadcast to connected app clients.
+                      </span>
                     </div>
                   </div>
-                </>
+                </div>
               )}
 
               <footer className="sched-modal-footer">

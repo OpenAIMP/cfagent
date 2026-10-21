@@ -897,7 +897,20 @@ export class OrchestratorAgent extends Think<Env> {
    * Cloudflare Agents Scheduled Callback: Runs periodic market screening
    * Protected with keepAliveWhile to avoid DO inactivity eviction
    */
-  async autonomousMarketScreen(payload?: { sector?: string; universe?: string; maxItems?: number; broadcast?: boolean; trigger?: "manual" | "scheduled"; userLogin?: string; environment?: ETradeEnvironment }): Promise<void> {
+  async autonomousMarketScreen(payload?: {
+    sector?: string;
+    universe?: string;
+    maxItems?: number;
+    broadcast?: boolean;
+    trigger?: "manual" | "scheduled";
+    userLogin?: string;
+    environment?: ETradeEnvironment;
+    emailTo?: string;
+    slackChannel?: string;
+    webhookUrl?: string;
+    pushToSlack?: boolean;
+    filters?: import("../types").StockScreenerFilter;
+  }): Promise<void> {
     try {
       await this.waitUntilStable({ timeout: 30_000 });
     } catch {
