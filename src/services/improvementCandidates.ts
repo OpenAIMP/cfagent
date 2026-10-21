@@ -78,7 +78,10 @@ const TRANSITIONS: Record<CandidateStatus, CandidateStatus[]> = {
   queued: ["evaluating", "rejected", "superseded"],
   evaluating: ["gated", "rejected", "superseded"],
   gated: ["promoted", "rejected", "superseded"],
-  promoted: [],
+  // #760: the one exit from promoted is the rollback path — a
+  // promotion whose regression check fails restores the snapshot and
+  // rejects the candidate (it must re-prove itself from scratch).
+  promoted: ["rejected"],
   rejected: [],
   superseded: [],
 };

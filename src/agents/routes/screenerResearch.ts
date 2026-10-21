@@ -485,6 +485,67 @@ export async function handleScreenerResearchRoutes(
       return Response.json({ success: true, verdict, timestamp: new Date().toISOString() });
     }
 
+    // Issue #760: staged promotion. Start parks a gated candidate in
+    // shadow (nothing applied); each advance runs the regression
+    // check, respects the stage time-box, and applies through the
+    // #755 seam. Regression rolls back automatically.
+    if (path.endsWith("/adaptation/promotions/start") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
+      const { startPromotion } = await import("../../services/stagedPromotion");
+      const orm = ctx.getOrm();
+      const candidate = getImprovementCandidate(orm, candidateId);
+      if (!candidate) {
+        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
+      }
+      const trackRecord = await agent.getTrackRecord();
+      const result = startPromotion(orm, candidate, trackRecord);
+      return Response.json({ success: result.ok, ...result, timestamp: new Date().toISOString() });
+    }
+    if (path.endsWith("/adaptation/promotions/advance") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const promotionId = typeof body?.promotionId === "string" ? body.promotionId : "";
+      if (!promotionId) {
+        return Response.json({ error: "promotionId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { advancePromotion } = await import("../../services/stagedPromotion");
+      const trackRecord = await agent.getTrackRecord();
+      const result = advancePromotion(ctx.getOrm(), promotionId, trackRecord);
+      return Response.json({ success: result.ok, ...result, timestamp: new Date().toISOString() });
+    }
+    if (path.endsWith("/adaptation/promotions") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listPromotions } = await import("../../services/stagedPromotion");
+      return Response.json({ promotions: listPromotions(ctx.getOrm(), candidateId) });
+    }
+
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
     if (path.endsWith("/research/settings") && request.method === "GET") {
       const userLogin = request.headers.get("x-user-login") || sessionId;
