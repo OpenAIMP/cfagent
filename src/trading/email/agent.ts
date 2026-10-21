@@ -55,7 +55,14 @@ export class ETradeEmailTradingService {
     const combinedContent = `${subject}\n${bodyText}`.trim();
     const timestamp = new Date().toISOString();
 
-    const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
+    // Issue #815: env-preserving construction (the pattern #781's
+    // pass-through sites adopted). ETradeService's orm-first overload
+    // assigns env from its first argument, so an undefined ORM would
+    // silently drop the caller's env. requireOrm above guarantees the
+    // ORM on this path, but the construction stays env-safe regardless.
+    const tradingService = this.orm
+      ? new ETradeService(this.orm, this.env, this.sessionId)
+      : new ETradeService(this.env, undefined, this.sessionId);
 
     // 1. Detect Approval Action: "APPROVE <orderId>" or "APPROVE"
     const approveMatch = combinedContent.match(/\b(APPROVE|CONFIRM|EXECUTE)\b(?:\s+(ord_[a-zA-Z0-9_-]+))?/i);
@@ -704,6 +711,16 @@ export class ETradeEmailTradingService {
 }
 
 /**
+ * The orchestrator DO instance that owns inbound email trading. The
+ * worker email handler has no session (Cloudflare Email Routing invokes
+ * it directly), so — exactly like the worker's scheduled() handler — it
+ * addresses the deployment's established owner instance. The sender
+ * address is caller-controlled and is NEVER used to select the instance
+ * or the identity header (issue #815).
+ */
+export const INBOUND_EMAIL_ORCHESTRATOR_INSTANCE = "default_trader";
+
+/**
  * Cloudflare Worker email handler helper for exported email(message, env, ctx) handler
  */
 export async function handleCloudflareEmailMessage(
@@ -731,16 +748,44 @@ export async function handleCloudflareEmailMessage(
     subject = message.headers?.get?.("subject") || "";
   }
 
-  const service = new ETradeEmailTradingService(env);
-  const result = await service.processInboundEmail({
-    from,
-    to,
-    subject,
-    text,
-    html,
-  });
+  // Issue #815: inbound email trading is persistence-backed — approvals
+  // and rejections read/update the trade ledger, and queries run NLQ
+  // against it — and an ORM wraps a specific Durable Object's
+  // storage.sql, which the worker isolate does not have. Forward the
+  // parsed payload to the owning user's OrchestratorAgent DO, whose
+  // POST /trading/email/inbound route runs ETradeEmailTradingService
+  // against the DO's real ORM, over the same SEARCH_AGENT channel every
+  // /api route uses. If the orchestrator path is unavailable this
+  // throws (the #781 fail-loud contract) instead of processing the
+  // email against an ORM-less local service.
+  const namespace = env.SEARCH_AGENT;
+  if (!namespace || typeof namespace.idFromName !== "function") {
+    throw new Error(
+      "Inbound email trading requires the SEARCH_AGENT (orchestrator) binding to reach the user's Durable Object ORM; refusing to process the email without it (issue #815)."
+    );
+  }
+  const agentId = namespace.idFromName(INBOUND_EMAIL_ORCHESTRATOR_INSTANCE);
+  const response = await namespace.get(agentId).fetch(
+    new Request("https://agent.internal/trading/email/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-login": INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
+      },
+      body: JSON.stringify({ from, to, subject, text, html }),
+    })
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Orchestrator rejected the inbound email forward (HTTP ${response.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`
+    );
+  }
+  const result = (await response.json()) as EmailTradingResult;
 
-  // Automatically dispatch outbound reply if Cloudflare Email Service reply is supported
+  // Automatically dispatch outbound reply if Cloudflare Email Service reply is supported.
+  // Reply dispatch is send-only (no persistence), so it stays in the
+  // worker on the ORM-free send path #781 preserved.
   if (typeof message.reply === "function") {
     try {
       await message.reply(
@@ -752,7 +797,8 @@ export async function handleCloudflareEmailMessage(
       console.warn("[CloudflareEmail] message.reply error:", e);
     }
   } else {
-    await service.sendOutboundEmail(from, result.responseSubject, result.responseHtml, result.responseText);
+    const sender = new ETradeEmailTradingService(env);
+    await sender.sendOutboundEmail(from, result.responseSubject, result.responseHtml, result.responseText);
   }
 
   return result;
