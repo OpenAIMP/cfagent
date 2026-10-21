@@ -365,6 +365,54 @@ export async function handleScreenerResearchRoutes(
       });
     }
 
+    // Issue #758: isolated candidate evaluation. Replay runs against
+    // the recorded track record only — the harness cannot write live
+    // state (pinned in tests/candidate_evaluation.test.ts).
+    if (path.endsWith("/adaptation/candidates/evaluate") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
+      const { evaluateCandidate } = await import("../../services/candidateEvaluation");
+      const { getStrategyWeights } = await import("../../services/strategyWeights");
+      const orm = ctx.getOrm();
+      const candidate = getImprovementCandidate(orm, candidateId);
+      if (!candidate) {
+        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
+      }
+      const trackRecord = await agent.getTrackRecord();
+      const weights = getStrategyWeights(orm);
+      const window =
+        body?.window && typeof body.window === "object"
+          ? {
+              from: typeof body.window.from === "string" ? body.window.from : undefined,
+              to: typeof body.window.to === "string" ? body.window.to : undefined,
+            }
+          : undefined;
+      const report = evaluateCandidate(orm, candidate, trackRecord, { weights, window });
+      return Response.json({ success: true, evaluation: report, timestamp: new Date().toISOString() });
+    }
+    if (path.endsWith("/adaptation/candidates/evaluations") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listEvaluations } = await import("../../services/candidateEvaluation");
+      return Response.json({ evaluations: listEvaluations(ctx.getOrm(), candidateId) });
+    }
+
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
     if (path.endsWith("/research/settings") && request.method === "GET") {
       const userLogin = request.headers.get("x-user-login") || sessionId;
