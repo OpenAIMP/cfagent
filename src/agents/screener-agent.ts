@@ -694,7 +694,7 @@ export class ScreenerAgent extends Agent<Env> {
       const sql = {
         exec: (query: string, ...params: unknown[]) => orm.execQuery(query, ...params),
       } as any;
-      persistScheduledReportSql(sql, {
+      const reportId = persistScheduledReportSql(sql, {
         runId: `${result.universe}:${result.timestamp}`,
         title: `Market Screen — ${result.universe} · ${result.trigger === "manual" ? "Manual" : "Scheduled"}`,
         source: "screener",
@@ -709,6 +709,11 @@ export class ScreenerAgent extends Agent<Env> {
         }),
         userLogin: this.userLogin(),
       });
+      // Issue #834: persistScheduledReportSql returns null on failure (doesn't throw).
+      // Check the return value for true atomicity.
+      if (!reportId) {
+        throw new Error("persistScheduledReportSql returned null (write failed)");
+      }
     } catch (err) {
       // Issue #832: Store must be atomic. If mas_reports write fails,
       // fail the run loudly — don't silently continue to Deliver.
