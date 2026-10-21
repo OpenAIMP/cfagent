@@ -34,6 +34,85 @@ export interface AuditLogRawEvent {
   created_at: string;
 }
 
+
+/** A recorded policy verdict row as served by GET /autopilot (`recentVerdicts`). */
+export interface PolicyVerdictRecord {
+  id?: string;
+  symbol?: string;
+  action?: string;
+  quantity?: number;
+  notional?: number | null;
+  mode?: string;
+  dry_run?: number | boolean;
+  passed?: number | boolean;
+  execution_allowed?: number | boolean;
+  requires_approval?: number | boolean;
+  binding_rule?: string | null;
+  detail?: string | null;
+  signature?: string | null;
+  proposer_did?: string | null;
+  authorizer_did?: string | null;
+  created_at?: string;
+}
+
+/** View model for one row of the Policy decisions audit table (issue #651). */
+export interface PolicyVerdictRow {
+  id: string;
+  timeLabel: string;
+  intentLabel: string;
+  notionalLabel: string;
+  outcome: "allowed" | "approval_required" | "blocked";
+  outcomeLabel: string;
+  outcomeTone: BadgeTone;
+  ruleLabel: string;
+  detail: string;
+  modeLabel: string;
+  signed: boolean;
+}
+
+function verdictFlag(value: number | boolean | undefined): boolean {
+  return value === true || value === 1;
+}
+
+/**
+ * Maps a recorded verdict (mas_policy_verdicts, via GET /autopilot) to an
+ * audit-table row. Outcome precedence mirrors the engine: a verdict that may
+ * execute now is Allowed; one held for human approval is Approval required;
+ * anything else was Blocked by its binding rule.
+ */
+export function mapPolicyVerdictToRow(v: PolicyVerdictRecord): PolicyVerdictRow {
+  const allowed = verdictFlag(v.execution_allowed);
+  const approval = verdictFlag(v.requires_approval);
+  const outcome = allowed ? "allowed" : approval ? "approval_required" : "blocked";
+  const parsedTime = v.created_at ? new Date(v.created_at) : null;
+  const timeLabel =
+    parsedTime && !Number.isNaN(parsedTime.getTime())
+      ? parsedTime.toLocaleString("en-US", { hour12: true })
+      : String(v.created_at ?? "");
+  const symbol = String(v.symbol ?? "").toUpperCase();
+  const intentParts = [v.action, v.quantity, symbol].filter(
+    (part) => part !== undefined && part !== null && part !== ""
+  );
+  const notionalLabel =
+    typeof v.notional === "number" && Number.isFinite(v.notional)
+      ? `$${v.notional.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+      : "—";
+  return {
+    id: String(v.id ?? `${v.created_at ?? ""}-${symbol}`),
+    timeLabel,
+    intentLabel: intentParts.length > 0 ? intentParts.join(" ") : "—",
+    notionalLabel,
+    outcome,
+    outcomeLabel:
+      outcome === "allowed" ? "Allowed" : outcome === "approval_required" ? "Approval required" : "Blocked",
+    outcomeTone: outcome === "allowed" ? "success" : outcome === "approval_required" ? "warning" : "danger",
+    ruleLabel: v.binding_rule ? String(v.binding_rule) : "—",
+    detail: v.detail ? String(v.detail) : "",
+    modeLabel: [v.mode, verdictFlag(v.dry_run) ? "dry run" : null].filter(Boolean).join(" · "),
+    signed: Boolean(v.signature),
+  };
+}
+
 /**
  * Maps a backend SQLite WAL audit event (mas_events) to an autonomous action row.
  */
@@ -326,6 +405,7 @@ export function AutopilotControlCenter({
     return INITIAL_ACTIONS;
   });
 
+  const [recentVerdicts, setRecentVerdicts] = useState<PolicyVerdictRecord[]>([]);
   const [copiedDidId, setCopiedDidId] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [killSwitchModalOpen, setKillSwitchModalOpen] = useState(false);
@@ -410,30 +490,32 @@ export function AutopilotControlCenter({
 
   // Server-owned autopilot state (autopilot Phase 1): the Durable Object is the
   // source of truth for run state, limits, and the kill switch — not this tab.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/autopilot");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as any;
-        if (cancelled || !data || typeof data !== "object") return;
-        setIsServerBacked(true);
-        if (typeof data.running === "boolean") setIsRunning(data.running);
-        if (typeof data.killSwitch === "boolean") setIsKillSwitched(data.killSwitch);
-        if (data.limits) {
-          const normalized = normalizeAutopilotLimits(data.limits);
-          setPolicyLimits(normalized);
-          setEditLimitsDraft(normalized);
-        }
-      } catch {
-        if (!cancelled) setIsServerBacked(false);
+  // The same payload carries the recorded policy verdicts audited below (#651).
+  const fetchAutopilotState = useCallback(async () => {
+    try {
+      const res = await fetch("/api/autopilot");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as any;
+      if (!data || typeof data !== "object") return;
+      setIsServerBacked(true);
+      if (typeof data.running === "boolean") setIsRunning(data.running);
+      if (typeof data.killSwitch === "boolean") setIsKillSwitched(data.killSwitch);
+      if (data.limits) {
+        const normalized = normalizeAutopilotLimits(data.limits);
+        setPolicyLimits(normalized);
+        setEditLimitsDraft(normalized);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      if (Array.isArray(data.recentVerdicts)) {
+        setRecentVerdicts(data.recentVerdicts as PolicyVerdictRecord[]);
+      }
+    } catch {
+      setIsServerBacked(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchAutopilotState();
+  }, [fetchAutopilotState]);
 
   // Initial fetch and global refresh listener
   useEffect(() => {
@@ -441,12 +523,13 @@ export function AutopilotControlCenter({
 
     const handleGlobalRefresh = () => {
       fetchLiveAutonomousActions(true);
+      void fetchAutopilotState();
     };
     window.addEventListener("nextgen:refresh-all", handleGlobalRefresh);
     return () => {
       window.removeEventListener("nextgen:refresh-all", handleGlobalRefresh);
     };
-  }, [fetchLiveAutonomousActions]);
+  }, [fetchLiveAutonomousActions, fetchAutopilotState]);
 
   const handleToggleAutopilot = async () => {
     if (isKillSwitched) {
@@ -552,6 +635,7 @@ export function AutopilotControlCenter({
       };
 
       setActions((prev) => [newAction, ...prev.filter((p) => p.id !== newAction.id).slice(0, 49)]);
+      void fetchAutopilotState();
     } catch (err) {
       console.warn("[Autopilot] Policy check failed:", err);
       setIsServerBacked(false);
@@ -560,6 +644,8 @@ export function AutopilotControlCenter({
       setIsSimulating(false);
     }
   };
+
+  const verdictRows = recentVerdicts.map(mapPolicyVerdictToRow);
 
   const filteredActions = actions.filter((act) => {
     if (actionsFilter === "all") return true;
@@ -881,6 +967,95 @@ export function AutopilotControlCenter({
             Trigger Policy Evaluation
             </button>
             }
+            />
+          )}
+        />
+      </div>
+
+      {/* Policy Decisions Audit (issue #651): recorded verdicts from mas_policy_verdicts */}
+      <div className="autopilot-card autopilot-actions-card">
+        <div className="actions-card-header">
+          <div className="actions-header-left">
+            <h2 className="card-section-title">Policy decisions</h2>
+            <span className="actions-count-badge">{verdictRows.length}</span>
+            <span
+              className="live-feed-badge cached"
+              title="Signed policy verdicts recorded by the RiskPolicyEngine (mas_policy_verdicts)"
+            >
+              Verdict Audit Trail
+            </span>
+          </div>
+        </div>
+
+        <Table
+          columns={[
+            {
+              key: "time",
+              header: "TIME",
+              cellClassName: "time-cell",
+              render: (row) => (
+              <>{row.timeLabel}</>
+            ),
+            },
+            {
+              key: "intent",
+              header: "INTENT",
+              cellClassName: "summary-cell",
+              render: (row) => (
+              <><span className="action-summary-text">{row.intentLabel}</span>
+                        {row.modeLabel && (
+                          <Badge size="xs" tone="neutral">{row.modeLabel}</Badge>
+                        )}</>
+            ),
+            },
+            {
+              key: "notional",
+              header: "NOTIONAL",
+              render: (row) => (
+              <>{row.notionalLabel}</>
+            ),
+            },
+            {
+              key: "outcome",
+              header: "OUTCOME",
+              render: (row) => (
+              <Badge size="xs" uppercase tone={row.outcomeTone}>
+                          {row.outcomeLabel}
+                        </Badge>
+            ),
+            },
+            {
+              key: "rule",
+              header: "BINDING RULE",
+              render: (row) => (
+              <>{row.ruleLabel}</>
+            ),
+            },
+            {
+              key: "detail",
+              header: "DETAIL",
+              cellClassName: "summary-cell",
+              render: (row) => (
+              <><span className="action-summary-text">{row.detail || "—"}</span>
+                        {row.signed && (
+                          <Badge size="xs" tone="purple" title="Verdict carries a cryptographic attestation signature">
+                            Signed
+                          </Badge>
+                        )}</>
+            ),
+            },
+          ]}
+          rows={verdictRows}
+          rowKey={(row) => row.id}
+          rowClassName="action-table-row"
+          className="autopilot-actions-table"
+          containerClassName="autopilot-table-container"
+          empty={(
+            <EmptyState
+            framed
+            icon="⚖️"
+            title="No policy decisions recorded"
+            description="Every Autopilot policy evaluation records a signed verdict here — allowed, held for approval, or blocked by its binding rule — so the envelope's decisions stay auditable."
             />
           )}
         />
