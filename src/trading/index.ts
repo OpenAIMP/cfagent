@@ -72,3 +72,5 @@ export * from "./voice/agent";
 // different values. External code used the options value, so an explicit
 // named export — which always wins over `export *` — pins that binding.
 export { MAX_SCAN_SYMBOLS } from "./options/opportunityScanner";
+export * from "./etrade/quoteTrace";
+

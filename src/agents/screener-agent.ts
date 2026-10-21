@@ -456,7 +456,7 @@ export class ScreenerAgent extends Agent<Env> {
         : [];
       expectedCount = selectedSymbols.length;
       // Issue #816: create a QuoteTrace to capture the pipeline details for the UI.
-      const { QuoteTrace } = await import("../trading/etrade/quoteTrace");
+      const { QuoteTrace } = await import("../trading");
       const quoteTrace = new QuoteTrace();
       quoteTrace.setNasdaqSymbols(selectedSymbols.map(s => typeof s === 'string' ? s : s.symbol));
       // E*TRADE-only acquisition (#261). Symbols come from the listings
