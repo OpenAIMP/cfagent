@@ -55,6 +55,9 @@ export interface ScreenerResultData {
   reportUrl?: string;
   /** Durable, per-run PDF key returned by ScreenerAgent. */
   pdfKey?: string;
+  /** Issue #912: PDF generation status for error surfacing. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -399,6 +402,21 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           >
             📄 Download PDF report
           </a>
+        )}
+        {/* Issue #912: surface PDF generation failure instead of silent missing button. */}
+        {!reportUrl && result.pdfStatus === "failed" && (
+          <span
+            title={result.pdfError || "PDF generation failed"}
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
+          >
+            ⚠️ PDF failed: {result.pdfError ? result.pdfError.slice(0, 50) : "unknown error"}
+          </span>
         )}
       </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>

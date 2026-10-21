@@ -118,7 +118,11 @@ export async function generatePdfAsset(
 ): Promise<AssetResult | null> {
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;
-    if (!ns) return null;
+    if (!ns) {
+      // Issue #912: was silent — log why PDF generation is skipped.
+      console.error(`[ReportAssetAgent] generatePdfAsset(${type}) skipped: REPORT_ASSET_AGENT binding not configured in worker env. PDF will not be generated.`);
+      return null;
+    }
     const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
     return await agent.generateAsset({ type, data, userLogin });
   } catch (err) {
