@@ -9,6 +9,31 @@ export { contractKey };
 
 export type OptionThesis = "bullish" | "bearish" | "range_bound" | "large_move";
 export type ExpectedIvDirection = "rise" | "unchanged" | "fall";
+
+/**
+ * Earnings/dividend calendar facts for the request's symbol (issue #16),
+ * supplied by the caller from a live calendar source (see
+ * src/services/eventCalendar.ts). `covered` is the honesty flag: it is
+ * true only when a live source answered for the name — the dates may
+ * still be null when no event is scheduled. When coverage is absent the
+ * engine keeps its pre-#16 behavior exactly: "exclude" withholds
+ * everything as unverifiable and "warn" carries the unverified warning.
+ * The engine never guesses a date.
+ */
+export interface EventCalendarInfo {
+  covered: boolean;
+  /** Provenance label of the calendar source (e.g. "yahoo-calendarEvents"). */
+  source?: string;
+  /** Next earnings date (YYYY-MM-DD), or null when none is scheduled. */
+  earningsDate?: string | null;
+  /** Whole days until the next earnings date; null when none is scheduled. */
+  daysToEarnings?: number | null;
+  /** Next ex-dividend date (YYYY-MM-DD), or null when none is scheduled. */
+  exDividendDate?: string | null;
+  /** Whole days until the next ex-dividend date; null when none is scheduled. */
+  daysToExDiv?: number | null;
+}
+
 export type OptionStrategyType = string;
 
 export interface StrategyRequest {
@@ -39,6 +64,7 @@ export interface StrategyRequest {
       maxIronCondors?: number; // User-visible option-screen thresholds
   allowedStrategies: OptionStrategyType[];
   eventPolicy?: "warn" | "exclude";
+  eventCalendar?: EventCalendarInfo;
   riskFreeRate?: number;
   dividendYield?: number;
   feesPerContract?: number;
@@ -93,6 +119,7 @@ export interface NoViewStrategyRequest {
    *  eligible for generation. */
   allowedStrategies?: OptionStrategyType[];
   eventPolicy?: "warn" | "exclude";
+  eventCalendar?: EventCalendarInfo;
   riskFreeRate?: number;
   dividendYield?: number;
   feesPerContract?: number;
@@ -507,6 +534,7 @@ interface CandidateCoreInputs {
   riskFreeRate?: number;
   dividendYield?: number;
   eventPolicy?: "warn" | "exclude";
+  eventCalendar?: EventCalendarInfo;
 }
 
 /**
@@ -538,6 +566,80 @@ interface CandidateCore {
   nearest: StrategyLeg;
 }
 
+interface UpcomingEvent {
+  /** Display label: "Earnings" / "Ex-dividend date". */
+  label: string;
+  days: number;
+  date: string | null;
+}
+
+/** Upcoming calendar events for a covered name, soonest first. Past or
+ *  absent dates never appear — the engine does not guess (issue #16). */
+function upcomingEvents(info: EventCalendarInfo | undefined): UpcomingEvent[] {
+  if (!info?.covered) return [];
+  const events: UpcomingEvent[] = [];
+  if (info.daysToEarnings != null && info.daysToEarnings >= 0) {
+    events.push({ label: "Earnings", days: info.daysToEarnings, date: info.earningsDate ?? null });
+  }
+  if (info.daysToExDiv != null && info.daysToExDiv >= 0) {
+    events.push({ label: "Ex-dividend date", days: info.daysToExDiv, date: info.exDividendDate ?? null });
+  }
+  return events.sort((a, b) => a.days - b.days);
+}
+
+function dayCount(days: number): string {
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
+function eventPhrase(event: UpcomingEvent): string {
+  return `${event.label.toLowerCase()} in ${dayCount(event.days)}${event.date ? ` (${event.date})` : ""}`;
+}
+
+/** Candidate warnings replacing the pre-#16 "not connected" line: with
+ *  coverage, each known event is annotated with its distance to the
+ *  candidate's final expiry; without coverage the unverified warning
+ *  stands verbatim. */
+function eventWarnings(info: EventCalendarInfo | undefined, finalExpiryDte: number): string[] {
+  if (!info?.covered) {
+    return ["Earnings and dividend dates are not connected; event risk is unverified."];
+  }
+  const events = upcomingEvents(info);
+  if (events.length === 0) {
+    return ["Event calendar checked: no earnings or ex-dividend date is scheduled before this candidate's final expiry."];
+  }
+  return events.map((event) =>
+    `${event.label} in ${dayCount(event.days)}${event.date ? ` (${event.date})` : ""} — ${event.days <= finalExpiryDte ? "before" : "after"} this candidate's final expiry.`
+  );
+}
+
+/** The eventPolicy "exclude" gate (issue #16): with coverage, only a
+ *  candidate whose horizon spans an event is withheld, and the reason
+ *  names the event; without coverage the pre-#16 unverified withholding
+ *  stands (the recommend paths also short-circuit that case before any
+ *  candidate is built, preserving the historical result shape). */
+function eventExclusionReason(info: EventCalendarInfo | undefined, label: string, finalExpiryDte: number): string | null {
+  if (!info?.covered) {
+    return `${label} withheld because event risk cannot be verified`;
+  }
+  const spanning = upcomingEvents(info).find((event) => event.days <= finalExpiryDte);
+  if (!spanning) return null;
+  return `${label} withheld: ${eventPhrase(spanning)} falls before this candidate's ${finalExpiryDte}-day horizon (eventPolicy "exclude")`;
+}
+
+/** Result-level honesty lines for the calendar: a covered run states
+ *  the connection instead of claiming event risk is unverified. */
+function eventAssumptionLines(info: EventCalendarInfo | undefined): string[] {
+  if (!info?.covered) {
+    return [
+      "No point-in-time earnings/dividend calendar or portfolio positions are connected.",
+      "Event risk is unverified and should be checked before acting.",
+    ];
+  }
+  return [
+    `Earnings/dividend calendar connected (${info.source ?? "live calendar source"}); event dates are point-in-time as of this run, and candidates are annotated with days-to-event.`,
+  ];
+}
+
 type CoreOutcome = { core: CandidateCore } | { reason: string };
 
 function buildCandidateCore(
@@ -566,6 +668,7 @@ function buildCandidateCore(
     : freshnessStates.includes("UNKNOWN") ? "UNKNOWN" as const : "FRESH" as const;
   const underlying = contracts[0].underlyingPrice;
   const dte = horizonDays(legs);
+  const finalExpiryDte = Math.max(0, ...optionLegs.map((leg) => leg.daysToExpiration ?? 0));
   const feePerContract = inputs.feesPerContract ?? DEFAULT_FEE_PER_CONTRACT;
   const fees = optionLegs.reduce((sum, leg) => sum + leg.quantity * feePerContract, 0);
   const debit = netDebit(legs, fees);
@@ -584,7 +687,10 @@ function buildCandidateCore(
     return { reason: `${label} has unlimited loss potential (net short upside exposure) and is excluded from defined-risk ranking` };
   }
   if (risk.maxLoss <= 0) return { reason: `${label} shows no modeled downside, which indicates stale or crossed quotes` };
-  if (inputs.eventPolicy === "exclude") return { reason: `${label} withheld because event risk cannot be verified` };
+  if (inputs.eventPolicy === "exclude") {
+    const exclusion = eventExclusionReason(inputs.eventCalendar, label, finalExpiryDte);
+    if (exclusion) return { reason: exclusion };
+  }
 
   const modelImpliedProbabilityOfProfit = impliedProbabilityOfProfit(legs, risk.breakevens, underlying, fees, rate, dividend);
   const liquidityScore = contracts.reduce((sum, contract) => {
@@ -608,7 +714,7 @@ function buildCandidateCore(
   const cushion = clamp(Math.max(5, Math.min(100, Math.round(cushionPct * 4))));
   const warnings = [
     "Pre-expiry P/L is a Black-Scholes estimate, not a forecast or executable quote.",
-    "Earnings and dividend dates are not connected; event risk is unverified.",
+    ...eventWarnings(inputs.eventCalendar, finalExpiryDte),
     "Early exercise, assignment, margin, and execution slippage are not modeled.",
   ];
   if (def.usesStock) {
@@ -873,7 +979,7 @@ export function recommendOptionStrategies(
     return { ...partial, evaluations, nameLedger: buildNameLedger(evaluations) };
   };
 
-  if (request.eventPolicy === "exclude") {
+  if (request.eventPolicy === "exclude" && !request.eventCalendar?.covered) {
     registry.list().forEach((def) => ledger.onSkipped(def, "Skipped: event-risk exclusion cannot be verified without an event calendar."));
     return finish({
       status: "no_candidates",
@@ -987,8 +1093,7 @@ export function recommendOptionStrategies(
     "Pre-expiry values use Black-Scholes with the supplied IV, risk-free rate, and dividend yield.",
     "Probability of profit is model-implied under a risk-neutral lognormal terminal-price distribution using average leg IV; it is not a forecast.",
     "Stock-based strategies assume 100 hypothetical shares; actual holdings, margin and borrow are not connected.",
-    "No point-in-time earnings/dividend calendar or portfolio positions are connected.",
-    "Event risk is unverified and should be checked before acting.",
+    ...eventAssumptionLines(request.eventCalendar),
   ];
 
   return finish({
@@ -1139,7 +1244,7 @@ export function recommendNoViewStrategies(
     return { ...partial, evaluations, nameLedger: buildNameLedger(evaluations) };
   };
 
-  if (request.eventPolicy === "exclude") {
+  if (request.eventPolicy === "exclude" && !request.eventCalendar?.covered) {
     registry.list().forEach((def) => ledger.onSkipped(def, "Skipped: event-risk exclusion cannot be verified without an event calendar."));
     return finish({
       status: "no_candidates",
@@ -1249,8 +1354,7 @@ export function recommendNoViewStrategies(
     "Pre-expiry values use Black-Scholes with the supplied IV, risk-free rate, and dividend yield.",
     "Probability of profit is model-implied under a risk-neutral lognormal terminal-price distribution using average leg IV; it is not a forecast.",
     "Stock-based strategies assume 100 hypothetical shares; actual holdings, margin and borrow are not connected.",
-    "No point-in-time earnings/dividend calendar or portfolio positions are connected.",
-    "Event risk is unverified and should be checked before acting.",
+    ...eventAssumptionLines(request.eventCalendar),
   ];
 
   return finish({
