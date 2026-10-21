@@ -5,7 +5,7 @@ _Synced 2026-10-20 from a full data-layer survey: all 60 open issues read and cl
 ## Status — ACTIVE (2026-10-20)
 
 Epic: **#798** — [RSI-Data plan] Recursive self-improvement of data capabilities + paired user offerings.
-Sibling plans: #764 (RSI-InfoSec), plans/rsi-ai-plan-2026-10-20.md, plans/rsi-product-plan.md.
+Sibling plans: #764 (RSI-InfoSec), docs/plans/rsi-ai-plan-2026-10-20.md, docs/plans/rsi-product-plan.md.
 
 Working rule (gitops): one issue at a time — one branch, one focused PR, merge, post-merge check verification — before the next item starts.
 

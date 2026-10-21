@@ -1,6 +1,6 @@
 # cfagent — RSI-InfoSec Plan
 ### Recursive self-improvement of the information-security capabilities, and the user offerings paired to them
-Reviewed: 2026-10-20 · Scope: all 51 open + 293 closed issues in OpenAIMP/cfagent, the #143/#237 Assessment hardening trackers, `docs/Assessment.md` (B+ overall, B security), `SECURITY.md`, `docs/THREAT_MODEL.md`, `docs/COMPLIANCE.md`, and the security substrate merged through 2026-10-20 · Plan issue: #764 · Companions: `plans/rsi-ai-plan-2026-10-20.md` (#752, the AI-capability cut) and `plans/rsi-product-plan.md` (#688, the product tiers)
+Reviewed: 2026-10-20 · Scope: all 51 open + 293 closed issues in OpenAIMP/cfagent, the #143/#237 Assessment hardening trackers, `docs/Assessment.md` (B+ overall, B security), `SECURITY.md`, `docs/THREAT_MODEL.md`, `docs/COMPLIANCE.md`, and the security substrate merged through 2026-10-20 · Plan issue: #764 · Companions: `docs/plans/rsi-ai-plan-2026-10-20.md` (#752, the AI-capability cut) and `docs/plans/rsi-product-plan.md` (#688, the product tiers)
 
 ## Method
 

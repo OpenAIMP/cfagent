@@ -1,6 +1,6 @@
 # cfagent — RSI-AI Plan
 ### Recursive self-improvement of the AI capabilities, and the user offerings paired to them
-Reviewed: 2026-10-20 · Scope: all 43 open issues in OpenAIMP/cfagent, the #232 RSI→ASI epic, the #697 technology tiers, the #571 transformation program, and the capability substrate merged on 2026-10-20 · Plan issue: #752 · Companions: `plans/rsi-tech-plan-2026-10-20.md` (#697, the platform tiers this runs on) and `plans/rsi-product-plan.md` (#688, the product tiers)
+Reviewed: 2026-10-20 · Scope: all 43 open issues in OpenAIMP/cfagent, the #232 RSI→ASI epic, the #697 technology tiers, the #571 transformation program, and the capability substrate merged on 2026-10-20 · Plan issue: #752 · Companions: `docs/plans/rsi-tech-plan-2026-10-20.md` (#697, the platform tiers this runs on) and `docs/plans/rsi-product-plan.md` (#688, the product tiers)
 
 ## Method
 

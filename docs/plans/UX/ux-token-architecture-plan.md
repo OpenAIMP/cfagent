@@ -199,7 +199,7 @@ _Rule for all future work in this repo (per Venus): `git pull --rebase` / merge 
 
 | Step | Issue |
 |---|---|
-| Publish this plan under plans/UX/ | #467 |
+| Publish this plan under docs/plans/UX/ | #467 |
 | Phase 0 — baseline: parity, coverage, contrast audit | #468 |
 | Phase 1 — single source of truth: consolidate tokens.css, generate designTokens.ts | #469 |
 | Phase 2 — enforcement: ratchet pin + theme-switch tests | #470 |

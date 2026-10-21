@@ -21,13 +21,13 @@ e00c6ce27bd1835856565b963b27f271df9922c3
 
 Reviewed:
 
-- `plans/rsi-ai-plan-2026-10-20.md`
-- `plans/rsi-data-plan-2026-10-20.md`
-- `plans/rsi-infosec-plan-2026-10-20.md`
-- `plans/rsi-product-plan.md`
-- `plans/rsi-tech-plan-2026-10-20.md`
-- `plans/architecture-audit-1.md`
-- `plans/UX/ux-token-architecture-plan.md`
+- `docs/plans/rsi-ai-plan-2026-10-20.md`
+- `docs/plans/rsi-data-plan-2026-10-20.md`
+- `docs/plans/rsi-infosec-plan-2026-10-20.md`
+- `docs/plans/rsi-product-plan.md`
+- `docs/plans/rsi-tech-plan-2026-10-20.md`
+- `docs/plans/architecture-audit-1.md`
+- `docs/plans/UX/ux-token-architecture-plan.md`
 
 This was a planning-document review. I did not independently execute tests, inspect the implementation behind every referenced issue, verify GitHub settings, or validate deployed behavior. When a document says “shipped” or “verified,” that remains the document’s claim unless stated otherwise below.
 
@@ -494,7 +494,7 @@ Exit:
 Add a proposed plan such as:
 
 ```text
-plans/rsi-control-plane-plan.md
+docs/plans/rsi-control-plane-plan.md
 ```
 
 It should define this shared contract:
