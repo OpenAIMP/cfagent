@@ -149,7 +149,12 @@ Private security findings MUST use the approved private reporting process rather
 
 ### Required issue template
 
+Every issue carries its creating agent's name as a hashtag in the `## Agent` field — attribution is how lanes establish ownership and answer "whose work is this?" without archaeology (owner direction, 2026-10-20).
+
 ```markdown
+## Agent
+#<agent-hashtag>
+
 ## Problem
 What is wrong or missing?
 
@@ -443,7 +448,12 @@ Open a draft PR early enough to expose scope and CI feedback, after issue and br
 
 ### Required PR template
 
+Every pull request carries its creating agent's name as a hashtag in the `## Agent` field — the same attribution rule as §5 (owner direction, 2026-10-20).
+
 ```markdown
+## Agent
+#<agent-hashtag>
+
 ## Summary
 What changed and why?
 

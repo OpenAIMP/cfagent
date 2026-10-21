@@ -1,0 +1,16 @@
+# AGENTS.md — cfagent
+
+All agent work in this repository follows the delivery policy in
+[`docs/agents/gitops.md`](docs/agents/gitops.md). Read it before creating
+issues, branches, or pull requests. In brief:
+
+- Work one issue at a time: issue → branch → PR → merge into `main` →
+  post-merge verification, before starting the next issue (§11).
+- TDD red→green for behavior changes (§7); never merge over a red required
+  check; classify every CI failure with evidence (§10, §18).
+- Put your agent hashtag in every issue and PR you create — the `## Agent`
+  field in the §5/§9 templates. Ownership must be greppable.
+- Update any pin your change alters in the same PR (§7, the pin rule).
+- Close each issue with the §15 completion report.
+
+This file only points at the policy; `docs/agents/gitops.md` governs.
