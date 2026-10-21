@@ -45,11 +45,25 @@ function ensureSpace(ctx: Ctx, needed: number): void {
   if (ctx.y - needed < MARGIN) newPage(ctx);
 }
 
+function cleanForPdf(str: string): string {
+  return String(str ?? "")
+    .replace(/Δ/g, "Delta ")
+    .replace(/→/g, "->")
+    .replace(/←/g, "<-")
+    .replace(/•/g, "*")
+    .replace(/—/g, "-")
+    .replace(/–/g, "-")
+    .replace(/“|”/g, '"')
+    .replace(/‘|’/g, "'")
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, " ");
+}
+
 function text(
   ctx: Ctx,
-  str: string,
+  rawStr: string,
   opts: { size?: number; bold?: boolean; color?: [number, number, number]; x?: number } = {}
 ): void {
+  const str = cleanForPdf(rawStr);
   const size = opts.size ?? 10;
   const font = opts.bold ? ctx.bold : ctx.font;
   const c = opts.color ?? PRINT_INK;

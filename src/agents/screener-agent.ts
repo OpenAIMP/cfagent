@@ -607,7 +607,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getLatestPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
+    const local = await getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), PDF_LATEST_KEY);
   }
 
   /**
@@ -615,7 +618,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, pdfKey);
+    const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -623,7 +629,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
+    const local = await getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), OPTIONS_PDF_LATEST_KEY);
   }
 
   /**
@@ -631,7 +640,10 @@ export class ScreenerAgent extends Agent<Env> {
    */
   async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
-    return getReportPdf(this.env, this.ctx.storage, pdfKey);
+    const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
+    if (local) return local;
+    const { getPdfAsset } = await import("./report-asset-agent");
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -662,22 +674,23 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #605: blobs go to R2 when bound, else legacy DO storage.
     // Issue #680: generation is owned by ReportAssetAgent.
     try {
-      const { generatePdfAsset } = await import("./report-asset-agent");
-      const asset = await generatePdfAsset(this.env, this.userLogin(), "screener", result);
+      const { generatePdfAssetWithBytes } = await import("./report-asset-agent");
+      const asset = await generatePdfAssetWithBytes(this.env, this.userLogin(), "screener", result);
+      const { putReportPdf } = await import("../services/reportBlobStore");
       if (asset) {
-        // Keep the "latest" pointer for backward compatibility.
-        const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
-        const stored = await getReportPdf(this.env, this.ctx.storage as any, asset.key);
-        if (stored) {
-          await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
-        }
+        await putReportPdf(this.env, this.ctx.storage as any, asset.key, asset.fileName, asset.bytes);
+        await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, asset.fileName, asset.bytes);
         result.pdfKey = asset.key;
         result.pdfStatus = "generated";
       } else {
-        // generatePdfAsset returned null — treat as failure, not silent skip.
-        result.pdfStatus = "failed";
-        result.pdfError = "generatePdfAsset returned null";
-        console.error("[ScreenerAgent] PDF generation returned null for run", result.timestamp);
+        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
+        const bytes = await generateScreenerPdf(result);
+        const fileName = screenerPdfFileName(result);
+        const key = `report:pdf:screener:${crypto.randomUUID().slice(0, 8)}`;
+        await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+        await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, fileName, bytes);
+        result.pdfKey = key;
+        result.pdfStatus = "generated";
       }
     } catch (err) {
       // Issue #822: do NOT swallow. Record the failure explicitly so the

@@ -28,4 +28,10 @@ describe("#680 report asset agent", () => {
     const result = await generatePdfAssetWithBytes({}, "alice", "options", {});
     expect(result).toBeNull();
   });
+
+  it("getPdfAsset returns null without the binding", async () => {
+    const { getPdfAsset } = await import("../src/agents/report-asset-agent");
+    const result = await getPdfAsset({}, "alice", "some-key");
+    expect(result).toBeNull();
+  });
 });

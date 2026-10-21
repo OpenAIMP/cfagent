@@ -82,7 +82,22 @@ export async function getReportPdf(
   key: string
 ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
   const meta = await storage.get<ReportPdfMeta>(key).catch(() => undefined);
-  if (!meta) return null;
+  if (!meta) {
+    const bucket = env.REPORTS_BUCKET;
+    if (bucket) {
+      try {
+        const obj = await bucket.get(key);
+        if (obj) {
+          const bytes = new Uint8Array(await obj.arrayBuffer());
+          const fileName = obj.customMetadata?.fileName || `${key.split(":").pop() || "report"}.pdf`;
+          return { bytes, fileName };
+        }
+      } catch (err) {
+        console.warn("[reportBlobStore] Direct R2 read failed:", err);
+      }
+    }
+    return null;
+  }
   const bucket = env.REPORTS_BUCKET;
   if (bucket && meta.r2Key) {
     try {
