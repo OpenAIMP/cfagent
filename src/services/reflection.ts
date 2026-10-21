@@ -8,6 +8,18 @@ import { listStrategyReviews } from "./strategyReviews";
  * computes per-domain performance deltas, and writes reflection records as
  * learnings. Proposed behavioral adjustments go through HITL before taking
  * effect — the agent proposes, the human disposes.
+ *
+ * Failure handling (issue #784): persistence failures are never silent.
+ * Every store operation that fails is logged via console.error with
+ * context, and failures are counted onto the run result — failed learning
+ * writes in `learningsFailed`, failed analysis sections in
+ * `analysisFailures` (both present only when > 0, so the happy-path
+ * result shape is unchanged). The already-ran guard fails OPEN by
+ * deliberate choice: if the guard read fails we log it and run anyway —
+ * failing closed would silently disable the learning loop for as long as
+ * the read is broken, the same silent-loss class this handling exists to
+ * prevent. A genuinely broken store still surfaces, because the run's
+ * own writes then fail and are counted.
  */
 
 export interface ReflectionFinding {
@@ -21,7 +33,13 @@ export interface ReflectionFinding {
 export function runReflection(
   sql: any,
   now: Date = new Date()
-): { findings: ReflectionFinding[]; learningsRecorded: number; skipped?: string } {
+): {
+  findings: ReflectionFinding[];
+  learningsRecorded: number;
+  learningsFailed?: number;
+  analysisFailures?: number;
+  skipped?: string;
+} {
   // Weekly guard: only fire on Sunday, and not if a reflection learning
   // was already recorded this week.
   if (now.getUTCDay() !== 0) {
@@ -35,9 +53,13 @@ export function runReflection(
     if (recent.length > 0 && new Date(recent[0].createdAt) >= weekStart) {
       return { findings: [], learningsRecorded: 0, skipped: "already ran this week" };
     }
-  } catch {}
+  } catch (err) {
+    // Deliberate fail-open (see header): proceed, but never silently.
+    console.error("[Reflection] Already-ran guard check failed; proceeding (fail-open by design, #784):", err);
+  }
 
   const findings: ReflectionFinding[] = [];
+  let analysisFailures = 0;
 
   // 1. Strategy review decisions → approval patterns.
   try {
@@ -88,7 +110,10 @@ export function runReflection(
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    analysisFailures++;
+    console.error("[Reflection] Strategy-review analysis failed; continuing without review findings:", err);
+  }
 
   // 2. Check for stale learnings that may need re-validation.
   try {
@@ -106,10 +131,14 @@ export function runReflection(
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    analysisFailures++;
+    console.error("[Reflection] Stale-learning analysis failed; continuing without staleness findings:", err);
+  }
 
   // 3. Record findings as learnings (source: reflection).
   let learningsRecorded = 0;
+  let learningsFailed = 0;
   for (const f of findings) {
     try {
       recordLearning(sql, {
@@ -120,18 +149,44 @@ export function runReflection(
         source: "reflection",
       });
       learningsRecorded++;
-    } catch {}
+    } catch (err) {
+      learningsFailed++;
+      console.error(
+        `[Reflection] Failed to persist learning (domain "${f.domain}", evidence ${f.evidenceRefs.join(", ") || "none"}):`,
+        err
+      );
+    }
   }
 
-  // 4. Record the run itself so next week's guard sees it.
+  // 4. Record the run itself so next week's guard sees it. The persisted
+  // summary counts only what landed; failures are named in it too when
+  // any occurred, so the record itself never overclaims.
+  let metaObservation = `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded.`;
+  if (learningsFailed > 0 || analysisFailures > 0) {
+    const parts: string[] = [];
+    if (learningsFailed > 0) parts.push(`${learningsFailed} learning write(s) failed`);
+    if (analysisFailures > 0) parts.push(`${analysisFailures} analysis section(s) failed`);
+    metaObservation = `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded, ${parts.join(", ")}.`;
+  }
   try {
     recordLearning(sql, {
       domain: "reflection_meta",
-      observation: `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded.`,
+      observation: metaObservation,
       confidence: 1.0,
       source: "reflection",
     });
-  } catch {}
+  } catch (err) {
+    learningsFailed++;
+    console.error(
+      "[Reflection] Failed to persist the reflection run-meta learning; the already-ran guard will not see this run:",
+      err
+    );
+  }
 
-  return { findings, learningsRecorded };
+  return {
+    findings,
+    learningsRecorded,
+    ...(learningsFailed > 0 ? { learningsFailed } : {}),
+    ...(analysisFailures > 0 ? { analysisFailures } : {}),
+  };
 }
