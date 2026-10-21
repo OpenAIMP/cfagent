@@ -660,26 +660,40 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #269: generate + store the report PDF for download/delivery.
     // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
     // Issue #605: blobs go to R2 when bound, else legacy DO storage.
-    // Issue #913: Generate PDF inline (not via ReportAssetAgent DO) to
-    // ensure the report is always generated. The DO hop was an unnecessary
-    // failure point.
-    try {
-      const { generateScreenerPdf, screenerPdfFileName } = await import("../trading/screenerReportPdf");
-      const { putReportPdf } = await import("../services/reportBlobStore");
-      const bytes = await generateScreenerPdf(result);
-      const fileName = screenerPdfFileName(result);
-      const key = `report:pdf:screener:${result.timestamp}`;
-      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+    // Issue #914: Use the unified report pipeline (shared by stock + options,
+    // manual + scheduled).
+    const { runReportPipeline } = await import("../services/unifiedReportPipeline");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const pipelineResult = await runReportPipeline(
+      this.env,
+      this.ctx.storage as any,
+      {
+        type: "screener",
+        trigger: result.trigger === "manual" ? "manual" : "scheduled",
+        result,
+        userLogin: this.userLogin(),
+        title: `Market screen — ${String((result as any).universe ?? (result as any).sector ?? "ALL")}`,
+        summary: result.success
+          ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched.`
+          : `Screen failed: ${(result as any).error ?? "unknown error"}.`,
+        timestamp: result.timestamp,
+      }
+    );
+    if (pipelineResult.pdfStatus === "generated") {
       // Keep the "latest" pointer for backward compatibility.
-      await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, fileName, bytes);
-      result.pdfKey = key;
+      const { getReportPdf } = await import("../services/reportBlobStore");
+      const stored = await getReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey);
+      if (stored) {
+        await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
+      }
+      result.pdfKey = pipelineResult.pdfKey;
       result.pdfStatus = "generated";
-    } catch (err) {
+    } else {
       // Issue #822: do NOT swallow. Record the failure explicitly so the
       // publisher knows not to fall back to a stale PDF.
       result.pdfStatus = "failed";
-      result.pdfError = err instanceof Error ? err.message : String(err);
-      console.error("[ScreenerAgent] PDF generation failed:", err instanceof Error ? err.message : String(err));
+      result.pdfError = pipelineResult.pdfError;
+      console.error("[ScreenerAgent] PDF generation failed:", pipelineResult.pdfError);
     }
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:
