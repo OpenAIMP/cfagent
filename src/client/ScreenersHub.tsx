@@ -484,12 +484,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                           borderRadius: "8px",
                           border: isSelected
                             ? "2px solid var(--color-accent)"
-                            : "1px solid var(--color-border)",
+                            : "1px solid var(--color-border-subtle)",
                           background: "var(--color-surface)",
                           cursor: "pointer",
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text)" }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
                           {universe.toUpperCase()}
                         </div>
                         <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
@@ -517,18 +517,75 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                     );
                   })}
                 </div>
+                {/* Issue #125: per-run history — every retained run is
+                    selectable (newest first), across universes. Selecting a
+                    run swaps the results view + PDF + exports below to that
+                    run. The grouped universe cards above are a #830 shortcut
+                    to each universe's latest run; this list is the full
+                    history. */}
+                <div
+                  aria-label="Autonomous run history"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.35rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  {autoRuns.map((run) => {
+                    const status = screenRunStatus(run);
+                    const isSelected = selectedAutoRun?.timestamp === run.timestamp;
+                    const oppCount = run.opportunities?.length ?? 0;
+                    return (
+                      <button
+                        key={run.timestamp}
+                        type="button"
+                        className="screener-run-item"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedAutoTs(run.timestamp)}
+                        style={{
+                          textAlign: "left",
+                          padding: "0.5rem 0.75rem",
+                          borderRadius: "6px",
+                          border: isSelected
+                            ? "2px solid var(--color-accent)"
+                            : "1px solid var(--color-border-subtle)",
+                          background: "var(--color-surface)",
+                          cursor: "pointer",
+                          fontSize: "0.8rem",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>
+                          {new Date(run.timestamp).toLocaleString()}
+                        </span>
+                        {" · "}
+                        {(run.universe || "nasdaq100").toUpperCase()}
+                        {run.sector && run.sector !== "ALL" ? ` · ${run.sector} sector` : ""}
+                        {" · "}
+                        {run.totalScanned ?? 0} scanned · {run.matchedCount ?? 0} matched · {oppCount} standout
+                        {" "}
+                        <span className="screener-run-status" style={{ fontWeight: 700 }}>
+                          {SCREEN_RUN_STATUS_LABELS[status]}
+                        </span>
+                        {" · "}
+                        <span>{isSelected ? "Viewing" : "View"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
                 {/* Data panel for selected job */}
                 <div
                   aria-label="Selected job run data"
                   style={{
-                    border: "1px solid var(--color-border)",
+                    border: "1px solid var(--color-border-subtle)",
                     borderRadius: "8px",
                     padding: "1rem",
                     background: "var(--color-surface)",
                     marginBottom: "0.75rem",
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text)" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
                     {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
                   </div>
                   <ScreenerResultsView
