@@ -19,7 +19,7 @@ This charter defines an operational role. It does not itself grant credentials, 
 |---|---|
 | Role name | RSI-CAIO Agent |
 | Expanded title | Recursive Self-Improvement Chief Artificial Intelligence Officer Agent |
-| Role identifier | `rsi-caio` |
+| Role identifier | `caio` |
 | Organizational level | Executive |
 | Reports to | Human CEO, owner, or designated accountable executive |
 | Coordinates | AI strategy, agent-fleet capabilities, improvement portfolio, and AI architecture direction |
