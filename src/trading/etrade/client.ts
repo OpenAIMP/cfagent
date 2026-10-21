@@ -3067,6 +3067,11 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.handleUpstreamAuthError(res.status, "user/watchlist", errorText);
+        // Issue #826: use BusinessError for 404 — UI gets business message, logs get technical detail.
+        if (res.status === 404) {
+          const { BusinessError } = await import("../../errors/errorAspects");
+          throw new BusinessError("WATCHLIST_001", { httpStatus: 404, errorText: errorText.slice(0, 200) });
+        }
         this.lastError = `E*TRADE watchlist request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
         return [];
       }
@@ -3095,6 +3100,15 @@ export class ETradeRestClient {
         };
       });
     } catch (err) {
+      // Issue #826: BusinessError passes through (already has business message).
+      // Technical errors get logged, UI gets generic message.
+      const { BusinessError } = await import("../../errors/errorAspects");
+      if (err instanceof BusinessError) {
+        // Log technical detail, but don't set lastError to technical message.
+        // The caller should use err.toJSON() for the UI.
+        console.warn(`[ETradeClient] getWatchlists business error [${err.code}]:`, err.entry.technicalDetail);
+        throw err;
+      }
       console.warn("[ETradeClient] getWatchlists error:", err);
       this.lastError = `E*TRADE watchlist request failed: ${err instanceof Error ? err.message : String(err)}`;
       return [];
