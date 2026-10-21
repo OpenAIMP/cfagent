@@ -156,7 +156,14 @@ export class ETradeVoiceTradingService {
     const timestamp = new Date().toISOString();
     const userLogin = request.userLogin || this.sessionId;
     const authorizerDid = `did:user:voice:${userLogin}`;
-    const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
+    // Issue #815: env-preserving construction (the pattern #781's
+    // pass-through sites adopted). ETradeService's orm-first overload
+    // assigns env from its first argument, so an undefined ORM would
+    // silently drop the caller's env for the approval/rejection paths
+    // that run before handleVoiceNLQ's requireOrm gate.
+    const tradingService = this.orm
+      ? new ETradeService(this.orm, this.env, this.sessionId)
+      : new ETradeService(this.env, undefined, this.sessionId);
 
     // 0. Conversational Open-Ended Single-Word Prompt (e.g. "Find", "Search", "Help", "Explore")
     if (/^(find|search|help|lookup|show me|explore|menu)$/i.test(cleanTranscript.trim())) {
@@ -990,13 +997,71 @@ export class ETradeVoiceTradingService {
 }
 
 /**
+ * Issue #815: a per-turn voice forwarder. The worker isolate hosting the
+ * WebSocket has no ORM (an ORM wraps a specific Durable Object's
+ * storage.sql), so a voice turn's persistence-backed work is forwarded
+ * to the session user's OrchestratorAgent DO, whose
+ * POST /trading/voice/turn route runs ETradeVoiceTradingService against
+ * the DO's real ORM.
+ */
+export type VoiceTurnForwarder = (
+  request: VoiceTradingTurnRequest
+) => Promise<VoiceTradingTurnResponse>;
+
+/**
+ * Builds the orchestrator voice-turn forwarder for one session user.
+ * The DO instance is keyed by, and the x-user-login header set from,
+ * the worker-verified session identity the caller passes in — never
+ * from caller-asserted input. Throws when the SEARCH_AGENT binding is
+ * unavailable or the DO rejects the turn, so a missing orchestrator
+ * path fails loud instead of falling back to an ORM-less local turn
+ * (the #781 contract).
+ */
+export function createOrchestratorVoiceTurnForwarder(env: Env, userLogin: string): VoiceTurnForwarder {
+  return async (request: VoiceTradingTurnRequest): Promise<VoiceTradingTurnResponse> => {
+    const namespace = env.SEARCH_AGENT;
+    if (!namespace || typeof namespace.idFromName !== "function") {
+      throw new Error(
+        "Voice turns require the SEARCH_AGENT (orchestrator) binding to reach the user's Durable Object ORM; refusing to process the turn without it (issue #815)."
+      );
+    }
+    const response = await namespace.get(namespace.idFromName(userLogin)).fetch(
+      new Request("https://agent.internal/trading/voice/turn", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-login": userLogin,
+        },
+        body: JSON.stringify({
+          transcript: request.transcript ?? request.rawTranscript ?? "",
+        }),
+      })
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(
+        `Orchestrator rejected the voice turn forward (HTTP ${response.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`
+      );
+    }
+    return (await response.json()) as VoiceTradingTurnResponse;
+  };
+}
+
+/**
  * Handle duplex WebSocket voice connection session (compatible with Cloudflare Voice Agent protocol)
+ *
+ * Issue #815: when no ORM is injected but a `forwardTurn` forwarder is
+ * provided (the worker WebSocket route's wiring), each speech turn is
+ * forwarded to the session user's orchestrator DO and executed there
+ * against the real ORM. With an ORM injected, turns execute locally as
+ * before. With neither, NLQ turns keep failing honestly (#781).
  */
 export async function handleVoiceWebSocketConnection(
   ws: WebSocket,
   env: Env,
   orm?: DatabaseORM,
-  sessionId: string = "voice_ws_trader"
+  sessionId: string = "voice_ws_trader",
+  forwardTurn?: VoiceTurnForwarder
 ): Promise<void> {
   const service = new ETradeVoiceTradingService(env, orm, sessionId);
 
@@ -1025,11 +1090,17 @@ export async function handleVoiceWebSocketConnection(
           const userTranscript = msg.transcript || msg.text || "";
           ws.send(JSON.stringify({ type: "status", status: "thinking" }));
 
-          const turnRes = await service.processVoiceTurn({
+          // Issue #815: no local ORM + a forwarder wired (the worker
+          // route) → the turn executes inside the session user's
+          // orchestrator DO against its real ORM, one DO call per turn.
+          const turnRequest: VoiceTradingTurnRequest = {
             transcript: userTranscript,
             sessionId,
             userLogin: sessionId,
-          });
+          };
+          const turnRes = !orm && forwardTurn
+            ? await forwardTurn(turnRequest)
+            : await service.processVoiceTurn(turnRequest);
 
           ws.send(
             JSON.stringify({
