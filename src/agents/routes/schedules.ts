@@ -671,12 +671,15 @@ export async function handleSchedulesRoutes(
       }
     }
 
-    // Nightly mas_messages retention pass (issue #255, part of #143).
-    // The Worker's scheduled() handler fires this at the 0 4 * * * cron.
+    // Nightly retention pass (issue #255, part of #143; extended to
+    // mas_events + mas_memory by issue #786). The Worker's scheduled()
+    // handler fires this at the 0 4 * * * cron.
     if (path.endsWith("/schedules/trigger-retention") && request.method === "POST") {
       try {
         const result = runStorageRetention(ctx.getOrm(), {
           retentionDays: ctx.env.MAS_MESSAGES_RETENTION_DAYS,
+          eventsRetentionDays: ctx.env.MAS_EVENTS_RETENTION_DAYS,
+          memoryRetentionDays: ctx.env.MAS_MEMORY_RETENTION_DAYS,
         });
         return Response.json({ success: true, ...result });
       } catch (err: any) {
