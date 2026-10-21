@@ -123,6 +123,26 @@
   background: var(--color-info-subtle);
   color: var(--color-info);
 }
+.prp-badge-executable {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  font-weight: 600;
+}
+.prp-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.prp-exec-details {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-sunken);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border-left: 2px solid var(--color-primary);
+  margin-top: 0.2rem;
+}
 .prp-subhead {
   margin-top: 1.4rem;
   font-size: 0.95rem;
@@ -145,6 +165,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  flex: 1;
 }
 .prp-hedge-main span {
   font-size: 0.83rem;
@@ -164,6 +185,7 @@
   background: var(--color-primary);
   color: var(--color-primary-foreground);
   cursor: pointer;
+  font-weight: 500;
 }
 .prp-form-row {
   display: flex;

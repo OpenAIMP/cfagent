@@ -34,6 +34,29 @@ export const HEDGE_POLICY = {
 
 export type HedgeInstrument = "SPY_SHARES" | "SPY_PUTS";
 
+export interface ExecutableOrderLegSpec {
+  underlyingSymbol: string;
+  securityType: "EQ" | "OPTN";
+  side: "BUY" | "SELL";
+  quantity: number;
+  optionType?: "CALL" | "PUT";
+  strike?: number;
+  expirationDate?: string;
+}
+
+export interface ExecutableOrderSpec {
+  assetClass: "equity" | "options";
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  orderType: "MARKET" | "LIMIT";
+  quantity: number;
+  limitPrice: number;
+  strategyNetDebit?: number;
+  legs: ExecutableOrderLegSpec[];
+  estimatedTotal: number;
+  isExecutable: boolean;
+}
+
 export interface HedgeProposal {
   instrument: HedgeInstrument;
   status: "DRAFT";
@@ -49,6 +72,7 @@ export interface HedgeProposal {
   postHedgeBetaWeightedDeltaDollars: number;
   withinToleranceAfterHedge: boolean;
   rationale: string;
+  executableOrder?: ExecutableOrderSpec;
 }
 
 export interface HedgeAnalysis {
@@ -70,6 +94,8 @@ export interface SpyPutContract {
   expirationDate: string;
   delta: number;
   price: number;
+  bid?: number;
+  ask?: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -135,6 +161,7 @@ export function buildHedgeProposals(
       rhoDollarsPerRatePoint: 0,
       definedMaxLoss: side === "BUY" ? shareQty * spyPrice : 0,
     });
+    const shareLimitPrice = round2(spyPrice);
     proposals.push({
       instrument: "SPY_SHARES",
       status: "DRAFT",
@@ -146,6 +173,24 @@ export function buildHedgeProposals(
       postHedgeBetaWeightedDeltaDollars: post.betaWeightedDeltaDollars ?? betaDelta,
       withinToleranceAfterHedge: Math.abs(post.betaWeightedDeltaDollars ?? betaDelta) <= toleranceDollars,
       rationale: `${side} ${shareQty} SPY @ ~$${spyPrice.toFixed(2)} neutralizes the book's beta-weighted Delta of $${betaDelta.toFixed(0)} (SPY beta = 1 by construction). Residual is whole-share rounding only.`,
+      executableOrder: {
+        assetClass: "equity",
+        symbol: "SPY",
+        action: side,
+        orderType: "LIMIT",
+        quantity: shareQty,
+        limitPrice: shareLimitPrice,
+        legs: [
+          {
+            underlyingSymbol: "SPY",
+            securityType: "EQ",
+            side,
+            quantity: shareQty,
+          },
+        ],
+        estimatedTotal: side === "BUY" ? round2(shareQty * shareLimitPrice) : -round2(shareQty * shareLimitPrice),
+        isExecutable: true,
+      },
     });
   }
 
@@ -166,6 +211,7 @@ export function buildHedgeProposals(
       rhoDollarsPerRatePoint: 0,
       definedMaxLoss: hedgeDirection === "BUY" ? contracts * spyPut.price * 100 : 0,
     });
+    const putLimitPrice = round2(spyPut.price);
     proposals.push({
       instrument: "SPY_PUTS",
       status: "DRAFT",
@@ -179,6 +225,28 @@ export function buildHedgeProposals(
       postHedgeBetaWeightedDeltaDollars: post.betaWeightedDeltaDollars ?? betaDelta,
       withinToleranceAfterHedge: Math.abs(post.betaWeightedDeltaDollars ?? betaDelta) <= toleranceDollars,
       rationale: `${hedgeDirection} ${contracts} SPY ${spyPut.strike} puts exp ${spyPut.expirationDate} (live chain delta ${spyPut.delta}) offsets ~$${Math.abs(contribution).toFixed(0)} of beta-weighted Delta with defined risk${hedgeDirection === "BUY" ? ` (max loss = premium $${(contracts * spyPut.price * 100).toFixed(0)})` : ""}. Coarser than shares: contract rounding leaves a larger residual.`,
+      executableOrder: {
+        assetClass: "options",
+        symbol: "SPY",
+        action: hedgeDirection,
+        orderType: "LIMIT",
+        quantity: contracts,
+        limitPrice: putLimitPrice,
+        strategyNetDebit: hedgeDirection === "BUY" ? round2(putLimitPrice * 100) : -round2(putLimitPrice * 100),
+        legs: [
+          {
+            underlyingSymbol: "SPY",
+            securityType: "OPTN",
+            side: hedgeDirection,
+            quantity: 1,
+            optionType: "PUT",
+            strike: spyPut.strike,
+            expirationDate: spyPut.expirationDate,
+          },
+        ],
+        estimatedTotal: hedgeDirection === "BUY" ? round2(contracts * putLimitPrice * 100) : -round2(contracts * putLimitPrice * 100),
+        isExecutable: true,
+      },
     });
   }
 
@@ -190,11 +258,18 @@ export function selectSpyPut(chain: ETradeOptionChain, expirationDate: string): 
   let best: SpyPutContract | null = null;
   for (const pair of chain.pairs) {
     const put = pair.put;
-    if (!put || put.delta === undefined) continue;
-    const price = put.lastPrice || (put.bid + put.ask) / 2;
+    if (!put || put.delta === undefined || !(put.delta < 0)) continue;
+    const price = put.bid > 0 && put.ask > 0 ? (put.bid + put.ask) / 2 : (put.lastPrice > 0 ? put.lastPrice : 0);
     if (!(price > 0)) continue;
     if (!best || Math.abs(put.strikePrice - chain.underlyingPrice) < Math.abs(best.strike - chain.underlyingPrice)) {
-      best = { strike: put.strikePrice, expirationDate, delta: put.delta, price };
+      best = {
+        strike: put.strikePrice,
+        expirationDate,
+        delta: put.delta,
+        price,
+        bid: put.bid > 0 ? put.bid : undefined,
+        ask: put.ask > 0 ? put.ask : undefined,
+      };
     }
   }
   return best;
@@ -207,12 +282,63 @@ export function selectSpyPut(chain: ETradeOptionChain, expirationDate: string): 
 export async function generateHedgeProposals(etrade: ETradeService): Promise<HedgeAnalysis> {
   const report = await computePortfolioRisk(etrade);
   let spyPut: SpyPutContract | null = null;
-  const target = new Date(Date.now() + HEDGE_POLICY.targetDteDays * 24 * 3600 * 1000);
-  const yyyy = target.getUTCFullYear();
-  const mm = target.getUTCMonth() + 1;
-  const dd = target.getUTCDate();
-  const expirationDate = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-  const chain = await etrade.getOptionChains({ symbol: "SPY", expiryYear: yyyy, expiryMonth: mm, expiryDay: dd }).catch(() => null);
-  if (chain) spyPut = selectSpyPut(chain, expirationDate);
+
+  // Real market expiration date resolution:
+  let selectedExpiry: { year: number; month: number; day: number; dateStr: string } | null = null;
+  try {
+    const expireDates = await etrade.getOptionExpireDates("SPY");
+    if (expireDates && expireDates.length > 0) {
+      const targetDays = HEDGE_POLICY.targetDteDays;
+      const now = new Date();
+      // Find valid expiry >= 7 days out closest to targetDteDays
+      const scored = expireDates
+        .map((exp) => {
+          const expDate = new Date(Date.UTC(exp.year, exp.month - 1, exp.day, 20, 0, 0));
+          const dte = Math.round((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          return { exp, dte, diff: Math.abs(dte - targetDays) };
+        })
+        .filter((item) => item.dte >= 7)
+        .sort((a, b) => a.diff - b.diff);
+
+      if (scored.length > 0) {
+        const best = scored[0].exp;
+        selectedExpiry = {
+          year: best.year,
+          month: best.month,
+          day: best.day,
+          dateStr: `${best.year}-${String(best.month).padStart(2, "0")}-${String(best.day).padStart(2, "0")}`,
+        };
+      }
+    }
+  } catch {
+    // Graceful fallback if getOptionExpireDates fails
+  }
+
+  // Fallback to Friday-aligned target date if no expire dates returned
+  if (!selectedExpiry) {
+    const target = new Date(Date.now() + HEDGE_POLICY.targetDteDays * 24 * 3600 * 1000);
+    const dayOfWeek = target.getUTCDay();
+    const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    target.setUTCDate(target.getUTCDate() + (daysUntilFriday === 0 ? 0 : daysUntilFriday));
+    const yyyy = target.getUTCFullYear();
+    const mm = target.getUTCMonth() + 1;
+    const dd = target.getUTCDate();
+    selectedExpiry = {
+      year: yyyy,
+      month: mm,
+      day: dd,
+      dateStr: `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+    };
+  }
+
+  const chain = await etrade.getOptionChains({
+    symbol: "SPY",
+    expiryYear: selectedExpiry.year,
+    expiryMonth: selectedExpiry.month,
+    expiryDay: selectedExpiry.day,
+    chainType: "PUT",
+  }).catch(() => null);
+
+  if (chain) spyPut = selectSpyPut(chain, selectedExpiry.dateStr);
   return buildHedgeProposals(report, spyPut);
 }
