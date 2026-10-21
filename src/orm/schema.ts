@@ -69,6 +69,13 @@ const MAS_MESSAGES_DDL = `
       )
     `;
 
+// Issue #792 determination (RSI-Data C9): mas_events is the
+// session-scoped audit/observability log — single insert owner
+// OrchestratorAgent.recordAudit (#270) — and deliberately NOT the
+// usage-metering store. Tenant usage metering (user_login / run_id /
+// category) lives in usage_events (src/services/scheduledReports.ts),
+// whose attribution axis and indexed per-tenant reads do not fit this
+// table's session_id shape. Keep the two logs distinct.
 const MAS_EVENTS_DDL = `
       CREATE TABLE IF NOT EXISTS mas_events (
         id TEXT PRIMARY KEY,
