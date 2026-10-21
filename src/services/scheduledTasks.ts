@@ -689,10 +689,18 @@ export class ScheduledTasksService {
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
-      if (scannedCount !== symbols.length || coverageErrors > 0 || truncatedCount > 0) {
+      // Issue #916: Don't fail the entire run on partial chain failures.
+      // Log the coverage gaps but continue with what we have. Only throw
+      // if NOTHING was scanned (total failure).
+      if (scannedCount === 0) {
         throw new Error(
-          `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
-          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. No partial report published.`
+          `Options universe scan failed: 0 of ${symbols.length} underlyings scanned. No data available.`
+        );
+      }
+      if (coverageErrors > 0 || truncatedCount > 0) {
+        console.warn(
+          `[ScheduledTasks] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
+          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. Publishing partial report.`
         );
       }
 
