@@ -587,7 +587,7 @@ export function planWithRules(question: string): NLQPlan {
   // 6. Fast-path for E*TRADE Stock Quote
   const quoteExcludeWords = new Set(["FOR", "OF", "ON", "THE", "PLEASE", "REQUEST", "CHECK", "WHAT", "SHOW", "AND", "WITH", "REQUE"]);
   const quoteMatch =
-    question.match(/(?:quote|price|ticker|trading at)\s*(?::|for|of|on|request:?)*\s+([A-Za-z]{1,5})\b/i) ||
+    question.match(/(?:quote|price|ticker|trading at)\s*(?::|for|of|on|request)*\s+([A-Za-z]{1,5})\b/i) ||
     question.match(/\b([A-Za-z]{1,5})\s+(?:quote|price|ticker|trading at)\b/i);
   if (quoteMatch && !/\b(messages?|categories|tables?)\b/i.test(question)) {
     let symbol = quoteMatch[1].toUpperCase();
