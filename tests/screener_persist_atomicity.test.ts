@@ -23,6 +23,18 @@
  * Red/green note: the structural pins FAIL on the pre-fix source (the call
  * result was discarded) and pass with the fix; the behavioral pins pass on
  * both sides by design (they pin the helper's unchanged contract).
+ *
+ * Issue #783 supersession (2026-10-21): the write this suite made atomic
+ * turned out to be a DEAD write — ScreenerAgent's own mas_reports copy
+ * had no reader; every report surface reads the orchestrator instance's
+ * store, where the canonical copy is written at generation through the
+ * #308 seam. #783 removes the screener-side write entirely, so the
+ * structural pins below now pin the removal: the divergence #832/#835
+ * chased (Reports tab vs delivered report) cannot recur from a write
+ * that does not exist. The behavioral pins above are UNCHANGED — the
+ * helper keeps its never-throws contract (and its #876 error logging)
+ * for any raw-SQL call site. The single-home behaviour is pinned in
+ * tests/screener_reports_single_home.test.ts.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -68,31 +80,24 @@ describe("persistScheduledReportSql contract (the precondition for #835)", () =>
   });
 });
 
-describe("ScreenerAgent.persistRun checks the null return (#835 fix)", () => {
+describe("ScreenerAgent.persistRun no longer writes mas_reports (#783 removal)", () => {
   const src = readFileSync(path.join(repoRoot, "src/agents/screener-agent.ts"), "utf-8");
   const start = src.indexOf("private async persistRun");
-  const end = src.indexOf("Failed to persist report metadata", start);
-  const persistRun = src.slice(start, end === -1 ? start + 6000 : end + 200);
+  const persistRun = src.slice(start, start + 4000);
 
-  it("persistRun contains the mas_reports persistence block", () => {
+  it("persistRun still exists and keeps the delivery cache (latest/history)", () => {
     expect(start).toBeGreaterThan(-1);
-    expect(persistRun).toContain("persistScheduledReportSql");
-    expect(persistRun).toContain("Failed to persist report metadata");
+    expect(persistRun).toContain("LATEST_KEY");
+    expect(persistRun).toContain("HISTORY_KEY");
   });
 
-  it("captures the helper's return value instead of discarding it", () => {
-    expect(persistRun).toMatch(/const\s+\w+\s*=\s*persistScheduledReportSql\(/);
+  it("persistRun contains no mas_reports persistence block", () => {
+    expect(persistRun).not.toContain("persistScheduledReportSql");
+    expect(persistRun).not.toContain("Failed to persist report metadata");
   });
 
-  it("throws when the captured id is null, so the #832 catch fails the run loudly", () => {
-    const capture = persistRun.match(/const\s+(\w+)\s*=\s*persistScheduledReportSql\(/);
-    expect(capture).not.toBeNull();
-    const varName = capture![1];
-    const nullCheck = new RegExp(`if\\s*\\(\\s*!${varName}\\b|if\\s*\\(\\s*${varName}\\s*===?\\s*null`);
-    expect(persistRun).toMatch(nullCheck);
-    // The throw must sit between the null check and the catch rethrow.
-    const checkIdx = persistRun.search(nullCheck);
-    const throwIdx = persistRun.indexOf("throw new Error", checkIdx);
-    expect(throwIdx).toBeGreaterThan(checkIdx);
+  it("the whole agent carries no second report home", () => {
+    expect(src).not.toContain("persistScheduledReportSql");
+    expect(src).not.toContain("mas_reports");
   });
 });

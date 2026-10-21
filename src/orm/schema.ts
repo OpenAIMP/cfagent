@@ -29,10 +29,11 @@
  *    never calls initializeSchema; its tables are the research_* set
  *    from its own ensureTables. No reliance on ORM-only tables.
  *  - ScreenerAgent (SCREENER_AGENT binding): uses its DatabaseORM for
- *    ETradeService (ORM optional/guarded, issue #781) and for
- *    mas_reports writes via persistScheduledReportSql, which
- *    self-ensures mas_reports. It does not call initializeSchema and
- *    has no direct reliance on the ORM-only tables.
+ *    ETradeService (ORM optional/guarded, issue #781). It writes no
+ *    mas_reports rows: issue #783 removed its dead second copy (the
+ *    canonical screener report is stored by OrchestratorAgent). It
+ *    does not call initializeSchema and has no direct reliance on the
+ *    ORM-only tables.
  *  - SlackAgent: exported but has NO wrangler Durable Object binding;
  *    production Slack traffic is served by OrchestratorAgent instances,
  *    whose getOrm() initializes the schema. The class itself reads
