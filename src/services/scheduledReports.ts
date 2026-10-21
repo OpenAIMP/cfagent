@@ -21,6 +21,16 @@
  * behind the same TTL cache as upstream AI Search results, so a
  * report-backed answer is never served stale beyond the cache TTL.
  *
+ * Issue #876 (production hotfix, 2026-10-21): the never-throws contract
+ * stays, but persistence failures are no longer silent — the persist
+ * seams (persistScheduledReportSql, storeReportAtGeneration,
+ * recordUsageEvent, the ensure DDL) log the underlying SQL error via
+ * console.error before returning null, and ensureScheduledReportsTable
+ * reconciles every expected column additively and guards the
+ * generation_id UNIQUE INDEX, so accumulated table state (duplicate
+ * generation ids, a legacy column shape) can never permanently block
+ * report writes for a Durable Object.
+ *
  * This module is SDK-free and never throws into scheduled runs: every
  * public function fails closed to null/[] on bad input or SQL errors.
  */
@@ -86,6 +96,21 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
     created_at TEXT NOT NULL,
     generation_id TEXT
   )`);
+  // Issue #876: reconcile EVERY expected column additively, not just the
+  // newest ones. mas_reports has a multi-DDL history (#308, #389, #584),
+  // so a DO's table can predate any subset of the current shape; a column
+  // the INSERTs name but the table lacks made every persist for that DO
+  // fail. Column order in CREATE TABLE above is unchanged — reconciliation
+  // only appends what is missing (ALTER cannot add PRIMARY KEY / NOT NULL
+  // constraints, so reconciled columns carry the plain TEXT type, exactly
+  // as the pre-#876 migrations did for generation_id / user_login).
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "id", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "run_id", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "title", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "source", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "summary", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body", "TEXT");
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "created_at", "TEXT");
   // Additive migration for tables created before issue #308.
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "generation_id", "TEXT");
   // #584 (EP-003): tenant scoping. Legacy rows predate the column; they were
@@ -97,8 +122,14 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
       `UPDATE ${SCHEDULED_REPORTS_TABLE} SET user_login = ? WHERE user_login IS NULL`,
       "default"
     );
-  } catch {
-    // Fails closed: a partial backfill is retried on the next call.
+  } catch (err) {
+    // Fails closed: a partial backfill is retried on the next call. Issue
+    // #876: logged, not silent — a persistently failing backfill is a
+    // symptom of the same store trouble the persist seam reports.
+    console.error(
+      `[scheduledReports] ensureScheduledReportsTable: user_login backfill failed (retried on next call): ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
   }
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${SCHEDULED_REPORTS_TABLE} (created_at DESC)`
@@ -106,9 +137,23 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_reports_user ON ${SCHEDULED_REPORTS_TABLE} (user_login)`
   );
-  sql.exec(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${SCHEDULED_REPORTS_TABLE} (generation_id)`
-  );
+  // Issue #876: the dedupe index is guarded. Creating a UNIQUE index over
+  // a column that already holds duplicate non-null values throws in
+  // SQLite; unguarded, that aborted ensure — and therefore EVERY report
+  // write for the DO — forever. The duplicates are logged loudly (never
+  // deleted here: reconciliation is additive only) and the ensure
+  // completes; idempotency for such a DO degrades to the SELECT-then-
+  // INSERT check in storeReportAtGeneration until the rows are resolved.
+  try {
+    sql.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${SCHEDULED_REPORTS_TABLE} (generation_id)`
+    );
+  } catch (err) {
+    console.error(
+      `[scheduledReports] ensureScheduledReportsTable: CREATE UNIQUE INDEX idx_mas_reports_generation failed (duplicate generation_id values already stored?); continuing without it: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+  }
 }
 
 /** Shape a report input into a ScheduledReportRecord (id assigned). */
@@ -191,7 +236,13 @@ export function storeReportAtGeneration(
       owner
     );
     return { reportId: rec.id, created: true };
-  } catch {
+  } catch (err) {
+    // Issue #876: never silent. The caller (#835's null check) can only
+    // say THAT the store failed; the worker log must say WHY.
+    console.error(
+      `[scheduledReports] storeReportAtGeneration failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
     return null;
   }
 }
@@ -316,7 +367,14 @@ export function persistScheduledReportSql(
       rec.createdAt
     );
     return rec.id;
-  } catch {
+  } catch (err) {
+    // Issue #876: never silent. This bare catch is what hid the production
+    // write failure behind "persistScheduledReportSql returned null" —
+    // the underlying SQL error is logged here before returning null.
+    console.error(
+      `[scheduledReports] persistScheduledReportSql failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
     return null;
   }
 }
@@ -528,8 +586,13 @@ export function ensureUsageEventsTable(sql: SqlStorage): void {
     sql.exec(
       `CREATE INDEX IF NOT EXISTS idx_usage_events_user ON ${USAGE_EVENTS_TABLE} (user_login, created_at DESC)`
     );
-  } catch {
-    // Fails closed; callers treat a missing table as no events.
+  } catch (err) {
+    // Fails closed; callers treat a missing table as no events. Issue
+    // #876: logged, not silent (same persistence-seam rule as mas_reports).
+    console.error(
+      `[scheduledReports] ensureUsageEventsTable failed: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
   }
 }
 
@@ -558,7 +621,13 @@ export function recordUsageEvent(
       input.detail === undefined ? null : JSON.stringify(input.detail)
     );
     return id;
-  } catch {
+  } catch (err) {
+    // Issue #876: never silent at a persistence seam — metering failures
+    // are logged before the never-throws null is returned.
+    console.error(
+      `[scheduledReports] recordUsageEvent failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
     return null;
   }
 }
