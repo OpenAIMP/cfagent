@@ -209,7 +209,9 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 2. Sector check
-      if (filter.sector && filter.sector !== "all" && filter.sector !== "Any") {
+      // Issue #919: "ALL" (any case) means no sector filter — treat as wildcard.
+      const sectorLower = (filter.sector || "").toLowerCase().trim();
+      if (filter.sector && sectorLower !== "all" && sectorLower !== "any") {
         const sec = filter.sector.toLowerCase().trim();
         const itemSec = (stock.sector || "").toLowerCase().trim();
         const sectorMatches =
