@@ -19,6 +19,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Yahoo screener no longer fabricates quotes (#916, parent #913 S1):** `YFinanceMarketScreener.getQuote` returned an invented $100.00 quote (bid 99.9 / ask 100.1 / volume 1,000,000, 52-week 120/80) stamped `source: "Yahoo Finance FOSS Engine"` whenever the live Yahoo fetch failed, and the success path invented fields (52-week range = day high ×1.25 / day low ×0.75, `peRatio` default 25.0, market-cap default 10.0, RSI default 50). The fabricated quote block is removed: a failed or non-live lookup now throws an explicit "Quote data unavailable" error; the screener only accepts provider quotes with `provenance: "live"` (the FOSS provider's static/generated sync fallback is rejected at this seam, never re-stamped as live Yahoo data); success-path fields pass through only values the provider actually returned (`ETradeQuote.week52High/week52Low` are now optional — unknown means absent, never computed from the day's range); RSI-bound screen filters reject with "RSI-14 unavailable" instead of assuming 50. Pins in `tests/yfinance_quote_provenance.test.ts` (behavioral + source). #CISO-bhdm
+
 ### Added
 
 - **Repo policy enabled + agent attribution rule (#859):** owner direction (2026-10-20) — every agent puts their name as a hashtag on each issue/PR — is now written into `docs/agents/gitops.md` §5/§9 as a required `## Agent` field in both templates, and the policy is made reachable: a new root `AGENTS.md` points every arriving agent at gitops.md with the headline rules, `.github/copilot-instructions.md` carries the same pointer, and new `.github/pull_request_template.md` + `.github/ISSUE_TEMPLATE/task.md` make the field structural in GitHub's UI. The enabling issue, PR, and completion report are the first artifacts carrying an agent hashtag (#CAIO-quns). The hard enforcement layer (CI check + branch protection) remains with #745. Docs/config only.

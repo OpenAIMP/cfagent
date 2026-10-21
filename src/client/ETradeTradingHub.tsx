@@ -3300,11 +3300,11 @@ export function ETradeTradingHub({
                   </div>
                   <div className="grid-item">
                     <span className="label">52-Week High</span>
-                    <span className="val">${inspectQuote.week52High.toFixed(2)}</span>
+                    <span className="val">{inspectQuote.week52High !== undefined ? `$${inspectQuote.week52High.toFixed(2)}` : "—"}</span>
                   </div>
                   <div className="grid-item">
                     <span className="label">52-Week Low</span>
-                    <span className="val">${inspectQuote.week52Low.toFixed(2)}</span>
+                    <span className="val">{inspectQuote.week52Low !== undefined ? `$${inspectQuote.week52Low.toFixed(2)}` : "—"}</span>
                   </div>
                   <div className="grid-item">
                     <span className="label">Volume</span>
