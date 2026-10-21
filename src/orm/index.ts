@@ -958,6 +958,21 @@ export class DatabaseORM {
   }
 
   /**
+   * Issue #887: SqlStorage passthrough. SqlStorage-style services
+   * (learnings, strategy reviews, reflection, adaptation) call
+   * `sql.exec(...)` and are handed `ctx.getOrm()` by routes — without
+   * this method every such call threw `sql.exec is not a function`
+   * (the production reflection job computed no findings and recorded
+   * no learnings). Delegating to the wrapped storage makes a
+   * DatabaseORM satisfy the SqlStorage interface those services
+   * expect. Returns the storage's own cursor (with row iteration and
+   * change counts), exactly as a raw SqlStorage would.
+   */
+  exec(query: string, ...args: unknown[]): Iterable<unknown> {
+    return this.sql.exec(query, ...args) as Iterable<unknown>;
+  }
+
+  /**
    * Issue #308: single generate→store seam for reports, reached through
    * the ORM. Idempotent on input.generationId — one canonical row per
    * generation, no matter how many channels deliver it. Never throws.
