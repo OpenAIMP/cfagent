@@ -5,8 +5,9 @@
  * backends' honesty states — are pinned here.
  */
 import { describe, it, expect } from "vitest";
-import { fmtSignedUsd, fmtUsd, hedgeProposalToTradeContext } from "../src/client/portfolioRiskApi";
+import { fmtSignedUsd, fmtUsd, hedgeProposalToTradeContext, repairProposalToTradeContext } from "../src/client/portfolioRiskApi";
 import type { HedgeProposal } from "../src/services/hedgeProposals";
+import type { RepairProposal } from "../src/services/repairProposals";
 
 const sharesProposal: HedgeProposal = {
   instrument: "SPY_SHARES", status: "DRAFT", side: "SELL", symbol: "SPY", quantity: 100,
@@ -18,6 +19,22 @@ const putsProposal: HedgeProposal = {
   strike: 500, expirationDate: "2026-11-14", estimatedCost: 1300,
   preHedgeBetaWeightedDeltaDollars: 50000, postHedgeBetaWeightedDeltaDollars: 5000,
   withinToleranceAfterHedge: false, rationale: "test",
+};
+
+const repairProposal: RepairProposal = {
+  status: "DRAFT",
+  symbol: "XYZ",
+  units: 3,
+  legLong: { strike: 80, expirationDate: "2026-11-20", premium: 5.0 },
+  legShort: { strike: 90, expirationDate: "2026-11-20", premium: 2.4, quantity: 2 },
+  netDebitPerUnit: 0.20,
+  breakevenAtExpiry: 90,
+  maxRecoveryPerUnit: 980,
+  upsideCappedAbove: 90,
+  noDownsideProtection: true,
+  maxAdditionalCapitalAtRisk: 60,
+  postRepairBetaWeightedDeltaDollars: 12000,
+  rationale: "Underwater XYZ repair",
 };
 
 describe("hedgeProposalToTradeContext (HITL hand-off)", () => {
@@ -39,6 +56,28 @@ describe("hedgeProposalToTradeContext (HITL hand-off)", () => {
     expect(ctx.legs[0]).toContain("500 PUT");
     expect(ctx.legs[0]).toContain("2026-11-14");
     expect(ctx.label).toContain("→");
+  });
+});
+
+describe("repairProposalToTradeContext (HITL hand-off)", () => {
+  it("maps the 1x2 ratio repair with unit-ratio legs and non-zero strategyNetDebit", () => {
+    const ctx = repairProposalToTradeContext(repairProposal);
+    expect(ctx.assetClass).toBe("options");
+    expect(ctx.symbol).toBe("XYZ");
+    expect(ctx.action).toBe("BUY");
+    expect(ctx.quantity).toBe(3);
+    expect(ctx.optionLegs).toHaveLength(2);
+    // Crucial: base leg quantities are 1 and 2 (ratio), because ETradeTradingHub multiplies leg.quantity * orderQuantity!
+    expect(ctx.optionLegs![0].quantity).toBe(1);
+    expect(ctx.optionLegs![0].side).toBe("BUY");
+    expect(ctx.optionLegs![0].strike).toBe(80);
+    expect(ctx.optionLegs![1].quantity).toBe(2);
+    expect(ctx.optionLegs![1].side).toBe("SELL");
+    expect(ctx.optionLegs![1].strike).toBe(90);
+    // Non-zero strategyNetDebit matching 100x per share limit price (0.20 * 100 = 20)
+    expect(ctx.strategyNetDebit).toBe(20);
+    expect(ctx.label).toContain("Repair draft");
+    expect(ctx.label).toContain("1×2 call ratio on XYZ");
   });
 });
 

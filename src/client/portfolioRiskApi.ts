@@ -77,6 +77,8 @@ export function fmtNumber(value: number | null | undefined, digits = 2): string 
   return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 /**
  * Converts a hedge DRAFT into the asset-aware order-ticket context the hub's
  * HITL flow consumes. The panel never previews or
@@ -86,16 +88,18 @@ export function fmtNumber(value: number | null | undefined, digits = 2): string 
 export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: number | null): TradeOrderContext {
   const move = `β-weighted Δ ${fmtSignedUsd(proposal.preHedgeBetaWeightedDeltaDollars)} → ${fmtSignedUsd(proposal.postHedgeBetaWeightedDeltaDollars)}`;
   if (proposal.instrument === "SPY_SHARES") {
+    const limit = proposal.executableOrder?.limitPrice ?? spyPrice ?? undefined;
     return {
       assetClass: "equity",
       symbol: "SPY",
       action: proposal.side,
       quantity: proposal.quantity,
-      underlyingPrice: spyPrice ?? undefined,
+      underlyingPrice: limit,
       label: `Hedge draft — ${proposal.side} ${proposal.quantity} SPY shares (${move})`,
-      legs: [`${proposal.side} ${proposal.quantity} SPY shares @ ~${fmtUsd(spyPrice, 2)}`],
+      legs: [`${proposal.side} ${proposal.quantity} SPY shares @ ~${fmtUsd(limit ?? null, 2)}`],
     };
   }
+  const putLimit = proposal.executableOrder?.limitPrice ?? (proposal.quantity > 0 ? round2(Math.abs(proposal.estimatedCost) / (proposal.quantity * 100)) : 0.01);
   return {
     assetClass: "options",
     symbol: "SPY",
@@ -114,7 +118,7 @@ export function hedgeProposalToTradeContext(proposal: HedgeProposal, spyPrice: n
       strike: proposal.strike,
       expirationDate: proposal.expirationDate,
     }],
-    strategyNetDebit: Math.sign(proposal.estimatedCost || 1) * Math.abs(proposal.estimatedCost) / Math.max(1, proposal.quantity),
+    strategyNetDebit: proposal.executableOrder?.strategyNetDebit ?? (Math.sign(proposal.estimatedCost || 1) * Math.max(1, Math.round(putLimit * 100))),
   };
 }
 
@@ -142,6 +146,9 @@ export function repairProposalToTradeContext(proposal: RepairProposal): TradeOrd
   const cost = proposal.netDebitPerUnit <= 0
     ? `credit ${fmtUsd(Math.abs(proposal.netDebitPerUnit), 2)}`
     : `debit ${fmtUsd(proposal.netDebitPerUnit, 2)}`;
+  const perShareLimit = proposal.executableOrder?.limitPrice ?? Math.max(0.01, round2(Math.abs(proposal.netDebitPerUnit)));
+  const contractNetDebit = proposal.executableOrder?.strategyNetDebit ?? (Math.sign(proposal.netDebitPerUnit || -1) * Math.round(perShareLimit * 100));
+
   return {
     assetClass: "options",
     symbol: proposal.symbol,
@@ -156,7 +163,7 @@ export function repairProposalToTradeContext(proposal: RepairProposal): TradeOrd
       {
         securityType: "OPTN",
         side: "BUY",
-        quantity: proposal.units,
+        quantity: 1, // Unit ratio is 1; ETradeTradingHub multiplies leg.quantity * orderQuantity!
         optionType: "CALL",
         strike: proposal.legLong.strike,
         expirationDate: proposal.legLong.expirationDate,
@@ -164,13 +171,13 @@ export function repairProposalToTradeContext(proposal: RepairProposal): TradeOrd
       {
         securityType: "OPTN",
         side: "SELL",
-        quantity: proposal.units * 2,
+        quantity: 2, // Unit ratio is 2; ETradeTradingHub multiplies leg.quantity * orderQuantity!
         optionType: "CALL",
         strike: proposal.legShort.strike,
         expirationDate: proposal.legShort.expirationDate,
       },
     ],
-    strategyNetDebit: proposal.netDebitPerUnit,
+    strategyNetDebit: contractNetDebit,
   };
 }
 

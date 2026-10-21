@@ -258,12 +258,22 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {hedge?.proposals.map((proposal, i) => (
         <div className="prp-hedge-card" key={`${proposal.instrument}-${i}`}>
           <div className="prp-hedge-main">
-            <strong>{proposal.side} {proposal.quantity} {proposal.instrument === "SPY_SHARES" ? "SPY shares" : `SPY ${proposal.strike} PUT ${proposal.expirationDate}`}</strong>
+            <div className="prp-card-title-row">
+              <strong>{proposal.side} {proposal.quantity} {proposal.instrument === "SPY_SHARES" ? "SPY shares" : `SPY ${proposal.strike} PUT ${proposal.expirationDate}`}</strong>
+              {proposal.executableOrder?.isExecutable && (
+                <span className="prp-badge prp-badge-executable">Executable Ticket Ready</span>
+              )}
+            </div>
             <span>Est. {proposal.estimatedCost >= 0 ? "cost" : "credit"} {fmtUsd(Math.abs(proposal.estimatedCost), 2)} · β-weighted Δ {fmtSignedUsd(proposal.preHedgeBetaWeightedDeltaDollars)} → {fmtSignedUsd(proposal.postHedgeBetaWeightedDeltaDollars)} {proposal.withinToleranceAfterHedge ? "(within tolerance)" : "(residual above tolerance)"}</span>
+            {proposal.executableOrder && (
+              <div className="prp-exec-details">
+                ⚡ <strong>Order:</strong> {proposal.executableOrder.action} {proposal.executableOrder.quantity} {proposal.executableOrder.symbol} {proposal.executableOrder.assetClass === "options" ? "Options" : "Shares"} · Limit: ${proposal.executableOrder.limitPrice.toFixed(2)} {proposal.executableOrder.strategyNetDebit !== undefined ? `· Net: ${proposal.executableOrder.strategyNetDebit < 0 ? "Credit" : "Debit"} $${(Math.abs(proposal.executableOrder.strategyNetDebit) / 100).toFixed(2)}` : ""}
+              </div>
+            )}
             <p>{proposal.rationale}</p>
           </div>
           <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(hedgeProposalToTradeContext(proposal, report?.spyPrice ?? null))}>
-            Preview in Order Ticket →
+            ⚡ Preview in Order Ticket →
           </button>
         </div>
       ))}
@@ -278,12 +288,22 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {repair?.proposals.map((proposal, i) => (
         <div className="prp-hedge-card" key={`${proposal.symbol}-${i}`}>
           <div className="prp-hedge-main">
-            <strong>{proposal.symbol} 1×2 call ratio — buy {proposal.legLong.strike}C, sell 2× {proposal.legShort.strike}C ({proposal.legLong.expirationDate})</strong>
+            <div className="prp-card-title-row">
+              <strong>{proposal.symbol} 1×2 call ratio — buy {proposal.legLong.strike}C, sell 2× {proposal.legShort.strike}C ({proposal.legLong.expirationDate})</strong>
+              {proposal.executableOrder?.isExecutable && (
+                <span className="prp-badge prp-badge-executable">Executable Ticket Ready</span>
+              )}
+            </div>
             <span>{proposal.netDebitPerUnit <= 0 ? "Credit" : "Debit"} {fmtUsd(Math.abs(proposal.netDebitPerUnit), 2)}/unit · recover at {fmtUsd(proposal.breakevenAtExpiry, 2)} · capped above {fmtUsd(proposal.upsideCappedAbove, 2)} · <em>no downside protection</em></span>
+            {proposal.executableOrder && (
+              <div className="prp-exec-details">
+                ⚡ <strong>Order:</strong> {proposal.executableOrder.quantity} unit(s) · Buy 1x {proposal.legLong.strike}C / Sell 2x {proposal.legShort.strike}C exp {proposal.legLong.expirationDate} · Limit: ${proposal.executableOrder.limitPrice.toFixed(2)} ({proposal.netDebitPerUnit <= 0 ? "Credit" : "Debit"})
+              </div>
+            )}
             <p>{proposal.rationale}</p>
           </div>
           <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(repairProposalToTradeContext(proposal))}>
-            Preview in Order Ticket →
+            ⚡ Preview in Order Ticket →
           </button>
         </div>
       ))}
