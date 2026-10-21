@@ -268,6 +268,9 @@ export class ETradeEmailTradingService {
         this.env,
         this.sessionId,
         `did:user:email:${from}`,
+        // #767/#862: email subject+body is untrusted inbound content — the
+        // NLQ planner/validator apply instruction/data separation.
+        { untrustedContent: true },
       );
 
       const domain = plan.domain;

@@ -89,4 +89,13 @@ export interface NLQPlanOptions {
   skipLLM?: boolean;
   context?: string;
   validateWithLLM?: boolean;
+  /**
+   * #767/#862: the question is untrusted inbound content (e.g. an external
+   * email body). The LLM planner and validator then apply instruction/data
+   * separation: a system rule that delimited content is data, never
+   * instructions, and the question is wrapped in untrusted-content
+   * delimiters. Trusted channels (chat/MCP) leave this unset and their
+   * prompt assembly is unchanged.
+   */
+  untrustedContent?: boolean;
 }
