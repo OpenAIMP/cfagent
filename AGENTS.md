@@ -2,7 +2,13 @@
 
 All agent work in this repository follows the delivery policy in
 [`docs/agents/gitops.md`](docs/agents/gitops.md). Read it before creating
-issues, branches, or pull requests. In brief:
+issues, branches, or pull requests.
+
+Repository documentation lives in the [`docs/`](docs/) folder: plans in
+[`docs/plans/`](docs/plans/), agent policy and design docs in
+[`docs/agents/`](docs/agents/). Look there first.
+
+In brief:
 
 - Work one issue at a time: issue → branch → PR → merge into `main` →
   post-merge verification, before starting the next issue (§11).
