@@ -39,32 +39,35 @@ export interface UnifiedReportOutput {
 /**
  * Generate the PDF bytes for a screener report.
  * Dispatches to the type-specific generator.
+ * Issue #290: import via the ../trading public surface (index.ts), never
+ * a trading-internal path directly.
  */
 export async function generateReportPdf(
   type: "screener" | "options",
   result: unknown
 ): Promise<Uint8Array> {
   if (type === "screener") {
-    const { generateScreenerPdf } = await import("../trading/screenerReportPdf");
+    const { generateScreenerPdf } = await import("../trading");
     return generateScreenerPdf(result as any);
   } else {
-    const { generateOptionsPdf } = await import("../trading/optionsReportPdf");
+    const { generateOptionsPdf } = await import("../trading");
     return generateOptionsPdf(result as any);
   }
 }
 
 /**
  * Get the PDF filename for a report.
+ * Issue #290: import via the ../trading public surface (index.ts).
  */
 export async function getReportFileName(
   type: "screener" | "options",
   result: unknown
 ): Promise<string> {
   if (type === "screener") {
-    const { screenerPdfFileName } = await import("../trading/screenerReportPdf");
+    const { screenerPdfFileName } = await import("../trading");
     return screenerPdfFileName(result as any);
   } else {
-    const { optionsPdfFileName } = await import("../trading/optionsReportPdf");
+    const { optionsPdfFileName } = await import("../trading");
     return optionsPdfFileName(result as any);
   }
 }
