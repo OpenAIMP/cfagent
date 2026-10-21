@@ -44,7 +44,6 @@ import type {
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
-import { generateOptionsPdf, optionsPdfFileName } from "../trading";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
@@ -713,15 +712,38 @@ export class ScheduledTasksService {
       }
 
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
+      let optionsPdfKey: string | undefined;
       let optionsPdf: Uint8Array | undefined;
       let optionsPdfFile: string | undefined;
-      let optionsPdfKey: string | undefined;
+      // Issue #914: Use the unified report pipeline (delegates to
+      // ReportAssetAgent per #680, single owner for PDF generation).
       try {
-        optionsPdf = await generateOptionsPdf(response.data);
-        optionsPdfFile = optionsPdfFileName(response.data);
-        let binary = "";
-        for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
-        optionsPdfKey = await this.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), optionsPdfFile);
+        const { runReportPipeline } = await import("./unifiedReportPipeline");
+        const pipelineResult = await runReportPipeline(
+          this.env as any,
+          null as any, // Storage handled by ReportAssetAgent internally
+          {
+            type: "options",
+            trigger: "scheduled",
+            result: response.data,
+            userLogin,
+            title: `Options scanner — ${targetThesis} (${timestamp.slice(0, 10)})`,
+            summary: response.summary,
+            timestamp,
+          }
+        );
+        if (pipelineResult.pdfStatus === "generated") {
+          optionsPdfKey = pipelineResult.pdfKey;
+          // Fetch the bytes for Slack delivery
+          const screenerAgent = this.getScreenerAgent(userLogin);
+          const pdfData = await (screenerAgent as any).getPdfByKey(optionsPdfKey);
+          if (pdfData) {
+            optionsPdf = pdfData.bytes;
+            optionsPdfFile = pdfData.fileName;
+          }
+        } else {
+          console.warn("[ScheduledTasksService] Options PDF generation failed:", pipelineResult.pdfError);
+        }
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
       }
