@@ -5,8 +5,9 @@
  * - Stock screener (manual + scheduled)
  * - Options screener (manual + scheduled)
  *
- * Before this, each path had its own PDF generation, storage, and serving
- * logic. Now they all funnel through here.
+ * Issue #680: PDF generation is owned by ReportAssetAgent (single owner).
+ * This pipeline delegates to generatePdfAsset — it does NOT bypass the
+ * ReportAssetAgent with direct generator calls.
  */
 
 export interface UnifiedReportInput {
@@ -76,37 +77,36 @@ export async function getReportFileName(
  * Full pipeline: generate PDF → store blob → return keys.
  * Used by both stock and options screeners, manual and scheduled.
  *
- * @param env Worker env (for R2 bucket binding)
+ * Issue #680: PDF generation is owned by ReportAssetAgent (single owner).
+ * This pipeline delegates to generatePdfAsset, which routes through the
+ * ReportAssetAgent DO. We do NOT bypass it with direct generator calls.
+ *
+ * @param env Worker env (for R2 bucket binding + REPORT_ASSET_AGENT binding)
  * @param storage Blob storage (DO storage)
  * @param input Report details
  */
 export async function runReportPipeline(
-  env: { REPORTS_BUCKET?: unknown },
+  env: { REPORTS_BUCKET?: unknown; REPORT_ASSET_AGENT?: unknown },
   storage: {
     put: (key: string, value: unknown) => Promise<void>;
     get: (key: string) => Promise<unknown>;
   },
   input: UnifiedReportInput
 ): Promise<UnifiedReportOutput> {
-  const { putReportPdf } = await import("./reportBlobStore");
-
   const generationId = `${input.type}:${input.trigger}:${input.timestamp}`;
 
   try {
-    const bytes = await generateReportPdf(input.type, input.result);
-    const fileName = await getReportFileName(input.type, input.result);
-    const pdfKey = `report:pdf:${input.type}:${input.timestamp}`;
+    // Issue #680: delegate to ReportAssetAgent (single owner for PDF gen).
+    const { generatePdfAsset } = await import("../agents/report-asset-agent");
+    const assetType = input.type === "screener" ? "screener" : "options";
+    const asset = await generatePdfAsset(env as any, input.userLogin, assetType as any, input.result);
 
-    await putReportPdf(
-      env as any,
-      storage as any,
-      pdfKey,
-      fileName,
-      bytes
-    );
+    if (!asset) {
+      throw new Error("generatePdfAsset returned null");
+    }
 
     return {
-      pdfKey,
+      pdfKey: asset.key,
       generationId,
       pdfStatus: "generated",
     };
