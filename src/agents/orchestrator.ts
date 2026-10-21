@@ -3309,6 +3309,7 @@ export class OrchestratorAgent extends Think<Env> {
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
       getResearchAgent: (userLogin?: string) => this.getResearchAgent(userLogin),
       runResearchAndPublish: (trigger, userLogin) => this.runResearchAndPublish(trigger, userLogin),
+      getOrm: () => this.getOrm(),
       readSettingRaw: (key) => this.readSettingRaw(key),
       writeSetting: (key, value) => this.writeSetting(key, value),
     });

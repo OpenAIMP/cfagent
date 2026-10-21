@@ -1365,6 +1365,19 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(reflectionPromise);
       else await reflectionPromise;
+      // Issue #754 — the weekly strategy-weight adjustment rides this
+      // tick (same Workers Free ceiling constraint as #354/#705).
+      // Fire/no-fire is decided inside the job (ISO-week guard +
+      // adaptation kill switch in mas_settings), so this dispatch is
+      // unconditional; skips are cheap and explicit in the job result.
+      const weightsPromise = agent.fetch(
+        new Request("https://agent.internal/adaptation/weights/run", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(weightsPromise);
+      else await weightsPromise;
       return;
     }
     // Renew all account-scoped Durable Object tokens before midnight ET.

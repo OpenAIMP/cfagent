@@ -38,6 +38,7 @@ import {
 } from "../../services/researchScheduleGuard";
 import type { ScreenerAgent } from "../screener-agent";
 import type { ResearchAgent } from "../research-agent";
+import type { DatabaseORM } from "../../orm";
 
 /** Structural mirror of OrchestratorAgent's private ScreenerExecutionContext
  * (src/agents/orchestrator.ts) - the module reads only `userLogin` from it. */
@@ -63,6 +64,8 @@ export interface ScreenerResearchRouteContext {
     emailed?: boolean;
     report?: unknown;
   }>;
+  /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`); the #754 adaptation services take it as their SqlStorage (post-#887 the ORM satisfies that interface). */
+  getOrm(): DatabaseORM;
   /** mas_settings raw read (owner: OrchestratorAgent.readSettingRaw - was `this.readSettingRaw`). */
   readSettingRaw(key: string): string | null;
   /** mas_settings write (owner: OrchestratorAgent.writeSetting - was `this.writeSetting`). */
@@ -289,6 +292,40 @@ export async function handleScreenerResearchRoutes(
       }
       const trackRecord = await agent.getTrackRecord();
       return Response.json({ trackRecord });
+    }
+
+    // Issue #754: strategy weights — read path. Current weights plus the
+    // policy evaluation (weighted vs unweighted win rate + proposals).
+    // Measurement surface; reading weights here changes no ranking —
+    // production consumption stays behind #17's reviewed-config rule.
+    if (path.endsWith("/adaptation/weights") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { getStrategyWeights, buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
+      const weights = getStrategyWeights(ctx.getOrm());
+      const trackRecord = await agent.getTrackRecord();
+      return Response.json({ weights, evaluation: buildWeightPolicyEvaluation(trackRecord, weights) });
+    }
+
+    // Issue #754: run the calibration-driven weight adjustment job.
+    // Fire/no-fire for the scheduled ride is decided inside the job
+    // (ISO-week guard + the #756 kill switch); a manual call may pass
+    // { force: true }. Every application is budget-checked and audited
+    // via #755's seam.
+    if (path.endsWith("/adaptation/weights/run") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const body = (await request.json().catch(() => null)) as { force?: boolean } | null;
+      const { runStrategyWeightAdjustment } = await import("../../services/strategyWeights");
+      const trackRecord = await agent.getTrackRecord();
+      const result = runStrategyWeightAdjustment(ctx.getOrm(), trackRecord, { force: body?.force === true });
+      return Response.json({ success: true, ...result, timestamp: new Date().toISOString() });
     }
 
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
