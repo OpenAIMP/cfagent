@@ -1,5 +1,5 @@
 import { getActiveLearnings, recordLearning } from "./learnings";
-import { listStrategyReviews } from "./strategyReviews";
+import { listStrategyReviews, recordStrategyCandidates } from "./strategyReviews";
 
 /**
  * Issue #705: scheduled reflection job — the agent reads its own track record.
@@ -30,6 +30,92 @@ export interface ReflectionFinding {
   proposedAdjustment: string;
 }
 
+/** Reserved pseudo-symbol for reflection-proposed review candidates (#753). */
+export const REFLECTION_REVIEW_SYMBOL = "REFLECTION";
+
+/**
+ * Issue #753: a finding is actionable for the strategy-review queue iff
+ * one of its evidence refs names a concrete strategy family
+ * (`mas_strategy_reviews:<family>`, not `:all`) — i.e. the boost /
+ * down-weight findings. The overall-rate diagnostic and stale-learning
+ * housekeeping propose process follow-ups, not strategy candidates,
+ * and never enter the queue. Returns the family, or null.
+ */
+export function reflectionFindingFamily(f: ReflectionFinding): string | null {
+  for (const ref of f.evidenceRefs) {
+    const m = /^mas_strategy_reviews:(.+)$/.exec(ref);
+    if (m && m[1] !== "all") return m[1];
+  }
+  return null;
+}
+
+/**
+ * Issue #753: route actionable reflection findings into the #653 review
+ * store as pending candidates, so the human gate sees them (the agent
+ * proposes, the human disposes — nothing is auto-approved). Candidates
+ * sit under the REFLECTION pseudo-symbol with their real family in the
+ * label, so decision feedback aggregates under the family per #653's
+ * design. The rationale carries the observation, the proposed
+ * adjustment, the evidence refs, and the reflection confidence;
+ * quant_status is honestly "unverified". Dedup: a still-pending
+ * candidate for the same family is not duplicated. Best-effort per
+ * finding — a store failure is logged and skipped, never thrown.
+ * Returns the number of candidates created.
+ */
+export function createReflectionReviewCandidates(
+  sql: any,
+  findings: ReflectionFinding[]
+): number {
+  let created = 0;
+  let pending: ReturnType<typeof listStrategyReviews> | null = null;
+  for (const f of findings) {
+    const family = reflectionFindingFamily(f);
+    if (!family) continue;
+    const candidateId = `reflection:${f.domain}:${family}`;
+    try {
+      if (pending === null) pending = listStrategyReviews(sql, "pending");
+      if (
+        pending.some(
+          (r) => r.symbol === REFLECTION_REVIEW_SYMBOL && r.candidateId === candidateId
+        )
+      ) {
+        continue;
+      }
+      recordStrategyCandidates(sql, REFLECTION_REVIEW_SYMBOL, [
+        {
+          id: candidateId,
+          label: `${family} (reflection proposal)`,
+          rank: 0,
+          rationale:
+            `${f.observation} Proposed: ${f.proposedAdjustment} | ` +
+            `Evidence: ${f.evidenceRefs.join(", ")} | ` +
+            `Reflection confidence: ${f.confidence.toFixed(2)}`,
+          quantStatus: "unverified",
+        },
+      ]);
+      created++;
+      pending.push({
+        id: "",
+        symbol: REFLECTION_REVIEW_SYMBOL,
+        candidateId,
+        label: "",
+        rank: 0,
+        rationale: "",
+        quantStatus: "unverified",
+        decision: "pending",
+        decidedAt: null,
+        createdAt: "",
+      });
+    } catch (err) {
+      console.error(
+        `[Reflection] Failed to create review candidate for family "${family}"; finding remains recorded as a learning:`,
+        err
+      );
+    }
+  }
+  return created;
+}
+
 export function runReflection(
   sql: any,
   now: Date = new Date()
@@ -38,6 +124,7 @@ export function runReflection(
   learningsRecorded: number;
   learningsFailed?: number;
   analysisFailures?: number;
+  reviewCandidatesCreated?: number;
   skipped?: string;
 } {
   // Weekly guard: only fire on Sunday, and not if a reflection learning
@@ -158,6 +245,21 @@ export function runReflection(
     }
   }
 
+  // 3.5. Issue #753: route actionable findings into the strategy-review
+  // queue so the human gate sees them. Best-effort by design (per-finding
+  // failures are logged inside the wiring); a wiring-level failure is
+  // logged here and never breaks the run — findings remain recorded as
+  // learnings either way.
+  let reviewCandidatesCreated = 0;
+  try {
+    reviewCandidatesCreated = createReflectionReviewCandidates(sql, findings);
+  } catch (err) {
+    console.error(
+      "[Reflection] Review-candidate wiring failed; findings remain recorded as learnings:",
+      err
+    );
+  }
+
   // 4. Record the run itself so next week's guard sees it. The persisted
   // summary counts only what landed; failures are named in it too when
   // any occurred, so the record itself never overclaims.
@@ -188,5 +290,6 @@ export function runReflection(
     learningsRecorded,
     ...(learningsFailed > 0 ? { learningsFailed } : {}),
     ...(analysisFailures > 0 ? { analysisFailures } : {}),
+    ...(reviewCandidatesCreated > 0 ? { reviewCandidatesCreated } : {}),
   };
 }
