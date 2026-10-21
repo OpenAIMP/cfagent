@@ -567,26 +567,34 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
   // =========================================================================
   describe("Yahoo Finance FOSS Engine (Real HTTP Calls)", () => {
     it("makes genuine GET request to query1.finance.yahoo.com/v8/finance/chart/{symbol}", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            chart: {
-              result: [
-                {
-                  meta: {
-                    symbol: "NVDA",
-                    shortName: "NVIDIA Corporation",
-                    regularMarketPrice: 139.8,
-                    chartPreviousClose: 136.5,
-                    regularMarketVolume: 58000000,
+      // #411: route every fetch in the flow — a bare mockResolvedValueOnce
+      // let the provider's follow-up crumb/enrichment calls leak to the real
+      // network. The chart call returns the canned payload; anything else
+      // throws, which the provider tolerates as an enrichment failure.
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+        const url = String(input);
+        if (url.includes("/v8/finance/chart/")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    meta: {
+                      symbol: "NVDA",
+                      shortName: "NVIDIA Corporation",
+                      regularMarketPrice: 139.8,
+                      chartPreviousClose: 136.5,
+                      regularMarketVolume: 58000000,
+                    },
                   },
-                },
-              ],
-            },
-          }),
-          { status: 200 }
-        )
-      );
+                ],
+              },
+            }),
+            { status: 200 }
+          );
+        }
+        throw new Error(`real_apis Yahoo tests are hermetic (#411): unstubbed fetch to ${url}`);
+      });
 
       const provider = new YahooFinanceProvider();
       const quote = await provider.getQuote("NVDA");
@@ -606,23 +614,38 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
     });
 
     it("makes genuine GET request to query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            quoteSummary: {
-              result: [
-                {
-                  price: { longName: "NVIDIA Corporation", marketCap: { raw: 3450000000000 } },
-                  summaryDetail: { trailingPE: { raw: 57.5 }, fiftyTwoWeekHigh: { raw: 140.76 }, fiftyTwoWeekLow: { raw: 45.2 } },
-                  defaultKeyStatistics: { pegRatio: { raw: 1.15 }, beta: { raw: 1.68 } },
-                  financialData: { targetMeanPrice: { raw: 152.0 }, recommendationKey: "strong_buy" },
-                },
-              ],
-            },
-          }),
-          { status: 200 }
-        )
-      );
+      // #411: getFundamentals first establishes a crumb session
+      // (fc.yahoo.com cookie → getcrumb) and only then calls quoteSummary.
+      // A bare mockResolvedValueOnce was consumed by the cookie call, so the
+      // real quoteSummary request leaked to the network (this was the one
+      // hard failure in the #411 network-block census). Route the full flow.
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+        const url = String(input);
+        if (url.startsWith("https://fc.yahoo.com")) {
+          return new Response("", { status: 200, headers: { "set-cookie": "A3=stub-cookie" } });
+        }
+        if (url.includes("/v1/test/getcrumb")) {
+          return new Response("stubcrumb", { status: 200 });
+        }
+        if (url.includes("/v10/finance/quoteSummary/")) {
+          return new Response(
+            JSON.stringify({
+              quoteSummary: {
+                result: [
+                  {
+                    price: { longName: "NVIDIA Corporation", marketCap: { raw: 3450000000000 } },
+                    summaryDetail: { trailingPE: { raw: 57.5 }, fiftyTwoWeekHigh: { raw: 140.76 }, fiftyTwoWeekLow: { raw: 45.2 } },
+                    defaultKeyStatistics: { pegRatio: { raw: 1.15 }, beta: { raw: 1.68 } },
+                    financialData: { targetMeanPrice: { raw: 152.0 }, recommendationKey: "strong_buy" },
+                  },
+                ],
+              },
+            }),
+            { status: 200 }
+          );
+        }
+        throw new Error(`real_apis Yahoo tests are hermetic (#411): unstubbed fetch to ${url}`);
+      });
 
       const provider = new YahooFinanceProvider();
       const fund = await provider.getFundamentals("NVDA");
