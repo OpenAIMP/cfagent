@@ -710,7 +710,12 @@ export class ScreenerAgent extends Agent<Env> {
         userLogin: this.userLogin(),
       });
     } catch (err) {
-      console.warn("[ScreenerAgent] mas_reports persistence failed:", err);
+      // Issue #832: Store must be atomic. If mas_reports write fails,
+      // fail the run loudly — don't silently continue to Deliver.
+      // The Reports tab and Slack must see the same data.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] mas_reports persistence FAILED:", message);
+      throw new Error(`Failed to persist report metadata: ${message}`);
     }
   }
 }

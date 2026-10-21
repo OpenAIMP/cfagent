@@ -366,6 +366,13 @@ export async function handleEtradeBrokerRoutes(
         });
       } catch (screenErr) {
         const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
+        // Issue #832: "already running" is not a failure — return 429, don't spam Slack.
+        if (error.includes("already running")) {
+          return Response.json(
+            { error: "Screen already running", message: error, retryable: true },
+            { status: 429 }
+          );
+        }
         await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, {
           success: false,
           error,
