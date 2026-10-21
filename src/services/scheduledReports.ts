@@ -554,6 +554,27 @@ export function getScheduledReportById(
 
 /* ------------------------------------------------------------------ */
 /* #584 EP-009: usage metering                                          */
+/*                                                                      */
+/* Issue #792 determination (RSI-Data C9 — parallel persistence         */
+/* idioms): usage_events is ACCEPTED as the metering store of record,   */
+/* a separate concern from mas_events — not a second copy of it.        */
+/* mas_events is the session-scoped audit/observability log (owner:     */
+/* OrchestratorAgent.recordAudit, #270; session_id / type / agent /     */
+/* payload). Usage metering is tenant-scoped instead: WHO (user_login), */
+/* WHAT TASK (run_id), WHAT KIND (category), with an index on           */
+/* (user_login, created_at) for per-tenant listing. mas_events cannot   */
+/* carry this data with its existing shape — no user_login/run_id       */
+/* columns, no tenant index, and its session_id is the orchestrator     */
+/* instance's session key, not a tenant identity. Writers: the          */
+/* orchestrator meters completed research runs (category                */
+/* "research_run") and ResearchAgent meters evaluations                 */
+/* ("research_evaluation"), each into its OWN DO's database through     */
+/* this module — so no single database holds a tenant's whole usage     */
+/* picture, and no production reader consumes the rows yet              */
+/* (listUsageEvents is exercised by tests only). Both facts are the     */
+/* known price of the split; the first production usage/billing reader  */
+/* must solve the placement question, and that is the trigger to        */
+/* re-open consolidation. Do not add a third event log meanwhile.       */
 /* ------------------------------------------------------------------ */
 
 export const USAGE_EVENTS_TABLE = "usage_events";
