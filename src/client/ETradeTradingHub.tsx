@@ -115,6 +115,10 @@ export function ETradeTradingHub({
   const [configModalOpen, setConfigModalOpen] = useState(false);
 
   const handleSeedDemoPortfolio = () => {
+    // #913/#921: demo holdings are fabricated data — they may never be
+    // seeded into a live/PROD brokerage view. The render sites are gated
+    // on !isLive as well; this guard is the defense in depth.
+    if (isLive) return;
     const samplePositions: ETradePosition[] = [
       {
         symbol: "NVDA",
@@ -2152,13 +2156,15 @@ export function ETradeTradingHub({
               >
                 ⚡ Fast Order Ticket
               </Button>
-              <Button variant="secondary"
-                type="button"
-                onClick={handleSeedDemoPortfolio}
-                title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
-              >
-                🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
-              </Button>
+              {!isLive && (
+                <Button variant="secondary"
+                  type="button"
+                  onClick={handleSeedDemoPortfolio}
+                  title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
+                >
+                  🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -2233,9 +2239,11 @@ export function ETradeTradingHub({
                               <Button variant="trade" onClick={() => handleNavigateSubTab("order")}>
                                 ⚡ Build Order Ticket
                               </Button>
-                              <Button variant="secondary" onClick={handleSeedDemoPortfolio}>
-                                🌱 Load Curated Demo Positions
-                              </Button>
+                              {!isLive && (
+                                <Button variant="secondary" onClick={handleSeedDemoPortfolio}>
+                                  🌱 Load Curated Demo Positions
+                                </Button>
+                              )}
                             </div>
                           ) : undefined
                         }
