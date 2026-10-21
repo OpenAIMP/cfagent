@@ -1,4 +1,4 @@
-Give them outcome-based improvement missions—not a standing instruction to “make the platform better.”
+Outcome-based improvement missions—not a standing instruction to “make the platform better.”
 
 Each mission should specify an observed problem, baseline, hypothesis, permitted changes, evaluation criteria, approval boundary, and stopping condition. The **recursive** part comes when the measured outcome of one improvement determines the next justified task.
 
