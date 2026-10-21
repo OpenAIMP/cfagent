@@ -111,6 +111,12 @@ export interface Env {
   // Nightly mas_messages retention window in days (issue #255, part of
   // #143). Default 90. A value <= 0 disables the retention pass entirely.
   MAS_MESSAGES_RETENTION_DAYS?: string;
+  // Nightly mas_events retention window in days (issue #786). Default
+  // 365. A value <= 0 disables only the mas_events prune.
+  MAS_EVENTS_RETENTION_DAYS?: string;
+  // Nightly mas_memory retention window in days, by updated_at (issue
+  // #786). Default 365. A value <= 0 disables only the mas_memory prune.
+  MAS_MEMORY_RETENTION_DAYS?: string;
   // Cloudflare Vectorize & AI Search
   VECTORIZE?: any;
   // Optional / backward-compatible bindings
@@ -335,8 +341,8 @@ export interface ETradeQuote {
   previousClose?: number;
   peRatio?: number;
   marketCap?: number;
-  week52High?: number;
-  week52Low?: number;
+  week52High: number;
+  week52Low: number;
   high52?: number;
   low52?: number;
   rsi?: number;
