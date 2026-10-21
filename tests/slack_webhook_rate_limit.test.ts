@@ -125,7 +125,7 @@ describe("browser agent Slack deliveries (#411)", () => {
     slackFetches = 0;
     vi.stubGlobal("fetch", async (input: any) => {
       const url = String(input);
-      if (url.includes("hooks.slack.com")) {
+      if (new URL(url).hostname === "hooks.slack.com") {
         slackFetches += 1;
         return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => "ok" } as any;
       }
