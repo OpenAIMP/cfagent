@@ -484,12 +484,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                           borderRadius: "8px",
                           border: isSelected
                             ? "2px solid var(--color-accent)"
-                            : "1px solid var(--color-border)",
+                            : "1px solid var(--color-border-subtle)",
                           background: "var(--color-surface)",
                           cursor: "pointer",
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text)" }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
                           {universe.toUpperCase()}
                         </div>
                         <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
@@ -517,18 +517,93 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                     );
                   })}
                 </div>
+                {/* Issue #834 (restores #125's per-run review alongside #830's
+                    grouped jobs): retained runs are reviewable — select any run
+                    (quiet and failed runs included; they are history) to
+                    view its full results in the data panel below. */}
+                {autoRuns.length > 1 && (
+                  <div
+                    className="screener-run-list"
+                    aria-label="Retained autonomous screen runs"
+                    style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.75rem" }}
+                  >
+                    {autoRuns.map((run, index) => {
+                      const status = screenRunStatus(run);
+                      const selected = selectedAutoRun?.timestamp === run.timestamp;
+                      const badgeColors = {
+                        success: { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" },
+                        partial: { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" },
+                        failed: { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" },
+                      }[status];
+                      return (
+                        <button
+                          key={`${run.timestamp}:${index}`}
+                          type="button"
+                          className="screener-run-item"
+                          aria-pressed={selected}
+                          aria-label={`Review screen run from ${new Date(run.timestamp).toLocaleString()}`}
+                          onClick={() => setSelectedAutoTs(run.timestamp)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            flexWrap: "wrap",
+                            textAlign: "left",
+                            padding: "0.4rem 0.6rem",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "0.78rem",
+                            color: "var(--color-text-primary)",
+                            background: selected ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+                            border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
+                          }}
+                        >
+                          <strong>{new Date(run.timestamp).toLocaleString()}</strong>
+                          <span style={{ color: "var(--color-text-muted)" }}>
+                            {[run.universe, run.sector && run.sector !== "ALL" ? `${run.sector} sector` : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                            {" · "}
+                            {run.trigger === "manual" ? "Manual" : "Scheduled"}
+                          </span>
+                          <span>
+                            {run.totalScanned.toLocaleString()} scanned · {run.matchedCount} matched ·{" "}
+                            {run.opportunities.length} standout{run.opportunities.length === 1 ? "" : "s"}
+                          </span>
+                          <span
+                            className="screener-run-status"
+                            style={{
+                              padding: "0.1rem 0.5rem",
+                              borderRadius: "9999px",
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                              ...badgeColors,
+                            }}
+                          >
+                            {SCREEN_RUN_STATUS_LABELS[status]}
+                          </span>
+                          {selected && (
+                            <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--color-accent)" }}>
+                              ● Viewing
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {/* Data panel for selected job */}
                 <div
                   aria-label="Selected job run data"
                   style={{
-                    border: "1px solid var(--color-border)",
+                    border: "1px solid var(--color-border-subtle)",
                     borderRadius: "8px",
                     padding: "1rem",
                     background: "var(--color-surface)",
                     marginBottom: "0.75rem",
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text)" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
                     {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
                   </div>
                   <ScreenerResultsView
