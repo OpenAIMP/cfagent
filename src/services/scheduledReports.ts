@@ -356,15 +356,20 @@ export function persistScheduledReportSql(
   try {
     ensureScheduledReportsTable(sql);
     const rec = toScheduledReportRecord(input);
+    // Issue #901: INSERT must include generation_id and user_login.
+    // The table has these columns (via ensureColumn), but the old INSERT
+    // omitted them, causing the write to fail on strict schemas.
     sql.exec(
-      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       rec.id,
       rec.runId,
       rec.title,
       rec.source,
       rec.summary,
       rec.body,
-      rec.createdAt
+      rec.createdAt,
+      rec.generationId ?? null,
+      input.userLogin ?? "default"
     );
     return rec.id;
   } catch (err) {
