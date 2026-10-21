@@ -335,8 +335,8 @@ export interface ETradeQuote {
   previousClose?: number;
   peRatio?: number;
   marketCap?: number;
-  week52High: number;
-  week52Low: number;
+  week52High?: number;
+  week52Low?: number;
   high52?: number;
   low52?: number;
   rsi?: number;

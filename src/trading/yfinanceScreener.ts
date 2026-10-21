@@ -114,7 +114,15 @@ export class YFinanceMarketScreener implements IMarketScreener {
 
       // 5. RSI Minimum
       if (filter.minRsi !== undefined) {
-        const rsiVal = stock.rsi14 ?? stock.rsi ?? 50;
+        const rsiVal = stock.rsi14 ?? stock.rsi;
+        if (rsiVal === undefined) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "RSI-14 unavailable from live quote (not assumed)",
+            price: stock.lastPrice,
+          });
+          continue;
+        }
         if (rsiVal < filter.minRsi) {
           rejections.push({
             symbol: stock.symbol,
@@ -128,7 +136,15 @@ export class YFinanceMarketScreener implements IMarketScreener {
 
       // 6. RSI Maximum
       if (filter.maxRsi !== undefined) {
-        const rsiVal = stock.rsi14 ?? stock.rsi ?? 50;
+        const rsiVal = stock.rsi14 ?? stock.rsi;
+        if (rsiVal === undefined) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "RSI-14 unavailable from live quote (not assumed)",
+            price: stock.lastPrice,
+          });
+          continue;
+        }
         if (rsiVal > filter.maxRsi) {
           rejections.push({
             symbol: stock.symbol,
@@ -214,11 +230,14 @@ export class YFinanceMarketScreener implements IMarketScreener {
         YFINANCE_MARKET_UNIVERSE.map(async (baseStock) => {
           try {
             const live = await this.yfProvider.getQuote(baseStock.symbol);
-            if (live && live.price > 0) {
+            // #913/#916: only genuinely live provider quotes may enter the
+            // screen. The provider's static/generated sync fallback is not
+            // live data and is never re-stamped as a Yahoo quote here.
+            if (live && live.price > 0 && live.provenance === "live") {
               const prevClose = live.previousClose || Number((live.price - live.change).toFixed(2));
               const change = Number((live.price - prevClose).toFixed(2));
               const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-              const rsi14 = live.rsi14 ?? 50;
+              const rsi14 = live.rsi14;
               return {
                 symbol: baseStock.symbol,
                 companyName: live.companyName || baseStock.companyName,
@@ -233,19 +252,15 @@ export class YFinanceMarketScreener implements IMarketScreener {
                 open: live.open || live.price,
                 high: live.high || live.price,
                 low: live.low || live.price,
-                peRatio: live.trailingPE || 0,
-                marketCap: live.marketCap ? Number((live.marketCap / 1e9).toFixed(1)) : 0,
+                peRatio: live.trailingPE,
+                marketCap: live.marketCap ? Number((live.marketCap / 1e9).toFixed(1)) : undefined,
                 previousClose: prevClose,
-                week52High: live.high ? Number((live.high * 1.25).toFixed(2)) : Number((live.price * 1.25).toFixed(2)),
-                week52Low: live.low ? Number((live.low * 0.75).toFixed(2)) : Number((live.price * 0.75).toFixed(2)),
-                high52: live.high ? Number((live.high * 1.25).toFixed(2)) : Number((live.price * 1.25).toFixed(2)),
-                low52: live.low ? Number((live.low * 0.75).toFixed(2)) : Number((live.price * 0.75).toFixed(2)),
                 rsi14,
                 rsi: rsi14,
                 macdSignal: live.macdSignal || (changePercent > 0.5 ? "Bullish MACD Momentum" : "Neutral Centerline"),
                 technicalSignal: live.macdSignal || (changePercent > 0 ? "Positive Momentum" : "Consolidation"),
-                signal: (rsi14 > 70 ? "OVERBOUGHT" : rsi14 < 35 ? "OVERSOLD_BOUNCE" : changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
-                momentumScore: Math.min(100, Math.max(10, Math.round(50 + changePercent * 6 + (rsi14 - 50) * 0.5))),
+                signal: (rsi14 !== undefined && rsi14 > 70 ? "OVERBOUGHT" : rsi14 !== undefined && rsi14 < 35 ? "OVERSOLD_BOUNCE" : changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
+                momentumScore: Math.min(100, Math.max(10, Math.round(50 + changePercent * 6 + (rsi14 !== undefined ? (rsi14 - 50) * 0.5 : 0)))),
                 highlightReason: `${baseStock.companyName} Yahoo Finance live quote`,
                 source: "Yahoo Finance FOSS Engine",
                 timestamp: live.timestamp || new Date().toISOString(),
@@ -272,10 +287,13 @@ export class YFinanceMarketScreener implements IMarketScreener {
 
     try {
       const live = await this.yfProvider.getQuote(cleanSym);
-      if (live && live.price > 0) {
+      // #913/#916: only a genuinely live provider quote may be returned.
+      // The provider's static/generated sync fallback (provenance !==
+      // "live") is not Yahoo data and must never be re-stamped as one.
+      if (live && live.price > 0 && live.provenance === "live") {
         return {
           symbol: live.symbol,
-          companyName: live.companyName || found?.companyName || `${cleanSym} Inc.`,
+          companyName: live.companyName || found?.companyName || cleanSym,
           sector: found?.sector || "Equities",
           lastPrice: live.price,
           price: live.price,
@@ -287,47 +305,20 @@ export class YFinanceMarketScreener implements IMarketScreener {
           open: live.open || live.price,
           high: live.high || live.price,
           low: live.low || live.price,
-          peRatio: live.trailingPE || 25.0,
-          marketCap: live.marketCap ? Number((live.marketCap / 1e9).toFixed(1)) : 10.0,
-          week52High: live.high ? Number((live.high * 1.25).toFixed(2)) : Number((live.price * 1.25).toFixed(2)),
-          week52Low: live.low ? Number((live.low * 0.75).toFixed(2)) : Number((live.price * 0.75).toFixed(2)),
-          high52: live.high ? Number((live.high * 1.25).toFixed(2)) : Number((live.price * 1.25).toFixed(2)),
-          low52: live.low ? Number((live.low * 0.75).toFixed(2)) : Number((live.price * 0.75).toFixed(2)),
-          rsi: live.rsi14 || 50,
+          peRatio: live.trailingPE,
+          marketCap: live.marketCap ? Number((live.marketCap / 1e9).toFixed(1)) : undefined,
+          rsi: live.rsi14,
           quoteStatus: "REALTIME",
           source: "Yahoo Finance FOSS Engine",
           timestamp: new Date().toISOString(),
         };
       }
     } catch {
-      // Fallback
+      // Fall through to the explicit unavailable error below.
     }
 
-    if (found) {
-      return {
-        symbol: cleanSym,
-        companyName: found.companyName,
-        sector: found.sector,
-        lastPrice: 100.0,
-        price: 100.0,
-        change: 0,
-        changePercent: 0,
-        bid: 99.9,
-        ask: 100.1,
-        volume: 1000000,
-        open: 100.0,
-        high: 101.0,
-        low: 99.0,
-        week52High: 120.0,
-        week52Low: 80.0,
-        high52: 120.0,
-        low52: 80.0,
-        quoteStatus: "DELAYED",
-        source: "Yahoo Finance FOSS Engine",
-        timestamp: new Date().toISOString(),
-      };
-    }
-
+    // #913/#916: no fabricated quote. A failed or non-live lookup is an
+    // explicit error, never a substitute quote object.
     throw new Error(`Quote data unavailable for '${cleanSym}' via Yahoo Finance FOSS.`);
   }
 }
