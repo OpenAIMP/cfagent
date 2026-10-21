@@ -573,7 +573,8 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
       // throws, which the provider tolerates as an enrichment failure.
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
         const url = String(input);
-        if (url.includes("/v8/finance/chart/")) {
+        const parsed = new URL(url);
+        if (parsed.hostname === "query1.finance.yahoo.com" && parsed.pathname.startsWith("/v8/finance/chart/")) {
           return new Response(
             JSON.stringify({
               chart: {
@@ -621,13 +622,14 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
       // hard failure in the #411 network-block census). Route the full flow.
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
         const url = String(input);
-        if (url.startsWith("https://fc.yahoo.com")) {
+        const parsed = new URL(url);
+        if (parsed.hostname === "fc.yahoo.com") {
           return new Response("", { status: 200, headers: { "set-cookie": "A3=stub-cookie" } });
         }
-        if (url.includes("/v1/test/getcrumb")) {
+        if (parsed.hostname === "query1.finance.yahoo.com" && parsed.pathname === "/v1/test/getcrumb") {
           return new Response("stubcrumb", { status: 200 });
         }
-        if (url.includes("/v10/finance/quoteSummary/")) {
+        if (parsed.hostname === "query2.finance.yahoo.com" && parsed.pathname.startsWith("/v10/finance/quoteSummary/")) {
           return new Response(
             JSON.stringify({
               quoteSummary: {
