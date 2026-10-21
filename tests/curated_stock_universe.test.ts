@@ -132,6 +132,12 @@ describe("Externalized Curated Stock Universe", () => {
 
   describe("DynamicMarketScreener Integration with Externalized Universe", () => {
     it("DynamicMarketScreener uses externalized universe when listings are empty", async () => {
+      // #411: hermetic — production membership comes from the live listings
+      // directory and never substitutes a static universe; the sanctioned
+      // test seam is the listings fixture. Feeding the externalized universe
+      // through it exercises exactly the membership these assertions pin,
+      // without a live Nasdaq sweep.
+      DynamicMarketScreener.setTestListingsFixture(getCuratedStockListings());
       const screener = new DynamicMarketScreener();
 
       // Screen with ALL exchange using externalized universe fallback
@@ -149,6 +155,8 @@ describe("Externalized Curated Stock Universe", () => {
     });
 
     it("DynamicMarketScreener exchange filter works with the externalized universe", async () => {
+      // #411: same fixture seam as above — no live Nasdaq sweep.
+      DynamicMarketScreener.setTestListingsFixture(getCuratedStockListings());
       const screener = new DynamicMarketScreener();
 
       const nasdaqResult = await screener.screenLive({
