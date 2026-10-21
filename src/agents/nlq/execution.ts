@@ -1831,9 +1831,9 @@ export async function executeNaturalLanguageQuery(
   sessionId: string,
   query: string,
   env: Env,
-  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
+  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -1844,8 +1844,8 @@ export async function executeNaturalLanguageQuery(
     userLogin = userLoginOrOptions;
   }
 
-  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM });
-  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context);
+  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM, untrustedContent: resolvedOptions?.untrustedContent });
+  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context, { untrustedContent: resolvedOptions?.untrustedContent });
   const result = await executeNLQQueryAsync(
     orm,
     sessionId,
