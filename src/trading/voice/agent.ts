@@ -21,7 +21,7 @@ import type {
   ScreenedStockItem,
   ETradeQuote,
 } from "../../types";
-import { DatabaseORM } from "../../orm";
+import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
@@ -339,7 +339,12 @@ export class ETradeVoiceTradingService {
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
     try {
-      const orm = this.orm || new DatabaseORM({ exec: () => [] });
+      // Issue #781: NLQ execution reads and writes through the ORM
+      // (watchlists, trade ledger, messages). Without an injected ORM,
+      // fail loud — the throw is caught below and returned as an honest
+      // spoken error. The former stub fallback computed answers against
+      // an empty ledger and discarded every write.
+      const orm = requireOrm(this.orm, "ETradeVoiceTradingService.handleVoiceNLQ");
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,

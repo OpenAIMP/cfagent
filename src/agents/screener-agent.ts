@@ -96,6 +96,11 @@ export interface ScreenerRunResult {
   rejections?: { symbol: string; reason: string }[];
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
+  /** Issue #822: explicit PDF generation status. 'failed' means generatePdfAsset
+   *  threw or returned null — the publisher must NOT fall back to a stale PDF. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  /** When pdfStatus is 'failed', the error that caused it. */
+  pdfError?: string;
   error?: string;
   /** Duplicate scheduled delivery was suppressed by the shared per-user DO. */
   skippedDuplicate?: boolean;
@@ -291,6 +296,29 @@ export class ScreenerAgent extends Agent<Env> {
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
     const cfg = DEFAULT_SCREENER_CONFIG;
+    // Issue #828: prevent concurrent runs for same user/universe.
+    // Multiple clicks were spawning parallel runs that exhausted the
+    // Cloudflare subrequest budget and spammed Slack with partials.
+    const lockKey = `screen_lock:${this.userLogin()}:${req.universe || "nasdaq100"}`;
+    const existingLock = await this.ctx.storage.get<string>(lockKey);
+    if (existingLock) {
+      const lockAge = Date.now() - parseInt(existingLock, 10);
+      // Stale lock (>5 min) — assume the previous run died, take over.
+      if (lockAge < 5 * 60 * 1000) {
+        throw new Error(`Screen already running for ${req.universe || "nasdaq100"} (started ${Math.round(lockAge / 1000)}s ago). Please wait for it to complete.`);
+      }
+      console.warn(`[ScreenerAgent] Stale lock detected (${Math.round(lockAge / 1000)}s old), taking over.`);
+    }
+    await this.ctx.storage.put(lockKey, Date.now().toString());
+    try {
+      return await this.runScreenInner(req, timestamp, cfg);
+    } finally {
+      // Always release the lock, even on failure.
+      await this.ctx.storage.delete(lockKey);
+    }
+  }
+
+  private async runScreenInner(req: ScreenerRunRequest, timestamp: string, cfg: typeof DEFAULT_SCREENER_CONFIG): Promise<ScreenerRunResult> {
     // Issue #706: read active learnings at run start; log which ones applied.
     let appliedLearnings: string[] = [];
     try {
@@ -644,9 +672,19 @@ export class ScreenerAgent extends Agent<Env> {
           await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
         }
         result.pdfKey = asset.key;
+        result.pdfStatus = "generated";
+      } else {
+        // generatePdfAsset returned null — treat as failure, not silent skip.
+        result.pdfStatus = "failed";
+        result.pdfError = "generatePdfAsset returned null";
+        console.error("[ScreenerAgent] PDF generation returned null for run", result.timestamp);
       }
     } catch (err) {
-      console.warn("[ScreenerAgent] PDF generation failed:", err);
+      // Issue #822: do NOT swallow. Record the failure explicitly so the
+      // publisher knows not to fall back to a stale PDF.
+      result.pdfStatus = "failed";
+      result.pdfError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] PDF generation failed:", err instanceof Error ? err.message : String(err));
     }
     // Issue #732: persist to mas_reports so the Reports tab shows scheduled runs.
     // The tab reads from SQL, but persistRun only wrote to DO storage.
@@ -672,7 +710,12 @@ export class ScreenerAgent extends Agent<Env> {
         userLogin: this.userLogin(),
       });
     } catch (err) {
-      console.warn("[ScreenerAgent] mas_reports persistence failed:", err);
+      // Issue #832: Store must be atomic. If mas_reports write fails,
+      // fail the run loudly — don't silently continue to Deliver.
+      // The Reports tab and Slack must see the same data.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] mas_reports persistence FAILED:", message);
+      throw new Error(`Failed to persist report metadata: ${message}`);
     }
   }
 }

@@ -12,7 +12,7 @@
  */
 
 import type { Env, InboundEmailPayload, EmailTradingResult, ETradeOrderDraft } from "../../types";
-import { DatabaseORM } from "../../orm";
+import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
@@ -40,6 +40,14 @@ export class ETradeEmailTradingService {
    * Process inbound email message (from Cloudflare Email Routing or HTTP webhook)
    */
   async processInboundEmail(payload: InboundEmailPayload): Promise<EmailTradingResult> {
+    // Issue #781: every inbound branch is persistence-backed — approvals
+    // and rejections read/update the trade ledger, and queries run NLQ
+    // against it. Without an injected ORM, fail loud instead of the
+    // former behaviour (fabricated "no pending preview" answers and NLQ
+    // results computed against a stub ORM whose reads all returned
+    // empty). Outbound-only sending (sendOutboundEmail) does not pass
+    // through here and remains ORM-free.
+    requireOrm(this.orm, "ETradeEmailTradingService.processInboundEmail");
     const from = (payload.from || "").trim();
     const to = (payload.to || this.env.EMAIL_AGENT_ADDRESS || "trade@agent.openaimp.com").trim();
     const subject = (payload.subject || "").trim();
@@ -252,7 +260,7 @@ export class ETradeEmailTradingService {
     const prompt = (subject.trim() + " " + body.trim()).trim();
 
     try {
-      const orm = this.orm || new DatabaseORM({ exec: () => [] });
+      const orm = requireOrm(this.orm, "ETradeEmailTradingService.handleEmailQuery");
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
