@@ -101,6 +101,23 @@ export interface ScreenerRunResult {
   pdfStatus?: "generated" | "failed" | "skipped";
   /** When pdfStatus is 'failed', the error that caused it. */
   pdfError?: string;
+  /** Issue #816: quote pipeline trace summary for the UI. */
+  quoteTrace?: {
+    traceId: string;
+    symbolCount: number;
+    batchCount: number;
+    quotesReceived: number;
+    quotesFailed: number;
+    failuresByCategory: Record<string, number>;
+    batches: Array<{
+      batchIndex: number;
+      symbolCount: number;
+      httpStatus: number | null;
+      quotesReceived: number;
+      failures: Array<{ symbol: string; category: string; detail: string }>;
+      durationMs: number;
+    }>;
+  };
   error?: string;
   /** Duplicate scheduled delivery was suppressed by the shared per-user DO. */
   skippedDuplicate?: boolean;
@@ -438,6 +455,10 @@ export class ScreenerAgent extends Agent<Env> {
         ? (requestedMaxSymbols > 0 ? symbols.slice(0, requestedMaxSymbols) : symbols)
         : [];
       expectedCount = selectedSymbols.length;
+      // Issue #816: create a QuoteTrace to capture the pipeline details for the UI.
+      const { QuoteTrace } = await import("../trading/etrade/quoteTrace");
+      const quoteTrace = new QuoteTrace();
+      quoteTrace.setNasdaqSymbols(selectedSymbols.map(s => typeof s === 'string' ? s : s.symbol));
       // E*TRADE-only acquisition (#261). Symbols come from the listings
       // directory (not market data); quotes come from E*TRADE or nothing.
       const acquired = await acquireUniverse({
@@ -448,7 +469,8 @@ export class ScreenerAgent extends Agent<Env> {
           fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym),
           // Issue #495: quote the universe in batch requests (2 calls for
           // NASDAQ100) instead of one request per symbol.
-          fetchETradeQuotes: (syms) => etrade.fetchQuotesRemote(syms),
+          // Issue #816: pass the trace so the UI can show the pipeline.
+          fetchETradeQuotes: (syms) => etrade.fetchQuotesRemote(syms, quoteTrace),
         },
       });
       await beat();
@@ -506,6 +528,17 @@ export class ScreenerAgent extends Agent<Env> {
       if (taskId) result.taskId = taskId;
       // Issue #706: record which learnings were applied.
       if (appliedLearnings.length > 0) result.appliedLearnings = appliedLearnings;
+      // Issue #816: attach the quote pipeline trace summary for the UI.
+      const traceSummary = quoteTrace.complete();
+      result.quoteTrace = {
+        traceId: traceSummary.traceId,
+        symbolCount: traceSummary.uniqueSymbolCount,
+        batchCount: traceSummary.batchesTotal,
+        quotesReceived: traceSummary.quotesReceived,
+        quotesFailed: traceSummary.quotesFailed,
+        failuresByCategory: traceSummary.failuresByCategory as Record<string, number>,
+        batches: [], // Detailed batch info available in logs via traceId
+      };
 
       await beat();
       await this.persistRun(result);

@@ -449,7 +449,7 @@ export class ETradeService {
    * Returns the quotes E*TRADE actually returned; callers diff against the
    * request to find symbols the broker omitted (no substitute data).
    */
-  async fetchQuotesRemote(symbols: string[]): Promise<ETradeQuote[]> {
+  async fetchQuotesRemote(symbols: string[], trace?: any): Promise<ETradeQuote[]> {
     const clean = Array.from(
       new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))
     );
@@ -457,7 +457,10 @@ export class ETradeService {
     // Sandbox keeps its explicit per-symbol mock behaviour: the batch
     // endpoint has no sandbox fixture, so do not pretend it quoted anything.
     if (!this.client.getEnvConfig().isLive) return [];
-    return this.client.fetchQuotes(clean);
+    // Issue #816: pass trace only when provided (keeps #495 test pin stable).
+    return trace
+      ? this.client.fetchQuotes(clean, { trace })
+      : this.client.fetchQuotes(clean);
   }
 
   /**
