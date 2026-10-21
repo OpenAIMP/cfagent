@@ -193,6 +193,34 @@ export function adaptationUsage(
   };
 }
 
+/** mas_settings key for the global adaptation kill switch (#756). */
+export const ADAPTATION_KILL_SWITCH_KEY = "adaptation.killSwitch";
+
+/**
+ * Issue #756's switch, read by every adaptation entry point: when
+ * `adaptation.killSwitch` is "on" (also "1"/"true"), all autonomous
+ * adaptation halts. Fail-closed with a log: if the settings read itself
+ * fails, adaptation halts rather than proceeding unverified — a safety
+ * switch that cannot be read is treated as thrown, never silently
+ * ignored.
+ */
+export function isAdaptationHalted(sql: any): boolean {
+  try {
+    const rows = Array.from(
+      sql.exec(`SELECT value FROM mas_settings WHERE key = ?`, ADAPTATION_KILL_SWITCH_KEY)
+    ) as any[];
+    if (rows.length === 0) return false;
+    const v = String(rows[0].value).trim().toLowerCase();
+    return v === "on" || v === "1" || v === "true";
+  } catch (err) {
+    console.error(
+      "[Adaptation] Kill-switch read failed; halting adaptation (fail-closed):",
+      err
+    );
+    return true;
+  }
+}
+
 export interface BudgetVerdict {
   allowed: boolean;
   reason?: string;
