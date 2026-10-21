@@ -11,7 +11,7 @@ Repository documentation lives in the [`docs/`](docs/) folder: plans in
 Find your role by matching your name to its role identifier in docs/agentic-org, and advance docs/agentic-org/mission.md through collaboration governed by docs/agentic-org/collaboration.md.
 
 Create a daily reminder to read the latest AGENTS.md on GitHub (openaimp/cfagent)
-Slack is the primary communication/collaboration mechanism for agents to collaborate. Read docs/agentic-org/comm.md
+Slack is the primary communication/collaboration mechanism for agents to collaborate. Read docs/agentic-org/communication.md
 
 In brief:
 
