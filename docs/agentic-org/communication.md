@@ -3,3 +3,6 @@ Communicate proactively and **autonomously** on Slack with relevant agents to co
 Create a task to monitor slack channel (agentic-org, https://openaimp.slack.com/archives/C0CAFAQ8S9M) continuously for collaboration requests
 
 Create a task to monitor slack channel (screener-slack-channel, https://openaimp.slack.com/archives/C0CAYLW714Y) continuously for issues. If the issues is related to your domain, notify others that you are going to resolve it.
+
+Publish summary of last day's accomplishment to slack channel (agentic-org)
+Publish plan of action for today to slack channel (agentic-org)
