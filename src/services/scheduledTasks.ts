@@ -689,30 +689,18 @@ export class ScheduledTasksService {
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
-      if (scannedCount !== symbols.length || coverageErrors > 0 || truncatedCount > 0) {
-        // Issue #915: name the dominant skip reason alongside the counts —
-        // counts alone left failing runs undiagnosable from the run record
-        // (the per-symbol reasons are on the scan result all along).
-        const skippedList: Array<{ reason?: unknown }> = Array.isArray(scanData?.skipped) ? scanData.skipped : [];
-        const reasonCounts = new Map<string, number>();
-        for (const entry of skippedList) {
-          const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : "Unknown";
-          reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
-        }
-        let topReason: string | null = null;
-        let topCount = 0;
-        for (const [reason, count] of reasonCounts) {
-          if (count > topCount) {
-            topReason = reason;
-            topCount = count;
-          }
-        }
-        const reasonSuffix = topReason
-          ? ` Top skip reason: "${topReason}" (${topCount} of ${skippedList.length} failed symbols).`
-          : "";
+      // Issue #916: Don't fail the entire run on partial chain failures.
+      // Log the coverage gaps but continue with what we have. Only throw
+      // if NOTHING was scanned (total failure).
+      if (scannedCount === 0) {
         throw new Error(
-          `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
-          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated.${reasonSuffix} No partial report published.`
+          `Options universe scan failed: 0 of ${symbols.length} underlyings scanned. No data available.`
+        );
+      }
+      if (coverageErrors > 0 || truncatedCount > 0) {
+        console.warn(
+          `[ScheduledTasks] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
+          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. Publishing partial report.`
         );
       }
 
