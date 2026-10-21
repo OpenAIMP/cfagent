@@ -51,6 +51,8 @@ The self-heal loop already fixes what it can see: smoke sections and CI failures
 | 5 | **#766 Security findings → self-heal bridge** *(filed by this plan)* | The recursive step. Code-scanning, secret-scanning, and Dependabot security findings auto-file one deduped `[SecOps self-heal]` issue per alert into the existing fixer queue and auto-close on resolution — the same loop shape as smoke/CI, applied to security. Depends on #765 for the code-scanning source |
 | 6 | #623 Branch hygiene | 83 branches not on main; 4 carry work needing owner verdicts. A trustworthy merge surface is a security property — stale branches are where stale-base reverts (#115 class) breed. Owner delete verdicts; execution follows |
 
+**Standing posture — Dependabot is reference-only (owner directive, 2026-10-20).** Dependabot alerts and PRs are never merged in either repo; they are a visibility/triage signal only, and a wanted dependency bump is re-implemented as a lane-authored PR under the standard gate. Accordingly, #765's `dependabot.yml` is a *visibility* configuration (it defines what the bot watches and how it batches), and #766's bridge auto-files **code-scanning** alerts only — secret-scanning and Dependabot alerts are reference inputs, not auto-filed fix work.
+
 *User offering paired:* none user-facing — this stage's "offering" is the posture itself, surfaced in P2's per-user audit views and the Assessment grade it moves.
 
 ## P1 — AISecOps: the unfiled surface
