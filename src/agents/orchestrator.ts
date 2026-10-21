@@ -2216,6 +2216,7 @@ export class OrchestratorAgent extends Think<Env> {
     pdfKey?: string;
     error?: string;
     trigger?: unknown;
+    userLogin?: string;
   }): void {
     try {
       const orm = this.getOrm();
@@ -2228,6 +2229,7 @@ export class OrchestratorAgent extends Think<Env> {
         summary: result.success
           ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched, ${result.opportunities.length} opportunities.`
           : `Screen failed: ${result.error ?? "unknown error"}.`,
+        userLogin: result.userLogin,
         body: {
           timestamp: result.timestamp,
           universe: result.universe,
