@@ -263,6 +263,7 @@ function formatOpportunities(
   const scanned = event.expectedCount && event.expectedCount > event.totalScanned
     ? `Scanned ${event.totalScanned} of ${event.expectedCount} ${universe} stocks, ${event.matchedCount} matched.`
     : `Scanned ${event.totalScanned} ${universe} stocks, ${event.matchedCount} matched.`;
+  const filterLine = event.filterSummary ? `Criteria: ${event.filterSummary}` : null;
   // Issue #462: a partial quote set yields a qualified partial report — the
   // qualification rides every delivery so it never reads as a complete screen.
   const partialLine = event.partial
@@ -273,6 +274,7 @@ function formatOpportunities(
   const text = [
     `📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}`,
     scanned,
+    ...(filterLine ? [filterLine] : []),
     ...(partialLine ? [partialLine] : []),
     // Issue #728: rejection breakdown — when few or zero match, show why.
     ...(event.rejections?.length
@@ -291,7 +293,7 @@ function formatOpportunities(
         ]
       : []),
     ``,
-    ...lines,
+    ...(event.opportunities.length > 0 ? lines : ["No standout opportunities met the screening criteria."]),
     ``,
     `_Completed ${event.timestamp}_`,
   ].join("\n");
@@ -308,11 +310,16 @@ function formatOpportunities(
   const html = [
     `<h2>📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}</h2>`,
     `<p>${scanned}</p>`,
+    ...(filterLine ? [`<p><b>Criteria:</b> ${event.filterSummary}</p>`] : []),
     ...(partialLine ? [`<p><b>${partialLine}</b></p>`] : []),
-    `<table border="1" cellpadding="6" cellspacing="0">`,
-    `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
-    htmlRows,
-    `</table>`,
+    ...(event.opportunities.length > 0
+      ? [
+          `<table border="1" cellpadding="6" cellspacing="0">`,
+          `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
+          htmlRows,
+          `</table>`,
+        ]
+      : [`<p><i>No standout opportunities met the screening criteria.</i></p>`]),
     `<p><i>Completed ${event.timestamp}</i></p>`,
   ].join("\n");
   return { text, html };
@@ -333,7 +340,7 @@ async function publishCompleted(
   // notification. Sending a separate summary and then a file generated a
   // duplicate pair of Slack messages for each screen.
   const cfpay = getCfpayConfig(deps.env);
-  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const slackChannel = event.slackChannel || (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
   const pdf = await fetchScreenerPdf(deps, event.pdfKey, event.pdfStatus, event.pdfError);
   const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
   const plainTextWithDigest = digest ? `💡 ${digest}\n\n${plainText}` : plainText;
@@ -369,7 +376,7 @@ async function publishCompleted(
   }
 
   // 2. Email — try cfpay via A2A first, fall back to local.
-  const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
+  const emailTo = event.emailTo || (deps.env as any).SCREENER_EMAIL_TO;
   if (emailTo) {
     let emailOk = false;
     if (cfpay) {
@@ -413,7 +420,7 @@ async function publishCompleted(
   }
 
   // 3. Webhook
-  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  const webhookUrl = event.webhookUrl || (deps.env as any).OUTBOUND_WEBHOOK_URL;
   if (webhookUrl) {
     try {
       const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
@@ -443,11 +450,11 @@ async function publishFailed(
   const text = `⚠️ Market Screen FAILED — ${event.universe || "TECH"}${event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : ""} · ${triggerLabel}\nError: ${event.error}\n_Time: ${event.timestamp}_`;
 
   const cfpay = getCfpayConfig(deps.env);
-  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const slackChannel = event.slackChannel || (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
   let attempted = false;
   if (cfpay) {
     attempted = true;
-    const result = await deliverScreenerToSlackA2A(deps.env, { text });
+    const result = await deliverScreenerToSlackA2A(deps.env, { text, channel: slackChannel });
     if (!result.ok) console.warn("[ScreenerPublishers] Slack A2A failure-notify failed:", result.error);
   } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
     attempted = true;
@@ -459,7 +466,23 @@ async function publishFailed(
     }
   }
 
-  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  const emailTo = event.emailTo || (deps.env as any).SCREENER_EMAIL_TO;
+  if (emailTo) {
+    attempted = true;
+    if (cfpay) {
+      const r = await cfpaySendEmail(cfpay, emailTo, `⚠️ Market Screen FAILED — ${event.universe || "TECH"}`, text);
+      if (!r.ok) console.warn("[ScreenerPublishers] cfpay Email failure-notify failed:", r.error);
+    } else {
+      try {
+        const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+        await email.sendOutboundEmail(emailTo, `⚠️ Market Screen FAILED — ${event.universe || "TECH"}`, `<p>${text}</p>`, text);
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Email failure-notify failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  const webhookUrl = event.webhookUrl || (deps.env as any).OUTBOUND_WEBHOOK_URL;
   if (webhookUrl) {
     attempted = true;
     try {

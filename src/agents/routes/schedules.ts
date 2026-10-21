@@ -116,6 +116,11 @@ export interface SchedulesRouteContext {
     trigger?: "manual" | "scheduled";
     userLogin?: string;
     environment?: ETradeEnvironment;
+    emailTo?: string;
+    slackChannel?: string;
+    webhookUrl?: string;
+    pushToSlack?: boolean;
+    filters?: import("../../types").StockScreenerFilter;
   }): Promise<void>;
   /** E*TRADE token renewal (owner: OrchestratorAgent.autoRenewETradeTokens - was `this.autoRenewETradeTokens`). */
   autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void>;

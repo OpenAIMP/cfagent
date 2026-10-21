@@ -297,6 +297,11 @@ export class ScheduledTasksService {
     userLogin?: string;
     environment?: "TEST" | "PROD";
     trigger?: "manual" | "scheduled";
+    emailTo?: string;
+    slackChannel?: string;
+    webhookUrl?: string;
+    pushToSlack?: boolean;
+    filters?: import("../types").StockScreenerFilter;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -306,6 +311,11 @@ export class ScheduledTasksService {
     universe?: string;
     expectedCount?: number;
     pdfKey?: string;
+    notifications?: {
+      slack?: boolean;
+      email?: boolean;
+      webhook?: boolean;
+    };
   }>> {
     const timestamp = new Date().toISOString();
 
@@ -322,6 +332,7 @@ export class ScheduledTasksService {
         sector: options.sector,
         universe: (options.universe as any) || "TECH",
         maxSymbols: options.maxItems,
+        filters: options.filters,
         userLogin,
         environment: options.environment,
       });
@@ -362,11 +373,18 @@ export class ScheduledTasksService {
         trigger: options.trigger || "scheduled",
         expectedCount: result.expectedCount,
         pdfKey: result.pdfKey,
+        pdfStatus: result.pdfStatus,
+        pdfError: result.pdfError,
         deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 16)}`,
         sector: result.sector || options.sector || "ALL",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
+        filterSummary: result.filterSummary,
+        emailTo: options.emailTo,
+        slackChannel: options.slackChannel,
+        webhookUrl: options.webhookUrl,
+        rejections: result.rejections,
         ...(result.partial
           ? {
               partial: {
@@ -391,6 +409,11 @@ export class ScheduledTasksService {
           universe: result.universe,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
+          notifications: {
+            slack: options.pushToSlack !== false,
+            email: Boolean(options.emailTo),
+            webhook: Boolean(options.webhookUrl),
+          },
         },
         timestamp,
       };
@@ -427,6 +450,9 @@ export class ScheduledTasksService {
         deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 16)}`,
         sector: options.sector || "ALL",
         error: err.message || "Market screener execution error",
+        emailTo: options.emailTo,
+        slackChannel: options.slackChannel,
+        webhookUrl: options.webhookUrl,
       });
 
       return {
