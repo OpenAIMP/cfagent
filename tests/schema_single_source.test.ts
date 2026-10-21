@@ -211,7 +211,7 @@ describe("issue #782: single-source shared mas_* schema", () => {
     const pattern = new RegExp(`CREATE TABLE IF NOT EXISTS\\s+(?:${sharedAlt})\\b`);
     const offenders = walkSrc(srcRoot)
       .filter((file) => pattern.test(readFileSync(file, "utf-8")))
-      .map((file) => path.relative(srcRoot, file));
+      .map((file) => path.relative(srcRoot, file).replace(/\\/g, "/"));
     expect(offenders).toEqual(["orm/schema.ts"]);
   });
 

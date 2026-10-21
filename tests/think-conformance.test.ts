@@ -58,7 +58,7 @@ describe("Think conformance (issue #542)", () => {
   it("Think adopters in src are exactly the designated roles (new adopters update this pin deliberately)", () => {
     const adopters = listTsFiles(path.join(ROOT, "src"))
       .filter((f) => read(path.relative(ROOT, f)).includes('from "@cloudflare/think"'))
-      .map((f) => path.relative(ROOT, f));
+      .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"));
     // ResearchAgent (the designated Think role) + OrchestratorAgent
     // itself since the step-4 cutover (issue #686 — the step-3 shadow
     // in orchestrator-think.ts was absorbed and deleted). Updated

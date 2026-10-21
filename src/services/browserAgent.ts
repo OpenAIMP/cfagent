@@ -28,20 +28,20 @@ import { checkSlackWebhookRateLimit } from "./slackWebhookRateLimit";
 // Spec-aware HTML stripping.
 //
 // CodeQL js/bad-tag-filter (#853) and js/incomplete-multi-character-
-// sanitization (#851, #852, #850): the old chain stripped <script>/<style>
+// sanitization (#851, #852, #850): the old chain stripped script/style
 // with regexes that required a closing tag, never removed HTML comments,
 // and cut every other tag at the first `>` via /<[^>]+>/ — all incomplete
 // per the HTML spec:
 //
 // - `<!--` opens a comment that runs to `-->` OR end of input: an
 //   unterminated comment is still a comment and must be removed.
-// - `<script>` / `<style>` content runs to the matching close tag OR end of
+// - `script` / `style` element content runs to the matching close tag OR end of
 //   input: an unterminated element must still be dropped entirely,
 //   otherwise script text leaks into the extracted page text.
 // - A `>` inside a quoted attribute value does not close a tag.
 //
 // The tempered patterns below consume up to (never past) the terminator,
-// mirroring the #854 release-notes fix. This is text extraction for LLM /
+// mirroring the issue 854 release-notes fix. This is text extraction for LLM /
 // user display, not an XSS sanitizer — but the stripping is complete, so no
 // markup, comment text, or script/style content survives.
 // ---------------------------------------------------------------------------
