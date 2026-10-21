@@ -575,6 +575,15 @@ export function getScheduledReportById(
 /* known price of the split; the first production usage/billing reader  */
 /* must solve the placement question, and that is the trigger to        */
 /* re-open consolidation. Do not add a third event log meanwhile.       */
+/*                                                                      */
+/* Issue #786 retention decision: usage_events is PRUNE-CLASS at 365d,   */
+/* recorded in src/security/storageRetention.ts (the retention record   */
+/* for every mas_* table). Implementation is deferred to the first      */
+/* production reader: rows are split across two DOs' databases (this     */
+/* module writes into the orchestrator's and ResearchAgent's own         */
+/* storage), so a retention pass on one instance cannot prune the        */
+/* other copy, and a partial prune would misstate tenant totals. Until   */
+/* then the bound is one small row per research run/evaluation.          */
 /* ------------------------------------------------------------------ */
 
 export const USAGE_EVENTS_TABLE = "usage_events";
