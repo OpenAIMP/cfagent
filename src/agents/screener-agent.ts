@@ -660,25 +660,20 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #269: generate + store the report PDF for download/delivery.
     // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
     // Issue #605: blobs go to R2 when bound, else legacy DO storage.
-    // Issue #680: generation is owned by ReportAssetAgent.
+    // Issue #913: Generate PDF inline (not via ReportAssetAgent DO) to
+    // ensure the report is always generated. The DO hop was an unnecessary
+    // failure point.
     try {
-      const { generatePdfAsset } = await import("./report-asset-agent");
-      const asset = await generatePdfAsset(this.env, this.userLogin(), "screener", result);
-      if (asset) {
-        // Keep the "latest" pointer for backward compatibility.
-        const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
-        const stored = await getReportPdf(this.env, this.ctx.storage as any, asset.key);
-        if (stored) {
-          await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, stored.fileName, stored.bytes);
-        }
-        result.pdfKey = asset.key;
-        result.pdfStatus = "generated";
-      } else {
-        // generatePdfAsset returned null — treat as failure, not silent skip.
-        result.pdfStatus = "failed";
-        result.pdfError = "generatePdfAsset returned null";
-        console.error("[ScreenerAgent] PDF generation returned null for run", result.timestamp);
-      }
+      const { generateScreenerPdf, screenerPdfFileName } = await import("../trading/screenerReportPdf");
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const bytes = await generateScreenerPdf(result);
+      const fileName = screenerPdfFileName(result);
+      const key = `report:pdf:screener:${result.timestamp}`;
+      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+      // Keep the "latest" pointer for backward compatibility.
+      await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, fileName, bytes);
+      result.pdfKey = key;
+      result.pdfStatus = "generated";
     } catch (err) {
       // Issue #822: do NOT swallow. Record the failure explicitly so the
       // publisher knows not to fall back to a stale PDF.
