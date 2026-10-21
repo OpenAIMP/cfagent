@@ -450,6 +450,27 @@ export class DynamicOptionsScreener {
     const outcomes = await mapLimit(symbols, this.config.symbolFetchConcurrency, (symbol) =>
       this.fetchChainsForSymbol(symbol, filter),
     );
+    // Issue #915: one sequential retry pass for symbols that failed
+    // outright (fetch error, zero chains), mirroring the #727 quote
+    // recovery. The pooled first pass makes a transient upstream failure
+    // (throttle, blip) final for that symbol — and at 100 symbols the
+    // scheduled coverage gate turns any single failure into a failed
+    // run. Sequential, spaced retries back the upstream off; with one
+    // symbol in flight, the shared client's lastError also attributes
+    // the surviving reason to the right symbol. Symbols holding a
+    // legitimate empty slice (no error) or partial chains are not
+    // retried; without a client the error is deterministic, so the pass
+    // is skipped entirely.
+    if (this.client) {
+      let retried = 0;
+      for (let i = 0; i < symbols.length; i++) {
+        const outcome = outcomes[i];
+        if (outcome.chains.length > 0 || outcome.fetchErrors.length === 0) continue;
+        if (retried > 0) await new Promise((r) => setTimeout(r, 500));
+        retried++;
+        outcomes[i] = await this.fetchChainsForSymbol(symbols[i], filter);
+      }
+    }
     const chains = outcomes.flatMap((outcome, index) =>
       outcome.chains.map((chain) => ({ symbol: symbols[index], chain })),
     );
