@@ -1089,6 +1089,36 @@ export class OrchestratorAgent extends Think<Env> {
       } catch (err) {
         console.warn("[OrchestratorAgent] Could not persist options run:", err);
       }
+      // Issue #910: unified pipeline — options scheduled runs must also
+      // write to mas_reports so they appear in the Reports tab like all
+      // other screener types. Single generate→store→serve→deliver path.
+      try {
+        const orm = this.getOrm();
+        const generationId = `options:${res.timestamp}`;
+        orm.storeCanonicalReport({
+          runId: generationId,
+          generationId,
+          title: `Autonomous options analysis — ${payload?.thesis || "bullish"} (${payload?.trigger === "manual" ? "manual" : "scheduled"})`,
+          source: "options_scanner",
+          summary: res.success
+            ? res.data?.summary || `Analyzed ${(res.data?.symbols || []).length} symbols.`
+            : `Options analysis failed: ${res.error ?? "unknown error"}.`,
+          body: {
+            timestamp: res.timestamp,
+            trigger: payload?.trigger === "manual" ? "manual" : "scheduled",
+            thesis: payload?.thesis || "bullish",
+            success: res.success,
+            symbols: res.data?.symbols || [],
+            withTrades: res.data?.withTrades ?? 0,
+            opportunities: res.data?.opportunities || [],
+            error: res.error,
+          },
+          createdAt: new Date().toISOString(),
+          userLogin: userLogin || undefined,
+        });
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Could not store options report canonical:", err);
+      }
       if (res.success && res.data) {
         if (typeof (this as any).broadcast === "function") {
           try {
