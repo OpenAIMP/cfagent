@@ -413,6 +413,78 @@ export async function handleScreenerResearchRoutes(
       return Response.json({ evaluations: listEvaluations(ctx.getOrm(), candidateId) });
     }
 
+    // Issue #759: promotion gate — held-out significance + human
+    // approval (the #653 decision pattern, in a dedicated approvals
+    // store). The gate endpoint returns the persisted verdict either
+    // way; failing candidates stay in "evaluating".
+    if (path.endsWith("/adaptation/candidates/approve") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
+      const { requestPromotionApproval } = await import("../../services/promotionGate");
+      const orm = ctx.getOrm();
+      if (!getImprovementCandidate(orm, candidateId)) {
+        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
+      }
+      const approval = requestPromotionApproval(orm, candidateId, request.headers.get("x-user-login") || sessionId);
+      return Response.json({ success: true, approval });
+    }
+    if (path.endsWith("/adaptation/candidates/approve/decide") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const { approvalId, decision } = body ?? {};
+      if (!approvalId || (decision !== "approved" && decision !== "rejected")) {
+        return Response.json({ error: "approvalId and decision (approved|rejected) required" }, { status: 400 });
+      }
+      const { decidePromotionApproval } = await import("../../services/promotionGate");
+      const ok = decidePromotionApproval(
+        ctx.getOrm(),
+        approvalId,
+        decision,
+        request.headers.get("x-user-login") || sessionId
+      );
+      return Response.json({ success: ok });
+    }
+    if (path.endsWith("/adaptation/candidates/gate") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
+      const { runPromotionGate } = await import("../../services/promotionGate");
+      const orm = ctx.getOrm();
+      const candidate = getImprovementCandidate(orm, candidateId);
+      if (!candidate) {
+        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
+      }
+      const trackRecord = await agent.getTrackRecord();
+      const verdict = runPromotionGate(orm, candidate, trackRecord);
+      return Response.json({ success: true, verdict, timestamp: new Date().toISOString() });
+    }
+
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
     if (path.endsWith("/research/settings") && request.method === "GET") {
       const userLogin = request.headers.get("x-user-login") || sessionId;
