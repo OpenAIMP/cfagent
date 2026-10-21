@@ -446,6 +446,14 @@ export async function acquireUniverse(
       // Issue #462: with zero quotes there is no screen to qualify — fail
       // honestly with the full diagnostics. (A partial set, by contrast,
       // returns qualified results below instead of failing.)
+      // Issue #902: if ALL failures are auth-related, throw BusinessError
+      // with AUTH_002 (user-friendly "reconnect your account") instead of
+      // the technical "OAuth access token is missing".
+      const authFailures = failureReasons["auth"] ?? 0;
+      if (authFailures === failed.length && authFailures > 0) {
+        const { BusinessError } = await import("../errors/errorAspects");
+        throw new BusinessError("AUTH_002", { failedCount: failed.length });
+      }
       throw new Error(
         `E*TRADE unavailable: no live quotes returned (${quotes.length} of ${limited.length} symbols quoted` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
