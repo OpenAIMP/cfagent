@@ -128,10 +128,9 @@ Mitigations:
 
 ## 5. Residual Risks (accepted, monitored)
 
-- **LLM prompt injection via ingested content:** NLQ results and fetched
-  documents are data, not instructions; planner output is still validated
-  against the allowlist and action gates. Novel injection shapes are the
-  main reason this model is reviewed per assessment cycle.
+- **LLM prompt injection via ingested content:** covered per-path in §7
+  (AISecOps, #767). Novel injection shapes are the main reason this model
+  is reviewed per assessment cycle.
 - **Isolate-scoped replay store on the edge route:** a concurrent duplicate
   hitting a different isolate inside the 5-minute window is rejected by the
   timestamp check only after first processing; HMAC still gates who can send.
@@ -145,3 +144,30 @@ Mitigations:
 This model is revisited with each Assessment cycle (parent issue #143).
 Substantive new surfaces (new inbound providers, new email legs, new agent
 tools that touch credentials) must update this document in the same PR.
+
+## 7. Prompt-Injection Surface — Per-Path Boundaries (#767)
+
+Every path by which content a principal does not fully control can reach an
+LLM prompt, the trust boundary it crosses, and the mechanism that keeps the
+content data rather than instructions. Filed by the RSI-InfoSec plan (#764),
+AISecOps stage; defenses are designed here, not incidental. Paths are ordered
+by exposure. A path not listed here that reaches a prompt is a documentation
+defect against §6's same-PR rule.
+
+| # | Path (entry → prompt assembly) | Untrusted source | Instruction/data separation today | Enforcement behind the prompt |
+|---|---|---|---|---|
+| 1 | **Inbound email → NLQ planner** — worker `email` export (`src/server.ts`) → `handleCloudflareEmailMessage` (`src/trading/email/agent.ts`): subject + body concatenated → `executeNaturalLanguageQuery` → planner (`src/agents/nlq/llmPlanning.ts`) | **Any internet sender.** The body *is* the planner's user prompt (truncated to 2,000 chars). Sender allowlist (`EMAIL_TO_ALLOWED_DOMAINS`) is opt-in and unset by default (§5) | **None at the prompt layer** — no delimiters, no spotlighting, no data-is-not-instructions system line. This is the gap slice #862 closes | NLQ plan validated against the tool/domain allowlist; a second LLM validator checks plan-vs-question; order previews cannot execute — trades require the separate human APPROVE reply (HITL). Query results are emailed back to the sender, so a successful injection's blast radius includes data read-out to an external address |
+| 2 | **Orchestrator chat turn** — `buildOrchestratorSystemPrompt` (`src/agents/chatPrompt.ts`), consumed at `src/agents/orchestrator.ts` | The authenticated user's own text is the instruction channel (trusted principal). **Retrieved content is not**: session memory, vector/knowledge results, and options-research context are interpolated directly into the *system* prompt | None — stored content lands in the system role verbatim, so a poisoned memory/knowledge entry speaks with system authority (indirect injection) | Tool allowlist on the orchestrator catalog; payment/trade tools are draft-then-confirm (HITL). Follow-up: #864 |
+| 3 | **Chat NLQ fallback + MCP NLQ** — `src/agents/chatErrorFallback.ts`, `src/agents/routes/mcpChatNlq.ts`, orchestrator `execute_nlq` → same NLQ planner as path 1 | Authenticated user / MCP caller (trusted principal, direct instruction is legitimate use) | Same planner seam as path 1 — inherits slice #862's separation once it lands on the shared assembly | Same NLQ allowlist + validator as path 1 |
+| 4 | **News-sentiment scoring** — `buildNewsSentimentPrompt` (`src/trading/options/flows/newsSentiment.ts`) | Fetched news items (third-party publishers, via flow ingestion) | None — item text is interpolated into the prompt | Output is a bounded sentiment classification consumed by options flows; the model has no tool access on this path. Accepted residual risk; revisit if the output gains authority. Follow-up: #864 |
+| 5 | **Options-ideas ranking** — `buildRawOptionsIdeasRankingPrompt` (`src/trading/options/llmIdeas.ts`) | Per-group LLM analyses (themselves generated over market data) + the user's question — second-order content | **Partial, by instruction**: the system prompt directs the model to use only the supplied group analyses and to rank each exactly once; group payloads are JSON-encoded (structural separation) | Output is a ranking + short answer; no tool access. Group analyses are data-shaped JSON, which blunts raw instruction text |
+| 6 | **Planner / supervisor goals** — `plannerPrompt` / `supervisorPrompt` (`src/orchestrate.ts`) | ScheduledAgent goals and briefs — operator-authored | N/A — trusted author, no third-party content on this path | Budget guard + goal lifecycle gates (ScheduledAgent) |
+| 7 | **Webhook payloads (Slack/Stripe/etc.)** | Third-party senders, signature-verified at the edge | **No webhook body reaches a prompt today** — handlers route/verify/record; chat surfaces (path 2) are the only text-to-prompt leg | Signature verification + replay window at the edge. Named watch item: any future webhook→prompt flow must add its row here in the same PR (§6) |
+
+**Reading of the table.** The designed defense concentrates where exposure
+and authority meet: path 1 (unauthenticated, internet-facing, tool-adjacent,
+output exfiltratable by reply) is the top-risk path and gets the first
+implementation (#862) plus the red-team eval set that pins it (#863). Paths
+2 and 4 carry filed follow-ups (#864) rather than silent gaps. The eval set
+is the regression mechanism: a prompt or model change that widens any of
+these surfaces must fail CI, the same way a code regression does.
