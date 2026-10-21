@@ -271,13 +271,22 @@ export function applyAdaptation(
   sql: any,
   rec: AdaptationRecord,
   apply: () => void,
-  now: Date = new Date()
+  now: Date = new Date(),
+  opts: { enforceBudgets?: boolean } = {}
 ): { applied: boolean; reason?: string } {
-  const verdict = evaluateAdaptationBudget(sql, rec.subject, rec.delta, now);
-  if (!verdict.allowed) {
-    recordBlockedAdaptation(sql, rec, verdict.reason!, now);
-    console.error(`[Adaptation] Blocked adaptation for ${rec.subject}: ${verdict.reason}`);
-    return { applied: false, reason: verdict.reason };
+  // Budgets bound AUTONOMOUS adaptation (the #754 self-service loop).
+  // Human-gated staged promotions (#760) pass enforceBudgets: false —
+  // their bound is the #759 gate + stages + automatic rollback — but
+  // they are still audited here, and the kill switch is still
+  // enforced by the caller before the seam is reached. Default true:
+  // every pre-#760 caller keeps the original enforcement.
+  if (opts.enforceBudgets !== false) {
+    const verdict = evaluateAdaptationBudget(sql, rec.subject, rec.delta, now);
+    if (!verdict.allowed) {
+      recordBlockedAdaptation(sql, rec, verdict.reason!, now);
+      console.error(`[Adaptation] Blocked adaptation for ${rec.subject}: ${verdict.reason}`);
+      return { applied: false, reason: verdict.reason };
+    }
   }
   apply();
   recordAdaptation(sql, rec, now);

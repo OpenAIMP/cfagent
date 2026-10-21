@@ -22,6 +22,7 @@
  */
 import type { TrackRecord, TrackRecordSlice } from "./researchTrackRecord";
 import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
+import { getStrategyWeightCaps, isStrategyGatedOff } from "./strategyPolicyState";
 
 export const STRATEGY_WEIGHT_BOUNDS = {
   min: 0.25,
@@ -59,7 +60,7 @@ export function getStrategyWeight(sql: any, strategy: string): number {
   return rows.length > 0 ? rows[0].weight : STRATEGY_WEIGHT_BOUNDS.defaultWeight;
 }
 
-function setStrategyWeight(sql: any, strategy: string, weight: number, now: Date): void {
+export function setStrategyWeight(sql: any, strategy: string, weight: number, now: Date): void {
   ensureStrategyWeightsTable(sql);
   sql.exec(
     `INSERT OR REPLACE INTO mas_strategy_weights (strategy, weight, updated_at) VALUES (?, ?, ?)`,
@@ -67,6 +68,12 @@ function setStrategyWeight(sql: any, strategy: string, weight: number, now: Date
     weight,
     now.toISOString()
   );
+}
+
+/** Remove a weight row entirely (#760 exact-restore: "no row" is a state). */
+export function deleteStrategyWeight(sql: any, strategy: string): void {
+  ensureStrategyWeightsTable(sql);
+  sql.exec(`DELETE FROM mas_strategy_weights WHERE strategy = ?`, strategy);
 }
 
 export interface WeightProposal {
@@ -88,7 +95,8 @@ const round4 = (v: number) => Math.round(v * 10000) / 10000;
  */
 export function proposeWeightAdjustments(
   track: TrackRecord,
-  weights: Record<string, number>
+  weights: Record<string, number>,
+  caps: Record<string, number> = {}
 ): WeightProposal[] {
   const overall = track.winRate;
   if (overall === null) return [];
@@ -99,7 +107,10 @@ export function proposeWeightAdjustments(
     const step = clamp(slice.winRate - overall, -STRATEGY_WEIGHT_BOUNDS.maxStep, STRATEGY_WEIGHT_BOUNDS.maxStep);
     if (Math.abs(step) < STRATEGY_WEIGHT_BOUNDS.deadband) continue;
     const current = weights[slice.key] ?? STRATEGY_WEIGHT_BOUNDS.defaultWeight;
-    const proposed = round4(clamp(current + step, STRATEGY_WEIGHT_BOUNDS.min, STRATEGY_WEIGHT_BOUNDS.max));
+    // A per-strategy cap override (#760, human-gated through the
+    // promotion pipeline) replaces the global max for that strategy.
+    const maxBound = caps[slice.key] ?? STRATEGY_WEIGHT_BOUNDS.max;
+    const proposed = round4(clamp(current + step, STRATEGY_WEIGHT_BOUNDS.min, maxBound));
     if (proposed === current) continue;
     proposals.push({
       strategy: slice.key,
@@ -151,6 +162,8 @@ export interface WeightAdjustmentResult {
   adjusted: Array<{ strategy: string; before: number; after: number; delta: number }>;
   blocked: Array<{ strategy: string; reason: string }>;
   skippedLowSample: string[];
+  /** Strategies skipped because a #760 promotion gated them off. */
+  skippedGated: string[];
 }
 
 /**
@@ -173,6 +186,7 @@ export function runStrategyWeightAdjustment(
     skippedLowSample: track.byStrategy
       .filter((s: TrackRecordSlice) => s.evaluated < STRATEGY_WEIGHT_BOUNDS.minSample)
       .map((s: TrackRecordSlice) => s.key),
+    skippedGated: [],
   };
 
   if (isAdaptationHalted(sql)) {
@@ -185,9 +199,15 @@ export function runStrategyWeightAdjustment(
   }
 
   const weights = getStrategyWeights(sql);
-  const proposals = proposeWeightAdjustments(track, weights);
+  const proposals = proposeWeightAdjustments(track, weights, getStrategyWeightCaps(sql));
   const generatedAt = track.ideas.length > 0 ? track.ideas[0].runCreatedAt : now.toISOString();
   for (const p of proposals) {
+    // A strategy gated off by a #760 promotion is out of the
+    // adaptation loop entirely — no proposals are applied to it.
+    if (isStrategyGatedOff(sql, p.strategy)) {
+      base.skippedGated.push(p.strategy);
+      continue;
+    }
     const out = applyAdaptation(
       sql,
       {
