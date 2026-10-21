@@ -90,6 +90,7 @@ export interface EtradeBrokerRouteContext {
     allStocks: unknown[];
     error?: string;
     trigger?: unknown;
+    userLogin?: string;
   }): void;
   /** Autopilot policy evaluation (owner: OrchestratorAgent - was `this.evaluateAndRecordAutopilotVerdict`). */
   evaluateAndRecordAutopilotVerdict(params: {
@@ -332,7 +333,8 @@ export async function handleEtradeBrokerRoutes(
         });
         // Issue #307/#308: store each shard's canonical report copy
         // (one row per generation) so manual screens are searchable.
-        for (const r of shards) ctx.persistScreenerReportCanonical(r);
+        // Issue #911: pass userLogin for correct user scoping.
+        for (const r of shards) ctx.persistScreenerReportCanonical({ ...r, userLogin });
         return Response.json({
           sharded: true,
           universes: shards.map((r) => ({
@@ -388,7 +390,9 @@ export async function handleEtradeBrokerRoutes(
       });
       // Issue #307/#308: store the canonical report copy (one row per
       // generation) so manual screens are searchable like scheduled ones.
-      ctx.persistScreenerReportCanonical(result);
+      // Issue #911: pass userLogin so the report is stored under the
+      // correct user scope (not "default").
+      ctx.persistScreenerReportCanonical({ ...result, userLogin });
       await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result);
       if (!result.success) {
         return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
