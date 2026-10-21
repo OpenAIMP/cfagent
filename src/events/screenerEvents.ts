@@ -30,6 +30,10 @@ export interface ScreenerCompletedEvent {
   expectedCount?: number;
   /** Per-run PDF storage key, avoiding races through the latest-report pointer. */
   pdfKey?: string;
+  /** Issue #822: explicit PDF status. If 'failed', the publisher must NOT
+   *  fall back to a stale PDF — log the error and skip the attachment. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
   /** Stable delivery id used to suppress duplicate scheduled notifications. */
   deliveryId?: string;
   sector: string;

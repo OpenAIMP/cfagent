@@ -55,18 +55,26 @@ interface ScreenerPdf {
 /** Fetch this run's PDF, never another concurrent run's latest PDF.
  * #333: errors are logged, not swallowed — a null return means "no PDF
  * stored", never "something broke silently". */
-export async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): Promise<ScreenerPdf | null> {
+export async function fetchScreenerPdf(
+  deps: ScreenerPublisherDeps,
+  pdfKey?: string,
+  pdfStatus?: "generated" | "failed" | "skipped",
+  pdfError?: string
+): Promise<ScreenerPdf | null> {
   try {
     const ns = (deps.env as any).SCREENER_AGENT;
     if (!ns) {
       console.warn("[ScreenerPublishers] SCREENER_AGENT binding missing — cannot fetch PDF.");
       return null;
     }
-    // Issue #801: NEVER fall back to getLatestPdf(). If the event doesn't carry
-    // the run's pdfKey, attaching "the latest" PDF sends a stale report from a
-    // different run. A missing attachment is better than a wrong one.
+    // Issue #822: if PDF generation failed, log the reason and do NOT fall back
+    // to a stale PDF. The failure is already recorded in the result.
+    if (pdfStatus === "failed") {
+      console.error(`[ScreenerPublishers] PDF generation failed for this run: ${pdfError || "unknown"}. Skipping attachment (not falling back to stale).`);
+      return null;
+    }
     if (!pdfKey) {
-      console.warn("[ScreenerPublishers] No pdfKey on event — skipping PDF attachment (not falling back to latest).");
+      console.warn("[ScreenerPublishers] No pdfKey on event — skipping PDF attachment.");
       return null;
     }
     const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
@@ -326,7 +334,7 @@ async function publishCompleted(
   // duplicate pair of Slack messages for each screen.
   const cfpay = getCfpayConfig(deps.env);
   const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
-  const pdf = await fetchScreenerPdf(deps, event.pdfKey);
+  const pdf = await fetchScreenerPdf(deps, event.pdfKey, event.pdfStatus, event.pdfError);
   const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
   const plainTextWithDigest = digest ? `💡 ${digest}\n\n${plainText}` : plainText;
   const slackBody = pdf || cfpay

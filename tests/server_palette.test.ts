@@ -34,6 +34,8 @@ import { SERVER_PALETTE, SERVER_PALETTE_TOKEN_SOURCES } from "../src/theme/serve
 import { renderLoginPage, handleOAuthCallback } from "../src/security/githubOAuth";
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
+import { DatabaseORM } from "../src/orm";
+import { MockSqlStorage } from "./mock-sql";
 
 const ROOT = join(__dirname, "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -498,7 +500,14 @@ describe("server palette — golden renders are unchanged (#678)", () => {
   });
 
   it("email container render is identical (modulo white -> #ffffff)", async () => {
-    const svc = new ETradeEmailTradingService({} as any);
+    // Issue #781 wiring: processInboundEmail now requires an injected ORM
+    // (it used to run against a stub and fabricate this same failure
+    // render from an empty ledger). A real in-memory ORM keeps the
+    // approval lookup honest — no pending preview exists either way, so
+    // the golden render is unchanged.
+    const goldenOrm = new DatabaseORM(new MockSqlStorage());
+    goldenOrm.initializeSchema("palette_golden");
+    const svc = new ETradeEmailTradingService({} as any, goldenOrm);
     const res = await svc.processInboundEmail({ from: "user@example.com", to: "trade@agent.openaimp.com", subject: "APPROVE", text: "" } as any);
     expect(whiteKeyword(res.responseHtml)).toBe(whiteKeyword(EMAIL_GOLDEN));
   });
