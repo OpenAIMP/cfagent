@@ -445,86 +445,96 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               </div>
             ) : (
               <>
-                {/* Issue #125: retained runs are reviewable — select any run
-                    (quiet and failed runs included; they are history) to
-                    view its full results below. */}
-                {autoRuns.length > 1 && (
-                  <div
-                    className="screener-run-list"
-                    aria-label="Retained autonomous screen runs"
-                    style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.75rem" }}
-                  >
-                    {autoRuns.map((run, index) => {
-                      const status = screenRunStatus(run);
-                      const selected = selectedAutoRun?.timestamp === run.timestamp;
-                      const badgeColors = {
-                        success: { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" },
-                        partial: { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" },
-                        failed: { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" },
-                      }[status];
-                      return (
-                        <button
-                          key={`${run.timestamp}:${index}`}
-                          type="button"
-                          className="screener-run-item"
-                          aria-pressed={selected}
-                          aria-label={`Review screen run from ${new Date(run.timestamp).toLocaleString()}`}
-                          onClick={() => setSelectedAutoTs(run.timestamp)}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            flexWrap: "wrap",
-                            textAlign: "left",
-                            padding: "0.4rem 0.6rem",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                            fontSize: "0.78rem",
-                            color: "var(--color-text-primary)",
-                            background: selected ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
-                            border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
-                          }}
-                        >
-                          <strong>{new Date(run.timestamp).toLocaleString()}</strong>
-                          <span style={{ color: "var(--color-text-muted)" }}>
-                            {[run.universe, run.sector && run.sector !== "ALL" ? `${run.sector} sector` : null]
-                              .filter(Boolean)
-                              .join(" · ")}
-                            {" · "}
-                            {run.trigger === "manual" ? "Manual" : "Scheduled"}
-                          </span>
-                          <span>
-                            {run.totalScanned.toLocaleString()} scanned · {run.matchedCount} matched ·{" "}
-                            {run.opportunities.length} standout{run.opportunities.length === 1 ? "" : "s"}
-                          </span>
-                          <span
-                            className="screener-run-status"
-                            style={{
-                              padding: "0.1rem 0.5rem",
-                              borderRadius: "9999px",
-                              fontSize: "0.7rem",
-                              fontWeight: 700,
-                              ...badgeColors,
-                            }}
-                          >
-                            {SCREEN_RUN_STATUS_LABELS[status]}
-                          </span>
-                          {selected && (
-                            <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--color-accent)" }}>
-                              ● Viewing
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                {/* Issue #830: grouped jobs + data panel.
+                    Jobs are grouped by universe in scrollable panels.
+                    Selecting a job shows its latest run data below. */}
+                <div
+                  aria-label="Scheduled jobs by universe"
+                  style={{
+                    display: "flex",
+                    gap: "0.75rem",
+                    overflowX: "auto",
+                    paddingBottom: "0.5rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  {Object.entries(
+                    autoRuns.reduce((groups, run) => {
+                      const universe = run.universe || "nasdaq100";
+                      if (!groups[universe]) groups[universe] = [];
+                      groups[universe].push(run);
+                      return groups;
+                    }, {} as Record<string, typeof autoRuns>)
+                  ).map(([universe, runs]) => {
+                    const latest = runs[0];
+                    const status = screenRunStatus(latest);
+                    const isSelected = selectedAutoRun?.universe === universe ||
+                      (selectedAutoRun && runs.some(r => r.timestamp === selectedAutoRun.timestamp));
+                    return (
+                      <button
+                        key={universe}
+                        type="button"
+                        onClick={() => setSelectedAutoTs(latest.timestamp)}
+                        aria-pressed={isSelected}
+                        style={{
+                          minWidth: "220px",
+                          flex: "0 0 auto",
+                          textAlign: "left",
+                          padding: "0.75rem",
+                          borderRadius: "8px",
+                          border: isSelected
+                            ? "2px solid var(--color-accent)"
+                            : "1px solid var(--color-border)",
+                          background: "var(--color-surface)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text)" }}>
+                          {universe.toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
+                          Every 5 min · {runs.length} run{runs.length !== 1 ? "s" : ""} retained
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                          Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
+                        </div>
+                        <div style={{
+                          display: "inline-block",
+                          marginTop: "0.35rem",
+                          padding: "0.15rem 0.5rem",
+                          borderRadius: "12px",
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          ...(status === "success"
+                            ? { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }
+                            : status === "partial"
+                            ? { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" }
+                            : { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" }),
+                        }}>
+                          {status === "success" ? "✓ Complete" : status === "partial" ? "◐ Partial" : "✗ Failed"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Data panel for selected job */}
+                <div
+                  aria-label="Selected job run data"
+                  style={{
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "8px",
+                    padding: "1rem",
+                    background: "var(--color-surface)",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text)" }}>
+                    {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
                   </div>
-                )}
-                {/* Issue #261: unified results UI — same component as manual.
-                    Issue #125: shows the selected retained run (default:
-                    latest); its PDF link keys off that run's own pdfKey. */}
-                <ScreenerResultsView
-                  result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
-                />
+                  <ScreenerResultsView
+                    result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
+                  />
+                </div>
               </>
             )}
           </div>
