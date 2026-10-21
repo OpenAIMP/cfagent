@@ -26,6 +26,7 @@ import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { validateEmailRecipient } from "../../security/webhookReplay";
+import { getCfpayConfig, cfpayPostToSlack } from "../../services/cfpayA2A";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -1214,8 +1215,9 @@ export class ETradeSlackTradingService {
     }
     const token = this.env.SLACK_BOT_TOKEN;
     const webhookUrl = this.env.SLACK_WEBHOOK_URL;
+    const cfpay = getCfpayConfig(this.env);
 
-    if (!token && !webhookUrl) {
+    if (!token && !webhookUrl && !cfpay) {
       // In local or test mode, message is returned in result
       return false;
     }
@@ -1254,6 +1256,21 @@ export class ETradeSlackTradingService {
         }
       } catch (err) {
         console.warn("[ETradeSlackAgent] chat.postMessage failed:", err);
+      }
+    }
+
+    // 3. Deliver via cfpay A2A Slack agent if configured
+    if (cfpay) {
+      try {
+        const channel = (payload as any).channel ||
+          (this.env as any).SLACK_CHANNEL ||
+          (this.env as any).SCREENER_SLACK_CHANNEL;
+        const res = await cfpayPostToSlack(cfpay, payload.text, channel);
+        if (res.ok) {
+          delivered = true;
+        }
+      } catch (err) {
+        console.warn("[ETradeSlackAgent] cfpay A2A slack.post failed:", err);
       }
     }
 

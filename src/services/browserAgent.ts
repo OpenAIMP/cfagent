@@ -23,6 +23,7 @@ import type {
 import { AGENT_DIDS } from "../agents/did";
 import { SERVER_PALETTE } from "../theme/serverPalette";
 import { checkSlackWebhookRateLimit } from "./slackWebhookRateLimit";
+import { getCfpayConfig, cfpayPostToSlack } from "./cfpayA2A";
 
 // ---------------------------------------------------------------------------
 // Spec-aware HTML stripping.
@@ -302,6 +303,14 @@ export class ETradeBrowserService {
         });
         const verdict = await this.slackBotApiAccepted(resp);
         return { success: verdict.accepted, url, error: verdict.error, timestamp };
+      } catch (err: any) {
+        return { success: false, url, error: err.message, timestamp };
+      }
+    } else if (getCfpayConfig(this.env)) {
+      try {
+        const config = getCfpayConfig(this.env)!;
+        const res = await cfpayPostToSlack(config, payload.text, options.channel);
+        return { success: res.ok, url, error: res.error, timestamp };
       } catch (err: any) {
         return { success: false, url, error: err.message, timestamp };
       }
@@ -616,6 +625,28 @@ export class ETradeBrowserService {
           channel: options.channel,
           screenshotBase64,
           error: verdict.error,
+          timestamp,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          transactionId: tx.transactionId,
+          symbol: tx.symbol,
+          error: err.message,
+          timestamp,
+        };
+      }
+    } else if (getCfpayConfig(this.env)) {
+      try {
+        const config = getCfpayConfig(this.env)!;
+        const res = await cfpayPostToSlack(config, payload.text, options.channel);
+        return {
+          success: res.ok,
+          transactionId: tx.transactionId,
+          symbol: tx.symbol,
+          channel: options.channel,
+          screenshotBase64,
+          error: res.error,
           timestamp,
         };
       } catch (err: any) {

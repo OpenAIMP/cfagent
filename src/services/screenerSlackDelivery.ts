@@ -30,8 +30,7 @@ export async function deliverScreenerToSlackA2A(
     (e.SCREENER_SLACK_CHANNEL as string | undefined) ||
     (e.SLACK_CHANNEL as string | undefined);
 
-  if (delivery.pdf) {
-    if (!channel) return { ok: false, error: "Slack channel is required to upload a PDF" };
+  if (delivery.pdf && channel) {
     const bytes = delivery.pdf.bytes;
     let binary = "";
     const chunkSize = 8192;
@@ -45,7 +44,10 @@ export async function deliverScreenerToSlackA2A(
       title: delivery.pdf.title,
       initial_comment: delivery.pdf.comment,
     });
-    return { ok: result.ok, ...(result.error ? { error: result.error } : {}) };
+    if (result.ok) {
+      return { ok: true };
+    }
+    console.warn("[deliverScreenerToSlackA2A] PDF upload via cfpay A2A failed, falling back to text post:", result.error);
   }
 
   const result = await cfpayPostToSlack(config, delivery.text, channel);
