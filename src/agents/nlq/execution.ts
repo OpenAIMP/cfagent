@@ -401,6 +401,22 @@ function executeNLQQueryCore(
       const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
       const relativeDesc = plan.tradingData?.relativePriceDescription;
 
+      // #913/#920: a relative-priced order ("x% below market") may only be
+      // priced off a LIVE E*TRADE quote. A static/simulated fallback quote
+      // or a missing price refuses the order — no draft is created and no
+      // static-derived price is ever substituted.
+      if (relativeOffset !== undefined && (!(quote.lastPrice > 0) || isNonLivePricingQuoteStatus(quote.quoteStatus))) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Cannot price this relative order for ${sym}: no live E*TRADE quote is available (quote status: ${quote.quoteStatus || "UNAVAILABLE"}). Relative orders are priced only from a live E*TRADE quote — no order draft was created.`,
+          rows: [],
+          executedAt,
+        };
+      }
+
       let limitPrice = plan.tradingData?.limitPrice;
       let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
 
@@ -1366,6 +1382,22 @@ async function executeNLQQueryAsyncCore(
       const quote = await etrade.fetchQuoteRemote(sym);
       const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
       const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      // #913/#920: a relative-priced order ("x% below market") may only be
+      // priced off a LIVE E*TRADE quote. A static/simulated fallback quote
+      // or a missing price refuses the order — no draft is created and no
+      // static-derived price is ever substituted.
+      if (relativeOffset !== undefined && (!(quote.lastPrice > 0) || isNonLivePricingQuoteStatus(quote.quoteStatus))) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Cannot price this relative order for ${sym}: no live E*TRADE quote is available (quote status: ${quote.quoteStatus || "UNAVAILABLE"}). Relative orders are priced only from a live E*TRADE quote — no order draft was created.`,
+          rows: [],
+          executedAt,
+        };
+      }
 
       let limitPrice = plan.tradingData?.limitPrice;
       let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
