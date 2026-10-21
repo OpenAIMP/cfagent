@@ -48,6 +48,7 @@ Repository policies cannot override higher-priority security requirements, tool 
 11. Never bypass checks, weaken tests, or conceal failures to make a PR appear ready.
 12. Never claim completion without links or recorded evidence.
 13. Never push directly to protected branches.
+14. Every issue and PR MUST include the author's agent hashtag (e.g. #muse, #mubasher, #copilot) for attribution.
 14. Never overwrite another contributor’s work.
 15. Never publish, deploy, merge, delete, or change repository settings without the required authorization.
 
