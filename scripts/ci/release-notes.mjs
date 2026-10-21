@@ -44,7 +44,14 @@ const MAX_CURATED_CHARS = 60_000;
 const SECTION_HEADING = /^##\s+/;
 const BRACKETED_HEADING = /^##\s+\[([^\]]+)\]/;
 const LINK_REFERENCE = /^\[[^\]]+\]:\s+\S+/;
-const TERMINATOR = /^\s*(?:---+|<!--.*-->)\s*$/;
+// A line that is only a horizontal rule or an HTML comment closes a section.
+// Per the HTML spec `<!--` opens a comment that runs to `-->` OR end of
+// input, so an unterminated `<!-- oops` is still a complete comment line —
+// the old `<!--.*-->` tag filter (CodeQL js/bad-tag-filter, #854) missed it
+// and leaked raw comment text into release notes. The tempered match below
+// consumes up to (never past) the first `-->` or end of line, so a comment
+// followed by trailing text still does not terminate.
+const TERMINATOR = /^\s*(?:---+|<!--(?:(?!-->)[\s\S])*?(?:-->|$))\s*$/;
 
 /** `v0.1.4` / `V0.1.4` / ` 0.1.4 ` all normalize to `0.1.4`. */
 export function normalizeVersion(tag) {
