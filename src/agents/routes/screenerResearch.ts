@@ -328,6 +328,43 @@ export async function handleScreenerResearchRoutes(
       return Response.json({ success: true, ...result, timestamp: new Date().toISOString() });
     }
 
+    // Issue #757: improvement candidates — the Phase 5 queue. Listing is
+    // read-only; generation converts track-record anomalies, reflection
+    // findings (recovered from reflection learnings), and human
+    // learnings into structured candidates. Generation applies
+    // nothing — candidates reach production only via #758 → #759 → #760.
+    if (path.endsWith("/adaptation/candidates") && request.method === "GET") {
+      const { listImprovementCandidates } = await import("../../services/improvementCandidates");
+      const statusParam = url.searchParams.get("status") || undefined;
+      const candidates = listImprovementCandidates(ctx.getOrm(), statusParam as any);
+      return Response.json({ candidates });
+    }
+    if (path.endsWith("/adaptation/candidates/generate") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { generateImprovementCandidates, findingsFromReflectionLearnings } = await import("../../services/improvementCandidates");
+      const { getActiveLearnings } = await import("../../services/learnings");
+      const orm = ctx.getOrm();
+      const learnings = getActiveLearnings(orm);
+      const trackRecord = await agent.getTrackRecord();
+      const result = generateImprovementCandidates(orm, {
+        track: trackRecord,
+        learnings,
+        findings: findingsFromReflectionLearnings(learnings),
+      });
+      return Response.json({
+        success: true,
+        created: result.created.length,
+        deduped: result.deduped.length,
+        superseded: result.superseded.length,
+        candidates: result.created,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
     if (path.endsWith("/research/settings") && request.method === "GET") {
       const userLogin = request.headers.get("x-user-login") || sessionId;
