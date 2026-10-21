@@ -296,6 +296,29 @@ export class ScreenerAgent extends Agent<Env> {
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
     const cfg = DEFAULT_SCREENER_CONFIG;
+    // Issue #828: prevent concurrent runs for same user/universe.
+    // Multiple clicks were spawning parallel runs that exhausted the
+    // Cloudflare subrequest budget and spammed Slack with partials.
+    const lockKey = `screen_lock:${this.userLogin()}:${req.universe || "nasdaq100"}`;
+    const existingLock = await this.ctx.storage.get<string>(lockKey);
+    if (existingLock) {
+      const lockAge = Date.now() - parseInt(existingLock, 10);
+      // Stale lock (>5 min) — assume the previous run died, take over.
+      if (lockAge < 5 * 60 * 1000) {
+        throw new Error(`Screen already running for ${req.universe || "nasdaq100"} (started ${Math.round(lockAge / 1000)}s ago). Please wait for it to complete.`);
+      }
+      console.warn(`[ScreenerAgent] Stale lock detected (${Math.round(lockAge / 1000)}s old), taking over.`);
+    }
+    await this.ctx.storage.put(lockKey, Date.now().toString());
+    try {
+      return await this.runScreenInner(req, timestamp, cfg);
+    } finally {
+      // Always release the lock, even on failure.
+      await this.ctx.storage.delete(lockKey);
+    }
+  }
+
+  private async runScreenInner(req: ScreenerRunRequest, timestamp: string, cfg: typeof DEFAULT_SCREENER_CONFIG): Promise<ScreenerRunResult> {
     // Issue #706: read active learnings at run start; log which ones applied.
     let appliedLearnings: string[] = [];
     try {
