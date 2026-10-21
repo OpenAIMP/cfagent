@@ -18,7 +18,7 @@ import type {
   SlackBlockKitPayload,
   PreTradeApprovalDraft,
 } from "../../types";
-import { DatabaseORM } from "../../orm";
+import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
@@ -82,7 +82,13 @@ export class ETradeSlackTradingService {
       const channel = event.channel;
       const threadTs = event.thread_ts || event.ts;
 
-      const orm = this.orm || new DatabaseORM({ exec: () => [] });
+      // Issue #781: event handling is persistence-backed (trade approvals
+      // read/update the ledger; queries run NLQ against it). Without an
+      // injected ORM this must fail loud — the former stub fallback made
+      // approvals report real orders as "not found" and discarded writes.
+      // Notification-only methods (postSlackMessage) never reach this line
+      // and remain ORM-free.
+      const orm = requireOrm(this.orm, "ETradeSlackTradingService.processSlackEvent");
       const user = event.user || "unknown";
       const authorizerDid = `did:user:slack:${user}`;
 

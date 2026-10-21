@@ -141,6 +141,25 @@ export class ScheduledTasksService {
   ) {}
 
   /**
+   * Issue #781: build the E*TRADE service for the scheduled options
+   * flows (discovery variants, IV collection). The injected ORM is
+   * forwarded as-is; these flows use the service's REST client, and
+   * the ORM reaches only its trading platform, whose contract is
+   * explicitly optional with every access guarded — so without an
+   * ORM, platform persistence is honestly absent. The former stub
+   * fallback (an ORM whose exec returns an empty array for every
+   * query) made the platform believe persistence existed while
+   * discarding every write. When no ORM is present, construct
+   * env-first: ETradeService's orm-first overload would otherwise
+   * drop the env argument.
+   */
+  private createETradeService(userLogin: string, environment?: string): ETradeService {
+    return this.orm
+      ? new ETradeService(this.orm, this.env, userLogin, environment)
+      : new ETradeService(this.env, undefined, userLogin, environment);
+  }
+
+  /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    */
   private getScreenerAgent(userLogin = this.userLogin): import("../agents/screener-agent").ScreenerAgent {
@@ -1138,12 +1157,7 @@ export class ScheduledTasksService {
       // One client/pipeline for the whole execution — the same
       // construction the interactive strategies route uses, under the
       // schedule owner's identity and environment (#447/#461).
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        userLogin,
-        options.environment
-      );
+      const etrade = this.createETradeService(userLogin, options.environment);
       const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
 
       const outcomes: DiscoverySymbolOutcome[] = [];
@@ -1490,12 +1504,7 @@ export class ScheduledTasksService {
       // environment (#447/#461). The bare form used here before
       // silently substituted the "default_trader" login and no
       // environment override (#672).
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        userLogin,
-        options.environment
-      );
+      const etrade = this.createETradeService(userLogin, options.environment);
       const pipeline = new OptionsAgentPipeline(
         new DynamicOptionsScreener(etrade.client)
       );
@@ -1793,12 +1802,7 @@ export class ScheduledTasksService {
       // One client/pipeline for the whole execution — the saved
       // path's construction, under the schedule owner's identity and
       // environment (#447/#461).
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        userLogin,
-        options.environment
-      );
+      const etrade = this.createETradeService(userLogin, options.environment);
       const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
 
       const outcomes: DiscoverySymbolOutcome[] = [];
@@ -2035,12 +2039,7 @@ export class ScheduledTasksService {
       // The same E*TRADE client construction the unified options
       // service uses, so collection reads chains under the same
       // identity/environment as every other options path.
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        this.userLogin,
-        options.environment
-      );
+      const etrade = this.createETradeService(this.userLogin, options.environment);
       const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
 
       const fetchChain = async (symbol: string) => {
