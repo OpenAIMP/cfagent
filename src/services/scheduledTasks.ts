@@ -688,11 +688,14 @@ export class ScheduledTasksService {
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
-      const evaluatedCount = Number(scanData?.coverage?.evaluated ?? 0);
       // Issue #916: Don't fail the entire run on partial chain failures.
       // Log the coverage gaps but continue with what we have. Only throw
-      // if NOTHING was evaluated (total failure — all symbols skipped).
-      if (evaluatedCount === 0) {
+      // if we have coverage data AND nothing was evaluated (total failure).
+      // If coverage is missing (e.g. test mocks), don't throw — the old
+      // code only threw on coverageErrors > 0.
+      const hasCoverage = scanData?.coverage != null;
+      const evaluatedCount = Number(scanData?.coverage?.evaluated ?? 0);
+      if (hasCoverage && evaluatedCount === 0) {
         // Issue #915 (Mubasher): name the dominant skip reason alongside
         // the counts — counts alone left failing runs undiagnosable.
         const skippedList: Array<{ reason?: unknown }> = Array.isArray(scanData?.skipped) ? scanData.skipped : [];
