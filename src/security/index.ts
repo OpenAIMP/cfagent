@@ -9,6 +9,7 @@
  */
 
 export * from "./githubOAuth";
+export * from "./identityBinding";
 export * from "./etradeOAuth";
 export * from "./session";
 export * from "./webhookSecurity";
