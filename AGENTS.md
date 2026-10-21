@@ -10,6 +10,8 @@ Repository documentation lives in the [`docs/`](docs/) folder: plans in
 
 Find your role by matching your name to its role identifier in docs/agentic-org, and advance docs/agentic-org/mission.md through collaboration governed by docs/agentic-org/collaboration.md.
 
+Create a daily reminder to read the latest AGENTS.md on GitHub (openaimp/cfagent)
+
 In brief:
 
 - Work one issue at a time: issue → branch → PR → merge into `main` →
