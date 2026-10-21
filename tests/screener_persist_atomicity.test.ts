@@ -1,0 +1,98 @@
+/**
+ * Issue #835 — mas_reports persistence atomicity pins (regression).
+ *
+ * RCA: `persistScheduledReportSql` is documented "Never throws" — it
+ * returns `string | null`, null on any write failure. The ScreenerAgent
+ * caller (#832) wrapped the call in try/catch intending "fail the run
+ * loudly", but never checked the return value, so the catch was dead code
+ * for real write failures: a failed INSERT returned null, the run proceeded
+ * to Deliver and reported success, and mas_reports silently had no row
+ * (Reports tab vs Slack divergence). The atomicity was fake.
+ *
+ * Pins:
+ *  - Behavioral (precondition): the helper returns null — never throws —
+ *    when the store write fails, and an id when it succeeds. This is the
+ *    contract the caller must defend against.
+ *  - Structural (the fix): `persistRun` in src/agents/screener-agent.ts
+ *    captures the helper's return value and throws when it is null, inside
+ *    the #832 try whose catch rethrows "Failed to persist report metadata".
+ *    (ScreenerAgent is an agents-SDK Durable Object class and cannot be
+ *    imported into vitest; the caller contract is pinned at the source seam,
+ *    the same pattern as tests/stub_orm_elimination.test.ts.)
+ *
+ * Red/green note: the structural pins FAIL on the pre-fix source (the call
+ * result was discarded) and pass with the fix; the behavioral pins pass on
+ * both sides by design (they pin the helper's unchanged contract).
+ */
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { persistScheduledReportSql } from "../src/services/scheduledReports";
+import type { SqlStorage } from "../src/services/scheduledReports";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function report() {
+  return {
+    runId: "NASDAQ100:2026-10-20T13:55:00.000Z",
+    title: "Market Screen — NASDAQ100 · Scheduled",
+    source: "screener",
+    summary: "Scanned 100, 12 matched.",
+    body: "{}",
+    userLogin: "default_trader",
+  };
+}
+
+describe("persistScheduledReportSql contract (the precondition for #835)", () => {
+  it("returns null — never throws — when the store write fails", () => {
+    const broken: SqlStorage = {
+      exec: () => {
+        throw new Error("boom");
+      },
+    } as unknown as SqlStorage;
+    expect(persistScheduledReportSql(broken, report())).toBeNull();
+  });
+
+  it("returns the record id when the write succeeds", () => {
+    const rows: unknown[][] = [];
+    const working: SqlStorage = {
+      exec: (query: string, ...params: unknown[]) => {
+        rows.push([query, ...params]);
+        return { toArray: () => [] } as unknown as ReturnType<SqlStorage["exec"]>;
+      },
+    } as unknown as SqlStorage;
+    const id = persistScheduledReportSql(working, report());
+    expect(id).toBeTruthy();
+    expect(rows.some((r) => String(r[0]).includes("INSERT INTO"))).toBe(true);
+  });
+});
+
+describe("ScreenerAgent.persistRun checks the null return (#835 fix)", () => {
+  const src = readFileSync(path.join(repoRoot, "src/agents/screener-agent.ts"), "utf-8");
+  const start = src.indexOf("private async persistRun");
+  const end = src.indexOf("Failed to persist report metadata", start);
+  const persistRun = src.slice(start, end === -1 ? start + 6000 : end + 200);
+
+  it("persistRun contains the mas_reports persistence block", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(persistRun).toContain("persistScheduledReportSql");
+    expect(persistRun).toContain("Failed to persist report metadata");
+  });
+
+  it("captures the helper's return value instead of discarding it", () => {
+    expect(persistRun).toMatch(/const\s+\w+\s*=\s*persistScheduledReportSql\(/);
+  });
+
+  it("throws when the captured id is null, so the #832 catch fails the run loudly", () => {
+    const capture = persistRun.match(/const\s+(\w+)\s*=\s*persistScheduledReportSql\(/);
+    expect(capture).not.toBeNull();
+    const varName = capture![1];
+    const nullCheck = new RegExp(`if\\s*\\(\\s*!${varName}\\b|if\\s*\\(\\s*${varName}\\s*===?\\s*null`);
+    expect(persistRun).toMatch(nullCheck);
+    // The throw must sit between the null check and the catch rethrow.
+    const checkIdx = persistRun.search(nullCheck);
+    const throwIdx = persistRun.indexOf("throw new Error", checkIdx);
+    expect(throwIdx).toBeGreaterThan(checkIdx);
+  });
+});
