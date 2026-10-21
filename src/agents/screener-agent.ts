@@ -686,41 +686,12 @@ export class ScreenerAgent extends Agent<Env> {
       result.pdfError = err instanceof Error ? err.message : String(err);
       console.error("[ScreenerAgent] PDF generation failed:", err instanceof Error ? err.message : String(err));
     }
-    // Issue #732: persist to mas_reports so the Reports tab shows scheduled runs.
-    // The tab reads from SQL, but persistRun only wrote to DO storage.
-    try {
-      const { persistScheduledReportSql } = await import("../services/scheduledReports");
-      const orm = this.getOrm();
-      const sql = {
-        exec: (query: string, ...params: unknown[]) => orm.execQuery(query, ...params),
-      } as any;
-      const reportId = persistScheduledReportSql(sql, {
-        runId: `${result.universe}:${result.timestamp}`,
-        title: `Market Screen — ${result.universe} · ${result.trigger === "manual" ? "Manual" : "Scheduled"}`,
-        source: "screener",
-        summary: `Scanned ${result.totalScanned}, ${result.matchedCount} matched.`,
-        body: JSON.stringify({
-          universe: result.universe,
-          sector: result.sector,
-          totalScanned: result.totalScanned,
-          matchedCount: result.matchedCount,
-          opportunities: result.opportunities,
-          timestamp: result.timestamp,
-        }),
-        userLogin: this.userLogin(),
-      });
-      // Issue #834: persistScheduledReportSql returns null on failure (doesn't throw).
-      // Check the return value for true atomicity.
-      if (!reportId) {
-        throw new Error("persistScheduledReportSql returned null (write failed)");
-      }
-    } catch (err) {
-      // Issue #832: Store must be atomic. If mas_reports write fails,
-      // fail the run loudly — don't silently continue to Deliver.
-      // The Reports tab and Slack must see the same data.
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[ScreenerAgent] mas_reports persistence FAILED:", message);
-      throw new Error(`Failed to persist report metadata: ${message}`);
-    }
+    // Issue #783: no report-store write happens here. The #732 block that
+    // persisted a second copy into this DO's own report table is removed:
+    // nothing read that copy. The canonical report copy for a run is
+    // stored exactly once by OrchestratorAgent at generation time (the
+    // store every report surface reads — Reports tab, routes, AI Search);
+    // this method keeps only the delivery cache above (latest/history in
+    // DO storage + the per-run PDFs).
   }
 }
