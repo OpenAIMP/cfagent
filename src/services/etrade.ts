@@ -110,7 +110,7 @@ export class ETradeService {
   }
 
   /**
-   * Async broker status that includes live KV token validity & midnight ET expiry check
+   * Async broker status that includes live token validity (SessionStore) & midnight ET expiry check
    */
   async getStatusAsync(): Promise<ETradeBrokerStatus> {
     return this.platform.getStatus();
