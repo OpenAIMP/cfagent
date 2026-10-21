@@ -35,7 +35,7 @@ import {
   sharedMemoryReplayStore,
   validateEmailRecipient,
 } from "./security/webhookReplay";
-import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading";
+import { handleVoiceWebSocketConnection, ETradeVoiceTradingService, createOrchestratorVoiceTurnForwarder } from "./trading";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
@@ -873,7 +873,15 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       const userLogin = session.githubLogin;
 
-      handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
+      // Issue #815: the worker isolate has no ORM (an ORM wraps a
+      // specific Durable Object's storage.sql), so voice turns are
+      // forwarded per-turn to the session user's orchestrator DO, whose
+      // POST /trading/voice/turn route runs the voice service against
+      // the DO's real ORM. The forwarder keys the DO instance by, and
+      // sets the identity header from, the verified session login above
+      // — never from caller input.
+      const forwardVoiceTurn = createOrchestratorVoiceTurnForwarder(env, userLogin);
+      handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin, forwardVoiceTurn).catch(console.warn);
 
       return new Response(null, { status: 101, webSocket: clientWs });
     }
