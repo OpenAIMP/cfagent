@@ -1,9 +1,9 @@
 /**
- * In-isolate cache in front of the E*TRADE token KV read (issue #329
+ * In-isolate cache in front of the E*TRADE token-store read (issue #329
  * follow-up).
  *
  * Why this exists: `getValidTokens` runs from every auth-header builder, i.e.
- * once per E*TRADE request, and pays a KV `get()` (two when the legacy
+ * once per E*TRADE request, and pays a store `get()` (two when the legacy
  * unscoped key is the one holding the token). A single options scan over 25
  * underlyings paid that dozens of times. Sessions already had this treatment
  * (`security/sessionCache.ts`); tokens did not, even though they change far
@@ -15,7 +15,7 @@
  * - Invalidated on every write path (`storeAccessTokens`, `revokeStoredTokens`),
  *   so a renewed or revoked token is never served stale from here.
  * - Misses are cached briefly, so an unauthenticated caller cannot turn every
- *   E*TRADE attempt into a KV read — but a token that appears moments later is
+ *   E*TRADE attempt into a token-store read — but a token that appears moments later is
  *   not pinned for long.
  */
 export interface CachedTokenSet {

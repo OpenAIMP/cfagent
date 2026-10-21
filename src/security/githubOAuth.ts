@@ -101,7 +101,8 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
   const sessionId = getSessionId(request);
 
   // Issue #329: only a UUID-shaped cookie can name a session; skipping the
-  // read (and the delete) for anything else keeps junk cookies off KV.
+  // read (and the delete) for anything else keeps junk cookies off the
+  // session store.
   if (isSessionIdFormat(sessionId)) {
     try {
       // Authoritative read from the session store (not KV): logout must see the

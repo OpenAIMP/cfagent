@@ -14,11 +14,11 @@ export function getSessionId(request: Request): string | null {
 }
 
 /**
- * Shape check for a session id, applied before any KV read (issue #329).
+ * Shape check for a session id, applied before any session-store read (issue #329).
  *
  * `createSession` mints `crypto.randomUUID()`, so a value that is not a UUID
  * cannot name a session. Checking the shape here means a junk or
- * attacker-supplied `session_id` cookie costs a regex instead of a KV `get()` —
+ * attacker-supplied `session_id` cookie costs a regex instead of a store `get()` —
  * the negative cache alone still allowed one read per unique value per 10s.
  */
 const SESSION_ID_PATTERN =

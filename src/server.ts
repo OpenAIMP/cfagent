@@ -209,7 +209,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
     // Issue #329: static assets never need a session, but `run_worker_first`
     // routes them through this handler anyway — so serve them from the ASSETS
-    // binding before `requireAuth` can spend a SESSIONS KV read on them.
+    // binding before `requireAuth` can spend a session-store read on them.
     const staticAsset = await serveStaticAsset(request, path, env);
     if (staticAsset) return staticAsset;
 
@@ -1442,7 +1442,8 @@ export default {
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
   const sessionId = getSessionId(request);
   // Issue #329: a value that isn't a UUID cannot name a session, so reject it
-  // before the cache and before KV — junk cookies cost a regex, not a read.
+  // before the cache and before the session store — junk cookies cost a
+  // regex, not a read.
   if (!isSessionIdFormat(sessionId)) return null;
   return await getSessionCached(env, sessionId);
 }

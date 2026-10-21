@@ -4,11 +4,11 @@ export interface Env {
   // Issue #605: R2 bucket for report PDF blobs. Optional so the #605 code is
   // safe to merge before the bucket is provisioned (falls back to DO storage).
   REPORTS_BUCKET?: R2Bucket;
-  SESSIONS: KVNamespace;
-  // Issue #329: session + credential store. KV stays bound only for the
-  // one-time legacy migration (see security/session.ts).
+  // Issue #329/#604: session + credential store — the SessionStore Durable
+  // Object. Sessions, tokens and API keys live here, not in Workers KV
+  // (legacy KV fallback removed in #604; the leftover KV bindings in
+  // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
-  SESSIONS_KV_FALLBACK?: string;
   SEARCH_AGENT: DurableObjectNamespace;
   // PR #3 — x402 PaymentsAgent DO (issue #161)
   PAYMENTS_AGENT: DurableObjectNamespace;
