@@ -60,11 +60,11 @@ export interface StoredEvaluation extends EvaluationReport {
   createdAt: string;
 }
 
-function isWin(idea: TrackRecordIdea): boolean {
+export function isWinningIdea(idea: TrackRecordIdea): boolean {
   return ((idea.evaluation?.pnlEstimatePerUnit ?? 0) as number) > 0;
 }
 
-function ideasInWindow(track: TrackRecord, window?: EvaluationWindow): TrackRecordIdea[] {
+export function ideasInEvaluationWindow(track: TrackRecord, window?: EvaluationWindow): TrackRecordIdea[] {
   return track.ideas.filter((i) => {
     if (i.evaluation == null) return false;
     if (window?.from && i.runCreatedAt < window.from) return false;
@@ -75,7 +75,7 @@ function ideasInWindow(track: TrackRecord, window?: EvaluationWindow): TrackReco
 
 function winRate(ideas: TrackRecordIdea[]): number | null {
   if (ideas.length === 0) return null;
-  return ideas.filter(isWin).length / ideas.length;
+  return ideas.filter(isWinningIdea).length / ideas.length;
 }
 
 function weightedWinRate(
@@ -87,7 +87,7 @@ function weightedWinRate(
   for (const i of ideas) {
     const w = weightOf(i.structure || "(unknown)");
     den += w;
-    if (isWin(i)) num += w;
+    if (isWinningIdea(i)) num += w;
   }
   return den > 0 ? num / den : null;
 }
@@ -107,7 +107,7 @@ export function replayCandidate(
   track: TrackRecord,
   opts: ReplayOptions
 ): EvaluationReport {
-  const ideas = ideasInWindow(track, opts.window);
+  const ideas = ideasInEvaluationWindow(track, opts.window);
   const sampleSize = ideas.length;
   const action = candidate.change.action;
 
@@ -135,7 +135,7 @@ export function replayCandidate(
       detail: {
         structure,
         excludedCount: ideas.length - remaining.length,
-        excludedWins: ideas.filter((i) => (i.structure || "(unknown)") === structure && isWin(i)).length,
+        excludedWins: ideas.filter((i) => (i.structure || "(unknown)") === structure && isWinningIdea(i)).length,
         remainingCount: remaining.length,
       },
     };
