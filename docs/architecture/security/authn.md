@@ -1,0 +1,107 @@
+# Authentication — user security
+
+How a person proves who they are to cfagent, and how that proof is carried,
+checked, and refreshed. Authorization (what the proof permits) is in
+[authz.md](authz.md); the end-to-end picture is in
+[security-workflow.md](security-workflow.md).
+
+## 1. Providers are plugins, not hardcoded routes
+
+Login providers register in a provider registry
+(`src/security/providers.ts`). A provider is a `LoginProvider` adapter: an
+id, a display name, a protocol (`oauth` for GitHub, `oidc` for Google and
+anything built on the generic factory), endpoints, env-key names, and scope.
+The generic OIDC factory (`src/security/oidcProvider.ts`) builds an adapter
+from endpoints plus env names plus scope, so onboarding a new provider is
+one adapter plus registration plus configuration — never a new bespoke
+route set. See [iaaa-provider-onboarding.md](iaaa-provider-onboarding.md);
+Google is the worked example in
+[iaaa-google-defaults.md](iaaa-google-defaults.md).
+
+Routes are generic: `/auth/login/<providerId>` and
+`/auth/callback/<providerId>` dispatch through the registry. The exact
+`/auth/login` and `/auth/callback` paths stay GitHub-only. An unknown,
+unlisted, or empty provider id is refused (403) — it never falls back to
+another provider. Wiring OFF is also a 403. The login page renders one
+button per enabled registered provider; shipping a provider's code surfaces
+no button until it is enabled.
+
+## 2. Identity is (issuer, subject) — never an email or a login
+
+Slice 1 identity binding (`src/security/identityBinding.ts`) maps
+`(issuer, subject)` to a stable internal user id. The rules are absolute:
+
+- Email is never identity. For Google it is only the legacy login key, and
+  login fails closed if it is missing or unverified.
+- A GitHub login is never identity either: it can be renamed, and a
+  released login can be recycled. GitHub sessions bind the **numeric user
+  id**; a missing or non-finite id fails login. The bootstrap parser
+  rejects a pasted login for the same reason.
+- Sessions carry `internalUserId`, `providerIssuer`, `providerSubject`,
+  `authTimeMs`, and `sessionVersion: 1`. Legacy (pre-wiring) sessions
+  carry none of these: they are keyed by login string only.
+
+`GET /api/me` returns the caller's **own** `internalUserId` for wired
+sessions only. Legacy sessions get no such key, and unauthenticated callers
+get `authenticated: false` with no id. The id is an identifier, not a
+credential — but it is still only ever disclosed to its own session.
+
+## 3. Session lifecycle (hardening)
+
+Session policy (`src/security/sessionPolicy.ts`, Slice 2) is a contract,
+not a set of suggestions:
+
+- **Absolute TTL:** 7 days.
+- **Idle expiry:** enforced for wired sessions, read from a **fresh**
+  session read — never from the isolate cache. Legacy sessions are exempt
+  (they carry no activity timestamp).
+- **Rotation and revocation:** sessions rotate, and revocation is stored
+  so a revoked session stays revoked.
+- **Step-up:** sensitive operations (API-key mint is the live example)
+  require a recent authentication. The step-up window default is 15
+  minutes, which is a **proposed** value, not a settled CISO threshold —
+  and a step-up gate fails closed when `authTimeMs` is missing, so legacy
+  sessions cannot mint keys until they re-login through wiring.
+
+Sessions live in the SessionStore Durable Object. Bindings created by
+wiring live under `iaaa-binding:` keys with no TTL; rollback of wiring
+config does not delete them.
+
+## 4. Request authentication
+
+Every request that needs a user goes through `requireAuth` (worker) or the
+DO forward path, which sets an `x-user-login` header from the session
+login before forwarding. Enforcement code validates wired sessions on
+fresh reads, touches activity (writes at most every 60 seconds), and
+invalidates the session cache after updates — the cache is consulted only
+to decide whether a session is wired at all, never to authorize.
+
+## 5. What authentication does not do
+
+- It does not authorize anything by itself. A valid session with no
+  membership is denied at every PDP gate it reaches (see
+  [authz.md](authz.md)); a legacy session is exempt from PDP gates, which
+  is a migration property, not a privilege.
+- It does not connect third parties. Signing in does not link E*TRADE,
+  MCP, or any integration — each of those is a separate, separately
+  gated authorization (see [etrade.md](etrade.md) and
+  [api-security.md](api-security.md)).
+- It does not survive renaming unscathed. Token and DO state keyed by
+  login string can orphan on rename; the IAAA alias layer dual-reads
+  internal id first, login second, but the cutover beyond aliases is
+  still open (see [authz.md](authz.md)).
+
+## 6. Configuration that controls authentication
+
+| Setting | Effect |
+| --- | --- |
+| `IAAA_WIRING_ENABLED=1` | Wiring on; default off |
+| `IAAA_ENABLED_PROVIDERS` | Comma list of enabled providers; default `github` when wiring is on |
+| `IAAA_TENANT_ID` | Tenant; default `"primary"` (see [authz.md](authz.md)) |
+| `IAAA_BOOTSTRAP_ADMINS` | Bootstrap entries; blank means zero entries, zero error |
+| `IAAA_PDP_ENABLED=1` | PDP denials on; default off |
+
+All are plain config in `wrangler.jsonc` vars (identifiers and switches,
+not credentials). Provider client secrets are never committed: they travel
+GitHub PROD secrets → deploy sync → Worker secrets. Rollback of any of
+these is a config change plus redeploy.
