@@ -162,13 +162,23 @@ export async function handleAgenticPaymentsRoutes(
     try {
       const rawLimit = Number(url.searchParams.get("limit") ?? 50);
       const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(500, Math.floor(rawLimit))) : 50;
+      // Newest first. createdAt is millisecond-resolution, so two
+      // payments recorded in the same millisecond tie on timestamp;
+      // Array.sort is stable, which would then return them in
+      // insertion order (oldest first) and break the newest-first
+      // contract. Tie-break on insertion order, latest inserted first.
       const payments = ctx
         .getOrm()
         .transactions.findMany()
         .filter(isPaymentsAgentRow)
-        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        .map((row, index) => ({ row, index }))
+        .sort(
+          (a, b) =>
+            String(b.row.createdAt).localeCompare(String(a.row.createdAt)) ||
+            b.index - a.index
+        )
         .slice(0, limit)
-        .map(toPaymentRecord);
+        .map(({ row }) => toPaymentRecord(row));
       return Response.json({ count: payments.length, payments });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to list ledger payments" }, { status: 500 });
