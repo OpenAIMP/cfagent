@@ -11,6 +11,11 @@ import {
 import { serveStaticAsset } from "./security/staticAssets";
 import { withErrorBoundary } from "./security/workerErrorBoundary";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
+import {
+  disabledLoginResponse,
+  isWiringEnabled,
+  resolveLoginProvider,
+} from "./security/providers";
 import { renderLandingPage } from "./landing";
 import { SERVER_PALETTE } from "./theme/serverPalette";
 import { routeAgentRequest } from "agents";
@@ -271,11 +276,30 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (agentResponse) return agentResponse;
 
     // --- Authentication endpoints ---
-    if (path === "/auth/login") return handleLogin(env);
+    // #945 Wiring Phase 1: when IAAA wiring is OFF, these dispatch
+    // exactly as before. When it is ON, they dispatch through the
+    // provider registry (default provider "github" in this phase);
+    // a disabled/unregistered provider gets a 403, never a fallback.
+    // Logout is unchanged in this phase.
+    if (path === "/auth/login") {
+      if (isWiringEnabled(env)) {
+        const { provider, disabledReason } = resolveLoginProvider(env, "github");
+        if (!provider || disabledReason) return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+        return provider.startLogin(env);
+      }
+      return handleLogin(env);
+    }
     if (path === "/login" && request.method === "GET") {
       return new Response(renderLoginPage(env), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
-    if (path === "/auth/callback") return handleOAuthCallback(env, request);
+    if (path === "/auth/callback") {
+      if (isWiringEnabled(env)) {
+        const { provider, disabledReason } = resolveLoginProvider(env, "github");
+        if (!provider || disabledReason) return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+        return provider.handleCallback(env, request);
+      }
+      return handleOAuthCallback(env, request);
+    }
     if (path === "/auth/logout") return handleLogout(env, request);
 
     // --- E*TRADE OAuth 1.0a 3-Legged Lifecycle Endpoints ---
