@@ -133,6 +133,11 @@ export interface EtapiDiscoveryConfig {
    *  fixture distribution (#24); discovery's settled floor is 50,
    *  applied over the scanner gate's other criteria (slice 3). */
   compositeFloor: number;
+  /** Score movement (composite points) at or beyond which a
+   *  continuing setup counts as STRENGTHENED / WEAKENED between
+   *  comparable runs (slice 4); inside the band, a confidence change
+   *  decides, and no change at all is UNCHANGED. */
+  deltaScoreThreshold: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -337,6 +342,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       large_move: { minDte: 14, maxDte: 45 },
     },
     compositeFloor: 50,
+    deltaScoreThreshold: 5,
   },
   llmIdeas: {
     inputTokenBudget: 90000,
