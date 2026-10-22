@@ -53,11 +53,12 @@
  *   auditStore AND an auditTenantId (there is deliberately no
  *   default tenant); recording is best-effort and never changes
  *   the login outcome. server.ts dispatch passes neither, so in
- *   production nothing is recorded yet. The logout builder
- *   exists in iaaaAuthAudit.ts but is NOT hooked: logout lives
- *   in githubOAuth.ts handleLogout (server.ts /auth/logout),
- *   and the hook (record before deleteSession, using the
- *   session's internalUserId when present) is a parent step.
+ *   production no LOGIN event is recorded yet. The logout builder
+ *   IS hooked since Phase 2b-part1 (githubOAuth.ts handleLogout,
+ *   server.ts /auth/logout): it records before deleteSession
+ *   when wiring is ON, the session has an internalUserId, and
+ *   IAAA_TENANT_ID resolves, via the Kv-backed store in
+ *   iaaaAuditStore.ts. Without a tenant the hook is dormant.
  * - Step-up remains a helper (iaaaSessionActivity.ts); no route
  *   calls it in this phase (Phase 2b).
  *
