@@ -7,7 +7,7 @@ import {
   type OptionsIdeasReportExport,
   type RawOptionsIdeasExport,
   type RetrievedOptionsDataExport,
-} from "./optionsIdeasExport";
+} from "../runExport";
 import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
