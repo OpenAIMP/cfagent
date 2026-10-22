@@ -34,6 +34,7 @@ import {
 import { ETradeService } from "../../services/etrade";
 import { FossResearchService } from "../../services/fossResearch";
 import { DynamicOptionsScreener, YFinanceMarketScreener } from "../../trading";
+import { parseOptionsScreenRequest } from "../../trading";
 import { sha256Hex } from "../../services/scheduledReports";
 import type { Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
@@ -108,6 +109,15 @@ export async function handlePremiumRoutes(
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
           };
         }
+        // Issue #959: the paid scan takes the same OptionScreenerFilter
+        // shape as every other options screen — validate through the
+        // ONE shared schema; a mis-shaped filter fails explicitly with
+        // the field named (in the endpoint's usual failure shape).
+        const parsedPremiumFilter = parseOptionsScreenRequest(filter);
+        if (!parsedPremiumFilter.ok) {
+          return { success: false, service: tier.name, receipt, error: parsedPremiumFilter.error };
+        }
+        filter = parsedPremiumFilter.value.filter;
         // Issue #183: the fulfillment identity is the session login
         // (x-user-login, set by the worker from the verified session)
         // for signed-in traffic. For anonymous gateway traffic there is
