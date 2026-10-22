@@ -86,11 +86,14 @@ describe("Think conformance (issue #542)", () => {
 
   it("the orchestrator dispatches research through the Think agent", () => {
     const orchestrator = read("src/agents/orchestrator.ts");
+    // The dispatch call itself lives in the extracted researchPublish
+    // module (#992 subset 2); the class wires that module in.
+    const researchPublish = read("src/agents/orchestrator/researchPublish.ts");
     // Per-tenant instance resolution off the DO binding…
     expect(orchestrator).toContain("this.env.RESEARCH_AGENT");
     expect(orchestrator).toContain("research:${login}");
     // …and the agent-tool dispatch that runs the Think turn.
-    expect(orchestrator).toContain("runAgentTool(ResearchAgent");
+    expect(researchPublish).toContain("runAgentTool(ResearchAgent");
   });
 
   it("the test stub is acknowledged: vite aliases @cloudflare/think only for tests", () => {
