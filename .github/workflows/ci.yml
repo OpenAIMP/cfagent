@@ -1,5 +1,6 @@
 name: Continuous Integration & Test Verification
 
+
 on:
   push:
     branches:
@@ -7,6 +8,12 @@ on:
   pull_request:
     branches:
       - main
+  # Merge queue validation (gitops §19.5): the queue builds a temporary
+  # merge commit of each PR against current main plus earlier queued
+  # PRs. Without this trigger that commit runs no checks and the queue
+  # gates nothing. Deploy stays push-only: a queued merge that lands
+  # triggers deploy via the push event.
+  merge_group:
   workflow_dispatch:
 
 concurrency:
