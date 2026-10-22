@@ -27,7 +27,7 @@
  * Read-only by design: no order path and no Builder handoff exists
  * from this panel — a stored run is a record of what the pipeline
  * ranked at run time, reviewed as-is. Downloads (CSV of the ranked
- * candidates, JSON of the full run) come from discoveryExport.ts and
+ * candidates, JSON of the full run) come from runExport.ts and
  * always target the run being viewed.
  */
 
@@ -42,7 +42,7 @@ import {
   type DiscoveryTargetDerivation,
   type StoredDiscoveryRun,
 } from "../discoveryApi";
-import { discoveryTriggerLabel, downloadDiscoveryExport } from "../discoveryExport";
+import { discoveryTriggerLabel, downloadDiscoveryExport } from "../runExport";
 import {
   NO_VIEW_DEFAULT_MIN_PROBABILITY_OF_PROFIT,
   type DiscoveryInputModel,
