@@ -11,6 +11,7 @@
 export * from "./githubOAuth";
 export * from "./identityBinding";
 export * from "./sessionPolicy";
+export * from "./authorization";
 export * from "./etradeOAuth";
 export * from "./session";
 export * from "./webhookSecurity";
