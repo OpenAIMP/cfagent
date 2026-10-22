@@ -7,7 +7,7 @@
 import { OptionsDataAgent } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RankedStrategy, type RiskProfile } from "./recommendationAgent";
-import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
+import type { EventCalendarInfo, StrategyCandidate, StrategyRequest } from "./strategyEngine";
 import { DEFAULT_MAX_DTE, MAX_EXPIRATIONS_PER_SYMBOL, MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
 import { defaultRegistry } from "./strategies/catalog";
@@ -404,6 +404,11 @@ export interface ScanCoverage {
   evaluated: number;
   errors: number;
   withTrades: number;
+  /** Event-calendar coverage for this run (issue #16): how many of the
+   *  scanned names carried live earnings/dividend calendar facts. A
+   *  name without supplied coverage was judged with event risk
+   *  unverified — the count is reported, never hidden. */
+  eventCalendar: { covered: number; total: number; coveragePct: number };
 }
 
 export interface OpportunityScanResult {
@@ -790,6 +795,13 @@ export class OpportunityScanner {
        *  result's `generatedAt` is stamped from this instant instead of
        *  the wall clock. */
       now?: Date;
+      /** Per-name earnings/dividend calendar facts (issue #16),
+       *  pre-fetched by the caller from the calendar service
+       *  (src/services/eventCalendar.ts). The scanner never fetches.
+       *  Names absent from the map — or present with covered: false —
+       *  are treated as unverified by the engine, and every scanned
+       *  name counts toward coverage.eventCalendar either way. */
+      eventCalendarBySymbol?: Record<string, EventCalendarInfo>;
     } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
@@ -798,6 +810,15 @@ export class OpportunityScanner {
     // the run for "incomplete universe" is self-inflicted.
     const maxSymbols = options.maxSymbols ?? MAX_SCAN_SYMBOLS;
     const batch = unique.slice(0, maxSymbols);
+    // Issue #16: per-run event-calendar coverage over the scanned batch,
+    // reported in the result's coverage (and disclosed in assumptions
+    // when the caller supplied calendars at all).
+    const eventCalendarCovered = batch.filter((s) => options.eventCalendarBySymbol?.[s]?.covered).length;
+    const eventCalendarCoverage = {
+      covered: eventCalendarCovered,
+      total: batch.length,
+      coveragePct: batch.length ? Math.round((eventCalendarCovered / batch.length) * 1000) / 10 : 0,
+    };
     // Saved strategy profile (issue #28): the profile is the BASE layer
     // of this scan — everything downstream (request building, target
     // resolution, the fit gate, the provenance snapshot) runs on the
@@ -833,11 +854,18 @@ export class OpportunityScanner {
       ...scanTargetAssumptions(effectiveTemplate),
       ...(overrideAssumption ? [overrideAssumption] : []),
       ...(strategyProfile ? [profileDisclosure(strategyProfile, appliedProfileFields, profileGateApplied)] : []),
+      ...(options.eventCalendarBySymbol
+        ? [`Earnings/dividend calendar coverage: ${eventCalendarCoverage.covered} of ${eventCalendarCoverage.total} names (${eventCalendarCoverage.coveragePct}%). Names without coverage were judged with event risk unverified.`]
+        : []),
     ];
     // The stated target and the per-name overrides are scan-level scoping
     // metadata, not request fields: strip them so per-symbol
-    // StrategyRequests stay exactly StrategyRequest-shaped.
-    const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = effectiveTemplate;
+    // StrategyRequests stay exactly StrategyRequest-shaped. A
+    // template-level eventCalendar is stripped for a different reason
+    // (issue #16): calendar facts belong to one name and must never
+    // leak across the batch — per-symbol calendars arrive only via
+    // options.eventCalendarBySymbol.
+    const { statedTarget: _statedTarget, perSymbol: _perSymbol, eventCalendar: _templateEventCalendar, ...requestTemplate } = effectiveTemplate;
     const resolvedStrategies = new Set(defaultRegistry.resolveMany(requestTemplate.allowedStrategies).ids);
     const scanTheses = new Set([
       requestTemplate.thesis,
@@ -907,6 +935,7 @@ export class OpportunityScanner {
           symbol,
           targetPrice,
           thesis: override?.thesis ?? requestTemplate.thesis,
+          eventCalendar: options.eventCalendarBySymbol?.[symbol],
         };
         const built = this.risk.buildStrategies(snapshot.contracts, request);
         const { matched, rejected } = this.risk.screenStrategies(built.candidates, options.strategyFilter);
@@ -1051,6 +1080,7 @@ export class OpportunityScanner {
         evaluated: matrix.length - skippedRows,
         errors: skippedRows,
         withTrades: opportunities.length,
+        eventCalendar: eventCalendarCoverage,
       },
     };
   }
