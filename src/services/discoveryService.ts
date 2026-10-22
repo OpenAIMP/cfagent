@@ -265,6 +265,11 @@ export async function runDiscovery(
         targetDate: built.request.targetDate,
         firedSignals: inference.firedSignals,
         evidence: inference.rationale,
+        rollup: expression.rollup.map((r) => ({
+          type: r.type,
+          label: r.label,
+          compositeScore: r.compositeScore,
+        })),
       });
     } catch (error) {
       errors.push({ symbol, message: error instanceof Error ? error.message : String(error) });
@@ -384,6 +389,13 @@ export function formatDiscoveryRunSummary(outcome: DiscoveryRunOutcome): string 
         `▸ ${item.symbol} ${item.thesis} — rule ${item.ruleId}, score ${item.discoveryScore} (${item.gateBucket}), ` +
           `target $${item.targetPrice} by ${item.targetDate}. Evidence: ${item.evidence}`,
       );
+      // Issue #18: the per-type roll-up, when the run recorded one
+      // (pre-roll-up stored runs render exactly as before).
+      if (item.rollup && item.rollup.length > 0) {
+        lines.push(
+          `    Roll-up: ${item.rollup.map((r) => `${r.label} ${Math.round(r.compositeScore)}`).join(" · ")}`,
+        );
+      }
     } else {
       lines.push(`▸ ${item.symbol} — abstained (${item.stage}): ${item.reason}`);
     }
