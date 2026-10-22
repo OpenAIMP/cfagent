@@ -234,6 +234,8 @@ export function persistScreenerReportCanonical(ctx: ReportDispatchContext, resul
   timestamp: string;
   universe?: unknown;
   sector?: unknown;
+  /** Issue #1007: data provider provenance (default "etrade"). */
+  provider?: unknown;
   success: boolean;
   totalScanned: number;
   matchedCount: number;
@@ -260,6 +262,10 @@ export function persistScreenerReportCanonical(ctx: ReportDispatchContext, resul
         timestamp: result.timestamp,
         universe: result.universe,
         sector: result.sector,
+        // Issue #1007: provider provenance — a Yahoo-provider run is
+        // identifiable as such in Reports; E*TRADE runs record the
+        // default they have always implied.
+        provider: result.provider ?? "etrade",
         trigger: result.trigger,
         success: result.success,
         totalScanned: result.totalScanned,
