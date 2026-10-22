@@ -808,14 +808,11 @@ export class ScheduledTasksService {
             optionsPdfFile = pdfData.fileName;
           }
         } else {
-          console.warn("[ScheduledTasksService] Options PDF generation via pipeline failed, attempting fallback:", pipelineResult.pdfError);
-          const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
-          optionsPdf = await generateOptionsPdf(response.data);
-          optionsPdfFile = optionsPdfFileName(response.data);
-          let binary = "";
-          for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
-          const storedKey = await this.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), optionsPdfFile);
-          if (!optionsPdfKey) optionsPdfKey = storedKey;
+          // Issue #1023 (S4): NO direct-generator fallback — the unified
+          // pipeline is the only PDF path (#914/#680). The run publishes
+          // without a PDF: optionsPdfKey stays undefined, so no reportUrl
+          // is fabricated, and the failure is visible here in the log.
+          console.warn("[ScheduledTasksService] Options PDF generation via pipeline failed:", pipelineResult.pdfError);
         }
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));

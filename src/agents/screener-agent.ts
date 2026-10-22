@@ -165,8 +165,10 @@ const PDF_LATEST_KEY = "screener:latest.pdf";
 // XLSX report storage
 const XLSX_KEY_PREFIX = "screener:xlsx:";
 const XLSX_LATEST_KEY = "screener:latest.xlsx";
-// Issue #361: Options PDF storage (mirrors stock pattern).
-const OPTIONS_PDF_KEY_PREFIX = "options:pdf:";
+// Issue #361: Options PDF storage (mirrors stock pattern). Since #1023
+// (single PDF path) per-run options PDFs are generated + stored by
+// ReportAssetAgent and addressed by its key; this constant remains only
+// as the read key for getLatestOptionsPdf's legacy local lookup.
 const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
 
 export class ScreenerAgent extends Agent<Env> {
@@ -750,21 +752,6 @@ export class ScreenerAgent extends Agent<Env> {
     return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
-  /**
-   * Store an options PDF (issue #361). Called from scheduledTasks after generation.
-   */
-  async storeOptionsPdf(base64: string, fileName: string): Promise<string> {
-    const { putReportPdf } = await import("../services/reportBlobStore");
-    const perRunKey = `${OPTIONS_PDF_KEY_PREFIX}${fileName}`;
-    // storeOptionsPdf receives base64; decode once, then store via the blob store.
-    const bin = atob(base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    await putReportPdf(this.env, this.ctx.storage, perRunKey, fileName, bytes);
-    await putReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY, fileName, bytes);
-    return perRunKey;
-  }
-
   private async persistRun(result: ScreenerRunResult): Promise<void> {
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
@@ -809,22 +796,13 @@ export class ScreenerAgent extends Agent<Env> {
       result.pdfKey = pipelineResult.pdfKey;
       result.pdfStatus = "generated";
     } else {
-      try {
-        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
-        const bytes = await generateScreenerPdf(result);
-        const fileName = screenerPdfFileName(result);
-        const key = `report:pdf:screener:${crypto.randomUUID().slice(0, 8)}`;
-        await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
-        await putReportPdf(this.env, this.ctx.storage as any, PDF_LATEST_KEY, fileName, bytes);
-        result.pdfKey = key;
-        result.pdfStatus = "generated";
-      } catch (fallbackErr) {
-        // Issue #822: do NOT swallow. Record the failure explicitly so the
-        // publisher knows not to fall back to a stale PDF.
-        result.pdfStatus = "failed";
-        result.pdfError = pipelineResult.pdfError || (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
-        console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
-      }
+      // Issue #1023 (S4): NO direct-generator fallback — the unified
+      // pipeline is the only PDF path (#914/#680). Issue #822: do NOT
+      // swallow. Record the failure explicitly so the publisher knows
+      // not to fall back to a stale PDF.
+      result.pdfStatus = "failed";
+      result.pdfError = pipelineResult.pdfError;
+      console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
     }
 
     // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
