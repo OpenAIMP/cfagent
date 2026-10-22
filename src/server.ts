@@ -7,6 +7,7 @@ import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
 import { createKvMembershipStore } from "./security/iaaaMembershipStore";
 import { buildAdminOverview } from "./security/iaaaAdminOverview";
+import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
   checkRoutePermission,
   resolveIaaaTenant,
@@ -1401,6 +1402,30 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           presets: DEFAULT_SAVED_PRESETS,
         });
       }
+    }
+
+    // --- OpenAPI + Swagger spike (issue #1024 Phase 1) ---
+    // GET /openapi.json serves the generated spec; GET /api/docs serves
+    // the Swagger UI page against it. PROVISIONAL gating: both routes
+    // require an authenticated session (unauthenticated → 401). The
+    // #1024 design decision on docs exposure is still open; this
+    // session gate is the safe spike default, not the final decision.
+    // Placed before the generic /api/ forwarder so /api/docs is not
+    // forwarded to the DO.
+    if (path === "/openapi.json" || path === "/api/docs") {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      if (path === "/openapi.json") {
+        return Response.json(buildOpenApiSpec());
+      }
+      return new Response(SWAGGER_UI_HTML, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
     }
 
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
