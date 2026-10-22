@@ -303,6 +303,9 @@ export class ScheduledTasksService {
     webhookUrl?: string;
     pushToSlack?: boolean;
     filters?: import("../types").StockScreenerFilter;
+    /** Issue #1007: data provider (default "etrade"); "yahoo" runs the
+     *  same pipeline over the Yahoo data-source adapter. */
+    provider?: import("../trading").StockScreenProvider;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -310,6 +313,8 @@ export class ScheduledTasksService {
     allStocks: ScannedStock[];
     sector?: string;
     universe?: string;
+    /** Issue #1007: provider that produced the run. */
+    provider?: string;
     expectedCount?: number;
     pdfKey?: string;
     notifications?: {
@@ -336,6 +341,9 @@ export class ScheduledTasksService {
         filters: options.filters,
         userLogin,
         environment: options.environment,
+        // Issue #1007: provider rides through to the pipeline run;
+        // absent keeps the E*TRADE default, byte-identical in shape.
+        ...(options.provider ? { provider: options.provider } : {}),
       });
 
       if (result.skippedDuplicate) {
@@ -408,6 +416,7 @@ export class ScheduledTasksService {
           allStocks: result.allStocks,
           sector: result.sector,
           universe: result.universe,
+          provider: result.provider,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
           notifications: {
