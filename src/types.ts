@@ -34,11 +34,23 @@ export interface Env {
   // An id with no registered adapter is ignored, never a fallback.
   IAAA_ENABLED_PROVIDERS?: string;
   // #945 Wiring Phase 2b-part1 — tenant for IAAA audit attribution.
-  // Optional and owner-set. When unset (or blank), the logout audit
-  // hook is DORMANT: no audit event is recorded. There is deliberately
-  // no default tenant — inventing one (e.g. "default") would fabricate
-  // tenant attribution for login/logout events.
+  // Optional and owner-set. In Phase 2b-part1, when unset (or blank),
+  // the logout audit hook was DORMANT. In the GitHub end-to-end
+  // slice, the call sites resolve the tenant as IAAA_TENANT_ID when
+  // set, else the documented single-tenant default "primary" (see
+  // src/security/iaaaGithubEndToEnd.ts and
+  // docs/iaaa-github-end-to-end-defaults.md). A multi-tenant
+  // deployment must set this explicitly; "primary" is the
+  // single-tenant assumption, not a multi-tenant answer.
   IAAA_TENANT_ID?: string;
+  // #945 GitHub end-to-end — PDP route enforcement flag. Optional;
+  // "1" or "true" (case-insensitive) = on, anything else (including
+  // absence) = off. Default OFF: with no bootstrap list set,
+  // turning it on would deny every wired session that holds no
+  // membership, including the legitimate owner. Activation = set
+  // IAAA_BOOTSTRAP_ADMINS + IAAA_TENANT_ID + this flag, redeploy;
+  // rollback = unset this flag, redeploy. No code change.
+  IAAA_PDP_ENABLED?: string;
   // #945 Wiring Phase 2b-part2 — bootstrap admin list for membership
   // provisioning. Optional, comma-separated. Each entry is either a
   // bare internal user id (UUID) or a provider subject in

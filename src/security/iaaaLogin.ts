@@ -50,17 +50,28 @@
  * - Auth audit recording exists as a seam, not a production
  *   store. handleGithubCallbackWired records a Slice 5 login
  *   success/failure event ONLY when the caller supplies an
- *   auditStore AND an auditTenantId (there is deliberately no
- *   default tenant); recording is best-effort and never changes
- *   the login outcome. server.ts dispatch passes neither, so in
- *   production no LOGIN event is recorded yet. The logout builder
- *   IS hooked since Phase 2b-part1 (githubOAuth.ts handleLogout,
- *   server.ts /auth/logout): it records before deleteSession
- *   when wiring is ON, the session has an internalUserId, and
- *   IAAA_TENANT_ID resolves, via the Kv-backed store in
- *   iaaaAuditStore.ts. Without a tenant the hook is dormant.
+ *   auditStore AND an auditTenantId; recording is best-effort
+ *   and never changes the login outcome. (Phase 2a said there
+ *   was deliberately no default tenant; the GitHub end-to-end
+ *   slice resolves the tenant at the call site — IAAA_TENANT_ID
+ *   else the documented default "primary" — see
+ *   iaaaGithubEndToEnd.ts. The module itself still takes the
+ *   tenant as an explicit argument and invents nothing.)
  * - Step-up remains a helper (iaaaSessionActivity.ts); no route
  *   calls it in this phase (Phase 2b).
+ *
+ * GitHub end-to-end (this module, wired callback only):
+ * - When the caller passes postLoginEnabled, the wired callback
+ *   runs runWiredPostLogin() after the session is created: the
+ *   login alias is recorded and, if the user is listed in
+ *   IAAA_BOOTSTRAP_ADMINS, bootstrap provisioning runs (including
+ *   the platform-admin genesis rule). Best-effort throughout: no
+ *   failure here changes the login outcome. server.ts dispatch
+ *   passes postLoginEnabled (plus the audit store and the
+ *   resolved tenant) for the wired GitHub callback, so login
+ *   audit is switched on in production by the same call.
+ *   Direct callers that omit the option get the previous
+ *   behaviour exactly (no audit, no post-login work).
  *
  * Rollback: set IAAA_WIRING_ENABLED off (or remove "github" from
  * IAAA_ENABLED_PROVIDERS). No code change is needed, and sessions
@@ -89,6 +100,11 @@ import {
   verifyState,
 } from "./session";
 import { sessionStore } from "./session";
+import { createKvMembershipStore } from "./iaaaMembershipStore";
+import {
+  resolveIaaaTenant,
+  runWiredPostLogin,
+} from "./iaaaGithubEndToEnd";
 import {
   exchangeGithubCode,
   fetchGithubProfile,
@@ -310,6 +326,8 @@ export async function handleGithubCallbackWired(
     nowMs?: number;
     auditStore?: AuditStore;
     auditTenantId?: string;
+    /** GitHub end-to-end: alias recording + bootstrap-on-login. Default off. */
+    postLoginEnabled?: boolean;
   }
 ): Promise<Response> {
   const url = new URL(request.url);
@@ -364,6 +382,33 @@ export async function handleGithubCallbackWired(
     );
 
     const sessionId = await createSession(env, sessionData);
+    // GitHub end-to-end post-login work (best-effort; never changes
+    // the login outcome): alias recording + bootstrap-on-login.
+    // A failure here is swallowed by runWiredPostLogin itself; the
+    // outer catch is belt-and-braces for store construction.
+    if (options?.postLoginEnabled) {
+      try {
+        const kv = sessionStore(env);
+        await runWiredPostLogin(
+          {
+            kv,
+            bindingStore: store,
+            membershipStore: createKvMembershipStore(kv),
+          },
+          {
+            githubLogin: user.login,
+            internalUserId: bindingResult.binding.internalUserId,
+            providerIssuer: bindingResult.binding.providerIssuer,
+            providerSubject: bindingResult.binding.providerSubject,
+            bootstrapRaw: env.IAAA_BOOTSTRAP_ADMINS,
+            tenantId: options.auditTenantId ?? resolveIaaaTenant(env),
+            nowMs,
+          },
+        );
+      } catch {
+        // Post-login work must never fail a login.
+      }
+    }
     // Phase 2a audit seam (best-effort; never changes the outcome).
     if (options?.auditStore && options.auditTenantId) {
       await recordWiredAuthAudit(

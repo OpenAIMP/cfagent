@@ -42,8 +42,23 @@
  * No PDP, delegation, or audit wiring lives here.
  */
 import type { Env } from "../types";
+import type { AuditStore } from "./iaaaAudit";
 import { handleLogin } from "./githubOAuth";
 import { handleGithubCallbackWired } from "./iaaaLogin";
+
+/**
+ * #945 GitHub end-to-end — options a dispatch site may pass to a
+ * provider callback. All optional: a provider called without them
+ * behaves exactly as before (no audit recording, no post-login
+ * work). server.ts passes all three for the wired GitHub callback:
+ * the audit store + resolved tenant switch login audit on, and
+ * postLoginEnabled switches alias recording + bootstrap-on-login on.
+ */
+export interface LoginCallbackOptions {
+  auditStore?: AuditStore;
+  auditTenantId?: string;
+  postLoginEnabled?: boolean;
+}
 
 /** A login provider adapter. startLogin begins the flow; handleCallback finishes it. */
 export interface LoginProvider {
@@ -53,7 +68,7 @@ export interface LoginProvider {
   /** Validated issuer for the provider (used for binding, never for display). */
   issuer: string;
   startLogin(env: Env): Promise<Response>;
-  handleCallback(env: Env, request: Request): Promise<Response>;
+  handleCallback(env: Env, request: Request, options?: LoginCallbackOptions): Promise<Response>;
 }
 
 /** A registry of LoginProviders. The default registry is the production one. */

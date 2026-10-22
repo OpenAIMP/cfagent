@@ -1,0 +1,131 @@
+/**
+ * Issue #992: Schedule maintenance (screener execution context, legacy schedule migration, strategy-scan arming) — extracted from
+ * OrchestratorAgent (src/agents/orchestrator.ts) with no behaviour
+ * change. The class keeps state/lifecycle ownership and composes
+ * these functions through the context builder in orchestrator.ts;
+ * each function receives its dependencies explicitly via
+ * ScheduleMaintenanceContext.
+ */
+
+import type { AgentContext, Schedule, ScheduleOptions } from "agents";
+import type { AgentName } from "../../types";
+import { SqlPausedScheduleStore } from "../../services/scheduleManagement";
+
+/** The screener identity a scheduled run executes as (stored per DO). */
+export type ScreenerExecutionContext = { userLogin: string; environment?: "TEST" | "PROD" };
+
+/**
+ * Ports the schedule-maintenance functions receive from the class.
+ * Storage, schedule registry and audit ownership stay in
+ * OrchestratorAgent; these are bound views of the class's own members.
+ */
+export interface ScheduleMaintenanceContext {
+  agentCtx: AgentContext;
+  listSchedules: () => Promise<Schedule<unknown>[]>;
+  cancelSchedule: (id: string) => Promise<boolean>;
+  schedule: (when: Date | number | string, callback: string, payload?: unknown, options?: ScheduleOptions) => Promise<unknown>;
+  audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
+  screenerExecutionContextKey: string;
+  legacyScheduleMigrationKey: string;
+  strategyScanCron: string;
+}
+
+export async function getScreenerExecutionContext(ctx: ScheduleMaintenanceContext): Promise<ScreenerExecutionContext | undefined> {
+  // Some lightweight route harnesses omit Durable Object storage. The
+  // authenticated context is best-effort in those environments; real DO
+  // instances always provide storage.
+  const storage = ctx.agentCtx?.storage;
+  if (!storage || typeof storage.get !== "function") return undefined;
+  return storage.get<ScreenerExecutionContext>(ctx.screenerExecutionContextKey);
+}
+
+/** Retire old internal maintenance jobs while preserving account screening schedules. */
+export async function migrateLegacyScreenSchedules(ctx: ScheduleMaintenanceContext, context: ScreenerExecutionContext): Promise<void> {
+  const storage = ctx.agentCtx?.storage;
+  if (!storage || typeof storage.get !== "function" || typeof storage.put !== "function") return;
+  const environment = context.environment || "PROD";
+  const migrationKey = `${ctx.legacyScheduleMigrationKey}:${context.userLogin}:${environment}`;
+  if (await storage.get(migrationKey)) return;
+  const existing = await ctx.listSchedules();
+  let cleanupComplete = true;
+  for (const schedule of existing) {
+    const item = schedule as any;
+    const payload = item.payload || {};
+    const callback = item.callback;
+    const isLegacyTokenRenewal = callback === "autoRenewETradeTokens" && payload.userLogin === context.userLogin;
+    const isLegacyIvCollection =
+      callback === "collectIvHistory" && payload.userLogin === context.userLogin && item.cron === "15 22 * * 1-5";
+    if (isLegacyTokenRenewal || isLegacyIvCollection) {
+      console.warn(`[OrchestratorAgent] Removing app-created legacy schedule ${item.id} (${callback})`);
+      try {
+        await ctx.cancelSchedule(item.id);
+      } catch (error) {
+        cleanupComplete = false;
+        console.warn(`[OrchestratorAgent] Could not remove legacy schedule ${item.id}:`, error);
+      }
+    }
+  }
+  if (cleanupComplete) {
+    await storage.put(migrationKey, { userLogin: context.userLogin, environment, migratedAt: new Date().toISOString() });
+  }
+}
+
+export async function removeUnownedBaselineSchedules(ctx: ScheduleMaintenanceContext): Promise<void> {
+  const schedules = await ctx.listSchedules().catch(() => [] as Schedule<unknown>[]);
+  for (const schedule of schedules) {
+    const item = schedule as any;
+    const payload = item.payload || {};
+    const callback = item.callback;
+    const orphanedBaseline =
+      (["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery", "autoRenewETradeTokens", "collectIvHistory"].includes(callback) && !payload.userLogin);
+    if (orphanedBaseline) {
+      console.warn(`[OrchestratorAgent] Removing unowned baseline schedule ${item.id} (${callback})`);
+      await ctx.cancelSchedule(item.id).catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * Issue #275: arm the hourly Strategy/Symbol Scanner run once per
+ * authenticated user — the full strategy catalog (no
+ * allowedStrategies restriction) over the NASDAQ100 universe,
+ * published through the same audit + Slack path as the equity
+ * screens. Follows the ensureStaleSweepSchedule pattern, with one
+ * addition: a scan the user paused in the Schedules tab (#273's
+ * paused store) is never silently re-armed.
+ */
+export async function ensureStrategyScanSchedule(ctx: ScheduleMaintenanceContext, context: ScreenerExecutionContext): Promise<void> {
+  const userLogin = context.userLogin;
+  const environment = context.environment || "PROD";
+  const existing = await ctx.listSchedules().catch(() => [] as Schedule<unknown>[]);
+  const already = existing.some((s) => {
+    const item = s as any;
+    return item.callback === "autonomousOptionsAnalysis" && item.payload?.userLogin === userLogin;
+  });
+  if (already) return;
+  try {
+    const paused = new SqlPausedScheduleStore(ctx.agentCtx.storage.sql).list();
+    const pausedForUser = paused.some(
+      (r) =>
+        r.callback === "autonomousOptionsAnalysis" &&
+        (r.payload as { userLogin?: string } | undefined)?.userLogin === userLogin
+    );
+    if (pausedForUser) return;
+  } catch {
+    // Paused-store unavailable: the SDK arming below is idempotent,
+    // so a missed pause check can only re-arm a job the user can
+    // pause again — never duplicate one.
+  }
+  await ctx.schedule(
+    ctx.strategyScanCron,
+    "autonomousOptionsAnalysis",
+    { userLogin, environment, universe: "NASDAQ100", trigger: "scheduled" },
+    { idempotent: true }
+  );
+  ctx.audit("schedule.created", "orchestrator", {
+    callback: "autonomousOptionsAnalysis",
+    scheduleType: "cron",
+    cron: ctx.strategyScanCron,
+    origin: "strategy-scan-baseline",
+  });
+}

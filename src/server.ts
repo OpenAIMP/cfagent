@@ -1,10 +1,16 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
-import { getSession, updateSession } from "./security/session";
+import { getSession, sessionStore, updateSession } from "./security/session";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
+import { createKvMembershipStore } from "./security/iaaaMembershipStore";
+import {
+  checkRoutePermission,
+  resolveIaaaTenant,
+  shouldEnforcePdp,
+} from "./security/iaaaGithubEndToEnd";
 import {
   bearerKeyFromRequest,
   listApiKeys,
@@ -300,21 +306,30 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (isWiringEnabled(env)) {
         const { provider, disabledReason } = resolveLoginProvider(env, "github");
         if (!provider || disabledReason) return disabledLoginResponse(disabledReason ?? "provider-not-registered");
-        return provider.handleCallback(env, request);
+        // #945 GitHub end-to-end: the wired callback now receives
+        // the audit store + resolved tenant (login audit switched
+        // on, best-effort) and postLoginEnabled (alias recording +
+        // bootstrap-on-login, best-effort). The tenant resolves as
+        // IAAA_TENANT_ID else the documented default "primary".
+        return provider.handleCallback(env, request, {
+          auditStore: createWiredAuditStore(env),
+          auditTenantId: resolveIaaaTenant(env),
+          postLoginEnabled: true,
+        });
       }
       return handleOAuthCallback(env, request);
     }
     if (path === "/auth/logout") {
-      // #945 Phase 2b-part1 logout audit hook: when wiring is ON,
-      // supply the audit seam. handleLogout records BEFORE
-      // deleteSession only when a tenant resolves from
-      // IAAA_TENANT_ID; without it the hook is dormant. No default
-      // tenant is invented anywhere on this path.
+      // #945 GitHub end-to-end logout audit hook: when wiring is
+      // ON, supply the audit seam with the resolved tenant
+      // (IAAA_TENANT_ID else the documented default "primary"), so
+      // the hook is no longer dormant when the env var is unset.
+      // handleLogout records BEFORE deleteSession, best-effort.
       if (isWiringEnabled(env)) {
         return handleLogout(env, request, {
           wiringEnabled: true,
           auditStore: createWiredAuditStore(env),
-          tenantId: env.IAAA_TENANT_ID,
+          tenantId: resolveIaaaTenant(env),
         });
       }
       return handleLogout(env, request);
@@ -326,6 +341,22 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/auth/etrade/start" || path === "/api/etrade/oauth/start") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
+      // #945 GitHub end-to-end PDP gate: when IAAA_PDP_ENABLED is on
+      // and the session is wired, starting an integration connection
+      // requires integration:connect in the resolved tenant.
+      // Flag OFF or a legacy session takes the pre-change path.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
       const callbackParam = url.searchParams.get("callback");
       const callbackUrl = callbackParam || "oob";
       try {
@@ -414,6 +445,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/api/etrade/oauth/verifier" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
+      // #945 GitHub end-to-end PDP gate: completing the integration
+      // connection (verifier exchange, which stores broker tokens)
+      // requires integration:connect, same rule as the start route.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
       const body = (await request.json().catch(() => ({}))) as any;
       const verifier = (body.verifier || "").trim();
       if (!verifier) return Response.json({ error: "Verifier PIN is required" }, { status: 400 });
@@ -615,6 +661,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         // re-authenticates and retries. Listing and revoking keys
         // are deliberately NOT gated: revocation especially must
         // never be blocked by staleness.
+        // #945 GitHub end-to-end: minting is NOT additionally PDP
+        // gated — no Slice 3 permission maps to credential minting
+        // (there is no credential:issue permission), so step-up
+        // remains the sole gate here. See the defaults doc.
         if (requiresStepUpForMint(session, isWiringEnabled(env), Date.now())) {
           return Response.json({ error: "Step-up authentication required: please sign in again and retry." }, { status: 403 });
         }
