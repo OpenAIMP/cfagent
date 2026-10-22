@@ -39,6 +39,7 @@ import {
   type CandidateGreekContribution,
 } from "../../services/portfolioRisk";
 import { ETradeThinkHarness } from "../../services/thinkHarness";
+import { parseStockScreenRequest } from "../../trading";
 import { assessPortfolioConcentration } from "../../services/portfolioConcentration";
 import {
   sizeCandidateAgainstPortfolio,
@@ -314,10 +315,18 @@ export async function handleEtradeBrokerRoutes(
       // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
       // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
       // TECH (fuzzy keyword match with unpredictable symbol count).
-      const universe = (filters.universe as string) || "NASDAQ100";
+      // Issue #959: the body (POST) or assembled params (GET) validate
+      // through the ONE shared stock-screen schema — a mis-shaped
+      // filter is a 400 naming the field, never a silent engine run.
+      const parsedScreen = parseStockScreenRequest(filters);
+      if (!parsedScreen.ok) {
+        return Response.json({ error: parsedScreen.error }, { status: 400 });
+      }
+      const universe = parsedScreen.value.universe;
+      const validatedFilters = parsedScreen.value.filters;
       const agent = ctx.getScreenerAgent(userLogin);
       if (universe === "ALL") {
-        const shards = await agent.runSharded({ trigger: "manual", filters, userLogin, environment: requestedEnv });
+        const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv });
         const orm = ctx.getOrm();
         for (const shard of shards) {
           await publishManualScreenerRun(ctx.env, orm, userLogin, shard);
@@ -357,7 +366,7 @@ export async function handleEtradeBrokerRoutes(
       try {
         result = await agent.runScreen({
           trigger: "manual",
-          filters,
+          filters: validatedFilters,
           universe: universe as any,
           userLogin,
           // The screener runs in its own Durable Object, so it cannot infer the
