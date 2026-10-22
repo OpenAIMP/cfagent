@@ -1113,31 +1113,45 @@ export async function handleEtradeOptionsRoutes(
         // Issue #294/#421/#423/#424 (PR #432): manual screens honor pushToSlack
         // — PDF generated, stored per-run, delivered via the Slack A2A path
         // with a reportUrl; failures notify too.
+        // Issue #1023 (S4): generation goes through the ONE unified report
+        // pipeline (delegates to ReportAssetAgent per #680/#914) — the same
+        // idiom as the scheduled path in ScheduledTasksService. There is no
+        // direct-generator fallback: on pipeline failure the run continues
+        // with no pdfKey/reportUrl, exactly as a scheduled failure surfaces.
         let optionsReportUrl: string | undefined;
         let optionsPdfKey: string | undefined;
         let pdfBytes: Uint8Array | undefined;
         let fileName: string | undefined;
 
         try {
-          const { generatePdfAssetWithBytes } = await import("../report-asset-agent");
-          const asset = await generatePdfAssetWithBytes(ctx.env, userLogin, "options", result);
-          if (asset) {
-            pdfBytes = asset.bytes;
-            fileName = asset.fileName;
-            optionsPdfKey = asset.key;
-          } else {
-            const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-            pdfBytes = await generateOptionsPdf(result);
-            fileName = optionsPdfFileName(result);
-            optionsPdfKey = `options:pdf:${fileName}`;
-          }
-          if (pdfBytes && fileName) {
+          const { runReportPipeline } = await import("../../services/unifiedReportPipeline");
+          const pipelineResult = await runReportPipeline(
+            ctx.env as any,
+            null as any, // Storage handled by ReportAssetAgent internally
+            {
+              type: "options",
+              trigger: "manual",
+              result,
+              userLogin,
+              title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
+              summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
+              timestamp: new Date().toISOString(),
+            }
+          );
+          if (pipelineResult.pdfStatus === "generated") {
+            optionsPdfKey = pipelineResult.pdfKey;
+            // Fetch the bytes for Slack delivery (same seam the scheduled
+            // path uses: ScreenerAgent storage first, ReportAssetAgent
+            // fallback inside getPdfByKey).
             const screenerAgent = ctx.getScreenerAgent(userLogin);
-            let binary = "";
-            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            const storedKey = await screenerAgent.storeOptionsPdf(btoa(binary), fileName);
-            if (!optionsPdfKey) optionsPdfKey = storedKey;
+            const pdfData = await screenerAgent.getPdfByKey(optionsPdfKey);
+            if (pdfData) {
+              pdfBytes = pdfData.bytes;
+              fileName = pdfData.fileName;
+            }
             optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
+          } else {
+            console.warn("[Orchestrator] Manual options contract PDF generation failed:", pipelineResult.pdfError);
           }
         } catch (pdfErr) {
           console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
@@ -1256,26 +1270,36 @@ export async function handleEtradeOptionsRoutes(
 
         if (reqData.action === "opportunities" && result.success) {
           const timestamp = new Date().toISOString();
+          // Issue #1023 (S4): the ONE unified report pipeline (delegates
+          // to ReportAssetAgent per #680/#914), same idiom as the
+          // scheduled path in ScheduledTasksService — no direct-generator
+          // fallback; on failure pdfKey/reportUrl stay undefined.
           try {
-            const { generatePdfAssetWithBytes } = await import("../report-asset-agent");
-            const asset = await generatePdfAssetWithBytes(ctx.env, userLogin, "options", result.data);
-            if (asset) {
-              scannerPdfBytes = asset.bytes;
-              scannerPdfFileName = asset.fileName;
-              pdfKey = asset.key;
-            } else {
-              const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-              scannerPdfBytes = await generateOptionsPdf(result.data);
-              scannerPdfFileName = optionsPdfFileName(result.data);
-              pdfKey = `options:pdf:${scannerPdfFileName}`;
-            }
-            if (scannerPdfBytes && scannerPdfFileName) {
+            const { runReportPipeline } = await import("../../services/unifiedReportPipeline");
+            const pipelineResult = await runReportPipeline(
+              ctx.env as any,
+              null as any, // Storage handled by ReportAssetAgent internally
+              {
+                type: "options",
+                trigger: "manual",
+                result: result.data,
+                userLogin,
+                title: `Options scanner — ${reqData.thesis || "mixed"} (${timestamp.slice(0, 10)})`,
+                summary: result.summary,
+                timestamp,
+              }
+            );
+            if (pipelineResult.pdfStatus === "generated") {
+              pdfKey = pipelineResult.pdfKey;
               const screenerAgent = ctx.getScreenerAgent(userLogin);
-              let binary = "";
-              for (let i = 0; i < scannerPdfBytes.length; i += 8192) binary += String.fromCharCode(...scannerPdfBytes.subarray(i, i + 8192));
-              const storedKey = await screenerAgent.storeOptionsPdf(btoa(binary), scannerPdfFileName);
-              if (!pdfKey) pdfKey = storedKey;
+              const pdfData = await screenerAgent.getPdfByKey(pdfKey);
+              if (pdfData) {
+                scannerPdfBytes = pdfData.bytes;
+                scannerPdfFileName = pdfData.fileName;
+              }
               reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+            } else {
+              console.warn("[Orchestrator] Manual options PDF generation failed:", pipelineResult.pdfError);
             }
           } catch (pdfErr) {
             console.warn("[Orchestrator] Manual options PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
