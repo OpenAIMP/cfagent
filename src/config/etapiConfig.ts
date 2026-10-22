@@ -82,6 +82,44 @@ export interface EtapiOpportunityScannerConfig {
   };
 }
 
+/** Discovery (issue #14) signal thresholds. Every rule in the v1
+ *  signal catalog reads its bar from here, never from a literal, so
+ *  calibration is a config change rather than a deploy. The defaults
+ *  are v1 judgment calls pinned by tests/discovery_signals.test.ts:
+ *  IV rank bands match the common 20/80 convention; the range-pin
+ *  width (6% over 20 sessions) separates genuinely pinned names from
+ *  ordinary consolidation at typical large-cap volatility. */
+export interface EtapiDiscoveryConfig {
+  /** IV rank at or above which IV_EXPENSIVE fires. */
+  ivExpensiveRank: number;
+  /** IV rank at or below which IV_CHEAP fires. */
+  ivCheapRank: number;
+  /** Fast SMA window (sessions) for trend alignment. */
+  trendFastWindow: number;
+  /** Slow SMA window (sessions) for trend alignment. */
+  trendSlowWindow: number;
+  /** Minimum absolute fast-window return (%) for a trend to count. */
+  trendMinReturnPct: number;
+  /** Sessions over which the range width / drift are measured. */
+  rangeWindowDays: number;
+  /** Max (high − low) / spot (%) over the range window for RANGE_PINNED. */
+  rangePinMaxWidthPct: number;
+  /** Max absolute return (%) over the range window for RANGE_PINNED. */
+  rangePinMaxDriftPct: number;
+  /** Sessions of prior highs/lows for BREAKOUT_WATCH. */
+  breakoutLookbackDays: number;
+  /** Close within this % below the prior high counts as a watch. */
+  breakoutProximityPct: number;
+  /** Liquidity gate: minimum aggregate open interest across the chain. */
+  minOpenInterest: number;
+  /** Liquidity gate: minimum aggregate volume across the chain. */
+  minVolume: number;
+  /** Liquidity gate: maximum median spread (% of mid) across the chain. */
+  maxMedianSpreadPct: number;
+  /** Optionability pre-screen: minimum contracts in the chain snapshot. */
+  minContractsForOptionable: number;
+}
+
 export interface EtapiExpirationGroup {
   id: "near-term" | "mid-term" | "long-term";
   label: string;
@@ -185,6 +223,7 @@ export interface EtapiConfig {
   screener: EtapiScreenerConfig;
   strategyEngine: EtapiStrategyEngineConfig;
   opportunityScanner: EtapiOpportunityScannerConfig;
+  discovery: EtapiDiscoveryConfig;
   llmIdeas: EtapiLlmIdeasConfig;
   client: EtapiClientConfig;
   cache: EtapiCacheConfig;
@@ -255,6 +294,22 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       large_move: 1.2,
       range_bound: 0,
     },
+  },
+  discovery: {
+    ivExpensiveRank: 80,
+    ivCheapRank: 20,
+    trendFastWindow: 20,
+    trendSlowWindow: 50,
+    trendMinReturnPct: 2,
+    rangeWindowDays: 20,
+    rangePinMaxWidthPct: 6,
+    rangePinMaxDriftPct: 2,
+    breakoutLookbackDays: 20,
+    breakoutProximityPct: 1.5,
+    minOpenInterest: 5000,
+    minVolume: 500,
+    maxMedianSpreadPct: 8,
+    minContractsForOptionable: 5,
   },
   llmIdeas: {
     inputTokenBudget: 90000,
@@ -530,6 +585,10 @@ export function getStrategyEngineConfig(env?: Partial<Env>, overrideEnv?: string
 
 export function getOpportunityScannerConfig(env?: Partial<Env>, overrideEnv?: string): EtapiOpportunityScannerConfig {
   return getEtapiConfig(env, overrideEnv).opportunityScanner;
+}
+
+export function getDiscoveryConfig(env?: Partial<Env>, overrideEnv?: string): EtapiDiscoveryConfig {
+  return getEtapiConfig(env, overrideEnv).discovery;
 }
 
 export function getLlmIdeasConfig(env?: Partial<Env>, overrideEnv?: string): EtapiLlmIdeasConfig {
