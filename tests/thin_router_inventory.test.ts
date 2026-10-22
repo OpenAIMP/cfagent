@@ -54,7 +54,10 @@
  * (handleEtradeOptionsRoutes, after /trading/options/config; #653)
  * — bringing the inventory to 170. Issue #705 added one more —
  * POST /reflection/run (handleEtradeBrokerActivityRoutes, last) —
- * 171, pinned by #714 as well.
+ * 171, pinned by #714 as well. Issue #1057 (consolidation S5) added
+ * one more — GET /runs (in handleReportsRoutes, after
+ * /reports/research/browse and before the reports list) — bringing
+ * the inventory to 172.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -122,6 +125,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
   "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
+  "handleReportsRoutes :: endsWith(\"/runs\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",
