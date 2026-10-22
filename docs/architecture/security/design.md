@@ -9,6 +9,7 @@ the map, not another copy of the content.
 | Document | What it answers |
 | --- | --- |
 | [security-workflow.md](security-workflow.md) | The holistic picture: how a request, a user, unattended work, and a secret each flow through the system, and what each failure must do |
+| [identity-lifecycle.md](identity-lifecycle.md) | The entire IAAA identity lifecycle: provisioning, active life, deprovisioning/offboarding, re-provisioning — and which parts are live vs machinery |
 | [authn.md](authn.md) | User security: providers, sessions, step-up, identity rules |
 | [authz.md](authz.md) | Authorization: PDP, permissions, roles, memberships, delegation, bootstrap/genesis |
 | [zero-trust.md](zero-trust.md) | Zero-trust posture (ZTZ) as actually implemented, including the honest gaps |
@@ -33,7 +34,8 @@ covers.
 
 - **New to the system:** this page → [security-workflow.md](security-workflow.md)
   → [authn.md](authn.md).
-- **Auditing a surface:** go straight to its document in the table.
+- **Auditing a specific surface:** go straight to its document in the table.
+- **Identity lifecycle:** [identity-lifecycle.md](identity-lifecycle.md) — provisioning, deprovisioning, and re-provisioning as IAAA defines them.
 - **Adding a provider:** [iaaa-provider-onboarding.md](iaaa-provider-onboarding.md),
   with [iaaa-google-defaults.md](iaaa-google-defaults.md) as the example.
 - **Changing a gate:** the owning document first, then

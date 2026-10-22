@@ -67,7 +67,10 @@ through, and the security event at each step:
    normally governs the caller would say no. A revoked session stays
    revoked; a revoked token is gone from the store (and, for
    `default_trader`, falls back to the static pair until #1066 lands —
-   the one place where "revoked" does not yet mean "gone").
+   the one place where "revoked" does not yet mean "gone"). Full
+   deprovisioning — bulk revocation across sessions, memberships, and
+   delegations, verification, and re-provisioning — is
+   [identity-lifecycle.md](identity-lifecycle.md).
 
 ## 3. The lifecycle of unattended work
 
