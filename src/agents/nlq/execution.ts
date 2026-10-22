@@ -1814,10 +1814,11 @@ async function executeNLQQueryAsyncCore(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
         scanRunStore: deps?.scanRunStore,
         profileStore: deps?.profileStore,
+        discoveryRunner: deps?.discoveryRunner,
         // Issue #28: profile resolution is scoped to the session's
         // login — the same fallback chain the ETradeService above uses.
         userLogin: deps?.userLogin ?? login,
@@ -1825,7 +1826,7 @@ async function executeNLQQueryAsyncCore(
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,
@@ -1836,6 +1837,9 @@ async function executeNLQQueryAsyncCore(
         // Issue #27: surface the persisted scan run id (opportunities
         // scans only; undefined everywhere else).
         scanRunId: res.scanRunId,
+        // Issue #14: surface the persisted discovery run id
+        // (options_discovery only; undefined everywhere else).
+        discoveryRunId: res.discoveryRunId,
         persisted: res.persisted,
         // Issue #28: surface the applied profile's provenance stamp.
         profileRef: res.profileRef,
@@ -2211,7 +2215,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"] }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2231,8 +2235,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort }
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.discoveryRunner
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, discoveryRunner: resolvedOptions?.discoveryRunner }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {
