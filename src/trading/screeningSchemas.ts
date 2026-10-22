@@ -478,6 +478,7 @@ export const unifiedOptionsRequestFields = {
     "llm_evaluate",
     "config",
     "catalog",
+    "discovery",
   ]),
   symbol: z.string().optional(),
   symbols: z.array(tickerSchema).optional(),

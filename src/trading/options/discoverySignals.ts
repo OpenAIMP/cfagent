@@ -308,3 +308,62 @@ export function prescreenOptionability(
   }
   return { optionable: true, reason: `${inputs.chain.contractCount} contracts in chain` };
 }
+
+/** The structural subset of a screened chain contract the
+ *  aggregator reads (ScreenedOptionContractItem satisfies it). */
+export interface ChainContractLike {
+  strikePrice: number;
+  openInterest?: number | null;
+  volume?: number | null;
+  spreadPct?: number | null;
+  impliedVolatility?: number | null;
+}
+
+/** Aggregate one snapshot's contracts into the ChainAggregates the
+ *  characterization consumes. The IV and spread aggregates stay
+ *  null when no contract reports them — an absent aggregate is
+ *  unknown, never invented; the totals follow the ChainAggregates
+ *  contract (plain numbers, summing what is reported). The ATM IV
+ *  is the IV of the contract whose strike is nearest the spot. */
+export function chainAggregatesFromContracts(
+  contracts: readonly ChainContractLike[],
+  spot: number | null,
+): ChainAggregates {
+  const finite = (v: number | null | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v);
+  const sum = (pick: (c: ChainContractLike) => number | null | undefined): number => {
+    let total = 0;
+    for (const c of contracts) {
+      const v = pick(c);
+      if (finite(v)) total += v;
+    }
+    return total;
+  };
+  const spreads = contracts.map((c) => c.spreadPct).filter(finite).sort((a, b) => a - b);
+  const medianSpreadPct =
+    spreads.length === 0
+      ? null
+      : spreads.length % 2 === 1
+        ? spreads[(spreads.length - 1) / 2]
+        : (spreads[spreads.length / 2 - 1] + spreads[spreads.length / 2]) / 2;
+  let atmIv: number | null = null;
+  if (spot !== null) {
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const c of contracts) {
+      const iv = c.impliedVolatility;
+      if (!finite(iv) || iv <= 0 || !finite(c.strikePrice)) continue;
+      const distance = Math.abs(c.strikePrice - spot);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        atmIv = iv;
+      }
+    }
+  }
+  return {
+    contractCount: contracts.length,
+    totalOpenInterest: sum((c) => c.openInterest),
+    totalVolume: sum((c) => c.volume),
+    medianSpreadPct,
+    atmIv,
+  };
+}

@@ -57,7 +57,8 @@ export type UnifiedOptionsAction =
   | "llm_ideas"
   | "llm_evaluate"
   | "config"
-  | "catalog";
+  | "catalog"
+  | "discovery";
 
 export type OmnichannelContext =
   | "ui"
@@ -233,6 +234,11 @@ export class UnifiedOptionsService {
    *  may select a profile by id/name; when absent, a request that names
    *  a profile fails with an availability error. */
   private profileStore?: StrategyProfileStore;
+  /** Issue #14: optional SQL seam for the discovery action. When
+   *  supplied, the action runs the Phase 1 discovery pipeline and
+   *  persists its runs; when absent, the action fails with an
+   *  availability error (same discipline as the profile store). */
+  private discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> };
 
   constructor(
     private env: Env,
@@ -240,12 +246,14 @@ export class UnifiedOptionsService {
     private overrideEnv?: string,
     orm?: DatabaseORM,
     scanRunStore?: ScanRunStore,
-    profileStore?: StrategyProfileStore
+    profileStore?: StrategyProfileStore,
+    discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> }
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
     this.scanRunStore = scanRunStore;
     this.profileStore = profileStore;
+    this.discoverySql = discoverySql;
   }
 
   /**
@@ -360,7 +368,16 @@ export class UnifiedOptionsService {
       req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
     const allowedSegment = req.allowedStrategies ? [...req.allowedStrategies].sort().join("+") : "";
     const calendarSegment = req.eventCalendarBySymbol ? stableCacheStringify(req.eventCalendarBySymbol) : "";
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}:${this.userLogin}:${envSegment}:${filterSegment}:${req.maxSymbols ?? ""}:${effectiveTargetDate}:${req.expectedIvDirection || ""}:${allowedSegment}:${req.maxPlannedLoss ?? ""}:${req.minRewardRisk ?? ""}:${req.optimizationBias ?? ""}:${calendarSegment}:${req.question ?? ""}:${this.scanRunStore ? "store" : "nostore"}`;
+    // Issue #14: a discovery result is a persisted run — its key must
+    // segment on the universe (the action reads `symbols`, not the
+    // single `sym` the key leads with) and on the discovery wiring,
+    // for the same honesty reason as the scanRunStore segment above:
+    // an unwired instance must never serve a wired instance's run.
+    const discoverySegment =
+      req.action === "discovery"
+        ? `${[...(req.symbols ?? (req.symbol ? [req.symbol] : []))].map((s) => s.toUpperCase().trim()).sort().join("+")}:${this.discoverySql ? "disc-wired" : "disc-unwired"}`
+        : "";
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}:${this.userLogin}:${envSegment}:${filterSegment}:${req.maxSymbols ?? ""}:${effectiveTargetDate}:${req.expectedIvDirection || ""}:${allowedSegment}:${req.maxPlannedLoss ?? ""}:${req.minRewardRisk ?? ""}:${req.optimizationBias ?? ""}:${calendarSegment}:${req.question ?? ""}:${this.scanRunStore ? "store" : "nostore"}:${discoverySegment}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -428,6 +445,59 @@ export class UnifiedOptionsService {
           const screenResult = await UnifiedOptionsService.screenContracts(etrade.client, filter);
           executionData = screenResult;
           summary = `Screened ${screenResult.matchedCount} options contracts across ${screenResult.totalUnderlyingsScanned} symbols.`;
+          break;
+        }
+
+        case "discovery": {
+          // Issue #14: the Phase 1 signal-driven discovery pipeline.
+          // View-less by construction — the service characterizes
+          // each name, infers (or abstains), expresses, persists the
+          // run, and classifies deltas against the previous run of
+          // the same scope (here: this caller's universe).
+          if (!this.discoverySql) {
+            executionData = { error: "Discovery isn't wired in this context." };
+            summary = "Discovery isn't wired in this context.";
+            break;
+          }
+          const discoverySymbols = [
+            ...new Set(
+              (req.symbols && req.symbols.length > 0
+                ? req.symbols
+                : req.symbol
+                  ? [req.symbol]
+                  : []
+              )
+                .map((s) => s.toUpperCase().trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (discoverySymbols.length === 0) {
+            executionData = { error: "Discovery needs at least one symbol (symbols or symbol)." };
+            summary = "Discovery needs at least one symbol.";
+            break;
+          }
+          const { createDiscoveryService, formatDiscoveryRunSummary } = await import(
+            "../../services/discoveryService"
+          );
+          const discoveryService = createDiscoveryService({
+            env: this.env,
+            userLogin: this.userLogin,
+            overrideEnv: this.overrideEnv,
+            orm: this.orm,
+            sql: this.discoverySql,
+          });
+          const outcome = await discoveryService.run({
+            symbols: discoverySymbols,
+            scopeKey: `unified:${this.userLogin}:${discoverySymbols.join(",")}`,
+            source: "unified",
+            caps: {
+              maxPlannedLoss: req.maxPlannedLoss ?? 1000,
+              minRewardRisk: req.minRewardRisk ?? 1.5,
+            },
+            userLogin: this.userLogin,
+          });
+          executionData = { run: outcome.run, deltas: outcome.deltas, errors: outcome.errors };
+          summary = formatDiscoveryRunSummary(outcome);
           break;
         }
 
