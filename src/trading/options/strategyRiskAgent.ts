@@ -18,7 +18,12 @@ import {
   type StrategyRecommendationResult,
   type StrategyRequest,
 } from "./strategyEngine";
-import { defaultRegistry } from "./strategies/catalog";
+import {
+  checkNoViewRequestFields,
+  checkStrategyRequestFields,
+  NO_VIEW_REQUEST_INVALID_MESSAGE,
+  STRATEGY_REQUEST_INVALID_MESSAGE,
+} from "../screeningSchemas";
 
 export interface StrategyScreenFilter {
   strategyTypes?: OptionStrategyType[];
@@ -49,75 +54,20 @@ export interface StrategyRiskReport {
   isCredit: boolean;
 }
 
-const THESES = ["bullish", "bearish", "range_bound", "large_move"];
-const IV_DIRECTIONS = ["rise", "unchanged", "fall"];
-
+/** Issue #959 (screening consolidation S1): the request-shape rules live
+ *  in ONE definition site — src/trading/screeningSchemas.ts. These
+ *  validators keep their historical contract (a single generic message,
+ *  pinned by the discovery suites; non-request keys on the body are the
+ *  caller's own envelope concern and are not this check's business) and
+ *  delegate the field rules to the shared schemas. Raw entry-point
+ *  bodies are validated strictly (unknown keys rejected, field named)
+ *  by the schemas' parse functions at the routes themselves. */
 export function validateStrategyRequest(body: Partial<StrategyRequest> | null | undefined): string | null {
-  if (
-    !body ||
-    typeof body.symbol !== "string" ||
-    !body.symbol.trim() ||
-    !THESES.includes(body.thesis || "") ||
-    !Number.isFinite(body.targetPrice) ||
-    typeof body.targetDate !== "string" ||
-    !IV_DIRECTIONS.includes(body.expectedIvDirection || "") ||
-    !Number.isFinite(body.maxPlannedLoss) ||
-    !Number.isFinite(body.minRewardRisk) ||
-    (body.minDte !== undefined && (!Number.isInteger(body.minDte) || body.minDte < 1)) ||
-    (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 0))) ||
-    (body.minVolume !== undefined && (!Number.isInteger(body.minVolume) || body.minVolume < 0)) ||
-    (body.minOpenInterest !== undefined && (!Number.isInteger(body.minOpenInterest) || body.minOpenInterest < 0)) ||
-    (body.maxSpreadPct !== undefined && (!Number.isFinite(body.maxSpreadPct) || body.maxSpreadPct <= 0)) ||
-    (body.maxQuoteAgeSeconds !== undefined && (!Number.isFinite(body.maxQuoteAgeSeconds) || body.maxQuoteAgeSeconds < 0)) ||
-    (body.contractLimit !== undefined && (!Number.isInteger(body.contractLimit) || body.contractLimit < 1)) ||
-    (body.candidateLimit !== undefined && (!Number.isInteger(body.candidateLimit) || body.candidateLimit < 1)) ||
-    (body.maxStrikesPerSide !== undefined && (!Number.isInteger(body.maxStrikesPerSide) || body.maxStrikesPerSide < 1)) ||
-    (body.maxIronCondors !== undefined && (!Number.isInteger(body.maxIronCondors) || body.maxIronCondors < 0)) ||
-    !Array.isArray(body.allowedStrategies) ||
-    body.allowedStrategies.length === 0 ||
-    defaultRegistry.resolveMany(body.allowedStrategies as string[]).unknown.length > 0
-  ) {
-    return "Invalid strategy request. Supply a thesis, target, date, risk cap, reward/risk minimum, and allowed strategies.";
-  }
-  return null;
+  return checkStrategyRequestFields(body) === null ? null : STRATEGY_REQUEST_INVALID_MESSAGE;
 }
 
-const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
-
-/** View fields a no-view constraint set must never carry (issue #534):
- *  their presence means a view is being smuggled into a mode whose whole
- *  contract is that none exists — rejected, never silently ignored. */
-const NO_VIEW_FORBIDDEN_FIELDS = ["thesis", "targetPrice", "targetDate", "expectedIvDirection"];
-
 export function validateNoViewRequest(body: (Partial<NoViewStrategyRequest> & Record<string, unknown>) | null | undefined): string | null {
-  if (
-    !body ||
-    NO_VIEW_FORBIDDEN_FIELDS.some((field) => body[field] !== undefined) ||
-    typeof body.symbol !== "string" ||
-    !body.symbol.trim() ||
-    !Number.isFinite(body.maxPlannedLoss) ||
-    !Number.isFinite(body.minRewardRisk) ||
-    (body.minProbabilityOfProfit !== undefined && (!Number.isFinite(body.minProbabilityOfProfit) || (body.minProbabilityOfProfit as number) <= 0 || (body.minProbabilityOfProfit as number) > 1)) ||
-    (body.riskProfile !== undefined && !RISK_PROFILES.includes(body.riskProfile as string)) ||
-    (body.minDte !== undefined && (!Number.isInteger(body.minDte) || body.minDte < 1)) ||
-    (body.maxDte !== undefined && (!Number.isInteger(body.maxDte) || body.maxDte < (body.minDte ?? 0))) ||
-    (body.minVolume !== undefined && (!Number.isInteger(body.minVolume) || body.minVolume < 0)) ||
-    (body.minOpenInterest !== undefined && (!Number.isInteger(body.minOpenInterest) || body.minOpenInterest < 0)) ||
-    (body.maxSpreadPct !== undefined && (!Number.isFinite(body.maxSpreadPct) || body.maxSpreadPct <= 0)) ||
-    (body.maxQuoteAgeSeconds !== undefined && (!Number.isFinite(body.maxQuoteAgeSeconds) || body.maxQuoteAgeSeconds < 0)) ||
-    (body.contractLimit !== undefined && (!Number.isInteger(body.contractLimit) || body.contractLimit < 1)) ||
-    (body.candidateLimit !== undefined && (!Number.isInteger(body.candidateLimit) || body.candidateLimit < 1)) ||
-    (body.maxStrikesPerSide !== undefined && (!Number.isInteger(body.maxStrikesPerSide) || body.maxStrikesPerSide < 1)) ||
-    (body.maxIronCondors !== undefined && (!Number.isInteger(body.maxIronCondors) || body.maxIronCondors < 0)) ||
-    (body.allowedStrategies !== undefined && (
-      !Array.isArray(body.allowedStrategies) ||
-      body.allowedStrategies.length === 0 ||
-      defaultRegistry.resolveMany(body.allowedStrategies as string[]).unknown.length > 0
-    ))
-  ) {
-    return "Invalid no-view strategy request. Supply a symbol, risk cap, reward/risk minimum, and constraints only — no thesis, target price, target date, or IV direction.";
-  }
-  return null;
+  return checkNoViewRequestFields(body) === null ? null : NO_VIEW_REQUEST_INVALID_MESSAGE;
 }
 
 export class StrategyRiskAgent {
