@@ -5,10 +5,14 @@
  * through this agent, one backend, one frontend. Listing stocks adds no
  * value — the job is to SCREEN (filter to what matters).
  *
- * Market data is E*TRADE-only. If E*TRADE is unavailable the screen fails
- * honestly ("E*TRADE unavailable") — no Nasdaq fallback, no zero-filled
- * substitute rows. (Nasdaq/curated implementations are kept in the repo,
- * unwired, per #261.)
+ * Market data is provider-scoped (issue #1007): the default provider
+ * is E*TRADE; a run may instead name the Yahoo Finance data-source
+ * adapter (provider "yahoo", the FOSS surface). A provider changes
+ * data provenance only — semantics, scoring, result shape and
+ * persistence are identical. If the named provider is unavailable the
+ * screen fails honestly (e.g. "E*TRADE unavailable" / "Yahoo Finance
+ * unavailable") — no cross-provider fallback, no zero-filled
+ * substitute rows.
  *
  * State is persisted via ctx.storage (Durable Object storage).
  */
@@ -35,8 +39,11 @@ import {
   UNIVERSES,
   shardableUniverses,
   resolveUniverse,
+  yahooDepsFromProvider,
+  type StockScreenProvider,
   type UniverseId,
 } from "../trading";
+import { YahooFinanceProvider } from "../services/fossResearch";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
   DEFAULT_STALE_AFTER_MS,
@@ -68,11 +75,25 @@ export interface ScreenerRunRequest {
   userLogin?: string;
   /** E*TRADE environment selected by the signed-in user. */
   environment?: "TEST" | "PROD";
+  /**
+   * Issue #1007: data provider for this run (default "etrade"). The
+   * Yahoo provider quotes through the Yahoo data-source adapter; it
+   * never touches E*TRADE and never falls back to it.
+   */
+  provider?: StockScreenProvider;
+  /**
+   * Issue #1007: test seam — an injected Yahoo quote fetcher for
+   * provider "yahoo" runs (mirrors the pipeline's yahooDeps). Absent
+   * in production, where YahooFinanceProvider is constructed here.
+   */
+  yahooDeps?: import("../trading").YahooScreenerDeps;
 }
 
 export interface ScreenerRunResult {
   timestamp: string;
   trigger: "manual" | "scheduled";
+  /** Issue #1007: the data provider that produced this run. */
+  provider: StockScreenProvider;
   /** Universe screened (issue #270). */
   universe: UniverseId;
   sector: string;
@@ -316,8 +337,9 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
-   * Run a screen. E*TRADE-only market data — throws honestly when
-   * E*TRADE is unavailable (no fallback substitution).
+   * Run a screen through the one pipeline. Market data comes from the
+   * run's provider (E*TRADE by default, or the Yahoo adapter) — a
+   * provider failure surfaces honestly (no fallback substitution).
    */
   async runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult> {
     const timestamp = new Date().toISOString();
@@ -363,6 +385,10 @@ export class ScreenerAgent extends Agent<Env> {
     const screener = new DynamicMarketScreener();
     const userLogin = req.userLogin || this.userLogin();
     const universe: UniverseId = req.universe ?? "TECH";
+    // Issue #1007: the run's data provider (default E*TRADE). Recorded
+    // on every result — success, duplicate and failure alike — so the
+    // canonical report provenance always names its provider.
+    const provider: StockScreenProvider = req.provider ?? "etrade";
     let expectedCount = 0;
 
     // Issue #607: durable task record for this run (mandate §6; design
@@ -415,6 +441,7 @@ export class ScreenerAgent extends Agent<Env> {
         const dupResult: ScreenerRunResult = {
           timestamp,
           trigger: req.trigger,
+          provider,
           universe,
           sector,
           success: false,
@@ -441,12 +468,18 @@ export class ScreenerAgent extends Agent<Env> {
         }
         return dupResult;
       }
-      const etrade = new ETradeService(
-        this.getOrm(),
-        this.env,
-        userLogin,
-        req.environment
-      );
+      // Issue #1007: the E*TRADE service is constructed only for
+      // E*TRADE-provider runs. A Yahoo-provider run never touches the
+      // broker (no credentials read, no token lookup) and never falls
+      // back to it.
+      const etrade = provider === "etrade"
+        ? new ETradeService(
+            this.getOrm(),
+            this.env,
+            userLogin,
+            req.environment
+          )
+        : null;
 
       // Issue #270: resolve the universe to symbols (listings directory
       // = symbol membership only, not market data). E*TRADE-only quotes.
@@ -468,20 +501,30 @@ export class ScreenerAgent extends Agent<Env> {
       const { QuoteTrace } = await import("../trading");
       const quoteTrace = new QuoteTrace();
       quoteTrace.setNasdaqSymbols(selectedSymbols.map(s => typeof s === 'string' ? s : s.symbol));
-      // E*TRADE-only acquisition (#261). Symbols come from the listings
-      // directory (not market data); quotes come from E*TRADE or nothing.
-      const acquired = await acquireUniverse({
-        mode: "etrade-only",
-        symbols: selectedSymbols,
-        maxSymbols: selectedSymbols.length,
-        liveDeps: {
-          fetchETradeQuote: (sym) => etrade.fetchQuoteRemote(sym),
-          // Issue #495: quote the universe in batch requests (2 calls for
-          // NASDAQ100) instead of one request per symbol.
-          // Issue #816: pass the trace so the UI can show the pipeline.
-          fetchETradeQuotes: (syms) => etrade.fetchQuotesRemote(syms, quoteTrace),
-        },
-      });
+      // Provider-scoped acquisition (#261, #1007). Symbols come from
+      // the listings directory (membership, not market data) for both
+      // providers; quotes come from the named provider or nothing.
+      const acquired = provider === "yahoo"
+        ? await acquireUniverse({
+            mode: "yahoo",
+            symbols: selectedSymbols,
+            maxSymbols: selectedSymbols.length,
+            yahooDeps:
+              req.yahooDeps ??
+              yahooDepsFromProvider(new YahooFinanceProvider(this.env)),
+          })
+        : await acquireUniverse({
+            mode: "etrade-only",
+            symbols: selectedSymbols,
+            maxSymbols: selectedSymbols.length,
+            liveDeps: {
+              fetchETradeQuote: (sym) => etrade!.fetchQuoteRemote(sym),
+              // Issue #495: quote the universe in batch requests (2 calls for
+              // NASDAQ100) instead of one request per symbol.
+              // Issue #816: pass the trace so the UI can show the pipeline.
+              fetchETradeQuotes: (syms) => etrade!.fetchQuotesRemote(syms, quoteTrace),
+            },
+          });
       await beat();
       const screenResult = screenUniverse(screener, acquired, {
         ...(req.filters ?? {}),
@@ -519,6 +562,7 @@ export class ScreenerAgent extends Agent<Env> {
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        provider,
         universe,
         sector,
         success: true,
@@ -590,6 +634,7 @@ export class ScreenerAgent extends Agent<Env> {
       const result: ScreenerRunResult = {
         timestamp,
         trigger: req.trigger,
+        provider,
         universe,
         sector,
         success: false,
