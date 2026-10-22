@@ -34,7 +34,7 @@ import { ETradeWebhookService } from "../src/services/tradingWebhooks";
 import { verifyHmacSha256Signature } from "../src/security/webhookSecurity";
 import { DispatchTradingWebhookCommand } from "../src/mcp/cloudflareAgentCommands";
 import { executionCardPresentation } from "../src/client/executionCard";
-import { ScheduledOptionsManager } from "../src/client/options/ScheduledOptionsManager";
+import { ScheduledOptionsManager } from "../src/client/ScheduledOptionsManager";
 import type { Env } from "../src/types";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -403,7 +403,7 @@ describe("F15 — ScheduledOptionsManager claims", () => {
   });
 
   it("source pins: the unconditional claims are gone from the manager", () => {
-    const manager = src("client/options/ScheduledOptionsManager.tsx");
+    const manager = src("client/ScheduledOptionsManager.tsx");
     expect(manager).not.toContain("Broadcast: ✓ Active");
     expect(manager).not.toContain("runs 24/7");
     expect(manager).not.toContain("pushing alerts to Slack, Email, Webhook");
