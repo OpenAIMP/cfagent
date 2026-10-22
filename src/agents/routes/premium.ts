@@ -32,11 +32,14 @@ import {
   payerScopeId,
 } from "../../services/agenticPayments";
 import { FossResearchService } from "../../services/fossResearch";
-import { UnifiedOptionsService, YFinanceMarketScreener } from "../../trading";
+import { UnifiedOptionsService } from "../../trading";
 import { parseOptionsScreenRequest } from "../../trading";
+import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
+import type { NasdaqStockListing } from "../../services/nasdaqListings";
 import { sha256Hex } from "../../services/scheduledReports";
 import type { Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
+import type { ScreenerAgent } from "../screener-agent";
 
 /** The subset of OrchestratorAgent surface the premium handlers need. */
 export interface PremiumRouteContext {
@@ -44,6 +47,24 @@ export interface PremiumRouteContext {
   env: Env;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /** Screener agent (owner: OrchestratorAgent.getScreenerAgent) — issue #1007: premium stock-signals execute through the one stock pipeline via this agent, with the Yahoo data-source adapter as provider. */
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
+  /** Canonical-copy screener persistence (owner: OrchestratorAgent.persistScreenerReportCanonical) — the REST idiom. */
+  persistScreenerReportCanonical(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    provider?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    pdfKey?: string;
+    error?: string;
+    trigger?: unknown;
+    userLogin?: string;
+  }): void;
 }
 
 /**
@@ -255,19 +276,81 @@ export async function handlePremiumRoutes(
           const sym = url.searchParams.get("symbols") || url.searchParams.get("symbol");
           if (sym) symbols = sym.split(",").map(s => s.trim().toUpperCase());
         }
+        symbols = symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
 
-        const screener = new YFinanceMarketScreener();
-        const screen = await screener.screenMarkets({ search: symbols.join(",") });
-        const signals = screen.stocks.map(stock => ({
-          symbol: stock.symbol,
-          price: stock.price,
-          changePercent: stock.changePercent,
-          rsi: stock.rsi,
-          volume: stock.volume,
-          signalType: (stock.rsi && stock.rsi < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi && stock.rsi > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
-          confidence: 0.88,
-          timestamp: new Date().toISOString(),
-        }));
+        // Issue #1007 (consolidation S3): the paid signals execute
+        // through the ONE stock pipeline — ScreenerAgent with the
+        // Yahoo data-source adapter as provider — instead of the
+        // retired second FOSS engine. The requested symbols
+        // are the run's explicit universe (membership only; prices come
+        // from live Yahoo quotes via the adapter). The run stores a
+        // canonical report in the REST idiom, like every other stock
+        // screen. Identity follows the #183 rule used by the options
+        // scan above: session login when present, else the verified
+        // payer scope.
+        const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
+        const listings: NasdaqStockListing[] = symbols.map((symbol) => {
+          const curated = getCuratedStockBySymbol(symbol);
+          return {
+            symbol,
+            companyName: curated?.companyName || symbol,
+            exchange: curated?.exchange || "nasdaq",
+            change: 0,
+            changePercent: 0,
+            sector: curated?.sector,
+          };
+        });
+        const agent = ctx.getScreenerAgent(userLogin);
+        let result;
+        try {
+          result = await agent.runScreen({
+            trigger: "manual",
+            provider: "yahoo",
+            symbols: listings,
+            maxSymbols: listings.length,
+            maxItems: listings.length,
+            filters: {},
+            userLogin,
+          });
+        } catch (screenErr) {
+          const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
+          if (error.includes("already running")) {
+            return { success: false, service: tier.name, receipt, error: "Screen already running; retry shortly.", retryable: true };
+          }
+          throw screenErr;
+        }
+        ctx.persistScreenerReportCanonical({ ...result, userLogin });
+        if (!result.success) {
+          // Honest failure (the options-scan idiom above): Yahoo
+          // unavailable fails the fulfillment visibly — no signals are
+          // fabricated from another provider or from static data.
+          return {
+            success: false,
+            service: tier.name,
+            receipt,
+            error: result.error || "Yahoo Finance unavailable; no stock signals could be produced.",
+          };
+        }
+        // Signals are the pipeline's screened rows for the requested
+        // symbols (allStocks rows that survived screening; with the
+        // empty filter here that is every quoted symbol).
+        // `confidence` is pipeline-derived — the screening indicator
+        // composite (indicators.screenScore, 0–100) normalized to
+        // 0–1. The hard-coded constant this replaces is gone.
+        // NOTE (response-shape change, disclosed): the old engine's
+        // per-signal `volume` field is not carried on the pipeline's
+        // scanned-stock shape, so it is dropped rather than fabricated.
+        const signals = result.allStocks
+          .filter((stock) => stock.signal !== "unknown")
+          .map((stock) => ({
+            symbol: stock.symbol,
+            price: stock.lastPrice,
+            changePercent: stock.changePercent,
+            rsi: stock.rsi14 ?? undefined,
+            signalType: (stock.rsi14 != null && stock.rsi14 < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi14 != null && stock.rsi14 > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
+            confidence: Number((stock.indicators.screenScore / 100).toFixed(2)),
+            timestamp: result.timestamp,
+          }));
 
         return {
           success: true,

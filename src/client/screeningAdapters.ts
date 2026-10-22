@@ -30,7 +30,13 @@ export const SCREENING_PROVIDERS: ScreeningProviderAdapter[] = [
     kind: "market-data-api",
     assetClasses: ["stocks"],
     endpointByAssetClass: { stocks: "/api/foss/screen" },
-    filtersByAssetClass: { stocks: ["search", "trend"] },
+    // Issue #1007: the Yahoo provider now runs the SAME pipeline as
+    // the E*TRADE provider (Yahoo is a data-source adapter inside it),
+    // so it supports the full stock filter set the hub exposes —
+    // previously limited to search+trend by the retired second engine.
+    filtersByAssetClass: {
+      stocks: ["search", "limit", "exchange", "price-range", "trend"],
+    },
   },
 ];
 

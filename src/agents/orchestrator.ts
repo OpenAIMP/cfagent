@@ -557,6 +557,7 @@ export class OrchestratorAgent extends Think<Env> {
     webhookUrl?: string;
     pushToSlack?: boolean;
     filters?: import("../types").StockScreenerFilter;
+    provider?: import("../trading").StockScreenProvider;
   }): Promise<void> {
     return autonomousMarketScreen(this.scheduledCallbacksContext(), payload);
   }
@@ -1120,6 +1121,7 @@ export class OrchestratorAgent extends Think<Env> {
     timestamp: string;
     universe?: unknown;
     sector?: unknown;
+    provider?: unknown;
     success: boolean;
     totalScanned: number;
     matchedCount: number;
@@ -1790,6 +1792,8 @@ export class OrchestratorAgent extends Think<Env> {
     const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, {
       env: this.env,
       getOrm: () => this.getOrm(),
+      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
     });
     if (premiumResponse) return premiumResponse;
 
@@ -1901,6 +1905,8 @@ export class OrchestratorAgent extends Think<Env> {
     const fossResearchResponse = await handleFossQuoteResearchRoutes(request, url, path, sessionId, {
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
+      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
     });
     if (fossResearchResponse) return fossResearchResponse;
 
@@ -1913,6 +1919,8 @@ export class OrchestratorAgent extends Think<Env> {
     const fossScreeningResponse = await handleFossCompareScreenRoutes(request, url, path, sessionId, {
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
+      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
     });
     if (fossScreeningResponse) return fossScreeningResponse;
 
