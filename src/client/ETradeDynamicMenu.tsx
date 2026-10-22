@@ -7,6 +7,7 @@ import {
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
+import { IaaaAdminPanel } from "./IaaaAdminPanel";
 import { PillGroup, Button } from "./components/ui";
 import {
   AdBannerConfig,
@@ -1002,6 +1003,19 @@ export function SettingsMenu({
               <small>MCP transport access for external clients</small>
             </div>
             <ApiKeysPanel />
+          </div>
+
+          {/* IAAA Admin (issue #945, IAAA-UI v1: READ-ONLY): the
+              caller's own memberships, genesis status, and recent
+              tenant audit events. The server gates this to live
+              platform admins; anyone else sees a plain "not an
+              admin" state. No mutation UI exists in v1. */}
+          <div className="etrade-panel-section settings-iaaa-admin-section">
+            <div className="section-label-row">
+              <span>IAAA Admin</span>
+              <small>Read-only memberships, genesis &amp; audit</small>
+            </div>
+            <IaaaAdminPanel />
           </div>
 
           {/* User Account & Session */}
