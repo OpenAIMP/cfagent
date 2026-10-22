@@ -13,6 +13,7 @@ export * from "./identityBinding";
 export * from "./sessionPolicy";
 export * from "./authorization";
 export * from "./delegation";
+export * from "./iaaaAudit";
 export * from "./etradeOAuth";
 export * from "./session";
 export * from "./webhookSecurity";
