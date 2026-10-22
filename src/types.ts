@@ -24,6 +24,15 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   APP_BASE_URL: string;
   SESSION_SECRET: string;
+  // #945 Wiring Phase 1 — config-gated enablement. Both optional; absence
+  // means wiring is OFF and the legacy login flow runs unchanged. Rollback
+  // is a config change only: unset IAAA_WIRING_ENABLED (or remove a
+  // provider from IAAA_ENABLED_PROVIDERS). No code change, no secret.
+  // IAAA_WIRING_ENABLED: "1" or "true" (case-insensitive) = on; anything else = off.
+  IAAA_WIRING_ENABLED?: string;
+  // Comma-separated provider ids. Default when wiring is on: "github".
+  // An id with no registered adapter is ignored, never a fallback.
+  IAAA_ENABLED_PROVIDERS?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
@@ -154,6 +163,18 @@ export interface SessionData {
   githubAvatar: string;
   githubName: string;
   createdAt: number;
+  // #945 Wiring Phase 1 — optional extensions, added only when IAAA wiring
+  // is on. Old sessions without them keep working exactly as before.
+  // internalUserId is the stable Slice 1 identity, never derived from a
+  // login or email; providerSubject is the provider-stable subject
+  // (GitHub numeric user id), not the login.
+  internalUserId?: string;
+  providerIssuer?: string;
+  providerSubject?: string;
+  /** Login (authentication) time in ms since epoch, for step-up freshness. */
+  authTimeMs?: number;
+  /** Session record version; 1 for sessions created by the wired flow. */
+  sessionVersion?: number;
 }
 
 export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading" | "research" | "browser" | "sandbox" | "think" | "webhook" | "broker_webhook" | "durable_execution";
