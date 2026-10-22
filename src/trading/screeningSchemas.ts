@@ -493,6 +493,13 @@ export const unifiedOptionsRequestFields = {
   optimizationBias: fin().optional(),
   mode: z.enum(["strategy_fit", "per_name_best"]).optional(),
   perSymbol: z.record(z.string(), scanSymbolOverrideSchema).optional(),
+  // Issue #16: server-populated per-name event calendars. The field
+  // must be present here (optional) so this object satisfies
+  // Record<keyof UnifiedOptionsRequest, ...> — its absence broke the
+  // CI type check after #959. A client-supplied value is still never
+  // trusted: the unified route deletes it after parsing and refetches
+  // coverage server-side before the service runs.
+  eventCalendarBySymbol: z.record(z.string(), eventCalendarSchema).optional(),
   statedTarget: z
     .strictObject({ price: fin(), symbol: z.string().optional() })
     .optional(),
