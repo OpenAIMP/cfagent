@@ -31,9 +31,8 @@ import {
   TRADING_PAID_SERVICES,
   payerScopeId,
 } from "../../services/agenticPayments";
-import { ETradeService } from "../../services/etrade";
 import { FossResearchService } from "../../services/fossResearch";
-import { DynamicOptionsScreener, YFinanceMarketScreener } from "../../trading";
+import { UnifiedOptionsService, YFinanceMarketScreener } from "../../trading";
 import { parseOptionsScreenRequest } from "../../trading";
 import { sha256Hex } from "../../services/scheduledReports";
 import type { Env } from "../../types";
@@ -130,9 +129,23 @@ export async function handlePremiumRoutes(
         const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
         const rawEnvHdr = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
         const reqEnvLocal = (rawEnvHdr === "TEST" || rawEnvHdr === "PROD") ? rawEnvHdr : undefined;
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, reqEnvLocal);
-        const screener = new DynamicOptionsScreener(etrade.client);
-        const result = await screener.screenOptions(filter);
+        // Issue #982 (screening consolidation S2): the paid scan
+        // executes through UnifiedOptionsService — the same service
+        // the REST routes call — instead of a route-local engine. The
+        // service's screen data IS the screen result this body has
+        // always carried; the caller's filter rides through with its
+        // symbols/limit lifted onto the request so the effective
+        // filter is unchanged. Payment gating above and the canonical
+        // persistence below are untouched.
+        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm());
+        const serviceResponse = await service.execute({
+          action: "screen",
+          channel: "webhook",
+          filter,
+          symbols: filter.underlyingSymbols,
+          limit: filter.limit,
+        });
+        const result = serviceResponse.data;
         const failed = result.status === "error";
         // Issue #307/#308: store the canonical options-scan report copy
         // (one row per generation) so scans are searchable via AI Search.
