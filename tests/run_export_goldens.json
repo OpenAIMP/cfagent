@@ -1,0 +1,675 @@
+{
+  "generatedFrom": "Legacy exporter modules (screenerExport, scannerExport, discoveryExport, options/optionsIdeasExport) on main f4e679ada9dce4d2f7293a0c6c03fd0a3b7fe604, over tests/fixtures/runExportFixtures.ts",
+  "csvEscapeCases": [
+    "NVDA",
+    "187.5",
+    "0",
+    "",
+    "",
+    "",
+    "\"Acme, Inc\"",
+    "\"Say \"\"Holdings\"\" Co\"",
+    "\"Line1\nLine2\"",
+    "\"Carriage\rReturn\"",
+    "Ünïcode ✓",
+    "\"trailing,\"",
+    "\",leading\""
+  ],
+  "screen": {
+    "standoutsCsv": [
+      "# cfagent market screen results — standouts\r\n# run: 2026-10-20T13:55:00.000Z · trigger: scheduled · sector: Technology\r\n# scanned: 100 · matched: 12 · standouts: 3\r\nsymbol,company,sentiment,screenScore,quantRating,valueGrade,momentumGrade,lastPrice,changePercent,gapPercent,rangeZone,valueZone\r\nNVDA,\"NVIDIA, \"\"Graphics\"\" Ünïcode\nSecond Line\",very_bullish,88,Strong Buy,B,A,187.5,2.34,1.25,overbought,fair\r\nPLTR,Palantir Technologies,,,,,,160,-1.05,,,\r\nZERO,,,0,,,,0,0,0,,\r\n",
+      "# cfagent market screen results — standouts\r\n# run: 2026-10-20T13:50:00.000Z · trigger: scheduled · sector: Technology\r\n# scanned: 47 · matched: 5 · standouts: 3\r\n# PARTIAL RUN: 47 of 100 symbols quoted (failure reasons: other=53); results cover the quoted subset only — no fallback data substituted.\r\nsymbol,company,sentiment,screenScore,quantRating,valueGrade,momentumGrade,lastPrice,changePercent,gapPercent,rangeZone,valueZone\r\nNVDA,\"NVIDIA, \"\"Graphics\"\" Ünïcode\nSecond Line\",very_bullish,88,Strong Buy,B,A,187.5,2.34,1.25,overbought,fair\r\nPLTR,Palantir Technologies,,,,,,160,-1.05,,,\r\nZERO,,,0,,,,0,0,0,,\r\n",
+      "# cfagent market screen results — standouts\r\n# run: 2026-10-20T13:40:00.000Z · trigger: manual\r\n# scanned: 0 · matched: 0 · standouts: 0\r\nsymbol,company,sentiment,screenScore,quantRating,valueGrade,momentumGrade,lastPrice,changePercent,gapPercent,rangeZone,valueZone\r\n"
+    ],
+    "allStocksCsv": [
+      "# cfagent market screen results — all screened symbols\r\n# run: 2026-10-20T13:55:00.000Z · trigger: scheduled · sector: Technology\r\n# scanned: 100 · matched: 12 · standouts: 3\r\nsymbol,company,lastPrice,changePercent,gapPercent,sentiment,screenScore,quantRating,valueGrade,momentumGrade,momentumScore,rangeZone,valueZone,rsi14,macdHistogram,source\r\nNVDA,\"NVIDIA, \"\"Graphics\"\" Ünïcode\nSecond Line\",187.5,2.34,1.25,very_bullish,88,Strong Buy,B,A,91,overbought,fair,62,0.2,E*TRADE live\r\nXYZ,\"Carriage\rReturn Co\",12.5,0,,,,,,,40,,,,,E*TRADE live\r\n",
+      "# cfagent market screen results — all screened symbols\r\n# run: 2026-10-20T13:50:00.000Z · trigger: scheduled · sector: Technology\r\n# scanned: 47 · matched: 5 · standouts: 3\r\n# PARTIAL RUN: 47 of 100 symbols quoted (failure reasons: other=53); results cover the quoted subset only — no fallback data substituted.\r\nsymbol,company,lastPrice,changePercent,gapPercent,sentiment,screenScore,quantRating,valueGrade,momentumGrade,momentumScore,rangeZone,valueZone,rsi14,macdHistogram,source\r\nNVDA,\"NVIDIA, \"\"Graphics\"\" Ünïcode\nSecond Line\",187.5,2.34,1.25,very_bullish,88,Strong Buy,B,A,91,overbought,fair,62,0.2,E*TRADE live\r\nXYZ,\"Carriage\rReturn Co\",12.5,0,,,,,,,40,,,,,E*TRADE live\r\n",
+      "# cfagent market screen results — all screened symbols\r\n# run: 2026-10-20T13:40:00.000Z · trigger: manual\r\n# scanned: 0 · matched: 0 · standouts: 0\r\nsymbol,company,lastPrice,changePercent,gapPercent,sentiment,screenScore,quantRating,valueGrade,momentumGrade,momentumScore,rangeZone,valueZone,rsi14,macdHistogram,source\r\n"
+    ],
+    "runJson": [
+      "{\n  \"timestamp\": \"2026-10-20T13:55:00.000Z\",\n  \"trigger\": \"scheduled\",\n  \"sector\": \"Technology\",\n  \"success\": true,\n  \"totalScanned\": 100,\n  \"matchedCount\": 12,\n  \"opportunities\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"companyName\": \"NVIDIA, \\\"Graphics\\\" Ünïcode\\nSecond Line\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 91,\n      \"lastPrice\": 187.5,\n      \"changePercent\": 2.34,\n      \"rsi14\": 62,\n      \"source\": \"E*TRADE live\",\n      \"indicators\": {\n        \"sentiment\": \"very_bullish\",\n        \"directional\": true,\n        \"rangeZone\": \"overbought\",\n        \"valueZone\": \"fair\",\n        \"screenScore\": 88,\n        \"intradayPosition\": 0.9,\n        \"rangePosition\": 0.8,\n        \"summary\": \"strong\"\n      },\n      \"factorGrades\": {\n        \"value\": \"B\",\n        \"momentum\": \"A\",\n        \"growth\": null,\n        \"profitability\": null,\n        \"revisions\": null,\n        \"quantRating\": \"Strong Buy\",\n        \"valueScore\": 61,\n        \"momentumScore\": 93,\n        \"compositeScore\": 84,\n        \"gradedFactors\": [\n          \"value\",\n          \"momentum\"\n        ]\n      },\n      \"technicals\": {\n        \"rsi14\": 62,\n        \"macdLine\": 1.1,\n        \"macdSignalLine\": 0.9,\n        \"macdHistogram\": 0.2,\n        \"macdSignal\": \"bullish\",\n        \"gapPercent\": 1.25,\n        \"gapDirection\": \"up\",\n        \"historyBars\": 40,\n        \"historySource\": \"yahoo\"\n      }\n    },\n    {\n      \"symbol\": \"PLTR\",\n      \"companyName\": \"Palantir Technologies\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 88,\n      \"lastPrice\": 160,\n      \"changePercent\": -1.05\n    },\n    {\n      \"symbol\": \"ZERO\",\n      \"companyName\": \"\",\n      \"signal\": \"neutral\",\n      \"momentumScore\": 0,\n      \"lastPrice\": 0,\n      \"changePercent\": 0,\n      \"indicators\": {\n        \"sentiment\": \"\",\n        \"screenScore\": 0,\n        \"rangeZone\": \"\",\n        \"valueZone\": \"\"\n      },\n      \"factorGrades\": {\n        \"quantRating\": null,\n        \"value\": null,\n        \"momentum\": null\n      },\n      \"technicals\": {\n        \"gapPercent\": 0,\n        \"macdHistogram\": 0\n      }\n    }\n  ],\n  \"allStocks\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"companyName\": \"NVIDIA, \\\"Graphics\\\" Ünïcode\\nSecond Line\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 91,\n      \"lastPrice\": 187.5,\n      \"changePercent\": 2.34,\n      \"rsi14\": 62,\n      \"source\": \"E*TRADE live\",\n      \"indicators\": {\n        \"sentiment\": \"very_bullish\",\n        \"directional\": true,\n        \"rangeZone\": \"overbought\",\n        \"valueZone\": \"fair\",\n        \"screenScore\": 88,\n        \"intradayPosition\": 0.9,\n        \"rangePosition\": 0.8,\n        \"summary\": \"strong\"\n      },\n      \"factorGrades\": {\n        \"value\": \"B\",\n        \"momentum\": \"A\",\n        \"growth\": null,\n        \"profitability\": null,\n        \"revisions\": null,\n        \"quantRating\": \"Strong Buy\",\n        \"valueScore\": 61,\n        \"momentumScore\": 93,\n        \"compositeScore\": 84,\n        \"gradedFactors\": [\n          \"value\",\n          \"momentum\"\n        ]\n      },\n      \"technicals\": {\n        \"rsi14\": 62,\n        \"macdLine\": 1.1,\n        \"macdSignalLine\": 0.9,\n        \"macdHistogram\": 0.2,\n        \"macdSignal\": \"bullish\",\n        \"gapPercent\": 1.25,\n        \"gapDirection\": \"up\",\n        \"historyBars\": 40,\n        \"historySource\": \"yahoo\"\n      }\n    },\n    {\n      \"symbol\": \"XYZ\",\n      \"companyName\": \"Carriage\\rReturn Co\",\n      \"signal\": \"neutral\",\n      \"momentumScore\": 40,\n      \"lastPrice\": 12.5,\n      \"changePercent\": 0,\n      \"rsi14\": null,\n      \"source\": \"E*TRADE live\"\n    }\n  ]\n}",
+      "{\n  \"timestamp\": \"2026-10-20T13:50:00.000Z\",\n  \"trigger\": \"scheduled\",\n  \"sector\": \"Technology\",\n  \"success\": true,\n  \"totalScanned\": 47,\n  \"matchedCount\": 5,\n  \"opportunities\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"companyName\": \"NVIDIA, \\\"Graphics\\\" Ünïcode\\nSecond Line\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 91,\n      \"lastPrice\": 187.5,\n      \"changePercent\": 2.34,\n      \"rsi14\": 62,\n      \"source\": \"E*TRADE live\",\n      \"indicators\": {\n        \"sentiment\": \"very_bullish\",\n        \"directional\": true,\n        \"rangeZone\": \"overbought\",\n        \"valueZone\": \"fair\",\n        \"screenScore\": 88,\n        \"intradayPosition\": 0.9,\n        \"rangePosition\": 0.8,\n        \"summary\": \"strong\"\n      },\n      \"factorGrades\": {\n        \"value\": \"B\",\n        \"momentum\": \"A\",\n        \"growth\": null,\n        \"profitability\": null,\n        \"revisions\": null,\n        \"quantRating\": \"Strong Buy\",\n        \"valueScore\": 61,\n        \"momentumScore\": 93,\n        \"compositeScore\": 84,\n        \"gradedFactors\": [\n          \"value\",\n          \"momentum\"\n        ]\n      },\n      \"technicals\": {\n        \"rsi14\": 62,\n        \"macdLine\": 1.1,\n        \"macdSignalLine\": 0.9,\n        \"macdHistogram\": 0.2,\n        \"macdSignal\": \"bullish\",\n        \"gapPercent\": 1.25,\n        \"gapDirection\": \"up\",\n        \"historyBars\": 40,\n        \"historySource\": \"yahoo\"\n      }\n    },\n    {\n      \"symbol\": \"PLTR\",\n      \"companyName\": \"Palantir Technologies\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 88,\n      \"lastPrice\": 160,\n      \"changePercent\": -1.05\n    },\n    {\n      \"symbol\": \"ZERO\",\n      \"companyName\": \"\",\n      \"signal\": \"neutral\",\n      \"momentumScore\": 0,\n      \"lastPrice\": 0,\n      \"changePercent\": 0,\n      \"indicators\": {\n        \"sentiment\": \"\",\n        \"screenScore\": 0,\n        \"rangeZone\": \"\",\n        \"valueZone\": \"\"\n      },\n      \"factorGrades\": {\n        \"quantRating\": null,\n        \"value\": null,\n        \"momentum\": null\n      },\n      \"technicals\": {\n        \"gapPercent\": 0,\n        \"macdHistogram\": 0\n      }\n    }\n  ],\n  \"allStocks\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"companyName\": \"NVIDIA, \\\"Graphics\\\" Ünïcode\\nSecond Line\",\n      \"signal\": \"bullish\",\n      \"momentumScore\": 91,\n      \"lastPrice\": 187.5,\n      \"changePercent\": 2.34,\n      \"rsi14\": 62,\n      \"source\": \"E*TRADE live\",\n      \"indicators\": {\n        \"sentiment\": \"very_bullish\",\n        \"directional\": true,\n        \"rangeZone\": \"overbought\",\n        \"valueZone\": \"fair\",\n        \"screenScore\": 88,\n        \"intradayPosition\": 0.9,\n        \"rangePosition\": 0.8,\n        \"summary\": \"strong\"\n      },\n      \"factorGrades\": {\n        \"value\": \"B\",\n        \"momentum\": \"A\",\n        \"growth\": null,\n        \"profitability\": null,\n        \"revisions\": null,\n        \"quantRating\": \"Strong Buy\",\n        \"valueScore\": 61,\n        \"momentumScore\": 93,\n        \"compositeScore\": 84,\n        \"gradedFactors\": [\n          \"value\",\n          \"momentum\"\n        ]\n      },\n      \"technicals\": {\n        \"rsi14\": 62,\n        \"macdLine\": 1.1,\n        \"macdSignalLine\": 0.9,\n        \"macdHistogram\": 0.2,\n        \"macdSignal\": \"bullish\",\n        \"gapPercent\": 1.25,\n        \"gapDirection\": \"up\",\n        \"historyBars\": 40,\n        \"historySource\": \"yahoo\"\n      }\n    },\n    {\n      \"symbol\": \"XYZ\",\n      \"companyName\": \"Carriage\\rReturn Co\",\n      \"signal\": \"neutral\",\n      \"momentumScore\": 40,\n      \"lastPrice\": 12.5,\n      \"changePercent\": 0,\n      \"rsi14\": null,\n      \"source\": \"E*TRADE live\"\n    }\n  ],\n  \"partial\": {\n    \"quotedCount\": 47,\n    \"requestedCount\": 100,\n    \"failedSymbols\": [\n      \"XYZ\"\n    ],\n    \"failureReasons\": {\n      \"other\": 53\n    }\n  }\n}"
+    ],
+    "filenames": [
+      {
+        "standouts": "screen-20261020-135500-technology-standouts.csv",
+        "allStocks": "screen-20261020-135500-technology-all-stocks.csv",
+        "runJson": "screen-20261020-135500-technology.json"
+      },
+      {
+        "standouts": "screen-20261020-135000-technology-standouts.csv",
+        "allStocks": "screen-20261020-135000-technology-all-stocks.csv",
+        "runJson": "screen-20261020-135000-technology.json"
+      },
+      {
+        "standouts": "screen-20261020-134000-standouts.csv",
+        "allStocks": "screen-20261020-134000-all-stocks.csv",
+        "runJson": "screen-20261020-134000.json"
+      },
+      {
+        "standouts": "screen--weird-ts--financial-services-co-standouts.csv",
+        "allStocks": "screen--weird-ts--financial-services-co-all-stocks.csv",
+        "runJson": "screen--weird-ts--financial-services-co.json"
+      }
+    ]
+  },
+  "scan": {
+    "storedFitRun": {
+      "id": "scan-run-1",
+      "generatedAt": "2026-10-15T14:00:00.000Z",
+      "mode": "strategy_fit",
+      "modelVersion": "1.2.0",
+      "gate": {
+        "fit": 2,
+        "borderline": 1,
+        "noFit": 0
+      },
+      "coverage": {
+        "considered": 3,
+        "scanned": 3,
+        "evaluated": 2,
+        "errors": 1,
+        "truncated": false
+      },
+      "profileRef": {
+        "id": "prof-1",
+        "name": "Income, Growth",
+        "version": 2
+      },
+      "result": {
+        "scanned": 3,
+        "withTrades": 2,
+        "opportunities": [],
+        "skipped": [
+          {
+            "symbol": "ZZZ",
+            "reason": "no chain data"
+          }
+        ],
+        "truncatedSymbols": 0,
+        "assumptions": [],
+        "matrix": [
+          {
+            "symbol": "AAPL",
+            "verdict": "pass",
+            "targetPrice": 262.5,
+            "targetSource": "thesis",
+            "targetEmUnits": 0.6,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              },
+              {
+                "strategyType": "call_debit_spread",
+                "best": {
+                  "candidateId": "aapl-cds",
+                  "label": "Bull Call, \"Spread\"",
+                  "compositeScore": 71.2,
+                  "score": 64,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": 3.25,
+                  "maxLoss": 325,
+                  "maxProfit": 675,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 2.08,
+                  "probabilityOfProfit": 0.42
+                },
+                "evaluatedCount": 4,
+                "passedCount": 1,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": []
+          },
+          {
+            "symbol": "MSFT",
+            "verdict": "pass",
+            "targetPrice": null,
+            "targetSource": null,
+            "targetEmUnits": null,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": [
+              "freshness waived, per \"profile\"\nsecond line"
+            ]
+          }
+        ],
+        "typeRollup": [],
+        "mode": "strategy_fit",
+        "fits": [
+          {
+            "symbol": "AAPL",
+            "verdict": "pass",
+            "targetPrice": 262.5,
+            "targetSource": "thesis",
+            "targetEmUnits": 0.6,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              },
+              {
+                "strategyType": "call_debit_spread",
+                "best": {
+                  "candidateId": "aapl-cds",
+                  "label": "Bull Call, \"Spread\"",
+                  "compositeScore": 71.2,
+                  "score": 64,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": 3.25,
+                  "maxLoss": 325,
+                  "maxProfit": 675,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 2.08,
+                  "probabilityOfProfit": 0.42
+                },
+                "evaluatedCount": 4,
+                "passedCount": 1,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": []
+          },
+          {
+            "symbol": "MSFT",
+            "verdict": "pass",
+            "targetPrice": null,
+            "targetSource": null,
+            "targetEmUnits": null,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": [
+              "freshness waived, per \"profile\"\nsecond line"
+            ]
+          }
+        ],
+        "fitsTotal": 2,
+        "gate": {
+          "fit": 2,
+          "borderline": 1,
+          "noFit": 0
+        },
+        "borderline": [],
+        "gateParams": {
+          "minCompositeScore": 55,
+          "minProbabilityOfProfit": 0.35,
+          "requireFresh": true,
+          "minConfidence": "MEDIUM"
+        },
+        "profileRef": {
+          "id": "prof-1",
+          "name": "Income, Growth",
+          "version": 2
+        },
+        "generatedAt": "2026-10-15T14:00:00.000Z",
+        "modelVersion": "1.2.0",
+        "requestSnapshot": {
+          "template": {
+            "thesis": "bullish",
+            "targetDate": "2026-11-20",
+            "maxPlannedLoss": 750,
+            "minRewardRisk": 1.5,
+            "allowedStrategies": [
+              "all"
+            ]
+          },
+          "mode": "strategy_fit",
+          "riskProfile": "balanced",
+          "profile": null,
+          "request": {
+            "symbols": [
+              "AAPL",
+              "MSFT",
+              "ZZZ"
+            ]
+          }
+        },
+        "coverage": {
+          "considered": 3,
+          "scanned": 3,
+          "evaluated": 2,
+          "errors": 1,
+          "truncated": false
+        }
+      }
+    },
+    "liveFitRun": {
+      "id": "scan-run-1",
+      "generatedAt": "2026-10-15T14:00:00.000Z",
+      "mode": "strategy_fit",
+      "modelVersion": "1.2.0",
+      "gate": {
+        "fit": 2,
+        "borderline": 1,
+        "noFit": 0
+      },
+      "coverage": {
+        "considered": 3,
+        "scanned": 3,
+        "evaluated": 2,
+        "errors": 1,
+        "truncated": false
+      },
+      "profileRef": {
+        "id": "prof-1",
+        "name": "Income, Growth",
+        "version": 2
+      },
+      "result": {
+        "scanned": 3,
+        "withTrades": 2,
+        "opportunities": [],
+        "skipped": [
+          {
+            "symbol": "ZZZ",
+            "reason": "no chain data"
+          }
+        ],
+        "truncatedSymbols": 0,
+        "assumptions": [],
+        "matrix": [
+          {
+            "symbol": "AAPL",
+            "verdict": "pass",
+            "targetPrice": 262.5,
+            "targetSource": "thesis",
+            "targetEmUnits": 0.6,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              },
+              {
+                "strategyType": "call_debit_spread",
+                "best": {
+                  "candidateId": "aapl-cds",
+                  "label": "Bull Call, \"Spread\"",
+                  "compositeScore": 71.2,
+                  "score": 64,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": 3.25,
+                  "maxLoss": 325,
+                  "maxProfit": 675,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 2.08,
+                  "probabilityOfProfit": 0.42
+                },
+                "evaluatedCount": 4,
+                "passedCount": 1,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": []
+          },
+          {
+            "symbol": "MSFT",
+            "verdict": "pass",
+            "targetPrice": null,
+            "targetSource": null,
+            "targetEmUnits": null,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": [
+              "freshness waived, per \"profile\"\nsecond line"
+            ]
+          }
+        ],
+        "typeRollup": [],
+        "mode": "strategy_fit",
+        "fits": [
+          {
+            "symbol": "AAPL",
+            "verdict": "pass",
+            "targetPrice": 262.5,
+            "targetSource": "thesis",
+            "targetEmUnits": 0.6,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              },
+              {
+                "strategyType": "call_debit_spread",
+                "best": {
+                  "candidateId": "aapl-cds",
+                  "label": "Bull Call, \"Spread\"",
+                  "compositeScore": 71.2,
+                  "score": 64,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": 3.25,
+                  "maxLoss": 325,
+                  "maxProfit": 675,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 2.08,
+                  "probabilityOfProfit": 0.42
+                },
+                "evaluatedCount": 4,
+                "passedCount": 1,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": []
+          },
+          {
+            "symbol": "MSFT",
+            "verdict": "pass",
+            "targetPrice": null,
+            "targetSource": null,
+            "targetEmUnits": null,
+            "cells": [
+              {
+                "strategyType": "iron_condor",
+                "best": {
+                  "candidateId": "aapl-ic",
+                  "label": "Iron Condor",
+                  "compositeScore": 66.4,
+                  "score": 60,
+                  "expirationDate": "2026-11-20",
+                  "legs": [],
+                  "netDebit": -2.1,
+                  "maxLoss": 290,
+                  "maxProfit": 210,
+                  "maxProfitUnbounded": false,
+                  "targetRewardRisk": 0.72,
+                  "probabilityOfProfit": 0.61
+                },
+                "evaluatedCount": 5,
+                "passedCount": 2,
+                "rejectedCount": 3,
+                "rejectionReasons": {}
+              }
+            ],
+            "gateBucket": "fit",
+            "gateReasons": [
+              "freshness waived, per \"profile\"\nsecond line"
+            ]
+          }
+        ],
+        "fitsTotal": 2,
+        "gate": {
+          "fit": 2,
+          "borderline": 1,
+          "noFit": 0
+        },
+        "borderline": [],
+        "gateParams": {
+          "minCompositeScore": 55,
+          "minProbabilityOfProfit": 0.35,
+          "requireFresh": true,
+          "minConfidence": "MEDIUM"
+        },
+        "profileRef": {
+          "id": "prof-1",
+          "name": "Income, Growth",
+          "version": 2
+        },
+        "generatedAt": "2026-10-15T14:00:00.000Z",
+        "modelVersion": "1.2.0",
+        "requestSnapshot": {
+          "template": {
+            "thesis": "bullish",
+            "targetDate": "2026-11-20",
+            "maxPlannedLoss": 750,
+            "minRewardRisk": 1.5,
+            "allowedStrategies": [
+              "all"
+            ]
+          },
+          "mode": "strategy_fit",
+          "riskProfile": "balanced",
+          "profile": null,
+          "request": {
+            "symbols": [
+              "AAPL",
+              "MSFT",
+              "ZZZ"
+            ]
+          }
+        },
+        "coverage": {
+          "considered": 3,
+          "scanned": 3,
+          "evaluated": 2,
+          "errors": 1,
+          "truncated": false
+        }
+      }
+    },
+    "resultsCsv": [
+      "# cfagent strategy scan results — fits\r\n# run: 2026-10-15T14:00:00.000Z · mode: strategy_fit · scan model v1.2.0 · profile: Income, Growth v2 · run id: scan-run-1\r\n# symbols: AAPL, MSFT, ZZZ\r\n# coverage: considered 3 · scanned 3 · evaluated 2 · skipped 1 · truncated false\r\n# gate: 2 fit / 1 borderline / 0 no fit · fits total: 2 · rows in this file: 2\r\n# fit gate: min composite score 55 · min probability of profit 0.35 · require fresh: yes · min confidence: MEDIUM\r\nsymbol,strategy,compositeScore,probabilityOfProfit,targetPrice,targetSource,targetEmUnits,netDebit,maxLoss,gateBucket,gateReasons\r\nAAPL,\"Bull Call, \"\"Spread\"\"\",71.2,0.42,262.5,thesis,0.6,3.25,325,fit,\r\nMSFT,Iron Condor,66.4,0.61,,,,-2.1,290,fit,\"freshness waived, per \"\"profile\"\"\nsecond line\"\r\n",
+      "# cfagent strategy scan results — fits\r\n# run: 2026-10-15T14:00:00.000Z · mode: strategy_fit · scan model v1.2.0 · profile: Income, Growth v2 · run id: scan-run-1\r\n# symbols: AAPL, MSFT, ZZZ\r\n# coverage: considered 3 · scanned 3 · evaluated 2 · skipped 1 · truncated false\r\n# gate: 2 fit / 1 borderline / 0 no fit · fits total: 2 · rows in this file: 2\r\n# fit gate: min composite score 55 · min probability of profit 0.35 · require fresh: yes · min confidence: MEDIUM\r\nsymbol,strategy,compositeScore,probabilityOfProfit,targetPrice,targetSource,targetEmUnits,netDebit,maxLoss,gateBucket,gateReasons\r\nAAPL,\"Bull Call, \"\"Spread\"\"\",71.2,0.42,262.5,thesis,0.6,3.25,325,fit,\r\nMSFT,Iron Condor,66.4,0.61,,,,-2.1,290,fit,\"freshness waived, per \"\"profile\"\"\nsecond line\"\r\n",
+      "# cfagent strategy scan results — opportunities\r\n# run: 2026-10-16T09:30:00.000Z · mode: per_name_best · scan model v1.2.0\r\n# symbols: NVDA, TSLA, AMD\r\n# coverage: considered 3 · scanned 2 · evaluated 2 · skipped 0 · truncated true\r\n# gate: 1 fit / 0 borderline / 1 no fit · rows in this file: 3\r\n# fit gate: min composite score 55 · min probability of profit 0.35 · require fresh: yes · min confidence: MEDIUM\r\nsymbol,strategy,compositeScore,probabilityOfProfit,targetPrice,targetSource,targetEmUnits,netDebit,maxLoss,gateBucket,gateReasons\r\nNVDA,\"Bull Call Spread, Nov\",88.5,0.47,200,thesis,0.5,4.1,410,fit,\r\nTSLA,No qualifying trade,12,,,,,,,no_fit,no qualifying trade\r\nAMD,,0,,150,analyst,0,,,,\r\n",
+      "# cfagent strategy scan results — fits\r\n# run:  · mode: strategy_fit · scan model v1.2.0 · run id: scan-run-empty\r\n# gate: 0 fit / 0 borderline / 3 no fit · fits total: 0 · rows in this file: 0\r\nsymbol,strategy,compositeScore,probabilityOfProfit,targetPrice,targetSource,targetEmUnits,netDebit,maxLoss,gateBucket,gateReasons\r\n"
+    ],
+    "runJson": [
+      "{\n  \"id\": \"scan-run-1\",\n  \"generatedAt\": \"2026-10-15T14:00:00.000Z\",\n  \"mode\": \"strategy_fit\",\n  \"modelVersion\": \"1.2.0\",\n  \"gate\": {\n    \"fit\": 2,\n    \"borderline\": 1,\n    \"noFit\": 0\n  },\n  \"coverage\": {\n    \"considered\": 3,\n    \"scanned\": 3,\n    \"evaluated\": 2,\n    \"errors\": 1,\n    \"truncated\": false\n  },\n  \"profileRef\": {\n    \"id\": \"prof-1\",\n    \"name\": \"Income, Growth\",\n    \"version\": 2\n  },\n  \"result\": {\n    \"scanned\": 3,\n    \"withTrades\": 2,\n    \"opportunities\": [],\n    \"skipped\": [\n      {\n        \"symbol\": \"ZZZ\",\n        \"reason\": \"no chain data\"\n      }\n    ],\n    \"truncatedSymbols\": 0,\n    \"assumptions\": [],\n    \"matrix\": [\n      {\n        \"symbol\": \"AAPL\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": 262.5,\n        \"targetSource\": \"thesis\",\n        \"targetEmUnits\": 0.6,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          },\n          {\n            \"strategyType\": \"call_debit_spread\",\n            \"best\": {\n              \"candidateId\": \"aapl-cds\",\n              \"label\": \"Bull Call, \\\"Spread\\\"\",\n              \"compositeScore\": 71.2,\n              \"score\": 64,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": 3.25,\n              \"maxLoss\": 325,\n              \"maxProfit\": 675,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 2.08,\n              \"probabilityOfProfit\": 0.42\n            },\n            \"evaluatedCount\": 4,\n            \"passedCount\": 1,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": []\n      },\n      {\n        \"symbol\": \"MSFT\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": null,\n        \"targetSource\": null,\n        \"targetEmUnits\": null,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": [\n          \"freshness waived, per \\\"profile\\\"\\nsecond line\"\n        ]\n      }\n    ],\n    \"typeRollup\": [],\n    \"mode\": \"strategy_fit\",\n    \"fits\": [\n      {\n        \"symbol\": \"AAPL\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": 262.5,\n        \"targetSource\": \"thesis\",\n        \"targetEmUnits\": 0.6,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          },\n          {\n            \"strategyType\": \"call_debit_spread\",\n            \"best\": {\n              \"candidateId\": \"aapl-cds\",\n              \"label\": \"Bull Call, \\\"Spread\\\"\",\n              \"compositeScore\": 71.2,\n              \"score\": 64,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": 3.25,\n              \"maxLoss\": 325,\n              \"maxProfit\": 675,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 2.08,\n              \"probabilityOfProfit\": 0.42\n            },\n            \"evaluatedCount\": 4,\n            \"passedCount\": 1,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": []\n      },\n      {\n        \"symbol\": \"MSFT\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": null,\n        \"targetSource\": null,\n        \"targetEmUnits\": null,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": [\n          \"freshness waived, per \\\"profile\\\"\\nsecond line\"\n        ]\n      }\n    ],\n    \"fitsTotal\": 2,\n    \"gate\": {\n      \"fit\": 2,\n      \"borderline\": 1,\n      \"noFit\": 0\n    },\n    \"borderline\": [],\n    \"gateParams\": {\n      \"minCompositeScore\": 55,\n      \"minProbabilityOfProfit\": 0.35,\n      \"requireFresh\": true,\n      \"minConfidence\": \"MEDIUM\"\n    },\n    \"profileRef\": {\n      \"id\": \"prof-1\",\n      \"name\": \"Income, Growth\",\n      \"version\": 2\n    },\n    \"generatedAt\": \"2026-10-15T14:00:00.000Z\",\n    \"modelVersion\": \"1.2.0\",\n    \"requestSnapshot\": {\n      \"template\": {\n        \"thesis\": \"bullish\",\n        \"targetDate\": \"2026-11-20\",\n        \"maxPlannedLoss\": 750,\n        \"minRewardRisk\": 1.5,\n        \"allowedStrategies\": [\n          \"all\"\n        ]\n      },\n      \"mode\": \"strategy_fit\",\n      \"riskProfile\": \"balanced\",\n      \"profile\": null,\n      \"request\": {\n        \"symbols\": [\n          \"AAPL\",\n          \"MSFT\",\n          \"ZZZ\"\n        ]\n      }\n    },\n    \"coverage\": {\n      \"considered\": 3,\n      \"scanned\": 3,\n      \"evaluated\": 2,\n      \"errors\": 1,\n      \"truncated\": false\n    }\n  }\n}",
+      "{\n  \"id\": \"scan-run-1\",\n  \"generatedAt\": \"2026-10-15T14:00:00.000Z\",\n  \"mode\": \"strategy_fit\",\n  \"modelVersion\": \"1.2.0\",\n  \"gate\": {\n    \"fit\": 2,\n    \"borderline\": 1,\n    \"noFit\": 0\n  },\n  \"coverage\": {\n    \"considered\": 3,\n    \"scanned\": 3,\n    \"evaluated\": 2,\n    \"errors\": 1,\n    \"truncated\": false\n  },\n  \"profileRef\": {\n    \"id\": \"prof-1\",\n    \"name\": \"Income, Growth\",\n    \"version\": 2\n  },\n  \"result\": {\n    \"scanned\": 3,\n    \"withTrades\": 2,\n    \"opportunities\": [],\n    \"skipped\": [\n      {\n        \"symbol\": \"ZZZ\",\n        \"reason\": \"no chain data\"\n      }\n    ],\n    \"truncatedSymbols\": 0,\n    \"assumptions\": [],\n    \"matrix\": [\n      {\n        \"symbol\": \"AAPL\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": 262.5,\n        \"targetSource\": \"thesis\",\n        \"targetEmUnits\": 0.6,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          },\n          {\n            \"strategyType\": \"call_debit_spread\",\n            \"best\": {\n              \"candidateId\": \"aapl-cds\",\n              \"label\": \"Bull Call, \\\"Spread\\\"\",\n              \"compositeScore\": 71.2,\n              \"score\": 64,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": 3.25,\n              \"maxLoss\": 325,\n              \"maxProfit\": 675,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 2.08,\n              \"probabilityOfProfit\": 0.42\n            },\n            \"evaluatedCount\": 4,\n            \"passedCount\": 1,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": []\n      },\n      {\n        \"symbol\": \"MSFT\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": null,\n        \"targetSource\": null,\n        \"targetEmUnits\": null,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": [\n          \"freshness waived, per \\\"profile\\\"\\nsecond line\"\n        ]\n      }\n    ],\n    \"typeRollup\": [],\n    \"mode\": \"strategy_fit\",\n    \"fits\": [\n      {\n        \"symbol\": \"AAPL\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": 262.5,\n        \"targetSource\": \"thesis\",\n        \"targetEmUnits\": 0.6,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          },\n          {\n            \"strategyType\": \"call_debit_spread\",\n            \"best\": {\n              \"candidateId\": \"aapl-cds\",\n              \"label\": \"Bull Call, \\\"Spread\\\"\",\n              \"compositeScore\": 71.2,\n              \"score\": 64,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": 3.25,\n              \"maxLoss\": 325,\n              \"maxProfit\": 675,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 2.08,\n              \"probabilityOfProfit\": 0.42\n            },\n            \"evaluatedCount\": 4,\n            \"passedCount\": 1,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": []\n      },\n      {\n        \"symbol\": \"MSFT\",\n        \"verdict\": \"pass\",\n        \"targetPrice\": null,\n        \"targetSource\": null,\n        \"targetEmUnits\": null,\n        \"cells\": [\n          {\n            \"strategyType\": \"iron_condor\",\n            \"best\": {\n              \"candidateId\": \"aapl-ic\",\n              \"label\": \"Iron Condor\",\n              \"compositeScore\": 66.4,\n              \"score\": 60,\n              \"expirationDate\": \"2026-11-20\",\n              \"legs\": [],\n              \"netDebit\": -2.1,\n              \"maxLoss\": 290,\n              \"maxProfit\": 210,\n              \"maxProfitUnbounded\": false,\n              \"targetRewardRisk\": 0.72,\n              \"probabilityOfProfit\": 0.61\n            },\n            \"evaluatedCount\": 5,\n            \"passedCount\": 2,\n            \"rejectedCount\": 3,\n            \"rejectionReasons\": {}\n          }\n        ],\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": [\n          \"freshness waived, per \\\"profile\\\"\\nsecond line\"\n        ]\n      }\n    ],\n    \"fitsTotal\": 2,\n    \"gate\": {\n      \"fit\": 2,\n      \"borderline\": 1,\n      \"noFit\": 0\n    },\n    \"borderline\": [],\n    \"gateParams\": {\n      \"minCompositeScore\": 55,\n      \"minProbabilityOfProfit\": 0.35,\n      \"requireFresh\": true,\n      \"minConfidence\": \"MEDIUM\"\n    },\n    \"profileRef\": {\n      \"id\": \"prof-1\",\n      \"name\": \"Income, Growth\",\n      \"version\": 2\n    },\n    \"generatedAt\": \"2026-10-15T14:00:00.000Z\",\n    \"modelVersion\": \"1.2.0\",\n    \"requestSnapshot\": {\n      \"template\": {\n        \"thesis\": \"bullish\",\n        \"targetDate\": \"2026-11-20\",\n        \"maxPlannedLoss\": 750,\n        \"minRewardRisk\": 1.5,\n        \"allowedStrategies\": [\n          \"all\"\n        ]\n      },\n      \"mode\": \"strategy_fit\",\n      \"riskProfile\": \"balanced\",\n      \"profile\": null,\n      \"request\": {\n        \"symbols\": [\n          \"AAPL\",\n          \"MSFT\",\n          \"ZZZ\"\n        ]\n      }\n    },\n    \"coverage\": {\n      \"considered\": 3,\n      \"scanned\": 3,\n      \"evaluated\": 2,\n      \"errors\": 1,\n      \"truncated\": false\n    }\n  }\n}",
+      "{\n  \"generatedAt\": \"2026-10-16T09:30:00.000Z\",\n  \"mode\": \"per_name_best\",\n  \"modelVersion\": \"1.2.0\",\n  \"gate\": {\n    \"fit\": 1,\n    \"borderline\": 0,\n    \"noFit\": 1\n  },\n  \"coverage\": {\n    \"considered\": 3,\n    \"scanned\": 2,\n    \"evaluated\": 2,\n    \"errors\": 0,\n    \"truncated\": true\n  },\n  \"profileRef\": null,\n  \"result\": {\n    \"scanned\": 2,\n    \"withTrades\": 1,\n    \"skipped\": [],\n    \"truncatedSymbols\": 0,\n    \"assumptions\": [],\n    \"matrix\": [],\n    \"typeRollup\": [],\n    \"mode\": \"per_name_best\",\n    \"fits\": [],\n    \"fitsTotal\": 0,\n    \"gate\": {\n      \"fit\": 1,\n      \"borderline\": 0,\n      \"noFit\": 1\n    },\n    \"borderline\": [],\n    \"gateParams\": {\n      \"minCompositeScore\": 55,\n      \"minProbabilityOfProfit\": 0.35,\n      \"requireFresh\": true,\n      \"minConfidence\": \"MEDIUM\"\n    },\n    \"profileRef\": null,\n    \"generatedAt\": \"2026-10-16T09:30:00.000Z\",\n    \"modelVersion\": \"1.2.0\",\n    \"requestSnapshot\": {\n      \"request\": {\n        \"symbols\": [\n          \"NVDA\",\n          \"TSLA\",\n          \"AMD\"\n        ]\n      }\n    },\n    \"coverage\": {\n      \"considered\": 3,\n      \"scanned\": 2,\n      \"evaluated\": 2,\n      \"errors\": 0,\n      \"truncated\": true\n    },\n    \"opportunities\": [\n      {\n        \"symbol\": \"NVDA\",\n        \"score\": 81,\n        \"targetPrice\": 200,\n        \"targetSource\": \"thesis\",\n        \"targetEmUnits\": 0.5,\n        \"gateBucket\": \"fit\",\n        \"gateReasons\": [],\n        \"pick\": {\n          \"status\": \"trade\",\n          \"best\": {\n            \"compositeScore\": 88.5,\n            \"candidate\": {\n              \"label\": \"Bull Call Spread, Nov\",\n              \"netDebit\": 4.1,\n              \"maxLoss\": 410,\n              \"modelImpliedProbabilityOfProfit\": 0.47\n            }\n          }\n        }\n      },\n      {\n        \"symbol\": \"TSLA\",\n        \"score\": 12,\n        \"targetPrice\": null,\n        \"targetSource\": null,\n        \"targetEmUnits\": null,\n        \"gateBucket\": \"no_fit\",\n        \"gateReasons\": [\n          \"no qualifying trade\"\n        ],\n        \"pick\": {\n          \"status\": \"no_trade\",\n          \"best\": null\n        }\n      },\n      {\n        \"symbol\": \"AMD\",\n        \"score\": 0,\n        \"targetPrice\": 150,\n        \"targetSource\": \"analyst\",\n        \"targetEmUnits\": 0,\n        \"gateBucket\": null,\n        \"pick\": null\n      }\n    ]\n  }\n}",
+      "{\n  \"id\": \"scan-run-empty\",\n  \"generatedAt\": \"\",\n  \"mode\": \"strategy_fit\",\n  \"modelVersion\": \"1.2.0\",\n  \"gate\": {\n    \"fit\": 0,\n    \"borderline\": 0,\n    \"noFit\": 3\n  },\n  \"coverage\": null,\n  \"profileRef\": null,\n  \"result\": {\n    \"scanned\": 3,\n    \"withTrades\": 2,\n    \"opportunities\": [],\n    \"skipped\": [\n      {\n        \"symbol\": \"ZZZ\",\n        \"reason\": \"no chain data\"\n      }\n    ],\n    \"truncatedSymbols\": 0,\n    \"assumptions\": [],\n    \"matrix\": [],\n    \"typeRollup\": [],\n    \"mode\": \"strategy_fit\",\n    \"fits\": [],\n    \"fitsTotal\": 0,\n    \"gate\": {\n      \"fit\": 0,\n      \"borderline\": 0,\n      \"noFit\": 3\n    },\n    \"borderline\": [],\n    \"profileRef\": null,\n    \"generatedAt\": \"2026-10-15T14:00:00.000Z\",\n    \"modelVersion\": \"1.2.0\"\n  }\n}"
+    ],
+    "filenames": [
+      {
+        "resultsCsv": "scan-20261015-140000-fits.csv",
+        "runJson": "scan-20261015-140000.json"
+      },
+      {
+        "resultsCsv": "scan-20261016-093000-opportunities.csv",
+        "runJson": "scan-20261016-093000.json"
+      },
+      {
+        "resultsCsv": "scan-undated-fits.csv",
+        "runJson": "scan-undated.json"
+      }
+    ]
+  },
+  "discovery": {
+    "candidatesCsv": [
+      "# cfagent discovery run results — ranked candidates\r\n# run: 2026-10-20T13:55:00.000Z · trigger: Scheduled · schedule sched-abc · input model: saved-request · status: partial\r\n# symbols: NVDA, MSFT, AAPL · requests: 3 · completed: 1 · failed: 1 · rows in this file: 2\r\n# FAILED: MSFT — chain load failed, reason: \"timeout\"\nretry exhausted\r\n# DERIVED: AAPL target $262.50 = spot $250.00 × (1 + 0.6 × EM 8.33%) · window 2026-11-20 (30d) · profile Income, Growth v2\r\n# ABSTAINED: AAPL — no view confidence\r\nsymbol,thesis,targetPrice,targetDate,rank,strategy,strategyType,compositeScore,probabilityOfProfit,netDebit,maxProfit,maxLoss,targetRewardRisk,expirationDate,bestTradePick\r\nNVDA,\"bullish, \"\"strong\"\" conviction\",200,2027-12-18,1,NVDA Long Call,long_call,87.5,0.42,4.25,,425,2,2027-12-18,yes\r\nNVDA,\"bullish, \"\"strong\"\" conviction\",200,2027-12-18,2,\"NVDA Bull Call Spread, Dec\",long_call,71.25,0.42,2.1,0,210,2,2027-12-18,\r\n",
+      "# cfagent discovery run results — NO-VIEW (constraints only): ranked structures under the no-view-v1 score model — no thesis, no target\r\n# run: 2026-10-20T14:15:00.000Z · trigger: Scheduled · schedule sched-noview · input model: no-view · status: partial\r\n# symbols: NVDA, MSFT, AAPL · constraint sets: 3 · completed: 1 · failed: 1 · rows in this file: 2\r\n# CONSTRAINTS: NVDA — max planned loss $500.00 · min reward/risk 1× · min POP 35% · DTE 7–45 · risk profile balanced · IV expected unchanged\r\n# CONSTRAINTS: MSFT — max planned loss $300.00 · min reward/risk 1.5× · min POP 35% · DTE ≤30 · IV expected unchanged\r\n# CONSTRAINTS: AAPL — max planned loss $250.00 · min reward/risk 2× · min POP 35% · risk profile conservative · IV expected unchanged\r\n# ABSTAINED: MSFT — no structure qualified under the stated constraints (insufficient liquidity ×3, probability of profit below the floor ×2)\r\n# FAILED: AAPL — E*TRADE chain unavailable: session expired\r\nsymbol,scoreModel,rank,strategy,strategyType,compositeScore,probabilityOfProfit,netDebit,maxProfit,maxLoss,structureRewardRisk,expirationDate,bestPick\r\nNVDA,no-view-v1,1,NVDA Long Call,long_call,82.5,0.42,4.25,,425,,2026-11-20,yes\r\nNVDA,no-view-v1,2,NVDA Bull Put Spread,bull_put_spread,64,0.42,-1.8,180,320,0.5625,2026-11-20,\r\n",
+      "# cfagent discovery run results — ranked candidates\r\n# run: not-a-timestamp · trigger: Manual trigger · input model: saved-request · status: failed\r\n# symbols: NVDA · requests: 1 · completed: 0 · failed: 1 · rows in this file: 0\r\n# FAILED: NVDA — no reason recorded\r\nsymbol,thesis,targetPrice,targetDate,rank,strategy,strategyType,compositeScore,probabilityOfProfit,netDebit,maxProfit,maxLoss,targetRewardRisk,expirationDate,bestTradePick\r\n"
+    ],
+    "runJson": [
+      "{\n  \"id\": \"run-partial\",\n  \"createdAt\": \"2026-10-20T13:55:00.000Z\",\n  \"trigger\": \"scheduled\",\n  \"scheduleId\": \"sched-abc\",\n  \"inputModel\": \"saved-request\",\n  \"status\": \"partial\",\n  \"requestCount\": 3,\n  \"completedCount\": 1,\n  \"failedCount\": 1,\n  \"symbols\": [\n    \"NVDA\",\n    \"MSFT\",\n    \"AAPL\"\n  ],\n  \"requests\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n      \"targetPrice\": 200,\n      \"targetDate\": \"2027-12-18\",\n      \"expectedIvDirection\": \"unchanged\",\n      \"maxPlannedLoss\": 500,\n      \"minRewardRisk\": 1,\n      \"allowedStrategies\": [\n        \"long_call\",\n        \"long_put\"\n      ]\n    }\n  ],\n  \"outcomes\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"status\": \"completed\",\n      \"request\": {\n        \"symbol\": \"NVDA\",\n        \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n        \"targetPrice\": 200,\n        \"targetDate\": \"2027-12-18\",\n        \"expectedIvDirection\": \"unchanged\",\n        \"maxPlannedLoss\": 500,\n        \"minRewardRisk\": 1,\n        \"allowedStrategies\": [\n          \"long_call\",\n          \"long_put\"\n        ]\n      },\n      \"ranked\": [\n        {\n          \"candidate\": {\n            \"id\": \"cand-1\",\n            \"rank\": 1,\n            \"type\": \"long_call\",\n            \"label\": \"NVDA Long Call\",\n            \"symbol\": \"NVDA\",\n            \"underlyingPrice\": 180,\n            \"expirationDate\": \"2027-12-18\",\n            \"dataFreshness\": \"FRESH\",\n            \"legs\": [],\n            \"netDebit\": 4.25,\n            \"estimatedFees\": 1.3,\n            \"maxProfit\": null,\n            \"maxProfitUnbounded\": true,\n            \"maxLoss\": 425,\n            \"breakevens\": [\n              184.25\n            ],\n            \"targetPnl\": 850,\n            \"targetRewardRisk\": 2,\n            \"modelImpliedProbabilityOfProfit\": 0.42,\n            \"netGreeks\": {\n              \"delta\": 0.5,\n              \"gamma\": 0.02,\n              \"theta\": -0.05,\n              \"vega\": 0.1\n            },\n            \"liquidityScore\": 80,\n            \"score\": 77,\n            \"scoreBreakdown\": {},\n            \"payoffCurve\": [],\n            \"scenarios\": [],\n            \"explanations\": [],\n            \"warnings\": [],\n            \"assumptions\": []\n          },\n          \"rank\": 1,\n          \"compositeScore\": 87.5,\n          \"components\": {\n            \"engineScore\": 1,\n            \"probability\": 1,\n            \"rewardRisk\": 1,\n            \"capitalSafety\": 1,\n            \"liquidity\": 1\n          }\n        },\n        {\n          \"candidate\": {\n            \"id\": \"cand-2\",\n            \"rank\": 1,\n            \"type\": \"long_call\",\n            \"label\": \"NVDA Bull Call Spread, Dec\",\n            \"symbol\": \"NVDA\",\n            \"underlyingPrice\": 180,\n            \"expirationDate\": \"2027-12-18\",\n            \"dataFreshness\": \"FRESH\",\n            \"legs\": [],\n            \"netDebit\": 2.1,\n            \"estimatedFees\": 1.3,\n            \"maxProfit\": 0,\n            \"maxProfitUnbounded\": true,\n            \"maxLoss\": 210,\n            \"breakevens\": [\n              184.25\n            ],\n            \"targetPnl\": 850,\n            \"targetRewardRisk\": 2,\n            \"modelImpliedProbabilityOfProfit\": 0.42,\n            \"netGreeks\": {\n              \"delta\": 0.5,\n              \"gamma\": 0.02,\n              \"theta\": -0.05,\n              \"vega\": 0.1\n            },\n            \"liquidityScore\": 80,\n            \"score\": 77,\n            \"scoreBreakdown\": {},\n            \"payoffCurve\": [],\n            \"scenarios\": [],\n            \"explanations\": [],\n            \"warnings\": [],\n            \"assumptions\": []\n          },\n          \"rank\": 2,\n          \"compositeScore\": 71.25,\n          \"components\": {\n            \"engineScore\": 1,\n            \"probability\": 1,\n            \"rewardRisk\": 1,\n            \"capitalSafety\": 1,\n            \"liquidity\": 1\n          }\n        }\n      ],\n      \"riskReports\": [],\n      \"screenedOut\": [],\n      \"excluded\": [\n        {\n          \"reason\": \"insufficient liquidity\",\n          \"count\": 3\n        }\n      ],\n      \"bestTrade\": {\n        \"status\": \"recommended\",\n        \"riskProfile\": \"balanced\",\n        \"confidence\": \"HIGH\",\n        \"best\": {\n          \"candidate\": {\n            \"id\": \"cand-1\"\n          }\n        },\n        \"alternatives\": [],\n        \"rationale\": [\n          \"ranks #1\"\n        ],\n        \"blockers\": [],\n        \"humanApprovalRequired\": true,\n        \"disclaimer\": \"research only\"\n      },\n      \"snapshot\": {\n        \"dataSource\": \"live\",\n        \"screen\": {\n          \"contractsEvaluated\": 1200,\n          \"contractsMatched\": 45\n        }\n      }\n    },\n    {\n      \"symbol\": \"MSFT\",\n      \"status\": \"failed\",\n      \"request\": {\n        \"symbol\": \"MSFT\",\n        \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n        \"targetPrice\": 200,\n        \"targetDate\": \"2027-12-18\",\n        \"expectedIvDirection\": \"unchanged\",\n        \"maxPlannedLoss\": 500,\n        \"minRewardRisk\": 1,\n        \"allowedStrategies\": [\n          \"long_call\",\n          \"long_put\"\n        ]\n      },\n      \"error\": \"chain load failed, reason: \\\"timeout\\\"\\nretry exhausted\"\n    },\n    {\n      \"symbol\": \"AAPL\",\n      \"status\": \"abstained\",\n      \"request\": {\n        \"symbol\": \"AAPL\",\n        \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n        \"targetPrice\": 200,\n        \"targetDate\": \"2027-12-18\",\n        \"expectedIvDirection\": \"unchanged\",\n        \"maxPlannedLoss\": 500,\n        \"minRewardRisk\": 1,\n        \"allowedStrategies\": [\n          \"long_call\",\n          \"long_put\"\n        ]\n      },\n      \"error\": \"no view confidence\",\n      \"derivation\": {\n        \"targetPrice\": 262.5,\n        \"spot\": 250,\n        \"emMultiple\": 0.6,\n        \"expectedMovePct\": 0.0833,\n        \"windowExpiry\": \"2026-11-20\",\n        \"windowDays\": 30,\n        \"profileRef\": {\n          \"name\": \"Income, Growth\",\n          \"version\": 2\n        }\n      }\n    }\n  ]\n}",
+      "{\n  \"id\": \"run-noview\",\n  \"createdAt\": \"2026-10-20T14:15:00.000Z\",\n  \"trigger\": \"scheduled\",\n  \"scheduleId\": \"sched-noview\",\n  \"inputModel\": \"no-view\",\n  \"status\": \"partial\",\n  \"requestCount\": 3,\n  \"completedCount\": 1,\n  \"failedCount\": 1,\n  \"abstainedCount\": 1,\n  \"symbols\": [\n    \"NVDA\",\n    \"MSFT\",\n    \"AAPL\"\n  ],\n  \"requests\": [],\n  \"constraintSets\": [\n    {\n      \"source\": \"no-view\",\n      \"request\": {\n        \"symbol\": \"NVDA\",\n        \"maxPlannedLoss\": 500,\n        \"minRewardRisk\": 1,\n        \"minProbabilityOfProfit\": 0.35,\n        \"minDte\": 7,\n        \"maxDte\": 45,\n        \"riskProfile\": \"balanced\"\n      },\n      \"expectedIvDirection\": \"unchanged\"\n    },\n    {\n      \"source\": \"no-view\",\n      \"request\": {\n        \"symbol\": \"MSFT\",\n        \"maxPlannedLoss\": 300,\n        \"minRewardRisk\": 1.5,\n        \"maxDte\": 30\n      },\n      \"expectedIvDirection\": \"unchanged\"\n    },\n    {\n      \"source\": \"no-view\",\n      \"request\": {\n        \"symbol\": \"AAPL\",\n        \"maxPlannedLoss\": 250,\n        \"minRewardRisk\": 2,\n        \"riskProfile\": \"conservative\"\n      },\n      \"expectedIvDirection\": \"unchanged\"\n    }\n  ],\n  \"outcomes\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"status\": \"completed\",\n      \"constraintSet\": {\n        \"source\": \"no-view\",\n        \"request\": {\n          \"symbol\": \"NVDA\",\n          \"maxPlannedLoss\": 500,\n          \"minRewardRisk\": 1,\n          \"minProbabilityOfProfit\": 0.35,\n          \"minDte\": 7,\n          \"maxDte\": 45,\n          \"riskProfile\": \"balanced\"\n        },\n        \"expectedIvDirection\": \"unchanged\"\n      },\n      \"rankedNoView\": [\n        {\n          \"candidate\": {\n            \"id\": \"nv-1\",\n            \"rank\": 1,\n            \"type\": \"long_call\",\n            \"label\": \"NVDA Long Call\",\n            \"symbol\": \"NVDA\",\n            \"underlyingPrice\": 180,\n            \"expirationDate\": \"2026-11-20\",\n            \"dataFreshness\": \"FRESH\",\n            \"legs\": [],\n            \"netDebit\": 4.25,\n            \"estimatedFees\": 1.3,\n            \"maxProfit\": null,\n            \"maxProfitUnbounded\": true,\n            \"maxLoss\": 425,\n            \"breakevens\": [\n              184.25\n            ],\n            \"targetPnl\": 850,\n            \"targetRewardRisk\": 2,\n            \"modelImpliedProbabilityOfProfit\": 0.42,\n            \"netGreeks\": {\n              \"delta\": 0.5,\n              \"gamma\": 0.02,\n              \"theta\": -0.05,\n              \"vega\": 0.1\n            },\n            \"liquidityScore\": 80,\n            \"score\": 74,\n            \"scoreBreakdown\": {},\n            \"payoffCurve\": [],\n            \"scenarios\": [],\n            \"explanations\": [],\n            \"warnings\": [],\n            \"assumptions\": [],\n            \"structureRewardRisk\": null,\n            \"scoreModel\": \"no-view-v1\"\n          },\n          \"rank\": 1,\n          \"compositeScore\": 82.5,\n          \"components\": {\n            \"engineScore\": 1,\n            \"probability\": 1,\n            \"rewardRisk\": 1,\n            \"capitalSafety\": 1,\n            \"liquidity\": 1\n          }\n        },\n        {\n          \"candidate\": {\n            \"id\": \"nv-2\",\n            \"rank\": 1,\n            \"type\": \"bull_put_spread\",\n            \"label\": \"NVDA Bull Put Spread\",\n            \"symbol\": \"NVDA\",\n            \"underlyingPrice\": 180,\n            \"expirationDate\": \"2026-11-20\",\n            \"dataFreshness\": \"FRESH\",\n            \"legs\": [],\n            \"netDebit\": -1.8,\n            \"estimatedFees\": 1.3,\n            \"maxProfit\": 180,\n            \"maxProfitUnbounded\": false,\n            \"maxLoss\": 320,\n            \"breakevens\": [\n              184.25\n            ],\n            \"targetPnl\": 850,\n            \"targetRewardRisk\": 2,\n            \"modelImpliedProbabilityOfProfit\": 0.42,\n            \"netGreeks\": {\n              \"delta\": 0.5,\n              \"gamma\": 0.02,\n              \"theta\": -0.05,\n              \"vega\": 0.1\n            },\n            \"liquidityScore\": 80,\n            \"score\": 74,\n            \"scoreBreakdown\": {},\n            \"payoffCurve\": [],\n            \"scenarios\": [],\n            \"explanations\": [],\n            \"warnings\": [],\n            \"assumptions\": [],\n            \"structureRewardRisk\": 0.5625,\n            \"scoreModel\": \"no-view-v1\"\n          },\n          \"rank\": 2,\n          \"compositeScore\": 64,\n          \"components\": {\n            \"engineScore\": 1,\n            \"probability\": 1,\n            \"rewardRisk\": 1,\n            \"capitalSafety\": 1,\n            \"liquidity\": 1\n          }\n        }\n      ],\n      \"excluded\": [\n        {\n          \"reason\": \"max planned loss exceeded\",\n          \"count\": 2\n        }\n      ],\n      \"bestNoViewTrade\": {\n        \"status\": \"research_only\",\n        \"best\": {\n          \"candidate\": {\n            \"id\": \"nv-1\",\n            \"rank\": 1,\n            \"type\": \"long_call\",\n            \"label\": \"NVDA Long Call\",\n            \"symbol\": \"NVDA\",\n            \"underlyingPrice\": 180,\n            \"expirationDate\": \"2026-11-20\",\n            \"dataFreshness\": \"FRESH\",\n            \"legs\": [],\n            \"netDebit\": 4.25,\n            \"estimatedFees\": 1.3,\n            \"maxProfit\": null,\n            \"maxProfitUnbounded\": true,\n            \"maxLoss\": 425,\n            \"breakevens\": [\n              184.25\n            ],\n            \"targetPnl\": 850,\n            \"targetRewardRisk\": 2,\n            \"modelImpliedProbabilityOfProfit\": 0.42,\n            \"netGreeks\": {\n              \"delta\": 0.5,\n              \"gamma\": 0.02,\n              \"theta\": -0.05,\n              \"vega\": 0.1\n            },\n            \"liquidityScore\": 80,\n            \"score\": 74,\n            \"scoreBreakdown\": {},\n            \"payoffCurve\": [],\n            \"scenarios\": [],\n            \"explanations\": [],\n            \"warnings\": [],\n            \"assumptions\": [],\n            \"structureRewardRisk\": null,\n            \"scoreModel\": \"no-view-v1\"\n          },\n          \"rank\": 1,\n          \"compositeScore\": 82.5,\n          \"components\": {\n            \"engineScore\": 1,\n            \"probability\": 1,\n            \"rewardRisk\": 1,\n            \"capitalSafety\": 1,\n            \"liquidity\": 1\n          }\n        }\n      },\n      \"snapshot\": {\n        \"dataSource\": \"live\",\n        \"screen\": {\n          \"contractsEvaluated\": 1200,\n          \"contractsMatched\": 45\n        }\n      }\n    },\n    {\n      \"symbol\": \"MSFT\",\n      \"status\": \"completed\",\n      \"abstained\": true,\n      \"constraintSet\": {\n        \"source\": \"no-view\",\n        \"request\": {\n          \"symbol\": \"MSFT\",\n          \"maxPlannedLoss\": 300,\n          \"minRewardRisk\": 1.5,\n          \"maxDte\": 30\n        },\n        \"expectedIvDirection\": \"unchanged\"\n      },\n      \"rankedNoView\": [],\n      \"excluded\": [\n        {\n          \"reason\": \"insufficient liquidity\",\n          \"count\": 3\n        },\n        {\n          \"reason\": \"probability of profit below the floor\",\n          \"count\": 2\n        }\n      ],\n      \"bestNoViewTrade\": {\n        \"status\": \"no_trade\"\n      },\n      \"snapshot\": {\n        \"dataSource\": \"live\",\n        \"screen\": {\n          \"contractsEvaluated\": 800,\n          \"contractsMatched\": 0\n        }\n      }\n    },\n    {\n      \"symbol\": \"AAPL\",\n      \"status\": \"failed\",\n      \"constraintSet\": {\n        \"source\": \"no-view\",\n        \"request\": {\n          \"symbol\": \"AAPL\",\n          \"maxPlannedLoss\": 250,\n          \"minRewardRisk\": 2,\n          \"riskProfile\": \"conservative\"\n        },\n        \"expectedIvDirection\": \"unchanged\"\n      },\n      \"error\": \"E*TRADE chain unavailable: session expired\"\n    }\n  ]\n}",
+      "{\n  \"id\": \"run-failed\",\n  \"createdAt\": \"not-a-timestamp\",\n  \"trigger\": \"manual-trigger\",\n  \"inputModel\": \"saved-request\",\n  \"status\": \"failed\",\n  \"requestCount\": 1,\n  \"completedCount\": 0,\n  \"failedCount\": 1,\n  \"symbols\": [\n    \"NVDA\"\n  ],\n  \"requests\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n      \"targetPrice\": 200,\n      \"targetDate\": \"2027-12-18\",\n      \"expectedIvDirection\": \"unchanged\",\n      \"maxPlannedLoss\": 500,\n      \"minRewardRisk\": 1,\n      \"allowedStrategies\": [\n        \"long_call\",\n        \"long_put\"\n      ]\n    }\n  ],\n  \"outcomes\": [\n    {\n      \"symbol\": \"NVDA\",\n      \"status\": \"failed\",\n      \"request\": {\n        \"symbol\": \"NVDA\",\n        \"thesis\": \"bullish, \\\"strong\\\" conviction\",\n        \"targetPrice\": 200,\n        \"targetDate\": \"2027-12-18\",\n        \"expectedIvDirection\": \"unchanged\",\n        \"maxPlannedLoss\": 500,\n        \"minRewardRisk\": 1,\n        \"allowedStrategies\": [\n          \"long_call\",\n          \"long_put\"\n        ]\n      }\n    }\n  ]\n}"
+    ],
+    "hasCandidates": [
+      true,
+      true,
+      false
+    ],
+    "triggerLabels": [
+      "Scheduled · schedule sched-abc",
+      "Scheduled · schedule sched-noview",
+      "Manual trigger"
+    ],
+    "constraintLines": [
+      "max planned loss $500.00 · min reward/risk 1× · min POP 35% · DTE 7–45 · risk profile balanced · IV expected unchanged",
+      "max planned loss $300.00 · min reward/risk 1.5× · min POP 35% · DTE ≤30 · IV expected unchanged",
+      "max planned loss $250.00 · min reward/risk 2× · min POP 35% · risk profile conservative · IV expected unchanged"
+    ],
+    "filenames": [
+      {
+        "candidatesCsv": "discovery-20261020-135500.csv",
+        "runJson": "discovery-20261020-135500.json"
+      },
+      {
+        "candidatesCsv": "discovery-20261020-141500.csv",
+        "runJson": "discovery-20261020-141500.json"
+      },
+      {
+        "candidatesCsv": "discovery-not-a-timestamp.csv",
+        "runJson": "discovery-not-a-timestamp.json"
+      }
+    ]
+  },
+  "xls": {
+    "rawPlain": {
+      "sha256": "efa408bfb0d20a53ea6d689bb81bf07d2bc87aaa22af06480e9e78949111a941",
+      "length": 8192
+    },
+    "rawGrouped": {
+      "sha256": "5d2c44e5794b3ec10394b5168b34d22a1c8a1bf8e9cf2b7d27c7adde08e21bae",
+      "length": 8192
+    },
+    "report": {
+      "sha256": "1ebe77ccd7050eb05ef7bb26d4b46ffccebaa18a06a2168cab2cc93965790351",
+      "length": 8704
+    },
+    "reportMinimal": {
+      "sha256": "8cd99617a589ea1bef8c4c9f49d98c8502b99568b4ab107ab094b50b7fe9219d",
+      "length": 5120
+    },
+    "retrieved": {
+      "sha256": "52bc29fc8c80f0ee7a5291bc0ced23c83d56a46512077ea53bdb9ad9e25e50a1",
+      "length": 5120
+    }
+  }
+}
