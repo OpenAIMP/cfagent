@@ -144,6 +144,18 @@ export interface DiscoveryExpression {
   rankedCount: number;
 }
 
+/** Strategy Profile biasing (issue #18): the profile contributes
+ *  the strategy types it allows; `points` (discovery config) is
+ *  added to those types' composites FOR PICK SELECTION ONLY.
+ *  Biasing can change which candidate is picked — it can never
+ *  change a recorded score, the roll-up, which signals fired, or
+ *  the inference, and it never manufactures a pick from a
+ *  no-trade pipeline result. */
+export interface DiscoveryProfileBias {
+  preferredTypes: readonly string[];
+  points: number;
+}
+
 /** Run one setup through the pipeline and judge it. The pipeline is
  *  injected as its run signature so tests (and later, the discovery
  *  service) can supply the real OptionsAgentPipeline or a fixture. */
@@ -151,12 +163,23 @@ export async function expressDiscoverySetup(
   pipeline: { run(request: StrategyRequest): Promise<PipelineResult> },
   request: StrategyRequest,
   gate: FitGateParams,
+  bias?: DiscoveryProfileBias,
 ): Promise<DiscoveryExpression> {
   const result = await pipeline.run(request);
+  let pick = result.bestTrade;
+  if (bias && pick.best && result.ranked.length > 0) {
+    const preferred = new Set(bias.preferredTypes);
+    const biasedScore = (r: RankedStrategy) =>
+      r.compositeScore + (preferred.has(r.candidate.type) ? bias.points : 0);
+    const winner = result.ranked.reduce((a, b) => (biasedScore(b) > biasedScore(a) ? b : a));
+    if (winner !== pick.best) {
+      pick = { ...pick, best: winner };
+    }
+  }
   return {
     request,
-    pick: result.bestTrade,
-    gate: evaluateFitGate(result.bestTrade, gate),
+    pick,
+    gate: evaluateFitGate(pick, gate),
     rollup: rollupBestPerType(result.ranked),
     rankedCount: result.ranked.length,
   };

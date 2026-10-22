@@ -162,6 +162,12 @@ export interface EtapiDiscoveryConfig {
   /** Phase 2 (issue #18, Decision 2): maximum discovery alerts
    *  per day per scope — the anti-spam budget. */
   alertDailyCap: number;
+  /** Phase 2 (issue #18): Strategy Profile biasing — composite
+   *  points added, for PICK SELECTION ONLY, to candidates whose
+   *  strategy type the caller's profile allows. Recorded scores
+   *  always stay the raw composite; the boost exists only in the
+   *  comparison. */
+  profileBiasPoints: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -373,6 +379,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     flowMinRecords: 3,
     alertMinScore: 70,
     alertDailyCap: 5,
+    profileBiasPoints: 5,
   },
   llmIdeas: {
     inputTokenBudget: 90000,
