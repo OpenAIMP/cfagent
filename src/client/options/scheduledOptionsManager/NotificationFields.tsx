@@ -1,0 +1,122 @@
+import React from "react";
+import { TextInput } from "../../components/ui";
+import type { CreatableJob } from "./types";
+
+export interface NotificationFieldsProps {
+  jobType: CreatableJob;
+  pushToSlack: boolean;
+  setPushToSlack: React.Dispatch<React.SetStateAction<boolean>>;
+  slackChannel: string;
+  setSlackChannel: React.Dispatch<React.SetStateAction<string>>;
+  emailTo: string;
+  setEmailTo: React.Dispatch<React.SetStateAction<string>>;
+  webhookUrl: string;
+  setWebhookUrl: React.Dispatch<React.SetStateAction<string>>;
+}
+
+export function NotificationFields(props: NotificationFieldsProps) {
+  const {
+    jobType,
+    pushToSlack,
+    setPushToSlack,
+    slackChannel,
+    setSlackChannel,
+    emailTo,
+    setEmailTo,
+    webhookUrl,
+    setWebhookUrl,
+  } = props;
+  if (jobType === "strategyDiscovery") return null;
+  return (
+                <div className="sched-form-group">
+                  <label className="sched-form-label">
+                    Omnichannel Notification Dispatch
+                    <span className="hint">Push reports and alerts automatically over Slack, Email (via cfpay A2A), and Webhooks</span>
+                  </label>
+
+                  <div className="channels-checkbox-grid">
+                    {/* Slack */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={pushToSlack}
+                          onChange={(e) => setPushToSlack(e.target.checked)}
+                        />
+                        <strong>Slack Block Kit</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        Interactive cards with PDF report attached and action shortcuts
+                      </span>
+                      {pushToSlack && (
+                        <TextInput
+                          type="text"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={slackChannel}
+                          onChange={(e) => setSlackChannel(e.target.value)}
+                          placeholder="Slack Channel (e.g. #trading-desk)"
+                        />
+                      )}
+                    </label>
+
+                    {/* Email */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(emailTo)}
+                          onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
+                        />
+                        <strong>Email Channel (via cfpay A2A)</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        Full report with attached PDF, complete screened symbols table, and technicals
+                      </span>
+                      {Boolean(emailTo) && (
+                        <TextInput
+                          type="email"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={emailTo}
+                          onChange={(e) => setEmailTo(e.target.value)}
+                          placeholder="Recipient Email (e.g. trader@firm.com)"
+                        />
+                      )}
+                    </label>
+
+                    {/* Webhook */}
+                    <label className="channel-check-card">
+                      <div className="channel-check-top">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(webhookUrl)}
+                          onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/screener" : "")}
+                        />
+                        <strong>Outbound Signed Webhook</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        HMAC SHA-256 signed JSON payload. Dispatched only when OUTBOUND_WEBHOOK_SECRET is configured on the server — without a signing secret, the webhook is not sent.
+                      </span>
+                      {Boolean(webhookUrl) && (
+                        <TextInput
+                          type="url"
+                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          value={webhookUrl}
+                          onChange={(e) => setWebhookUrl(e.target.value)}
+                          placeholder="https://..."
+                        />
+                      )}
+                    </label>
+
+                    {/* Broadcast */}
+                    <div className="channel-check-card" style={{ opacity: 0.9 }}>
+                      <div className="channel-check-top">
+                        <strong>WebSocket UI Broadcast</strong>
+                      </div>
+                      <span className="channel-check-desc">
+                        Not a channel you configure: when a scheduled run completes, its results are always broadcast to connected app clients.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+  );
+}
