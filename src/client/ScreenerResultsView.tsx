@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { downloadScreenExport } from "./screenerExport";
+import { downloadScreenExport } from "./runExport";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -365,7 +365,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
   // Issue #125 (PR-B) / #126: result-set downloads of THIS run (the one
   // being viewed), beside the PDF report. A failed run produced no
   // result set, so it offers none; partial runs export with their #462
-  // qualification carried into the file (see screenerExport.ts).
+  // qualification carried into the file (see runExport.ts).
   const exportButtonStyle = {
     fontSize: "0.8rem",
     padding: "0.35rem 0.75rem",
