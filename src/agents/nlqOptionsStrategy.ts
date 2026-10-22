@@ -4,9 +4,9 @@
  * screening) stays on the existing `options_screen` NLQ action.
  */
 
-import { OptionsAgentPipeline } from "../trading";
+import { UnifiedOptionsService } from "../trading";
 import { defaultRegistry } from "../trading";
-import { MAX_SCAN_SYMBOLS, OpportunityScanner, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading";
+import { MAX_SCAN_SYMBOLS, type OpportunityRow, type ScanMatrixRow, type ScanMode, type ScanRequestTemplate, type ScanTypeRollup } from "../trading";
 import type { ScanRunStore } from "../trading";
 import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "../trading";
 import type { StrategyProfileStore } from "../trading";
@@ -540,8 +540,11 @@ export async function runOptionsStrategyAction(
   // service never throws and an uncovered name stays unverified).
   request.eventCalendar = await getSymbolEventCalendar(request.symbol!);
 
-  const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-  const result = await pipeline.run(request as StrategyRequest, {
+  // Issue #982: the pipeline executes through the unified service
+  // layer (which owns engine construction); this module keeps the
+  // NLQ-specific assembly around it — profile layering, the assumed
+  // target derivation, validation, and the envelope below.
+  const result = await UnifiedOptionsService.runStrategyPipeline(etrade.client, request as StrategyRequest, {
     strategyFilter: filters.strategyFilter,
     riskProfile: filters.riskProfile,
     alternatives: 3,
@@ -691,12 +694,15 @@ async function runOpportunityScan(
   // action explicitly instead of scanning under dropped fields.
   const parsedTemplate = parseScanRequestTemplate(template);
   if (!parsedTemplate.ok) return fail(parsedTemplate.error);
-  const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
+  // Issue #982: the scan likewise executes through the unified service
+  // layer; scope resolution, the request snapshot, and scan-run
+  // persistence below stay this module's (the caller's) layer.
+
   // Issue #16: fetch the event calendar for the scanned names so the
   // run judges event risk per name and reports coverage (the service
   // never throws; uncovered names stay unverified).
   const calendarCoverage = await getEventCalendarCoverage(symbols);
-  const result = await scanner.scan(symbols, template, {
+  const result = await UnifiedOptionsService.scanOpportunities(etrade.client, symbols, template, {
     riskProfile: filters.riskProfile,
     strategyFilter: filters.strategyFilter,
     mode: filters.mode,
