@@ -56,6 +56,7 @@ export * from "./options/discoveryDerivation";
 export * from "./options/ivHistoryStore";
 export * from "./options/discoverySignals";
 export * from "./options/discoveryInference";
+export * from "./options/discoveryExpression";
 export * from "./options/ivCollector";
 export * from "./options/optionsDataAgent";
 export * from "./options/opportunityScanner";
