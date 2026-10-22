@@ -173,6 +173,14 @@ export interface SessionData {
   providerSubject?: string;
   /** Login (authentication) time in ms since epoch, for step-up freshness. */
   authTimeMs?: number;
+  /**
+   * #945 Wiring Phase 2a — last recorded activity in ms since epoch.
+   * Set at wired login and advanced by touchSession (at most once
+   * per 60s, so ±60s precision). Sessions without this field
+   * (legacy sessions, Phase 1 sessions) are exempt from idle
+   * expiry in getValidatedSession — see its header note.
+   */
+  lastActivityMs?: number;
   /** Session record version; 1 for sessions created by the wired flow. */
   sessionVersion?: number;
 }
