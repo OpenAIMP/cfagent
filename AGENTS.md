@@ -1,5 +1,7 @@
 # AGENTS.md — cfagent
 
+All agents must work autonomously until done.
+
 All agent work in this repository follows the delivery policy in
 [`docs/agents/gitops.md`](docs/agents/gitops.md). Read it before creating
 issues, branches, or pull requests.
