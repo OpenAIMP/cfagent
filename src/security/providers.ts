@@ -36,15 +36,19 @@
  *   flow keep working: the wired session fields are optional and the
  *   legacy fields are unchanged (see iaaaLogin.ts).
  *
- * Phase 1 scope: only "github" is registered, and its adapter is the
- * wired GitHub callback (iaaaLogin.ts) with the legacy login start
- * (githubOAuth.ts handleLogin — the redirect is identical wired or not).
- * No PDP, delegation, or audit wiring lives here.
+ * Registered providers: "github" (OAuth2 + profile fetch, wired
+ * callback in iaaaLogin.ts, legacy login start in githubOAuth.ts —
+ * the redirect is identical wired or not) and "google" (the worked
+ * plugin example: one createOidcProvider call in this module, no
+ * other file changed to register it). No PDP, delegation, or audit
+ * wiring lives here. To onboard another provider, see
+ * docs/iaaa-provider-onboarding.md.
  */
 import type { Env } from "../types";
 import type { AuditStore } from "./iaaaAudit";
 import { handleLogin } from "./githubOAuth";
 import { handleGithubCallbackWired } from "./iaaaLogin";
+import { createOidcProvider } from "./oidcProvider";
 
 /**
  * #945 GitHub end-to-end — options a dispatch site may pass to a
@@ -67,6 +71,8 @@ export interface LoginProvider {
   protocol: "oidc" | "oauth2";
   /** Validated issuer for the provider (used for binding, never for display). */
   issuer: string;
+  /** Human-readable name for the login page button. Optional; falls back to providerId. */
+  displayName?: string;
   startLogin(env: Env): Promise<Response>;
   handleCallback(env: Env, request: Request, options?: LoginCallbackOptions): Promise<Response>;
 }
@@ -102,16 +108,42 @@ export function createProviderRegistry(): ProviderRegistry {
   return new ProviderRegistry();
 }
 
-/** The production registry, shipped with GitHub registered and nothing else. */
+/** The production registry, shipped with GitHub and Google registered. */
 export const defaultRegistry: ProviderRegistry = (() => {
   const registry = new ProviderRegistry();
   registry.registerProvider({
     providerId: "github",
     protocol: "oauth2",
     issuer: "https://github.com",
+    displayName: "GitHub",
     startLogin: handleLogin,
     handleCallback: handleGithubCallbackWired,
   });
+  // Google, the worked plugin example: one factory call, no other
+  // file changed to register it. True identity is Slice 1
+  // (https://accounts.google.com, sub); the verified email is only
+  // the adapter-supplied legacy login key, never identity. The
+  // client id/secret are owner-set secrets (Cloudflare dashboard
+  // or `wrangler secret put`), never committed: until they exist,
+  // startLogin fails closed with an error page and no button
+  // appears (the button is gated on the enabled list, which the
+  // owner changes in a separate enablement step).
+  registry.registerProvider(
+    createOidcProvider({
+      providerId: "google",
+      issuer: "https://accounts.google.com",
+      displayName: "Google",
+      authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
+      userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo",
+      clientIdEnv: "GOOGLE_CLIENT_ID",
+      clientSecretEnv: "GOOGLE_CLIENT_SECRET",
+      scope: "openid email profile",
+      subjectField: "sub",
+      loginKeyField: "email",
+      requireEmailVerified: true,
+    })
+  );
   return registry;
 })();
 
