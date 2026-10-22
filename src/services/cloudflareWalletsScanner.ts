@@ -23,6 +23,7 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withX402, type X402Config } from "agents/x402";
 import { z } from "zod";
+import { optionScreenerFilterFields } from "../trading";
 import type { Env } from "../types";
 import { AGENT_DIDS } from "../agents/did";
 
@@ -72,20 +73,24 @@ export class OptionsScannerMCP extends McpAgent<Env> {
           .string()
           .optional()
           .describe("Optional underlying ticker; omit to dynamically discover current U.S. stock listings"),
-        maxUnderlyings: z.number().int().positive().optional().describe("Maximum underlying symbols for a broad scan"),
-        contractType: z
-          .enum(["CALL", "PUT", "BOTH"])
-          .optional()
-          .describe("Option contract type; omitted screens calls and puts"),
-        minDelta: z.number().min(0).max(1).optional().describe("Minimum absolute delta"),
-        maxDelta: z.number().min(0).max(1).optional().describe("Maximum absolute delta"),
-        minOpenInterest: z.number().optional().describe("Minimum open interest"),
-        maxDTE: z.number().optional().describe("Maximum days-to-expiry"),
-        minDTE: z.number().optional().describe("Minimum days-to-expiry"),
-        minVolume: z.number().int().nonnegative().optional().describe("Minimum daily contract volume"),
-        maxSpreadPct: z.number().nonnegative().optional().describe("Maximum bid/ask spread as percent of midpoint"),
-        maxQuoteAgeSeconds: z.number().nonnegative().optional().describe("Quote-age freshness reference; stale rows remain labeled, not excluded"),
-        limit: z.number().int().positive().optional().describe("Maximum contracts to return"),
+        // Issue #959: the filter constraints are composed from the ONE
+        // shared options-filter definition (optionScreenerFilterFields
+        // in src/trading/screeningSchemas.ts) — this tool no longer
+        // carries a private copy. The public argument names are
+        // unchanged (maxDTE/minDTE map onto the shared maxDte/minDte
+        // fields in the forwarded body); the tool's own 0..1 delta
+        // bounds are layered on the shared field schemas.
+        maxUnderlyings: optionScreenerFilterFields.maxUnderlyings.describe("Maximum underlying symbols for a broad scan"),
+        contractType: optionScreenerFilterFields.contractType.describe("Option contract type; omitted screens calls and puts"),
+        minDelta: optionScreenerFilterFields.minDelta.unwrap().min(0).max(1).optional().describe("Minimum absolute delta"),
+        maxDelta: optionScreenerFilterFields.maxDelta.unwrap().min(0).max(1).optional().describe("Maximum absolute delta"),
+        minOpenInterest: optionScreenerFilterFields.minOpenInterest.describe("Minimum open interest"),
+        maxDTE: optionScreenerFilterFields.maxDte.describe("Maximum days-to-expiry"),
+        minDTE: optionScreenerFilterFields.minDte.describe("Minimum days-to-expiry"),
+        minVolume: optionScreenerFilterFields.minVolume.describe("Minimum daily contract volume"),
+        maxSpreadPct: optionScreenerFilterFields.maxSpreadPct.describe("Maximum bid/ask spread as percent of midpoint"),
+        maxQuoteAgeSeconds: optionScreenerFilterFields.maxQuoteAgeSeconds.describe("Quote-age freshness reference; stale rows remain labeled, not excluded"),
+        limit: optionScreenerFilterFields.limit.describe("Maximum contracts to return"),
       },
       { readOnlyHint: true, title: "Options Screener (Pay-Per-Use via Cloudflare Wallets)" },
       async ({ underlying, maxUnderlyings, contractType, minDelta, maxDelta, minOpenInterest, maxDTE, minDTE, minVolume, maxSpreadPct, maxQuoteAgeSeconds, limit }) => {
