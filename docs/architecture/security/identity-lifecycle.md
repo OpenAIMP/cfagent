@@ -220,3 +220,46 @@ sticky (records, not deletions) while identity is stable (the same
 `(issuer, subject)` always resolves to the same id) — so
 deprovisioning can be undone by a legitimate grant, but never by
 accident, and never by the former holder acting alone.
+
+## 8. User-initiated deactivation (current state + proposed path)
+
+Deactivation is offboarding requested by the holder, rather than by an
+admin — "deactivate my account", as opposed to "this account is
+offboarded". The distinction matters because the authority to request
+it differs, but the effect must be identical.
+
+**Current state: there is no self-service deactivation route.** A user
+today cannot deactivate their own account through the product. The
+pieces that would execute a deactivation exist (§4's offboarding
+machinery, §5's live per-item revocations), but no route collects them
+into one user-initiated action, and no confirmation or audit event
+exists for "user deactivated themselves".
+
+**Proposed path (not implemented).** A deactivation request, from an
+authenticated session, must:
+
+1. Confirm intent (a deliberate confirmation step — deactivation is
+   destructive and must never fire from a single misclick or a
+   prefetched link).
+2. Run `offboardPrincipal` for the caller's own internal id (sessions,
+   memberships, delegations), then verify with
+   `isPrincipalFullyRevoked` and surface any `unrevoked` items instead
+   of reporting success.
+3. Revoke the caller's integrations and keys through their own paths
+   (E*TRADE revoke, API-key delete), which offboarding does not cover
+   (§6).
+4. Suppress the caller's communications (see
+   [email-communications.md](email-communications.md): deactivation
+   stops digest and welcome mail; security mail about the deactivation
+   itself is still delivered once, as the receipt).
+5. Emit an audit event for the deactivation, attributed to the caller.
+6. Leave the identity record, aliases, and audit history in place (§6):
+   deactivation ends authority, not history, so a later re-provisioning
+   (§7) is possible and auditable.
+
+**Email-only opt-out is not deactivation.** "I don't want these emails"
+must never require deactivation, and deactivation must never be the
+only way to stop mail. The two are separate controls with separate
+stores: notification preferences govern mail; offboarding governs
+authority. The preferences model is proposed in
+[email-communications.md](email-communications.md).

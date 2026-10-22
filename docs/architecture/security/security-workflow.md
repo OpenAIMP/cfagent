@@ -54,7 +54,10 @@ through, and the security event at each step:
    grant from someone holding `role:assign` ([authz.md](authz.md) §§2–3).
    Until membership exists, every PDP gate denies — a signed-in user
    with no membership can see the app but cannot link, administer, or
-   act through a gated route.
+   act through a gated route. First provisioning is also the
+   (proposed) welcome-email trigger — see
+   [email-communications.md](email-communications.md) §3; login alone
+   never triggers mail.
 3. **Link integrations.** Each integration is linked separately, through
    its own gated flow. E*TRADE linking requires `integration:connect`
    ([etrade.md](etrade.md) §3); the token is stored per user, per

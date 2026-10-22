@@ -18,6 +18,49 @@ the ones that appear at enforcement points in this folder include
 
 ## 2. Roles and the tenant-admin trap
 
+## 2. RBAC: roles, scopes, and grants
+
+Authorization is role-based access control. A membership carries
+**role bindings**; each binding names a role, a scope, and optionally a
+workspace or resource; bindings may expire. `authorize()` grants a
+permission only when an active, unrevoked binding grants it **and** the
+scope, tenant, and resource checks pass on top. The role table is the
+whole model — there are no ad-hoc permission checks outside it:
+
+| Role | Grants (within scope) | Scope notes |
+| --- | --- | --- |
+| `platform-admin` | `role:assign`, `audit:read`, `audit:export` — only these three | Platform scope only; this set **never** grants tenant permissions. Platform scope is a hard boundary: only a platform-admin binding at platform scope grants, whatever tenant roles the actor holds |
+| `tenant-admin` | All 17 permissions | Tenant scope; cannot grant platform privileges |
+| `workspace-admin` | All 17 permissions | Workspace scope (binding's `workspaceId`) |
+| `member` | `task:create`, `task:read`, `task:cancel`, `artifact:read`, `artifact:edit`, `artifact:export`, `action:propose` | Propose, never approve or execute |
+| `approver` | `action:approve` | One permission: approve what others propose |
+| `auditor` | `task:read`, `artifact:read`, `audit:read` | Read-only, including audit |
+
+The 17 permissions are: `membership:invite`, `membership:revoke`,
+`role:assign`, `task:create`, `task:read`, `task:cancel`,
+`artifact:read`, `artifact:edit`, `artifact:export`,
+`integration:connect`, `integration:use`, `integration:manage`,
+`action:propose`, `action:approve`, `action:execute`, `audit:read`,
+`audit:export`.
+
+Grant rules (`canGrantRole`, enforced for every binding before any
+write): a platform target (platform-admin role or platform scope)
+requires a platform-admin granter, full stop; tenant-scope grants
+require a tenant admin; workspace-scope grants are confined to the
+binding's workspace. A denied binding denies the whole grant atomically,
+and `grantedBy` is always overwritten with the granter.
+
+Two consequences worth stating plainly. First, **platform-admin is not
+omnipotent**: it is the only role that can grant platform privileges,
+but it holds only three permissions at platform scope, while
+tenant-admin and workspace-admin hold all seventeen inside their
+scopes. "Highest privilege" means "can grant across the boundary", not
+"can do everything". Second, **revocation is a permission too**:
+`membership:revoke` is in the table, but the revocation *actions*
+themselves (session logout, E*TRADE revoke, key delete) are deliberately
+ungated safety actions (§7) — the permission governs who may revoke
+*others*, never whether you may revoke your own.
+
 - **Platform admin:** the highest privilege; granted only through the
   genesis window below, or by an existing platform admin.
 - **Tenant admin:** holds **all** permissions, including

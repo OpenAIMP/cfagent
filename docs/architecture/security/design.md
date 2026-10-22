@@ -10,6 +10,7 @@ the map, not another copy of the content.
 | --- | --- |
 | [security-workflow.md](security-workflow.md) | The holistic picture: how a request, a user, unattended work, and a secret each flow through the system, and what each failure must do |
 | [identity-lifecycle.md](identity-lifecycle.md) | The entire IAAA identity lifecycle: provisioning, active life, deprovisioning/offboarding, re-provisioning — and which parts are live vs machinery |
+| [email-communications.md](email-communications.md) | Email lifecycle: what mail exists today (trading channel) vs PROPOSED welcome, daily digest, preferences/opt-out, and deactivation coupling |
 | [authn.md](authn.md) | User security: providers, sessions, step-up, identity rules |
 | [authz.md](authz.md) | Authorization: PDP, permissions, roles, memberships, delegation, bootstrap/genesis |
 | [zero-trust.md](zero-trust.md) | Zero-trust posture (ZTZ) as actually implemented, including the honest gaps |

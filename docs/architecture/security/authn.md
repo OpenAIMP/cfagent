@@ -105,3 +105,35 @@ All are plain config in `wrangler.jsonc` vars (identifiers and switches,
 not credentials). Provider client secrets are never committed: they travel
 GitHub PROD secrets → deploy sync → Worker secrets. Rollback of any of
 these is a config change plus redeploy.
+
+## 7. Authentication models supported — and not supported
+
+cfagent supports exactly one authentication model at the app level:
+**federated social login** — GitHub (OAuth) and Google (OIDC) through
+the provider registry (§1). There is no local password login, and the
+codebase contains no app-level TOTP, WebAuthn/passkey, magic-link, or
+passwordless implementation. That is a deliberate consequence of
+federation, and it draws a sharp line:
+
+| Model | Status at cfagent |
+| --- | --- |
+| Social login (GitHub, Google) | Supported — the only app-level models |
+| Two-factor authentication (2FA) | **Inherited from the IdP, not implemented by the app.** If a user's GitHub or Google account enforces 2FA (or passkeys), that enforcement happens at the IdP during login, and cfagent trusts the IdP's assertion via the OAuth/OIDC code exchange. The app never sees the second factor and cannot waive it |
+| Passwordless (passkeys, magic links) | Same as 2FA: available **transitively** when the IdP offers it (a user may sign in to Google with a passkey), but cfagent offers no passwordless method of its own |
+| Local passwords | Not supported — there is no password store, no password login route, and nothing to reset |
+| App-level TOTP / WebAuthn / magic links | Not implemented (no code paths exist) |
+
+Do not confuse step-up with 2FA. Step-up (§3) is a **freshness**
+requirement (recent `authTimeMs`), not a second factor: it proves the
+same authentication happened recently, not that a second channel
+confirmed it. A deployment that needs app-level 2FA would add it as a
+new factor checked at step-up time — it does not exist today, and any
+doc or claim that cfagent "supports 2FA" must say "via the IdP" or not
+say it at all.
+
+Email plays no role in app authentication: there is no email-code
+login, no email-based recovery, and no email verification step in the
+app's own flow (Google's email-verified requirement is the IdP
+asserting its own verification, not the app sending a code). Email's
+role in this system is communications and trading workflows, covered in
+[email-communications.md](email-communications.md).
