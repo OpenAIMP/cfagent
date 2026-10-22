@@ -7,7 +7,7 @@ login provider plugs into cfagent without changing dispatch,
 without touching the Slice 1/3/5 policy modules, and without
 changing any existing provider's behaviour. Enablement is config
 only, with rollback by config only. Google is the worked example
-of every step below (see `docs/iaaa-google-defaults.md`); GitHub
+of every step below (see `iaaa-google-defaults.md`); GitHub
 predates the factory and keeps its own adapter, but dispatches
 through the same registry and the same generic wired tail.
 
@@ -103,7 +103,7 @@ the legacy page is byte-identical with nothing enabled.
 ### 5. Docs
 
 - A `<provider>-defaults.md` mirroring
-  `docs/iaaa-google-defaults.md`: identity/subject mapping,
+  `iaaa-google-defaults.md`: identity/subject mapping,
   login-key choice + fail-closed rules, tenant default
   (`"primary"` unless `IAAA_TENANT_ID` is set), bootstrap
   format (`<issuer>:<subject>`, optionally `platform:`-prefixed

@@ -1,188 +1,75 @@
-# E*TRADE Security Flow
+# Security architecture — main document
 
-Status: current-state design doc. Code references are to `src/` at the time of
-writing; the doc is meant to be re-checked against the code when the flow
-changes. Tracked by issue #1066, which also covers removing the legacy
-exception described in §7.
+This folder is the single home for cfagent's security documentation.
+Every security workflow is documented as its own document; this page is
+the map, not another copy of the content.
 
-## 1. The one-sentence version
+## 1. The folder
 
-The app holds **one app credential** (the E*TRADE consumer key/secret) and
-**one access-token pair per user**. No user ever trades on another user's
-token, and signing into the app does not by itself connect E*TRADE: each user
-links their own brokerage account through their own OAuth flow.
+| Document | What it answers |
+| --- | --- |
+| [security-workflow.md](security-workflow.md) | The holistic picture: how a request, a user, unattended work, and a secret each flow through the system, and what each failure must do |
+| [identity-lifecycle.md](identity-lifecycle.md) | The entire IAAA identity lifecycle: provisioning, active life, deprovisioning/offboarding, re-provisioning — and which parts are live vs machinery |
+| [email-communications.md](email-communications.md) | Email lifecycle: what mail exists today (trading channel) vs PROPOSED welcome, daily digest, preferences/opt-out, and deactivation coupling |
+| [authn.md](authn.md) | User security: providers, sessions, step-up, identity rules |
+| [authz.md](authz.md) | Authorization: PDP, permissions, roles, memberships, delegation, bootstrap/genesis |
+| [zero-trust.md](zero-trust.md) | Zero-trust posture (ZTZ) as actually implemented, including the honest gaps |
+| [api-security.md](api-security.md) | API surface security: dispatch order, per-route gating, API keys, docs routes, public surfaces |
+| [mcp-security.md](mcp-security.md) | MCP + A2A security: transport auth, the scanner exception, catalog vs transport |
+| [workflow-security.md](workflow-security.md) | Workflow security: unattended identities, tick guards, kill switches, renewal |
+| [etrade.md](etrade.md) | E*TRADE security flow (formerly this file's content): per-user OAuth, token resolution, the `default_trader` exception |
+| [iaaa-provider-onboarding.md](iaaa-provider-onboarding.md) | How to onboard a login provider (plugin architecture, checklist) |
+| [iaaa-google-defaults.md](iaaa-google-defaults.md) | Google login defaults (worked onboarding example) |
+| [iaaa-github-end-to-end-defaults.md](iaaa-github-end-to-end-defaults.md) | GitHub end-to-end defaults: tenant, bootstrap, PDP gates |
+| [iaaa-admin-ui.md](iaaa-admin-ui.md) | IAAA admin panel: overview endpoint, tabs, gating, known gaps |
+| [assessment/assessment-01.md](assessment/assessment-01.md) | Security assessment (pre-existing) |
 
-## 2. Identities involved
+Moved here from `docs/` in the #1071 consolidation: the four `iaaa-*.md`
+documents (content unchanged except same-directory link fixes) and the
+E*TRADE flow (renamed from `design.md` to `etrade.md`, so this page could
+become the hub). Deliberately left in `docs/`: `THREAT_MODEL.md` and
+`COMPLIANCE.md`, which are not part of the IAAA set this consolidation
+covers.
 
-| Identity | What it is | Where it comes from |
-| --- | --- | --- |
-| App | The OAuth consumer (cfagent as an E*TRADE API app) | Consumer key/secret in environment config (`src/config/environment.ts`) |
-| User | A signed-in app user | App session; the login string is `session.githubLogin` (legacy key — see §6) |
-| `default_trader` | Synthetic identity for unattended work | Hardcoded in the worker `scheduled()` and `queue()` handlers (`src/server.ts`); fallback in broker/NLQ/autopilot/watchlist routes when no login is present |
-| Service identity (planned) | Explicit, non-secret id for background jobs | Proposed in #1066; replaces `default_trader` as the background identity (§7) |
+## 2. Reading paths
 
-## 3. Per-user linking: the 3-legged OAuth 1.0a flow
+- **New to the system:** this page → [security-workflow.md](security-workflow.md)
+  → [authn.md](authn.md).
+- **Auditing a specific surface:** go straight to its document in the table.
+- **Identity lifecycle:** [identity-lifecycle.md](identity-lifecycle.md) — provisioning, deprovisioning, and re-provisioning as IAAA defines them.
+- **Adding a provider:** [iaaa-provider-onboarding.md](iaaa-provider-onboarding.md),
+  with [iaaa-google-defaults.md](iaaa-google-defaults.md) as the example.
+- **Changing a gate:** the owning document first, then
+  [zero-trust.md](zero-trust.md) §6 (rules for extending the posture).
+- **Reviewing the exception:** [etrade.md](etrade.md) §7 and issue #1066.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant App as cfagent Worker
-    participant Store as SessionStore DO
-    participant ET as E*TRADE
+## 3. Principles the whole folder stands on
 
-    User->>App: GET /auth/etrade/start (authenticated session)
-    Note over App: PDP gate (§5) applies to wired sessions
-    App->>ET: request token (signed with consumer key/secret)
-    ET-->>App: request token + secret
-    App->>Store: etrade:req_token:<ENV>:<login>
-    App-->>User: 302 to E*TRADE authorize URL
-    User->>ET: authorizes the app
-    ET-->>User: redirects with oauth_verifier
-    User->>App: GET /auth/etrade/callback?oauth_verifier=…
-    App->>ET: exchange verifier for access token
-    ET-->>App: access token + secret
-    App->>Store: etrade:token:<ENV>:<login>
-    App-->>User: redirect /?tab=trading&etrade_auth=success
-```
+1. **One app credential, one token per user.** No user trades on
+   another user's token; signing in links nothing by itself.
+2. **Default deny, fail closed.** No rule means no access; every
+   uncertain state resolves to "no", observably.
+3. **Identity is (issuer, subject).** Email and login are never identity.
+4. **Revocation is never gated.** The escape hatch must work even when
+   policy would say no.
+5. **Gaps are documented, not hidden.** A control that is open,
+   unverified, or legacy says so in its own document.
 
-Routes: `/auth/etrade/start` (also `/api/etrade/oauth/start`),
-`/auth/etrade/callback`, `/api/etrade/oauth/status`,
-`/api/etrade/oauth/renew`, `/api/etrade/oauth/revoke` — all in
-`src/server.ts`, all resolved against `session.githubLogin`. The start and
-verifier routes are the ones the PDP gate covers (§5); revoke is deliberately
-ungated (revocation is a safety action).
+## 4. Open items that constrain these docs
 
-## 4. Per-request authentication: how a call picks its token
+- **#945 open list:** provider choice, settled step-up/idle thresholds,
+  measurable revocation propagation, audit retention/tamper response,
+  whether a failed audit write blocks login, DO-naming cutover beyond
+  aliases, vars externalization, §15 completion report.
+- **#1066:** remove the `default_trader` static-token exception via the
+  explicit service identity (Phases A–C).
+- **#1024:** `DOCS_PUBLIC_SURFACES` decision (docs routes are
+  provisionally session-gated); A2A POST per-agent authentication
+  unverified; framework-adapter conformance must preserve dispatch
+  order and the MCP session-or-API-key fallback exactly.
+- **#907:** kill switch as a measurable objective and the
+  RiskPolicyEngine boundary (proposal, not adopted).
 
-Every E*TRADE API call is signed per request (OAuth 1.0a header, HMAC) with
-the consumer secret plus the **caller's own** access-token secret. The lookup
-is `getValidTokens(env, userLogin)` in `src/security/etradeOAuth.ts`:
-
-```mermaid
-flowchart TD
-    A[Caller resolves userLogin] --> B{Isolate cache hit?}
-    B -->|yes| C[Return cached token]
-    B -->|no| D[Read etrade:token:<ENV>:<login>\nfrom SessionStore DO]
-    D -->|found| E{Expired at midnight ET?}
-    D -->|not found| F[Read legacy unscoped key\n etrade:token:<login>; adopt if env matches]
-    F -->|found| E
-    F -->|not found| G{Legacy exception? §7}
-    G -->|default_trader + env pair set| H[Return process-wide static pair]
-    G -->|otherwise| I[Return null: fail closed]
-    E -->|yes| J[Revoke stored token, then §7 check]
-    E -->|no| K[Cache + return stored token]
-    J -->|default_trader + env pair set| H
-    J -->|otherwise| I
-```
-
-Notes on the lookup:
-
-- **Login resolution.** Worker routes use the session login directly. The
-  generic `/api/*` forwarder and DO routes set an `x-user-login` header from
-  `session.githubLogin` before forwarding. Broker, NLQ, autopilot, and
-  watchlist routes resolve `x-user-login || sessionId || "default_trader"`.
-  The last fallback is part of the legacy exception (§7), not a user feature.
-- **Storage.** Tokens live in the SessionStore Durable Object under the
-  `etrade` namespace (moved off Workers KV in #329; the KV fallback was
-  removed in #604). Keys are environment-scoped (`TEST`/`PROD`) so the two
-  environments hold independent sessions. An unscoped legacy key is still
-  read as a fallback and adopted into the scoped key on match.
-- **Isolate cache.** `getValidTokens` runs on the hottest read path (once
-  per E*TRADE request), so repeats are served from an in-isolate token
-  cache; every write path invalidates it (`src/security/etradeTokenCache.ts`).
-- **Expiry.** A stored token is valid until midnight US Eastern Time after
-  the day it was stored (`isTokenExpiredEt`). On expiry the stored token is
-  revoked and the lookup falls through to §7 — for a real user that means
-  null (re-link required); for `default_trader` it means the static pair.
-- **Renewal.** The `0 3 * * *` cron runs `renewAllStoredETradeTokens`,
-  which lists every `etrade:token:` entry and renews each unexpired token
-  in place. Renewal is per token, per user: there is no shared clock.
-
-## 5. Authorization gating (IAAA, #945)
-
-Linking an integration is a consequential action, so for wired sessions with
-`IAAA_PDP_ENABLED=1`, starting an E*TRADE connection requires the
-`integration:connect` permission in the resolved tenant (default `"primary"`),
-checked via the Slice 3 PDP before any token request is made. Denial is a 403
-and no E*TRADE call happens. Legacy (pre-wiring) sessions take the pre-change
-path and are PDP-exempt. E*TRADE revoke and API-key deletion are
-deliberately **not** gated: revocation must never be blocked by the same
-policy it escapes from.
-
-## 6. IAAA interaction and a known key fragility
-
-Token keys are still keyed by the **login string**, not by the stable
-internal user id. The IAAA migration layer (`src/security/iaaaMigration.ts`)
-dual-reads: the internal-id key first, the login key second, and records
-login↔internal-id aliases on wired login (a recycled login that already
-belongs to someone else is rejected, never overwritten). Until the DO-naming
-cutover beyond aliases is decided, a renamed login can orphan that user's
-stored token: the token still exists under the old login key, but nothing
-resolves the new login to it. This is a known open item, not a silent
-behavior — see #945's open list.
-
-## 7. The legacy exception: `default_trader` and the process-wide static pair
-
-This is the one place where the per-user rule does not hold, and it exists
-only because cron and queue handlers have no user session.
-
-**Mechanism.** `getValidTokens` builds a `legacyStaticToken` if and only if
-`userLogin === "default_trader"` **and** the process environment carries
-both `ETRADE_OAUTH_TOKEN` and `ETRADE_OAUTH_TOKEN_SECRET` (aliases
-`ETRADE_ACCESS_TOKEN` / `ETRADE_ACCESS_TOKEN_SECRET`, read in
-`src/config/environment.ts`). It is served in three places: on isolate-cache
-null, when no stored token exists, and after a stored token expires and is
-revoked. `getETradeAuthStatus` likewise reports `authenticated: true` for
-`default_trader` whenever the env pair is set.
-
-**Consumers.** The worker `scheduled()` handler (all cron ticks: 30-minute
-agent tick, research, reflection, adaptation, retention) and the `queue()`
-handler (options-analysis jobs) hardcode `userLogin = "default_trader"`.
-That is why the hourly Market Screen fails with "E*TRADE token missing in
-PROD" when this one pair is absent: the screen has no user session to draw
-a token from, so it stands or falls with the static pair — even while
-individual users hold valid tokens of their own.
-
-**What it cannot do (important).** The static pair is served **only** for
-`default_trader`, never for a real login. It cannot leak one user's token
-to another user, and no user's stored token is ever served to anyone else.
-Removing it changes the background identity's lifecycle, not user isolation.
-
-**Risks of keeping it.**
-
-1. **A process-wide secret, not a token.** It cannot be rotated per
-   identity or revoked without changing environment/secrets and
-   redeploying; every background job shares the same blast radius.
-2. **It never expires by the rules.** Each read stamps it `storedAt: now`,
-   so the midnight-ET expiry rule never fires and the renewal pass never
-   touches it. If E*TRADE revokes it, nothing notices until a call fails.
-3. **It masks failure.** `authenticated: true` is reported for
-   `default_trader` whenever the env vars exist, regardless of whether
-   E*TRADE still honors the pair.
-4. **Attribution is synthetic.** Background actions are attributed to a
-   made-up identity, not to an accountable authorization, which weakens
-   the audit trail.
-
-**Removal (designed in #1066, not yet implemented).** Replace
-`default_trader` with an explicit, non-secret service-identity id whose
-token is obtained through the same 3-legged flow as any user and stored
-under the same store — then delete the static fallback, delete the env
-fields from the config so no new consumer can reintroduce it, and make
-every former `default_trader` fallback site fail closed unless the service
-identity is passed explicitly. Rollback is redeploying the previous
-release: re-adding the env vars alone must not restore the exception,
-because the code will no longer read them. The honest limit: background
-jobs still need *an* account — the service identity is authorized against
-the owner's brokerage account by explicit owner action, as a token
-independent of the owner's personal token, so revoking one does not kill
-the other.
-
-## 8. What this doc does not claim
-
-- Live production environment values were not inspected (secrets are never
-  read from chat or code); the env-var names above are from
-  `src/config/environment.ts`, not from a live deployment listing.
-- Whether a second signed-in user has actually completed E*TRADE linking
-  in production is not established here; the mechanism supports it, and
-  the per-user storage keys are the evidence.
+A design that assumes any of these away is wrong. When one closes, its
+document is updated in the same change — docs and code move together,
+and a doc that contradicts the code is a bug in the doc.

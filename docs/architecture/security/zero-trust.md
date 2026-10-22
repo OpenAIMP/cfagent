@@ -1,0 +1,102 @@
+# Zero-trust posture (ZTZ)
+
+What "zero trust" means in this codebase: not a product or a badge, but a
+set of mechanisms that each remove one implicit trust. If a mechanism is
+not listed here, it is not part of the posture — and §5 lists the places
+where trust is still implicit, honestly.
+
+> Terminology note: this document reads the requested "ZTZ" as
+> zero-trust. If that acronym meant something else, this file is the one
+> to rename.
+
+## 1. Never trust a session alone — re-validate on fresh reads
+
+A session cookie proves only that a session once existed. Every
+enforcement path re-validates wired sessions on a **fresh** read
+(`getSession`, never the cached copy) and enforces idle expiry at that
+point. The isolate cache is consulted only to decide whether a session is
+wired at all. A stolen or stale cookie therefore buys, at most, the idle
+window — and the window is enforced at the enforcement point, not at the
+edge.
+
+## 2. Default deny, fail closed
+
+- The PDP is default-deny ([authz.md](authz.md)): no rule, no access.
+- Unknown provider ids, unlisted providers, and wiring-off are 403s,
+  never fallbacks ([authn.md](authn.md)).
+- Unknown framework adapter ids fail closed at startup: the service
+  refuses to serve rather than silently serving on a wrong adapter (see
+  the #1024 drop-in design).
+- A step-up gate with a missing `authTimeMs` fails closed.
+- A corrupt membership record throws instead of being treated as
+  "no membership, proceed anyway" — and a membership index-write failure
+  fails the whole grant.
+- A missing bootstrap tenant refuses every grant; a blank bootstrap list
+  grants nothing.
+
+Fail-closed is the difference between zero trust and a checklist: every
+uncertain state resolves to "no", and the "no" is observable (a 403, a
+throw, a log) rather than silent.
+
+## 3. Least privilege, enforced at the boundary that matters
+
+- Tenant admins hold all permissions **inside** a tenant and cannot grant
+  platform privileges ([authz.md](authz.md)).
+- Delegation is an intersection, never a union.
+- Grants require `role:assign`, are checked per binding, and always
+  record the real granter.
+- The admin overview has no list-all API, so even a platform admin's
+  panel cannot enumerate other users' memberships — the read path is
+  least-privilege by construction, not by policy text.
+
+## 4. Assume breach: audit, rotate, revoke
+
+- **Audit** (Slice 5, `src/security/iaaaAudit.ts`) records §6 fields in an
+  append-only, SHA-256 hash-chained store. The chain is verified, not
+  trusted: a fork or loss is detected by `verifyChain`.
+- **Rotation:** sessions rotate; the renewal cron re-issues stored
+  E*TRADE tokens before midnight ET expiry.
+- **Revocation is a safety action and is never gated** (see
+  [authz.md](authz.md) §7): the escape hatch must work even when the
+  policy that normally governs the caller would say no.
+- **Step-up** re-proves freshness for the operations where a stale
+  session is most dangerous (API-key mint).
+
+## 5. Where trust is still implicit — the honest gaps
+
+A zero-trust claim that omits its gaps is marketing. These are the gaps:
+
+1. **Legacy sessions are PDP-exempt and idle-exempt.** They predate
+   wiring and carry no internal id. The exemption ends at re-login, but
+   until then the PDP is not universal.
+2. **Public surfaces exist by design.** The landing page, A2A agent-card
+   GETs, strategy pages (served by the asset layer without invoking the
+   Worker), and `/mcp/scanner` (where the x402 payment *is* the access
+   control) are reachable without a session. Their protection is "there
+   is nothing sensitive here" plus transport controls — not identity.
+   See [api-security.md](api-security.md) and
+   [mcp-security.md](mcp-security.md).
+3. **The audit store has a known race.** The Kv audit store is
+   read-modify-write: concurrent appends can lose events or fork the
+   chain. Verification detects this; it does not repair it. The store is
+   also unbounded until a retention decision is made.
+4. **Login-keyed state can orphan.** Token and DO state keyed by login
+   string (not internal id) can detach on rename; the alias layer
+   mitigates, the cutover is open.
+5. **Revocation propagation is bounded, not instant.** Wired sessions
+   re-validate on fresh reads, bounded by a 60-second isolate cache.
+   There is no numeric propagation target — that is an open decision,
+   not a measured property.
+6. **A failed audit write does not block login.** That is the current
+   behavior and an open CISO decision, stated here so it is a decision
+   rather than an accident.
+
+## 6. How to extend the posture
+
+A new surface joins the posture by: (a) authenticating through the
+session or API-key path, never a new bespoke check; (b) authorizing
+through the PDP with an explicit permission, or documenting why it is
+deliberately ungated; (c) emitting audit events through the audit store;
+(d) failing closed on every uncertain state; and (e) naming its own gaps
+in its doc. Anything that cannot meet (a)–(d) stays outside the posture
+and says so.

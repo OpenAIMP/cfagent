@@ -6,7 +6,7 @@ This document records the Google login slice: Google as a plugin on
 the provider architecture, built exactly the way GitHub is wired,
 with no change to any GitHub behaviour. Google is the worked example
 of the composable provider architecture documented in
-`docs/iaaa-provider-onboarding.md` — a future provider registers
+`iaaa-provider-onboarding.md` — a future provider registers
 the same way. Anything marked PROPOSED or NOT DECIDED below still
 needs its owner decision, and this document must be updated when
 that decision lands.
@@ -101,7 +101,7 @@ that decision lands.
 - **PDP flag: shared `IAAA_PDP_ENABLED` (default OFF).** When ON
   and the session is wired, the same gated routes and the same
   `integration:connect` permission apply (see
-  `docs/iaaa-github-end-to-end-defaults.md` for the gated set and
+  `iaaa-github-end-to-end-defaults.md` for the gated set and
   the deliberately-ungated routes). Default-deny within the gated
   set: a wired Google session with no membership is denied, the
   same as a GitHub one.
