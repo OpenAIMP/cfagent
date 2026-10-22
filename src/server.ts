@@ -1,6 +1,10 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
-import { getSessionCached } from "./security/sessionCache";
+import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
+import { getSession, updateSession } from "./security/session";
+import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
+import { requiresStepUpForMint } from "./security/iaaaGates";
+import { createWiredAuditStore } from "./security/iaaaAuditStore";
 import {
   bearerKeyFromRequest,
   listApiKeys,
@@ -300,7 +304,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       }
       return handleOAuthCallback(env, request);
     }
-    if (path === "/auth/logout") return handleLogout(env, request);
+    if (path === "/auth/logout") {
+      // #945 Phase 2b-part1 logout audit hook: when wiring is ON,
+      // supply the audit seam. handleLogout records BEFORE
+      // deleteSession only when a tenant resolves from
+      // IAAA_TENANT_ID; without it the hook is dormant. No default
+      // tenant is invented anywhere on this path.
+      if (isWiringEnabled(env)) {
+        return handleLogout(env, request, {
+          wiringEnabled: true,
+          auditStore: createWiredAuditStore(env),
+          tenantId: env.IAAA_TENANT_ID,
+        });
+      }
+      return handleLogout(env, request);
+    }
 
     // --- E*TRADE OAuth 1.0a 3-Legged Lifecycle Endpoints ---
     const reqEnv = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase() || undefined;
@@ -590,6 +608,16 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ keys: await listApiKeys(env, login) });
       }
       if (request.method === "POST") {
+        // #945 Phase 2b-part1 step-up pilot: minting a credential
+        // is a sensitive action. Wiring ON + stale authentication
+        // (including every legacy session, which has no authTimeMs)
+        // fails closed with 403 and mints nothing; the user
+        // re-authenticates and retries. Listing and revoking keys
+        // are deliberately NOT gated: revocation especially must
+        // never be blocked by staleness.
+        if (requiresStepUpForMint(session, isWiringEnabled(env), Date.now())) {
+          return Response.json({ error: "Step-up authentication required: please sign in again and retry." }, { status: 403 });
+        }
         const body = (await request.json().catch(() => ({}))) as { label?: unknown };
         const label = typeof body.label === "string" ? body.label : "";
         const minted = await mintApiKey(env, login, label);
@@ -1469,6 +1497,27 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
   // before the cache and before the session store — junk cookies cost a
   // regex, not a read.
   if (!isSessionIdFormat(sessionId)) return null;
-  return await getSessionCached(env, sessionId);
+  const cached = await getSessionCached(env, sessionId);
+  // #945 Phase 2b-part1: when wiring is ON, a session that already
+  // carries an internalUserId (a wired session) is validated through
+  // the wired path — fresh read, absolute + idle expiry, touch +
+  // persist + cache invalidation (see iaaaEnforcement.ts). Every
+  // other case returns the cached session exactly as before:
+  // wiring OFF is the original single line, and non-wired sessions
+  // under wiring ON stay on the legacy cached path, idle-exempt.
+  if (isWiringEnabled(env) && cached?.internalUserId) {
+    const result = await validateAndTouchWiredSession(
+      {
+        freshRead: (id) => getSession(env, id),
+        persist: (id, data, nowMs) => updateSession(env, id, data, nowMs),
+        invalidate: (id) => invalidateSessionCache(id),
+      },
+      cached,
+      sessionId,
+      Date.now(),
+    );
+    if (result.wired) return result.session;
+  }
+  return cached;
 }
 
