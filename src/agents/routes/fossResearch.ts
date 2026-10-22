@@ -34,6 +34,7 @@
  */
 
 import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch";
+import { parseStockScreenRequest } from "../../trading";
 import { YFinanceMarketScreener } from "../../trading";
 import type { AgentName, Env } from "../../types";
 
@@ -192,8 +193,16 @@ export async function handleFossCompareScreenRoutes(
         if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
         if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
       }
+      // Issue #959: the FOSS screen takes the same StockScreenerFilter
+      // shape as the E*TRADE screen — validate through the ONE shared
+      // stock-screen schema (the universe/minScore envelope fields are
+      // accepted and split out; this engine never read them).
+      const parsedScreen = parseStockScreenRequest(filters);
+      if (!parsedScreen.ok) {
+        return Response.json({ error: parsedScreen.error }, { status: 400 });
+      }
       const screener = new YFinanceMarketScreener();
-      const results = await screener.screenMarkets(filters);
+      const results = await screener.screenMarkets(parsedScreen.value.filters);
       ctx.audit("foss.screener.executed", "research", { filterSummary: results.filterSummary, count: results.stocks.length });
       return Response.json({
         ...results,
