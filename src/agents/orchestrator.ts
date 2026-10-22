@@ -1637,6 +1637,8 @@ export class OrchestratorAgent extends Think<Env> {
     // sequential path.endsWith matching sequence; a non-null return matched.
     const reportsResponse = await handleReportsRoutes(request, url, path, sessionId, {
       ensureTables: () => this.ensureTables(),
+      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
       getReportDispatchHitl: () => this.getReportDispatchHitl(),
       setReportDispatchHitl: (enabled) => this.setReportDispatchHitl(enabled),
       getReportConfirmation: (id) => this.getReportConfirmation(id),
