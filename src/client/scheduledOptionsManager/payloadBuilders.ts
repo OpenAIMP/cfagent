@@ -1,0 +1,224 @@
+/**
+ * S7 (consolidation, umbrella #958): THE payload-construction path
+ * for screening schedules in the client — one builder per kind,
+ * used by the one schedule UI's create/update submit and by the
+ * hero Run Now. Before S7 the same construction lived inline in the
+ * options manager's submit handler while the nav panel's create form
+ * posted raw user-typed JSON for the same callbacks — two builders
+ * for one kind. The nav form is gone; this module is the only path.
+ *
+ * The construction below is the legacy manager's, extracted
+ * verbatim (same field order, same conditional keys, same error
+ * strings) and golden-pinned byte-for-byte against bodies the
+ * legacy component submitted (tests/schedule_ui_s7.test.tsx).
+ *
+ * New since the extraction: before a body is submitted, the payload
+ * is validated client-side through the S1 schedule criteria schemas
+ * (src/trading/screeningSchemas.ts) — the same strict schemas the
+ * create route validates with server-side, so a mis-shaped payload
+ * fails in the form with the field named instead of at the route.
+ */
+import {
+  marketScreenScheduleCriteriaSchema,
+  optionsAnalysisScheduleCriteriaSchema,
+  strategyDiscoveryScheduleCriteriaSchema,
+} from "../../trading";
+import type { ScheduleFormState } from "./types";
+import { JOB_CALLBACKS } from "./systemJobs";
+import { buildDiscoveryRequests } from "./discoveryRequests";
+import { buildProfileDerivedPayload } from "./profileDerived";
+import { buildNoViewPayload } from "./noView";
+
+/** Comma-separated tickers → the payload's symbols array (the legacy
+ *  form's parse: trimmed, uppercased, blanks dropped). */
+export function parseSymbolsText(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+const SCHEDULE_CRITERIA_SCHEMAS = {
+  autonomousMarketScreen: marketScreenScheduleCriteriaSchema,
+  autonomousOptionsAnalysis: optionsAnalysisScheduleCriteriaSchema,
+  autonomousStrategyDiscovery: strategyDiscoveryScheduleCriteriaSchema,
+} as const;
+
+/**
+ * Validate a built schedule payload against the S1 criteria schema
+ * for its callback, mirroring the server assembly in
+ * buildSchedulePayload: maxItems is range-checked separately (the
+ * route's rule and message), and identity fields (environment,
+ * userLogin — stamped from the caller's context by the server) are
+ * not criteria. Returns a user-facing error naming the field, or
+ * null when the payload is schema-clean. Non-screening callbacks
+ * are out of this module's scope and pass.
+ */
+export function validateScheduleCriteriaClient(
+  callback: string,
+  payload: Record<string, any>
+): string | null {
+  const schema =
+    SCHEDULE_CRITERIA_SCHEMAS[callback as keyof typeof SCHEDULE_CRITERIA_SCHEMAS];
+  if (!schema) return null;
+  const { maxItems, environment, userLogin, ...criteria } = payload ?? {};
+  if (
+    maxItems !== undefined &&
+    (typeof maxItems !== "number" ||
+      !Number.isSafeInteger(maxItems) ||
+      maxItems < 0 ||
+      maxItems > 10000)
+  ) {
+    return "maxItems must be a whole number from 0 to 10000.";
+  }
+  const result = schema.safeParse(criteria);
+  if (result.success) return null;
+  // Same rendering as screeningSchemas' formatIssues ("schedule payload").
+  const parts = result.error.issues.slice(0, 3).map((issue) => {
+    const path = issue.path.join(".");
+    const prefix = path ? `${path}: ` : "";
+    if (issue.code === "unrecognized_keys") {
+      const keys = (issue as unknown as { keys?: string[] }).keys ?? [];
+      return `${prefix}unknown field(s): ${keys.join(", ")}`;
+    }
+    return `${prefix}${issue.message}`;
+  });
+  return `Invalid schedule payload: ${parts.join("; ")}`;
+}
+
+/**
+ * Build the POST /api/schedules/create body for the form state —
+ * { requestBody } ready to submit, or { error } with the first
+ * problem found (the kind builders' own checks first, then the S1
+ * schema validation). Used for both create and update (update
+ * cancels the prior schedule first, in the caller).
+ */
+export function buildScheduleSubmission(
+  form: ScheduleFormState
+): { requestBody: Record<string, any> } | { error: string } {
+  let callback: string;
+  let payload: Record<string, any>;
+  if (form.jobType === "strategyDiscovery" && form.discoveryInputModel === "no-view") {
+    // No-view discovery (issue #534): constraint sets only — no
+    // thesis, no target, nothing that could be read as a view.
+    const built = buildNoViewPayload(form.noViewDraft);
+    if ("error" in built) return { error: built.error };
+    callback = JOB_CALLBACKS.strategyDiscovery;
+    payload = { ...built.payload, environment: form.environment, trigger: "scheduled" };
+  } else if (
+    form.jobType === "strategyDiscovery" &&
+    form.discoveryInputModel === "profile-derived"
+  ) {
+    // Profile-derived discovery (issue #533): a symbol set + a
+    // Strategy Profile; no target is stored.
+    const built = buildProfileDerivedPayload({
+      source: form.derivedSource,
+      symbolsText: form.derivedSymbolsText,
+      watchlistName: form.derivedWatchlistName,
+      profileId: form.derivedProfileId,
+    });
+    if ("error" in built) return { error: built.error };
+    callback = JOB_CALLBACKS.strategyDiscovery;
+    payload = { ...built.payload, environment: form.environment, trigger: "scheduled" };
+  } else if (form.jobType === "strategyDiscovery") {
+    // Saved-request discovery (issue #126): complete saved
+    // StrategyRequests, re-run verbatim.
+    const built = buildDiscoveryRequests(form.discoveryRequests);
+    if ("error" in built) return { error: built.error };
+    callback = JOB_CALLBACKS.strategyDiscovery;
+    payload = { requests: built.requests, environment: form.environment, trigger: "scheduled" };
+  } else {
+    const symbols = parseSymbolsText(form.targetSymbols);
+    if (!Number.isInteger(form.maxItems) || form.maxItems < 0) {
+      return { error: "Max items must be a whole number greater than or equal to zero." };
+    }
+    if (!form.targetUniverse && symbols.length === 0) {
+      return { error: "Choose a universe or enter at least one symbol." };
+    }
+    if (form.jobType === "marketScreen" && !form.targetUniverse) {
+      return { error: "Stock screens require one live universe." };
+    }
+
+    if (form.jobType === "marketScreen") {
+      callback = JOB_CALLBACKS.marketScreen;
+      const customFilters: Record<string, any> = {};
+      if (form.minPrice.trim()) customFilters.minPrice = Number(form.minPrice);
+      if (form.maxPrice.trim()) customFilters.maxPrice = Number(form.maxPrice);
+      if (form.minMarketCap.trim()) customFilters.minMarketCap = Number(form.minMarketCap);
+      if (form.maxPe.trim()) customFilters.maxPeRatio = Number(form.maxPe);
+      if (form.trendFilter.trim()) customFilters.momentum = form.trendFilter;
+
+      payload = {
+        ...(form.targetUniverse ? { universe: form.targetUniverse } : { symbols }),
+        maxItems: form.maxItems,
+        sector: form.sector || "ALL",
+        trigger: "scheduled",
+        pushToSlack: form.pushToSlack,
+        slackChannel: form.pushToSlack ? form.slackChannel : undefined,
+        emailTo: form.emailTo.trim() || undefined,
+        webhookUrl: form.webhookUrl.trim() || undefined,
+        ...(Object.keys(customFilters).length > 0 ? { filters: customFilters } : {}),
+      };
+    } else {
+      callback = JOB_CALLBACKS.optionsAnalysis;
+      payload = {
+        ...(form.targetUniverse ? { universe: form.targetUniverse } : { symbols }),
+        maxItems: form.maxItems,
+        thesis: form.thesis,
+        riskProfile: form.riskProfile,
+        pushToSlack: form.pushToSlack,
+        slackChannel: form.pushToSlack ? form.slackChannel : undefined,
+        emailTo: form.emailTo.trim() || undefined,
+        webhookUrl: form.webhookUrl.trim() || undefined,
+        environment: form.environment,
+        trigger: "scheduled",
+      };
+    }
+  }
+
+  // S1 schemas, client-side: a payload the route would 400 never
+  // leaves the form.
+  const validationError = validateScheduleCriteriaClient(callback, payload);
+  if (validationError) return { error: validationError };
+
+  const requestBody: Record<string, any> = {
+    callback,
+    scheduleType: form.scheduleType,
+    payload,
+  };
+
+  if (form.scheduleType === "interval") {
+    requestBody.intervalSeconds = Number(form.intervalSeconds);
+  } else if (form.scheduleType === "cron") {
+    requestBody.cron = form.cronExpression.trim();
+  } else if (form.scheduleType === "delayed") {
+    requestBody.delayInSeconds = Number(form.delaySeconds);
+  } else if (form.scheduleType === "scheduled") {
+    if (!form.scheduledDate) {
+      return { error: "Pick a date and time for the one-shot run." };
+    }
+    requestBody.date = new Date(form.scheduledDate).toISOString();
+  }
+
+  return { requestBody };
+}
+
+/**
+ * The hero Run Now payload: an immediate options analysis with the
+ * form state. NOT a schedule payload — it carries no trigger stamp
+ * (the legacy hero body's exact shape).
+ */
+export function buildOptionsRunNowPayload(form: ScheduleFormState): Record<string, any> {
+  const symbols = parseSymbolsText(form.targetSymbols);
+  return {
+    ...(form.targetUniverse ? { universe: form.targetUniverse } : { symbols }),
+    maxItems: form.maxItems,
+    thesis: form.thesis,
+    riskProfile: form.riskProfile,
+    pushToSlack: form.pushToSlack,
+    slackChannel: form.pushToSlack ? form.slackChannel : undefined,
+    emailTo: form.emailTo.trim() || undefined,
+    webhookUrl: form.webhookUrl.trim() || undefined,
+    environment: form.environment,
+  };
+}
