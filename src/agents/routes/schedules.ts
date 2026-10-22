@@ -118,6 +118,7 @@ export interface SchedulesRouteContext {
     webhookUrl?: string;
     pushToSlack?: boolean;
     filters?: import("../../types").StockScreenerFilter;
+    provider?: import("../../trading").StockScreenProvider;
   }): Promise<void>;
   /** E*TRADE token renewal (owner: OrchestratorAgent.autoRenewETradeTokens - was `this.autoRenewETradeTokens`). */
   autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void>;
