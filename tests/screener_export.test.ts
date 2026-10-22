@@ -1,6 +1,6 @@
 /**
  * Issue #125 (PR-B) / #126: result-set serializers for a market screen
- * run (src/client/screenerExport.ts). The UI offered only the PDF
+ * run (src/client/runExport.ts; originally screenerExport.ts, #1065). The UI offered only the PDF
  * report; these pins cover the CSV/JSON result-set exports:
  *  - the standout CSV columns mirror the ScreenerResultsView standouts
  *    table, and the all-stocks CSV mirrors its all-screened table;
@@ -18,7 +18,7 @@ import {
   screenExportFilename,
   screenRunJson,
   screenStandoutsCsv,
-} from "../src/client/screenerExport";
+} from "../src/client/runExport";
 import type { ScreenerResultData } from "../src/client/ScreenerResultsView";
 
 const RUN: ScreenerResultData = {
