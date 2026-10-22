@@ -635,6 +635,18 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         login: session.githubLogin,
         name: session.githubName,
         avatar: session.githubAvatar,
+        // #945 activation enabler (user-authorized): the caller's OWN
+        // stable internal id, present only on wired sessions (legacy
+        // sessions carry no internalUserId, so the key is absent for
+        // them). requireAuth guarantees this is the caller's own
+        // session; the id is an identifier, not a credential, and
+        // knowing it grants nothing without a login as that user
+        // plus the owner-controlled bootstrap env list. It lets the
+        // owner read the exact bootstrap value after a wired login
+        // instead of looking up their GitHub numeric subject.
+        ...(session.internalUserId
+          ? { internalUserId: session.internalUserId }
+          : {}),
       });
     }
 
