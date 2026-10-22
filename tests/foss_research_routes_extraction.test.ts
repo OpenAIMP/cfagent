@@ -8,8 +8,13 @@
  * (b) the two delegation call sites in orchestrator.ts, at the exact
  * original positions (quote-research group before the slice #359-13
  * handleAlpacaFossRoutes delegation; compare/screen group after it); (c)
- * behavior with a mocked FossResearchService and mocked
- * YFinanceMarketScreener: owned paths return a Response (200 / 500 exactly
+ * behavior with a mocked FossResearchService and a mocked ScreenerAgent
+ * pipeline seam (issue #1007 adaptation, disclosed: the screen route
+ * previously constructed the retired YFinanceMarketScreener engine; it
+ * now runs ScreenerAgent.runScreen with provider "yahoo" and stores a
+ * canonical report via ctx.persistScreenerReportCanonical — the mocks
+ * and the two screen tests below were re-pointed to that seam with
+ * assertion strength unchanged): owned paths return a Response (200 / 500 exactly
  * as before), non-owned paths return null (the orchestrator keeps routing)
  * — each handler ends with an explicit `return null`, never undefined
  * (slice #359-08 caught a missing-return-null bug on exactly this); (d)
@@ -67,33 +72,42 @@ vi.mock("../src/services/fossResearch", () => {
 });
 
 vi.mock("../src/trading", async () => {
-  // Issue #959 harness note: the foss screen route now imports
+  // Issue #959 harness note: the foss screen route imports
   // parseStockScreenRequest from the trading barrel, so the barrel
   // fake must provide it. It re-exports the REAL parser (imported
   // from its definition module to avoid loading the whole barrel) —
-  // the route's validation behaviour under test stays genuine; only
-  // the engine class is faked, exactly as before. No assertion in
-  // this file changed.
+  // the route's validation behaviour under test stays genuine.
+  // Issue #1007: the route no longer imports any engine class from
+  // the barrel — the pipeline seam is the ScreenerAgent, mocked via
+  // the route context below (__mockScreener).
   const schemas = await vi.importActual<any>("../src/trading/screeningSchemas");
-  const fns = {
-    screenMarkets: vi.fn(async (filters: any) => ({
-      filterSummary: "mocked",
-      stocks: [{ symbol: "NVDA" }],
-      appliedFilters: filters,
-    })),
-  };
-  const seen: any[] = [];
-  class MockYFinanceMarketScreener {
-    constructor(...args: any[]) {
-      seen.push({ ctor: args, svc: this });
-      Object.assign(this, fns);
-    }
-  }
   return {
-    YFinanceMarketScreener: MockYFinanceMarketScreener,
     parseStockScreenRequest: schemas.parseStockScreenRequest,
-    __mockYfs: { fns, seen },
   };
+});
+
+// Issue #1007: the ScreenerAgent seam the FOSS screen route now runs
+// through (provider "yahoo"), plus the canonical-report seam.
+const screenerMocks = vi.hoisted(() => {
+  const fns = {
+    runScreen: vi.fn(async (_req: any) => ({
+      timestamp: "2026-10-22T00:00:00.000Z",
+      trigger: "manual",
+      provider: "yahoo",
+      universe: "NASDAQ100",
+      sector: "ALL",
+      success: true,
+      totalScanned: 1,
+      matchedCount: 1,
+      opportunities: [],
+      allStocks: [{ symbol: "NVDA" }],
+      discoveryMessage: "mocked",
+      filterSummary: "mocked",
+    })),
+    runSharded: vi.fn(async (_req: any) => []),
+  };
+  const persist = vi.fn();
+  return { fns, persist };
 });
 
 import {
@@ -102,13 +116,8 @@ import {
   type FossResearchRouteContext,
 } from "../src/agents/routes/fossResearch";
 import * as fossMod from "../src/services/fossResearch";
-import * as tradingMod from "../src/trading";
 
 const fossMocks = (fossMod as any).__mockFoss as {
-  fns: Record<string, ReturnType<typeof vi.fn>>;
-  seen: Array<{ ctor: any[]; svc: any }>;
-};
-const yfsMocks = (tradingMod as any).__mockYfs as {
   fns: Record<string, ReturnType<typeof vi.fn>>;
   seen: Array<{ ctor: any[]; svc: any }>;
 };
@@ -119,8 +128,10 @@ const baseCtx = (overrides: Partial<FossResearchRouteContext> = {}): FossResearc
   ({
     env: { MARKER: "env" } as any,
     audit: vi.fn(),
+    getScreenerAgent: () => ({ runScreen: screenerMocks.fns.runScreen, runSharded: screenerMocks.fns.runSharded }),
+    persistScreenerReportCanonical: screenerMocks.persist,
     ...overrides,
-  }) as FossResearchRouteContext;
+  }) as unknown as FossResearchRouteContext;
 
 const req = (method: string, path: string, body?: unknown) =>
   new Request(`https://agent.internal${path}`, {
@@ -134,7 +145,6 @@ const urlOf = (path: string) => new URL(`https://agent.internal${path}`);
 beforeEach(() => {
   vi.clearAllMocks();
   fossMocks.seen.length = 0;
-  yfsMocks.seen.length = 0;
 });
 
 const QUOTE_MARKERS = [
@@ -275,7 +285,15 @@ describe("foss research handler behavior (extraction #377)", () => {
     const body = (await res!.json()) as any;
     expect(body.stocks).toEqual([{ symbol: "NVDA" }]);
     expect(body.results).toEqual([{ symbol: "NVDA" }]);
-    expect(yfsMocks.fns.screenMarkets).toHaveBeenCalledWith(filters);
+    // Issue #1007: the run goes through the one pipeline — ScreenerAgent
+    // with provider "yahoo" and the validated filters — and the run is
+    // stored as a canonical report (the seam the old engine never had).
+    expect(screenerMocks.fns.runScreen).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "yahoo", trigger: "manual", filters })
+    );
+    expect(screenerMocks.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "yahoo", success: true })
+    );
     expect(ctx.audit).toHaveBeenCalledWith(
       "foss.screener.executed",
       "research",
@@ -292,8 +310,11 @@ describe("foss research handler behavior (extraction #377)", () => {
       baseCtx()
     );
     expect(res).not.toBeNull();
-    expect(yfsMocks.fns.screenMarkets).toHaveBeenCalledWith(
-      expect.objectContaining({ sector: "Tech", maxRsi: 70, gainersOnly: true })
+    expect(screenerMocks.fns.runScreen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "yahoo",
+        filters: expect.objectContaining({ sector: "Tech", maxRsi: 70, gainersOnly: true }),
+      })
     );
   });
 
