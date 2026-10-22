@@ -112,10 +112,11 @@
     // default-off): GitHub login/session wiring ON in production.
     // Rollback is removing these two vars (or setting
     // IAAA_WIRING_ENABLED to "0") and redeploying — no code change.
-    // No other provider is enabled yet (Google code ships separately;
-    // it surfaces only when added to IAAA_ENABLED_PROVIDERS).
+    // Google login enabled (owner-authorized; OAuth client + PROD
+    // secrets set). Rollback is removing google from the list below
+    // and redeploying — no code change.
     "IAAA_WIRING_ENABLED": "1",
-    "IAAA_ENABLED_PROVIDERS": "github",
+    "IAAA_ENABLED_PROVIDERS": "github,google",
     // Issue #945, GitHub activation (owner-authorized): bootstrap the
     // owner as platform-admin (genesis grant on the next wired login)
     // and switch PDP enforcement ON. Tenant stays at the documented
