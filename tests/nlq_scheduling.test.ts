@@ -172,7 +172,7 @@ describe("NLQ scheduling executes against the real scheduling port (issue #109)"
     expect((created[0].payload as any)?.scheduleId).toBe("fake-port-id-1");
   });
 
-  it("creates an interval market screen through scheduleEvery() with the baseline payload", async () => {
+  it("creates an interval market screen through scheduleEvery() with the schema-built payload", async () => {
     const port = new FakeSchedulingPort();
     const plan = await planNLQ(env, "schedule market screen every 5 minutes");
     expect(plan.scheduleData?.scheduleType).toBe("interval");
@@ -185,7 +185,13 @@ describe("NLQ scheduling executes against the real scheduling port (issue #109)"
     expect(port.calls[0].method).toBe("scheduleEvery");
     expect(port.calls[0].args[0]).toBe(300);
     expect(port.calls[0].args[1]).toBe("autonomousMarketScreen");
-    expect(port.calls[0].args[2]).toEqual({ sector: "Technology", maxItems: 5 });
+    // Issue #959 ADAPTATION (disclosed): this pin previously expected
+    // the NLQ port's hardcoded legacy payload {sector:"Technology",
+    // maxItems:5} — a payload no user asked for, which #959 removes.
+    // A criteria-less plan now arms only the shared builder's identity
+    // stamps (buildSchedulePayload in src/trading/screeningSchemas.ts);
+    // the market-screen service's own defaults apply at run time.
+    expect(port.calls[0].args[2]).toEqual({ userLogin: sessionId, trigger: "scheduled" });
     expect(result.status).toBe("scheduled");
     expect(result.rows[0].id).toBe("fake-port-id-1");
     expect(result.rows[0].type).toBe("interval");
