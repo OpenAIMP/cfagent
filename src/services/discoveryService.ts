@@ -1,0 +1,329 @@
+/**
+ * Discovery service (issue #14, slice 5) — runs the Phase 1 pipeline
+ * over a universe and persists the run.
+ *
+ * Per name, in order: load the chain snapshot (no contracts -> the
+ * name is pre-screened out of the run entirely), fetch daily bars,
+ * read the IV history, characterize, run the optionability
+ * pre-screen, detect signals, infer a thesis (abstentions recorded
+ * with their stage and reason), derive the expected move from the
+ * name's own chain, build the request (the #16 event calendar
+ * attached, projected so engine requests stay stable), run the
+ * options pipeline, and judge the pick with the discovery fit gate.
+ *
+ * A name that throws anywhere in its flow counts as an error — the
+ * run still completes and its counts reconcile (acceptance (e)).
+ * Deltas are classified against the previous run of the same scope
+ * (the store's latestForScope) before the new run is saved.
+ *
+ * All market access is injected (DiscoveryServiceDeps) so the
+ * orchestration is unit-testable end to end; createDiscoveryService
+ * wires the production dependencies. Note the pipeline loads its own
+ * chain snapshot per expressed name (the OptionsAgentPipeline's
+ * contract) — characterization deliberately reads a separate,
+ * earlier snapshot so inference never sees the expression's screen.
+ */
+
+import {
+  getDiscoveryConfig,
+  getEtapiConfig,
+  getOpportunityScannerConfig,
+  type EtapiDiscoveryConfig,
+} from "../config/etapiConfig";
+import type { Env } from "../types";
+import type { DatabaseORM } from "../orm";
+import { ETradeService } from "./etrade";
+import { getSymbolEventCalendar, toEventCalendarInfo, type SymbolEventCalendar } from "./eventCalendar";
+import { fetchYahooDailyHistory } from "../trading";
+import type { YahooDailyBar } from "../trading";
+import {
+  chainAggregatesFromContracts,
+  characterizeName,
+  detectSignals,
+  prescreenOptionability,
+  type DiscoveryNameInputs,
+} from "../trading";
+import { inferThesis } from "../trading";
+import {
+  buildDiscoveryRequest,
+  expressDiscoverySetup,
+  resolveDiscoveryFitGate,
+  type DiscoveryRiskCaps,
+} from "../trading";
+import { estimateExpectedMove } from "../trading";
+import { OptionsAgentPipeline } from "../trading";
+import { OptionsDataAgent, type OptionsDataSnapshot } from "../trading";
+import { DynamicOptionsScreener } from "../trading";
+import {
+  computeIvStats,
+  SqlIvHistoryStore,
+  type IvStats,
+} from "../trading";
+import {
+  SqlDiscoverySetupStore,
+  type DiscoverySetupItem,
+  type DiscoverySetupStore,
+  type StoredDiscoverySetupRun,
+} from "../trading";
+import {
+  classifyDiscoveryDeltas,
+  type DiscoveryDelta,
+} from "../trading";
+import type { PipelineResult } from "../trading";
+import type { StrategyRequest } from "../trading";
+
+export interface DiscoveryServiceDeps {
+  loadSnapshot(symbol: string): Promise<OptionsDataSnapshot>;
+  fetchBars(symbol: string): Promise<YahooDailyBar[] | null>;
+  ivStatsFor(symbol: string): Promise<IvStats | null>;
+  calendarFor(symbol: string): Promise<SymbolEventCalendar>;
+  runPipeline(request: StrategyRequest): Promise<PipelineResult>;
+  store: DiscoverySetupStore;
+  now(): Date;
+}
+
+export interface DiscoveryRunRequest {
+  symbols: string[];
+  /** Comparability key — successive runs of one scope delta against
+   *  each other (a schedule id, a watchlist universe, an ad-hoc set). */
+  scopeKey: string;
+  source: string;
+  caps: DiscoveryRiskCaps;
+  userLogin?: string;
+}
+
+export interface DiscoveryRunOutcome {
+  run: StoredDiscoverySetupRun;
+  deltas: DiscoveryDelta[];
+  errors: Array<{ symbol: string; message: string }>;
+}
+
+/** Stable fingerprint of the config a run executed under: the
+ *  discovery section plus the scanner fit gate it composes with.
+ *  Provenance, not security — a short djb2 hex is enough to tell two
+ *  runs' calibrations apart. */
+export function hashDiscoveryConfig(
+  discovery: EtapiDiscoveryConfig = getDiscoveryConfig(),
+): string {
+  const payload = JSON.stringify({ discovery, fitGate: getOpportunityScannerConfig().fitGate });
+  let hash = 5381;
+  for (let i = 0; i < payload.length; i++) {
+    hash = ((hash << 5) + hash + payload.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+export async function runDiscovery(
+  deps: DiscoveryServiceDeps,
+  request: DiscoveryRunRequest,
+): Promise<DiscoveryRunOutcome> {
+  const discoveryConfig = getDiscoveryConfig();
+  const scannerConfig = getOpportunityScannerConfig();
+  const gate = resolveDiscoveryFitGate(scannerConfig, discoveryConfig);
+  const now = deps.now();
+
+  const items: DiscoverySetupItem[] = [];
+  const errors: Array<{ symbol: string; message: string }> = [];
+  let prescreenedOut = 0;
+
+  const symbols = [...new Set(request.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean))];
+
+  for (const symbol of symbols) {
+    try {
+      const snapshot = await deps.loadSnapshot(symbol);
+      if (snapshot.validationError || snapshot.contracts.length === 0) {
+        prescreenedOut++;
+        continue;
+      }
+      const bars = (await deps.fetchBars(symbol)) ?? [];
+      const spot = bars.length > 0 ? bars[bars.length - 1].close : snapshot.contracts[0].underlyingPrice;
+      const chain = chainAggregatesFromContracts(snapshot.contracts, spot);
+      const inputs: DiscoveryNameInputs = {
+        symbol,
+        bars,
+        ivStats: await deps.ivStatsFor(symbol),
+        chain,
+      };
+
+      const prescreen = prescreenOptionability(inputs, discoveryConfig);
+      if (!prescreen.optionable) {
+        items.push({
+          kind: "abstention",
+          symbol,
+          stage: "prescreen",
+          reason: prescreen.reason,
+          nearMissSignals: [],
+        });
+        continue;
+      }
+
+      const characterization = characterizeName(inputs, discoveryConfig);
+      const signals = detectSignals(characterization, discoveryConfig);
+      const inference = inferThesis(
+        characterization,
+        signals,
+        discoveryConfig,
+        scannerConfig.targetEmMultiples,
+      );
+      if (!inference.inferred) {
+        items.push({
+          kind: "abstention",
+          symbol,
+          stage: "inference",
+          reason: inference.reason,
+          nearMissSignals: inference.nearMissSignals,
+        });
+        continue;
+      }
+
+      const expectedMove = estimateExpectedMove(snapshot.contracts, spot, now);
+      const built = buildDiscoveryRequest({
+        characterization,
+        inference,
+        expectedMove,
+        caps: request.caps,
+      });
+      if (!built.built) {
+        items.push({
+          kind: "abstention",
+          symbol,
+          stage: "expression",
+          reason: built.reason,
+          nearMissSignals: [],
+        });
+        continue;
+      }
+
+      // Issue #16 pattern: the calendar is server-fetched and
+      // projected before it touches the request.
+      built.request.eventCalendar = toEventCalendarInfo(await deps.calendarFor(symbol));
+
+      const expression = await expressDiscoverySetup(
+        { run: (req) => deps.runPipeline(req) },
+        built.request,
+        gate,
+      );
+      const best = expression.pick.best;
+      if (!best || expression.gate.bucket === "no_fit") {
+        items.push({
+          kind: "abstention",
+          symbol,
+          stage: "expression",
+          reason:
+            expression.gate.reasons.join("; ") ||
+            expression.pick.rationale.join("; ") ||
+            "no expressible setup",
+          nearMissSignals: [],
+        });
+        continue;
+      }
+      items.push({
+        kind: "setup",
+        symbol,
+        thesis: inference.thesis,
+        ruleId: inference.ruleId,
+        confidence: inference.confidence,
+        discoveryScore: best.compositeScore,
+        gateBucket: expression.gate.bucket,
+        targetPrice: built.request.targetPrice,
+        targetDate: built.request.targetDate,
+        firedSignals: inference.firedSignals,
+        evidence: inference.rationale,
+      });
+    } catch (error) {
+      errors.push({ symbol, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  const counts = {
+    considered: symbols.length,
+    setups: items.filter((i) => i.kind === "setup").length,
+    abstentions: items.filter((i) => i.kind === "abstention").length,
+    prescreenedOut,
+    errors: errors.length,
+  };
+
+  const previous = await deps.store.latestForScope(request.scopeKey, {
+    userLogin: request.userLogin,
+  });
+  const deltas = classifyDiscoveryDeltas(previous?.items ?? [], items, discoveryConfig.deltaScoreThreshold);
+
+  const run = await deps.store.save({
+    createdAt: now.toISOString(),
+    scopeKey: request.scopeKey,
+    source: request.source,
+    configHash: hashDiscoveryConfig(discoveryConfig),
+    counts,
+    items,
+    ...(request.userLogin !== undefined ? { userLogin: request.userLogin } : {}),
+  });
+
+  return { run, deltas, errors };
+}
+
+/** Production wiring: ETrade chains (the unified service's own
+ *  construction discipline), Yahoo bars, the SQL IV history and run
+ *  stores, and the live calendar service. */
+export function createDiscoveryService(args: {
+  env: Env;
+  userLogin: string;
+  overrideEnv?: string;
+  orm?: DatabaseORM;
+  sql: { exec(query: string, ...params: unknown[]): Iterable<unknown> };
+}): { run(request: DiscoveryRunRequest): Promise<DiscoveryRunOutcome> } {
+  const etrade = args.orm
+    ? new ETradeService(args.orm, args.env, args.userLogin, args.overrideEnv)
+    : new ETradeService(args.env, undefined, args.userLogin, args.overrideEnv);
+  const screener = new DynamicOptionsScreener(etrade.client);
+  const dataAgent = new OptionsDataAgent(screener);
+  const pipeline = new OptionsAgentPipeline(screener);
+  const ivStore = new SqlIvHistoryStore(args.sql);
+  // Referenced so the config load (and its env validation) happens
+  // at construction, like the unified service's constructor.
+  void getEtapiConfig(args.env, args.overrideEnv);
+  const deps: DiscoveryServiceDeps = {
+    loadSnapshot: (symbol) => dataAgent.loadSnapshot({ symbol }),
+    fetchBars: (symbol) => fetchYahooDailyHistory(symbol),
+    ivStatsFor: async (symbol) => computeIvStats(await ivStore.listSeries(symbol)),
+    calendarFor: (symbol) => getSymbolEventCalendar(symbol),
+    runPipeline: (request) => pipeline.run(request),
+    store: new SqlDiscoverySetupStore(args.sql),
+    now: () => new Date(),
+  };
+  return { run: (request) => runDiscovery(deps, request) };
+}
+
+/** The omnichannel text rendering of a discovery run: one card line
+ *  per setup (with its mandatory evidence) and per abstention (with
+ *  its stage and reason), preceded by the reconciled coverage line.
+ *  Shared by the unified action and the NLQ surface so every channel
+ *  shows the same cards. */
+export function formatDiscoveryRunSummary(outcome: DiscoveryRunOutcome): string {
+  const { run, deltas, errors } = outcome;
+  const c = run.counts;
+  const lines: string[] = [
+    `Discovery run over ${c.considered} name${c.considered === 1 ? "" : "s"}: ` +
+      `${c.setups} setup${c.setups === 1 ? "" : "s"}, ${c.abstentions} abstention${c.abstentions === 1 ? "" : "s"}, ` +
+      `${c.prescreenedOut} pre-screened out, ${c.errors} error${c.errors === 1 ? "" : "s"}.`,
+  ];
+  for (const item of run.items) {
+    if (item.kind === "setup") {
+      lines.push(
+        `▸ ${item.symbol} ${item.thesis} — rule ${item.ruleId}, score ${item.discoveryScore} (${item.gateBucket}), ` +
+          `target $${item.targetPrice} by ${item.targetDate}. Evidence: ${item.evidence}`,
+      );
+    } else {
+      lines.push(`▸ ${item.symbol} — abstained (${item.stage}): ${item.reason}`);
+    }
+  }
+  for (const e of errors) {
+    lines.push(`▸ ${e.symbol} — error: ${e.message}`);
+  }
+  const notable = deltas.filter((d) => d.kind === "NEW" || d.kind === "STRENGTHENED" || d.kind === "GONE");
+  if (notable.length > 0) {
+    lines.push(
+      `Changes vs the previous comparable run: ${notable.map((d) => `${d.symbol} ${d.thesis} ${d.kind}`).join("; ")}.`,
+    );
+  }
+  return lines.join("\n");
+}
