@@ -33,7 +33,7 @@ export * from "./alpaca/platform";
 export * from "./optionsScreener";
 
 // --- boundary surface (#290): every capability external code used via deep paths ---
-export * from "./yfinanceScreener";
+export * from "./yahooDataSource";
 export * from "./yahooHistory";
 export * from "./universes";
 export * from "./screenerConfig";

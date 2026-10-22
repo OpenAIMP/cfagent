@@ -412,6 +412,10 @@ export interface ETradeQuote {
   high52?: number;
   low52?: number;
   rsi?: number;
+  /** Issue #1007: MACD signal as a DATA field from a history-capable
+   *  provider (Yahoo adapter). Snapshot providers leave it unset and
+   *  the pipeline labels MACD unavailable, as before. */
+  macdSignal?: string;
   sector?: string;
   listingExchange?: string;
   source?: string;

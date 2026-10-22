@@ -32,7 +32,17 @@ describe("provider- and asset-class screening adapters", () => {
     const [etrade, yahoo] = getScreeningProviders("stocks");
     expect(providerSupportsFilter(etrade, "stocks", "price-range")).toBe(true);
     expect(providerSupportsFilter(yahoo, "stocks", "trend")).toBe(true);
-    expect(providerSupportsFilter(yahoo, "stocks", "exchange")).toBe(false);
-    expect(providerSupportsFilter(yahoo, "stocks", "limit")).toBe(false);
+    // Issue #1007 adaptation (disclosed): the Yahoo provider previously
+    // ran a second engine supporting only search+trend; it now runs
+    // the SAME pipeline as the E*TRADE provider (Yahoo as a data-source
+    // adapter), so it implements — and advertises — the full stock
+    // filter set. The assertions below pin that parity at equal
+    // strength (every hub filter checked, not just two).
+    for (const filter of ["search", "limit", "exchange", "price-range", "trend"] as const) {
+      expect(providerSupportsFilter(yahoo, "stocks", filter)).toBe(true);
+      expect(providerSupportsFilter(yahoo, "stocks", filter)).toBe(
+        providerSupportsFilter(etrade, "stocks", filter)
+      );
+    }
   });
 });
