@@ -22,6 +22,14 @@ export interface Env {
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  // #945 Google-as-plugin — Google OAuth client credentials. Optional:
+  // Google login only exists as a wired provider, and its adapter
+  // fails closed when these are absent. They are owner-set secrets
+  // (Cloudflare dashboard or `wrangler secret put`), NEVER committed
+  // to the repo or to wrangler.jsonc. Enablement (adding "google" to
+  // IAAA_ENABLED_PROVIDERS) is a separate owner step after these exist.
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   APP_BASE_URL: string;
   SESSION_SECRET: string;
   // #945 Wiring Phase 1 — config-gated enablement. Both optional; absence
