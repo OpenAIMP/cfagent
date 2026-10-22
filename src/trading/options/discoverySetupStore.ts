@@ -35,6 +35,16 @@ export const DISCOVERY_SETUP_RUN_MAX_ROWS = 1000;
 /** One expressed setup: an inferred view the pipeline priced and
  *  the fit gate judged. The evidence line is mandatory — a setup
  *  that cannot say why it exists does not get stored. */
+/** Per-type roll-up carried on an expressed setup (issue #18):
+ *  the best candidate per strategy type from the expression, so a
+ *  setup card can show what else the pipeline liked, not only the
+ *  pick. Slim projection of the expression's DiscoveryTypeRollup. */
+export interface DiscoverySetupRollupEntry {
+  type: string;
+  label: string;
+  compositeScore: number;
+}
+
 export interface DiscoverySetupExpressedItem {
   kind: "setup";
   symbol: string;
@@ -49,6 +59,10 @@ export interface DiscoverySetupExpressedItem {
   targetDate: string;
   firedSignals: DiscoverySignalType[];
   evidence: string;
+  /** Best-per-type roll-up (issue #18). Optional: runs stored
+   *  before the roll-up landed carry none, and readers must
+   *  tolerate its absence. */
+  rollup?: DiscoverySetupRollupEntry[];
 }
 
 /** One name the run considered but did not express, with the stage
