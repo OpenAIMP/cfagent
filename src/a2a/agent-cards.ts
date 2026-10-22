@@ -65,6 +65,16 @@ export const AGENT_CARDS: AgentCard[] = [
     capabilities: ["remember", "recall"],
     operations: ["memory.remember"],
   },
+  {
+    name: "trading",
+    description:
+      "Provider-neutral trading competency: screening and (approval-gated) trading across registered broker providers",
+    version: "1.0.0",
+    endpoint: "/a2a/trading",
+    cardPath: "/a2a/trading/agent-card.json",
+    capabilities: ["stock-screening", "options-screening", "stock-trading", "options-trading"],
+    operations: ["trading.screen_stocks"],
+  },
 ];
 
 /** Find a card by agent name. */

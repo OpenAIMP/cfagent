@@ -173,6 +173,7 @@ export interface Env {
   MEMORY_AGENT?: DurableObjectNamespace;
   RESEARCH_AGENT?: DurableObjectNamespace;
   REPORT_ASSET_AGENT?: DurableObjectNamespace;
+  TRADING_AGENT?: DurableObjectNamespace;
 }
 
 export interface TransactionRecord {

@@ -87,6 +87,7 @@ export { ScreenerAgent } from "./agents/screener-agent";
 // Issue #319 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { ResearchAgent } from "./agents/research-agent";
+export { TradingAgent } from "./agents/trading-agent";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 

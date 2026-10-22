@@ -31,7 +31,9 @@
       // Issue #329 — sessions + E*TRADE credentials off KV (no daily read cap)
       { "name": "SESSION_STORE", "class_name": "SessionStore" },
       // Issue #680 — ReportAssetAgent DO (single owner for Generate)
-      { "name": "REPORT_ASSET_AGENT", "class_name": "ReportAssetAgent" }
+      { "name": "REPORT_ASSET_AGENT", "class_name": "ReportAssetAgent" },
+      // Issue #291 — TradingAgent DO (provider-neutral trading competency)
+      { "name": "TRADING_AGENT", "class_name": "TradingAgent" }
     ]
   },
   "migrations": [
@@ -46,7 +48,9 @@
     // Issue #329 — SessionStore (sessions + credentials)
     { "tag": "v6", "new_sqlite_classes": ["SessionStore"] },
     // Issue #680 — ReportAssetAgent
-    { "tag": "v7", "new_sqlite_classes": ["ReportAssetAgent"] }
+    { "tag": "v7", "new_sqlite_classes": ["ReportAssetAgent"] },
+    // Issue #291 — TradingAgent
+    { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] }
   ],
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },

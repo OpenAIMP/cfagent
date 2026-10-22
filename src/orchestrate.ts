@@ -52,6 +52,13 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     operations: ["qa.supervised_fix"],
     blurb: "Investigate a QA failure and propose a supervised fix (issue #162).",
   },
+  {
+    agent: "trading",
+    binding: "TRADING_AGENT",
+    operations: ["trading.screen_stocks"],
+    blurb:
+      "Provider-neutral trading competency (issue #291): stock/options screening and approval-gated trading across registered broker providers.",
+  },
 ];
 
 export function catalogAgent(agent: string): CatalogEntry | undefined {
