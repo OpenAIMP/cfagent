@@ -138,6 +138,16 @@ export interface EtapiDiscoveryConfig {
    *  comparable runs (slice 4); inside the band, a confidence change
    *  decides, and no change at all is UNCHANGED. */
   deltaScoreThreshold: number;
+  /** Phase 2 (issue #18): earnings within this many days makes a
+   *  name earnings-adjacent — EVENT_NEAR fires, range_bound
+   *  inference is suppressed unless an IV signal dominates, and the
+   *  setup is labeled on its card. */
+  eventNearDays: number;
+  /** Phase 2 (issue #18): MOVE_UNDERPRICED fires when the implied
+   *  move (ATM IV) is at most this fraction of the name's realized
+   *  volatility into a near event — the market is pricing less
+   *  movement than the name habitually delivers. */
+  moveUnderpricedMaxRatio: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -343,6 +353,8 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     },
     compositeFloor: 50,
     deltaScoreThreshold: 5,
+    eventNearDays: 21,
+    moveUnderpricedMaxRatio: 0.8,
   },
   llmIdeas: {
     inputTokenBudget: 90000,

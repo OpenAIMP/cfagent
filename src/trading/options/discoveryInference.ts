@@ -120,7 +120,12 @@ export function inferThesis(
 
   // Range: pinned price action; rich IV strengthens it (premium
   // structures benefit if IV also falls), cheap IV leaves it neutral.
-  if (has("RANGE_PINNED")) {
+  // §6.2 modifier (#18): a near earnings event suppresses the
+  // range_bound reading — a pinned range into a print is a coil, not
+  // a premium farm — UNLESS an IV signal dominates (rich IV is the
+  // event trade: IV_EXPENSIVE keeps the rich-IV range rule alive).
+  const rangeSuppressedByEvent = has("RANGE_PINNED") && has("EVENT_NEAR") && !has("IV_EXPENSIVE");
+  if (has("RANGE_PINNED") && !rangeSuppressedByEvent) {
     return has("IV_EXPENSIVE")
       ? infer("range-pinned-rich-iv", "range_bound", "fall", "HIGH")
       : infer("range-pinned", "range_bound", "unchanged", "MEDIUM");
@@ -137,6 +142,20 @@ export function inferThesis(
     return infer("trend-down", "bearish", "unchanged", "MEDIUM");
   }
 
+  // Catalyst underpriced (#18): a near event whose implied move is
+  // cheap against the name's realized vol is a large-move setup —
+  // the market is underpricing the one move most likely to happen.
+  // Cheap IV on top raises confidence (both vol readings agree the
+  // options are cheap); the move itself is the evidence either way.
+  if (has("EVENT_NEAR") && has("MOVE_UNDERPRICED")) {
+    return infer(
+      "event-move-underpriced",
+      "large_move",
+      "rise",
+      has("IV_CHEAP") ? "HIGH" : "MEDIUM",
+    );
+  }
+
   // Coiled spring: pressing the highs with cheap options — the one
   // large-move pattern v1 recognizes.
   if (has("BREAKOUT_WATCH") && has("IV_CHEAP")) {
@@ -148,6 +167,12 @@ export function inferThesis(
   // anything expressible clears the floor.
   if (has("BREAKOUT_WATCH")) {
     return infer("breakout-watch", "bullish", "unchanged", "LOW");
+  }
+
+  if (rangeSuppressedByEvent) {
+    return abstain(
+      `range_bound suppressed for ${c.symbol} — EVENT_NEAR (earnings in ${c.daysToEarnings}d) without a dominant IV signal; a pinned range into a print is not a range trade`,
+    );
   }
 
   return abstain(
