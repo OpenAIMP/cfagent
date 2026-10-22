@@ -23,6 +23,8 @@ import { withErrorBoundary } from "./security/workerErrorBoundary";
 import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
 import {
   disabledLoginResponse,
+  enabledProviders,
+  getProvider,
   isWiringEnabled,
   resolveLoginProvider,
 } from "./security/providers";
@@ -300,7 +302,20 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return handleLogin(env);
     }
     if (path === "/login" && request.method === "GET") {
-      return new Response(renderLoginPage(env), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      // #945 Google-as-plugin — composable login page: when wiring
+      // is on, the page renders one button per enabled, registered
+      // provider (computed here and passed in — githubOAuth.ts must
+      // not import providers.ts, which would create an import
+      // cycle). When nothing is enabled (wiring off, or no
+      // registered provider in the list), no argument is passed and
+      // the page is exactly the legacy GitHub-only page.
+      const enabled = enabledProviders(env)
+        .map((id) => getProvider(id))
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .map((p) => ({ id: p.providerId, displayName: p.displayName ?? p.providerId }));
+      return new Response(renderLoginPage(env, enabled.length > 0 ? enabled : undefined), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
     if (path === "/auth/callback") {
       if (isWiringEnabled(env)) {
@@ -318,6 +333,36 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         });
       }
       return handleOAuthCallback(env, request);
+    }
+    // #945 Google-as-plugin — generic provider routes. These are
+    // additive: the exact /auth/login and /auth/callback routes
+    // above stay GitHub-only and byte-identical. A provider id
+    // segment dispatches through the registry exactly like the
+    // GitHub route does (same wired-callback options: audit store,
+    // resolved tenant, post-login enabled). Wiring OFF is a 403 —
+    // no legacy flow exists for a plugin provider — and an unknown
+    // or unlisted id is a 403, never a fallback to another provider.
+    const loginProviderMatch = path.match(/^\/auth\/login\/([^/]+)$/);
+    if (loginProviderMatch) {
+      if (!isWiringEnabled(env)) return disabledLoginResponse("wiring-disabled");
+      const { provider, disabledReason } = resolveLoginProvider(env, loginProviderMatch[1]);
+      if (!provider || disabledReason) {
+        return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+      }
+      return provider.startLogin(env);
+    }
+    const callbackProviderMatch = path.match(/^\/auth\/callback\/([^/]+)$/);
+    if (callbackProviderMatch) {
+      if (!isWiringEnabled(env)) return disabledLoginResponse("wiring-disabled");
+      const { provider, disabledReason } = resolveLoginProvider(env, callbackProviderMatch[1]);
+      if (!provider || disabledReason) {
+        return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+      }
+      return provider.handleCallback(env, request, {
+        auditStore: createWiredAuditStore(env),
+        auditTenantId: resolveIaaaTenant(env),
+        postLoginEnabled: true,
+      });
     }
     if (path === "/auth/logout") {
       // #945 GitHub end-to-end logout audit hook: when wiring is

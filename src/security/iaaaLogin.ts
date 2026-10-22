@@ -31,9 +31,11 @@
  * What Phase 1 does NOT do (later phases, honestly stated):
  * - PDP, delegation, or audit wiring at routes. Those are later
  *   phases and are deliberately absent here.
- * - Any other provider. Auth0, Google, and other social logins are
- *   NOT implemented here; see providers.ts for how a future adapter
- *   registers without changing server.ts dispatch.
+ * - Provider-specific token/profile calls. Those live in the
+ *   adapters (githubOAuth.ts, oidcProvider.ts); this module owns
+ *   only the provider-agnostic tail (completeWiredLogin), which
+ *   every adapter funnels through. See providers.ts for how a
+ *   future adapter registers without changing server.ts dispatch.
  *
  * Phase 2a (this module, helpers + one audit integration point):
  * - Idle enforcement exists as a helper, not a live gate.
@@ -131,6 +133,31 @@ export type GithubBindingResult =
   | { ok: false; code: GithubBindingErrorCode; error: string };
 
 /**
+ * Resolve or create the Slice 1 binding for one provider subject.
+ * Provider-agnostic: the caller supplies the validated issuer and
+ * the provider-stable subject (never a login or email). The profile
+ * fetch that produced the subject IS the proof of control
+ * (proofVerified: true). A store failure maps to BINDING_FAILED.
+ */
+export async function resolveProviderBinding(
+  store: IdentityBindingStore,
+  issuer: string,
+  subject: string,
+  nowMs: number
+): Promise<GithubBindingResult> {
+  const result = await resolveOrCreateBinding(store, {
+    providerIssuer: issuer,
+    providerSubject: subject,
+    proofVerified: true,
+    nowMs,
+  });
+  if (!result.ok) {
+    return { ok: false, code: "BINDING_FAILED", error: result.error };
+  }
+  return { ok: true, binding: result.binding };
+}
+
+/**
  * Resolve or create the Slice 1 binding for a fetched GitHub profile.
  * Subject is String(profile.id); a missing/non-finite id fails the login
  * rather than binding by login. The profile fetch is the proof.
@@ -151,16 +178,7 @@ export async function resolveGithubBinding(
       error: "GitHub profile did not include a stable user id; login cannot be bound",
     };
   }
-  const result = await resolveOrCreateBinding(store, {
-    providerIssuer: GITHUB_ISSUER,
-    providerSubject: String(profile.id),
-    proofVerified: true,
-    nowMs,
-  });
-  if (!result.ok) {
-    return { ok: false, code: "BINDING_FAILED", error: result.error };
-  }
-  return { ok: true, binding: result.binding };
+  return resolveProviderBinding(store, GITHUB_ISSUER, String(profile.id), nowMs);
 }
 
 /**
@@ -298,9 +316,162 @@ export function getValidatedSession(
 }
 
 /**
+ * #945 Google-as-plugin — normalized profile for the generic wired
+ * login tail. Every provider adapter normalizes its fetched profile
+ * to this shape BEFORE calling completeWiredLogin:
+ * - subject: the provider-stable subject (GitHub numeric id as a
+ *   string, Google `sub`). This is the Slice 1 identity. It is
+ *   never a login or an email.
+ * - loginKey: the legacy login-key field value (GitHub login,
+ *   Google verified email). It fills the pre-existing
+ *   githubLogin-keyed paths (DO routing, token keys, /api/me)
+ *   and the login alias record. It is display/lookup data, NOT
+ *   identity: a login-key change or reuse never moves the binding.
+ * - displayName / avatarUrl: display fields for the session.
+ */
+export interface NormalizedLoginProfile {
+  subject: string;
+  loginKey: string;
+  displayName: string;
+  avatarUrl: string;
+}
+
+/** Options for the generic wired login tail (same shape as the GitHub delegate's). */
+export interface WiredLoginOptions {
+  bindingStore?: IdentityBindingStore;
+  nowMs?: number;
+  auditStore?: AuditStore;
+  auditTenantId?: string;
+  /** End-to-end: alias recording + bootstrap-on-login. Default off. */
+  postLoginEnabled?: boolean;
+}
+
+/**
+ * Generic wired login tail: binding + extended session + post-login
+ * work + login audit, parameterized over a normalized profile and
+ * its validated issuer. Every provider adapter (GitHub, Google via
+ * the OIDC factory, future plugins) funnels through here, so the
+ * fail-closed rules, the audit seam, and the post-login contract
+ * are identical for all providers.
+ *
+ * Fail-closed, in order, before anything is persisted:
+ * - a missing/blank subject → MISSING_SUBJECT_ID failure audit
+ *   (when audit options are supplied) + error page; no binding,
+ *   no session. This is the GitHub missing-id rule, generalized.
+ * - a missing/blank login key → error page; no binding, no session.
+ * - a binding store failure → BINDING_FAILED failure audit + error
+ *   page; no session.
+ * On success the session carries the legacy fields from the
+ * normalized profile plus the Slice 1/2 fields, exactly as the
+ * GitHub wired flow did; post-login work and the success audit
+ * are best-effort and never change the login outcome.
+ */
+export async function completeWiredLogin(
+  env: Env,
+  issuer: string,
+  profile: NormalizedLoginProfile,
+  options?: WiredLoginOptions
+): Promise<Response> {
+  const nowMs = options?.nowMs ?? Date.now();
+  const store = options?.bindingStore ?? createWiredBindingStore(env);
+
+  const subjectValid =
+    typeof profile?.subject === "string" && profile.subject.trim() !== "";
+  if (!subjectValid) {
+    if (options?.auditStore && options.auditTenantId) {
+      await recordWiredAuthAudit(
+        options.auditStore,
+        buildLoginFailureAuditEventInput({
+          code: "MISSING_SUBJECT_ID",
+          tenantId: options.auditTenantId,
+          timestamp: nowMs,
+          correlationId: crypto.randomUUID(),
+        })
+      );
+    }
+    return errorPage("Provider profile did not include a stable subject id; login cannot be bound", 400);
+  }
+  if (typeof profile?.loginKey !== "string" || profile.loginKey.trim() === "") {
+    return errorPage("Provider profile did not include a usable login key; login cannot be bound", 400);
+  }
+
+  const bindingResult = await resolveProviderBinding(store, issuer, profile.subject, nowMs);
+  if (!bindingResult.ok) {
+    if (options?.auditStore && options.auditTenantId) {
+      await recordWiredAuthAudit(
+        options.auditStore,
+        buildLoginFailureAuditEventInput({
+          code: bindingResult.code,
+          tenantId: options.auditTenantId,
+          timestamp: nowMs,
+          correlationId: crypto.randomUUID(),
+        })
+      );
+    }
+    return errorPage(bindingResult.error, 400);
+  }
+
+  const sessionData = buildExtendedSessionData(
+    {
+      githubLogin: profile.loginKey,
+      githubAvatar: profile.avatarUrl,
+      githubName: profile.displayName,
+      createdAt: nowMs,
+    },
+    bindingResult.binding,
+    nowMs
+  );
+
+  const sessionId = await createSession(env, sessionData);
+  // End-to-end post-login work (best-effort; never changes the login
+  // outcome): alias recording + bootstrap-on-login. A failure here
+  // is swallowed by runWiredPostLogin itself; the outer catch is
+  // belt-and-braces for store construction.
+  if (options?.postLoginEnabled) {
+    try {
+      const kv = sessionStore(env);
+      await runWiredPostLogin(
+        {
+          kv,
+          bindingStore: store,
+          membershipStore: createKvMembershipStore(kv),
+        },
+        {
+          githubLogin: profile.loginKey,
+          internalUserId: bindingResult.binding.internalUserId,
+          providerIssuer: bindingResult.binding.providerIssuer,
+          providerSubject: bindingResult.binding.providerSubject,
+          bootstrapRaw: env.IAAA_BOOTSTRAP_ADMINS,
+          tenantId: options.auditTenantId ?? resolveIaaaTenant(env),
+          nowMs,
+        },
+      );
+    } catch {
+      // Post-login work must never fail a login.
+    }
+  }
+  // Phase 2a audit seam (best-effort; never changes the outcome).
+  if (options?.auditStore && options.auditTenantId) {
+    await recordWiredAuthAudit(
+      options.auditStore,
+      buildLoginSuccessAuditEventInput({
+        internalUserId: bindingResult.binding.internalUserId,
+        tenantId: options.auditTenantId,
+        timestamp: nowMs,
+        correlationId: sessionId,
+      })
+    );
+  }
+  return new Response(null, {
+    status: 302,
+    headers: { Location: "/", "Set-Cookie": setSessionCookie(sessionId) },
+  });
+}
+
+/**
  * Wired GitHub callback: the same upstream calls as the legacy callback
  * (state check, code exchange, profile fetch via the shared helpers),
- * then binding + extended session. On any failure before the session
+ * then the generic wired tail. On any failure before the session
  * is created, no binding is created for a missing-id profile and no
  * session is created at all.
  *
@@ -347,84 +518,23 @@ export async function handleGithubCallbackWired(
     const accessToken = await exchangeGithubCode(env, code);
     const user: GithubUserProfile = await fetchGithubProfile(accessToken);
 
-    const store = options?.bindingStore ?? createWiredBindingStore(env);
-    const nowMs = options?.nowMs ?? Date.now();
-    const bindingResult = await resolveGithubBinding(
-      store,
-      { id: user.id, login: user.login, avatar_url: user.avatar_url, name: user.name },
-      nowMs
-    );
-    if (!bindingResult.ok) {
-      // Phase 2a audit seam (best-effort; never changes the outcome).
-      if (options?.auditStore && options.auditTenantId) {
-        await recordWiredAuthAudit(
-          options.auditStore,
-          buildLoginFailureAuditEventInput({
-            code: bindingResult.code,
-            tenantId: options.auditTenantId,
-            timestamp: nowMs,
-            correlationId: crypto.randomUUID(),
-          })
-        );
-      }
-      return errorPage(bindingResult.error, 400);
-    }
-
-    const sessionData = buildExtendedSessionData(
+    // Delegate to the generic wired tail. The subject normalization
+    // keeps the old fail-closed rule exactly: a missing/non-finite
+    // id becomes a blank subject, which completeWiredLogin rejects
+    // with the MISSING_SUBJECT_ID failure audit + error page, and
+    // no binding and no session are created.
+    return await completeWiredLogin(
+      env,
+      GITHUB_ISSUER,
       {
-        githubLogin: user.login,
-        githubAvatar: user.avatar_url,
-        githubName: user.name || user.login,
-        createdAt: nowMs,
+        subject:
+          typeof user.id === "number" && Number.isFinite(user.id) ? String(user.id) : "",
+        loginKey: user.login,
+        displayName: user.name || user.login,
+        avatarUrl: user.avatar_url,
       },
-      bindingResult.binding,
-      nowMs
+      options
     );
-
-    const sessionId = await createSession(env, sessionData);
-    // GitHub end-to-end post-login work (best-effort; never changes
-    // the login outcome): alias recording + bootstrap-on-login.
-    // A failure here is swallowed by runWiredPostLogin itself; the
-    // outer catch is belt-and-braces for store construction.
-    if (options?.postLoginEnabled) {
-      try {
-        const kv = sessionStore(env);
-        await runWiredPostLogin(
-          {
-            kv,
-            bindingStore: store,
-            membershipStore: createKvMembershipStore(kv),
-          },
-          {
-            githubLogin: user.login,
-            internalUserId: bindingResult.binding.internalUserId,
-            providerIssuer: bindingResult.binding.providerIssuer,
-            providerSubject: bindingResult.binding.providerSubject,
-            bootstrapRaw: env.IAAA_BOOTSTRAP_ADMINS,
-            tenantId: options.auditTenantId ?? resolveIaaaTenant(env),
-            nowMs,
-          },
-        );
-      } catch {
-        // Post-login work must never fail a login.
-      }
-    }
-    // Phase 2a audit seam (best-effort; never changes the outcome).
-    if (options?.auditStore && options.auditTenantId) {
-      await recordWiredAuthAudit(
-        options.auditStore,
-        buildLoginSuccessAuditEventInput({
-          internalUserId: bindingResult.binding.internalUserId,
-          tenantId: options.auditTenantId,
-          timestamp: nowMs,
-          correlationId: sessionId,
-        })
-      );
-    }
-    return new Response(null, {
-      status: 302,
-      headers: { Location: "/", "Set-Cookie": setSessionCookie(sessionId) },
-    });
   } catch (err) {
     if (err instanceof GithubAuthError) return errorPage(err.message, err.status);
     const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";

@@ -70,17 +70,22 @@ describe("enabledProviders", () => {
 });
 
 describe("registry", () => {
-  it("ships with github registered and no other provider", () => {
+  it("ships with github and google registered (google is the worked plugin example)", () => {
     expect(listProviders()).toContain("github");
+    expect(listProviders()).toContain("google");
     const github = getProvider("github");
     expect(github).not.toBeNull();
     expect(github!.providerId).toBe("github");
     expect(github!.issuer).toBe("https://github.com");
+    const google = getProvider("google");
+    expect(google).not.toBeNull();
+    expect(google!.providerId).toBe("google");
+    expect(google!.issuer).toBe("https://accounts.google.com");
   });
 
   it("returns null for an unknown provider — never falls back to another provider", () => {
     expect(getProvider("auth0")).toBeNull();
-    expect(getProvider("google")).toBeNull();
+    expect(getProvider("not-a-provider")).toBeNull();
     expect(getProvider("")).toBeNull();
   });
 
