@@ -15,6 +15,8 @@ export * from "./authorization";
 export * from "./delegation";
 export * from "./iaaaAudit";
 export * from "./lifecycle";
+export * from "./providers";
+export * from "./iaaaLogin";
 export * from "./etradeOAuth";
 export * from "./session";
 export * from "./webhookSecurity";
