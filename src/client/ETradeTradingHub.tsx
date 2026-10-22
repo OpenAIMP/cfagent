@@ -1574,7 +1574,7 @@ export function ETradeTradingHub({
       )}
 
       {effectiveSubTab === "schedules" && (
-        <SchedulesPanel activeEnv={activeEnv} userLogin={user?.login} />
+        <SchedulesPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleTradeOrder} />
       )}
 
       {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
