@@ -118,6 +118,21 @@ export interface EtapiDiscoveryConfig {
   maxMedianSpreadPct: number;
   /** Optionability pre-screen: minimum contracts in the chain snapshot. */
   minContractsForOptionable: number;
+  /** DTE window the inference assigns per thesis (slice 2): trend
+   *  expressions get a standard swing window, range expressions a
+   *  longer premium window, large-move the shortest (the move either
+   *  happens soon or the thesis is wrong). */
+  dteWindows: {
+    bullish: DiscoveryDteWindow;
+    bearish: DiscoveryDteWindow;
+    range_bound: DiscoveryDteWindow;
+    large_move: DiscoveryDteWindow;
+  };
+}
+
+export interface DiscoveryDteWindow {
+  minDte: number;
+  maxDte: number;
 }
 
 export interface EtapiExpirationGroup {
@@ -310,6 +325,12 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     minVolume: 500,
     maxMedianSpreadPct: 8,
     minContractsForOptionable: 5,
+    dteWindows: {
+      bullish: { minDte: 21, maxDte: 60 },
+      bearish: { minDte: 21, maxDte: 60 },
+      range_bound: { minDte: 30, maxDte: 60 },
+      large_move: { minDte: 14, maxDte: 45 },
+    },
   },
   llmIdeas: {
     inputTokenBudget: 90000,
