@@ -860,8 +860,15 @@ export function ScheduledOptionsManager({
         setMinPrice(payload.filters.minPrice != null ? String(payload.filters.minPrice) : "");
         setMaxPrice(payload.filters.maxPrice != null ? String(payload.filters.maxPrice) : "");
         setMinMarketCap(payload.filters.minMarketCap != null ? String(payload.filters.minMarketCap) : "");
-        setMaxPe(payload.filters.maxPe != null ? String(payload.filters.maxPe) : "");
-        setTrendFilter(payload.filters.trend || "");
+        // Issue #959: the canonical filter fields are maxPeRatio and
+        // momentum. The pre-#959 form sent filters.maxPe / filters.trend,
+        // which are NOT StockScreenerFilter fields and were silently
+        // ignored by the engine. maxPe hydrates from the legacy name
+        // for stored schedules (same meaning, renamed field); the
+        // legacy trend values never had engine semantics, so only the
+        // canonical momentum hydrates.
+        setMaxPe(payload.filters.maxPeRatio != null ? String(payload.filters.maxPeRatio) : payload.filters.maxPe != null ? String(payload.filters.maxPe) : "");
+        setTrendFilter(payload.filters.momentum || "");
       } else {
         setMinPrice("");
         setMaxPrice("");
@@ -969,8 +976,8 @@ export function ScheduledOptionsManager({
         if (minPrice.trim()) customFilters.minPrice = Number(minPrice);
         if (maxPrice.trim()) customFilters.maxPrice = Number(maxPrice);
         if (minMarketCap.trim()) customFilters.minMarketCap = Number(minMarketCap);
-        if (maxPe.trim()) customFilters.maxPe = Number(maxPe);
-        if (trendFilter.trim()) customFilters.trend = trendFilter;
+        if (maxPe.trim()) customFilters.maxPeRatio = Number(maxPe);
+        if (trendFilter.trim()) customFilters.momentum = trendFilter;
 
         payload = {
           ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
@@ -2034,9 +2041,9 @@ export function ScheduledOptionsManager({
                       onChange={(e) => setTrendFilter(e.target.value)}
                     >
                       <option value="">Any (Standard momentum)</option>
-                      <option value="bullish">Bullish Momentum</option>
-                      <option value="bearish">Bearish Trend</option>
-                      <option value="breakout">52-Week Breakout</option>
+                      <option value="bullish_breakout">Bullish Breakout</option>
+                      <option value="bearish_pullback">Bearish Pullback</option>
+                      <option value="high_relative_volume">High Relative Volume</option>
                     </Select>
                   </div>
                 </details>
