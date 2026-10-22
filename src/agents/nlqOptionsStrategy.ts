@@ -20,6 +20,7 @@ import type {
 import type { RiskProfile } from "../trading";
 import { buildTypeRollup, type StrategyTypeRollup } from "../trading";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
+import { parseScanRequestTemplate } from "../trading";
 
 export { buildTypeRollup } from "../trading";
 export type { StrategyTypeRollup } from "../trading";
@@ -679,6 +680,12 @@ async function runOpportunityScan(
       ? { statedTarget: statedSymbol ? { price: targetPrice, symbol: statedSymbol } : { price: targetPrice } }
       : {}),
   } as ScanRequestTemplate;
+  // Issue #959: the assembled template validates through the ONE
+  // shared scan-template schema (src/trading/screeningSchemas.ts)
+  // before the scanner is constructed — a mis-shaped plan fails the
+  // action explicitly instead of scanning under dropped fields.
+  const parsedTemplate = parseScanRequestTemplate(template);
+  if (!parsedTemplate.ok) return fail(parsedTemplate.error);
   const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
   const result = await scanner.scan(symbols, template, {
     riskProfile: filters.riskProfile,
