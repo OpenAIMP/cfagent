@@ -138,11 +138,16 @@ export async function runDiscovery(
       const bars = (await deps.fetchBars(symbol)) ?? [];
       const spot = bars.length > 0 ? bars[bars.length - 1].close : snapshot.contracts[0].underlyingPrice;
       const chain = chainAggregatesFromContracts(snapshot.contracts, spot);
+      // Issue #18: the calendar is fetched once, up front — the
+      // characterization's event signals read the same projection
+      // the request later carries (issue #16 pattern).
+      const eventCalendar = toEventCalendarInfo(await deps.calendarFor(symbol));
       const inputs: DiscoveryNameInputs = {
         symbol,
         bars,
         ivStats: await deps.ivStatsFor(symbol),
         chain,
+        eventCalendar,
       };
 
       const prescreen = prescreenOptionability(inputs, discoveryConfig);
@@ -195,8 +200,9 @@ export async function runDiscovery(
       }
 
       // Issue #16 pattern: the calendar is server-fetched and
-      // projected before it touches the request.
-      built.request.eventCalendar = toEventCalendarInfo(await deps.calendarFor(symbol));
+      // projected before it touches the request — the projection
+      // computed above for characterization is reused verbatim.
+      built.request.eventCalendar = eventCalendar;
 
       const expression = await expressDiscoverySetup(
         { run: (req) => deps.runPipeline(req) },

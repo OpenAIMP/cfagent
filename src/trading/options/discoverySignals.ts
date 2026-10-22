@@ -25,6 +25,7 @@
 import type { EtapiDiscoveryConfig } from "../../config/etapiConfig";
 import type { YahooDailyBar } from "../yahooHistory";
 import type { IvStats } from "./ivHistoryStore";
+import type { EventCalendarInfo } from "./strategyEngine";
 
 export type DiscoverySignalType =
   | "IV_EXPENSIVE"
@@ -33,6 +34,8 @@ export type DiscoverySignalType =
   | "TREND_DOWN"
   | "RANGE_PINNED"
   | "BREAKOUT_WATCH"
+  | "EVENT_NEAR"
+  | "MOVE_UNDERPRICED"
   | "LIQUIDITY_OK";
 
 /** Chain aggregates the characterization needs — computed by the
@@ -51,6 +54,10 @@ export interface DiscoveryNameInputs {
   bars: readonly YahooDailyBar[];
   ivStats: IvStats | null;
   chain: ChainAggregates | null;
+  /** Phase 2 (issue #18): the name's #16 event calendar, when the
+   *  caller fetched one. Absent or uncovered, the event signals
+   *  abstain — an unknown catalyst calendar is not "no catalyst". */
+  eventCalendar?: EventCalendarInfo | null;
 }
 
 /** The per-name feature vector (spec §6.1), computed from inputs. */
@@ -85,6 +92,16 @@ export interface NameCharacterization {
     medianSpreadPct: number | null;
   } | null;
   contractCount: number;
+  /** Phase 2 (issue #18): whether the #16 calendar covers this name
+   *  at all (false = the event signals must abstain). */
+  eventCovered: boolean;
+  earningsDate: string | null;
+  daysToEarnings: number | null;
+  /** Annualized realized volatility (decimal) from close-to-close
+   *  log returns over the slow trend window; null under 10 returns.
+   *  The yardstick MOVE_UNDERPRICED measures the implied move
+   *  against. */
+  realizedVol: number | null;
 }
 
 export interface DiscoverySignal {
@@ -108,6 +125,21 @@ function windowReturnPct(closes: readonly number[], window: number): number | nu
   const base = closes[closes.length - 1 - window];
   if (!(base > 0)) return null;
   return (closes[closes.length - 1] / base - 1) * 100;
+}
+
+/** Annualized realized volatility (decimal) from close-to-close log
+ *  returns over the last `window` returns; null when the history is
+ *  too short to mean anything. */
+function realizedVolatility(closes: readonly number[], window: number): number | null {
+  const usable = closes.slice(Math.max(0, closes.length - (window + 1)));
+  const returns: number[] = [];
+  for (let i = 1; i < usable.length; i++) {
+    if (usable[i] > 0 && usable[i - 1] > 0) returns.push(Math.log(usable[i] / usable[i - 1]));
+  }
+  if (returns.length < 10) return null;
+  const m = mean(returns);
+  const variance = returns.reduce((acc, r) => acc + (r - m) * (r - m), 0) / returns.length;
+  return Math.sqrt(variance) * Math.sqrt(252);
 }
 
 function fmt(n: number, digits = 2): string {
@@ -172,6 +204,10 @@ export function characterizeName(
             medianSpreadPct: inputs.chain.medianSpreadPct,
           },
     contractCount: inputs.chain?.contractCount ?? 0,
+    eventCovered: inputs.eventCalendar?.covered ?? false,
+    earningsDate: inputs.eventCalendar?.earningsDate ?? null,
+    daysToEarnings: inputs.eventCalendar?.daysToEarnings ?? null,
+    realizedVol: realizedVolatility(closes, config.trendSlowWindow),
   };
 }
 
@@ -251,6 +287,41 @@ export function detectSignals(
     evidence: boKnown
       ? `close ${fmt(c.spot!)} sits ${fmt(c.distanceToPriorHighPct!)}% below the ${config.breakoutLookbackDays}d prior high ${fmt(c.priorHigh!)} (watch band ≤ ${config.breakoutProximityPct}%)`
       : "insufficient price history for breakout watch",
+  });
+
+  // --- Event proximity (Phase 2, #18): a covered calendar with
+  // earnings inside the window makes the name earnings-adjacent —
+  // the label rides this evidence line onto every setup card.
+  const eventNear =
+    c.eventCovered && c.daysToEarnings !== null && c.daysToEarnings >= 0 && c.daysToEarnings <= config.eventNearDays;
+  signals.push({
+    type: "EVENT_NEAR",
+    fired: eventNear,
+    evidence: !c.eventCovered
+      ? `event calendar not covered for ${c.symbol} — EVENT_NEAR abstains`
+      : c.daysToEarnings === null
+        ? `no earnings scheduled on the covered calendar for ${c.symbol}`
+        : eventNear
+          ? `earnings-adjacent: earnings ${c.earningsDate} in ${c.daysToEarnings}d (≤ ${config.eventNearDays}d window)`
+          : `earnings ${c.earningsDate} in ${c.daysToEarnings}d — outside the ${config.eventNearDays}d near window`,
+  });
+
+  // --- Move underpriced (Phase 2, #18): into a near event, the
+  // implied move (ATM IV) is a small fraction of what the name
+  // habitually delivers (realized vol). The horizon cancels in the
+  // ratio (both scale by sqrt(days)), so the raw IV / realized-vol
+  // ratio is the honest comparison. Never fires without the event:
+  // a cheap move with no catalyst is just cheap options.
+  const moveKnown = c.atmIv !== null && c.realizedVol !== null && c.realizedVol > 0;
+  const moveRatio = moveKnown ? c.atmIv! / c.realizedVol! : null;
+  signals.push({
+    type: "MOVE_UNDERPRICED",
+    fired: eventNear && moveRatio !== null && moveRatio <= config.moveUnderpricedMaxRatio,
+    evidence: !eventNear
+      ? "no near event — no catalyst for the move to be underpriced against"
+      : !moveKnown
+        ? "implied or realized volatility unavailable — MOVE_UNDERPRICED abstains"
+        : `implied move (ATM IV ${fmt(c.atmIv! * 100, 0)}%) is ${fmt(moveRatio!, 2)}× the realized vol ${fmt(c.realizedVol! * 100, 0)}% (≤ ${config.moveUnderpricedMaxRatio}× = underpriced)`,
   });
 
   // --- Liquidity gate ---

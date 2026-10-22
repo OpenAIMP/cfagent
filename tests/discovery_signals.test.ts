@@ -298,9 +298,11 @@ describe("liquidity gate and the full catalog", () => {
     const types = signals.map((s) => s.type).sort();
     const expected: DiscoverySignalType[] = [
       "BREAKOUT_WATCH",
+      "EVENT_NEAR",
       "IV_CHEAP",
       "IV_EXPENSIVE",
       "LIQUIDITY_OK",
+      "MOVE_UNDERPRICED",
       "RANGE_PINNED",
       "TREND_DOWN",
       "TREND_UP",
