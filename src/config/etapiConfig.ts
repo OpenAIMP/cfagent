@@ -128,6 +128,11 @@ export interface EtapiDiscoveryConfig {
     range_bound: DiscoveryDteWindow;
     large_move: DiscoveryDteWindow;
   };
+  /** Composite-score floor for the discovery fit gate (spec §7 /
+   *  issue #14): the scanner's own gate defaults to 55 from its
+   *  fixture distribution (#24); discovery's settled floor is 50,
+   *  applied over the scanner gate's other criteria (slice 3). */
+  compositeFloor: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -331,6 +336,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       range_bound: { minDte: 30, maxDte: 60 },
       large_move: { minDte: 14, maxDte: 45 },
     },
+    compositeFloor: 50,
   },
   llmIdeas: {
     inputTokenBudget: 90000,
