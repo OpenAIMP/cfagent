@@ -79,6 +79,11 @@ import {
   REQUESTED_STRATEGY_NAMES,
   type StrategyRequest,
 } from "../../trading";
+import {
+  parseOptionsDiscoveryRequest,
+  parseOptionsScreenRequest,
+  parseUnifiedOptionsRequest,
+} from "../../trading";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { getCuratedStockUniverse } from "../../config/curatedStockUniverse";
@@ -989,21 +994,23 @@ export async function handleEtradeOptionsRoutes(
         riskProfile?: RiskProfile;
         alternatives?: number;
       }) | null;
-      const validationError = validateStrategyRequest(body);
-      if (validationError || !body) {
-        return Response.json({ error: validationError }, { status: 400 });
-      }
-      if (body.riskProfile !== undefined && !["conservative", "balanced", "aggressive"].includes(body.riskProfile)) {
-        return Response.json({ error: "riskProfile must be conservative, balanced, or aggressive." }, { status: 400 });
+      // Issue #959: the discovery request validates through the ONE
+      // shared schema (src/trading/screeningSchemas.ts) — the request
+      // fields and the route envelope (strategyFilter / riskProfile /
+      // alternatives) are checked together, and a mis-shape is a 400
+      // naming the offending field.
+      const parsedDiscovery = parseOptionsDiscoveryRequest(body);
+      if (!parsedDiscovery.ok) {
+        return Response.json({ error: parsedDiscovery.error }, { status: 400 });
       }
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const result = await pipeline.run(body as StrategyRequest, {
-          strategyFilter: body.strategyFilter,
-          riskProfile: body.riskProfile,
-          alternatives: body.alternatives,
+        const result = await pipeline.run(parsedDiscovery.value.request, {
+          strategyFilter: parsedDiscovery.value.strategyFilter,
+          riskProfile: parsedDiscovery.value.riskProfile,
+          alternatives: parsedDiscovery.value.alternatives,
         });
         const common = {
           screen: result.snapshot.screen,
@@ -1059,20 +1066,34 @@ export async function handleEtradeOptionsRoutes(
           };
         }
 
+        // Issue #959: the assembled filter (POST body or GET params)
+        // validates through the ONE shared options-screen schema — a
+        // mis-shaped filter is a 400 naming the field, and the engine
+        // receives exactly the validated filter (its internal sanitizer
+        // no longer silently drops unknown keys or enum values).
+        const parsedScreen = parseOptionsScreenRequest(filter);
+        if (!parsedScreen.ok) {
+          return Response.json({ error: parsedScreen.error }, { status: 400 });
+        }
+        const screenFilter = parsedScreen.value.filter;
+        const screenPushToSlack = parsedScreen.value.pushToSlack;
+        const screenSlackChannel = parsedScreen.value.slackChannel;
+        const screenUniverseLabel = parsedScreen.value.universe;
+
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        let result = await screener.screenOptions(filter);
+        let result = await screener.screenOptions(screenFilter);
 
         // Demo-mode fallback (issue #65): generated chains may substitute for an
         // empty live screen ONLY in dev/demo deployments with the gate enabled,
         // and the result is stamped dataSource "calibrated-demo". Production is
         // live-only: an empty live screen returns empty, with its fetch errors.
-        if (result.contracts.length === 0 && isDemoCalibratedChainsEnabled() && filter.underlyingSymbols && filter.underlyingSymbols.length > 0 && filter.underlyingSymbols[0] !== "BROKEN") {
-          const fallbackChains = buildCalibratedOptionChains(filter.underlyingSymbols, filter.minDte ?? 0, filter.maxDte ?? 90);
+        if (result.contracts.length === 0 && isDemoCalibratedChainsEnabled() && screenFilter.underlyingSymbols && screenFilter.underlyingSymbols.length > 0 && screenFilter.underlyingSymbols[0] !== "BROKEN") {
+          const fallbackChains = buildCalibratedOptionChains(screenFilter.underlyingSymbols, screenFilter.minDte ?? 0, screenFilter.maxDte ?? 90);
           if (fallbackChains.length > 0) {
             const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
-            const fallbackResult = screener.evaluateChains(chainItems, filter, filter.underlyingSymbols.length, {
+            const fallbackResult = screener.evaluateChains(chainItems, screenFilter, screenFilter.underlyingSymbols.length, {
               warnings: ["Calibrated demo chains — generated data for development/demo, not live market data."],
             });
             if (fallbackResult.contracts.length > 0) {
@@ -1117,10 +1138,10 @@ export async function handleEtradeOptionsRoutes(
         }
 
         // Deliver over A2A to Slack channel unless caller explicitly opted out
-        const shouldNotifySlack = filter.pushToSlack !== false && filter.pushToSlack !== "false";
+        const shouldNotifySlack = screenPushToSlack !== false;
         if (shouldNotifySlack) {
-          const slackChannel = filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
-          const summary = `📊 Options Contract Screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
+          const slackChannel = screenSlackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
+          const summary = `📊 Options Contract Screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
           try {
             const sent = await deliverScreenerToSlackA2A(ctx.env, {
               text: summary,
@@ -1145,10 +1166,10 @@ export async function handleEtradeOptionsRoutes(
         ctx.getOrm().storeCanonicalReport({
           runId: generationId,
           generationId,
-          title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}`,
+          title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
           source: "options_scanner",
           summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-          body: { generatedAt, filter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
+          body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
           createdAt: generatedAt,
         });
 
@@ -1184,6 +1205,22 @@ export async function handleEtradeOptionsRoutes(
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
           };
         }
+
+        // Issue #959: the unified request validates through the ONE
+        // shared schema before the service sees it — a mis-shaped body
+        // is a 400 naming the field instead of a service-level surprise.
+        // The delivery envelope (pushToSlack / slackChannel, read below)
+        // is split out by the schema and re-attached for the route's
+        // own delivery logic; the service receives the request fields.
+        const parsedUnified = parseUnifiedOptionsRequest(reqData);
+        if (!parsedUnified.ok) {
+          return Response.json({ error: parsedUnified.error }, { status: 400 });
+        }
+        reqData = {
+          ...parsedUnified.value.request,
+          ...(parsedUnified.value.pushToSlack !== undefined ? { pushToSlack: parsedUnified.value.pushToSlack } : {}),
+          ...(parsedUnified.value.slackChannel !== undefined ? { slackChannel: parsedUnified.value.slackChannel } : {}),
+        };
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql));
