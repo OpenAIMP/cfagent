@@ -17,6 +17,7 @@
 
 import type { Schedule } from "agents";
 import type { SqlStorage } from "../orm";
+import { buildSchedulePayload, SCREENING_SCHEDULE_CALLBACKS } from "../trading";
 
 export const PAUSED_SCHEDULES_TABLE = "paused_schedules";
 
@@ -197,7 +198,41 @@ export function resolveScheduleUpdate(
   body: ScheduleUpdateRequest,
   nowMs: number
 ): ScheduleUpdateResolution {
-  const payload = body.payload !== undefined ? body.payload : current.payload;
+  let payload = body.payload !== undefined ? body.payload : current.payload;
+
+  // Issue #982 (screening consolidation S2): a NEWLY SUPPLIED payload
+  // for a screening schedule validates through the ONE shared builder
+  // (buildSchedulePayload, #959) — creation parity for updates. The
+  // caller's identity fields are stripped exactly as the create route
+  // strips them, and identity is re-stamped from the EXISTING
+  // schedule's payload (the trusted context an update has), never
+  // from the request. Creation defaults do not apply: the criteria
+  // are validated and identity-stamped as given (the trigger routes'
+  // semantics). Timing-only updates (no payload in the body) are not
+  // re-validated — a legacy payload stays updatable — and
+  // non-screening callbacks' payloads are not screening criteria.
+  if (
+    body.payload !== undefined &&
+    (SCREENING_SCHEDULE_CALLBACKS as readonly string[]).includes(current.callback)
+  ) {
+    const currentPayload =
+      current.payload && typeof current.payload === "object"
+        ? (current.payload as Record<string, unknown>)
+        : {};
+    const { userLogin: _untrustedUserLogin, environment: _untrustedEnvironment, ...criteria } =
+      body.payload && typeof body.payload === "object"
+        ? (body.payload as Record<string, unknown>)
+        : {};
+    const built = buildSchedulePayload(current.callback, criteria, {
+      userLogin: typeof currentPayload.userLogin === "string" ? currentPayload.userLogin : undefined,
+      environment: typeof currentPayload.environment === "string" ? currentPayload.environment : undefined,
+      trigger: "scheduled",
+    }, { applyCreationDefaults: false });
+    if (!built.ok) {
+      return { ok: false, error: built.error };
+    }
+    payload = built.value;
+  }
 
   if (body.cron !== undefined) {
     const cron = String(body.cron).trim();
