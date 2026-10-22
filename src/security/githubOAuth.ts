@@ -22,6 +22,77 @@ export async function handleLogin(env: Env): Promise<Response> {
   });
 }
 
+/** Error carrying the HTTP status the legacy callback used for this failure. */
+export class GithubAuthError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** GitHub user profile as returned by GET https://api.github.com/user. */
+export interface GithubUserProfile {
+  /** Stable provider subject — the numeric GitHub user id, NOT the login. */
+  id: number;
+  login: string;
+  avatar_url: string;
+  name?: string | null;
+}
+
+/**
+ * Exchange an OAuth code for a GitHub access token.
+ * Extracted verbatim from handleOAuthCallback (Wiring Phase 1) so the
+ * wired callback can reuse the exact same upstream calls; the legacy
+ * callback below still goes through this helper and keeps its messages
+ * and statuses.
+ */
+export async function exchangeGithubCode(env: Env, code: string): Promise<string> {
+  const tokenResp = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: env.GITHUB_CLIENT_ID,
+      client_secret: env.GITHUB_CLIENT_SECRET,
+      code,
+    }),
+  });
+
+  if (!tokenResp.ok) {
+    throw new GithubAuthError(`Token exchange failed with upstream status ${tokenResp.status}`, 502);
+  }
+
+  const tokenData = (await tokenResp.json()) as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+  };
+
+  if (!tokenData.access_token) {
+    throw new GithubAuthError(
+      tokenData.error_description || tokenData.error || "GitHub did not grant an access token",
+      400
+    );
+  }
+  return tokenData.access_token;
+}
+
+/** Fetch the GitHub user profile for an access token (same call as before). */
+export async function fetchGithubProfile(accessToken: string): Promise<GithubUserProfile> {
+  const profileResp = await fetch("https://api.github.com/user", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "ai-search-agent",
+    },
+  });
+
+  if (!profileResp.ok) {
+    throw new GithubAuthError("Failed to fetch user profile from GitHub", 502);
+  }
+  return (await profileResp.json()) as GithubUserProfile;
+}
+
 export async function handleOAuthCallback(env: Env, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -37,43 +108,8 @@ export async function handleOAuthCallback(env: Env, request: Request): Promise<R
   }
 
   try {
-    const tokenResp = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: env.GITHUB_CLIENT_ID,
-        client_secret: env.GITHUB_CLIENT_SECRET,
-        code,
-      }),
-    });
-
-    if (!tokenResp.ok) return errorPage(`Token exchange failed with upstream status ${tokenResp.status}`, 502);
-
-    const tokenData = (await tokenResp.json()) as {
-      access_token?: string;
-      error?: string;
-      error_description?: string;
-    };
-
-    if (!tokenData.access_token) {
-      return errorPage(tokenData.error_description || tokenData.error || "GitHub did not grant an access token", 400);
-    }
-
-    const profileResp = await fetch("https://api.github.com/user", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "ai-search-agent",
-      },
-    });
-
-    if (!profileResp.ok) return errorPage("Failed to fetch user profile from GitHub", 502);
-
-    const user = (await profileResp.json()) as {
-      login: string;
-      avatar_url: string;
-      name?: string | null;
-    };
+    const accessToken = await exchangeGithubCode(env, code);
+    const user = await fetchGithubProfile(accessToken);
 
     const sessionData: SessionData = {
       githubLogin: user.login,
@@ -92,6 +128,7 @@ export async function handleOAuthCallback(env: Env, request: Request): Promise<R
       },
     });
   } catch (err) {
+    if (err instanceof GithubAuthError) return errorPage(err.message, err.status);
     const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
     return errorPage(message, 500);
   }
