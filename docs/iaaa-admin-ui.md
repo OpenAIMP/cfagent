@@ -59,6 +59,35 @@ tenants' events are never returned by this route.
   error and no partial data (the stores refuse to overwrite
   corrupt evidence).
 
+## v2: tabbed endpoint/event explorer (read-only, same gate)
+
+The Overview tab is the v1 content, unchanged. Four more tabs render
+static code knowledge from `src/client/iaaaEndpointCatalog.ts` — no new
+server route, no fetch beyond the v1 overview call:
+
+- **API**: every route branch in `src/server.ts` (method, path, aliases,
+  edge gating). The generic `/api/*` forwarder is a catch-all row, not an
+  endpoint. A test pins the catalog against the route-branch path
+  literals in `server.ts`, so a new route branch without a catalog entry
+  fails; method/auth drift on an existing branch is still a manual
+  review item (documented residual gap in the test).
+- **MCP**: the existing `MCP_TOOLS_CATALOG` / `MCP_RESOURCES_CATALOG` /
+  `MCP_PROMPTS_CATALOG` from `src/client/mcpEndpointsData.ts`, reused —
+  plus a gaps list of server capabilities the catalog lacks (scanner
+  tools and other command classes), reported, never invented.
+- **IAAA**: the audit-event taxonomy (builders plus live emitters) and
+  the explicit gaps list of IAAA occurrences that emit no audit event
+  (PDP denials, step-up denials, idle-expiry rejection, bootstrap
+  grants, alias recording, genesis marker, silent logout-audit skips).
+- **Correlations**: endpoint-to-MCP-tool rows (transport for every
+  catalog tool, one shares-source row for the audit store, UNMAPPED rows
+  for tools with no worker HTTP handler) and event-to-endpoint rows
+  (emits rows plus UNMAPPED gap rows).
+
+Styling uses the shared `Tabs` primitive and semantic `--color-*`
+tokens only; the v2 change also fixed a v1 CSS literal (an `rgba()`
+border) that failed the token ratchet, so the ratchet is green.
+
 ## How to extend it (mutations later)
 
 1. Add a mutation endpoint per action (grant/revoke) behind the
