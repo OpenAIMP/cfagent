@@ -57,6 +57,7 @@ import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
+import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
 
 export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
@@ -696,6 +697,11 @@ export class ScheduledTasksService {
         this.scanRunStore
       );
 
+      // Issue #16: fetch the event calendar for the scan's names so
+      // the run judges event risk per name and reports coverage. The
+      // service never throws; uncovered names stay unverified.
+      const scanCalendarCoverage = await getEventCalendarCoverage(symbols);
+
       const response = await unifiedService.execute({
         action: "opportunities",
         symbols,
@@ -708,6 +714,7 @@ export class ScheduledTasksService {
         overrideEnv: options.environment,
         // Issue #738: pass the symbol count so the scanner doesn't truncate to 20.
         maxSymbols: symbols.length,
+        eventCalendarBySymbol: Object.fromEntries(scanCalendarCoverage.bySymbol),
       });
       if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scanData = response.data as any;
@@ -1635,6 +1642,11 @@ export class ScheduledTasksService {
           continue;
         }
         constructed.push(derived.request);
+        // Issue #16: attach this name's event calendar before the
+        // pipeline runs — the persisted run record carries it on the
+        // request, so the run's calendar facts stay auditable. The
+        // service never throws; uncovered keeps event risk unverified.
+        derived.request.eventCalendar = await getSymbolEventCalendar(symbol);
         const outcome = await this.runDiscoveryRequest(pipeline, etrade, derived.request);
         outcomes.push({ ...outcome, derivation: derived.derivation });
       }
@@ -1691,6 +1703,12 @@ export class ScheduledTasksService {
         inputModel: "profile-derived",
         profileRef,
         requestCount: constructed.length,
+        // Issue #16: how many of the run's names carried live calendar
+        // coverage (the per-name facts ride on the persisted requests).
+        eventCalendarCoverage: {
+          covered: constructed.filter((r) => r.eventCalendar?.covered).length,
+          total: symbols.length,
+        },
         completedCount,
         failedCount: failures.length,
         abstained: abstentions,

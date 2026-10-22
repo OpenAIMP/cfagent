@@ -166,6 +166,24 @@ export async function getSymbolEventCalendar(
   return result;
 }
 
+/**
+ * The engine-facing projection of a symbol calendar: the request field
+ * is EventCalendarInfo, and symbol/fetchedAt are service bookkeeping.
+ * Keeping them out of engine requests means identical calendar facts
+ * produce identical requests — and identical responses (the #314
+ * byte-identity contract between the two recommend-route spellings).
+ */
+export function toEventCalendarInfo(cal: SymbolEventCalendar): EventCalendarInfo {
+  return {
+    covered: cal.covered,
+    source: cal.source,
+    earningsDate: cal.earningsDate,
+    daysToEarnings: cal.daysToEarnings,
+    exDividendDate: cal.exDividendDate,
+    daysToExDiv: cal.daysToExDiv,
+  };
+}
+
 export interface EventCalendarCoverage {
   bySymbol: Map<string, SymbolEventCalendar>;
   total: number;

@@ -24,6 +24,7 @@ import { DynamicOptionsScreener } from "../optionsScreener";
 import {
   OptionsAgentPipeline,
   recommendOptionStrategies,
+  type EventCalendarInfo,
   type StrategyRequest,
   type StrategyRecommendationResult,
   type OptionThesis,
@@ -88,6 +89,12 @@ export interface UnifiedOptionsRequest {
   /** Opportunities only (issue #23): per-name thesis/target overrides
    *  keyed by (uppercase) symbol. */
   perSymbol?: Record<string, ScanSymbolOverride>;
+  /** Server-populated per-name event calendars (issue #16): routes
+   *  strip any client-supplied value and fetch from the calendar
+   *  service; internal callers (scheduled tasks) fetch their own.
+   *  Forwarded into the scan (opportunities) and attached to the
+   *  single-name request (strategies / best_trade). */
+  eventCalendarBySymbol?: Record<string, EventCalendarInfo>;
   /** Opportunities only (issue #103): a target the caller stated for
    *  one symbol ({ price, symbol }) or the batch — forwarded into the
    *  scan template's statedTarget, where the scanner scopes it to its
@@ -322,6 +329,9 @@ export class UnifiedOptionsService {
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
+            // Issue #16: this name's event calendar, server-fetched by
+            // the caller — the engine annotates / excludes on it.
+            eventCalendar: req.eventCalendarBySymbol?.[symbol],
           };
           // Issue #28: a selected profile layers under the body's own
           // fields — fields present in the body stay explicit.
@@ -395,6 +405,10 @@ export class UnifiedOptionsService {
             // Issue #738: forward maxSymbols so the scanner respects the
             // caller's universe size instead of the hardcoded 20-symbol cap.
             ...(req.maxSymbols !== undefined ? { maxSymbols: req.maxSymbols } : {}),
+            // Issue #16: per-name event calendars, server-fetched by
+            // the caller — the scan judges event risk per name and
+            // reports coverage in its result.
+            ...(req.eventCalendarBySymbol ? { eventCalendarBySymbol: req.eventCalendarBySymbol } : {}),
             // Issue #103: `offset` paginates strategy-fit fits
             // alongside `limit`; forwarded (and cached) the same way.
             ...(req.offset !== undefined ? { offset: req.offset } : {}),
@@ -510,6 +524,9 @@ export class UnifiedOptionsService {
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
+            // Issue #16: this name's event calendar, server-fetched by
+            // the caller — the engine annotates / excludes on it.
+            eventCalendar: req.eventCalendarBySymbol?.[symbol],
           };
           // Issue #28: a selected profile layers under the body's own
           // fields — fields present in the body stay explicit.
@@ -572,6 +589,9 @@ export class UnifiedOptionsService {
             minRewardRisk: req.minRewardRisk || 1.5,
             allowedStrategies: req.allowedStrategies && req.allowedStrategies.length > 0 ? req.allowedStrategies : ["all"],
             optimizationBias: req.optimizationBias,
+            // Issue #16: this name's event calendar, server-fetched by
+            // the caller — the engine annotates / excludes on it.
+            eventCalendar: req.eventCalendarBySymbol?.[symbol],
           };
           // Issue #28: a selected profile layers under the body's own
           // fields — fields present in the body stay explicit.

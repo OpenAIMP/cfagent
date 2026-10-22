@@ -9,6 +9,7 @@ import {
   __resetEventCalendarCache,
   getEventCalendarCoverage,
   getSymbolEventCalendar,
+  toEventCalendarInfo,
 } from "../src/services/eventCalendar";
 
 /**
@@ -158,6 +159,20 @@ describe("event calendar service (issue #16)", () => {
     await getSymbolEventCalendar("BAD", NOW);
 
     expect(stub.mock.calls.length).toBe(2);
+  });
+
+  it("projects to the engine-facing info shape (no service bookkeeping)", async () => {
+    installFetchStub();
+    const cal = await getSymbolEventCalendar("XYZ", NOW);
+
+    expect(toEventCalendarInfo(cal)).toEqual({
+      covered: true,
+      source: "yahoo-calendarEvents",
+      earningsDate: "2026-10-26",
+      daysToEarnings: 5,
+      exDividendDate: "2026-10-24",
+      daysToExDiv: 3,
+    });
   });
 
   it("computes per-run coverage across a set of names", async () => {

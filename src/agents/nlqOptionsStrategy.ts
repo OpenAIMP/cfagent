@@ -19,6 +19,7 @@ import type {
 } from "../trading";
 import type { RiskProfile } from "../trading";
 import { buildTypeRollup, type StrategyTypeRollup } from "../trading";
+import { getEventCalendarCoverage, getSymbolEventCalendar } from "../services/eventCalendar";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
 import { parseScanRequestTemplate } from "../trading";
 
@@ -535,6 +536,10 @@ export async function runOptionsStrategyAction(
   const validationError = validateStrategyRequest(request);
   if (validationError) return fail(validationError);
 
+  // Issue #16: attach this name's event calendar (server-fetched; the
+  // service never throws and an uncovered name stays unverified).
+  request.eventCalendar = await getSymbolEventCalendar(request.symbol!);
+
   const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
   const result = await pipeline.run(request as StrategyRequest, {
     strategyFilter: filters.strategyFilter,
@@ -687,10 +692,15 @@ async function runOpportunityScan(
   const parsedTemplate = parseScanRequestTemplate(template);
   if (!parsedTemplate.ok) return fail(parsedTemplate.error);
   const scanner = new OpportunityScanner(new DynamicOptionsScreener(etrade.client));
+  // Issue #16: fetch the event calendar for the scanned names so the
+  // run judges event risk per name and reports coverage (the service
+  // never throws; uncovered names stay unverified).
+  const calendarCoverage = await getEventCalendarCoverage(symbols);
   const result = await scanner.scan(symbols, template, {
     riskProfile: filters.riskProfile,
     strategyFilter: filters.strategyFilter,
     mode: filters.mode,
+    eventCalendarBySymbol: Object.fromEntries(calendarCoverage.bySymbol),
     // Issue #28: the profile layers under the question's own inputs.
     // The question's thesis is explicit when the user stated it (not
     // inferred from strategy names / defaults); the mode is ALWAYS

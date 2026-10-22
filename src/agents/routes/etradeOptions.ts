@@ -92,6 +92,7 @@ import type { Env, ETradeOptionChain, ETradeOptionExpireDate } from "../../types
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
+import { getEventCalendarCoverage, getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
 
 /** The subset of OrchestratorAgent surface the E*TRADE options handlers need. */
 export interface EtradeOptionsRouteContext {
@@ -137,6 +138,11 @@ export async function handleOptionsStrategyRecommend(
 
   try {
     const strategyRequest = body as StrategyRequest;
+    // Issue #16: the event calendar is a server-side fact — a
+    // client-supplied one is never trusted. Fetch it for this name and
+    // overwrite whatever the body carried. The service never throws;
+    // an uncovered result simply keeps event risk unverified.
+    strategyRequest.eventCalendar = toEventCalendarInfo(await getSymbolEventCalendar(strategyRequest.symbol));
     const userLogin = request.headers.get("x-user-login") || deps.sessionKey || "default_trader";
     const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
     const screener = new DynamicOptionsScreener(etrade.client);
@@ -1224,6 +1230,23 @@ export async function handleEtradeOptionsRoutes(
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql));
+        // Issue #16: event calendars are server-side facts — strip any
+        // client-supplied calendar, then fetch coverage for the
+        // actions that run the strategy engine. The calendar service
+        // never throws; uncovered names stay unverified.
+        delete reqData.eventCalendarBySymbol;
+        delete reqData.eventCalendar;
+        if (reqData.action === "opportunities" || reqData.action === "strategies" || reqData.action === "best_trade" || reqData.action === "compare" || reqData.action === "llm_ideas" || reqData.action === "llm_evaluate") {
+          const calSymbols = reqData.action === "opportunities"
+            ? (Array.isArray(reqData.symbols) && reqData.symbols.length > 0 ? reqData.symbols : (reqData.symbol ? [reqData.symbol] : []))
+            : [reqData.symbol || (reqData.action === "llm_ideas" || reqData.action === "llm_evaluate" ? "NVDA" : "SPY")];
+          if (calSymbols.length > 0) {
+            const calendarCoverage = await getEventCalendarCoverage(calSymbols);
+            reqData.eventCalendarBySymbol = Object.fromEntries(
+              Array.from(calendarCoverage.bySymbol, ([sym, cal]) => [sym, toEventCalendarInfo(cal)])
+            );
+          }
+        }
         const result = await service.execute(reqData);
 
         let reportUrl: string | undefined;
