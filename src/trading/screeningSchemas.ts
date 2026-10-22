@@ -868,3 +868,24 @@ export function buildSchedulePayload(
   };
   return { ok: true, value: payload };
 }
+
+/* ------------------------------------------------------------------ */
+/* Runs list query (issue #1057, consolidation S5)                     */
+/* ------------------------------------------------------------------ */
+
+/** The kind filter of GET /api/runs — the one Runs read surface over
+ *  the four run stores. "all" is the unfiltered merge. */
+export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "all"]);
+export type RunsListKind = z.infer<typeof runsListKindSchema>;
+
+/** Validate the `kind` query parameter of GET /api/runs in the S1
+ *  idiom: a field-named error, no coercion — an unknown kind is a 400,
+ *  never a silent "all". */
+export function parseRunsListKind(input: unknown): ScreeningValidationResult<RunsListKind> {
+  const result = runsListKindSchema.safeParse(input);
+  if (result.success) return { ok: true, value: result.data };
+  return {
+    ok: false,
+    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "all".`,
+  };
+}
