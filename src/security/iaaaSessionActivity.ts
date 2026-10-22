@@ -1,11 +1,12 @@
 /**
  * #945 Wiring Phase 2a — idle enforcement helpers, activity touch, step-up wrapper.
  *
- * Pure helpers only. NOTHING in this module is wired into a live route:
- * server.ts `requireAuth` still reads sessions via `getSessionCached`
- * without idle checks, and no route calls `sessionRequiresStepUp`.
- * Wiring those call sites is a later phase (Phase 2b) and is a
- * parent decision, not something this module assumes.
+ * Pure helpers only. Phase 2b-part1 wires two call sites, and no
+ * others: server.ts `requireAuth` validates wired sessions via
+ * iaaaEnforcement.ts (fresh read, idle expiry, touch), and POST
+ * /api/api-keys mints only when `sessionRequiresStepUp` (via the
+ * iaaaGates.ts pilot predicate) is false. No other route calls
+ * these helpers; route PDP enforcement is still a later phase.
  *
  * sessionCache interaction — read before wiring enforcement anywhere:
  * - `getSessionCached` serves a copy up to 60s stale per isolate.
