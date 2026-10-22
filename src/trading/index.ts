@@ -39,6 +39,7 @@ export * from "./universes";
 export * from "./screenerConfig";
 export * from "./screenerPipeline";
 export * from "./screenerReportPdf";
+export * from "./screenerReportXlsx";
 export * from "./optionsReportPdf";
 export * from "./setupCatalog";
 export * from "./researchReportPdf";

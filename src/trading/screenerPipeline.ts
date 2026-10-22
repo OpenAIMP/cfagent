@@ -19,7 +19,7 @@
  * (via screenWithQuotes); this module unifies everything above it.
  */
 
-import { DynamicMarketScreener, inferSectorFromCompanyName } from "./screener";
+import { DynamicMarketScreener, inferSectorFromCompanyName, resolveStockSector } from "./screener";
 import {
   fetchTechnologySymbols,
   fetchLiveQuotes,
@@ -320,9 +320,9 @@ export async function acquireUniverse(
         symbol: listing.symbol,
         companyName: live.companyName || listing.companyName,
         // E*TRADE quote payloads do not reliably include sector. The
-        // dynamically fetched Nasdaq listing row does, so preserve that
-        // classification for sector filtering without a static symbol map.
-        sector: live.sector || listing.sector,
+        // dynamically fetched Nasdaq listing row does, and resolveStockSector
+        // provides curated/inferred enrichment.
+        sector: resolveStockSector(listing.symbol, live.companyName || listing.companyName, live.sector || listing.sector),
         source: "E*TRADE live",
         quoteStatus: "LIVE",
       } as ETradeQuote);
@@ -697,7 +697,7 @@ export function toScannedStock(
     // Issue #269: default technicals; attachTechnicals() fills from Yahoo.
     technicals: EMPTY_TECHNICALS,
     peRatio: quote.peRatio ?? null,
-    sector: quote.sector,
+    sector: resolveStockSector(quote.symbol, quote.companyName, quote.sector),
   };
 }
 

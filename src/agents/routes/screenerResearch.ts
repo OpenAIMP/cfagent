@@ -130,6 +130,28 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Downloadable XLSX report of the screener run (multi-tab: Screened Stocks + Formulas & Methodology).
+    if (path.endsWith("/screener/report.xlsx") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const xlsx = key ? await agent.getXlsxByKey(key) : await agent.getLatestXlsx();
+        if (!xlsx) {
+          return Response.json({ error: "No screener XLSX report available yet" }, { status: 404 });
+        }
+        return new Response(xlsx.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="${xlsx.fileName}"`,
+            "Content-Length": String(xlsx.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load XLSX report" }, { status: 500 });
+      }
+    }
+
     // Issue #361: Options PDF download endpoint (mirrors stock).
     if (path.endsWith("/options/report.pdf") && request.method === "GET") {
       try {

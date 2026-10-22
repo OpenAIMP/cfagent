@@ -74,5 +74,6 @@ export function getCuratedStockListings(filterExchange?: string): NasdaqStockLis
     change: 1.25,
     changePercent: 0.85,
     marketCap: item.marketCap ?? 50e9,
+    sector: item.sector,
   }));
 }

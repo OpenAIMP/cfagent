@@ -860,9 +860,10 @@ export class ScheduledTasksService {
         }
       }
 
-      // 2. Push Email if recipient is specified
+      // 2. Push Email if recipient is specified or environment configured
       // Issue #303: Try cfpay via A2A first, fall back to local.
-      if (options.emailTo) {
+      const targetEmail = options.emailTo || (this.env as any).OPTIONS_EMAIL_TO || (this.env as any).SCREENER_EMAIL_TO;
+      if (targetEmail) {
         const cfpay = getCfpayConfig(this.env);
         let emailOk = false;
         if (cfpay) {
@@ -874,13 +875,13 @@ export class ScheduledTasksService {
               let binary = "";
               for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
               r = await cfpaySendEmailWithAttachments(cfpay, {
-                to: options.emailTo,
+                to: targetEmail,
                 subject,
                 body,
                 attachments: [{ filename: optionsPdfFile, contentB64: btoa(binary), contentType: "application/pdf" }],
               });
             } else {
-              r = await cfpaySendEmail(cfpay, options.emailTo, subject, body);
+              r = await cfpaySendEmail(cfpay, targetEmail, subject, body);
             }
             emailOk = r.ok;
             if (!r.ok) {
@@ -894,7 +895,7 @@ export class ScheduledTasksService {
           try {
             const emailService = new ETradeEmailTradingService(this.env, this.orm, this.userLogin);
             notifications.email = await emailService.sendOutboundEmail(
-              options.emailTo,
+              targetEmail,
               `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
               response.toEmailHtml(),
               `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`,
