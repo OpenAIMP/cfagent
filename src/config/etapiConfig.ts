@@ -148,6 +148,14 @@ export interface EtapiDiscoveryConfig {
    *  volatility into a near event — the market is pricing less
    *  movement than the name habitually delivers. */
   moveUnderpricedMaxRatio: number;
+  /** Phase 2 (issue #18): a FLOW_* signal fires when one side's
+   *  share of chain-derived directional premium reaches this
+   *  fraction (0.65 = roughly 2:1 dominance). */
+  flowDominanceShare: number;
+  /** Phase 2 (issue #18): minimum chain-derived flow records
+   *  before either FLOW_* signal may fire — a pair of prints is
+   *  anecdote, not flow. */
+  flowMinRecords: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -355,6 +363,8 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     deltaScoreThreshold: 5,
     eventNearDays: 21,
     moveUnderpricedMaxRatio: 0.8,
+    flowDominanceShare: 0.65,
+    flowMinRecords: 3,
   },
   llmIdeas: {
     inputTokenBudget: 90000,

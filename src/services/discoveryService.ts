@@ -40,9 +40,12 @@ import {
   chainAggregatesFromContracts,
   characterizeName,
   detectSignals,
+  flowAggregatesFromItems,
   prescreenOptionability,
   type DiscoveryNameInputs,
+  type FlowItemLike,
 } from "../trading";
+import { fetchRealMarketFlowsForSymbol } from "../trading";
 import { inferThesis } from "../trading";
 import {
   buildDiscoveryRequest,
@@ -77,6 +80,11 @@ export interface DiscoveryServiceDeps {
   fetchBars(symbol: string): Promise<YahooDailyBar[] | null>;
   ivStatsFor(symbol: string): Promise<IvStats | null>;
   calendarFor(symbol: string): Promise<SymbolEventCalendar>;
+  /** Phase 2 (#18): the name's flow items (any provenance — the
+   *  aggregator filters). A failure here must not fail the name:
+   *  flow is a confidence modifier, so the service treats a flow
+   *  outage as no flow data. */
+  flowFor(symbol: string): Promise<readonly FlowItemLike[]>;
   runPipeline(request: StrategyRequest): Promise<PipelineResult>;
   store: DiscoverySetupStore;
   now(): Date;
@@ -142,12 +150,16 @@ export async function runDiscovery(
       // characterization's event signals read the same projection
       // the request later carries (issue #16 pattern).
       const eventCalendar = toEventCalendarInfo(await deps.calendarFor(symbol));
+      // Issue #18: flow failures abstain the FLOW signals, never
+      // the name (flow only ever modifies confidence).
+      const flowItems = await deps.flowFor(symbol).catch(() => [] as FlowItemLike[]);
       const inputs: DiscoveryNameInputs = {
         symbol,
         bars,
         ivStats: await deps.ivStatsFor(symbol),
         chain,
         eventCalendar,
+        flow: flowAggregatesFromItems(flowItems),
       };
 
       const prescreen = prescreenOptionability(inputs, discoveryConfig);
@@ -292,6 +304,7 @@ export function createDiscoveryService(args: {
     fetchBars: (symbol) => fetchYahooDailyHistory(symbol),
     ivStatsFor: async (symbol) => computeIvStats(await ivStore.listSeries(symbol)),
     calendarFor: (symbol) => getSymbolEventCalendar(symbol),
+    flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
     runPipeline: (request) => pipeline.run(request),
     store: new SqlDiscoverySetupStore(args.sql),
     now: () => new Date(),
