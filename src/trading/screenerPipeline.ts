@@ -34,6 +34,11 @@ import {
   withRetries,
   type LiveScreenerDeps,
 } from "./liveScreener";
+import {
+  fetchYahooQuotes,
+  yahooUniverseListings,
+  type YahooScreenerDeps,
+} from "./yahooDataSource";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 import type { YahooTechnicals } from "./yahooHistory";
@@ -121,7 +126,15 @@ export interface OpportunityStock {
 // Universe acquisition — the ONLY stage that varies by trigger.
 // ---------------------------------------------------------------------------
 
-export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only";
+export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only" | "yahoo";
+
+/**
+ * Issue #1007: which data provider feeds a run. A provider changes
+ * data provenance only — never semantics, scoring, result shape, or
+ * persistence. Recorded on ScreenerRunResult and in the canonical
+ * report body so every run states which provider produced it.
+ */
+export type StockScreenProvider = "etrade" | "yahoo";
 
 export interface AcquireUniverseOptions {
   mode: UniverseMode;
@@ -129,16 +142,20 @@ export interface AcquireUniverseOptions {
   config?: ScreenerConfig;
   /** all-listings: exchange scope filter ("ALL" or exchange code). */
   exchange?: string;
-  /** live-quotes / etrade-only: pre-filtered listings (default: tech-keyword filter). */
+  /** live-quotes / etrade-only / yahoo: pre-filtered listings (default: tech-keyword filter; yahoo: the curated Yahoo universe). */
   symbols?: NasdaqStockListing[];
-  /** live-quotes / etrade-only: cap on symbols quoted (default 50). */
+  /** live-quotes / etrade-only / yahoo: cap on symbols quoted (default 50). */
   maxSymbols?: number;
   /** live-quotes / etrade-only: E*TRADE fetcher (required for these modes). */
   liveDeps?: LiveScreenerDeps;
+  /** yahoo: Yahoo fetcher (required for that mode) — the data-source adapter seam. */
+  yahooDeps?: YahooScreenerDeps;
 }
 
 export interface AcquiredUniverse {
   quotes: ETradeQuote[];
+  /** Issue #1007: the provider that produced these quotes. */
+  provider?: StockScreenProvider;
   discovery: {
     mode: "all_us_listings" | "live_quotes";
     candidateCount: number;
@@ -186,6 +203,68 @@ export interface PartialQuoteQualification {
 export async function acquireUniverse(
   opts: AcquireUniverseOptions
 ): Promise<AcquiredUniverse> {
+  // Issue #1007: yahoo mode — Yahoo Finance as a data-source adapter
+  // inside this pipeline (yahooDataSource.ts). Quotes arrive already
+  // adapted to the pipeline quote shape with RSI/MACD as data fields;
+  // everything downstream (screenUniverse, shaping, persistence) is
+  // identical to the E*TRADE path. Honest failure: if Yahoo returns
+  // no live quote the run FAILS — there is no fallback to E*TRADE
+  // data and no fabricated row. A partial set is qualified exactly
+  // like the E*TRADE path's partial (issue #462).
+  if (opts.mode === "yahoo") {
+    if (!opts.yahooDeps) {
+      throw new Error("yahoo mode requires yahooDeps.fetchYahooQuote");
+    }
+    const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
+    const symbols = opts.symbols ?? yahooUniverseListings();
+    const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
+    const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
+    if (limited.length === 0) {
+      throw new Error("The selected Yahoo universe contains no listings; no static symbols were substituted.");
+    }
+    const quotes = await fetchYahooQuotes(
+      limited.map((l) => l.symbol),
+      opts.yahooDeps
+    );
+    const quotedSymbols = new Set(quotes.map((q) => q.symbol.toUpperCase()));
+    const failed = limited
+      .map((l) => l.symbol)
+      .filter((s) => !quotedSymbols.has(s.toUpperCase()));
+    if (quotes.length === 0) {
+      throw new Error(
+        `Yahoo Finance unavailable: no live quotes returned (0 of ${limited.length} symbols quoted` +
+          (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
+          `). No fallback data substituted.`
+      );
+    }
+    const partial: PartialQuoteQualification | undefined =
+      failed.length > 0
+        ? {
+            quotedCount: quotes.length,
+            requestedCount: limited.length,
+            failedSymbols: failed,
+            failureReasons: { "yahoo-unavailable": failed.length },
+            failureSamples: failed
+              .slice(0, 3)
+              .map((s) => `${s}: yahoo-unavailable (Yahoo Finance returned no live quote)`),
+          }
+        : undefined;
+    return {
+      quotes,
+      provider: "yahoo",
+      ...(partial ? { partial } : {}),
+      discovery: {
+        mode: "live_quotes",
+        candidateCount: symbols.length,
+        listingCount: quotes.length,
+        message: partial
+          ? `Partial screen — qualified results: Yahoo Finance quoted ${quotes.length} of ${limited.length} symbols ` +
+            `(${failed.length} unavailable: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}). Screen ran on the quoted subset only; no fallback data substituted.`
+          : `Yahoo Finance live quotes; ${quotes.length} of ${limited.length} symbols quoted.`,
+      },
+    };
+  }
+
   if (opts.mode === "live-quotes") {
     if (!opts.liveDeps) {
       throw new Error("live-quotes mode requires liveDeps.fetchETradeQuote");
@@ -200,6 +279,7 @@ export async function acquireUniverse(
     );
     return {
       quotes,
+      provider: "etrade",
       discovery: {
         mode: "live_quotes",
         candidateCount: symbols.length,
@@ -483,6 +563,7 @@ export async function acquireUniverse(
         : undefined;
     return {
       quotes,
+      provider: "etrade",
       ...(partial ? { partial } : {}),
       discovery: {
         mode: "live_quotes",
