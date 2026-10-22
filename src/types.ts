@@ -33,6 +33,12 @@ export interface Env {
   // Comma-separated provider ids. Default when wiring is on: "github".
   // An id with no registered adapter is ignored, never a fallback.
   IAAA_ENABLED_PROVIDERS?: string;
+  // #945 Wiring Phase 2b-part1 — tenant for IAAA audit attribution.
+  // Optional and owner-set. When unset (or blank), the logout audit
+  // hook is DORMANT: no audit event is recorded. There is deliberately
+  // no default tenant — inventing one (e.g. "default") would fabricate
+  // tenant attribution for login/logout events.
+  IAAA_TENANT_ID?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
