@@ -1,0 +1,287 @@
+/**
+ * #945 Wiring Phase 2b-part2 — migration aliases (no data destruction).
+ *
+ * The migration problem, from the Phase 2b scope note: three areas
+ * are keyed by GitHub login today, and login is not identity (a
+ * login can change; a recycled login can name a different person).
+ *   1. E*TRADE tokens: etrade:token:<login> / etrade:req_token:<login>
+ *      (plus env-prefixed variants) in the SessionStore DO.
+ *   2. SearchAgent DO names: idFromName(githubLogin).
+ *   3. DIDs: getUserDid(githubLogin) derives did:user:github:<login>.
+ * Bindings (iaaa-binding:) already join wired logins to stable
+ * internalUserIds. This module adds the alias layer that lets the
+ * login-keyed world be REACHED from an internalUserId without
+ * rewriting, renaming, or deleting anything:
+ *
+ * - recordLoginAlias(): when a wired login is observed (session
+ *   carries both githubLogin and internalUserId), record the pair
+ *   in both directions under iaaa-alias: keys. Idempotent for the
+ *   identical pair. A CONFLICT — same login, different internal
+ *   user — is rejected and the original preserved, never silently
+ *   reassigned: reassigning would hand one user's tokens, DO state,
+ *   and DID to another. A conflict needs operator resolution; this
+ *   module will not guess. (Note the underlying reason a conflict
+ *   can legitimately occur: GitHub logins can be recycled after an
+ *   account is deleted. An alias is a migration aid, not identity,
+ *   and must never be used to PROVE identity — only bindings do.)
+ * - lookups in both directions, for the three areas above.
+ * - readWithFallback(): the dual-read helper pattern for token
+ *   keys — try the internal-id key first, fall back to the login
+ *   key, report which one hit. Reads NEVER delete or rename
+ *   either key; the old key stays until a verified cutover retires
+ *   it, which this module does not perform.
+ * - resolveDoNameInput(): the DO-naming input for an internal user.
+ *   It returns either the legacy login (option (a) below) or
+ *   "unresolved" — it NEVER invents a name. Naming a new DO from
+ *   the internalUserId would silently create an empty DO and
+ *   orphan the user's existing agent state; that is a cutover
+ *   decision, not a fallback.
+ *
+ * Cutover options (OWNER decision — this module implements the
+ * alias path only and performs no cutover):
+ * - (a) Alias naming (recommended as the safe default): keep
+ *   login-derived DO names and token keys, reached through the
+ *   alias. Cost: login remains a naming input, which weakens the
+ *   "login is not identity" claim for naming (though not for
+ *   authorization — the PDP never consults a login). Benefit: no
+ *   state is copied, nothing can be orphaned, rollback is trivial.
+ * - (b) Copy cutover: copy token/DO state to internal-id-derived
+ *   keys/DOs, dual-read during a verification window, then retire
+ *   old keys. Benefit: login fully leaves the data model. Risks:
+ *   idFromName cannot rename an existing DO, so DO state must be
+ *   copied (in-flight agent state can be orphaned mid-copy);
+ *   token copies must preserve env-prefixed variants; old
+ *   login-derived DIDs break unless an alias record is kept for
+ *   them (this module provides exactly that record).
+ * - (c) Dual-write going forward: new writes go to both keys.
+ *   Halves the (b) risks for tokens only; does not help DO names.
+ *
+ * Key construction here MIRRORS etradeOAuth.ts (whose key builders
+ * are private): etrade:token:<login>, etrade:req_token:<login>, and
+ * etrade:token:<ENV>:<login> / etrade:req_token:<ENV>:<login> for
+ * env-prefixed variants. etradeOAuth.ts remains the owner of the
+ * live format; if it changes, this mirror must change with it.
+ * Alias keys use the iaaa-alias: prefix and cannot collide with
+ * session keys (bare UUIDs), iaaa-binding:, iaaa-audit:, or
+ * iaaa-membership: keys. No expiry: an alias must not silently
+ * vanish, or the data it points at becomes unreachable.
+ *
+ * DID note: getUserDid(login) is NOT changed here. The alias keeps
+ * the OLD login-derived DID reachable (lookupLoginByUserId, then
+ * the existing derivation) while a future change derives new DIDs
+ * from internalUserId. No new DID method is invented in this slice.
+ */
+
+import type { KvLike } from "./kvResilience";
+
+/** Prefix for every IAAA migration-alias key in the SessionStore DO. */
+export const IAAA_ALIAS_KEY_PREFIX = "iaaa-alias:";
+
+export interface LoginAlias {
+  githubLogin: string;
+  internalUserId: string;
+  recordedAtMs: number;
+  /** How the alias was observed; "wired-login" is the only source in this slice. */
+  source: "wired-login";
+}
+
+function loginKey(githubLogin: string): string {
+  return `${IAAA_ALIAS_KEY_PREFIX}login:${githubLogin}`;
+}
+
+function userKey(internalUserId: string): string {
+  return `${IAAA_ALIAS_KEY_PREFIX}user:${internalUserId}`;
+}
+
+function isValidField(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim().length <= 512
+  );
+}
+
+export type RecordAliasResult =
+  | { ok: true; alias: LoginAlias }
+  | {
+      ok: false;
+      code: "INVALID_LOGIN" | "INVALID_USER_ID" | "ALIAS_CONFLICT";
+      error: string;
+    };
+
+/**
+ * Record a login <-> internalUserId alias. The login must be passed
+ * verbatim as observed on the wired session (session.githubLogin);
+ * this module does not normalize case, because the token keys and
+ * DO names it points at were built from that exact string. A
+ * conflicting record is rejected and the original is preserved.
+ */
+export async function recordLoginAlias(
+  kv: KvLike,
+  input: {
+    githubLogin: string;
+    internalUserId: string;
+    nowMs: number;
+  },
+): Promise<RecordAliasResult> {
+  if (!isValidField(input.githubLogin)) {
+    return { ok: false, code: "INVALID_LOGIN", error: "githubLogin must be a non-empty string" };
+  }
+  if (!isValidField(input.internalUserId)) {
+    return { ok: false, code: "INVALID_USER_ID", error: "internalUserId must be a non-empty string" };
+  }
+  const existingByLogin = await kv.get(loginKey(input.githubLogin));
+  if (existingByLogin !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(existingByLogin);
+    } catch {
+      return {
+        ok: false,
+        code: "ALIAS_CONFLICT",
+        error: "existing alias record is corrupt; refusing to overwrite it",
+      };
+    }
+    const existing = parsed as LoginAlias;
+    if (existing.internalUserId === input.internalUserId) {
+      return { ok: true, alias: existing };
+    }
+    return {
+      ok: false,
+      code: "ALIAS_CONFLICT",
+      error:
+        `login ${input.githubLogin} is already aliased to a different internal user; ` +
+        "refusing to reassign it (possible login recycling — needs operator resolution)",
+    };
+  }
+  const existingByUser = await kv.get(userKey(input.internalUserId));
+  if (existingByUser !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(existingByUser);
+    } catch {
+      return {
+        ok: false,
+        code: "ALIAS_CONFLICT",
+        error: "existing alias record is corrupt; refusing to overwrite it",
+      };
+    }
+    const existing = parsed as LoginAlias;
+    if (existing.githubLogin === input.githubLogin) {
+      return { ok: true, alias: existing };
+    }
+    // One user, one login alias: a second login for the same user
+    // would make the reverse lookup ambiguous. Reject, don't append.
+    return {
+      ok: false,
+      code: "ALIAS_CONFLICT",
+      error:
+        `internal user already has an alias for login ${existing.githubLogin}; ` +
+        "refusing to add a second login alias",
+    };
+  }
+  const alias: LoginAlias = {
+    githubLogin: input.githubLogin,
+    internalUserId: input.internalUserId,
+    recordedAtMs: input.nowMs,
+    source: "wired-login",
+  };
+  const serialized = JSON.stringify(alias);
+  await kv.put(loginKey(input.githubLogin), serialized);
+  await kv.put(userKey(input.internalUserId), serialized);
+  return { ok: true, alias };
+}
+
+/** Login -> internalUserId, or null when no alias exists. */
+export async function lookupInternalUserIdByLogin(
+  kv: KvLike,
+  githubLogin: string,
+): Promise<string | null> {
+  if (!isValidField(githubLogin)) return null;
+  const raw = await kv.get(loginKey(githubLogin));
+  if (raw === null) return null;
+  try {
+    return (JSON.parse(raw) as LoginAlias).internalUserId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** InternalUserId -> login (verbatim, as observed), or null when no alias exists. */
+export async function lookupLoginByUserId(
+  kv: KvLike,
+  internalUserId: string,
+): Promise<string | null> {
+  if (!isValidField(internalUserId)) return null;
+  const raw = await kv.get(userKey(internalUserId));
+  if (raw === null) return null;
+  try {
+    return (JSON.parse(raw) as LoginAlias).githubLogin ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type FallbackReadResult =
+  | { value: string; source: "primary" }
+  | { value: string; source: "fallback" }
+  | { value: null; source: "none" };
+
+/**
+ * Dual-read helper pattern for migrating a keyed value: try the
+ * internal-id key first, fall back to the login key, and report
+ * which one hit. Pure reads — neither key is deleted, renamed, or
+ * written. Callers migrating E*TRADE tokens pass the token-key
+ * strings (see etradeTokenKeys below); the helper itself is
+ * key-agnostic so the same pattern serves any login-keyed value.
+ */
+export async function readWithFallback(
+  read: (key: string) => Promise<string | null>,
+  primaryKey: string,
+  fallbackKey: string,
+): Promise<FallbackReadResult> {
+  const primary = await read(primaryKey);
+  if (primary !== null) return { value: primary, source: "primary" };
+  const fallback = await read(fallbackKey);
+  if (fallback !== null) return { value: fallback, source: "fallback" };
+  return { value: null, source: "none" };
+}
+
+/**
+ * E*TRADE token-key strings for both naming schemes, mirroring
+ * etradeOAuth.ts exactly (env-prefixed variants included). No I/O:
+ * the caller passes the pair to readWithFallback. The live token
+ * code is untouched; this is the migration-side view of its keys.
+ */
+export function etradeTokenKeys(
+  internalUserId: string,
+  githubLogin: string,
+  envName?: string,
+): { primary: string; fallback: string; primaryRequest: string; fallbackRequest: string } {
+  const envPart = envName ? `${envName.toUpperCase()}:` : "";
+  return {
+    primary: `etrade:token:${envPart}${internalUserId}`,
+    fallback: `etrade:token:${envPart}${githubLogin}`,
+    primaryRequest: `etrade:req_token:${envPart}${internalUserId}`,
+    fallbackRequest: `etrade:req_token:${envPart}${githubLogin}`,
+  };
+}
+
+export type DoNameInput =
+  | { kind: "legacy-login"; login: string }
+  | { kind: "unresolved" };
+
+/**
+ * The SearchAgent DO-naming input for an internal user, via the
+ * alias (cutover option (a): keep login-derived DO names). An
+ * unresolved user yields "unresolved" — the caller must then decide
+ * (alias now, or a copy cutover later); this function never invents
+ * a name, because idFromName(internalUserId) would silently create
+ * an empty DO and orphan the user's existing agent state.
+ */
+export function resolveDoNameInput(
+  login: string | null,
+): DoNameInput {
+  if (login === null || login.trim() === "") return { kind: "unresolved" };
+  return { kind: "legacy-login", login };
+}
