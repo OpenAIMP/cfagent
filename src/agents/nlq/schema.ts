@@ -121,6 +121,25 @@ export const nlqPlanSchema = z.object({
       date: z.string().optional(),
       scheduleId: z.string().optional(),
       description: z.string().optional(),
+      // Issue #959: optional screening criteria for the three screening
+      // callbacks (autonomousMarketScreen / autonomousOptionsAnalysis /
+      // autonomousStrategyDiscovery). Kept loosely typed at the plan
+      // layer — the executor validates them strictly through the shared
+      // schemas in src/trading/screeningSchemas.ts (buildSchedulePayload)
+      // before anything is armed, so a mis-shaped criterion fails the
+      // action explicitly instead of arming a silently-wrong schedule.
+      sector: z.string().optional(),
+      universe: z.string().optional(),
+      maxItems: z.number().optional(),
+      symbols: z.array(z.string()).optional(),
+      thesis: z.string().optional(),
+      riskProfile: z.string().optional(),
+      filters: z.record(z.string(), z.unknown()).optional(),
+      inputModel: z.string().optional(),
+      requests: z.array(z.record(z.string(), z.unknown())).optional(),
+      constraintSets: z.array(z.record(z.string(), z.unknown())).optional(),
+      profileId: z.string().optional(),
+      watchlistName: z.string().optional(),
     })
     .optional(),
   agenticPaymentsData: z
