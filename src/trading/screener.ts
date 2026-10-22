@@ -509,7 +509,10 @@ export class DynamicMarketScreener implements IMarketScreener {
         price: q.lastPrice,
         sector: resolveStockSector(q.symbol, q.companyName, q.sector),
         rsi14,
-        macdSignal: "MACD unavailable from listing feed",
+        // Issue #1007: a provider-supplied MACD signal (Yahoo adapter
+        // data field) survives as data; snapshot quotes carry none and
+        // keep the honest unavailable label, exactly as before.
+        macdSignal: q.macdSignal || "MACD unavailable from listing feed",
         signal: (rsi14 !== undefined && rsi14 > 70 ? "OVERBOUGHT" : rsi14 !== undefined && rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,
         technicalSignal: rsi14 === undefined ? "Daily quote momentum; RSI unavailable" : rsi14 < 35 ? "Oversold" : rsi14 > 70 ? "Overbought" : "RSI neutral",
         momentumScore: Math.round(50 + q.changePercent * 5),
