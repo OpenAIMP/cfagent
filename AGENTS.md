@@ -34,8 +34,9 @@ In brief:
 A green result on a stale base proves nothing about the merge, and a
 rebase merge creates a commit CI has never tested. Before merging any PR:
 
-- Fetch `main`, rebase the branch onto it, and re-run typecheck and
-  affected tests on the rebased head — not on an older one.
+- Fetch `main`, rebase the branch onto it, and run
+  `scripts/verify-before-merge.sh` — it refuses a stale base and runs
+  typecheck plus the full suite on the rebased head, not on an older one.
 - Confirm required checks are green on that head. A green gate expires
   when `main` advances (§18.1); never merge over a red required check.
 - After merging, check post-merge CI on `main` before starting the next
