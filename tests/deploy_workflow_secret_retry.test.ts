@@ -36,7 +36,7 @@ function section(start: string, end: string): string {
 describe("deploy.yml — secret sync (#590)", () => {
   it("keeps no inline wrapper: every secret step sources the shared helper", () => {
     expect(workflow).not.toContain("put_secret() {");
-    expect(workflow.match(/source scripts\/ci\/put-secret\.sh/g) ?? []).toHaveLength(3);
+    expect(workflow.match(/source scripts\/ci\/put-secret\.sh/g) ?? []).toHaveLength(4);
   });
 
   it("runs secrets in their own non-blocking job after the code deploy", () => {
