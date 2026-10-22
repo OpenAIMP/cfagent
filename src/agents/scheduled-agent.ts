@@ -18,6 +18,16 @@ import {
 //
 // The agent never spends directly — all budget decisions go through
 // PaymentsAgent, and all work goes through the orchestrator module.
+//
+// SCOPE (issue #959, survey item D10): ScheduledAgent is explicitly
+// NOT a screening scheduler. Screening schedules (stock screens,
+// options analysis, strategy discovery) live in the OrchestratorAgent
+// schedule store as the autonomousMarketScreen /
+// autonomousOptionsAnalysis / autonomousStrategyDiscovery callbacks,
+// created through POST /api/schedules/create and validated by
+// src/trading/screeningSchemas.ts. Do not add screening callbacks
+// here — this agent's remit is goal evaluations with budget checks
+// on the */30 cron, nothing else.
 
 export class ScheduledAgent extends Agent<Env> {
   private async getGoals(): Promise<ScheduledGoal[]> {
