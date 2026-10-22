@@ -4,14 +4,13 @@
  * Builds Slice 5 IaaaAuditEvent inputs for authentication events and
  * records them through a caller-supplied AuditStore seam. This module
  * creates NO production store: the existing audit route and the
- * mas_events store are untouched, and no production call site passes
- * a store yet, so in production nothing is recorded by this module.
- * A future phase must decide two things before switching production
- * recording on: (1) a real audit store backend for IAAA events, and
- * (2) a tenant for login events — login in Phase 1 has no tenant
- * concept, so the builders take tenantId as an explicit caller
- * parameter and there is deliberately NO default tenant. Inventing
- * one (e.g. "default") would fabricate tenant attribution.
+ * mas_events store are untouched. The builders take tenantId as an
+ * explicit caller parameter and invent no default themselves. (The
+ * GitHub end-to-end slice resolved the two open questions at the
+ * call sites: the Kv-backed store in iaaaAuditStore.ts is the
+ * backend, and server.ts resolves the tenant as IAAA_TENANT_ID else
+ * the documented default "primary" — see iaaaGithubEndToEnd.ts.
+ * Inventing any other tenant value would fabricate attribution.)
  *
  * Actor attribution: the actor is the Slice 1 internal user id when
  * known. When it is not known — a login that failed before any
@@ -35,13 +34,15 @@
  * failures in the wired callback (they fail before any binding
  * context exists). Logout IS hooked since Phase 2b-part1: the
  * hook lives in githubOAuth.ts handleLogout (reached from
- * server.ts /auth/logout), records BEFORE deleteSession, and
- * fires only when wiring is ON, the session has an
- * internalUserId, and IAAA_TENANT_ID resolves — otherwise it is
- * dormant. Login events still use this module's seam only: the
- * wired callback records them only when its caller supplies a
- * store and a tenant, and server.ts dispatch supplies neither,
- * so in production no login event is recorded yet.
+ * server.ts /auth/logout) and records BEFORE deleteSession when
+ * wiring is ON and the session has an internalUserId. Login
+ * events are hooked since the GitHub end-to-end slice: server.ts
+ * dispatch supplies the Kv audit store and the resolved tenant
+ * (IAAA_TENANT_ID else "primary") to the wired callback, so login
+ * success/failure events are recorded in production, best-effort.
+ * Whether a failed audit write should BLOCK a wired login (the
+ * Slice 5 consequential-action rule) is still an open CISO
+ * decision — this slice does not block on audit failure.
  */
 
 import {
