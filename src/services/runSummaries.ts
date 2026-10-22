@@ -1,0 +1,251 @@
+/**
+ * Issue #1057 (consolidation S5): the ONE run-summary shape for the
+ * Runs read surface (GET /api/runs), and the normalizers that map each
+ * of the four run stores into it. This module is the single definition
+ * site for the shape — the route merges, the client renders, neither
+ * redefines it.
+ *
+ * The four stores (survey D9):
+ *  - mas_reports — the canonical store (scheduledReports hits). Rows
+ *    whose source is a screening kind map to that kind; the remaining
+ *    canonical sources (research_report, iv_collection, …) map to
+ *    kind "report" so nothing ReportsPanel shows today disappears.
+ *  - mas_opportunity_scans (ScanRunSummary) — options scans.
+ *  - mas_discovery_runs (DiscoveryRunSummary) — scheduled discovery.
+ *  - the ScreenerAgent latest/history feed (ScreenerRunResult) —
+ *    stock screens as the agent itself recorded them.
+ *
+ * Honesty rule: a field a store does not record is null, never
+ * invented (scan runs have no status; canonical rows have no status
+ * unless their body records success/failure).
+ *
+ * De-duplication (mergeRunSummaries): a run stored twice — once in a
+ * detail store, once canonically — appears ONCE, as the canonical
+ * row. The joins are exact, never heuristic:
+ *  - options scans: the canonical options_scanner body's embedded
+ *    scan-run id (body.report.result.scanRunId, stamped by
+ *    UnifiedOptionsService when it persists the run) equals the scan
+ *    store's run id.
+ *  - stock screens: the canonical screener row's runId is
+ *    `screener:<timestamp>` (the persistScreenerReportCanonical /
+ *    scheduled-callback generation id) and its createdAt is the feed
+ *    run's timestamp.
+ * A detail row with no canonical twin survives as its own row.
+ */
+
+import type { ScheduledReportHit } from "./scheduledReports";
+import { scheduledReportPdfUrl } from "./scheduledReports";
+// Via the src/trading barrel — the #290 boundary's sole public surface.
+import type { ScanRunSummary, DiscoveryRunSummary } from "../trading";
+import type { ScreenerRunResult } from "../agents/screener-agent";
+
+export type RunKind = "screener" | "options_scanner" | "discovery" | "report";
+
+export interface RunSummary {
+  kind: RunKind;
+  /** Row identity in the merged list: the canonical report id when the
+   *  run is backed by mas_reports, else the detail-store run id (for
+   *  screener-feed runs, the `screener:<timestamp>` generation id). */
+  id: string;
+  /** The run's own id in its home store (mas_reports run_id, scan id,
+   *  discovery id, or `screener:<timestamp>`). */
+  runId: string;
+  title: string;
+  summary: string;
+  /** The recorded trigger ("manual" / "scheduled" / "manual-trigger" /
+   *  a canonical body's trigger), or null when the store records none. */
+  trigger: string | null;
+  createdAt: string;
+  /** "completed" / "failed" / the discovery store's status verbatim,
+   *  or null when the store records no status. */
+  status: string | null;
+  /** The store's own headline count (matched / with-trades / evaluated
+   *  / completed), or null when it records none. */
+  resultCount: number | null;
+  pdfKey: string | null;
+  reportUrl: string | null;
+  /** The canonical mas_reports id when this run has a canonical row
+   *  (the detail/download affordance key), else null. */
+  reportId: string | null;
+  /** The mas_opportunity_scans run id this row corresponds to, when
+   *  known: a canonical options row carries the id its body links to
+   *  (the exact de-duplication join); a scan-store row carries its own
+   *  id; every other row null. */
+  scanRunId: string | null;
+  /** Display source: the mas_reports source for canonical rows;
+   *  "options_scanner" / "discovery" / "screener" for detail-only rows. */
+  source: string;
+}
+
+function parseBody(body: unknown): Record<string, any> {
+  try {
+    const parsed = typeof body === "string" ? JSON.parse(body || "{}") : body;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, any>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === "string" && v ? v : null;
+}
+
+/** The scan-run id a canonical options_scanner body links to, if any —
+ *  the exact de-duplication join for the scan store. */
+export function canonicalScanRunId(body: unknown): string | null {
+  const parsed = parseBody(body);
+  return (
+    strOrNull(parsed?.report?.result?.scanRunId) ??
+    strOrNull(parsed?.result?.scanRunId) ??
+    strOrNull(parsed?.scanRunId)
+  );
+}
+
+const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
+  screener: "screener",
+  options_scanner: "options_scanner",
+  options_screen: "options_scanner",
+};
+
+export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
+  const body = parseBody(hit.body);
+  const kind = KIND_BY_REPORT_SOURCE[hit.source] ?? "report";
+  const success = body?.success;
+  let resultCount: number | null = null;
+  if (kind === "screener") {
+    resultCount = numOrNull(body?.matchedCount) ?? numOrNull(body?.report?.matchedCount);
+  } else if (kind === "options_scanner") {
+    resultCount =
+      numOrNull(body?.withTrades) ??
+      numOrNull(body?.report?.result?.withTrades) ??
+      (Array.isArray(body?.opportunities) ? body.opportunities.length : null);
+  }
+  return {
+    kind,
+    id: hit.id,
+    runId: hit.runId,
+    title: hit.title,
+    summary: hit.summary,
+    trigger: strOrNull(body?.trigger),
+    createdAt: hit.createdAt,
+    status: success === true ? "completed" : success === false ? "failed" : null,
+    resultCount,
+    pdfKey: strOrNull(body?.pdfKey) ?? strOrNull(body?.report?.result?.pdfKey),
+    reportUrl: scheduledReportPdfUrl(hit.source, hit.body) ?? null,
+    reportId: hit.id,
+    scanRunId: kind === "options_scanner" ? canonicalScanRunId(hit.body) : null,
+    source: hit.source,
+  };
+}
+
+export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
+  const gate = scan.gate;
+  const evaluated = numOrNull(scan.coverage?.evaluated);
+  return {
+    kind: "options_scanner",
+    id: scan.id,
+    runId: scan.id,
+    title: scan.profileRef?.name
+      ? `Options scan — ${scan.mode} (${scan.profileRef.name})`
+      : `Options scan — ${scan.mode}`,
+    summary:
+      `Gate: ${gate?.fit ?? 0} fit, ${gate?.borderline ?? 0} borderline, ${gate?.noFit ?? 0} no fit` +
+      (evaluated !== null ? ` across ${evaluated} evaluated.` : "."),
+    trigger: null,
+    createdAt: scan.generatedAt,
+    status: null,
+    resultCount: evaluated,
+    pdfKey: null,
+    reportUrl: null,
+    reportId: null,
+    scanRunId: scan.id,
+    source: "options_scanner",
+  };
+}
+
+export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary {
+  return {
+    kind: "discovery",
+    id: run.id,
+    runId: run.id,
+    title: `Strategy discovery — ${run.inputModel}`,
+    summary:
+      `${run.completedCount} completed, ${run.failedCount} failed, ${run.abstainedCount} abstained` +
+      ` across ${run.symbols.length} symbols.`,
+    trigger: run.trigger,
+    createdAt: run.createdAt,
+    status: run.status,
+    resultCount: run.completedCount,
+    pdfKey: null,
+    reportUrl: null,
+    reportId: null,
+    scanRunId: null,
+    source: "discovery",
+  };
+}
+
+export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
+  const runId = `screener:${run.timestamp}`;
+  return {
+    kind: "screener",
+    id: runId,
+    runId,
+    title: `Market screen — ${run.universe ?? run.sector ?? "ALL"}`,
+    summary: run.success
+      ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities?.length ?? 0} opportunities.`
+      : `Screen failed: ${run.error ?? "unknown error"}.`,
+    trigger: run.trigger ?? null,
+    createdAt: run.timestamp,
+    status: run.success ? "completed" : "failed",
+    resultCount: numOrNull(run.matchedCount),
+    pdfKey: run.pdfKey ?? null,
+    reportUrl: run.pdfKey
+      ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}`
+      : null,
+    reportId: null,
+    scanRunId: null,
+    source: "screener",
+  };
+}
+
+/**
+ * Merge per-store summary lists into one newest-first list,
+ * de-duplicated on the exact joins documented above (the canonical
+ * row wins), then sliced to `limit`. Ties break by id descending so
+ * the order is deterministic across stores.
+ */
+export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSummary[] {
+  const canonicalScanIds = new Set<string>();
+  const canonicalScreenerRunIds = new Set<string>();
+  for (const list of lists) {
+    for (const row of list) {
+      if (row.reportId === null) continue; // only canonical rows claim twins
+      if (row.kind === "options_scanner" && row.scanRunId) canonicalScanIds.add(row.scanRunId);
+      if (row.kind === "screener") canonicalScreenerRunIds.add(row.runId);
+    }
+  }
+  const seen = new Set<string>();
+  const merged: RunSummary[] = [];
+  for (const list of lists) {
+    for (const row of list) {
+      if (row.reportId === null && row.kind === "options_scanner" && canonicalScanIds.has(row.id)) {
+        continue; // the canonical twin wins
+      }
+      if (row.reportId === null && row.kind === "screener" && canonicalScreenerRunIds.has(row.runId)) {
+        continue; // the canonical twin wins
+      }
+      const key = `${row.kind}:${row.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(row);
+    }
+  }
+  merged.sort((a, b) =>
+    a.createdAt === b.createdAt ? (a.id < b.id ? 1 : -1) : a.createdAt < b.createdAt ? 1 : -1,
+  );
+  return merged.slice(0, Math.max(0, limit));
+}
